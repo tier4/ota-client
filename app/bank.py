@@ -159,6 +159,7 @@ class BankInfo:
             boot_uuid,
         ) = self._get_current_devfile_by_fstab(fstab_file)
         blks = self._get_ext4_blks_by_blkid()
+        stby_devfile = ""
         for blk in blks:
             if blk["TYPE"] == "ext4":
                 if blk["DEV"] == root_devfile or blk["UUID"] == root_uuid:
