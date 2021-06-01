@@ -1,0 +1,135 @@
+// Copyright 2015 gRPC authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+//option java_multiple_files = true;
+//option java_package = "io.common.ota.client";
+//option java_outer_classname = "OtaClientProto";
+option objc_class_prefix = "OTA";
+
+package OtaClient;
+
+// The OTA Client service definition.
+service OtaClientService {
+  // Sends a 
+  rpc OtaUpdate (OtaUpdateRequest) returns (OtaUpdateReply) {}
+  rpc OtaRollback (OtaRollbackRequest) returns (OtaRollbackReply) {}
+  rpc OtaReboot (OtaRebootRequest) returns (OtaRebootReply) {}
+  rpc EcuStatus (EcuVersionRequest) returns (EcuStatusReply) {}
+  rpc EcuVersion (EcuVersionRequest) returns (EcuVersionReply) {}
+}
+
+// ECU information
+message EcuInfo {
+  string ecu_name = 1;
+  string ecu_type = 2;
+  string ecu_id = 3;
+  string version = 4;
+  bool independent = 5;
+}
+
+message EcuUpdateInfo {
+  EcuInfo ecu_info = 1; // ECU version info
+  string url = 2;       // update base url
+  string metadata = 3;  // metadata.jwt file
+  string header = 4;    // cookie
+}
+
+// The update request message.
+message OtaUpdateRequest {
+  string version = 1;
+  repeated EcuUpdateInfo ecu_update_info = 2;
+}
+
+// Update result type
+enum UpdateResultType {
+  UPDATE_DOWNLOAD_SUCCESS = 0;  // Update download success
+  UPDATE_FAIL = 1;              // Update failed
+  UPDATE_FAIL_NO_ECU = 2;       // No ECU for update 
+  UPDATE_DOWNLOAD_FAIL = 3;     // Download fail
+  UPDATE_REBOOT_FAIL = 4;       // Reboot fail
+}
+
+// Update reply 
+message OtaUpdateReply {
+  UpdateResultType result = 1;    // update result 
+  repeated EcuInfo ecu_info = 2;  // ECU information for update
+}
+
+// The rollback request message.
+message OtaRollbackRequest {
+  repeated EcuInfo ecu_info = 1;
+}
+
+// Rollback result type
+enum RollbackResultType {
+  ROLLBACK_SUCCESS = 0;         // Rollback complete
+  ROLLBACK_FAIL = 1;            // Rollback failed
+  ROLLBACK_NOT_AVAILABLE = 2;   // Rollback is not available
+}
+
+// The rollback response message.
+message OtaRollbackReply {
+  RollbackResultType result = 1;
+  repeated EcuInfo ecu_info = 2;
+}
+
+// ECU status resuest
+message EcuStatusRequest {
+}
+
+// ECU status type
+enum EcuStatusType {
+  ECU_STATUS_NORMAL = 0;      // Normal
+  ECU_STATUS_UPDATING = 1;    // Updating
+  ECU_STATUS_DOWNLOADED = 2;  // Downloaded
+  ECU_STATUS_ROLLBACK = 3;    // Rollback
+  ECU_STATUS_REBOOT = 4;      // Reboot
+  ECU_STATUS_UNKNOWN = 5;     // Unknown
+}
+
+// ECU Boot Status type
+enum BootStatusType {
+  NORMAL_BOOT = 0;            // Normal boot success
+  SWITCH_BOOT = 1;            // Bank switching boot success
+  ROLLBACK_BOOT = 2;          // Rollback boot success
+  SWITCHING_BOOT_FAIL = 3;    // Bank switching boot failed
+  ROLLBACK_BOOT_FAIL = 4;     // Rollback boot failed
+  UPDATE_IMCOMPLETE = 5;      // Update imcomplete
+  UNKNOWN = 6;                // Unknown state
+}
+
+
+// ECU status response
+message EcuStatusReply {
+  EcuStatusType status = 1;
+  BootStatusType boot_status = 2;
+}
+
+// The ECU versions request message.
+message EcuVersionRequest {
+}
+
+// The ECU versions response message.
+message EcuVersionReply {
+  repeated EcuInfo ecu_info = 1;
+}
+
+// Reboot request
+message OtaRebootRequest {
+}
+
+message OtaRebootReply {
+}
