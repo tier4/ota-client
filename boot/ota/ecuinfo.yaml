@@ -1,0 +1,20 @@
+main_ecu:
+  ecu_name: 'Autoware ECU' 
+  ecu_type: 'autoware'
+  ecu_id: '1'
+  version: '0.0.0'
+  independent: True
+  ip_addr: ''
+# sub_ecus:
+# - ecu_name: 'Perception ECU'
+#  ecu_type: 'perception'
+#  ecu_id: '2'
+#  version: '0.0.0'
+#  independent: True
+#  ip_addr: ''
+#- ecu_name: 'Loging ECU'
+#  ecu_type: 'log'
+#  ecu_id: '3'
+#  version: '0.0.0'
+#  independent: True
+#  ip_addr: ''
