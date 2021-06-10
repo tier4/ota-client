@@ -406,7 +406,8 @@ class OtaClient:
         """
         download file
         """
-        result = True
+        if self.__verbose:
+            print("DL File: ", dest_file)
         digest = ''
         try:
             with tempfile.NamedTemporaryFile("wb", delete=False) as ftmp:
@@ -418,31 +419,23 @@ class OtaClient:
                 if response.status_code != 200:
                     print("download error! status code: ", response.status_code)
                     return False
-                    if self.__verbose:
-                        print("response status code: ", response.status_code)
-                else:
-                    print("download error! status code: ", response.status_code)
-                    result = False
             # file move
             shutil.move(tmp_file_name, dest_file)
         except Exception as e:
             print("File download error!: ", e)
-            result = False
+            return False
         finally:
             if os.path.isfile(tmp_file_name):
                 os.remove(tmp_file_name)
-        if result:
-            # check sha256 hash
-            if self.__verbose:
-                print("DL File: ", dest_file)
-            if target_hash != "" and digest != target_hash:
-                print("hash missmatch: ", dest_file)
-                print("  dl hash: ", digest)
-                print("  hash: ", target_hash)
-                if fl != "":
-                    fl.write("hash missmatch: " + dest_file + "\n")
-                result = False
-        return result
+        # check sha256 hash
+        if target_hash != "" and digest != target_hash:
+            print("hash missmatch: ", dest_file)
+            print("  dl hash: ", digest)
+            print("  hash: ", target_hash)
+            if fl != "":
+                fl.write("hash missmatch: " + dest_file + "\n")
+            return False
+        return True
 
     def _download_raw_file_with_retry(self, url, dest_file, target_hash="", fl=""):
         """"""
