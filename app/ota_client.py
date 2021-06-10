@@ -415,7 +415,9 @@ class OtaClient:
                     print("temp_file: ", tmp_file_name)
                 # download
                 response, digest = self._download_raw(url, ftmp)
-                if response.status_code == 200:
+                if response.status_code != 200:
+                    print("download error! status code: ", response.status_code)
+                    return False
                     if self.__verbose:
                         print("response status code: ", response.status_code)
                 else:
