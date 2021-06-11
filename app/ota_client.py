@@ -375,6 +375,7 @@ class OtaClient:
         m = sha256()
         total_length = response.headers.get("content-length")
         if total_length is None:
+            m.update(response.content)
             target_file.write(response.content)
         else:
             dl = 0
@@ -405,6 +406,9 @@ class OtaClient:
         """
         download file
         """
+        if self.__verbose:
+            print("DL File: ", dest_file)
+        digest = ''
         try:
             with tempfile.NamedTemporaryFile("wb", delete=False) as ftmp:
                 tmp_file_name = ftmp.name
@@ -412,20 +416,8 @@ class OtaClient:
                     print("temp_file: ", tmp_file_name)
                 # download
                 response, digest = self._download_raw(url, ftmp)
-                if response.status_code == 200:
-                    if target_hash != "" and digest != target_hash:
-                        # print("response: ", response.status_code)
-                        print("hash missmatch: ", dest_file)
-                        print("  dl hash: ", digest)
-                        print("  hash: ", target_hash)
-                        fl.write("hash missmatch: " + dest_file + "\n")
-                        return False
-                    if self.__verbose:
-                        print("response: ", response.status_code)
-                        # print("dl hash: ", digest)
-                        # print("hash: ", hash)
-                else:
-                    print("download error: ", response.status_code)
+                if response.status_code != 200:
+                    print("download error! status code: ", response.status_code)
                     return False
             # file move
             shutil.move(tmp_file_name, dest_file)
@@ -435,69 +427,20 @@ class OtaClient:
         finally:
             if os.path.isfile(tmp_file_name):
                 os.remove(tmp_file_name)
+        # check sha256 hash
+        if target_hash != "" and digest != target_hash:
+            print("hash missmatch: ", dest_file)
+            print("  dl hash: ", digest)
+            print("  hash: ", target_hash)
+            if fl != "":
+                fl.write("hash missmatch: " + dest_file + "\n")
+            return False
         return True
 
     def _download_raw_file_with_retry(self, url, dest_file, target_hash="", fl=""):
         """"""
         for i in range(self.__download_retry):
             if self._download_raw_file(url, dest_file, target_hash, fl):
-                if self.__verbose:
-                    print("retry count: ", i)
-                return True
-        return False
-
-    def _download_text_file(self, url, dest_file, target_hash=""):
-        """
-        download file
-        """
-        res = True
-        try:
-            with tempfile.NamedTemporaryFile("w", delete=False) as ftmp:
-                tmp_file_name = ftmp.name
-                if self.__verbose:
-                    print("temp_file: ", tmp_file_name)
-                # download
-                response = self._download(url)
-                if response.status_code == 200:
-                    if self.__verbose:
-                        print("response.text size: ", sys.getsizeof(response.text))
-                    if (
-                        target_hash != ""
-                        and sha256(response.content).hexdigest() != target_hash
-                    ):
-                        print("hash missmatch: ", dest_file)
-                        print("  dl hash: ", sha256(response.content).hexdigest())
-                        print("  target hash: ", target_hash)
-                        print("response.text: ", response.text)
-                        return False
-                    if self.__verbose:
-                        print("response: ", response.status_code)
-                        # print("dl hash: ", sha256(response.text.encode()).hexdigest())
-                        # print("target hash: ", target_hash)
-                    ftmp.write(response.text)
-                    ftmp.flush()
-                    if self.__verbose:
-                        print("response.content: ", response.content)
-                else:
-                    print("download error: ", response.status_code)
-                    return False
-            # file move
-            shutil.move(tmp_file_name, dest_file)
-            if self.__verbose:
-                print("file moved to: ", dest_file)
-        except Exception as e:
-            print("File: ", dest_file)
-            print("File download error!: ", e)
-            return False
-        finally:
-            if os.path.isfile(tmp_file_name):
-                os.remove(tmp_file_name)
-        return True
-
-    def _download_text_file_with_retry(self, url, dest_file, target_hash=""):
-        """"""
-        for i in range(self.__download_retry):
-            if self._download_text_file(url, dest_file, target_hash):
                 if self.__verbose:
                     print("retry count: ", i)
                 return True
@@ -521,7 +464,7 @@ class OtaClient:
             if self.__verbose:
                 print("url: ", metadata_url)
                 print("metadata dest path: ", dest_path)
-            if not self._download_text_file_with_retry(metadata_url, dest_path):
+            if not self._download_raw_file_with_retry(metadata_url, dest_path):
                 return False
         except Exception as e:
             print("metadata error!:", e)
@@ -674,7 +617,7 @@ class OtaClient:
         """
         dirs_url = os.path.join(url, list_file)
         dest_path = os.path.join("/tmp", list_file)
-        return self._download_text_file_with_retry(dirs_url, dest_path, hash)
+        return self._download_raw_file_with_retry(dirs_url, dest_path, hash)
 
     def _gen_directories(self, dirlist_file, target_dir):
         """
@@ -707,7 +650,9 @@ class OtaClient:
         dirs_file, dirs_hash = self._metadata.get_directories_info()
         dirs_url = os.path.join(self.__url, dirs_file)
         tmp_list_file = os.path.join("/tmp", dirs_file)
-        if self._download_text_file_with_retry(dirs_url, tmp_list_file, dirs_hash):
+        if self._download_raw_file_with_retry(
+            dirs_url, tmp_list_file, dirs_hash
+        ):
             # generate directories
             # return self._gen_directories(tmp_list_file, target_dir)
             if self._gen_directories(tmp_list_file, target_dir):
@@ -782,7 +727,7 @@ class OtaClient:
         symlinks_file, syminks_hash = self._metadata.get_symboliclinks_info()
         symlinks_url = os.path.join(self.__url, symlinks_file)
         tmp_list_file = os.path.join("/tmp", symlinks_file)
-        if self._download_text_file_with_retry(
+        if self._download_raw_file_with_retry(
             symlinks_url, tmp_list_file, syminks_hash
         ):
             # generate symboliclinks
@@ -992,7 +937,7 @@ class OtaClient:
         regularslist_file, regularslist_hash = self._metadata.get_regulars_info()
         regularslist_url = os.path.join(self.__url, regularslist_file)
         tmp_list_file = os.path.join("/tmp", regularslist_file)
-        if self._download_text_file_with_retry(
+        if self._download_raw_file_with_retry(
             regularslist_url, tmp_list_file, regularslist_hash
         ):
             if self._gen_regular_files(rootfs_dir, tmp_list_file, target_dir):
@@ -1067,7 +1012,7 @@ class OtaClient:
             persistent_file, persistent_hash = self._metadata.get_persistent_info()
             persistent_url = os.path.join(self.__url, persistent_file)
             tmp_list_file = os.path.join("/tmp", persistent_file)
-            if not self._download_text_file_with_retry(
+            if not self._download_raw_file_with_retry(
                 persistent_url, tmp_list_file, persistent_hash
             ):
                 print("persistent file download error: ", persistent_url)
