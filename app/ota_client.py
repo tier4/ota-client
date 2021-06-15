@@ -82,17 +82,16 @@ def _copy_complete(src_file, dest_file, follow_symlinks=False):
     os.chown(dest_file, st[stat.ST_UID], st[stat.ST_GID])
 
 
-def _copytree_complete(
-    src, dst, symlinks=False, ignore_dangling_symlinks=False, dirs_exist_ok=False
-):
+def _copytree_complete(src, dst):
     """
-    directory complete copy
+    directory complete copy from src directory to dst directory.
+    dst directory should not exist.
     """
     # get directory entories
     with os.scandir(src) as itr:
         entries = list(itr)
     # make directory on the destination
-    os.makedirs(dst, exist_ok=dirs_exist_ok)
+    os.makedirs(dst)
     errors = []
     # copy entries
     for srcentry in entries:
@@ -101,26 +100,11 @@ def _copytree_complete(
         try:
             if srcentry.is_symlink():
                 linkto = os.readlink(srcname)
-                if symlinks:
-                    os.symlink(linkto, dstname)
-                    shutil.copystat(srcname, dstname, follow_symlinks=not symlinks)
-                    st = os.stat(srcname)
-                    os.chown(dstname, st[stat.ST_UID], st[stat.ST_GID])
-                else:
-                    if not os.path.exists(linkto) and ignore_dangling_symlinks:
-                        continue
-                    if srcentry.is_dir():
-                        _copytree_complete(
-                            srcname, dstname, symlinks, dirs_exist_ok=dirs_exist_ok
-                        )
-                    else:
-                        _copy_complete(srcname, dstname, follow_symlinks=not symlinks)
+                os.symlink(linkto, dstname)
             elif srcentry.is_dir():
-                _copytree_complete(
-                    srcname, dstname, symlinks, dirs_exist_ok=dirs_exist_ok
-                )
+                _copytree_complete(srcname, dstname)
             else:
-                _copy_complete(srcname, dstname, follow_symlinks=not symlinks)
+                _copy_complete(srcname, dstname, follow_symlinks=False)
         except Error as e:
             errors.extend(e.args[0])
         except OSError as why:
