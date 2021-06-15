@@ -14,6 +14,7 @@ import requests
 import json
 import base64
 import yaml
+import logging
 
 # import gzip
 import re
@@ -32,6 +33,9 @@ from grub_control import GrubCtl
 from ota_metadata import OtaMetaData
 
 import otaclient_pb2
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class OtaError(Exception):
@@ -227,7 +231,6 @@ class OtaClient:
         OTA Client initialize
         """
         self.__main_ecu = True
-        self.__verbose = False
         self.__download_retry = 5
         self._boot_status = boot_status
         #
@@ -285,7 +288,7 @@ class OtaClient:
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         shutil.move(tmp_file, ota_status_file)
-        print(ota_status_file, " generated.")
+        logger.info(f"{ota_status_file} generated.")
         os.sync()
         return True
 
@@ -297,18 +300,16 @@ class OtaClient:
         initial read ECU ID
         """
         ecuid = ""
-        if self.__verbose:
-            print("ECU ID file: " + ecuid_file)
+        logger.debug(f"ECU ID file: {ecuid_file}")
         try:
             if os.path.exists(ecuid_file):
                 with open(ecuid_file, mode="r") as f:
                     ecuid = f.readline().replace("\n", "")
-                    if self.__verbose:
-                        print("line: ", ecuid)
+                    logger.debug(f"line: {ecuid}")
             else:
-                print("No ECU ID file!:", ecuid_file)
+                logger.info(f"No ECU ID file!: {ecuid_file}")
         except:
-            print("ECU ID read error!")
+            logger.warning("ECU ID read error!")
         return ecuid
 
     def _read_ecu_info(self, ecu_info_yaml_file):
@@ -316,11 +317,10 @@ class OtaClient:
         ecuinfo = {}
         if os.path.isfile(ecu_info_yaml_file):
             with open(ecu_info_yaml_file, "r") as fyml:
-                if self.__verbose:
-                    print("open: ", ecu_info_yaml_file)
+                logger.debug(f"open: {ecu_info_yaml_file}")
                 ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
         else:
-            print("No ECU info file: ", ecu_info_yaml_file)
+            logger.warning(f"No ECU info file: {ecu_info_yaml_file}")
         return ecuinfo
 
     def get_my_ecuid(self):
@@ -369,7 +369,7 @@ class OtaClient:
         header["Accept-encording"] = "gzip"
         response = requests.get(url, headers=header)
         if response.status_code != 200:
-            print("download error: ", response.status_code)
+            logger.error(f"status_code={response.status_code}, url={url}")
             return response, ""
 
         m = sha256()
@@ -384,7 +384,8 @@ class OtaClient:
                 dl += len(data)
                 m.update(data)
                 target_file.write(data)
-                if self.__verbose:
+                # NOTE: CRITICAL:50, ERROR:40, WARNING:30, INFO:20, DEBUG:10
+                if logging.root.level <= logging.DEBUG:
                     done = int(50 * dl / total_length)
                     sys.stdout.write("\r[%s%s]" % ("=" * done, " " * (50 - done)))
                     sys.stdout.flush()
@@ -397,41 +398,38 @@ class OtaClient:
         header["Accept-encording"] = "gzip"
         response = requests.get(url, headers=header)
         response.encoding = response.apparent_encoding
-        if self.__verbose:
-            print("encording: ", response.encoding)
-        # print(response.text)
+        logger.debug(f"encording: {response.encoding}")
+        # logger.info(response.text)
         return response
 
     def _download_raw_file(self, url, dest_file, target_hash="", fl=""):
         """
         download file
         """
-        if self.__verbose:
-            print("DL File: ", dest_file)
-        digest = ''
+        logger.debug(f"DL File: {dest_file}")
+        digest = ""
         try:
             with tempfile.NamedTemporaryFile("wb", delete=False) as ftmp:
                 tmp_file_name = ftmp.name
-                if self.__verbose:
-                    print("temp_file: ", tmp_file_name)
+                logger.debug(f"temp_file: {tmp_file_name}")
                 # download
                 response, digest = self._download_raw(url, ftmp)
                 if response.status_code != 200:
-                    print("download error! status code: ", response.status_code)
+                    logger.error(f"status_code={response.status_code}, url={url}")
                     return False
             # file move
             shutil.move(tmp_file_name, dest_file)
         except Exception as e:
-            print("File download error!: ", e)
+            logger.exception("File download error!:")
             return False
         finally:
             if os.path.isfile(tmp_file_name):
                 os.remove(tmp_file_name)
         # check sha256 hash
         if target_hash != "" and digest != target_hash:
-            print("hash missmatch: ", dest_file)
-            print("  dl hash: ", digest)
-            print("  hash: ", target_hash)
+            logger.error(f"hash missmatch: {dest_file}")
+            logger.error(f"  dl hash: {digest}")
+            logger.error(f"  hash: {target_hash}")
             if fl != "":
                 fl.write("hash missmatch: " + dest_file + "\n")
             return False
@@ -441,8 +439,7 @@ class OtaClient:
         """"""
         for i in range(self.__download_retry):
             if self._download_raw_file(url, dest_file, target_hash, fl):
-                if self.__verbose:
-                    print("retry count: ", i)
+                logger.debug(f"retry count: {i}")
                 return True
         return False
 
@@ -461,13 +458,12 @@ class OtaClient:
             # download metadata.jwt
             metadata_url = self._get_metadata_url()
             dest_path = "/tmp/" + dest_file
-            if self.__verbose:
-                print("url: ", metadata_url)
-                print("metadata dest path: ", dest_path)
+            logger.debug(f"url: {metadata_url}")
+            logger.debug(f"metadata dest path: {dest_path}")
             if not self._download_raw_file_with_retry(metadata_url, dest_path):
                 return False
         except Exception as e:
-            print("metadata error!:", e)
+            logger.exception("metadata error!:")
             return False
         return True
 
@@ -478,11 +474,9 @@ class OtaClient:
         try:
             # dounload and write meta data.
             # url = self._get_metadata_url()
-            if self.__verbose:
-                print("metadata url: ", metadata_url)
+            logger.debug(f"metadata url: {metadata_url}")
             response = self._download(metadata_url)
-            if self.__verbose:
-                print("response: ", response.status_code)
+            logger.debug(f"response: {response.status_code}")
             if response.status_code == 200:
                 self._metadata_jwt = response.text
                 with open("/boot/ota/metadata.jwt", "w") as f:
@@ -494,7 +488,7 @@ class OtaClient:
                 self._metadata_jwt = ""
         except Exception as e:
             self._meta_data_file = ""
-            print("Error: OTA meta data download fail.: ", e)
+            logger.exception("Error: OTA meta data download fail.:")
             return False
         return True
 
@@ -520,13 +514,13 @@ class OtaClient:
         if response.status_code == 200:
             pem = response.text
             if sha256(pem.encode()).hexdigest() != cert_hash:
-                print("certificate hash missmatch: ")
-                print("    dl hash: ", sha256(pem).hexdigest())
-                print("    hash: ", cert_hash)
+                logger.error("certificate hash missmatch:")
+                logger.error(f"    dl hash: {sha256(pem).hexdigest()}")
+                logger.error(f"    hash: {cert_hash}")
                 return False
             return metadata.verify(pem)
         else:
-            print("response error: ", response.status_code)
+            logger.error(f"response error: {response.status_code}")
             return False
         return True
 
@@ -536,11 +530,10 @@ class OtaClient:
         """
         try:
             command_line = "mount " + bank + " " + target_dir
-            if self.__verbose:
-                print("commandline: " + command_line)
+            logger.debug(f"commandline: {command_line}")
             subprocess.check_output(shlex.split(command_line))
         except Exception as e:
-            print("Mount error!: ", e)
+            logger.exception("Mount error!:")
             return False
         return True
 
@@ -551,11 +544,10 @@ class OtaClient:
         try:
             if pathlib.Path(target_dir).is_mount():
                 command_line = "umount " + target_dir
-                if self.__verbose:
-                    print("commandline: " + command_line)
+                logger.debug(f"commandline: {command_line}")
                 subprocess.check_output(shlex.split(command_line))
         except Exception as e:
-            print("Unmount error!: ", e)
+            logger.exception("Unmount error!:")
             return False
         return True
 
@@ -563,19 +555,17 @@ class OtaClient:
         """
         cleanup next bank
         """
-        if self.__verbose:
-            print("cleanup directory: " + target_dir)
+        logger.debug(f"cleanup directory: {target_dir}")
         if target_dir == "" or target_dir == "/":
             return False
         try:
             command_line = "rm -rf " + target_dir + "/*"
-            if self.__verbose:
-                print("commandline: " + command_line)
+            logger.debug(f"commandline: {command_line}")
             # subprocess.check_output(shlex.split(command_line))
             # proc = subprocess.call(command_line.strip().split(" "))
             proc = subprocess.call(command_line, shell=True)
         except Exception as e:
-            print("rm error!:", e)
+            logger.exception("rm error!:")
             return False
         return True
 
@@ -583,13 +573,12 @@ class OtaClient:
         """"""
         try:
             if os.path.isdir(self._rollback_dir):
-                print("removedir: ", self._rollback_dir)
+                logger.info(f"removedir: {self._rollback_dir}")
                 shutil.rmtree(self._rollback_dir)
-            if self.__verbose:
-                print("makedir: ", self._rollback_dir)
+            logger.debug(f"makedir: {self._rollback_dir}")
             os.mkdir(self._rollback_dir)
         except Exception as e:
-            print("cleanup rollback directory error!: ", e)
+            logger.exception("cleanup rollback directory error!:")
             return False
         return True
 
@@ -626,19 +615,18 @@ class OtaClient:
         try:
             with open(dirlist_file) as f:
                 for l in f.read().splitlines():
-                    # print(str(l))
+                    # logger.info(str(l))
                     dirinf = DirectoryInf(l)
-                    # print("dir inf: ", dirinf.path)
-                    # print("target dir: ", target_dir)
+                    # logger.info(f"dir inf: {dirinf.path}")
+                    # logger.info(f"target dir: {target_dir}")
                     # target_path = os.path.join(target_dir, dirinf.path)
                     target_path = target_dir + dirinf.path
-                    if self.__verbose:
-                        print("target path: ", target_path)
+                    logger.debug(f"target path: {target_path}")
                     os.makedirs(target_path, mode=int(dirinf.mode, 8))
                     os.chown(target_path, int(dirinf.uid), int(dirinf.gpid))
                     os.chmod(target_path, int(dirinf.mode, 8))
         except Exception as e:
-            print("directory setup error!: ", e)
+            logger.exception("directory setup error!:")
             return False
         return True
 
@@ -650,9 +638,7 @@ class OtaClient:
         dirs_file, dirs_hash = self._metadata.get_directories_info()
         dirs_url = os.path.join(self.__url, dirs_file)
         tmp_list_file = os.path.join("/tmp", dirs_file)
-        if self._download_raw_file_with_retry(
-            dirs_url, tmp_list_file, dirs_hash
-        ):
+        if self._download_raw_file_with_retry(dirs_url, tmp_list_file, dirs_hash):
             # generate directories
             # return self._gen_directories(tmp_list_file, target_dir)
             if self._gen_directories(tmp_list_file, target_dir):
@@ -688,9 +674,8 @@ class OtaClient:
                 # os.chdir(target_dir)
                 for l in f.read().splitlines():
                     slinkf = SymbolicLinkInf(l)
-                    if self.__verbose:
-                        print("src: " + slinkf.srcpath)
-                        print("slink: " + slinkf.slink)
+                    logger.debug(f"src: {slinkf.srcpath}")
+                    logger.debug(f"slink: {slinkf.slink}")
                     if slinkf.slink.find("/boot") == 0:
                         # /boot directory
                         # exit chroot environment
@@ -702,7 +687,7 @@ class OtaClient:
                                 shutil.move(slinkf.slink, dest_dir)
                             os.symlink(slinkf.srcpath, slinkf.slink)
                         except Exception as e:
-                            print("symbolic link error!")
+                            logger.exception("symbolic link error!")
                             if dest_file != "":
                                 shutil.move(dest_file, slinkf.slink)
                             raise (OtaError("Cannot make symbolic link."))
@@ -712,7 +697,7 @@ class OtaClient:
                         # others
                         os.symlink(slinkf.srcpath, slinkf.slink)
             except Exception as e:
-                print("symboliclink error:", e)
+                logger.exception("symboliclink error:")
                 res = False
             finally:
                 # exit chroot
@@ -752,8 +737,7 @@ class OtaClient:
         regular_url = os.path.join(
             self.__url, rootfs_dir + urllib.parse.quote(regular_file)
         )
-        if self.__verbose:
-            print("download file:", regular_url)
+        logger.debug(f"download file: {regular_url}")
         return self._download_raw_file_with_retry(regular_url, target_path, hash256, fl)
 
     def _gen_boot_dir_file(self, rootfs_dir, target_dir, regular_inf, prev_inf, fl):
@@ -767,8 +751,7 @@ class OtaClient:
             and prev_inf.sha256hash == regular_inf.sha256hash
         ):
             # create hard link
-            if self.__verbose:
-                print("links: ", regular_inf.links)
+            logger.debug(f"links: {regular_inf.links}")
             os.link(prev_inf.path, regular_inf.path)
         else:
             # no hard link
@@ -782,8 +765,7 @@ class OtaClient:
                 )
                 _copy_complete(regular_inf.path, rollback_file)
                 self._rollback_dict[regular_inf.path] = regular_inf.path
-                if self.__verbose:
-                    print("file already exist! no copy or download!")
+                logger.debug("file already exist! no copy or download!")
             else:
                 if os.path.isfile(regular_inf.path):
                     # backup for rollback
@@ -802,13 +784,11 @@ class OtaClient:
                     regular_inf.sha256hash,
                     fl,
                 ):
-                    if self.__verbose:
-                        print("Download: ", regular_inf.path)
-                        print("file hash: ", regular_inf.sha256hash)
+                    logger.debug(f"Download: {regular_inf.path}")
+                    logger.debug(f"file hash: {regular_inf.sha256hash}")
                 else:
                     raise OtaError("File down load error!")
-                if self.__verbose:
-                    print("regular_file: ", regular_inf.path)
+                logger.debug(f"regular_file: {regular_inf.path}")
                 os.chown(regular_inf.path, int(regular_inf.uid), int(regular_inf.gpid))
                 os.chmod(regular_inf.path, int(regular_inf.mode, 8))
 
@@ -822,22 +802,19 @@ class OtaClient:
             and prev_inf.sha256hash == regular_inf.sha256hash
         ):
             # create hard link
-            if self.__verbose:
-                print("links: ", regular_inf.links)
+            logger.debug(f"links: {regular_inf.links}")
             src_path = os.path.join(target_dir, "." + prev_inf.path)
             os.link(src_path, dest_path)
         else:
             # no hard link
-            if self.__verbose:
-                print("No hard links: ", regular_inf.links)
+            logger.debug(f"No hard links: {regular_inf.links}")
             current_file = os.path.join("/", "." + regular_inf.path)
             if (
                 os.path.isfile(current_file)
                 and _file_sha256(current_file) == regular_inf.sha256hash
             ):
                 # copy from current bank
-                if self.__verbose:
-                    print("copy from current: ", current_file)
+                logger.debug(f"copy from current: {current_file}")
                 _copy_complete(current_file, dest_path)
             else:
                 # use ota cache if available
@@ -851,14 +828,12 @@ class OtaClient:
                 ):
                     if self._ota_cache is not None:
                         self._ota_cache.save(dest_path)
-                    if self.__verbose:
-                        print("Download: ", regular_inf.path)
-                        print("file hash: ", regular_inf.sha256hash)
+                    logger.debug(f"Download: {regular_inf.path}")
+                    logger.debug(f"file hash: {regular_inf.sha256hash}")
                 else:
                     raise OtaError("File down load error!")
-            if self.__verbose:
-                print("regular_file: ", dest_path)
-                print("permissoin: ", str(regular_inf.mode))
+            logger.debug(f"regular_file: {dest_path}")
+            logger.debug(f"permissoin: {str(regular_inf.mode)}")
             os.chown(dest_path, int(regular_inf.uid), int(regular_inf.gpid))
             os.chmod(dest_path, int(regular_inf.mode, 8))
 
@@ -886,8 +861,7 @@ class OtaClient:
                     try:
                         cwd = os.getcwd()
                         os.chdir(target_dir)
-                        if self.__verbose:
-                            print("target_dir: ", target_dir)
+                        logger.debug(f"target_dir: {target_dir}")
                         prev_inf = ""
                         rlist = []
                         for l in f.readlines():
@@ -898,30 +872,24 @@ class OtaClient:
                         #        fdst.write(str(lst) + '\n')
                         for l in sorted_rlist:
                             regular_inf = l
-                            if self.__verbose:
-                                print(
-                                    "file: ",
-                                    regular_inf.path,
-                                    "hash: ",
-                                    regular_inf.sha256hash,
-                                )
+                            logger.debug(
+                                f"file: {regular_inf.path}, hash: {regular_inf.sha256hash}"
+                            )
                             if regular_inf.path.find("/boot/") == 0:
                                 # /boot directory file
-                                if self.__verbose:
-                                    print("boot file: ", regular_inf.path)
+                                logger.debug(f"boot file: {regular_inf.path}")
                                 self._gen_boot_dir_file(
                                     rootfs_dir, target_dir, regular_inf, prev_inf, fl
                                 )
                             else:
                                 # others
-                                if self.__verbose:
-                                    print("no boot file: ", regular_inf.path)
+                                logger.debug(f"no boot file: {regular_inf.path}")
                                 self._gen_regular_file(
                                     rootfs_dir, target_dir, regular_inf, prev_inf, fl
                                 )
                             prev_inf = regular_inf
                     except Exception as e:
-                        print("regular files setup error!: ", e)
+                        logger.exception("regular files setup error!:")
                         res = False
                     finally:
                         os.chdir(cwd)
@@ -952,8 +920,8 @@ class OtaClient:
         generate persistent files
         """
         res = True
-        verbose_back = self.__verbose
-        self.__verbose = True
+        logging_level = logging.root.level
+        logging.basicConfig(level=logging.DEBUG)
         with open(list_file, mode="r") as f:
             try:
                 for l in f.read().splitlines():
@@ -961,7 +929,7 @@ class OtaClient:
                     src_path = persistent_info.path
                     if src_path.find("/boot") == 0:
                         # /boot directory
-                        print("do nothing for boot dir file: ", src_path)
+                        logger.info(f"do nothing for boot dir file: {src_path}")
                     else:
                         # others
                         if src_path[0] == "/":
@@ -971,36 +939,27 @@ class OtaClient:
                         if os.path.exists(src_path):
                             if os.path.isdir(src_path):
                                 if os.path.exists(dest_path):
-                                    if self.__verbose:
-                                        print("rmtree: ", dest_path)
+                                    logger.debug(f"rmtree: {dest_path}")
                                     shutil.rmtree(dest_path)
-                                if self.__verbose:
-                                    print(
-                                        "persistent dir copy: ",
-                                        src_path,
-                                        " -> ",
-                                        dest_path,
-                                    )
+                                logger.debug(
+                                    f"persistent dir copy: {src_path} -> {dest_path}"
+                                )
                                 # shutil.copytree(src_path, dest_path, symlinks=True)
                                 _copytree_complete(src_path, dest_path, symlinks=True)
                             else:
-                                if self.__verbose:
-                                    print(
-                                        "persistent file copy: ",
-                                        src_path,
-                                        " -> ",
-                                        dest_path,
-                                    )
+                                logger.debug(
+                                    f"persistent file copy: {src_path} -> {dest_path}"
+                                )
                                 if os.path.exists(dest_path):
-                                    print("rm file: ", dest_path)
+                                    logger.info(f"rm file: {dest_path}")
                                     os.remove(dest_path)
                                 _copy_complete(src_path, dest_path)
                         else:
-                            print("persistent file not exist: ", src_path)
+                            logger.warning(f"persistent file not exist: {src_path}")
             except Exception as e:
-                print("persistent file error:", e)
+                logger.exception("persistent file error:")
                 res = False
-        self.__verbose = verbose_back
+        logging.basicConfig(level=logging_level)
         return res
 
     def _setup_persistent_files(self, target_dir):
@@ -1015,10 +974,10 @@ class OtaClient:
             if not self._download_raw_file_with_retry(
                 persistent_url, tmp_list_file, persistent_hash
             ):
-                print("persistent file download error: ", persistent_url)
+                logger.error(f"persistent file download error: {persistent_url}")
                 return False
             else:
-                print("persistent file download success: ", persistent_url)
+                logger.info(f"persistent file download success: {persistent_url}")
         else:
             # read list from the local file
             tmp_list_file = self._persistentlist_file
@@ -1035,7 +994,7 @@ class OtaClient:
         setup next bank to fstab
         """
         if not os.path.isfile(fstab_file):
-            print("file not exist: ", fstab_file)
+            logger.error(f"file not exist: {fstab_file}")
             return False
 
         dest_fstab_file = os.path.join(target_dir, "." + fstab_file)
@@ -1067,8 +1026,7 @@ class OtaClient:
                                 or fstab_list[0].find(next_bank_uuid) >= 0
                             ):
                                 # next bank found
-                                if self.__verbose:
-                                    print("Already set to next bank!")
+                                logger.debug("Already set to next bank!")
                                 lnext = l
                             else:
                                 raise (Exception("root device mismatch in fstab."))
@@ -1134,7 +1092,7 @@ class OtaClient:
         """
         inform update error
         """
-        print("Update error!: " + str(error))
+        logger.error(f"Update error!: {str(error)}")
         # ToDO : implement
 
         return
@@ -1168,7 +1126,7 @@ class OtaClient:
             self._load_cookie()
             self._load_catalog()
         except Exception as e:
-            print("Load update files error: ", e)
+            logger.exception("Load update files error:")
             return False
         return True
 
@@ -1184,20 +1142,20 @@ class OtaClient:
 
     def _set_update_ecuinfo(self, update_info):
         """"""
-        print("_update_ecu_info start")
+        logger.info("_update_ecu_info start")
         ecuinfo = update_info.ecu_info
-        print("[ecu_info] ", ecuinfo)
+        logger.info(f"[ecu_info] {ecuinfo}")
         ecu_found = False
         if ecuinfo.ecu_id == self.__update_ecu_info["main_ecu"]["ecu_id"]:
-            print("ecu_id matched!")
+            logger.info("ecu_id matched!")
             self.__update_ecu_info["main_ecu"]["ecu_name"] = ecuinfo.ecu_name
             self.__update_ecu_info["main_ecu"]["ecu_type"] = ecuinfo.ecu_type
             self.__update_ecu_info["main_ecu"]["version"] = ecuinfo.version
             self.__update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
             ecu_found = True
-            print("__update_ecu_info: ", self.__update_ecu_info)
+            logger.info(f"__update_ecu_info: {self.__update_ecu_info}")
         else:
-            print("ecu_id not matched!")
+            logger.info("ecu_id not matched!")
             if "sub_ecus" in self.__update_ecu_info:
                 for i, subecuinfo in enumerate(self.__update_ecu_info["sub_ecus"]):
                     ecuinfo = subecuinfo.ecu_info
@@ -1216,13 +1174,13 @@ class OtaClient:
                         ] = ecuinfo.independent
                         ecu_found = True
 
-        print("_update_ecu_info end")
+        logger.info("_update_ecu_info end")
         return ecu_found
 
     def _save_update_ecuinfo(self):
         """"""
         output_file = self.__update_ecuinfo_yaml_file
-        print("output_file: ", output_file)
+        logger.info(f"output_file: {output_file}")
         with tempfile.NamedTemporaryFile("w", delete=False) as ftmp:
             tmp_file_name = ftmp.name
             with open(tmp_file_name, "w") as f:
@@ -1239,14 +1197,14 @@ class OtaClient:
         # -----------------------------------------------------------
         # set 'UPDATE' state
         self._ota_status.set_ota_status("UPDATE")
-        print(ecu_update_info)
+        logger.info(ecu_update_info)
         self.__url = ecu_update_info.url
         metadata = ecu_update_info.metadata
         metadata_jwt_url = os.path.join(self.__url, metadata)
         self.__header_dict = self.header_str_to_dict(ecu_update_info.header)
-        # print("metadata_jwt: ", metadata_jwt_url)
-        # print(header_dict)
-        # print(self.__cookie)
+        # logger.info(f"metadata_jwt: {metadata_jwt_url}")
+        # logger.info(header_dict)
+        # logger.info(self.__cookie)
 
         #
         # download metadata
@@ -1402,6 +1360,6 @@ class OtaClient:
             os.sync()
             self._grub_ctl.reboot()
         else:
-            print("No available rollback.")
+            logger.error("No available rollback.")
             return False
         return True
