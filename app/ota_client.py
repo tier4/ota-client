@@ -46,7 +46,7 @@ class OtaError(Exception):
     pass
 
 
-def Error(OSError):
+class Error(OSError):
     pass
 
 
@@ -929,7 +929,7 @@ class OtaClient:
                                     f"persistent dir copy: {src_path} -> {dest_path}"
                                 )
                                 # shutil.copytree(src_path, dest_path, symlinks=True)
-                                _copytree_complete(src_path, dest_path, symlinks=True)
+                                _copytree_complete(src_path, dest_path)
                             else:
                                 logger.debug(
                                     f"persistent file copy: {src_path} -> {dest_path}"
