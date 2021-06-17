@@ -122,6 +122,8 @@ def _copytree_complete(src, dst):
             if srcentry.is_symlink():
                 linkto = os.readlink(srcname)
                 os.symlink(linkto, dstname)
+                st = os.stat(srcname)
+                os.chown(dstname, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
             elif srcentry.is_dir():
                 _copytree_complete(srcname, dstname)
             else:
@@ -130,12 +132,6 @@ def _copytree_complete(src, dst):
             errors.extend(e.args[0])
         except OSError as why:
             errors.append((srcname, dstname, str(why)))
-    try:
-        shutil.copystat(src, dst)
-        st = os.stat(src)
-        os.chown(dst, st[stat.ST_UID], st[stat.ST_GID])
-    except OSError as why:
-        errors.append((src, dst, str(why)))
     if errors:
         raise Error(errors)
     return dst
