@@ -82,16 +82,37 @@ def _copy_complete(src_file, dest_file, follow_symlinks=False):
     os.chown(dest_file, st[stat.ST_UID], st[stat.ST_GID])
 
 
+def _copydirs_complete(src, dst):
+    """
+    copy directory path complete
+    """
+    if os.path.isdir(dst):
+        # directory exist
+        return True
+    # check parent directory
+    src_parent_dir = os.path.dirname(src)
+    dst_parent_dir = os.path.dirname(dst)
+    if os.path.isdir(dst_parent_dir) or _copydirs_complete(src_parent_dir, dst_parent_dir):
+        # parent exist, make directory
+        logger.debug("mkdir: {dst}")
+        os.mkdir(dst)
+        shutil.copystat(src, dst, follow_symlinks=False)
+        st = os.stat(src)
+        os.chown(dst, st[stat.ST_UID], st[stat.ST_GID])
+        return True
+    return False
+
+
 def _copytree_complete(src, dst):
     """
     directory complete copy from src directory to dst directory.
     dst directory should not exist.
     """
+    # make directory on the destination
+    _copydirs_complete(src, dst)
     # get directory entories
     with os.scandir(src) as itr:
         entries = list(itr)
-    # make directory on the destination
-    os.makedirs(dst)
     errors = []
     # copy entries
     for srcentry in entries:
