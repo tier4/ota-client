@@ -97,7 +97,7 @@ def _copydirs_complete(src, dst):
         logger.debug("mkdir: {dst}")
         os.mkdir(dst)
         shutil.copystat(src, dst, follow_symlinks=False)
-        st = os.stat(src)
+        st = os.stat(src, follow_symlinks=False)
         os.chown(dst, st[stat.ST_UID], st[stat.ST_GID])
         return True
     return False
@@ -122,7 +122,7 @@ def _copytree_complete(src, dst):
             if srcentry.is_symlink():
                 linkto = os.readlink(srcname)
                 os.symlink(linkto, dstname)
-                st = os.stat(srcname)
+                st = os.stat(srcname, follow_symlinks=False)
                 os.chown(dstname, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
             elif srcentry.is_dir():
                 _copytree_complete(srcname, dstname)
