@@ -96,10 +96,10 @@ class OtaMetaData:
             # byte conversion
             buffer = f.read()
             # read certificate
-            pemCert = crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, buffer)
+            pemCert = crypto.load_certificate(crypto.FILETYPE_PEM, buffer)
             # get public key
             self.__public_key = crypto.dump_publickey(
-                OpenSSL.crypto.FILETYPE_PEM, pemCert.get_pubkey()
+                crypto.FILETYPE_PEM, pemCert.get_pubkey()
             )
 
         return self.__public_key
@@ -130,11 +130,12 @@ class OtaMetaData:
 
                 else:
                     logger.error(f"version error! version: {self.version}")
+                    return False
             else:
                 logger.error("json load error!")
                 return False
         except Exception as e:
-            logger.exception(f"payload read error:")
+            logger.exception("payload read error:")
             return False
         return True
 
