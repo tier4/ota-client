@@ -40,7 +40,7 @@ class OtaStatus:
                     shutil.copyfile(src, dst)
                     logger.debug("backuped!")
                     shutil.move(ftmp.name, self._status_file)
-                    logger.debug("mopved!")
+                    logger.debug("moved!")
                 self._status = ota_status
                 os.sync()
         except:
