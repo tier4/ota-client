@@ -207,20 +207,15 @@ class GrubCtl:
                 with open(self._default_grub_file, mode="r") as fgrub:
                     lines = fgrub.readlines()
                     for l in lines:
-                        pos = l.find("GRUB_TIMEOUT_STYLE=")
-                        if pos >= 0:
-                            f.write(l[pos : (pos + 19)] + style_str)
+                        match = re.match(r"^(GRUB_TIMEOUT_STYLE=)", l)
+                        if match is not None:
+                            f.write(f"{match.group(1)}{style_str}\n")
                             continue
 
-                        pos = l.find("GRUB_TIMEOUT=")
-                        if pos >= 0:
-                            f.write(l[pos : (pos + 13)] + str(timeout))
+                        match = re.match(r"^(GRUB_TIMEOUT=)", l)
+                        if match is not None:
+                            f.write(f"{match.group(1)}{str(timeout)}\n")
                             continue
-
-                        # pos = l.find("GRUB_DISABLE_LINUX_UUID=")
-                        # if(pos >= 0):
-                        #    f.write(l[pos:(pos + 24)] + disable_uuid_str)
-                        #    continue
 
                         f.write(l)
                         f.flush()

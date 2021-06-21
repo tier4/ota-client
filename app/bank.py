@@ -12,6 +12,7 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 class BankInfo:
     """
     OTA Bank device info class
@@ -170,7 +171,9 @@ class BankInfo:
                 logger.debug(f"no ext4: {blk}")
         if boot_devfile == "" or root_devfile == "" or stby_devfile == "":
             logger.error("device info error!")
-            logger.info(f"root: {root_devfile} boot: {boot_devfile} stby: {stby_devfile}")
+            logger.info(
+                f"root: {root_devfile} boot: {boot_devfile} stby: {stby_devfile}"
+            )
             return False
         else:
             with tempfile.NamedTemporaryFile(delete=False) as ftmp:
@@ -330,7 +333,7 @@ class BankInfo:
         """
         logger.debug(f"bank: {bank}")
         # passwd = (getpass.getpass() + '\n').encode()
-        command_line = "sudo blkid " + bank
+        command_line = "blkid " + bank
         logger.debug(f"command_line: {command_line}")
         out = subprocess.check_output(shlex.split(command_line))
         out_decode = out.decode("utf-8")
