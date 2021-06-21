@@ -322,7 +322,7 @@ class GrubCtl:
         """
         command_line = "grub-reboot " + str(menuentry_no)
         try:
-            logger.debug(f"Do: subproxess.check_call({command_line}")
+            logger.debug(f"Do: subproxess.check_call({command_line})")
             res = subprocess.check_call(shlex.split(command_line))
         except:
             logger.exception("grub-setreboot error!")
