@@ -397,12 +397,3 @@ class GrubCtl:
         """
         # ToDo: implement
         return True
-
-
-if __name__ == "__main__":
-    # grub_ctl = GrubCtl(default_grub_file="grub", custom_config_file="custom.cfg")
-    grub_ctl = GrubCtl(default_grub_file="grub")
-    # grub_ctl.make_grub_custom_configuration_file(
-    # grub_ctl._grub_cfg_file, grub_ctl._custom_cfg_file
-    # )
-    grub_ctl.grub_configuration()
