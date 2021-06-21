@@ -4,6 +4,10 @@ import tempfile
 import os
 import shutil
 
+from logging import getLogger, INFO
+
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 
 class OtaStatus:
     """
@@ -15,7 +19,6 @@ class OtaStatus:
         ota_status_file="/boot/ota/ota_status",
         ota_rollback_file="/boot/ota/ota_rollback_count",
     ):
-        self.__verbose = False
         self._status_file = ota_status_file
         self._rollback_file = ota_rollback_file
         self._status = self._initial_read_ota_status()
@@ -28,24 +31,20 @@ class OtaStatus:
         try:
             if self._status != ota_status:
                 with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-                    if self.__verbose:
-                        print("tmp file: " + ftmp.name)
+                    logger.debug(f"tmp file: {ftmp.name}")
                     with open(ftmp.name, mode="w") as f:
                         f.writelines(ota_status)
                     src = self._status_file
                     dst = self._status_file + ".old"
-                    if self.__verbose:
-                        print("copy src: " + src + " dst: " + dst)
+                    logger.debug(f"copy src: {src} dst: {dst}")
                     shutil.copyfile(src, dst)
-                    if self.__verbose:
-                        print("backuped!")
+                    logger.debug("backuped!")
                     shutil.move(ftmp.name, self._status_file)
-                    if self.__verbose:
-                        print("mopved!")
+                    logger.debug("moved!")
                 self._status = ota_status
                 os.sync()
         except:
-            print("OTA status set error!")
+            logger.exception("OTA status set error!")
             return False
         return True
 
@@ -79,38 +78,32 @@ class OtaStatus:
         initial read ota status
         """
         status = ""
-        if self.__verbose:
-            print("ota status file: " + self._status_file)
+        logger.debug(f"ota status file: {self._status_file}")
         try:
             if os.path.exists(self._status_file):
                 with open(self._status_file, mode="r") as f:
                     status = f.readline().replace("\n", "")
-                    if self.__verbose:
-                        print("line: " + status)
+                    logger.debug(f"line: {status}")
             else:
-                print("No OTA status file!:", self._status_file)
+                logger.warning(f"No OTA status file: {self._status_file}")
         except:
-            print("OTA status read error!")
+            logger.exception("OTA status read error!")
         return status
 
     def _initial_read_rollback_count(self):
         """"""
         count_str = "0"
-        if self.__verbose:
-            print("ota status file: " + self._rollback_file)
+        logger.debug(f"ota status file: {self._rollback_file}")
         try:
             if os.path.exists(self._rollback_file):
                 with open(self._rollback_file, mode="r") as f:
                     count_str = f.readline().replace("\n", "")
-                    if self.__verbose:
-                        print("rollback: " + int(count_str))
+                    logger.debug(f"rollback: {count_str}")
             else:
-                if self.__verbose:
-                    print("No rollback count file!:", self._rollback_file)
+                logger.debug(f"No rollback count file!: {self._rollback_file}")
                 with open(self._rollback_file, mode="w") as f:
                     f.write(count_str)
         except:
-            print("OTA rollback count read error!")
-        if self.__verbose:
-            print("count_str: ", count_str)
+            logger.exception("OTA rollback count read error!")
+        logger.debug(f"count_str: {count_str}")
         return int(count_str)

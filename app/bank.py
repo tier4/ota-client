@@ -5,9 +5,12 @@ import os
 import shlex
 import shutil
 import subprocess
-import getpass
 import yaml
 
+from logging import getLogger, INFO, DEBUG
+
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 
 class BankInfo:
     """
@@ -20,7 +23,6 @@ class BankInfo:
         """
         Initialize
         """
-        self.__verbose = False
         #
         self._bank_info_file = bank_info_file
         self._fstab_file = fstab_file
@@ -41,12 +43,11 @@ class BankInfo:
 
     def _blkid(self):
         """
-        cleanup next bank
+        do lockid command and return result
         """
         try:
             command_line = "blkid"
-            if self.__verbose:
-                print("commandline: ", command_line)
+            logger.debug(f"commandline: {command_line}")
             blk_info = subprocess.check_output(shlex.split(command_line))
             blks_byte = blk_info.split(b"\n")
             blks = []
@@ -70,11 +71,9 @@ class BankInfo:
                     elif info.find("PARTLABEL=") == 0:
                         blk_dict["PARTLABEL"] = info[11:-1]
                 blks.append(blk_dict)
-            if self.__verbose:
-                for info in blks:
-                    print(info)
+                logger.debug(f"{blk_dict}")
         except Exception as e:
-            print("execution error!:", e)
+            logger.exception("execution error!:")
             return []
         return blks
 
@@ -84,8 +83,7 @@ class BankInfo:
         blks = self._blkid()
         # dev_info = getdevinfo.getdevinfo.get_info()
         if blks == []:
-            if self.__verbose:
-                print("Cannot get block info!")
+            logger.debug("Cannot get block info!")
         else:
             for info in blks:
                 if info["TYPE"] == "ext4":
@@ -101,8 +99,7 @@ class BankInfo:
                 devfile = os.path.realpath(uuid_dev)
                 return devfile, uuid
             else:
-                if self.__verbose:
-                    print("No uuid device: ", uuid_dev)
+                logger.debug(f"No uuid device: {uuid_dev}")
                 return "", ""
         elif fstab_dev.find("/dev/disk/by-uuid/") == 0:
             # uuid devicefile
@@ -112,22 +109,19 @@ class BankInfo:
                 devfile = os.path.realpath(uuid_dev)
                 return devfile, uuid
             else:
-                if self.__verbose:
-                    print("No uuid device: ", uuid_dev)
+                logger.debug(f"No uuid device: {uuid_dev}")
                 return "", ""
         elif fstab_dev.find("/dev/") == 0:
             # devfile
             return fstab_dev, ""
         else:
-            if self.__verbose:
-                print("device is not UUID or devfile: ", fstab_dev)
+            logger.debug(f"device is not UUID or devfile: {fstab_dev}")
         return "", ""
 
     def _get_current_devfile_by_fstab(self, fstab_file):
         """"""
         if not os.path.isfile(fstab_file):
-            if self.__verbose:
-                print("file not exist: ", fstab_file)
+            logger.debug(f"file not exist: {fstab_file}")
             return "", "", "", ""
         with open(fstab_file, "r") as f:
             lines = f.readlines()
@@ -140,12 +134,13 @@ class BankInfo:
                     continue
                 fstab_list = l.split()
                 if fstab_list[1] == "/":
+                    logger.debug(f"rootp found: {fstab_list[1]}")
                     root_devfile, root_uuid = self._get_devfile(fstab_list[0])
                 elif fstab_list[1] == "/boot":
+                    logger.debug(f"bootp found: {fstab_list[1]}")
                     boot_devfile, boot_uuid = self._get_devfile(fstab_list[0])
                 else:
-                    if self.__verbose:
-                        print("others: ", fstab_list)
+                    logger.debug(f"others: {fstab_list}")
         return root_devfile, root_uuid, boot_devfile, boot_uuid
 
     def _gen_bankinfo_file(self, fstab_file):
@@ -163,27 +158,19 @@ class BankInfo:
         for blk in blks:
             if blk["TYPE"] == "ext4":
                 if blk["DEV"] == root_devfile or blk["UUID"] == root_uuid:
-                    print("root dev: ", root_devfile, root_uuid)
+                    logger.debug(f"root dev: {root_devfile} {root_uuid}")
                 elif blk["DEV"] == boot_devfile or blk["UUID"] == boot_uuid:
-                    print("boot dev: ", boot_devfile, boot_uuid)
+                    logger.debug(f"boot dev: {boot_devfile} {boot_uuid}")
                 else:
-                    print("another bank: ", blk)
+                    logger.debug(f"another bank: {blk}")
                     stby_devfile = blk["DEV"]
                     stby_uuid = blk["UUID"]
                     break
             else:
-                if self.verbose:
-                    print("no ext4: ", blk)
+                logger.debug(f"no ext4: {blk}")
         if boot_devfile == "" or root_devfile == "" or stby_devfile == "":
-            print("device info error!")
-            print(
-                "root: "
-                + root_devfile
-                + " boot: "
-                + boot_devfile
-                + " stby: "
-                + stby_devfile
-            )
+            logger.error("device info error!")
+            logger.info(f"root: {root_devfile} boot: {boot_devfile} stby: {stby_devfile}")
             return False
         else:
             with tempfile.NamedTemporaryFile(delete=False) as ftmp:
@@ -191,9 +178,8 @@ class BankInfo:
                 with open(ftmp.name, "w") as f:
                     f.write("banka: " + root_devfile + "\n")
                     f.write("bankb: " + stby_devfile + "\n")
-                    if self.__verbose:
-                        print("banka: " + root_devfile)
-                        print("bankb: " + stby_devfile)
+                    logger.debug(f"banka: {root_devfile}")
+                    logger.debug(f"bankb: {stby_devfile}")
                     f.flush()
             os.sync()
             dir_name = os.path.dirname(self._bank_info_file)
@@ -211,15 +197,13 @@ class BankInfo:
         bankb = ""
         try:
             with open(ota_config_file, "r") as fyml:
-                if self.__verbose:
-                    print("open: " + ota_config_file)
+                logger.debug(f"open: {ota_config_file}")
                 ota_config = yaml.load(fyml, Loader=yaml.SafeLoader)
                 banka = ota_config["banka"]
                 bankb = ota_config["bankb"]
-                if self.__verbose:
-                    print("banka: " + banka + " bankb: " + bankb)
+                logger.debug(f"banka: {banka} bankb: {bankb}")
         except:
-            print("Cannot get bank infomation!:", ota_config_file)
+            logger.exception("Cannot get bank infomation!:")
         return banka, bankb
 
     def _setup_current_next_root_dev(self, fstab_file):
@@ -236,8 +220,7 @@ class BankInfo:
             fstab_list = l.split()
             if fstab_list[1] == "/":
                 # root mount line
-                if self.__verbose:
-                    print("root found: " + fstab_list[0])
+                logger.debug(f"root found: {fstab_list[1]}")
                 if fstab_list[0].find("UUID=") == 0:
                     # UUID type definition
                     self._current_bank_uuid_str = fstab_list[0]
@@ -254,7 +237,7 @@ class BankInfo:
                     else:
                         # current bank is another bank
                         self._read_fail = True
-                        print("Error : current bank is not banka or bankb!")
+                        logger.error("current bank is not banka or bankb!")
                 elif fstab_list[0].find("/dev/disk/by-uuid/") == 0:
                     # by-uuid device file
                     self._current_bank_uuid_str = fstab_list[0]
@@ -274,7 +257,7 @@ class BankInfo:
                         )
                     else:
                         self._read_fail = True
-                        print("Error : current bank is not banka or bankb!")
+                        logger.error("current bank is not banka or bankb!")
                 else:
                     # device file name
                     self._current_bank = fstab_list[0]
@@ -288,10 +271,10 @@ class BankInfo:
                         self._next_bank_uuid_str = "UUID=" + self._banka_uuid
                     else:
                         self._read_fail = True
-                        print("Error : current bank is not banka or bankb!")
+                        logger.error("current bank is not banka or bankb!")
                 return fstab_list[0]
 
-        print("root not found!")
+        logger.info("root not found!")
         return ""
 
     def setup_next_bank_fstab(self, fstab_file=""):
@@ -328,8 +311,7 @@ class BankInfo:
                             or fstab_list[0].find(self.get_next_bank_uuid()) >= 0
                         ):
                             # next bank found
-                            if self.__verbose:
-                                print("Already set to next bank!")
+                            logger.debug("Already set to next bank!")
                             lnext = l
                         else:
                             raise (Exception("root device mismatch in fstab."))
@@ -346,25 +328,21 @@ class BankInfo:
         """
         get bank device uuid by the 'blkid' command
         """
-        if self.__verbose:
-            print("bank: " + bank)
+        logger.debug(f"bank: {bank}")
         # passwd = (getpass.getpass() + '\n').encode()
         command_line = "sudo blkid " + bank
-        if self.__verbose:
-            print("command_line: " + command_line)
+        logger.debug(f"command_line: {command_line}")
         out = subprocess.check_output(shlex.split(command_line))
-        if self.__verbose:
-            print(out.decode("utf-8"))
+        out_decode = out.decode("utf-8")
+        logger.debug(f"{out_decode}")
         blk = shlex.split(out.decode("utf-8"))
-        if self.__verbose:
-            print(blk)
+        logger.debug(f"{blk}")
         uuid = ""
         if len(blk) > 0:
             pos = blk[1].find("UUID=")
             if pos == 0:
                 uuid = blk[1].replace("UUID=", "")
-        if self.__verbose:
-            print("uuid for " + bank + ": " + uuid)
+        logger.debug(f"uuid for {bank} : {uuid}")
         return uuid
 
     def get_banka(self):
@@ -465,15 +443,15 @@ class BankInfo:
         """
         #
         if bank_str != self._banka and bank_str != self._bankb:
-            print("device mismatch error: " + bank_str)
-            print("    banka: " + self._banka)
-            print("    bankb: " + self._bankb)
+            logger.error(f"device mismatch error: {bank_str}")
+            logger.info(f"    banka: {self._banka}")
+            logger.info(f"    bankb: {self._bankb}")
             return False
         # get current root device
         if self._current_bank != self._banka_dev and self._current_bank != self._banka:
-            print("current root mismatch error: " + self._current_bank)
-            print("    banka: " + self._banka)
-            print("    bankb: " + self._bankb)
+            logger.error(f"current root mismatch error: {self._current_bank}")
+            logger.info(f"    banka: {self._banka}")
+            logger.info(f"    bankb: {self._bankb}")
             return False
         #
         if self._current_bank == bank_str:
@@ -501,7 +479,7 @@ class BankInfo:
         """
         Get the next bank UUID string
         """
-        print("next_bank_uuid: " + self._next_bank_uuid_str)
+        logger.info(f"next_bank_uuid: {self._next_bank_uuid_str}")
         return self._next_bank_uuid_str
 
 
