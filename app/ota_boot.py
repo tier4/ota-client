@@ -3,12 +3,14 @@
 import tempfile
 import os
 import shutil
-import subprocess
-import argparse
 
 from ota_status import OtaStatus
 from grub_control import GrubCtl
 
+from logging import getLogger, INFO, DEBUG
+
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 
 class OtaBoot:
     """
@@ -25,8 +27,9 @@ class OtaBoot:
         fstab_file="/etc/fstab",
         ecuinfo_yaml_file="/boot/ota/ecuinfo.yaml",
     ):
-        """"""
-        self.__verbose = True
+        """
+        Initialize
+        """
         self._grub_cfg_file = grub_config_file
         self.__ecuinfo_yaml_file = ecuinfo_yaml_file
         # status exist check
@@ -55,7 +58,7 @@ class OtaBoot:
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         shutil.move(tmp_file, ota_status_file)
-        print(ota_status_file, " generated.")
+        logger.info(f"{ota_status_file}  generated.")
         os.sync()
         return True
 
@@ -63,7 +66,7 @@ class OtaBoot:
         """
         Error nortify (stub)
         """
-        print("Error Nortify: " + err_str)
+        logger.debug(f"Error Nortify: {err_str}")
 
     def _confirm_banka(self):
         """
@@ -86,11 +89,10 @@ class OtaBoot:
         if os.path.isfile(src_file):
             if os.path.exists(dest_file):
                 # To do : copy for rollback
-                if self.__verbose:
-                    print("file move: ", src_file, " to ", dest_file)
+                logger.debug(f"file move: {src_file} to {dest_file}")
                 shutil.move(src_file, dest_file)
         else:
-            print("file not found: ", src_file)
+            logger.error(f"file not found: {src_file}")
             return False
         return True
 
@@ -101,28 +103,23 @@ class OtaBoot:
         result = ""
         # get status
         status = self._ota_status.get_ota_status()
-        if self.__verbose:
-            print("Status: " + status)
+        logger.debug(f"Status: {status}")
 
         if status == "NORMAL":
             # normal boot
-            if self.__verbose:
-                print("OTA normal boot!")
+            logger.debug("OTA normal boot!")
             result = "NORMAL_BOOT"
         elif status == "SWITCHA":
             # boot switching B to A bank
-            if self.__verbose:
-                print("OTA switch to A bank boot")
+            logger.debug("OTA switch to A bank boot")
             if self._confirm_banka():
                 # regenerate 'grub.cfg' file
                 if noexec:
-                    if self.__verbose:
-                        print("NOEXRC regenerate grub.cfg")
-                        print("NOEXRC delete custum.cfg")
+                    logger.debug("NOEXRC regenerate grub.cfg")
+                    logger.debug("NOEXRC delete custum.cfg")
                 else:
-                    if self.__verbose:
-                        print("regenerate grub.cfg")
-                        print("delete custum.cfg")
+                    logger.debug("regenerate grub.cfg")
+                    logger.debug("delete custum.cfg")
                     self._update_finalize_ecuinfo_file()
                     self._grub_ctl.re_generate_grub_config()
                     self._grub_ctl.delete_custom_cfg_file()
@@ -132,11 +129,9 @@ class OtaBoot:
                 err_str = "Error: OTA switch to A Bank boot error!"
                 # rollback
                 if noexec:
-                    if self.__verbose:
-                        print("NOEXRC delete custom.cfg")
+                    logger.debug("NOEXRC delete custom.cfg")
                 else:
-                    if self.__verbose:
-                        print("delete custom.cfg")
+                    logger.debug("delete custom.cfg")
                     self._grub_ctr.delete_custom_cfg_file()
                 self._error_nortify(err_str)
             # set to normal status
@@ -144,18 +139,15 @@ class OtaBoot:
             result = "SWITCH_BOOT"
         elif status == "SWITCHB":
             # boot switching A to B bank
-            if self.__verbose:
-                print("OTA switch to B Bank boot")
+            logger.debug("OTA switch to B Bank boot")
             if self._confirm_bankb():
                 # regenerate 'grub.cfg' file
                 if noexec:
-                    if self.__verbose:
-                        print("NOEXRC regenerate grub.cfg")
-                        print("NOEXRC delete custum.cfg")
+                    logger.debug("NOEXRC regenerate grub.cfg")
+                    logger.debug("NOEXRC delete custum.cfg")
                 else:
-                    if self.__verbose:
-                        print("regenerate grub.cfg")
-                        print("delete custum.cfg")
+                    logger.debug("regenerate grub.cfg")
+                    logger.debug("delete custum.cfg")
                     self._update_finalize_ecuinfo_file()
                     self._grub_ctl.re_generate_grub_config()
                     self._grub_ctl.delete_custom_cfg_file()
@@ -165,22 +157,18 @@ class OtaBoot:
                 err_str = "Error: OTA switch to B Bank boot error!"
                 # rollback
                 if noexec:
-                    if self.__verbose:
-                        print("NOEXRC delete custom.cfg")
+                    logger.debug("NOEXRC delete custom.cfg")
                 else:
-                    if self.__verbose:
-                        print("delete custom.cfg")
+                    logger.debug("delete custom.cfg")
                     self._grub_ctl.delete_custom_cfg_file()
                 self._error_nortify(err_str)
                 result = "SWITCH_BOOT_FAIL"
             # set to normal status
             self._ota_status.set_ota_status("NORMAL")
         elif status == "ROLLBACKA":
-            if self.__verbose:
-                print("OTA rollback to A Bank boot")
+            logger.debug("OTA rollback to A Bank boot")
             if self._confirm_banka():
-                if self.__verbose:
-                    print("bank A OK")
+                logger.debug("bank A OK")
                 result = "ROLLBACK_BOOT"
             else:
                 err_str = "Error: OTA rollback to A Bank boot error!"
@@ -188,11 +176,9 @@ class OtaBoot:
                 self._error_nortify(err_str)
                 result = "ROLLBACK_BOOT_FAIL"
         elif status == "ROLLBACKB":
-            if self.__verbose:
-                print("OTA rollback to B Bank boot")
+            logger.debug("OTA rollback to B Bank boot")
             if self._confirm_bankb():
-                if self.__verbose:
-                    print("bank B OK")
+                logger.debug("bank B OK")
                 result = "ROLLBACK_BOOT"
             else:
                 err_str = "Error: OTA rollback to B Bank boot error!"
@@ -200,8 +186,7 @@ class OtaBoot:
                 self._error_nortify(err_str)
                 result = "ROLLBACK_BOOT_FAIL"
         elif status == "ROLLBACK":
-            if self.__verbose:
-                print("Rollback imcomplete!")
+            logger.debug("Rollback imcomplete!")
             # status error!
             err_str = "OTA Status error: " + status
             self._error_nortify(err_str)
@@ -211,7 +196,7 @@ class OtaBoot:
             self._ota_status.set_ota_status("NORMAL")
         else:
             # status error!
-            print("OTA status error: ", status)
+            logger.error(f"OTA status error: {status}")
             err_str = "OTA Status error: " + status
             self._error_nortify(err_str)
             result = "UPDATE_IMCOMPLETE"
@@ -226,6 +211,8 @@ if __name__ == "__main__":
     """
     OTA boot main
     """
+    import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--noexec", help="No file handling execution.", default=False)
 

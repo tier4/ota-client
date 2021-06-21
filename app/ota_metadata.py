@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 
 import os
-import shlex
-import shutil
 from hashlib import sha256
-import pathlib
-import filecmp
-import subprocess
-import getpass
 import base64
 import json
-import jwt
 from OpenSSL import crypto
 
+from logging import getLogger, INFO, DEBUG
+
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 
 class OtaMetaData:
     """
@@ -26,7 +23,6 @@ class OtaMetaData:
             cookie : signed cookie
             metadata_jwt : metadata JWT file name
         """
-        self.__verbose = False
         self._enable_persistent = True
         self.__url = url
         self.__cookie = cookie
@@ -45,7 +41,7 @@ class OtaMetaData:
         self.__certificate = ""
         self.__certificate_hash = ""
         self.__payload = self._parse_metadata(ota_metadata_jwt, url, cookie)
-        print("payload: ", self.__payload)
+        logger.debug(f"payload: {self.__payload}")
 
     @staticmethod
     def _file_sha256(filename):
@@ -69,15 +65,12 @@ class OtaMetaData:
         jwt_list = jwt.split(".")
 
         header_json = base64.urlsafe_b64decode(jwt_list[0]).decode()
-        if self.__verbose:
-            print("JWT header: " + header_json)
+        logger.debug(f"JWT header: {header_json}")
         payload_json = base64.urlsafe_b64decode(jwt_list[1]).decode()
-        if self.__verbose:
-            print("JWT payload: " + payload_json)
-            print("JWT signature raw: ", jwt_list[2])
+        logger.debug(f"JWT payload: {payload_json}")
+        logger.debug(f"JWT signature raw: {jwt_list[2]}")
         signature = base64.urlsafe_b64decode(jwt_list[2])
-        if self.__verbose:
-            print("JWT signature: ", str(signature))
+        logger.debug(f"JWT signature: {signature}")
 
         return header_json, payload_json, signature
 
@@ -118,7 +111,7 @@ class OtaMetaData:
         try:
             # read payload json
             payload = json.loads(payload_json)
-            print("payload: ", payload)
+            logger.debug(f"payload: {payload}")
             if payload:
                 self.__version = payload[0]["version"]
                 if self.__version == 1:
@@ -136,12 +129,12 @@ class OtaMetaData:
                     self.__certificate_hash = payload[6]["hash"]
 
                 else:
-                    print("version error! version: " + str(self.version))
+                    logger.error(f"version error! version: {self.version}")
             else:
-                print("json load error!")
+                logger.error("json load error!")
                 return False
         except Exception as e:
-            print("payload read error:", e)
+            logger.exception(f"payload read error:")
             return False
         return True
 
@@ -157,8 +150,7 @@ class OtaMetaData:
         ) = self._jwt_decode_no_verify(metadata_jwt)
         #
         if self._parse_payload(self._payload_json):
-            if self.__verbose:
-                print("perse payload success!")
+            logger.debug("perse payload success!")
             # verify
             # if self._jwt_verify(metadata_jwt, self._get_public_key(url, cookie)):
             #    raise(Exception, "JWT verify error!")
@@ -180,16 +172,14 @@ class OtaMetaData:
         try:
             # signature = self.get_signature()
             certificate = crypto.load_certificate(crypto.FILETYPE_PEM, certificate_pem)
-            if self.__verbose:
-                print("certificate: ", certificate)
+            logger.debug(f"certificate: {certificate}")
             # publick_key = crypto.load_publickey(crypto.FILETYPE_PEM, certificate_pem)
             verify_data = self.get_header_payload().encode()
-            if self.__verbose:
-                print("verify data: ", verify_data)
+            logger.debug(f"verify data: {verify_data}")
             crypto.verify(certificate, self._signature, verify_data, "sha256")
             return True
         except Exception as e:
-            print("Verify error: ", e)
+            logger.exception(f"Verify error:")
             return False
 
     def get_signature(self):

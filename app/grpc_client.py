@@ -19,6 +19,10 @@ import grpc
 import otaclient_pb2
 import otaclient_pb2_grpc
 
+from logging import getLogger, INFO, DEBUG
+
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 
 def get_policy_json_str(policy_json_file):
     """
@@ -26,14 +30,14 @@ def get_policy_json_str(policy_json_file):
     """
     with open(policy_json_file, "r") as f:
         policy_json = json.dumps(json.load(f)).replace(" ", "")
-        print("policy: " + str(policy_json))
+        logger.debug(f"policy: {str(policy_json)}")
         return policy_json
 
 
 def gen_policy(policy_json_file):
     """"""
     policy_str = get_policy_json_str(policy_json_file).encode()
-    print("policy_str: ", policy_str)
+    logger.debug(f"policy_str: {policy_str}")
     policy = (
         base64.b64encode(policy_str)
         .decode()
@@ -41,7 +45,7 @@ def gen_policy(policy_json_file):
         .replace("/", "~")
         .replace("=", "_")
     )
-    print("policy: ", policy)
+    logger.debug(f"policy: {policy}")
     return policy
 
 
@@ -59,7 +63,7 @@ def gen_sign(policy_json_file, pem_file):
             .replace("/", "~")
             .replace("=", "_")
         )
-        print("hash: " + str(sign))
+        logger.debug(f"hash: {sign}")
         return sign
 
 
@@ -106,11 +110,11 @@ def update(service_port):
         eui.metadata = "metadata.jwt"
         eui.header = setup_cookie("tests/policy.json", "tests/private_key.pem")
 
-        print("ecu_update_info: ", update_req)
+        logger.debug(f"ecu_update_info: {update_req}", )
         stub = otaclient_pb2_grpc.OtaClientServiceStub(channel)
         response = stub.OtaUpdate(update_req)
-        print("Ota Client IF client received: " + str(response.result))
-        print(response)
+        logger.debug(f"Ota Client IF client received: {response.result}")
+        logger.debug(f"{response}")
 
 
 def rollback(service_port):
@@ -123,31 +127,31 @@ def rollback(service_port):
         ei.version = "0.0.1"
         stub = otaclient_pb2_grpc.OtaClientServiceStub(channel)
         response = stub.OtaRollback(rollback_req)
-        print("Ota Client Service client received: " + str(response.result))
-        print(response)
+        logger.debug(f"Ota Client Service client received: {response.result}")
+        logger.debug(f"{response}")
 
 
 def reboot(service_port):
     with grpc.insecure_channel(service_port) as channel:
         stub = otaclient_pb2_grpc.OtaClientServiceStub(channel)
         response = stub.OtaReboot(otaclient_pb2.OtaRebootRequest())
-        print(response)
+        logger.debug(f"{response}")
 
 
 def ecustatus(service_port):
     with grpc.insecure_channel(service_port) as channel:
         stub = otaclient_pb2_grpc.OtaClientServiceStub(channel)
         response = stub.EcuStatus(otaclient_pb2.EcuStatusRequest())
-        print("Ota Client Service client received: " + str(response.status))
-        print(response)
+        logger.debug(f"Ota Client Service client received: {response.status}")
+        print(f"{response}")
 
 
 def ecuversion(service_port):
     with grpc.insecure_channel(service_port) as channel:
         stub = otaclient_pb2_grpc.OtaClientServiceStub(channel)
         response = stub.EcuVersion(otaclient_pb2.EcuVersionRequest())
-        print("Ota Client Service client received: " + str(len(response.ecu_info)))
-        print(response)
+        logger.debug(f"Ota Client Service client received: {len(response.ecu_info)}")
+        logger.debug(f"{response}")
 
 
 if __name__ == "__main__":
@@ -172,4 +176,4 @@ if __name__ == "__main__":
     elif args.command == "version":
         ecuversion(args.port)
     else:
-        print("parameter error!")
+        logger.error("parameter error!")
