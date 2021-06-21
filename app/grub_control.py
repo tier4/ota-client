@@ -183,7 +183,7 @@ class GrubCtl:
             # change root partition
             self.change_to_next_bank(tmp_file)
         except Exception as e:
-            logger.error("Change next bank error:")
+            logger.exception("Change next bank error:")
             return False
 
         if os.path.exists(output_file):
@@ -363,7 +363,7 @@ class GrubCtl:
         try:
             res = subprocess.check_call(shlex.split(command_line))
         except:
-            logger.error("reboot error!")
+            logger.exception("reboot error!")
             return False
         return True
 
