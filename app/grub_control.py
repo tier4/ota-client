@@ -13,6 +13,7 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 class GrubCtl:
     """
     OTA GRUB control class
@@ -80,7 +81,9 @@ class GrubCtl:
                                         lrep = l
                                     else:
                                         logger.error(f"root partition missmatch! : {l}")
-                                        logger.debug(f"current uuid: {current_bank_uuid}")
+                                        logger.debug(
+                                            f"current uuid: {current_bank_uuid}"
+                                        )
                                         logger.debug(f"next uuid: {next_bank_uuid}")
                                         return False
                                 else:
@@ -193,32 +196,61 @@ class GrubCtl:
         shutil.move(tmp_file, output_file)
         return True
 
+    @staticmethod
+    def _replace_or_append(infile, outfile, replace_list):
+        """
+        replaces infile with replace_list and outputs to outfile.
+        if replace entry is not found in infile, the entry is appended.
+        """
+        lines = infile.readlines()
+        index_found = [False for i in replace_list]
+
+        """ replace """
+        for l in lines:
+
+            def match_string(line, replace_list):
+                for index, replace in enumerate(replace_list):
+                    match = re.match(f"^({replace['search']})", l)
+                    if match is not None:
+                        return index
+                return None
+
+            i = match_string(l, replace_list)
+            if i is not None:
+                outfile.write(
+                    f"{replace_list[i]['search']}{replace_list[i]['replace']}\n"
+                )
+                index_found[i] = True
+            else:
+                outfile.write(l)
+
+        """ append """
+        for i in range(len(index_found)):
+            if index_found[i] == False:
+                outfile.write(
+                    f"{replace_list[i]['search']}{replace_list[i]['replace']}\n"
+                )
+
     def grub_configuration(self, style_str="menu", timeout=10):
         """
         Grub configuration setup:
             GRUB_TIMEOUT_STYLE=menu
             GRUB_TIMEOUT=10
         """
+        replace_list = [
+            {"search": "GRUB_TIMEOUT_STYLE=", "replace": "menu"},
+            {"search": "GRUB_TIMEOUT=", "replace": "10"},
+            {"search": "GRUB_DISABLE_SUBMENU=", "replace": "y"},
+        ]
 
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             temp_file = ftmp.name
             logger.debug(f"tem file: {ftmp.name}")
+
             with open(ftmp.name, mode="w") as f:
                 with open(self._default_grub_file, mode="r") as fgrub:
-                    lines = fgrub.readlines()
-                    for l in lines:
-                        match = re.match(r"^(GRUB_TIMEOUT_STYLE=)", l)
-                        if match is not None:
-                            f.write(f"{match.group(1)}{style_str}\n")
-                            continue
-
-                        match = re.match(r"^(GRUB_TIMEOUT=)", l)
-                        if match is not None:
-                            f.write(f"{match.group(1)}{str(timeout)}\n")
-                            continue
-
-                        f.write(l)
-                        f.flush()
+                    GrubCtl._replace_or_append(fgrub, f, replace_list)
+                    f.flush()
 
             # move temp to grub
             os.sync()
