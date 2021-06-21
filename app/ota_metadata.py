@@ -179,7 +179,7 @@ class OtaMetaData:
             crypto.verify(certificate, self._signature, verify_data, "sha256")
             return True
         except Exception as e:
-            logger.exception(f"Verify error:")
+            logger.exception("Verify error:")
             return False
 
     def get_signature(self):
