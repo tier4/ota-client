@@ -752,7 +752,7 @@ class OtaClient:
         generate /boot directory file
         """
         # starts with `/boot/vmlinuz-`.
-        match = re.match("^/boot/vmlinuz-.*", regular_inf.path)
+        match = re.match("^/boot/(vmlinuz-.*)", regular_inf.path)
         if match is not None:
             self._boot_vmlinuz = match.group(1)
 
@@ -931,7 +931,7 @@ class OtaClient:
                 dest_file = os.path.join(self._rollback_dir, self._regularlist_file)
                 shutil.move(tmp_list_file, dest_file)
                 return True
-            if _self._boot_vmlinuz is None or self._boot_initrd is None:
+            if self._boot_vmlinuz is None or self._boot_initrd is None:
                 logging.warning(
                     "vmlinuz or initrd is not set. This condition will be treated as an error in the future."
                 )
@@ -1290,7 +1290,9 @@ class OtaClient:
     def _reboot(self):
         if self._ota_status.get_ota_status() == "PREPARED":
             # switch reboot
-            if not self._grub_ctl.prepare_grub_switching_reboot():
+            if not self._grub_ctl.prepare_grub_switching_reboot(
+                self._boot_vmlinuz, self._boot_initrd
+            ):
                 # inform error
                 self._inform_update_error("Switching bank failed!")
                 # set 'NORMAL' state
