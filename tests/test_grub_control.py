@@ -105,11 +105,11 @@ menuentry 'GNU/Linux' {{
     ),
     (
         "/boot/vmlinuz-1.2.3-45-generic",  # linux image
-        None,
+        "/boot/initrd.img-1.2.3-45-generic",  # initrd image
         f"""
 menuentry 'GNU/Linux' {{
         linux   /vmlinuz-1.2.3-45-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff
-        initrd  /initrd.img-5.4.0-74-generic
+        initrd  /initrd.img-1.2.3-45-generic
 }}""",
     ),
 ]

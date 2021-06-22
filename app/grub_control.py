@@ -36,6 +36,60 @@ class GrubCtl:
     def get_bank_info(self):
         return self._bank_info
 
+    def _replace_linux(self, line, vmlinuz):
+        # get bank info
+        current_bank = self._bank_info.get_current_bank()
+        current_bank_uuid = self._bank_info.get_current_bank_uuid()
+        next_bank = self._bank_info.get_next_bank()
+        next_bank_uuid = self._bank_info.get_next_bank_uuid()
+
+        match = re.match(r"(\s*linux\s+)(\S*)(\s+root=)(\S*)(.*)", line)
+        if match is None:
+            return None
+        logger.debug(f"ORG: {line}")
+        while True:
+            boot_device = match.group(4)
+            # 1. UUID with current_bank_uuid
+            if boot_device.find(f"UUID={current_bank_uuid}") >= 0:
+                boot_device = boot_device.replace(current_bank_uuid, next_bank_uuid)
+                break
+
+            # 2. UUID with next_bank_uuid
+            if boot_device.find(f"UUID={next_bank_uuid}") >= 0:
+                logger.debug("No replace!")
+                break
+
+            # 3. device name with current_bank
+            if boot_device.find(current_bank) >= 0:
+                boot_device = boot_device.replace(current_bank, next_bank)
+                logger.debug(f"RPL: {dev_rep}")
+                logger.debug(f"current: {current_bank}")
+                logger.debug(f"next: {next_bank}")
+                break
+
+            # 4. device name with next_bank
+            if boot_device.find(next_bank) >= 0:
+                logger.debug("No replace!")
+                break
+
+            # 5. error
+            raise Exception(f"root partition missmatch! {line}")
+
+        label = match.group(1)
+        image = match.group(2) if vmlinuz is None else f"/{os.path.basename(vmlinuz)}"
+        root = match.group(3)
+        params = match.group(5)
+        return f"{label}{image}{root}{boot_device}{params}\n"
+
+    def _replace_initrd(self, line, initrd):
+        match = re.match(r"(\s*initrd\s+)(\S*)(.*)", line)
+        if match is None:
+            return None
+        label = match.group(1)
+        image = match.group(2) if initrd is None else f"/{os.path.basename(initrd)}"
+        params = match.group(3)
+        return f"{label}{image}{params}\n"
+
     def change_to_next_bank(self, config_file, vmlinuz, initrd):
         """
         change the custum configuration menu root partition device
@@ -43,15 +97,7 @@ class GrubCtl:
         if not os.path.exists(config_file):
             logger.warning(f"File not exist: {config_file}")
             return False
-        # get bank info
-        current_bank = self._bank_info.get_current_bank()
-        current_bank_uuid = self._bank_info.get_current_bank_uuid()
-        next_bank = self._bank_info.get_next_bank()
-        next_bank_uuid = self._bank_info.get_next_bank_uuid()
         logger.debug("geberate temp file!")
-        linux_key = "linux"
-        root_prefix = "root="
-        root_uuid_prefix = "root=UUID="
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             tmp_file = ftmp.name
             logger.debug(f"temp file: {ftmp.name}")
@@ -62,55 +108,23 @@ class GrubCtl:
                     # read lines from custum config file
                     lines = fcustom.readlines()
                     for l in lines:
-                        linux_match = re.match(
-                            r"(\s*linux\s+)(\S*)(\s+root=)(\S*)(.*)", l
-                        )
-                        if linux_match is not None:
-                            logger.debug(f"ORG: {l}")
-                            while True:
-                                boot_device = linux_match.group(4)
-                                # 1. UUID with current_bank_uuid
-                                if boot_device.find(f"UUID={current_bank_uuid}") >= 0:
-                                    boot_device = boot_device.replace(
-                                        current_bank_uuid, next_bank_uuid
-                                    )
-                                    break
+                        try:
+                            # `linux`
+                            line = self._replace_linux(l, vmlinuz)
+                            if line is not None:
+                                f.write(line)
+                                continue
 
-                                # 2. UUID with next_bank_uuid
-                                if boot_device.find(f"UUID={next_bank_uuid}") >= 0:
-                                    logger.debug("No replace!")
-                                    break
+                            # `initrd`
+                            line = self._replace_initrd(l, initrd)
+                            if line is not None:
+                                f.write(line)
+                                continue
 
-                                # 3. device name with current_bank
-                                if boot_device.find(current_bank) >= 0:
-                                    boot_device = boot_device.replace(
-                                        current_bank, next_bank
-                                    )
-                                    logger.debug(f"RPL: {dev_rep}")
-                                    logger.debug(f"current: {current_bank}")
-                                    logger.debug(f"next: {next_bank}")
-                                    break
-
-                                # 4. device name with next_bank
-                                if boot_device.find(next_bank) >= 0:
-                                    logger.debug("No replace!")
-                                    break
-
-                                # 5. error
-                                logger.error(f"root partition missmatch! {l}")
-                                return False
-
-                            label = linux_match.group(1)
-                            image = (
-                                linux_match.group(2)
-                                if vmlinuz is None
-                                else f"/{os.path.basename(vmlinuz)}"
-                            )
-                            root = linux_match.group(3)
-                            params = linux_match.group(5)
-                            f.write(f"{label}{image}{root}{boot_device}{params}\n")
-                        else:
                             f.write(l)
+                        except Exception as e:
+                            logger.exception("_replace_linux")
+                            return False
 
                     f.flush()
         if os.path.exists(config_file):
