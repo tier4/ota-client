@@ -62,51 +62,56 @@ class GrubCtl:
                     # read lines from custum config file
                     lines = fcustom.readlines()
                     for l in lines:
-                        # find linux
-                        if l.find(linux_key) >= 0:
-                            # find root string
-                            if l.find(root_prefix) >= 0:
-                                # found root=xxxxx
-                                if l.find(root_uuid_prefix) >= 0:
-                                    # root uuid
-                                    logger.debug(f"ORG: {l}")
-                                    if l.find(current_bank_uuid) >= 0:
-                                        # replace to next bank root
-                                        lrep = l.replace(
-                                            current_bank_uuid, next_bank_uuid
-                                        )
-                                        logger.debug(f"RPL: {lrep}")
-                                    elif l.find(next_bank_uuid):
-                                        logger.debug("No replace!")
-                                        lrep = l
-                                    else:
-                                        logger.error(f"root partition missmatch! : {l}")
-                                        logger.debug(
-                                            f"current uuid: {current_bank_uuid}"
-                                        )
-                                        logger.debug(f"next uuid: {next_bank_uuid}")
-                                        return False
-                                else:
-                                    # root dev file
-                                    logger.debug(f"ORG: {l}")
-                                    if l.find(current_bank) >= 0:
-                                        # replace to next bank root
-                                        lrep = l.replace(current_bank, next_bank)
-                                        logger.debug(f"RPL: {lrep}")
-                                        logger.debug(f"current: {current_bank}")
-                                        logger.debug(f"next: {next_bank}")
-                                    elif l.find(next_bank) >= 0:
-                                        # no need to replace
-                                        logger.debug("No need to replace!")
-                                        lrep = l
-                                    else:
-                                        logger.error(f"root partition missmatch! {l}")
-                                        return False
-                                f.write(lrep)
-                            else:
-                                f.write(l)
+                        linux_match = re.match(
+                            r"(\s*linux\s+)(\S*)(\s+root=)(\S*)(.*)", l
+                        )
+                        if linux_match is not None:
+                            logger.debug(f"ORG: {l}")
+                            while True:
+                                boot_device = linux_match.group(4)
+                                # 1. UUID with current_bank_uuid
+                                if boot_device.find(f"UUID={current_bank_uuid}") >= 0:
+                                    boot_device = boot_device.replace(
+                                        current_bank_uuid, next_bank_uuid
+                                    )
+                                    break
+
+                                # 2. UUID with next_bank_uuid
+                                if boot_device.find(f"UUID={next_bank_uuid}") >= 0:
+                                    logger.debug("No replace!")
+                                    break
+
+                                # 3. device name with current_bank
+                                if boot_device.find(current_bank) >= 0:
+                                    boot_device = boot_device.replace(
+                                        current_bank, next_bank
+                                    )
+                                    logger.debug(f"RPL: {dev_rep}")
+                                    logger.debug(f"current: {current_bank}")
+                                    logger.debug(f"next: {next_bank}")
+                                    break
+
+                                # 4. device name with next_bank
+                                if boot_device.find(next_bank) >= 0:
+                                    logger.debug("No replace!")
+                                    break
+
+                                # 5. error
+                                logger.error(f"root partition missmatch! {l}")
+                                return False
+
+                            label = linux_match.group(1)
+                            image = (
+                                linux_match.group(2)
+                                if vmlinuz is None
+                                else f"/{os.path.basename(vmlinuz)}"
+                            )
+                            root = linux_match.group(3)
+                            params = linux_match.group(5)
+                            f.write(f"{label}{image}{root}{boot_device}{params}\n")
                         else:
                             f.write(l)
+
                     f.flush()
         if os.path.exists(config_file):
             # backup
