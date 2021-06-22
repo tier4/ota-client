@@ -36,7 +36,7 @@ class GrubCtl:
     def get_bank_info(self):
         return self._bank_info
 
-    def change_to_next_bank(self, config_file):
+    def change_to_next_bank(self, config_file, vmlinuz, initrd):
         """
         change the custum configuration menu root partition device
         """
@@ -115,7 +115,9 @@ class GrubCtl:
         shutil.move(tmp_file, config_file)
         return True
 
-    def make_grub_custom_configuration_file(self, input_file, output_file):
+    def make_grub_custom_configuration_file(
+        self, input_file, output_file, vmlinuz, initrd
+    ):
         """
         generate the custom configuration file for the another bank boot.
         """
@@ -147,7 +149,6 @@ class GrubCtl:
                 with open(input_file, mode="r") as fin:
                     logger.debug(f"{input_file} opened!")
                     menu_writing = False
-                    menu_count = 0
                     lines = fin.readlines()
                     for l in lines:
                         if menu_writing:
@@ -176,7 +177,6 @@ class GrubCtl:
                             if 0 == l.find(menuentry_start):
                                 logger.debug(f"menuentry found! : {l}")
                                 menu_writing = True
-                                menu_count += 1
                                 fout.write(l)
 
         if not found_target:
@@ -184,7 +184,7 @@ class GrubCtl:
             return False
         try:
             # change root partition
-            self.change_to_next_bank(tmp_file)
+            self.change_to_next_bank(tmp_file, vmlinuz, initrd)
         except Exception as e:
             logger.exception("Change next bank error:")
             return False
@@ -236,6 +236,7 @@ class GrubCtl:
         Grub configuration setup:
             GRUB_TIMEOUT_STYLE=menu
             GRUB_TIMEOUT=10
+            GRUB_DISABLE_SUBMENU=y
         """
         replace_list = [
             {"search": "GRUB_TIMEOUT_STYLE=", "replace": "menu"},
@@ -394,13 +395,13 @@ class GrubCtl:
             return False
         return True
 
-    def prepare_grub_switching_reboot(self):
+    def prepare_grub_switching_reboot(self, vmlinuz, initrd):
         """
         prepare for GRUB control reboot for switching to another bank
         """
         # make custum.cfg file
         res = self.make_grub_custom_configuration_file(
-            self._grub_cfg_file, self._custom_cfg_file
+            self._grub_cfg_file, self._custom_cfg_file, vmlinuz, initrd
         )
 
         if res:
