@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 from bank import BankInfo
+from pprint import pprint  # for debug
 
 from logging import getLogger, INFO, DEBUG
 
@@ -116,7 +117,7 @@ class GrubCtl:
             # 3. device name with current_bank
             if boot_device.find(current_bank) >= 0:
                 boot_device = boot_device.replace(current_bank, next_bank)
-                logger.debug(f"RPL: {dev_rep}")
+                logger.debug(f"RPL: {boot_device}")
                 logger.debug(f"current: {current_bank}")
                 logger.debug(f"next: {next_bank}")
                 break
@@ -304,7 +305,7 @@ class GrubCtl:
                     f"{replace_list[i]['search']}{replace_list[i]['replace']}\n"
                 )
 
-    def grub_configuration(self, style_str="menu", timeout=10):
+    def _grub_configuration(self, style_str="menu", timeout=10):
         """
         Grub configuration setup:
             GRUB_TIMEOUT_STYLE=menu
@@ -335,7 +336,7 @@ class GrubCtl:
             shutil.move(temp_file, self._default_grub_file)
         return True
 
-    def make_grub_configuration_file(self, output_file):
+    def _make_grub_configuration_file(self, output_file):
         """
         make the "grub.cfg" file
         """
@@ -358,34 +359,37 @@ class GrubCtl:
             return False
         return True
 
-    @staticmethod
-    def _read_kernel_cmdline():
-        with open("/proc/cmdline") as f:
-            return f.read()
-
     def _find_booted_grub_menu(self):
-        """ find grub menu entry number whichi contains /proc/cmdline entry. """
-        kernel_cmdline = GrubCtl._read_kernel_cmdline()
-        # BOOT_IMAGE=/boot/vmlinuz-5.4.0-52-generic root=UUID=90a13e2e-4fa2-4c20-806e-91e45a824cd5 ro quiet splash vt.handoff=1
-        match = re.match(r".*(vmlinuz-\S*)\s*root=(\S*)", kernel_cmdline)
-        print(match.group(1))
-        print(match.group(2))
+        """ find grub menu entry number which contains custom.cfg entry. """
+        with open(self._custom_cfg_file) as f:
+            custom_cfg = f.read()
+        m = re.search(r"\s+linux\s+(\S*)\s+root=(.*?)\s+", custom_cfg)
+        vmlinuz = m.group(1)
+        boot_device = m.group(2)
+
+        print(f"vmlinuz:{vmlinuz}, boot_device:{boot_device}")
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            self.make_grub_configuration_file(ftmp.name)
+            self._make_grub_configuration_file(ftmp.name)
             with open(ftmp.name) as f:
-                for l in f.readlines():
-                    pass
-        pass
+                parser = GrubCfgParser(f.read())
+                menus = parser.parse()
+                for i, menu in enumerate(menus):
+                    # search `linux` entry
+                    # check root= and uname -r
+                    # print(menu["linux"])
+                    m = re.search(rf".*{vmlinuz}\s+root={boot_device}", menu["linux"])
+                    if m:
+                        return i
 
     def re_generate_grub_config(self):
         """
         regenarate the grub config file
         """
         # change the grub genaration configuration
-        self.grub_configuration()
+        self._grub_configuration()
 
         # make the grub configuration file
-        res = self.make_grub_configuration_file(self._grub_cfg_file)
+        res = self._make_grub_configuration_file(self._grub_cfg_file)
         return res
 
     def count_grub_menue_entries_wo_submenu(self, input_file):

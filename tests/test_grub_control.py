@@ -1,9 +1,7 @@
 import os
 import pytest
 from pprint import pprint
-
-UUID_A = "01234567-0123-0123-0123-0123456789ab"
-UUID_B = "76543210-3210-3210-3210-ba9876543210"
+from tests.grub_cfg_params import grub_cfg_params, grub_cfg_wo_submenu, UUID_A, UUID_B
 
 
 @pytest.fixture
@@ -61,10 +59,17 @@ def grub_ctl_instance(tmpdir, mocker, bankinfo_file, custom_cfg_file):
     def mock_get_next_bank_uuid(_):
         return UUID_B
 
+    def mock_make_grub_configuration_file(_, output_file):
+        with open(output_file, mode="w") as f:
+            f.write(grub_cfg_wo_submenu)
+
     mocker.patch.object(BankInfo, "_get_uuid_from_blkid", mock_get_uuid_from_blkid)
     mocker.patch.object(BankInfo, "get_current_bank_uuid", mock_get_current_bank_uuid)
     mocker.patch.object(BankInfo, "get_next_bank_uuid", mock_get_next_bank_uuid)
-    grub_ctl = GrubCtl(bank_info_file=bankinfo_file)
+    mocker.patch.object(
+        GrubCtl, "_make_grub_configuration_file", mock_make_grub_configuration_file
+    )
+    grub_ctl = GrubCtl(bank_info_file=bankinfo_file, custom_config_file=custom_cfg_file)
     return grub_ctl
 
 
@@ -72,7 +77,7 @@ def test_grub_ctl_grub_configuration(tmpdir, grub_file_default):
     from grub_control import GrubCtl
 
     grub_ctl = GrubCtl(default_grub_file=grub_file_default)
-    r = grub_ctl.grub_configuration()
+    r = grub_ctl._grub_configuration()
     assert r
 
     grub_exp = """\
@@ -122,11 +127,8 @@ def test_grub_ctl_change_to_next_bank(
 
 
 def test_find_booted_grub_menu(grub_ctl_instance):
-    # grub_ctl_instance._find_booted_grub_menu()
-    pass
-
-
-from tests.grub_cfg_params import grub_cfg_params
+    index = grub_ctl_instance._find_booted_grub_menu()
+    assert index == 0
 
 
 @pytest.mark.parametrize("grub_cfg, expect", grub_cfg_params)
