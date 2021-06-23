@@ -126,8 +126,8 @@ def test_grub_ctl_change_to_next_bank(
     assert custom_cfg_file.read() == expect
 
 
-def test_find_booted_grub_menu(grub_ctl_instance):
-    index = grub_ctl_instance._find_booted_grub_menu()
+def test_find_custom_cfg_entry_from_grub_cfg(grub_ctl_instance):
+    index = grub_ctl_instance._find_custom_cfg_entry_from_grub_cfg()
     assert index == 0
 
 

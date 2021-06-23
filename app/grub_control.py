@@ -305,7 +305,7 @@ class GrubCtl:
                     f"{replace_list[i]['search']}{replace_list[i]['replace']}\n"
                 )
 
-    def _grub_configuration(self, style_str="menu", timeout=10):
+    def _grub_configuration(self, style_str="menu", timeout=10, default=None):
         """
         Grub configuration setup:
             GRUB_TIMEOUT_STYLE=menu
@@ -313,10 +313,12 @@ class GrubCtl:
             GRUB_DISABLE_SUBMENU=y
         """
         replace_list = [
-            {"search": "GRUB_TIMEOUT_STYLE=", "replace": "menu"},
-            {"search": "GRUB_TIMEOUT=", "replace": "10"},
+            {"search": "GRUB_TIMEOUT_STYLE=", "replace": style_str},
+            {"search": "GRUB_TIMEOUT=", "replace": str(timeout)},
             {"search": "GRUB_DISABLE_SUBMENU=", "replace": "y"},
         ]
+        if default is not None:
+            replace_list.append({"search": "GRUB_DEFAULT=", "replace": str(default)})
 
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             temp_file = ftmp.name
@@ -359,27 +361,36 @@ class GrubCtl:
             return False
         return True
 
-    def _find_booted_grub_menu(self):
-        """ find grub menu entry number which contains custom.cfg entry. """
+    def _find_custom_cfg_entry_from_grub_cfg(self):
+        """
+        find grub menu entry number which contains custom.cfg entry.
+        NOTE: submenu is not supported, so before calling this function, add
+              GRUB_DISABLE_SUBMENU=y to the /etc/default/grub.
+        """
         with open(self._custom_cfg_file) as f:
             custom_cfg = f.read()
         m = re.search(r"\s+linux\s+(\S*)\s+root=(.*?)\s+", custom_cfg)
         vmlinuz = m.group(1)
         boot_device = m.group(2)
 
-        print(f"vmlinuz:{vmlinuz}, boot_device:{boot_device}")
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             self._make_grub_configuration_file(ftmp.name)
             with open(ftmp.name) as f:
                 parser = GrubCfgParser(f.read())
                 menus = parser.parse()
                 for i, menu in enumerate(menus):
-                    # search `linux` entry
-                    # check root= and uname -r
-                    # print(menu["linux"])
-                    m = re.search(rf".*{vmlinuz}\s+root={boot_device}", menu["linux"])
-                    if m:
+                    m = re.search(
+                        rf".*{os.path.basename(vmlinuz)}\s+root={boot_device}",
+                        menu["linux"],
+                    )
+                    if m is not None:
+
+                        logger.info(
+                            f"found {vmlinuz} and {boot_device} at grub menu entry #{i}"
+                        )
                         return i
+        logger.error(f"{vmlinuz} or {boot_device} was not found in the grub menu entry")
+        return -1
 
     def re_generate_grub_config(self):
         """
@@ -387,6 +398,13 @@ class GrubCtl:
         """
         # change the grub genaration configuration
         self._grub_configuration()
+
+        grub_default = self._find_custom_cfg_entry_from_grub_cfg()
+        if grub_default < 0:
+            raise Exception("custom.cfg entry was not found in grub.cfg")
+
+        # create default/grub again with GRUB_DEFAULT
+        self._grub_configuration(default=grub_default)
 
         # make the grub configuration file
         res = self._make_grub_configuration_file(self._grub_cfg_file)
