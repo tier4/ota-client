@@ -55,7 +55,7 @@ def grub_ctl_instance(tmpdir, mocker, uuid_a, uuid_b, bankinfo_file, custom_cfg_
     from grub_control import GrubCtl
     from bank import BankInfo
 
-    def mock_get_uuid_from_blkid(_, bank):
+    def mock_get_uuid_from_blkid(bank):
         if bank == "/dev/sda3":
             return uuid_a
         if bank == "/dev/sda4":
@@ -67,7 +67,7 @@ def grub_ctl_instance(tmpdir, mocker, uuid_a, uuid_b, bankinfo_file, custom_cfg_
     def mock_get_next_bank_uuid(_):
         return uuid_b
 
-    mocker.patch.object(BankInfo, "_get_uuid_from_blkid", mock_get_uuid_from_blkid)
+    mocker.patch("bank._get_uuid_from_blkid", mock_get_uuid_from_blkid)
     mocker.patch.object(BankInfo, "get_current_bank_uuid", mock_get_current_bank_uuid)
     mocker.patch.object(BankInfo, "get_next_bank_uuid", mock_get_next_bank_uuid)
     grub_ctl = GrubCtl(bank_info_file=bankinfo_file)
