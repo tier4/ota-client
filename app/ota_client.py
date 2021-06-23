@@ -212,7 +212,7 @@ def _cleanup_dir(target_dir):
     if target_dir == "" or target_dir == "/":
         return False
     try:
-        command_line = "rm -rf " + target_dir + "/*"
+        command_line = "rm -rf " + str(target_dir) + "/*"
         logger.debug(f"commandline: {command_line}")
         # subprocess.check_output(shlex.split(command_line))
         # proc = subprocess.call(command_line.strip().split(" "))
