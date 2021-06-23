@@ -426,8 +426,6 @@ class OtaClient:
         bank_info_file="/boot/ota/bankinfo.yaml",
         ecuid_file="/boot/ota/ecuid",
         ecuinfo_yaml_file="/boot/ota/ecuinfo.yaml",
-        policy_file="",
-        pem_file="",
         ota_cache=None,
     ):
         """
@@ -451,10 +449,7 @@ class OtaClient:
         self._grub_dir = "/boot/grub"
         self._grub_conf_file = "grub.conf"
         #
-        # self._url_file = '/boot/ota/.url'
         self._catalog_file = "/boot/ota/.catalog"
-        # self._metadata_jwt_file = 'metadata.jwt'
-        # self._cookie_file = '/boot/ota/.cookie'
         self._rollback_dict = {}
         # backup files
         self._dirlist_file = "dirlist.txt"
@@ -467,9 +462,9 @@ class OtaClient:
         self._ota_status = OtaStatus(ota_status_file=ota_status_file)
         self._grub_ctl = GrubCtl(bank_info_file=bank_info_file)
         #
-        self._certificate_pem = ""
+        self._certificate_pem = None
         # metadata data
-        self._metadata = ""
+        self._metadata = None
         #
         self._mount_point = "/mnt/bank"
         self._fstab_file = "/etc/fstab"
