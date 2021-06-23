@@ -92,7 +92,9 @@ def _copydirs_complete(src, dst):
     # check parent directory
     src_parent_dir = os.path.dirname(src)
     dst_parent_dir = os.path.dirname(dst)
-    if os.path.isdir(dst_parent_dir) or _copydirs_complete(src_parent_dir, dst_parent_dir):
+    if os.path.isdir(dst_parent_dir) or _copydirs_complete(
+        src_parent_dir, dst_parent_dir
+    ):
         # parent exist, make directory
         logger.debug("mkdir: {dst}")
         os.mkdir(dst)
@@ -123,7 +125,9 @@ def _copytree_complete(src, dst):
                 linkto = os.readlink(srcname)
                 os.symlink(linkto, dstname)
                 st = os.stat(srcname, follow_symlinks=False)
-                os.chown(dstname, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
+                os.chown(
+                    dstname, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False
+                )
             elif srcentry.is_dir():
                 _copytree_complete(srcname, dstname)
             else:
@@ -274,6 +278,8 @@ class OtaClient:
         if not os.path.isdir(self._mount_point):
             os.makedirs(self._mount_point, exist_ok=True)
         self._ota_cache = ota_cache
+        self._boot_vmlinuz = None
+        self._boot_initrd = None
 
     def _gen_ota_status_file(self, ota_status_file):
         """
@@ -745,7 +751,16 @@ class OtaClient:
         """
         generate /boot directory file
         """
-        dest_path = regular_inf.path
+        # starts with `/boot/vmlinuz-`.
+        match = re.match("^/boot/(vmlinuz-.*)", regular_inf.path)
+        if match is not None:
+            self._boot_vmlinuz = match.group(1)
+
+        # starts with `/boot/initrd.img-`, but doesnot end with `.old-dkms`.
+        match = re.match("^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", regular_inf.path)
+        if match is not None:
+            self._boot_initrd = match.group(1)
+
         if (
             int(regular_inf.links) >= 2
             and prev_inf != ""
@@ -854,6 +869,8 @@ class OtaClient:
         """
         generate regular files
         """
+        self._boot_vmlinuz = None  # clear
+        self._boot_initrd = None  # clear
         with tempfile.NamedTemporaryFile(delete=False) as flog:
             log_file = flog.name
             with open(flog.name, "w") as fl:
@@ -914,6 +931,10 @@ class OtaClient:
                 dest_file = os.path.join(self._rollback_dir, self._regularlist_file)
                 shutil.move(tmp_list_file, dest_file)
                 return True
+            if self._boot_vmlinuz is None or self._boot_initrd is None:
+                logging.warning(
+                    "vmlinuz or initrd is not set. This condition will be treated as an error in the future."
+                )
         return False
 
     def _gen_persistent_files(self, list_file, target_dir):
@@ -1236,7 +1257,9 @@ class OtaClient:
         self._ota_status.set_ota_status("PREPARED")
         if reboot:
             # switch reboot
-            if not self._grub_ctl.prepare_grub_switching_reboot():
+            if not self._grub_ctl.prepare_grub_switching_reboot(
+                self._boot_vmlinuz, self._boot_initrd
+            ):
                 # inform error
                 self._inform_update_error("Switching bank failed!")
                 # set 'NORMAL' state
@@ -1267,7 +1290,9 @@ class OtaClient:
     def _reboot(self):
         if self._ota_status.get_ota_status() == "PREPARED":
             # switch reboot
-            if not self._grub_ctl.prepare_grub_switching_reboot():
+            if not self._grub_ctl.prepare_grub_switching_reboot(
+                self._boot_vmlinuz, self._boot_initrd
+            ):
                 # inform error
                 self._inform_update_error("Switching bank failed!")
                 # set 'NORMAL' state

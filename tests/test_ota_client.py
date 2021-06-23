@@ -4,7 +4,7 @@ import subprocess
 
 
 def test_ota_client_copytree_complete(tmpdir):
-    import app.ota_client
+    import ota_client
 
     src = tmpdir.mkdir("src")
     src_A = src.mkdir("A")
