@@ -13,6 +13,28 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+def make_grub_configuration_file(output_file):
+    """
+    make the "grub.cfg" file
+    """
+    command_line = "grub-mkconfig"
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
+            tmp_file = ftmp.name
+            with open(tmp_file, mode="w") as f:
+                logger.debug(f"tmp file opened!: {ftmp.name}")
+                res = subprocess.check_call(shlex.split(command_line), stdout=f)
+            # move temp to grub.cfg
+            if os.path.exists(output_file):
+                if os.path.exists(output_file + ".old"):
+                    os.remove(output_file + ".old")
+                shutil.copy2(output_file, output_file + ".old")
+            shutil.move(tmp_file, output_file)
+    except:
+        logger.exception("failed genetrating grub.cfg")
+        return False
+    return True
 
 class GrubCtl:
     """
@@ -281,28 +303,6 @@ class GrubCtl:
             shutil.move(temp_file, self._default_grub_file)
         return True
 
-    def make_grub_configuration_file(self, output_file):
-        """
-        make the "grub.cfg" file
-        """
-        command_line = "grub-mkconfig"
-
-        try:
-            with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-                tmp_file = ftmp.name
-                with open(tmp_file, mode="w") as f:
-                    logger.debug(f"tmp file opened!: {ftmp.name}")
-                    res = subprocess.check_call(shlex.split(command_line), stdout=f)
-                # move temp to grub.cfg
-                if os.path.exists(output_file):
-                    if os.path.exists(output_file + ".old"):
-                        os.remove(output_file + ".old")
-                    shutil.copy2(output_file, output_file + ".old")
-                shutil.move(tmp_file, output_file)
-        except:
-            logger.exception("failed genetrating grub.cfg")
-            return False
-        return True
 
     def re_generate_grub_config(self):
         """
@@ -312,7 +312,7 @@ class GrubCtl:
         self.grub_configuration()
 
         # make the grub configuration file
-        res = self.make_grub_configuration_file(self._grub_cfg_file)
+        res = make_grub_configuration_file(self._grub_cfg_file)
         return res
 
     def count_grub_menue_entries_wo_submenu(self, input_file):

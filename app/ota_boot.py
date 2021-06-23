@@ -12,6 +12,24 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+def _gen_ota_status_file(ota_status_file):
+    """
+    generate OTA status file
+    """
+    with tempfile.NamedTemporaryFile(delete=False) as ftmp:
+        tmp_file = ftmp.name
+        with open(ftmp.name, "w") as f:
+            f.write("NORMAL")
+            f.flush()
+    os.sync()
+    dir_name = os.path.dirname(ota_status_file)
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name)
+    shutil.move(tmp_file, ota_status_file)
+    logger.info(f"{ota_status_file}  generated.")
+    os.sync()
+    return True
+
 class OtaBoot:
     """
     OTA Startup class
@@ -34,7 +52,7 @@ class OtaBoot:
         self.__ecuinfo_yaml_file = ecuinfo_yaml_file
         # status exist check
         if not os.path.exists(ota_status_file):
-            self._gen_ota_status_file(ota_status_file)
+            _gen_ota_status_file(ota_status_file)
         self._ota_status = OtaStatus(ota_status_file=ota_status_file)
         self._grub_ctl = GrubCtl(
             default_grub_file=default_grub_file,
@@ -44,23 +62,6 @@ class OtaBoot:
             fstab_file=fstab_file,
         )
 
-    def _gen_ota_status_file(self, ota_status_file):
-        """
-        generate OTA status file
-        """
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            with open(ftmp.name, "w") as f:
-                f.write("NORMAL")
-                f.flush()
-        os.sync()
-        dir_name = os.path.dirname(ota_status_file)
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name)
-        shutil.move(tmp_file, ota_status_file)
-        logger.info(f"{ota_status_file}  generated.")
-        os.sync()
-        return True
 
     def _error_nortify(self, err_str):
         """
@@ -217,7 +218,6 @@ if __name__ == "__main__":
     parser.add_argument("--noexec", help="No file handling execution.", default=False)
 
     args = parser.parse_args()
-    # otaboot = OtaBoot(ota_status_file='tests/ota_status', grub_config_file=args.input_file, custom_config_file = 'test/custom.cfg', bank_info_file = 'test/bankinfo.yaml')
     otaboot = OtaBoot()
     result = otaboot._boot(noexec=args.noexec)
     print("boot result:", result)
