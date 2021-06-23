@@ -489,7 +489,7 @@ class OtaClient:
                 with open("/boot/ota/metadata.jwt", "w") as f:
                     f.write(self._metadata_jwt)
                 self._metadata = OtaMetaData(
-                    self._metadata_jwt, self._get_metadata_jwt_url(), self.__header_dict
+                    self._metadata_jwt
                 )
             else:
                 self._metadata_jwt = ""
