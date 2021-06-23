@@ -2,7 +2,7 @@
 
 import pytest
 
-def test_OtaStatus_get_ota_status(tmpdir):
+def test_get_ota_status(tmpdir):
     from ota_status import OtaStatus
     p = tmpdir.join("ots_status")
     p.write("NORMAL")

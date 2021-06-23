@@ -129,9 +129,9 @@ def test_ota_client_cleanup_dir(tmpdir):
     ota_client._cleanup_dir(clean_dir_path)
 
     assert os.path.exists(str(clean_dir_path))
-    #assert not os.path.isfile(str(cld_a))
-    #assert not os.path.isfile(str(cld_b))
-    #assert not os.path.isfile(str(cld_a))
+    assert not os.path.isfile(str(cld_a))
+    assert not os.path.isfile(str(cld_b))
+    assert not os.path.isfile(str(cld_a))
     assert not os.path.exists(str(cldA))
     assert not os.path.exists(str(cldB))
     assert not os.path.exists(str(cldC))
