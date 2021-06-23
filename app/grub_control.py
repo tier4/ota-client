@@ -14,6 +14,60 @@ logger = getLogger(__name__)
 logger.setLevel(INFO)
 
 
+class GrubCfgParser:
+    def __init__(self, grub_cfg):
+        self._grub_cfg = grub_cfg
+
+    def parse(self):
+        menu, _ = self._parse(self._grub_cfg, False)
+        return menu
+
+    def _parse(self, cfg, in_submenu):
+        """
+        returns [
+          {}, # menuentry
+          {}, # menuentry
+          [ # submenu
+            {}, # menuentry
+            {}, # menuentry
+          ],
+          [ # submenu
+            {}, # menuentry
+          ],
+          {}, # menuentry
+        """
+        pos = 0
+        braces = []
+        menus = []
+        while True:
+            m = re.search(r"(menuentry\s.*{|submenu\s.*{|})", cfg[pos:])
+            if m:
+                pos += m.span()[1]
+                if m.group(1).startswith("menuentry"):
+                    braces.append(pos)
+                if m.group(1).startswith("submenu"):
+                    menu, sub_pos = self._parse(cfg[pos:], True)
+                    pos += sub_pos
+                    menus.append(menu)
+                if m.group(1) == "}":
+                    try:
+                        begin = braces.pop()
+                        # parse [begin:end]
+                        linux = re.search(r"[ \t]*linux\s.*", cfg[begin:pos])
+                        initrd = re.search(r"[ \t]*initrd\s.*", cfg[begin:pos])
+                        entry = {}
+                        entry["linux"] = None if linux is None else linux.group(0)
+                        entry["initrd"] = None if initrd is None else initrd.group(0)
+                        menus.append(entry)
+                    except IndexError:
+                        if in_submenu:
+                            return menus, pos
+                        else:
+                            pass  # just ignore
+            else:
+                return menus, pos
+
+
 class GrubCtl:
     """
     OTA GRUB control class
@@ -303,6 +357,25 @@ class GrubCtl:
             logger.exception("failed genetrating grub.cfg")
             return False
         return True
+
+    @staticmethod
+    def _read_kernel_cmdline():
+        with open("/proc/cmdline") as f:
+            return f.read()
+
+    def _find_booted_grub_menu(self):
+        """ find grub menu entry number whichi contains /proc/cmdline entry. """
+        kernel_cmdline = GrubCtl._read_kernel_cmdline()
+        # BOOT_IMAGE=/boot/vmlinuz-5.4.0-52-generic root=UUID=90a13e2e-4fa2-4c20-806e-91e45a824cd5 ro quiet splash vt.handoff=1
+        match = re.match(r".*(vmlinuz-\S*)\s*root=(\S*)", kernel_cmdline)
+        print(match.group(1))
+        print(match.group(2))
+        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
+            self.make_grub_configuration_file(ftmp.name)
+            with open(ftmp.name) as f:
+                for l in f.readlines():
+                    pass
+        pass
 
     def re_generate_grub_config(self):
         """

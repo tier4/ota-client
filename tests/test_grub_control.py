@@ -1,5 +1,9 @@
 import os
 import pytest
+from pprint import pprint
+
+UUID_A = "01234567-0123-0123-0123-0123456789ab"
+UUID_B = "76543210-3210-3210-3210-ba9876543210"
 
 
 @pytest.fixture
@@ -29,20 +33,10 @@ GRUB_CMDLINE_LINUX=""
 
 
 @pytest.fixture
-def uuid_a():
-    return "01234567-0123-0123-0123-0123456789ab"
-
-
-@pytest.fixture
-def uuid_b():
-    return "76543210-3210-3210-3210-ba9876543210"
-
-
-@pytest.fixture
-def custom_cfg_file(tmpdir, uuid_a):
+def custom_cfg_file(tmpdir):
     cfg = f"""
 menuentry 'GNU/Linux' {{
-        linux   /vmlinuz-5.4.0-74-generic root=UUID={uuid_a} ro  quiet splash $vt_handoff
+        linux   /vmlinuz-5.4.0-74-generic root=UUID={UUID_A} ro  quiet splash $vt_handoff
         initrd  /initrd.img-5.4.0-74-generic
 }}"""
     custom_cfg = tmpdir.join("custom.cfg")
@@ -51,21 +45,21 @@ menuentry 'GNU/Linux' {{
 
 
 @pytest.fixture
-def grub_ctl_instance(tmpdir, mocker, uuid_a, uuid_b, bankinfo_file, custom_cfg_file):
+def grub_ctl_instance(tmpdir, mocker, bankinfo_file, custom_cfg_file):
     from grub_control import GrubCtl
     from bank import BankInfo
 
     def mock_get_uuid_from_blkid(_, bank):
         if bank == "/dev/sda3":
-            return uuid_a
+            return UUID_A
         if bank == "/dev/sda4":
-            return uuid_b
+            return UUID_B
 
     def mock_get_current_bank_uuid(_):
-        return uuid_a
+        return UUID_A
 
     def mock_get_next_bank_uuid(_):
-        return uuid_b
+        return UUID_B
 
     mocker.patch.object(BankInfo, "_get_uuid_from_blkid", mock_get_uuid_from_blkid)
     mocker.patch.object(BankInfo, "get_current_bank_uuid", mock_get_current_bank_uuid)
@@ -99,7 +93,7 @@ grub_ctl_change_to_next_bank_params = [
         None,
         f"""
 menuentry 'GNU/Linux' {{
-        linux   /vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff
+        linux   /vmlinuz-5.4.0-74-generic root=UUID={UUID_B} ro  quiet splash $vt_handoff
         initrd  /initrd.img-5.4.0-74-generic
 }}""",
     ),
@@ -108,7 +102,7 @@ menuentry 'GNU/Linux' {{
         "/boot/initrd.img-1.2.3-45-generic",  # initrd image
         f"""
 menuentry 'GNU/Linux' {{
-        linux   /vmlinuz-1.2.3-45-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff
+        linux   /vmlinuz-1.2.3-45-generic root=UUID={UUID_B} ro  quiet splash $vt_handoff
         initrd  /initrd.img-1.2.3-45-generic
 }}""",
     ),
@@ -120,8 +114,24 @@ menuentry 'GNU/Linux' {{
     grub_ctl_change_to_next_bank_params,
 )
 def test_grub_ctl_change_to_next_bank(
-    grub_ctl_instance, uuid_b, custom_cfg_file, vmlinuz, initrd, expect
+    grub_ctl_instance, custom_cfg_file, vmlinuz, initrd, expect
 ):
     grub_ctl_instance.change_to_next_bank(custom_cfg_file, vmlinuz, initrd)
 
     assert custom_cfg_file.read() == expect
+
+
+def test_find_booted_grub_menu(grub_ctl_instance):
+    # grub_ctl_instance._find_booted_grub_menu()
+    pass
+
+
+from tests.grub_cfg_params import grub_cfg_params
+
+
+@pytest.mark.parametrize("grub_cfg, expect", grub_cfg_params)
+def test_grub_cfg_parser(grub_cfg, expect):
+    from grub_control import GrubCfgParser
+
+    parser = GrubCfgParser(grub_cfg)
+    assert parser.parse() == expect
