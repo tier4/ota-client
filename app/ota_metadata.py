@@ -16,7 +16,7 @@ class OtaMetaData:
     OTA Metadata Class
     """
 
-    def __init__(self, ota_metadata_jwt, url, cookie):
+    def __init__(self, ota_metadata_jwt):
         """
         OTA metadata parser
             url : metadata server URL
@@ -24,8 +24,6 @@ class OtaMetaData:
             metadata_jwt : metadata JWT file name
         """
         self._enable_persistent = True
-        self.__url = url
-        self.__cookie = cookie
         self.__metadata_jwt = ota_metadata_jwt
         self.__public_key = ""
         self.__version = 0
@@ -40,7 +38,7 @@ class OtaMetaData:
         self.__rootfs_directory = "data"
         self.__certificate = ""
         self.__certificate_hash = ""
-        self.__payload = self._parse_metadata(ota_metadata_jwt, url, cookie)
+        self.__payload = self._parse_metadata(ota_metadata_jwt)
         logger.debug(f"payload: {self.__payload}")
 
     @staticmethod
@@ -139,7 +137,7 @@ class OtaMetaData:
             return False
         return True
 
-    def _parse_metadata(self, metadata_jwt, url, cookie):
+    def _parse_metadata(self, metadata_jwt):
         """
         Parse metadata.jwt
         """

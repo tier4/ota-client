@@ -29,7 +29,7 @@ def test_ota_client_copytree_complete(tmpdir):
     os.chown(src_A_B_C, 4567, 7654)
     os.chown(src_A_B_c, 5678, 8765)
 
-    app.ota_client._copytree_complete(src, dst)
+    ota_client._copytree_complete(src, dst)
 
     """
     output = subprocess.check_output(["ls", "-lR", tmpdir.join("dst")])
@@ -63,3 +63,76 @@ def test_ota_client_copytree_complete(tmpdir):
     assert_own(tmpdir.join("dst/A/B"), 3456, 6543)
     assert_own(tmpdir.join("dst/A/B/C"), 4567, 7654)
     assert_own(tmpdir.join("dst/A/B/c"), 5678, 8765)
+
+
+def test_ota_client_gen_ota_status_file(tmpdir):
+    import ota_client
+    ota_status_path = tmpdir.join("ota_status")
+    ota_client._gen_ota_status_file(ota_status_path)
+    assert ota_status_path.read() == "NORMAL"
+
+def test_otaclient_read_ecuid(tmpdir):
+    import ota_client
+    ecuid_path = tmpdir.join("ecuid")
+    ecuid = """1\n"""
+    ecuid_path.write(ecuid)
+    assert ota_client._read_ecuid(ecuid_path) == "1"
+
+def test_otaclient_read_ecu_info(tmpdir):
+    import ota_client
+    ecuinfo_path = tmpdir.join("ecuinfo.yaml")
+    ecuinfo = """\
+main_ecu:
+  ecu_name: 'autoware_ecu' 
+  ecu_type: 'autoware'
+  ecu_id: '1'
+  version: '0.0.0'
+  independent: True
+  ip_addr: ''
+"""
+    ecuinfo_path.write(ecuinfo)
+    rd_ecuinfo = ota_client._read_ecu_info(ecuinfo_path)
+    assert rd_ecuinfo['main_ecu']['ecu_name'] == 'autoware_ecu'
+    assert rd_ecuinfo['main_ecu']['ecu_type'] == 'autoware'
+    assert rd_ecuinfo['main_ecu']['ecu_id'] == '1'
+    assert rd_ecuinfo['main_ecu']['version'] == '0.0.0'
+    assert rd_ecuinfo['main_ecu']['independent'] == True
+    assert rd_ecuinfo['main_ecu']['ip_addr'] == ''
+
+def test_ota_client_cleanup_dir(tmpdir):
+    import ota_client
+    clean_dir_path = tmpdir.mkdir("cleantest")
+    cld_a = clean_dir_path.join("a")
+    cld_a.write("a")
+    cld_b = clean_dir_path.join("b")
+    cld_b.write("b")
+    cld_c = clean_dir_path.join("c")
+    cld_c.write("c")
+    cldA = clean_dir_path.mkdir("A")
+    cldA_d = cldA.join("d")
+    cldA_d.write("d")
+    cldB = clean_dir_path.mkdir("B")
+    cldB_d = cldA.join("e")
+    cldB_d.write("e")
+    cldC = clean_dir_path.mkdir("C")
+    cldC_f = cldA.join("f")
+    cldC_f.write("d")
+
+    assert clean_dir_path.ensure_dir()
+    assert cld_a.ensure()
+    assert cld_b.ensure()
+    assert cld_c.ensure()
+    assert cldA.ensure_dir()
+    assert cldB.ensure_dir()
+    assert cldC.ensure_dir()
+
+    ota_client._cleanup_dir(clean_dir_path)
+
+    assert os.path.exists(str(clean_dir_path))
+    assert not os.path.isfile(str(cld_a))
+    assert not os.path.isfile(str(cld_b))
+    assert not os.path.isfile(str(cld_a))
+    assert not os.path.exists(str(cldA))
+    assert not os.path.exists(str(cldB))
+    assert not os.path.exists(str(cldC))
+
