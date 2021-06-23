@@ -7,13 +7,15 @@ import shlex
 import shutil
 import subprocess
 from bank import BankInfo
+from pprint import pprint  # for debug
 
 from logging import getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
-def make_grub_configuration_file(output_file):
+
+def _make_grub_configuration_file(output_file):
     """
     make the "grub.cfg" file
     """
@@ -35,6 +37,61 @@ def make_grub_configuration_file(output_file):
         logger.exception("failed genetrating grub.cfg")
         return False
     return True
+
+
+class GrubCfgParser:
+    def __init__(self, grub_cfg):
+        self._grub_cfg = grub_cfg
+
+    def parse(self):
+        menu, _ = self._parse(self._grub_cfg, False)
+        return menu
+
+    def _parse(self, cfg, in_submenu):
+        """
+        returns [
+          {}, # menuentry
+          {}, # menuentry
+          [ # submenu
+            {}, # menuentry
+            {}, # menuentry
+          ],
+          [ # submenu
+            {}, # menuentry
+          ],
+          {}, # menuentry
+        """
+        pos = 0
+        braces = []
+        menus = []
+        while True:
+            m = re.search(r"(menuentry\s.*{|submenu\s.*{|})", cfg[pos:])
+            if m:
+                pos += m.span()[1]
+                if m.group(1).startswith("menuentry"):
+                    braces.append(pos)
+                if m.group(1).startswith("submenu"):
+                    menu, sub_pos = self._parse(cfg[pos:], True)
+                    pos += sub_pos
+                    menus.append(menu)
+                if m.group(1) == "}":
+                    try:
+                        begin = braces.pop()
+                        # parse [begin:end]
+                        linux = re.search(r"[ \t]*linux\s.*", cfg[begin:pos])
+                        initrd = re.search(r"[ \t]*initrd\s.*", cfg[begin:pos])
+                        entry = {}
+                        entry["linux"] = None if linux is None else linux.group(0)
+                        entry["initrd"] = None if initrd is None else initrd.group(0)
+                        menus.append(entry)
+                    except IndexError:
+                        if in_submenu:
+                            return menus, pos
+                        else:
+                            pass  # just ignore
+            else:
+                return menus, pos
+
 
 class GrubCtl:
     """
@@ -84,7 +141,7 @@ class GrubCtl:
             # 3. device name with current_bank
             if boot_device.find(current_bank) >= 0:
                 boot_device = boot_device.replace(current_bank, next_bank)
-                logger.debug(f"RPL: {dev_rep}")
+                logger.debug(f"RPL: {boot_device}")
                 logger.debug(f"current: {current_bank}")
                 logger.debug(f"next: {next_bank}")
                 break
@@ -272,7 +329,7 @@ class GrubCtl:
                     f"{replace_list[i]['search']}{replace_list[i]['replace']}\n"
                 )
 
-    def grub_configuration(self, style_str="menu", timeout=10):
+    def _grub_configuration(self, style_str="menu", timeout=10, default=None):
         """
         Grub configuration setup:
             GRUB_TIMEOUT_STYLE=menu
@@ -280,10 +337,12 @@ class GrubCtl:
             GRUB_DISABLE_SUBMENU=y
         """
         replace_list = [
-            {"search": "GRUB_TIMEOUT_STYLE=", "replace": "menu"},
-            {"search": "GRUB_TIMEOUT=", "replace": "10"},
+            {"search": "GRUB_TIMEOUT_STYLE=", "replace": style_str},
+            {"search": "GRUB_TIMEOUT=", "replace": str(timeout)},
             {"search": "GRUB_DISABLE_SUBMENU=", "replace": "y"},
         ]
+        if default is not None:
+            replace_list.append({"search": "GRUB_DEFAULT=", "replace": str(default)})
 
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             temp_file = ftmp.name
@@ -303,16 +362,53 @@ class GrubCtl:
             shutil.move(temp_file, self._default_grub_file)
         return True
 
+    def _find_custom_cfg_entry_from_grub_cfg(self):
+        """
+        find grub menu entry number which contains custom.cfg entry.
+        NOTE: submenu is not supported, so before calling this function, add
+              GRUB_DISABLE_SUBMENU=y to the /etc/default/grub.
+        """
+        with open(self._custom_cfg_file) as f:
+            custom_cfg = f.read()
+        m = re.search(r"\s+linux\s+(\S*)\s+root=(.*?)\s+", custom_cfg)
+        vmlinuz = m.group(1)
+        boot_device = m.group(2)
+
+        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
+            _make_grub_configuration_file(ftmp.name)
+            with open(ftmp.name) as f:
+                parser = GrubCfgParser(f.read())
+                menus = parser.parse()
+                for i, menu in enumerate(menus):
+                    m = re.search(
+                        rf".*{os.path.basename(vmlinuz)}\s+root={boot_device}",
+                        menu["linux"],
+                    )
+                    if m is not None:
+
+                        logger.info(
+                            f"found {vmlinuz} and {boot_device} at grub menu entry #{i}"
+                        )
+                        return i
+        logger.error(f"{vmlinuz} or {boot_device} was not found in the grub menu entry")
+        return -1
 
     def re_generate_grub_config(self):
         """
         regenarate the grub config file
         """
         # change the grub genaration configuration
-        self.grub_configuration()
+        self._grub_configuration()
+
+        grub_default = self._find_custom_cfg_entry_from_grub_cfg()
+        if grub_default < 0:
+            raise Exception("custom.cfg entry was not found in grub.cfg")
+
+        # create default/grub again with GRUB_DEFAULT
+        self._grub_configuration(default=grub_default)
 
         # make the grub configuration file
-        res = make_grub_configuration_file(self._grub_cfg_file)
+        res = _make_grub_configuration_file(self._grub_cfg_file)
         return res
 
     def count_grub_menue_entries_wo_submenu(self, input_file):
