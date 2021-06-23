@@ -246,7 +246,7 @@ def _gen_directories(dirlist_file, target_dir):
     return True
 
 
-def exit_chroot(real_root, cwd):
+def _exit_chroot(real_root, cwd):
     """
     exit chroot and back to cwd
     """
@@ -305,7 +305,7 @@ def _gen_persistent_files(list_file, target_dir):
     return res
 
 
-def header_str_to_dict(header_str):
+def _header_str_to_dict(header_str):
     """"""
     header_dict = {}
     for l in header_str.split(","):
@@ -760,7 +760,7 @@ class OtaClient:
                     if slinkf.slink.find("/boot") == 0:
                         # /boot directory
                         # exit chroot environment
-                        exit_chroot(real_root, cwd)
+                        _exit_chroot(real_root, cwd)
                         try:
                             dest_file = ""
                             if os.path.exists(slinkf.slink):
@@ -782,7 +782,7 @@ class OtaClient:
                 res = False
             finally:
                 # exit chroot
-                exit_chroot(real_root, cwd)
+                _exit_chroot(real_root, cwd)
         return res
 
     def _setup_symboliclinks(self, target_dir):
@@ -1218,7 +1218,7 @@ class OtaClient:
         self.__url = ecu_update_info.url
         metadata = ecu_update_info.metadata
         metadata_jwt_url = os.path.join(self.__url, metadata)
-        self.__header_dict = header_str_to_dict(ecu_update_info.header)
+        self.__header_dict = _header_str_to_dict(ecu_update_info.header)
         # logger.info(f"metadata_jwt: {metadata_jwt_url}")
         # logger.info(header_dict)
         # logger.info(self.__cookie)
