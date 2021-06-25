@@ -127,25 +127,6 @@ def _copytree_complete(src, dst):
     return dst
 
 
-def _gen_ota_status_file(ota_status_file):
-    """
-    generate OTA status file
-    """
-    with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-        tmp_file = ftmp.name
-        with open(ftmp.name, "w") as f:
-            f.write("NORMAL")
-            f.flush()
-    os.sync()
-    dir_name = os.path.dirname(ota_status_file)
-    if not os.path.exists(dir_name):
-        os.makedirs(dir_name)
-    shutil.move(tmp_file, ota_status_file)
-    logger.info(f"{ota_status_file} generated.")
-    os.sync()
-    return True
-
-
 def _read_ecuid(ecuid_file):
     """
     initial read ECU ID
@@ -315,7 +296,7 @@ def _header_str_to_dict(header_str):
     return header_dict
 
 
-def _find_ecu_info(ecuupdateinfo_list, ecu_id):
+def _find_ecuinfo(ecuupdateinfo_list, ecu_id):
     """"""
     ecu_info = {}
     for ecuupdateinfo in ecuupdateinfo_list:
@@ -457,8 +438,6 @@ class OtaClient:
         self._regularlist_file = "regularlist.txt"
         self._persistentlist_file = "persistentlist.txt"
         #
-        if not os.path.exists(ota_status_file):
-            _gen_ota_status_file(ota_status_file)
         self._ota_status = OtaStatus(ota_status_file=ota_status_file)
         self._grub_ctl = GrubCtl(bank_info_file=bank_info_file)
         #
@@ -480,9 +459,15 @@ class OtaClient:
     def get_my_ecuid(self):
         return self.__my_ecuid
 
-    def _get_ecu_info(self):
+    def get_ecuinfo(self):
         """"""
         return self.__ecu_info
+
+    def get_boot_status(self):
+        return self._boot_status
+
+    def get_ota_status(self):
+        return self._ota_status.get_ota_status()
 
     def _set_url(self, url):
         self.__url = url
@@ -1164,7 +1149,7 @@ class OtaClient:
         return True
 
 
-    def _set_update_ecuinfo(self, update_info):
+    def set_update_ecuinfo(self, update_info):
         """"""
         logger.info("_update_ecu_info start")
         ecuinfo = update_info.ecu_info
@@ -1200,6 +1185,9 @@ class OtaClient:
 
         logger.info("_update_ecu_info end")
         return ecu_found
+
+    def update(self, ecu_update_info):
+        self._update(ecu_update_info, reboot=True)
 
 
     def _update(self, ecu_update_info, reboot=True):
@@ -1268,9 +1256,15 @@ class OtaClient:
 
         return True
 
+    def find_ecuinfo(self, ecuupdateinfo_list, ecu_id):
+        _find_ecuinfo(ecuupdateinfo_list, ecu_id)
 
-    def _reboot(self):
-        if self._ota_status.get_ota_status() == "PREPARED":
+    def save_update_ecuinfo(self, update_ecu_info):
+        _save_update_ecuinfo(self.__ecuinfo_yaml_file, update_ecu_info)
+
+
+    def reboot(self):
+        if self.get_ota_status() == "PREPARED":
             # switch reboot
             if not self._grub_ctl.prepare_grub_switching_reboot(
                 self._boot_vmlinuz, self._boot_initrd
@@ -1296,7 +1290,7 @@ class OtaClient:
 
     def _rollback(self):
         """"""
-        if self._ota_status.get_ota_status() == "NORMAL":
+        if self.get_ota_status() == "NORMAL":
             return False
 
         if self._ota_status.is_rollback_available() and os.path.isdir(

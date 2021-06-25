@@ -97,6 +97,9 @@ class OtaBoot:
             return False
         return True
 
+    def boot(self):
+        self._boot(noexec=False)
+
     def _boot(self, noexec=False):
         """
         OTA boot
