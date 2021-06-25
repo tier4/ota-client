@@ -61,11 +61,15 @@ def _find_file_separate(string):
     return match.start()
 
 
-def _copy_complete(src_file, dest_file, follow_symlinks=False):
-    shutil.copy2(src_file, dest_file, follow_symlinks=follow_symlinks)
+def _copy_complete(src_file, dst_file, follow_symlinks=False):
+
+    src_dir = os.path.dirname(src_file)
+    dst_dir = os.path.dirname(dst_file)
+    _copydirs_complete(src_dir, dst_dir)
+    shutil.copy2(src_file, dst_file, follow_symlinks=follow_symlinks)
     # copy owner and group
     st = os.stat(src_file)
-    os.chown(dest_file, st[stat.ST_UID], st[stat.ST_GID])
+    os.chown(dst_file, st[stat.ST_UID], st[stat.ST_GID])
 
 
 def _copydirs_complete(src, dst):
