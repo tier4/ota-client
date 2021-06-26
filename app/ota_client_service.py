@@ -134,8 +134,10 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         """
         OTA update function
         """
+        result = True
         update_count = 0
         ecu_info = self._ota_client.get_ecuinfo()
+        logger.debug(f"ecuinfo:{ecu_info}")
         if "sub_ecus" in ecu_info:
             # update sub-ECUs
             update_subs = []
@@ -149,16 +151,16 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         my_update_info = self._ota_client.find_ecuinfo(
             ecuupdateinfo, self._ota_client.get_my_ecuid()
         )
-        logger.debug(f"{my_update_info}")
-        if my_update_info != {}:
+        if my_update_info is not None:
             logger.info("execute update!!")
+            logger.debug(f"{my_update_info}")
             if self._ota_client.set_update_ecuinfo(my_update_info):
-                result = self._ota_client.update(my_update_info, reboot=False)
+                result = self._ota_client.update(my_update_info)
                 if result:
                     update_count += 1
         logger.debug(f"update_count: {update_count}")
         if update_count > 0:
-            self._ota_client.save_update_ecuinfo(my_update_info)
+            self._ota_client.save_update_ecuinfo()
             if self._ota_client.is_main_ecu():
                 self._ota_reboot()
 
@@ -209,7 +211,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         print(my_rollback_info)
         if my_rollback_info != {}:
             logger.info("execute update!")
-            result = self._ota_client.update(my_rollback_info, reboot=False)
+            result = self._ota_client.update(my_rollback_info)
         else:
             result = True
         return result
