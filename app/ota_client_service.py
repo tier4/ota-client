@@ -6,7 +6,6 @@ import os
 
 from ota_boot import OtaBoot
 from ota_client import OtaClient
-
 from concurrent import futures
 
 import grpc
@@ -18,25 +17,28 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
+def _setup_ecus():
+    """
+    read ECU configuration
+    """
+    ecuinfo = {}
+    ecuinfo["ecu_name"] = "Autoware"
+    ecuinfo["ecu_type"] = "autoware"
+    ecuinfo["ecu_id"] = "1"
+    ecuinfo["version"] = "0.0.0"
+    ecuinfo["independent"] = True
+    return ecuinfo
+
+
 class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
-    """"""
-
+    """
+    OTA lient service class
+    """
     def __init__(self, otaclient):
-        self.ecuinfo = self.setup_ecus()
-        self.subecu_port = {}
-        self.ota_client = otaclient
-
-    def setup_ecus(self):
-        """
-        read ECU configuration
-        """
-        ecuinfo = {}
-        ecuinfo["ecu_name"] = "Autoware"
-        ecuinfo["ecu_type"] = "autoware"
-        ecuinfo["ecu_id"] = "1"
-        ecuinfo["version"] = "0.0.0"
-        ecuinfo["independent"] = True
-        return ecuinfo
+        self._ecuinfo = _setup_ecus()
+        self._subecu_port = {}
+        self._ota_client = otaclient
 
     def OtaUpdate(self, request, context):
         # do update
@@ -72,7 +74,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
 
     def EcuStatus(self, request, context):
         # return ECU status info
-        ecu_status = self.ota_client._ota_status.get_ota_status()
+        ecu_status = self._ota_client.get_ota_status()
         logger.info(f"ECU status: {ecu_status}")
         status = status = otaclient_pb2.EcuStatusType.ECU_STATUS_NORMAL
         if ecu_status == "NORMAL":
@@ -87,7 +89,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
             status = otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK
         else:
             status = otaclient_pb2.EcuStatusType.ECU_STATUS_UNKNOWN
-        boot_status = self.ota_client._boot_status
+        boot_status = self._ota_client.get_boot_status()
         bstatus = otaclient_pb2.BootStatusType.NORMAL_BOOT
         if boot_status == "NORMAL_BOOT":
             bstatus = otaclient_pb2.BootStatusType.NORMAL_BOOT
@@ -109,7 +111,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         # Return ECU version info
         ver_reply_msg = otaclient_pb2.EcuVersionReply()
         ei = ver_reply_msg.ecu_info.add()
-        ecu_info = self.ota_client._get_ecu_info()
+        ecu_info = self._ota_client.get_ecuinfo()
         ecuinf = ecu_info["main_ecu"]
         logger.debug(f"{ecuinf}")
         ei.ecu_name = ecuinf["ecu_name"]
@@ -132,8 +134,10 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         """
         OTA update function
         """
+        result = True
         update_count = 0
-        ecu_info = self.ota_client._get_ecu_info()
+        ecu_info = self._ota_client.get_ecuinfo()
+        logger.debug(f"ecuinfo:{ecu_info}")
         if "sub_ecus" in ecu_info:
             # update sub-ECUs
             update_subs = []
@@ -143,21 +147,21 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
                     update_count += 1
         # find my ECU info
         ecuupdateinfo = request.ecu_update_info
-        logger.info(f"my ECU ID: {self.ota_client.get_my_ecuid()}")
-        my_update_info = self.ota_client._find_ecu_info(
-            ecuupdateinfo, self.ota_client.get_my_ecuid()
+        logger.info(f"my ECU ID: {self._ota_client.get_my_ecuid()}")
+        my_update_info = self._ota_client.find_ecuinfo(
+            ecuupdateinfo, self._ota_client.get_my_ecuid()
         )
-        logger.debug(f"{my_update_info}")
-        if my_update_info != {}:
+        if my_update_info is not None:
             logger.info("execute update!!")
-            if self.ota_client._set_update_ecuinfo(my_update_info):
-                result = self.ota_client._update(my_update_info, reboot=False)
+            logger.debug(f"{my_update_info}")
+            if self._ota_client.set_update_ecuinfo(my_update_info):
+                result = self._ota_client.update(my_update_info)
                 if result:
                     update_count += 1
         logger.debug(f"update_count: {update_count}")
         if update_count > 0:
-            self.ota_client._save_update_ecuinfo()
-            if self.ota_client.is_main_ecu():
+            self._ota_client.save_update_ecuinfo()
+            if self._ota_client.is_main_ecu():
                 self._ota_reboot()
 
         return result
@@ -172,7 +176,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         """
         OTA reboot
         """
-        ecu_info = self.ota_client._get_ecu_info()
+        ecu_info = self._ota_client.get_ecuinfo()
         if "sub_ecus" in ecu_info:
             # reboot sub-ECUs
             update_subs = []
@@ -180,7 +184,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
             for subecuinfo in ecu_info["sub_ecus"]:
                 self._subecu_reboot()
         # self rebbot
-        self.ota_client._reboot()
+        self._ota_client.reboot()
 
     def _subecu_reboot(self):
         """"""
@@ -190,7 +194,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         """
         OTA Rollback function
         """
-        ecu_info = self.ota_client._get_ecu_info()
+        ecu_info = self._ota_client.get_ecuinfo()
         if "sub_ecus" in ecu_info:
             # update sub-ECUs
             update_subs = []
@@ -200,14 +204,14 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         # find my ECU info
         ecurollbackinfo = request.ecu_rollback_info
         logger.debug(f"{ecurollbackinfo[0].ecu_info}")
-        logger.debug(f"my ECU ID: {self.ota_client.get_my_ecuid}")
-        my_rollback_info = self._find_ecu_info(
-            ecurollbackinfo, self.ota_client.get_my_ecuid()
+        logger.debug(f"my ECU ID: {self._ota_client.get_my_ecuid}")
+        my_rollback_info = self._ota_client.find_ecuinfo(
+            ecurollbackinfo, self._ota_client.get_my_ecuid()
         )
         print(my_rollback_info)
         if my_rollback_info != {}:
             logger.info("execute update!")
-            result = self.ota_client._update(my_rollback_info, reboot=False)
+            result = self._ota_client.update(my_rollback_info)
         else:
             result = True
         return result
@@ -217,7 +221,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         return True
 
 
-def otaclient_service(otaclient, port):
+def _otaclient_service(otaclient, port):
     """
     OTA Client gRPC server service start
     """
@@ -231,7 +235,7 @@ def otaclient_service(otaclient, port):
     server.wait_for_termination()
 
 
-def daemonize(port, no_boot=False):
+def _daemonize(port, no_boot=False):
     pid = os.fork()
     if pid > 0:
         # parent process
@@ -245,10 +249,10 @@ def daemonize(port, no_boot=False):
         if not args.no_boot:
             # otaboot = OtaBoot(ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml')
             otaboot = OtaBoot()
-            boot_result = otaboot._boot()
+            boot_result = otaboot.boot()
         # otaclient = OtaClient(boot_status=boot_result, ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml', ecuid_file='tests/ecuid', ecuinfo_yaml_file='tests/ecuinfo.yaml')
         otaclient = OtaClient(boot_status=boot_result)
-        otaclient_service(otaclient, port)
+        _otaclient_service(otaclient, port)
 
 
 if __name__ == "__main__":
@@ -269,13 +273,13 @@ if __name__ == "__main__":
 
     if args.daemonize:
         logger.info("Daemonize!")
-        daemonize(args.port)
+        _daemonize(args.port)
     else:
         boot_result = "NORMAL_BOOT"
         if not args.no_boot:
             # otaboot = OtaBoot(ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml')
             otaboot = OtaBoot()
-            boot_result = otaboot._boot()
+            boot_result = otaboot.boot()
         # otaclient = OtaClient(boot_status=boot_result, ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml', ecuid_file='tests/ecuid', ecuinfo_yaml_file='tests/ecuinfo.yaml')
         otaclient = OtaClient(boot_status=boot_result)
-        otaclient_service(otaclient, port=args.port)
+        _otaclient_service(otaclient, port=args.port)

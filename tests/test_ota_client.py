@@ -3,6 +3,51 @@ import pytest
 import subprocess
 
 
+def _assert_own(entry, uid, gid):
+    try:
+        entry.readlink()
+        return
+    except Exception:
+        pass
+    st = os.stat(entry)
+    assert st.st_uid == uid
+    assert st.st_gid == gid
+
+def test_ota_client_copy_complete(tmpdir):
+    import ota_client
+
+    src = tmpdir.mkdir("src")
+    src_A = src.mkdir("A")
+    src_A_B = src_A.mkdir("B")
+    src_A_B_a = src_A_B.join("a")
+    src_A_B_a.write("a")
+
+    dst = tmpdir.join("dst")
+
+    os.chown(src, 1234, 4321)
+    os.chown(src_A, 2345, 5432)
+    os.chown(src_A_B, 3456, 6543)
+    os.chown(src_A_B_a, 4567, 7654)
+
+    dest_file = tmpdir.join("dst/A/B/a")
+    ota_client._copy_complete(src_A_B_a, dest_file)
+
+    """
+    output = subprocess.check_output(["ls", "-lR", tmpdir.join("dst")])
+    print(output.decode("utf-8"))
+    """
+    assert tmpdir.join("dst").ensure_dir()
+    assert tmpdir.join("dst/A").ensure_dir()
+    assert tmpdir.join("dst/A/B").ensure_dir()
+    assert tmpdir.join("dst/A/B/c").ensure()
+
+    _assert_own(tmpdir.join("dst"), 1234, 4321)
+    _assert_own(tmpdir.join("dst/A"), 2345, 5432)
+    _assert_own(tmpdir.join("dst/A/B"), 3456, 6543)
+    _assert_own(tmpdir.join("dst/A/B/a"), 4567, 7654)
+
+
+
 def test_ota_client_copytree_complete(tmpdir):
     import ota_client
 
@@ -48,28 +93,14 @@ def test_ota_client_copytree_complete(tmpdir):
     assert tmpdir.join("dst/A/B/d").ensure()
     assert tmpdir.join("dst/A/B/d").readlink() == "c"
 
-    def assert_own(entry, uid, gid):
-        try:
-            entry.readlink()
-            return
-        except Exception:
-            pass
-        st = os.stat(entry)
-        assert st.st_uid == uid
-        assert st.st_gid == gid
-
-    assert_own(tmpdir.join("dst"), 1234, 4321)
-    assert_own(tmpdir.join("dst/A"), 2345, 5432)
-    assert_own(tmpdir.join("dst/A/B"), 3456, 6543)
-    assert_own(tmpdir.join("dst/A/B/C"), 4567, 7654)
-    assert_own(tmpdir.join("dst/A/B/c"), 5678, 8765)
 
 
-def test_ota_client_gen_ota_status_file(tmpdir):
-    import ota_client
-    ota_status_path = tmpdir.join("ota_status")
-    ota_client._gen_ota_status_file(ota_status_path)
-    assert ota_status_path.read() == "NORMAL"
+    _assert_own(tmpdir.join("dst"), 1234, 4321)
+    _assert_own(tmpdir.join("dst/A"), 2345, 5432)
+    _assert_own(tmpdir.join("dst/A/B"), 3456, 6543)
+    _assert_own(tmpdir.join("dst/A/B/C"), 4567, 7654)
+    _assert_own(tmpdir.join("dst/A/B/c"), 5678, 8765)
+
 
 def test_otaclient_read_ecuid(tmpdir):
     import ota_client

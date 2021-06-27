@@ -301,52 +301,6 @@ class BankInfo:
         logger.info("root not found!")
         return ""
 
-    def setup_next_bank_fstab(self, fstab_file=""):
-        """
-        setup next bank to fstab
-        """
-        if fstab_file == "":
-            fstab_file = self._fstab_file
-
-        # read fstab
-        with open(fstab_file, "r") as f:
-            lines = f.readlines()
-
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            with open(ftmp.name, "w") as fout:
-                for l in lines:
-                    if l[0] == "#":
-                        fout.write(l)
-                        continue
-                    fstab_list = l.split()
-                    if fstab_list[1] == "/":
-                        lnext = ""
-                        if fstab_list[0].find(self._current_bank) >= 0:
-                            # devf found
-                            lnext = l.replace(self._current_bank, self._next_bank)
-                        elif fstab_list[0].find(self.get_current_bank_uuid()) >= 0:
-                            # uuid found
-                            lnext = l.replace(
-                                self.get_current_bank_uuid(), self.get_next_bank_uuid()
-                            )
-                        elif (
-                            fstab_list[0].find(self._current_bank) >= 0
-                            or fstab_list[0].find(self.get_next_bank_uuid()) >= 0
-                        ):
-                            # next bank found
-                            logger.debug("Already set to next bank!")
-                            lnext = l
-                        else:
-                            raise (Exception("root device mismatch in fstab."))
-                        fout.write(lnext)
-                    else:
-                        fout.write(l)
-        # replace to new fstab file
-        shutil.copy(fstab_file, fstab_file + ".old")
-        shutil.move(tmp_file, fstab_file)
-
-        return True
 
     def get_banka(self):
         """

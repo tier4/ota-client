@@ -61,11 +61,15 @@ def _find_file_separate(string):
     return match.start()
 
 
-def _copy_complete(src_file, dest_file, follow_symlinks=False):
-    shutil.copy2(src_file, dest_file, follow_symlinks=follow_symlinks)
+def _copy_complete(src_file, dst_file, follow_symlinks=False):
+
+    src_dir = os.path.dirname(src_file)
+    dst_dir = os.path.dirname(dst_file)
+    _copydirs_complete(src_dir, dst_dir)
+    shutil.copy2(src_file, dst_file, follow_symlinks=follow_symlinks)
     # copy owner and group
     st = os.stat(src_file)
-    os.chown(dest_file, st[stat.ST_UID], st[stat.ST_GID])
+    os.chown(dst_file, st[stat.ST_UID], st[stat.ST_GID])
 
 
 def _copydirs_complete(src, dst):
@@ -125,25 +129,6 @@ def _copytree_complete(src, dst):
     if errors:
         raise Error(errors)
     return dst
-
-
-def _gen_ota_status_file(ota_status_file):
-    """
-    generate OTA status file
-    """
-    with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-        tmp_file = ftmp.name
-        with open(ftmp.name, "w") as f:
-            f.write("NORMAL")
-            f.flush()
-    os.sync()
-    dir_name = os.path.dirname(ota_status_file)
-    if not os.path.exists(dir_name):
-        os.makedirs(dir_name)
-    shutil.move(tmp_file, ota_status_file)
-    logger.info(f"{ota_status_file} generated.")
-    os.sync()
-    return True
 
 
 def _read_ecuid(ecuid_file):
@@ -315,11 +300,12 @@ def _header_str_to_dict(header_str):
     return header_dict
 
 
-def _find_ecu_info(ecuupdateinfo_list, ecu_id):
+def _find_ecuinfo(ecuupdateinfo_list, ecu_id):
     """"""
-    ecu_info = {}
+    ecu_info = None
     for ecuupdateinfo in ecuupdateinfo_list:
         if ecu_id == ecuupdateinfo.ecu_info.ecu_id:
+            logger.debug(f"[found] id={ecuupdateinfo.ecu_info.ecu_id}")
             ecu_info = ecuupdateinfo
     return ecu_info
 
@@ -457,8 +443,6 @@ class OtaClient:
         self._regularlist_file = "regularlist.txt"
         self._persistentlist_file = "persistentlist.txt"
         #
-        if not os.path.exists(ota_status_file):
-            _gen_ota_status_file(ota_status_file)
         self._ota_status = OtaStatus(ota_status_file=ota_status_file)
         self._grub_ctl = GrubCtl(bank_info_file=bank_info_file)
         #
@@ -480,9 +464,15 @@ class OtaClient:
     def get_my_ecuid(self):
         return self.__my_ecuid
 
-    def _get_ecu_info(self):
+    def get_ecuinfo(self):
         """"""
         return self.__ecu_info
+
+    def get_boot_status(self):
+        return self._boot_status
+
+    def get_ota_status(self):
+        return self._ota_status.get_ota_status()
 
     def _set_url(self, url):
         self.__url = url
@@ -1164,11 +1154,11 @@ class OtaClient:
         return True
 
 
-    def _set_update_ecuinfo(self, update_info):
+    def set_update_ecuinfo(self, update_info):
         """"""
         logger.info("_update_ecu_info start")
         ecuinfo = update_info.ecu_info
-        logger.info(f"[ecu_info] {ecuinfo}")
+        logger.debug(f"[ecu_info] {ecuinfo}")
         ecu_found = False
         if ecuinfo.ecu_id == self.__update_ecu_info["main_ecu"]["ecu_id"]:
             logger.info("ecu_id matched!")
@@ -1177,9 +1167,9 @@ class OtaClient:
             self.__update_ecu_info["main_ecu"]["version"] = ecuinfo.version
             self.__update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
             ecu_found = True
-            logger.info(f"__update_ecu_info: {self.__update_ecu_info}")
+            logger.debug(f"__update_ecu_info: {self.__update_ecu_info}")
         else:
-            logger.info("ecu_id not matched!")
+            logger.debug("ecu_id not matched!")
             if "sub_ecus" in self.__update_ecu_info:
                 for i, subecuinfo in enumerate(self.__update_ecu_info["sub_ecus"]):
                     ecuinfo = subecuinfo.ecu_info
@@ -1197,26 +1187,27 @@ class OtaClient:
                             "independent"
                         ] = ecuinfo.independent
                         ecu_found = True
-
         logger.info("_update_ecu_info end")
         return ecu_found
 
+    def update(self, ecu_update_info):
+        return self._update(ecu_update_info, reboot=False)
 
-    def _update(self, ecu_update_info, reboot=True):
+
+    def _update(self, ecu_update_info, reboot=False):
         """
         OTA update execution
         """
         # -----------------------------------------------------------
         # set 'UPDATE' state
         self._ota_status.set_ota_status("UPDATE")
-        logger.info(ecu_update_info)
+        logger.debug(ecu_update_info)
         self.__url = ecu_update_info.url
         metadata = ecu_update_info.metadata
         metadata_jwt_url = os.path.join(self.__url, metadata)
         self.__header_dict = _header_str_to_dict(ecu_update_info.header)
-        # logger.info(f"metadata_jwt: {metadata_jwt_url}")
-        # logger.info(header_dict)
-        # logger.info(self.__cookie)
+        logger.debug(f"[metadata_jwt] {metadata_jwt_url}")
+        logger.debug(f"[header] {self.__header_dict}")
 
         #
         # download metadata
@@ -1246,31 +1237,13 @@ class OtaClient:
         # set 'PREPARED' state
         self._ota_status.set_ota_status("PREPARED")
         if reboot:
-            # switch reboot
-            if not self._grub_ctl.prepare_grub_switching_reboot(
-                self._boot_vmlinuz, self._boot_initrd
-            ):
-                # inform error
-                self._inform_update_error("Switching bank failed!")
-                # set 'NORMAL' state
-                self._ota_status.set_ota_status("NORMAL")
-                _unmount_bank(self._mount_point)
-                return False
-            #
-            # -----------------------------------------------------------
-            # set 'SWITCHA/SWITCHB' state
-            next_state = self._get_switch_status_for_reboot(next_bank)
-            self._ota_status.set_ota_status(next_state)
-            #
-            # reboot
-            #
-            self._grub_ctl.reboot()
+            self.reboot()
 
         return True
 
 
-    def _reboot(self):
-        if self._ota_status.get_ota_status() == "PREPARED":
+    def reboot(self):
+        if self.get_ota_status() == "PREPARED":
             # switch reboot
             if not self._grub_ctl.prepare_grub_switching_reboot(
                 self._boot_vmlinuz, self._boot_initrd
@@ -1294,9 +1267,15 @@ class OtaClient:
         self._grub_ctl.reboot()
         return True
 
+    def find_ecuinfo(self, ecuupdateinfo_list, ecu_id):
+        return _find_ecuinfo(ecuupdateinfo_list, ecu_id)
+
+    def save_update_ecuinfo(self):
+        return _save_update_ecuinfo(self.__update_ecuinfo_yaml_file, self.__update_ecu_info)
+
     def _rollback(self):
         """"""
-        if self._ota_status.get_ota_status() == "NORMAL":
+        if self.get_ota_status() == "NORMAL":
             return False
 
         if self._ota_status.is_rollback_available() and os.path.isdir(
