@@ -231,18 +231,6 @@ def _gen_directories(dirlist_file, target_dir):
     return True
 
 
-def _exit_chroot(real_root, cwd):
-    """
-    exit chroot and back to cwd
-    """
-    # exit chroot
-    os.fchdir(real_root)
-    os.chroot(".")
-    # Back to old root
-    os.close(real_root)
-    os.chdir(cwd)
-
-
 def _gen_persistent_files(list_file, target_dir):
     """
     generate persistent files
@@ -735,20 +723,15 @@ class OtaClient:
             try:
                 cwd = os.getcwd()
                 real_root = os.open("/", os.O_RDONLY)
-                os.chroot(target_dir)
-                # Chrooted environment
-                # os.chdir(target_dir)
                 for l in f.read().splitlines():
                     slinkf = SymbolicLinkInf(l)
                     logger.debug(f"src: {slinkf.srcpath}")
                     logger.debug(f"slink: {slinkf.slink}")
                     if slinkf.slink.find("/boot") == 0:
                         # /boot directory
-                        # exit chroot environment
-                        _exit_chroot(real_root, cwd)
                         try:
                             dest_file = ""
-                            if os.path.exists(slinkf.slink):
+                            if os.path.islink(slinkf.slink):
                                 dest_dir = self._rollback_dir + "/"
                                 shutil.move(slinkf.slink, dest_dir)
                             os.symlink(slinkf.srcpath, slinkf.slink)
@@ -757,17 +740,13 @@ class OtaClient:
                             if dest_file != "":
                                 shutil.move(dest_file, slinkf.slink)
                             raise (OtaError("Cannot make symbolic link."))
-                        # re-enter the chrooted environment
-                        os.chroot(target_dir)
                     else:
                         # others
-                        os.symlink(slinkf.srcpath, slinkf.slink)
+                        slink = target_dir + slinkf.slink
+                        os.symlink(slinkf.srcpath, slink)
             except Exception as e:
                 logger.exception("symboliclink error:")
                 res = False
-            finally:
-                # exit chroot
-                _exit_chroot(real_root, cwd)
         return res
 
     def _setup_symboliclinks(self, target_dir):
