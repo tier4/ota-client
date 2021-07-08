@@ -29,7 +29,7 @@ jobs:
       - name: Execute pytest with coverage
         run: |
           set -o pipefail
-          sudo -s -E pytest --cov-report term-missing --cov=app ./tests | tee pytest-coverage.txt
+          sudo $pythonLocation/bin/python -m pytest --cov-report term-missing --cov=app ./tests | tee pytest-coverage.txt
       # export the coverage report to the comment!
       - name: Comment coverage
         uses: coroo/pytest-coverage-commentator@v1.0.2
