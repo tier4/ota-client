@@ -1,0 +1,53 @@
+name: test CI
+
+on: [push]
+
+jobs:
+  pytest_with_coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    strategy:
+      matrix:
+        python-version: [3.7]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v1
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package dependencies
+        run: |
+          python -m pip install --upgrade pip
+          for pathfile in $(find ./ -name "requirements*.txt" -type f); do
+             pip install -r $pathfile
+          done
+      # pytest, coverage
+      - name: Install test dependencies
+        run: |
+          python -m pip install pytest pytest-mock pytest-custom_exit_code
+          python -m pip install coverage
+      - name: Execute pytest with coverage
+        run: |
+          coverage run -m pytest ./tests
+      # only gather information about codes in ./app
+      - name: Gather coverage information
+        run: |
+          coverage report -m ./app/*
+  python_lint_check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python-version: [3.7]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v1
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: | 
+          python -m pip install black
+      - name: Run lint check
+        run: | 
+          black . --check --diff
