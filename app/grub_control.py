@@ -411,7 +411,7 @@ class GrubCtl:
         res = _make_grub_configuration_file(self._grub_cfg_file)
         return res
 
-    def count_grub_menue_entries_wo_submenu(self, input_file):
+    def count_grub_menu_entries_w_submenu(self, input_file):
         """
         count the grub menu entries without submenue
         """
@@ -423,12 +423,10 @@ class GrubCtl:
             with open(input_file, "r") as f:
                 lines = f.readlines()
                 for l in lines:
-                    pos = l.find(menuentry_str)
-                    if pos == 0:
+                    if re.match(rf'\s*{menuentry_str}', l):
                         logger.debug(f"{menu_entries} : {l}")
                         menu_entries += 1
-                    pos = l.find(submenu_str)
-                    if pos == 0:
+                    if re.match(rf'\s*{submenu_str}', l):
                         logger.debug(f"{menu_entries} : {l}")
                         menu_entries += 1
         else:
@@ -437,7 +435,7 @@ class GrubCtl:
         logger.debug(f"entries: {menu_entries}")
         return menu_entries
 
-    def count_grub_menue_entries(self, input_file):
+    def count_grub_menu_entries(self, input_file):
         """
         count the grub menu entries
         """
@@ -448,8 +446,7 @@ class GrubCtl:
             with open(input_file, "r") as f:
                 lines = f.readlines()
                 for l in lines:
-                    pos = l.find(menuentry_str)
-                    if pos >= 0:
+                    if re.match(rf'\s*{menuentry_str}', l):
                         logger.debug(f"{menu_entries} : {l}")
                         menu_entries += 1
         else:
@@ -478,9 +475,9 @@ class GrubCtl:
         """
         # get grub.cfg menuentries
         if no_submenu:
-            menu_entries = self.count_grub_menue_entries_wo_submenu(self._grub_cfg_file)
+            menu_entries = self.count_grub_menu_entries_w_submenu(self._grub_cfg_file)
         else:
-            menu_entries = self.count_grub_menue_entries(self._grub_cfg_file)
+            menu_entries = self.count_grub_menu_entries(self._grub_cfg_file)
         if menu_entries > 0:
             # set next boot menuentry to custum menuentry
             res = self.set_next_boot_entry(menu_entries)
