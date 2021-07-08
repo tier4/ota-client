@@ -1,6 +1,6 @@
 name: test CI
 
-on: [push]
+on: [pull_request]
 
 jobs:
   pytest_with_coverage:
@@ -35,7 +35,7 @@ jobs:
         uses: coroo/pytest-coverage-commentator@v1.0.2
   python_lint_check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     strategy:
       matrix:
         python-version: [3.7]
@@ -48,6 +48,6 @@ jobs:
       - name: Install test dependencies
         run: | 
           python -m pip install black
-      - name: Run lint check
+      - name: Lint codes without modification
         run: | 
           black . --check
