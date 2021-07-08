@@ -29,11 +29,11 @@ jobs:
           python -m pip install coverage
       - name: Execute pytest with coverage
         run: |
-          coverage run -m pytest ./tests
+          sudo coverage run --source=. -m pytest ./tests
       # only gather information about codes in ./app
       - name: Gather coverage information
         run: |
-          coverage report -m ./app/*
+          coverage report -m ./app/*.py
   python_lint_check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
