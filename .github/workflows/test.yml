@@ -22,18 +22,16 @@ jobs:
           for pathfile in $(find ./ -name "requirements*.txt" -type f); do
              pip install -r $pathfile
           done
-      # pytest, coverage
+      # pytest
       - name: Install test dependencies
         run: |
-          python -m pip install pytest pytest-mock pytest-custom_exit_code
-          python -m pip install coverage
+          python -m pip install pytest pytest-mock pytest-custom_exit_code pytest-cov
       - name: Execute pytest with coverage
         run: |
-          sudo -E python -m coverage run --source=. -m pytest ./tests
-      # only gather information about codes in ./app
-      - name: Gather coverage information
-        run: |
-          coverage report -m ./app/*.py
+          pytest --cov-report term-missing --cov=app ./tests | tee pytest-coverage.txt
+      # export the coverage report to the comment!
+      - name: Comment coverage
+        uses: coroo/pytest-coverage-commentator@v1.0.2
   python_lint_check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
