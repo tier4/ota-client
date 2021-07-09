@@ -499,7 +499,7 @@ class OtaClient:
         """"""
         header = self.__header_dict  # self.__cookie
         header["Accept-encording"] = "gzip"
-        response = requests.get(url, headers=header)
+        response = requests.get(url, headers=header, timeout=1)
         if response.status_code != 200:
             logger.error(f"status_code={response.status_code}, url={url}")
             return response, ""
@@ -552,7 +552,7 @@ class OtaClient:
             # file move
             shutil.move(tmp_file_name, dest_file)
         except Exception as e:
-            logger.exception("File download error!:")
+            logger.exception(f"File download error!: {e}")
             return False
         finally:
             if os.path.isfile(tmp_file_name):
