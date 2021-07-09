@@ -1,7 +1,13 @@
 import os
 import pytest
 from pprint import pprint
-from tests.grub_cfg_params import grub_cfg_params, grub_cfg_wo_submenu, UUID_A, UUID_B
+from tests.grub_cfg_params import (
+    grub_cfg_params,
+    grub_cfg_custom_cfg_params,
+    grub_cfg_wo_submenu,
+    UUID_A,
+    UUID_B,
+)
 
 
 @pytest.fixture
@@ -59,6 +65,12 @@ def grub_ctl_instance(tmpdir, mocker, bankinfo_file, custom_cfg_file):
     def mock_get_next_bank_uuid(_):
         return UUID_B
 
+    def mock_get_current_bank(_):
+        return "/dev/sda3"
+
+    def mock_get_next_bank(_):
+        return "/dev/sda4"
+
     def mock_make_grub_configuration_file(output_file):
         with open(output_file, mode="w") as f:
             f.write(grub_cfg_wo_submenu)
@@ -66,6 +78,9 @@ def grub_ctl_instance(tmpdir, mocker, bankinfo_file, custom_cfg_file):
     mocker.patch("bank._get_uuid_from_blkid", mock_get_uuid_from_blkid)
     mocker.patch.object(BankInfo, "get_current_bank_uuid", mock_get_current_bank_uuid)
     mocker.patch.object(BankInfo, "get_next_bank_uuid", mock_get_next_bank_uuid)
+    mocker.patch.object(BankInfo, "get_current_bank", mock_get_current_bank)
+    mocker.patch.object(BankInfo, "get_next_bank", mock_get_next_bank)
+    mocker.patch.object(BankInfo, "_setup_current_next_root_dev", return_value=True)
     mocker.patch(
         "grub_control._make_grub_configuration_file", mock_make_grub_configuration_file
     )
@@ -139,3 +154,23 @@ def test_grub_cfg_parser(grub_cfg, expect):
 
     parser = GrubCfgParser(grub_cfg["grub_cfg"])
     assert parser.parse() == expect
+
+
+@pytest.mark.parametrize(
+    "grub_cfg, custom_cfg, vmlinuz, initrd",
+    grub_cfg_custom_cfg_params,
+    ids=[p[0]["id"] for p in grub_cfg_custom_cfg_params],
+)
+def test_make_grub_custom_configuration_file(
+    grub_cfg, custom_cfg, vmlinuz, initrd, grub_ctl_instance, tmp_path
+):
+    grub = tmp_path / "grub.cfg"
+    grub.write_text(grub_cfg["grub_cfg"])
+    custom = tmp_path / "custom.cfg"
+
+    # grub_ctl_instance has UUID_A as current_bank_uuid
+    assert grub_ctl_instance.make_grub_custom_configuration_file(
+        str(grub), str(custom), vmlinuz, initrd
+    )
+    custom_out = open(custom).read()
+    assert custom_out == custom_cfg

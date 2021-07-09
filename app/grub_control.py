@@ -224,10 +224,6 @@ class GrubCtl:
         logger.debug(f"input_file: {input_file}")
         logger.debug(f"output_file: {output_file}")
 
-        if not os.path.exists(input_file):
-            logger.info(f"No input file: {input_file}")
-            return
-
         # output_file = self._custom_cfg_file
 
         banka_uuid = self._bank_info.get_banka_uuid()
@@ -240,47 +236,32 @@ class GrubCtl:
         root_device_uuid_str = "root=UUID=" + self._bank_info.get_current_bank_uuid()
         root_device_str = "root=" + self._bank_info.get_current_bank()
 
-        found_target = False
+        def find_linux_entry(menus, uuid, device):
+            for menu in menus:
+                if type(menu) is dict:
+                    if menu["linux"].find(uuid) >= 0 or menu["linux"].find(device) >= 0:
+                        return menu
+                elif type(menu) is list:
+                    ret = find_linux_entry(menu, uuid, device)
+                    if ret is not None:
+                        return ret
+            return None
+
+        with open(input_file, mode="r") as fin:
+            parser = GrubCfgParser(fin.read())
+            menus = parser.parse()
+            menu_entry = find_linux_entry(menus, root_device_uuid_str, root_device_str)
+
+        if menu_entry is None:
+            logger.error("No menu entry found!")
+            return False
+
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             tmp_file = ftmp.name
             logger.debug(f"tmp file: {ftmp.name}")
             with open(ftmp.name, mode="w") as fout:
-                with open(input_file, mode="r") as fin:
-                    logger.debug(f"{input_file} opened!")
-                    menu_writing = False
-                    lines = fin.readlines()
-                    for l in lines:
-                        if menu_writing:
-                            fout.write(l)
-                            # check menuentry end
-                            if 0 <= l.find(menuentry_end):
-                                logger.debug("menu writing end!")
-                                menu_writing = False
-                                break
-                            match = re.search(linux_root_re, l)
-                            if match:
-                                logger.debug(f"linux root match: {l}")
-                                # check root
-                                logger.debug(f"root uuid: {root_device_uuid_str}")
-                                logger.debug(f"root devf: {root_device_str}")
-                                if l.find(root_device_uuid_str) >= 0:
-                                    logger.debug(f"found target: {l}")
-                                    found_target = True
-                                elif l.find(root_device_str) >= 0:
-                                    logger.debug(f"found target: {l}")
-                                    found_target = True
-                        else:
-                            # check menuentry start
-                            if found_target:
-                                break
-                            if 0 == l.find(menuentry_start):
-                                logger.debug(f"menuentry found! : {l}")
-                                menu_writing = True
-                                fout.write(l)
+                fout.write(menu_entry["entry"])
 
-        if not found_target:
-            logger.error("No menu entry found!")
-            return False
         try:
             # change root partition
             self.change_to_next_bank(tmp_file, vmlinuz, initrd)
