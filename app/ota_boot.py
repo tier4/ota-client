@@ -12,6 +12,7 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 def _gen_ota_status_file(ota_status_file):
     """
     generate OTA status file
@@ -29,6 +30,7 @@ def _gen_ota_status_file(ota_status_file):
     logger.info(f"{ota_status_file}  generated.")
     os.sync()
     return True
+
 
 class OtaBoot:
     """
@@ -61,7 +63,6 @@ class OtaBoot:
             bank_info_file=bank_info_file,
             fstab_file=fstab_file,
         )
-
 
     def _error_nortify(self, err_str):
         """
@@ -136,7 +137,7 @@ class OtaBoot:
                     logger.debug("NOEXRC delete custom.cfg")
                 else:
                     logger.debug("delete custom.cfg")
-                    self._grub_ctr.delete_custom_cfg_file()
+                    self._grub_ctl.delete_custom_cfg_file()
                 self._error_nortify(err_str)
             # set to normal status
             self._ota_status.set_ota_status("NORMAL")

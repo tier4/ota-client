@@ -678,95 +678,412 @@ fi
 
 grub_cfg_params = [
     (
-        grub_cfg_wo_submenu,
+        {"grub_cfg": grub_cfg_wo_submenu, "id": "grub_cfg_wo_submenu"},
         # expect
         [
             {  # 'Ubuntu, with Linux 5.4.0-74-generic'
                 "linux": "	linux	/vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro  quiet splash $vt_handoff",
                 "initrd": "	initrd	/initrd.img-5.4.0-74-generic",
+                "entry": """\
+menuentry 'Ubuntu, with Linux 5.4.0-74-generic' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-74-generic-advanced-01234567-0123-0123-0123-0123456789ab' {
+	recordfail
+	load_video
+	gfxmode $linux_gfx_mode
+	insmod gzio
+	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+	insmod part_gpt
+	insmod ext2
+	set root='hd0,gpt2'
+	if [ x$feature_platform_search_hint = xy ]; then
+	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	else
+	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	fi
+	echo	'Loading Linux 5.4.0-74-generic ...'
+	linux	/vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro  quiet splash $vt_handoff
+	echo	'Loading initial ramdisk ...'
+	initrd	/initrd.img-5.4.0-74-generic
+}""",
             },
             {  # 'Ubuntu, with Linux 5.4.0-74-generic (recovery mode)'
+                "entry": """\
+menuentry 'Ubuntu, with Linux 5.4.0-74-generic (recovery mode)' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-74-generic-recovery-01234567-0123-0123-0123-0123456789ab' {
+	recordfail
+	load_video
+	insmod gzio
+	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+	insmod part_gpt
+	insmod ext2
+	set root='hd0,gpt2'
+	if [ x$feature_platform_search_hint = xy ]; then
+	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	else
+	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	fi
+	echo	'Loading Linux 5.4.0-74-generic ...'
+	linux	/vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr 
+	echo	'Loading initial ramdisk ...'
+	initrd	/initrd.img-5.4.0-74-generic
+}""",
                 "linux": "	linux	/vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr ",
                 "initrd": "	initrd	/initrd.img-5.4.0-74-generic",
             },
             {  # 'Ubuntu, with Linux 5.4.0-73-generic'
+                "entry": """\
+menuentry 'Ubuntu, with Linux 5.4.0-73-generic' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-73-generic-advanced-01234567-0123-0123-0123-0123456789ab' {
+	recordfail
+	load_video
+	gfxmode $linux_gfx_mode
+	insmod gzio
+	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+	insmod part_gpt
+	insmod ext2
+	set root='hd0,gpt2'
+	if [ x$feature_platform_search_hint = xy ]; then
+	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	else
+	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	fi
+	echo	'Loading Linux 5.4.0-73-generic ...'
+	linux	/vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro  quiet splash $vt_handoff
+	echo	'Loading initial ramdisk ...'
+	initrd	/initrd.img-5.4.0-73-generic
+}""",
                 "linux": "	linux	/vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro  quiet splash $vt_handoff",
                 "initrd": "	initrd	/initrd.img-5.4.0-73-generic",
             },
             {  # 'Ubuntu, with Linux 5.4.0-73-generic (recovery mode)'
+                "entry": """\
+menuentry 'Ubuntu, with Linux 5.4.0-73-generic (recovery mode)' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-73-generic-recovery-01234567-0123-0123-0123-0123456789ab' {
+	recordfail
+	load_video
+	insmod gzio
+	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+	insmod part_gpt
+	insmod ext2
+	set root='hd0,gpt2'
+	if [ x$feature_platform_search_hint = xy ]; then
+	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	else
+	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	fi
+	echo	'Loading Linux 5.4.0-73-generic ...'
+	linux	/vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr 
+	echo	'Loading initial ramdisk ...'
+	initrd	/initrd.img-5.4.0-73-generic
+}""",
                 "linux": "	linux	/vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr ",
                 "initrd": "	initrd	/initrd.img-5.4.0-73-generic",
             },
             {  # 'GNU/Linux (on /dev/sda3)'
+                "entry": """\
+menuentry 'GNU/Linux (on /dev/sda3)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-74-generic--76543210-3210-3210-3210-ba9876543210' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro quiet splash $vt_handoff
+		initrd /initrd.img-5.4.0-74-generic
+	}""",
                 "linux": "		linux /vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro quiet splash $vt_handoff",
                 "initrd": "		initrd /initrd.img-5.4.0-74-generic",
             },
             {  # 'GNU/Linux, with Linux 5.4.0-74-generic (on /dev/sda3)'
+                "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-74-generic (on /dev/sda3)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-74-generic--76543210-3210-3210-3210-ba9876543210' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro quiet splash $vt_handoff
+		initrd /initrd.img-5.4.0-74-generic
+	}""",
                 "linux": "		linux /vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro quiet splash $vt_handoff",
                 "initrd": "		initrd /initrd.img-5.4.0-74-generic",
             },
             {  # 'GNU/Linux, with Linux 5.4.0-74-generic (recovery mode) (on /dev/sda3)'
+                "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-74-generic (recovery mode) (on /dev/sda3)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-74-generic-root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr-76543210-3210-3210-3210-ba9876543210' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr
+		initrd /initrd.img-5.4.0-74-generic
+	}""",
                 "linux": "		linux /vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr",
                 "initrd": "		initrd /initrd.img-5.4.0-74-generic",
             },
             {  # 'GNU/Linux, with Linux 5.4.0-73-generic (on /dev/sda3)'
+                "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-73-generic (on /dev/sda3)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-73-generic--76543210-3210-3210-3210-ba9876543210' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-73-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro quiet splash $vt_handoff
+		initrd /initrd.img-5.4.0-73-generic
+	}""",
                 "linux": "		linux /vmlinuz-5.4.0-73-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro quiet splash $vt_handoff",
                 "initrd": "		initrd /initrd.img-5.4.0-73-generic",
             },
             {  # 'GNU/Linux, with Linux 5.4.0-73-generic (recovery mode) (on /dev/sda3)'
+                "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-73-generic (recovery mode) (on /dev/sda3)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-73-generic-root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr-76543210-3210-3210-3210-ba9876543210' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-73-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr
+		initrd /initrd.img-5.4.0-73-generic
+	}""",
                 "linux": "		linux /vmlinuz-5.4.0-73-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr",
                 "initrd": "		initrd /initrd.img-5.4.0-73-generic",
             },
         ],
     ),
     (
-        grub_cfg_with_submenu,
+        {"grub_cfg": grub_cfg_with_submenu, "id": "grub_cfg_with_submenu"},
         # expect
         [
             {  # 'GNU/Linux'
+                "entry": """\
+menuentry 'GNU/Linux' --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-simple-76543210-3210-3210-3210-ba9876543210' {
+	recordfail
+	load_video
+	gfxmode $linux_gfx_mode
+	insmod gzio
+	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+	insmod part_gpt
+	insmod ext2
+	set root='hd0,gpt2'
+	if [ x$feature_platform_search_hint = xy ]; then
+	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	else
+	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	fi
+	linux	/vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff
+	initrd	/initrd.img-5.4.0-74-generic
+}""",
                 "linux": "	linux	/vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff",
                 "initrd": "	initrd	/initrd.img-5.4.0-74-generic",
             },
             [  # 'Advanced options for GNU/Linux'
                 {  # 'GNU/Linux, with Linux 5.4.0-74-generic'
+                    "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-74-generic' --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-74-generic-advanced-76543210-3210-3210-3210-ba9876543210' {
+		recordfail
+		load_video
+		gfxmode $linux_gfx_mode
+		insmod gzio
+		if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		echo	'Loading Linux 5.4.0-74-generic ...'
+		linux	/vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff
+		echo	'Loading initial ramdisk ...'
+		initrd	/initrd.img-5.4.0-74-generic
+	}""",
                     "linux": "		linux	/vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff",
                     "initrd": "		initrd	/initrd.img-5.4.0-74-generic",
                 },
                 {  # 'GNU/Linux, with Linux 5.4.0-74-generic (recovery mode)'
+                    "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-74-generic (recovery mode)' --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-74-generic-recovery-76543210-3210-3210-3210-ba9876543210' {
+		recordfail
+		load_video
+		insmod gzio
+		if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		echo	'Loading Linux 5.4.0-74-generic ...'
+		linux	/vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr 
+		echo	'Loading initial ramdisk ...'
+		initrd	/initrd.img-5.4.0-74-generic
+	}""",
                     "linux": "		linux	/vmlinuz-5.4.0-74-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr ",
                     "initrd": "		initrd	/initrd.img-5.4.0-74-generic",
                 },
                 {  # 'GNU/Linux, with Linux 5.4.0-73-generic'
+                    "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-73-generic' --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-73-generic-advanced-76543210-3210-3210-3210-ba9876543210' {
+		recordfail
+		load_video
+		gfxmode $linux_gfx_mode
+		insmod gzio
+		if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		echo	'Loading Linux 5.4.0-73-generic ...'
+		linux	/vmlinuz-5.4.0-73-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff
+		echo	'Loading initial ramdisk ...'
+		initrd	/initrd.img-5.4.0-73-generic
+	}""",
                     "linux": "		linux	/vmlinuz-5.4.0-73-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff",
                     "initrd": "		initrd	/initrd.img-5.4.0-73-generic",
                 },
                 {  # 'GNU/Linux, with Linux 5.4.0-73-generic (recovery mode)'
+                    "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-73-generic (recovery mode)' --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-73-generic-recovery-76543210-3210-3210-3210-ba9876543210' {
+		recordfail
+		load_video
+		insmod gzio
+		if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		echo	'Loading Linux 5.4.0-73-generic ...'
+		linux	/vmlinuz-5.4.0-73-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr 
+		echo	'Loading initial ramdisk ...'
+		initrd	/initrd.img-5.4.0-73-generic
+	}""",
                     "linux": "		linux	/vmlinuz-5.4.0-73-generic root=UUID=76543210-3210-3210-3210-ba9876543210 ro single nomodeset dis_ucode_ldr ",
                     "initrd": "		initrd	/initrd.img-5.4.0-73-generic",
                 },
             ],
             {  # 'Ubuntu 20.04.2 LTS (20.04) (on /dev/sda4)'
+                "entry": """\
+menuentry 'Ubuntu 20.04.2 LTS (20.04) (on /dev/sda4)' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-simple-01234567-0123-0123-0123-0123456789ab' {
+	insmod part_gpt
+	insmod ext2
+	set root='hd0,gpt2'
+	if [ x$feature_platform_search_hint = xy ]; then
+	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	else
+	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+	fi
+	linux /vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro quiet splash $vt_handoff
+	initrd /initrd.img-5.4.0-74-generic
+}""",
                 "linux": "	linux /vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro quiet splash $vt_handoff",
                 "initrd": "	initrd /initrd.img-5.4.0-74-generic",
             },
             [  # 'Advanced options for Ubuntu 20.04.2 LTS (20.04) (on /dev/sda4)'
                 {  # 'GNU/Linux (on /dev/sda4)'
+                    "entry": """\
+menuentry 'GNU/Linux (on /dev/sda4)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-74-generic--01234567-0123-0123-0123-0123456789ab' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro quiet splash $vt_handoff
+		initrd /initrd.img-5.4.0-74-generic
+	}""",
                     "linux": "		linux /vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro quiet splash $vt_handoff",
                     "initrd": "		initrd /initrd.img-5.4.0-74-generic",
                 },
                 {  # 'GNU/Linux, with Linux 5.4.0-74-generic (on /dev/sda4)'
+                    "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-74-generic (on /dev/sda4)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-74-generic--01234567-0123-0123-0123-0123456789ab' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro quiet splash $vt_handoff
+		initrd /initrd.img-5.4.0-74-generic
+	}""",
                     "linux": "		linux /vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro quiet splash $vt_handoff",
                     "initrd": "		initrd /initrd.img-5.4.0-74-generic",
                 },
                 {  # 'GNU/Linux, with Linux 5.4.0-74-generic (recovery mode) (on /dev/sda4)'
+                    "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-74-generic (recovery mode) (on /dev/sda4)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-74-generic-root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr-01234567-0123-0123-0123-0123456789ab' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr
+		initrd /initrd.img-5.4.0-74-generic
+	}""",
                     "linux": "		linux /vmlinuz-5.4.0-74-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr",
                     "initrd": "		initrd /initrd.img-5.4.0-74-generic",
                 },
                 {  # 'GNU/Linux, with Linux 5.4.0-73-generic (on /dev/sda4)'
+                    "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-73-generic (on /dev/sda4)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-73-generic--01234567-0123-0123-0123-0123456789ab' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro quiet splash $vt_handoff
+		initrd /initrd.img-5.4.0-73-generic
+	}""",
                     "linux": "		linux /vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro quiet splash $vt_handoff",
                     "initrd": "		initrd /initrd.img-5.4.0-73-generic",
                 },
                 {  # 'GNU/Linux, with Linux 5.4.0-73-generic (recovery mode) (on /dev/sda4)'
+                    "entry": """\
+menuentry 'GNU/Linux, with Linux 5.4.0-73-generic (recovery mode) (on /dev/sda4)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-73-generic-root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr-01234567-0123-0123-0123-0123456789ab' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr
+		initrd /initrd.img-5.4.0-73-generic
+	}""",
                     "linux": "		linux /vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro single nomodeset dis_ucode_ldr",
                     "initrd": "		initrd /initrd.img-5.4.0-73-generic",
                 },
