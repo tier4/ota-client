@@ -499,7 +499,7 @@ class OtaClient:
         """"""
         header = self.__header_dict  # self.__cookie
         header["Accept-encording"] = "gzip"
-        response = requests.get(url, headers=header, timeout=1)
+        response = requests.get(url, headers=header, timeout=10)
         if response.status_code != 200:
             logger.error(f"status_code={response.status_code}, url={url}")
             return response, ""
