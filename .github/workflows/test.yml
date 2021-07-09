@@ -31,6 +31,7 @@ jobs:
           sudo $pythonLocation/bin/python -m pytest --cov-report term-missing --cov=app ./tests | tee pytest-coverage.txt
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
+        continue-on-error: true
         uses: coroo/pytest-coverage-commentator@v1.0.2
   python_lint_check:
     runs-on: ubuntu-20.04
