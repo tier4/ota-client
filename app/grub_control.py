@@ -6,6 +6,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import platform
 from bank import BankInfo
 from pprint import pprint  # for debug
 
@@ -115,6 +116,23 @@ class GrubCtl:
     def get_bank_info(self):
         return self._bank_info
 
+    def _replace_search(self, line):
+        current_bank = self._bank_info.get_current_bank()
+        current_bank_uuid = self._bank_info.get_current_bank_uuid()
+        next_bank = self._bank_info.get_next_bank()
+        next_bank_uuid = self._bank_info.get_next_bank_uuid()
+        match = re.match(rf"(\s*search\s+)(.*)(set=root)(\s*)({current_bank_uuid}.*)", line)
+        if match:
+            logger.debug(f"ORG: {line}")
+            logger.debug(f"cur:{current_bank_uuid} next:{next_bank_uuid}")
+            return line.replace(current_bank_uuid, next_bank_uuid)
+        match = re.match(rf"(\s*search\s+)(.*)(set=root)(\s*)({current_bank}.*)", line)
+        if match:
+            logger.debug(f"ORG: {line}")
+            logger.debug(f"cur:{current_bank} next:{next_bank}")
+            return line.replace(current_bank, next_bank)
+        return None
+
     def _replace_linux(self, line, vmlinuz):
         # get bank info
         current_bank = self._bank_info.get_current_bank()
@@ -200,6 +218,12 @@ class GrubCtl:
                                 f.write(line)
                                 continue
 
+                            # 'search'
+                            line = self._replace_search(l)
+                            if line is not None:
+                                f.write(line)
+                                continue
+
                             f.write(l)
                         except Exception as e:
                             logger.exception("_replace_linux")
@@ -211,6 +235,73 @@ class GrubCtl:
             shutil.copy(config_file, config_file + ".old")
         # mv tmp file to custom config file
         shutil.move(tmp_file, config_file)
+        return True
+
+    def confirm_kernel_and_root(self, l):
+        linux_root_re = r"linux.+vmlinuz.+root="
+        kernel_release = platform.release()
+        root_device_uuid_str = "root=UUID=" + self._bank_info.get_current_bank_uuid()
+        root_device_str = "root=" + self._bank_info.get_current_bank()
+        found_root_target = False
+        match = re.search(linux_root_re, l)
+        if match:
+            logger.debug(f"linux root match: {l}")
+            # check root
+            logger.debug(f"root uuid: {root_device_uuid_str}")
+            logger.debug(f"root devf: {root_device_str}")
+            if l.find(kernel_release) >= 0:
+                if l.find(root_device_uuid_str) >= 0:
+                    logger.debug(f"found target: {l}")
+                    found_root_target = True
+                elif l.find(root_device_str) >= 0:
+                    logger.debug(f"found target: {l}")
+                    found_root_target = True
+        return found_root_target
+
+    def make_custom_cfg_base(self, input_cfg_file, output_cfg_file):
+        if not os.path.exists(input_cfg_file):
+            logger.info(f"No input file: {input_cfg_file}")
+            return False
+        menuentry_start = "menuentry "
+        menuentry_end = "}"
+        found_target = False
+        with open(output_cfg_file, mode="w") as fout:
+            with open(input_cfg_file, mode="r") as fin:
+                logger.debug(f"{input_cfg_file} opened!")
+                menu_writing = False
+                lines = fin.readlines()
+                menuentry_buffer = []
+                for l in lines:
+                    if menu_writing:
+                        menuentry_buffer.append(l)
+                        #fout.write(l)
+                        # check menuentry end
+                        if 0 <= l.find(menuentry_end):
+                            logger.debug("menu end!")
+                            if found_target:
+                                for lo in menuentry_buffer:
+                                    fout.write(lo)
+                                break
+                            else:
+                                menuentry_buffer = []
+                                menu_writing = False
+                        if not found_target:
+                            if self.confirm_kernel_and_root(l):
+                                found_target = True
+                    else:
+                        # check menuentry start
+                        if found_target:
+                            break
+                        if 0 == l.find(menuentry_start):
+                            logger.debug(f"menuentry found! : {l}")
+                            menu_writing = True
+                            found_target = False
+                            menuentry_buffer = []
+                            menuentry_buffer.append(l)
+        if not found_target:
+            logger.error("No menu entry found!")
+            return False
+        logger.debug("menu entry found!")
         return True
 
     def make_grub_custom_configuration_file(
@@ -227,61 +318,13 @@ class GrubCtl:
             logger.info(f"No input file: {input_file}")
             return
 
-        # output_file = self._custom_cfg_file
-
-        banka_uuid = self._bank_info.get_banka_uuid()
-        bankb_uuid = self._bank_info.get_bankb_uuid()
-
-        menuentry_start = "menuentry "
-        menuentry_end = "}"
-
-        linux_root_re = r"linux.+root="
-        root_device_uuid_str = "root=UUID=" + self._bank_info.get_current_bank_uuid()
-        root_device_str = "root=" + self._bank_info.get_current_bank()
-
-        found_target = False
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             tmp_file = ftmp.name
             logger.debug(f"tmp file: {ftmp.name}")
-            with open(ftmp.name, mode="w") as fout:
-                with open(input_file, mode="r") as fin:
-                    logger.debug(f"{input_file} opened!")
-                    menu_writing = False
-                    lines = fin.readlines()
-                    for l in lines:
-                        if menu_writing:
-                            fout.write(l)
-                            # check menuentry end
-                            if 0 <= l.find(menuentry_end):
-                                logger.debug("menu writing end!")
-                                menu_writing = False
-                                break
-                            match = re.search(linux_root_re, l)
-                            if match:
-                                logger.debug(f"linux root match: {l}")
-                                # check root
-                                logger.debug(f"root uuid: {root_device_uuid_str}")
-                                logger.debug(f"root devf: {root_device_str}")
-                                if l.find(root_device_uuid_str) >= 0:
-                                    logger.debug(f"found target: {l}")
-                                    found_target = True
-                                elif l.find(root_device_str) >= 0:
-                                    logger.debug(f"found target: {l}")
-                                    found_target = True
-                        else:
-                            # check menuentry start
-                            if found_target:
-                                break
-                            if 0 == l.find(menuentry_start):
-                                logger.debug(f"menuentry found! : {l}")
-                                menu_writing = True
-                                fout.write(l)
-
-        if not found_target:
-            logger.error("No menu entry found!")
-            return False
+            if not self.make_custom_cfg_base(input_file, tmp_file):
+                return False
         try:
-            # change root partition
+            # change root partition and kernel
             self.change_to_next_bank(tmp_file, vmlinuz, initrd)
         except Exception as e:
             logger.exception("Change next bank error:")
@@ -328,6 +371,7 @@ class GrubCtl:
                 outfile.write(
                     f"{replace_list[i]['search']}{replace_list[i]['replace']}\n"
                 )
+
 
     def _grub_configuration(self, style_str="menu", timeout=10, default=None):
         """
@@ -423,10 +467,10 @@ class GrubCtl:
             with open(input_file, "r") as f:
                 lines = f.readlines()
                 for l in lines:
-                    if re.match(rf'\s*{menuentry_str}', l):
+                    if re.match(rf'^\s*{menuentry_str}', l):
                         logger.debug(f"{menu_entries} : {l}")
                         menu_entries += 1
-                    if re.match(rf'\s*{submenu_str}', l):
+                    if re.match(rf'^\s*{submenu_str}', l):
                         logger.debug(f"{menu_entries} : {l}")
                         menu_entries += 1
         else:
