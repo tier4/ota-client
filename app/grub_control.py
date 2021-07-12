@@ -67,9 +67,9 @@ class GrubCfgParser:
         while True:
             m = re.search(r"(menuentry\s.*{|submenu\s.*{|})", cfg[pos:])
             if m:
-                pos += m.span()[1]
                 if m.group(1).startswith("menuentry"):
-                    braces.append(pos)
+                    braces.append(pos + m.span()[0])
+                pos += m.span()[1]
                 if m.group(1).startswith("submenu"):
                     menu, sub_pos = self._parse(cfg[pos:], True)
                     pos += sub_pos
@@ -78,9 +78,10 @@ class GrubCfgParser:
                     try:
                         begin = braces.pop()
                         # parse [begin:end]
-                        linux = re.search(r"[ \t]*linux\s.*", cfg[begin:pos])
-                        initrd = re.search(r"[ \t]*initrd\s.*", cfg[begin:pos])
+                        linux = re.search(r"[ \t]*linux\s+/vmlinuz.*", cfg[begin:pos])
+                        initrd = re.search(r"[ \t]*initrd\s+/initrd.*", cfg[begin:pos])
                         entry = {}
+                        entry["entry"] = cfg[begin:pos]
                         entry["linux"] = None if linux is None else linux.group(0)
                         entry["initrd"] = None if initrd is None else initrd.group(0)
                         menus.append(entry)

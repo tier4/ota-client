@@ -131,9 +131,11 @@ def test_find_custom_cfg_entry_from_grub_cfg(grub_ctl_instance):
     assert index == 0
 
 
-@pytest.mark.parametrize("grub_cfg, expect", grub_cfg_params)
+@pytest.mark.parametrize(
+    "grub_cfg, expect", grub_cfg_params, ids=[p[0]["id"] for p in grub_cfg_params]
+)
 def test_grub_cfg_parser(grub_cfg, expect):
     from grub_control import GrubCfgParser
 
-    parser = GrubCfgParser(grub_cfg)
+    parser = GrubCfgParser(grub_cfg["grub_cfg"])
     assert parser.parse() == expect
