@@ -1,0 +1,6 @@
+[tool.black]
+exclude = '''(
+  # 
+  app/otaclient_pb2.py |
+  app/otaclient_pb2_grpc.py
+)'''
