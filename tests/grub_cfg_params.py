@@ -1097,7 +1097,7 @@ grub_cfg_custom_cfg_params = [
         {"grub_cfg": grub_cfg_wo_submenu, "id": "grub_cfg_wo_submenu"},
         # custom.cfg
         """\
-menuentry 'Ubuntu, with Linux 5.4.0-74-generic' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-74-generic-advanced-01234567-0123-0123-0123-0123456789ab' {
+menuentry 'Ubuntu, with Linux 5.4.0-73-generic' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-73-generic-advanced-01234567-0123-0123-0123-0123456789ab' {
 	recordfail
 	load_video
 	gfxmode $linux_gfx_mode
@@ -1111,7 +1111,7 @@ menuentry 'Ubuntu, with Linux 5.4.0-74-generic' --class ubuntu --class gnu-linux
 	else
 	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
 	fi
-	echo	'Loading Linux 5.4.0-74-generic ...'
+	echo	'Loading Linux 5.4.0-73-generic ...'
 	linux	/vmlinuz-1.2.3-45 root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff
 	echo	'Loading initial ramdisk ...'
 	initrd	/initrd.img-1.2.3-45
@@ -1123,18 +1123,18 @@ menuentry 'Ubuntu, with Linux 5.4.0-74-generic' --class ubuntu --class gnu-linux
         {"grub_cfg": grub_cfg_with_submenu, "id": "grub_cfg_with_submenu"},
         # custom.cfg
         """\
-menuentry 'Ubuntu 20.04.2 LTS (20.04) (on /dev/sda4)' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-simple-01234567-0123-0123-0123-0123456789ab' {
-	insmod part_gpt
-	insmod ext2
-	set root='hd0,gpt2'
-	if [ x$feature_platform_search_hint = xy ]; then
-	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
-	else
-	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
-	fi
-	linux /vmlinuz-1.2.3-45 root=UUID=76543210-3210-3210-3210-ba9876543210 ro quiet splash $vt_handoff
-	initrd /initrd.img-1.2.3-45
-}""",
+menuentry 'GNU/Linux, with Linux 5.4.0-73-generic (on /dev/sda4)' --class gnu-linux --class gnu --class os $menuentry_id_option 'osprober-gnulinux-/vmlinuz-5.4.0-73-generic--01234567-0123-0123-0123-0123456789ab' {
+		insmod part_gpt
+		insmod ext2
+		set root='hd0,gpt2'
+		if [ x$feature_platform_search_hint = xy ]; then
+		  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		else
+		  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
+		fi
+		linux /vmlinuz-1.2.3-45 root=UUID=76543210-3210-3210-3210-ba9876543210 ro quiet splash $vt_handoff
+		initrd /initrd.img-1.2.3-45
+	}""",
         "vmlinuz-1.2.3-45",
         "initrd.img-1.2.3-45",
     ),

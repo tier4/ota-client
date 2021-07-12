@@ -3,6 +3,7 @@
 import tempfile
 import re
 import os
+import platform
 import shlex
 import shutil
 import subprocess
@@ -224,33 +225,30 @@ class GrubCtl:
         logger.debug(f"input_file: {input_file}")
         logger.debug(f"output_file: {output_file}")
 
-        # output_file = self._custom_cfg_file
-
-        banka_uuid = self._bank_info.get_banka_uuid()
-        bankb_uuid = self._bank_info.get_bankb_uuid()
-
-        menuentry_start = "menuentry "
-        menuentry_end = "}"
-
         linux_root_re = r"linux.+root="
         root_device_uuid_str = "root=UUID=" + self._bank_info.get_current_bank_uuid()
         root_device_str = "root=" + self._bank_info.get_current_bank()
 
-        def find_linux_entry(menus, uuid, device):
+        def find_linux_entry(menus, uuid, device, kernel_release):
             for menu in menus:
                 if type(menu) is dict:
-                    if menu["linux"].find(uuid) >= 0 or menu["linux"].find(device) >= 0:
+                    if menu["linux"].find(kernel_release) >= 0 and (
+                        menu["linux"].find(uuid) >= 0 or menu["linux"].find(device) >= 0
+                    ):
                         return menu
                 elif type(menu) is list:
-                    ret = find_linux_entry(menu, uuid, device)
+                    ret = find_linux_entry(menu, uuid, device, kernel_release)
                     if ret is not None:
                         return ret
             return None
 
         with open(input_file, mode="r") as fin:
+            kernel_release = platform.release()  # same as `uname -r`
             parser = GrubCfgParser(fin.read())
             menus = parser.parse()
-            menu_entry = find_linux_entry(menus, root_device_uuid_str, root_device_str)
+            menu_entry = find_linux_entry(
+                menus, root_device_uuid_str, root_device_str, kernel_release
+            )
 
         if menu_entry is None:
             logger.error("No menu entry found!")

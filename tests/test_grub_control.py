@@ -162,13 +162,18 @@ def test_grub_cfg_parser(grub_cfg, expect):
     ids=[p[0]["id"] for p in grub_cfg_custom_cfg_params],
 )
 def test_make_grub_custom_configuration_file(
-    grub_cfg, custom_cfg, vmlinuz, initrd, grub_ctl_instance, tmp_path
+    mocker, grub_cfg, custom_cfg, vmlinuz, initrd, grub_ctl_instance, tmp_path
 ):
     grub = tmp_path / "grub.cfg"
     grub.write_text(grub_cfg["grub_cfg"])
     custom = tmp_path / "custom.cfg"
 
+    mocker.patch("platform.release", return_value="5.4.0-73-generic")
     # grub_ctl_instance has UUID_A as current_bank_uuid
+    # search "5.4.0-73-generic" and UUID_A(=0123...)
+    # and replace UUID with UUID_B(=7654...),
+    # vmlinuz-xxx with vmlinuz by param,
+    # initrd.img-xxx with initrd by param.
     assert grub_ctl_instance.make_grub_custom_configuration_file(
         str(grub), str(custom), vmlinuz, initrd
     )
