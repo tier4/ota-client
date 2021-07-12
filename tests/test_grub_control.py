@@ -131,9 +131,18 @@ def test_find_custom_cfg_entry_from_grub_cfg(grub_ctl_instance):
     assert index == 0
 
 
-@pytest.mark.parametrize("grub_cfg, expect", grub_cfg_params)
-def test_grub_cfg_parser(grub_cfg, expect):
+@pytest.mark.parametrize("grub_cfg, expect, expect_count", grub_cfg_params)
+def test_grub_cfg_parser(grub_cfg, expect, expect_count):
     from grub_control import GrubCfgParser
 
     parser = GrubCfgParser(grub_cfg)
     assert parser.parse() == expect
+    assert GrubCfgParser.count_menuentries(expect) == expect_count
+
+
+@pytest.mark.parametrize("grub_cfg, menus, expect_count", grub_cfg_params)
+def test_count_grub_menu_entries(tmpdir, grub_ctl_instance, grub_cfg, menus, expect_count):
+    grub_cfg_file = tmpdir.join("grub.cfg")
+    grub_cfg_file.write(grub_cfg)
+    assert grub_ctl_instance.count_grub_menu_entries(grub_cfg_file) == expect_count
+

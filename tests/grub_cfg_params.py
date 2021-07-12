@@ -718,6 +718,7 @@ grub_cfg_params = [
                 "initrd": "		initrd /initrd.img-5.4.0-73-generic",
             },
         ],
+		9,
     ),
     (
         grub_cfg_with_submenu,
@@ -772,5 +773,6 @@ grub_cfg_params = [
                 },
             ],
         ],
+		11,
     ),
 ]
