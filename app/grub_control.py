@@ -100,9 +100,8 @@ class GrubCfgParser:
                 menuentries += 1
                 logger.debug(f"menuentry: {menu}")
             elif type(menu) is list:
-                count = GrubCfgParser.count_menuentries(menu)
-                logger.debug(f"submenu count: {count}")
-                menuentries += count
+                menuentries += 1
+                logger.debug(f"submenu: {menu}")
             else:
                 logger.warning(f"wrong type data: {menu}")
         return menuentries
