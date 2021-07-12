@@ -92,6 +92,21 @@ class GrubCfgParser:
             else:
                 return menus, pos
 
+    @staticmethod
+    def count_menuentries(menus):
+        menuentries = 0
+        for menu in menus:
+            if type(menu) is dict:
+                menuentries += 1
+                logger.debug(f"menuentry: {menu}")
+            elif type(menu) is list:
+                count = GrubCfgParser.count_menuentries(menu)
+                logger.debug(f"submenu count: {count}")
+                menuentries += count
+            else:
+                logger.warning(f"wrong type data: {menu}")
+        return menuentries
+
 
 class GrubCtl:
     """
@@ -411,50 +426,20 @@ class GrubCtl:
         res = _make_grub_configuration_file(self._grub_cfg_file)
         return res
 
-    def count_grub_menu_entries_w_submenu(self, input_file):
+    def count_grub_menu_entries(self, input_file):
         """
         count the grub menu entries without submenue
         """
-        menuentry_str = "menuentry "
-        submenu_str = "submenu "
-        menu_entries = 0
-
+        menuentries = -1
         if os.path.exists(input_file):
             with open(input_file, "r") as f:
-                lines = f.readlines()
-                for l in lines:
-                    if re.match(rf'\s*{menuentry_str}', l):
-                        logger.debug(f"{menu_entries} : {l}")
-                        menu_entries += 1
-                    if re.match(rf'\s*{submenu_str}', l):
-                        logger.debug(f"{menu_entries} : {l}")
-                        menu_entries += 1
+                parser = GrubCfgParser(f.read())
+                menues = parser.parse()
+                menuentries = GrubCfgParser.count_menuentries(menues)
         else:
             logger.warning(f"file not exist : {input_file}")
-            menu_entries = -1
-        logger.debug(f"entries: {menu_entries}")
-        return menu_entries
-
-    def count_grub_menu_entries(self, input_file):
-        """
-        count the grub menu entries
-        """
-        menuentry_str = "menuentry "
-        menu_entries = 0
-
-        if os.path.exists(input_file):
-            with open(input_file, "r") as f:
-                lines = f.readlines()
-                for l in lines:
-                    if re.match(rf'\s*{menuentry_str}', l):
-                        logger.debug(f"{menu_entries} : {l}")
-                        menu_entries += 1
-        else:
-            logger.warning(f"file not exist! : {input_file}")
-            menu_entries = -1
-
-        logger.debug(f"entries: {menu_entries}")
-        return menu_entries
+        logger.debug(f"entries: {menuentries}")
+        return menuentries
 
     def set_next_boot_entry(self, menuentry_no):
         """
@@ -469,18 +454,15 @@ class GrubCtl:
             return False
         return True
 
-    def set_next_bank_boot(self, no_submenu=True):
+    def set_next_bank_boot(self):
         """
         set next boot grub menue entry to custom config menu
         """
         # get grub.cfg menuentries
-        if no_submenu:
-            menu_entries = self.count_grub_menu_entries_w_submenu(self._grub_cfg_file)
-        else:
-            menu_entries = self.count_grub_menu_entries(self._grub_cfg_file)
-        if menu_entries > 0:
+        menuentries = self.count_grub_menu_entries(self._grub_cfg_file)
+        if menuentries > 0:
             # set next boot menuentry to custum menuentry
-            res = self.set_next_boot_entry(menu_entries)
+            res = self.set_next_boot_entry(menuentries)
         else:
             logger.error("No grub entry in the grub.cfg file!")
             return False
@@ -542,3 +524,4 @@ class GrubCtl:
         """
         # ToDo: implement
         return True
+
