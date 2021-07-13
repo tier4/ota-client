@@ -799,11 +799,7 @@ class OtaClient:
         if match is not None:
             self._boot_initrd = match.group(1)
 
-        if (
-            int(regular_inf.links) >= 2
-            and prev_inf != ""
-            and prev_inf.sha256hash == regular_inf.sha256hash
-        ):
+        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
             logger.debug(f"links: {regular_inf.links}")
             os.link(prev_inf.path, regular_inf.path)
@@ -850,10 +846,7 @@ class OtaClient:
         generate regular file
         """
         dest_path = os.path.join(target_dir, "." + regular_inf.path)
-        if (
-            int(regular_inf.links) >= 2
-            and prev_inf.sha256hash == regular_inf.sha256hash
-        ):
+        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
             logger.debug(f"links: {regular_inf.links}")
             src_path = os.path.join(target_dir, "." + prev_inf.path)
