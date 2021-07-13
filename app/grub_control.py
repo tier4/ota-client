@@ -461,7 +461,8 @@ class GrubCtl:
         menuentries = self.count_grub_menu_entries(self._grub_cfg_file)
         if menuentries > 0:
             # set next boot menuentry to custum menuentry
-            res = self.set_next_boot_entry(menuentries)
+            menus = GrubCfgParser(open(self._grub_cfg_file).read()).parse()
+            res = self.set_next_boot_entry(len(menus))
         else:
             logger.error("No grub entry in the grub.cfg file!")
             return False
@@ -523,4 +524,3 @@ class GrubCtl:
         """
         # ToDo: implement
         return True
-
