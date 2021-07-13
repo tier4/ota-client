@@ -12,6 +12,7 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 def _blkid():
     """
     do lockid command and return result
@@ -48,6 +49,7 @@ def _blkid():
         return []
     return blks
 
+
 def _get_ext4_blks_by_blkid():
     """"""
     ext4_blks = []
@@ -60,6 +62,7 @@ def _get_ext4_blks_by_blkid():
             if info["TYPE"] == "ext4":
                 ext4_blks.append(info)
     return ext4_blks
+
 
 def _get_uuid_from_blkid(bank):
     """
@@ -81,6 +84,7 @@ def _get_uuid_from_blkid(bank):
             uuid = blk[1].replace("UUID=", "")
     logger.debug(f"uuid for {bank} : {uuid}")
     return uuid
+
 
 def _get_devfile(fstab_dev):
     if fstab_dev.find("UUID=") == 0:
@@ -109,6 +113,7 @@ def _get_devfile(fstab_dev):
     else:
         logger.debug(f"device is not UUID or devfile: {fstab_dev}")
     return "", ""
+
 
 def _get_current_devfile_by_fstab(fstab_file):
     """"""
@@ -163,9 +168,7 @@ def _gen_bankinfo_file(bank_info_file, fstab_file):
             logger.debug(f"no ext4: {blk}")
     if boot_devfile == "" or root_devfile == "" or stby_devfile == "":
         logger.error("device info error!")
-        logger.info(
-            f"root: {root_devfile} boot: {boot_devfile} stby: {stby_devfile}"
-        )
+        logger.info(f"root: {root_devfile} boot: {boot_devfile} stby: {stby_devfile}")
         return False
     else:
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
@@ -184,6 +187,7 @@ def _gen_bankinfo_file(bank_info_file, fstab_file):
         os.sync()
     return True
 
+
 def _get_bank_info(ota_config_file):
     """
     get bank information
@@ -200,6 +204,7 @@ def _get_bank_info(ota_config_file):
     except:
         logger.exception("Cannot get bank infomation!:")
     return banka, bankb
+
 
 class BankInfo:
     """
@@ -300,7 +305,6 @@ class BankInfo:
 
         logger.info("root not found!")
         return ""
-
 
     def get_banka(self):
         """
