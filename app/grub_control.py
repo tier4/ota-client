@@ -391,54 +391,6 @@ class GrubCtl:
         res = _make_grub_configuration_file(self._grub_cfg_file)
         return res
 
-    def count_grub_menue_entries_wo_submenu(self, input_file):
-        """
-        count the grub menu entries without submenue
-        """
-        menuentry_str = "menuentry "
-        submenu_str = "submenu "
-        menu_entries = 0
-
-        if os.path.exists(input_file):
-            with open(input_file, "r") as f:
-                lines = f.readlines()
-                for l in lines:
-                    pos = l.find(menuentry_str)
-                    if pos == 0:
-                        logger.debug(f"{menu_entries} : {l}")
-                        menu_entries += 1
-                    pos = l.find(submenu_str)
-                    if pos == 0:
-                        logger.debug(f"{menu_entries} : {l}")
-                        menu_entries += 1
-        else:
-            logger.warning(f"file not exist : {input_file}")
-            menu_entries = -1
-        logger.debug(f"entries: {menu_entries}")
-        return menu_entries
-
-    def count_grub_menue_entries(self, input_file):
-        """
-        count the grub menu entries
-        """
-        menuentry_str = "menuentry "
-        menu_entries = 0
-
-        if os.path.exists(input_file):
-            with open(input_file, "r") as f:
-                lines = f.readlines()
-                for l in lines:
-                    pos = l.find(menuentry_str)
-                    if pos >= 0:
-                        logger.debug(f"{menu_entries} : {l}")
-                        menu_entries += 1
-        else:
-            logger.warning(f"file not exist! : {input_file}")
-            menu_entries = -1
-
-        logger.debug(f"entries: {menu_entries}")
-        return menu_entries
-
     def set_next_boot_entry(self, menuentry_no):
         """
         set next boot grub menue entry to custom config menu
@@ -452,21 +404,13 @@ class GrubCtl:
             return False
         return True
 
-    def set_next_bank_boot(self, no_submenu=True):
+    def set_next_bank_boot(self):
         """
         set next boot grub menue entry to custom config menu
         """
-        # get grub.cfg menuentries
-        if no_submenu:
-            menu_entries = self.count_grub_menue_entries_wo_submenu(self._grub_cfg_file)
-        else:
-            menu_entries = self.count_grub_menue_entries(self._grub_cfg_file)
-        if menu_entries > 0:
-            # set next boot menuentry to custum menuentry
-            res = self.set_next_boot_entry(menu_entries)
-        else:
-            logger.error("No grub entry in the grub.cfg file!")
-            return False
+        # set next boot menuentry to custum menuentry
+        menus = GrubCfgParser(open(self._grub_cfg_file).read()).parse()
+        res = self.set_next_boot_entry(len(menus))
         return res
 
     @staticmethod
