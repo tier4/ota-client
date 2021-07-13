@@ -92,21 +92,6 @@ class GrubCfgParser:
             else:
                 return menus, pos
 
-    @staticmethod
-    def count_menuentries(menus):
-        menuentries = 0
-        for menu in menus:
-            if type(menu) is dict:
-                menuentries += 1
-                logger.debug(f"menuentry: {menu}")
-            elif type(menu) is list:
-                menuentries += 1
-                logger.debug(f"submenu: {menu}")
-            else:
-                logger.warning(f"wrong type data: {menu}")
-        return menuentries
-
-
 class GrubCtl:
     """
     OTA GRUB control class
@@ -425,21 +410,6 @@ class GrubCtl:
         res = _make_grub_configuration_file(self._grub_cfg_file)
         return res
 
-    def count_grub_menu_entries(self, input_file):
-        """
-        count the grub menu entries without submenue
-        """
-        menuentries = -1
-        if os.path.exists(input_file):
-            with open(input_file, "r") as f:
-                parser = GrubCfgParser(f.read())
-                menues = parser.parse()
-                menuentries = GrubCfgParser.count_menuentries(menues)
-        else:
-            logger.warning(f"file not exist : {input_file}")
-        logger.debug(f"entries: {menuentries}")
-        return menuentries
-
     def set_next_boot_entry(self, menuentry_no):
         """
         set next boot grub menue entry to custom config menu
@@ -457,15 +427,9 @@ class GrubCtl:
         """
         set next boot grub menue entry to custom config menu
         """
-        # get grub.cfg menuentries
-        menuentries = self.count_grub_menu_entries(self._grub_cfg_file)
-        if menuentries > 0:
-            # set next boot menuentry to custum menuentry
-            menus = GrubCfgParser(open(self._grub_cfg_file).read()).parse()
-            res = self.set_next_boot_entry(len(menus))
-        else:
-            logger.error("No grub entry in the grub.cfg file!")
-            return False
+        # set next boot menuentry to custum menuentry
+        menus = GrubCfgParser(open(self._grub_cfg_file).read()).parse()
+        res = self.set_next_boot_entry(len(menus))
         return res
 
     @staticmethod
