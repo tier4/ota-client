@@ -48,6 +48,32 @@ def test_ota_client_copy_complete(tmpdir):
     _assert_own(tmpdir.join("dst/A/B/a"), 4567, 7654)
 
 
+def test_ota_client_copy_complete_symlink_doesnot_exist(tmpdir):
+    import ota_client
+
+    src = tmpdir.mkdir("src")
+    src_a = src.join("a")
+    src_a.mksymlinkto("doesnotexist")  # src_a -> doesnotexist
+
+    dst = tmpdir.join("dst")
+
+    os.chown(src, 1234, 4321)
+    os.chown(src_a, 2345, 5432, follow_symlinks=False)
+
+    dst_a = tmpdir.join("dst/a")
+    ota_client._copy_complete(src_a, dst_a)
+
+    """
+    output = subprocess.check_output(["ls", "-lR", tmpdir.join("dst")])
+    print(output.decode("utf-8"))
+    """
+    assert tmpdir.join("dst").ensure_dir()
+    assert tmpdir.join("dst/a").readlink() == "doesnotexist"
+
+    _assert_own(tmpdir.join("dst"), 1234, 4321)
+    _assert_own(tmpdir.join("dst/a"), 2345, 5432)
+
+
 def test_ota_client_copytree_complete(tmpdir):
     import ota_client
 
