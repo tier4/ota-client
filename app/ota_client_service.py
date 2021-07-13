@@ -35,6 +35,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
     """
     OTA lient service class
     """
+
     def __init__(self, otaclient):
         self._ecuinfo = _setup_ecus()
         self._subecu_port = {}
