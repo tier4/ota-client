@@ -29,6 +29,7 @@ class OtaError(Exception):
     """
     OTA error
     """
+
     pass
 
 
@@ -61,15 +62,15 @@ def _find_file_separate(string):
     return match.start()
 
 
-def _copy_complete(src_file, dst_file, follow_symlinks=False):
+def _copy_complete(src_file, dst_file):
 
     src_dir = os.path.dirname(src_file)
     dst_dir = os.path.dirname(dst_file)
     _copydirs_complete(src_dir, dst_dir)
-    shutil.copy2(src_file, dst_file, follow_symlinks=follow_symlinks)
+    shutil.copy2(src_file, dst_file, follow_symlinks=False)
     # copy owner and group
-    st = os.stat(src_file)
-    os.chown(dst_file, st[stat.ST_UID], st[stat.ST_GID])
+    st = os.stat(src_file, follow_symlinks=False)
+    os.chown(dst_file, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
 
 
 def _copydirs_complete(src, dst):
@@ -121,7 +122,7 @@ def _copytree_complete(src, dst):
             elif srcentry.is_dir():
                 _copytree_complete(srcname, dstname)
             else:
-                _copy_complete(srcname, dstname, follow_symlinks=False)
+                _copy_complete(srcname, dstname)
         except Error as e:
             errors.extend(e.args[0])
         except OSError as why:
@@ -173,6 +174,7 @@ def _mount_bank(bank, target_dir):
         logger.exception("Mount error!:")
         return False
     return True
+
 
 def _unmount_bank(target_dir):
     """
@@ -296,6 +298,7 @@ def _find_ecuinfo(ecuupdateinfo_list, ecu_id):
             logger.debug(f"[found] id={ecuupdateinfo.ecu_info.ecu_id}")
             ecu_info = ecuupdateinfo
     return ecu_info
+
 
 def _save_update_ecuinfo(update_ecuinfo_yaml_file, update_ecu_info):
     """
@@ -613,9 +616,7 @@ class OtaClient:
                 self._metadata_jwt = response.text
                 with open("/boot/ota/metadata.jwt", "w") as f:
                     f.write(self._metadata_jwt)
-                self._metadata = OtaMetaData(
-                    self._metadata_jwt
-                )
+                self._metadata = OtaMetaData(self._metadata_jwt)
             else:
                 self._metadata_jwt = ""
         except Exception as e:
@@ -695,7 +696,6 @@ class OtaClient:
         dest_path = os.path.join("/tmp", list_file)
         return self._download_raw_file_with_retry(dirs_url, dest_path, hash)
 
-
     def _setup_directories(self, target_dir):
         """
         generate directories on another bank
@@ -712,7 +712,6 @@ class OtaClient:
                 shutil.move(tmp_list_file, dest_file)
                 return True
         return False
-
 
     def _gen_symbolic_links(self, symlinks_file, target_dir):
         """
@@ -890,7 +889,6 @@ class OtaClient:
             logger.debug(f"permissoin: {str(regular_inf.mode)}")
             os.chown(dest_path, int(regular_inf.uid), int(regular_inf.gpid))
             os.chmod(dest_path, int(regular_inf.mode, 8))
-
 
     def _gen_regular_files(self, rootfs_dir, regulars_file, target_dir):
         """
@@ -1132,7 +1130,6 @@ class OtaClient:
             return False
         return True
 
-
     def set_update_ecuinfo(self, update_info):
         """"""
         logger.info("_update_ecu_info start")
@@ -1171,7 +1168,6 @@ class OtaClient:
 
     def update(self, ecu_update_info):
         return self._update(ecu_update_info, reboot=False)
-
 
     def _update(self, ecu_update_info, reboot=False):
         """
@@ -1220,7 +1216,6 @@ class OtaClient:
 
         return True
 
-
     def reboot(self):
         if self.get_ota_status() == "PREPARED":
             # switch reboot
@@ -1250,7 +1245,9 @@ class OtaClient:
         return _find_ecuinfo(ecuupdateinfo_list, ecu_id)
 
     def save_update_ecuinfo(self):
-        return _save_update_ecuinfo(self.__update_ecuinfo_yaml_file, self.__update_ecu_info)
+        return _save_update_ecuinfo(
+            self.__update_ecuinfo_yaml_file, self.__update_ecu_info
+        )
 
     def _rollback(self):
         """"""

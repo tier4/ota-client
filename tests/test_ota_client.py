@@ -13,6 +13,7 @@ def _assert_own(entry, uid, gid):
     assert st.st_uid == uid
     assert st.st_gid == gid
 
+
 def test_ota_client_copy_complete(tmpdir):
     import ota_client
 
@@ -46,6 +47,31 @@ def test_ota_client_copy_complete(tmpdir):
     _assert_own(tmpdir.join("dst/A/B"), 3456, 6543)
     _assert_own(tmpdir.join("dst/A/B/a"), 4567, 7654)
 
+
+def test_ota_client_copy_complete_symlink_doesnot_exist(tmpdir):
+    import ota_client
+
+    src = tmpdir.mkdir("src")
+    src_a = src.join("a")
+    src_a.mksymlinkto("doesnotexist")  # src_a -> doesnotexist
+
+    dst = tmpdir.join("dst")
+
+    os.chown(src, 1234, 4321)
+    os.chown(src_a, 2345, 5432, follow_symlinks=False)
+
+    dst_a = tmpdir.join("dst/a")
+    ota_client._copy_complete(src_a, dst_a)
+
+    """
+    output = subprocess.check_output(["ls", "-lR", tmpdir.join("dst")])
+    print(output.decode("utf-8"))
+    """
+    assert tmpdir.join("dst").ensure_dir()
+    assert tmpdir.join("dst/a").readlink() == "doesnotexist"
+
+    _assert_own(tmpdir.join("dst"), 1234, 4321)
+    _assert_own(tmpdir.join("dst/a"), 2345, 5432)
 
 
 def test_ota_client_copytree_complete(tmpdir):
@@ -93,8 +119,6 @@ def test_ota_client_copytree_complete(tmpdir):
     assert tmpdir.join("dst/A/B/d").ensure()
     assert tmpdir.join("dst/A/B/d").readlink() == "c"
 
-
-
     _assert_own(tmpdir.join("dst"), 1234, 4321)
     _assert_own(tmpdir.join("dst/A"), 2345, 5432)
     _assert_own(tmpdir.join("dst/A/B"), 3456, 6543)
@@ -104,13 +128,16 @@ def test_ota_client_copytree_complete(tmpdir):
 
 def test_otaclient_read_ecuid(tmpdir):
     import ota_client
+
     ecuid_path = tmpdir.join("ecuid")
     ecuid = """1\n"""
     ecuid_path.write(ecuid)
     assert ota_client._read_ecuid(ecuid_path) == "1"
 
+
 def test_otaclient_read_ecu_info(tmpdir):
     import ota_client
+
     ecuinfo_path = tmpdir.join("ecuinfo.yaml")
     ecuinfo = """\
 main_ecu:
@@ -123,15 +150,17 @@ main_ecu:
 """
     ecuinfo_path.write(ecuinfo)
     rd_ecuinfo = ota_client._read_ecu_info(ecuinfo_path)
-    assert rd_ecuinfo['main_ecu']['ecu_name'] == 'autoware_ecu'
-    assert rd_ecuinfo['main_ecu']['ecu_type'] == 'autoware'
-    assert rd_ecuinfo['main_ecu']['ecu_id'] == '1'
-    assert rd_ecuinfo['main_ecu']['version'] == '0.0.0'
-    assert rd_ecuinfo['main_ecu']['independent'] == True
-    assert rd_ecuinfo['main_ecu']['ip_addr'] == ''
+    assert rd_ecuinfo["main_ecu"]["ecu_name"] == "autoware_ecu"
+    assert rd_ecuinfo["main_ecu"]["ecu_type"] == "autoware"
+    assert rd_ecuinfo["main_ecu"]["ecu_id"] == "1"
+    assert rd_ecuinfo["main_ecu"]["version"] == "0.0.0"
+    assert rd_ecuinfo["main_ecu"]["independent"] == True
+    assert rd_ecuinfo["main_ecu"]["ip_addr"] == ""
+
 
 def test_ota_client_cleanup_dir(tmpdir):
     import ota_client
+
     clean_dir_path = tmpdir.mkdir("cleantest")
     cld_a = clean_dir_path.join("a")
     cld_a.write("a")
@@ -166,4 +195,3 @@ def test_ota_client_cleanup_dir(tmpdir):
     assert not os.path.exists(str(cldA))
     assert not os.path.exists(str(cldB))
     assert not os.path.exists(str(cldC))
-
