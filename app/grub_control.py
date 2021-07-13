@@ -92,6 +92,7 @@ class GrubCfgParser:
             else:
                 return menus, pos
 
+
 class GrubCtl:
     """
     OTA GRUB control class
