@@ -11,6 +11,7 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 class OtaMetaData:
     """
     OTA Metadata Class

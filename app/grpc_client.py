@@ -24,6 +24,7 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 def get_policy_json_str(policy_json_file):
     """
     get policy json string
@@ -110,7 +111,9 @@ def update(service_port):
         eui.metadata = "metadata.jwt"
         eui.header = setup_cookie("tests/policy.json", "tests/private_key.pem")
 
-        logger.debug(f"ecu_update_info: {update_req}", )
+        logger.debug(
+            f"ecu_update_info: {update_req}",
+        )
         stub = otaclient_pb2_grpc.OtaClientServiceStub(channel)
         response = stub.OtaUpdate(update_req)
         logger.debug(f"Ota Client IF client received: {response.result}")
