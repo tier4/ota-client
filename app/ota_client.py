@@ -931,7 +931,7 @@ class OtaClient:
             DO NOT call this method from other functions 
             except for _process_regular_files
         '''
-        for k, v in gvar_dict:
+        for k, v in gvar_dict.items():
             # apply staged data to target attribute
             vname = k.split("-")
             if vname[0] == "staging":
@@ -980,10 +980,17 @@ class OtaClient:
                 initargs=(gvar_dict,)
             ) as pool:
                 for rfile_inf in rfiles_list:
-                    pool.apply_async(
-                        self._process_regular_file,
-                        (rootfs_dir, target_dir, rfile_inf),
-                    )
+                    if rfile_inf.links >=2 and rfile_inf.sha256hash not in gvar_dict["tmp-dict-hardlink_reg"]:
+                        # block the flow until the first copy of hardlinked file is ready
+                        pool.apply(
+                            self._process_regular_file,
+                            (rootfs_dir, target_dir, rfile_inf),
+                        )
+                    else:
+                        pool.apply_async(
+                            self._process_regular_file,
+                            (rootfs_dir, target_dir, rfile_inf),
+                        )
                 
                 # stop accepting new tasks
                 pool.close()
@@ -1009,8 +1016,10 @@ class OtaClient:
         prev_inf = ""
         # hardlinked file
         if rfile_inf.links >= 2:
+            # if the upcoming rfile entry is the first copy of hardlinked file
+            # then the prev_inf should be ""
             prev_inf = global_var_dict["tmp-dict-hardlink_reg"]. \
-                setdefault(rfile_inf.sha256hash, rfile_inf)
+                get(rfile_inf.sha256hash, "")
       
         if rfile_inf.path.find("/boot/") == 0:
             # /boot directory file
