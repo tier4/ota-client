@@ -980,7 +980,7 @@ class OtaClient:
                 initargs=(gvar_dict,)
             ) as pool:
                 for rfile_inf in rfiles_list:
-                    if rfile_inf.links >=2 and rfile_inf.sha256hash not in gvar_dict["tmp-dict-hardlink_reg"]:
+                    if int(rfile_inf.links) >=2 and rfile_inf.sha256hash not in gvar_dict["tmp-dict-hardlink_reg"]:
                         # block the flow until the first copy of hardlinked file is ready
                         pool.apply(
                             self._process_regular_file,
@@ -1015,7 +1015,7 @@ class OtaClient:
         
         prev_inf = ""
         # hardlinked file
-        if rfile_inf.links >= 2:
+        if int(rfile_inf.links) >= 2:
             # if the upcoming rfile entry is the first copy of hardlinked file
             # then the prev_inf should be ""
             prev_inf = global_var_dict["tmp-dict-hardlink_reg"]. \
