@@ -32,6 +32,19 @@ UUID=cc59073d-9e5b-41e1-b724-576259341132 /boot           ext4    errors=remount
 /swapfile                                 none            swap    sw              0       0
 """
 
+FSTAB_WO_ROOT = """\
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/nvme0n1p1 during installation
+UUID=cc59073d-9e5b-41e1-b724-576259341132 /boot           ext4    errors=remount-ro 0       1
+/swapfile                                 none            swap    sw              0       0
+"""
+
 
 def test__get_ext4_blks(mocker):
     import bank
@@ -86,11 +99,17 @@ def test__get_current_devfile_by_fstab(
     fstab_file = tmp_path / "fstab"
     fstab_file.write_text(fstab)
 
-    (
-        root_devfile,
-        root_uuid,
-        boot_devfile,
-        boot_uuid,
-    ) = bank._get_current_devfile_by_fstab(fstab_file)
+    _, root_uuid, _, boot_uuid = bank._get_current_devfile_by_fstab(fstab_file)
     assert root_uuid == root_uuid_exp
     assert boot_uuid == boot_uuid_exp
+
+
+def test__get_current_devfile_by_fstab_with_exception(mocker, tmp_path):
+    import bank
+
+    mocker.patch("bank.os.path.realpath", return_value="realpath")
+    fstab_file = tmp_path / "fstab"
+    fstab_file.write_text(FSTAB_WO_ROOT)
+
+    with pytest.raises(UnboundLocalError):
+        bank._get_current_devfile_by_fstab(fstab_file)
