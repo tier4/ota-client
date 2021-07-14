@@ -961,7 +961,7 @@ class OtaClient:
             gvar_dict = {
                 "tmp-queue-log_queue": log_q,
                 "tmp-dict-hardlink_reg": manager.dict(), 
-                "staging-dict-_rollback_dict": manager.list()
+                "staging-dict-_rollback_dict": manager.dict()
             } 
         
             # launch log2file logger
