@@ -20,7 +20,7 @@ from hashlib import sha256
 from ota_status import OtaStatus
 from grub_control import GrubCtl
 from ota_metadata import OtaMetaData
-from multiprocessing import Pool, Manager
+from multiprocessing import Process, Pool, Manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -566,8 +566,9 @@ class OtaClient:
             logger.error(f"hash missmatch: {dest_file}")
             logger.error(f"  dl hash: {digest}")
             logger.error(f"  hash: {target_hash}")
-            # if fl != "":
-            #     fl.write("hash missmatch: " + dest_file + "\n")
+            fl = global_var_dict["tmp-queue-log_queue"]
+            if fl != "":
+                fl.put("hash missmatch: " + dest_file + "\n")
             return False
         return True
 
@@ -804,6 +805,7 @@ class OtaClient:
             logger.debug(f"links: {regular_inf.links}")
             os.link(prev_inf.path, regular_inf.path)
         else:
+            staging_rollback_dict = global_var_dict["staging-dict-_rollback_dict"]
             # no hard link
             if (
                 os.path.isfile(regular_inf.path)
@@ -814,7 +816,8 @@ class OtaClient:
                     self._rollback_dir, os.path.basename(regular_inf.path)
                 )
                 _copy_complete(regular_inf.path, rollback_file)
-                self._rollback_dict[regular_inf.path] = regular_inf.path
+
+                staging_rollback_dict[regular_inf.path] = regular_inf.path
                 logger.debug("file already exist! no copy or download!")
             else:
                 if os.path.isfile(regular_inf.path):
@@ -823,9 +826,9 @@ class OtaClient:
                         self._rollback_dir, os.path.basename(regular_inf.path)
                     )
                     _copy_complete(regular_inf.path, rollback_file)
-                    self._rollback_dict[regular_inf.path] = rollback_file
+                    staging_rollback_dict[regular_inf.path] = rollback_file
                 else:
-                    self._rollback_dict[regular_inf.path] = ""
+                    staging_rollback_dict[regular_inf.path] = ""
                 # download new file
                 if self._download_regular_file(
                     rootfs_dir,
@@ -909,45 +912,105 @@ class OtaClient:
 
         return True
 
+    def _process_regular_files_pool_init(self, gvar_dict):
+        ''' 
+            Used by _process_regular_files
+            Init the worker pool with shared variables
+
+            DO NOT call this method from other functions 
+            except for _process_regular_files
+        '''
+        global global_var_dict
+        global_var_dict = gvar_dict
+
+    def _process_regular_files_exit(self, gvar_dict):
+        '''
+            Used by _process_regular_files
+            Update corresponding class attributes
+
+            DO NOT call this method from other functions 
+            except for _process_regular_files
+        '''
+        for k, v in gvar_dict:
+            # apply staged data to target attribute
+            vname = k.split("-")
+            if vname[0] == "staging":
+                if vname[1] == "dict":
+                    # TODO: update or replace?
+                    setattr(self, vname[-1], dict(v))
+                elif vname[1] == "list":
+                    setattr(self, vname[-1], list(v))
+
+    def _process_regular_files_log2file_listener(self, flog_path, log_queue, event):
+        '''
+            logger worker for _process_regular_files
+        '''
+        with open(flog_path, "w") as f:
+            while not event.is_set() or not log_queue.empty():
+                    msg = log_queue.get()
+                    f.write(msg+"\n")
+
     def _process_regular_files(self, rootfs_dir, rfiles_list, target_dir):
-        with Manager() as manager:
-            d = manager.dict()
+        with Manager() as manager, \
+            tempfile.NamedTemporaryFile(delete=False) as flog:
+            log_file_path, log_q, ev = flog.name, manager.Queue(), manager.Event()
+            # variables passed to child processes
+            # variable naming pattern: <prefix>-<type>-<var_name>
+            # prefix tmp: for temporary use
+            # prefix staging: used to update corresponding class attribute
+            gvar_dict = {
+                "tmp-queue-log_queue": log_q,
+                "tmp-dict-hardlink_reg": manager.dict(), 
+                "staging-dict-_rollback_dict": manager.list()
+            } 
         
+            # launch log2file logger
+            #   passing file descriptor to sub-process is not possible,
+            #   so we pass the log file path to the logger, and let the logger
+            #   open the log file by itself
+            p_logger = Process(
+                target=self._process_regular_files_log2file_listener, 
+                args=(log_file_path, log_q, ev, )
+                )
+            p_logger.start()
+
             # default to one worker per CPU core
-            with Pool() as pool:
-                tasks = []
-                
-                for entry in rfiles_list:
-                    # hardlinked files
-                    if entry.links >= 2:
-                        tasks.append = pool.apply_async(
-                            self._process_regular_file,
-                            (rootfs_dir, rfiles_list, target_dir, ),
-                            dict(hardlink_dict=d)
-                        )
-                    # non-hardlinked files
-                    else:
-                        tasks.append = pool.apply_async(
-                            self._process_regular_file,
-                            (rootfs_dir, rfiles_list, target_dir, )
-                        )
+            with Pool(
+                initializer=self._process_regular_files_pool_init,
+                initargs=(gvar_dict,)
+            ) as pool:
+                for rfile_inf in rfiles_list:
+                    pool.apply_async(
+                        self._process_regular_file,
+                        (rootfs_dir, target_dir, rfile_inf),
+                    )
                 
                 # stop accepting new tasks
                 pool.close()
                 # wait for all tasks to complete
                 # not apply timeout currently
                 pool.join()
-    
+
+                # notify the logger to terminate
+                ev.set()
+                # avoid logger hangging
+                log_q.put("All tasks finished!")
+            
+            # update corresponding class attribute
+            self._process_regular_files_exit(gvar_dict)
+
+            # wait for logger
+            p_logger.join()
+   
     def _process_regular_file(
         self, 
-        rootfs_dir, target_dir, rfile_inf: RegularInf, 
-        hardlink_dict=None):
+        rootfs_dir, target_dir, rfile_inf: RegularInf):
         
         prev_inf = ""
-        # implicitly indicate that the entry is hardlinked
-        # get the prepared rfile entry
-        if hardlink_dict is not None:
-            prev_inf = hardlink_dict.setdefault(rfile_inf.sha256hash, rfile_inf)
+        # hardlinked file
+        if rfile_inf.links >= 2:
+            prev_inf = global_var_dict["tmp-dict-hardlink_reg"]. \
+                setdefault(rfile_inf.sha256hash, rfile_inf)
       
         if rfile_inf.path.find("/boot/") == 0:
             # /boot directory file
