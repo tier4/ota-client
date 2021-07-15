@@ -773,9 +773,7 @@ class OtaClient:
     # def _make_url_path(url, rootfs_dir, regular_file):
     #    return os.path.join(url, rootfs_dir + urllib.parse.quote(regular_file))
 
-    def _download_regular_file(
-        self, rootfs_dir, target_path, regular_file, hash256
-    ):
+    def _download_regular_file(self, rootfs_dir, target_path, regular_file, hash256):
         """
         Download regular file
         """
@@ -892,7 +890,7 @@ class OtaClient:
         """
         self._boot_vmlinuz = None  # clear
         self._boot_initrd = None  # clear
-        
+
         cwd = os.getcwd()
         os.chdir(target_dir)
 
@@ -904,8 +902,8 @@ class OtaClient:
         # process all regular files here
         try:
             self._process_regular_files(rootfs_dir, rfiles_list, target_dir)
-        except Exception as e:
-            logger.exception("regular files setup error!:")
+        except:
+            logger.exception(f"gen regular files error!")
             return False
         finally:
             os.chdir(cwd)
@@ -913,24 +911,24 @@ class OtaClient:
         return True
 
     def _process_regular_files_pool_init(self, gvar_dict):
-        ''' 
-            Used by _process_regular_files
-            Init the worker pool with shared variables
+        """
+        Used by _process_regular_files
+        Init the worker pool with shared variables
 
-            DO NOT call this method from other functions 
-            except for _process_regular_files
-        '''
+        DO NOT call this method from other functions
+        except for _process_regular_files
+        """
         global global_var_dict
         global_var_dict = gvar_dict
 
     def _process_regular_files_exit(self, gvar_dict):
-        '''
-            Used by _process_regular_files
-            Update corresponding class attributes
+        """
+        Used by _process_regular_files
+        Update corresponding class attributes
 
-            DO NOT call this method from other functions 
-            except for _process_regular_files
-        '''
+        DO NOT call this method from other functions
+        except for _process_regular_files
+        """
         for k, v in gvar_dict.items():
             # apply staged data to target attribute
             vname = k.split("-")
@@ -942,56 +940,73 @@ class OtaClient:
                     setattr(self, vname[-1], list(v))
 
     def _process_regular_files_log2file_listener(self, flog_path, log_queue, event):
-        '''
-            logger worker for _process_regular_files
-        '''
+        """
+        logger worker for _process_regular_files
+        """
         with open(flog_path, "w") as f:
             while not event.is_set() or not log_queue.empty():
-                    msg = log_queue.get()
-                    f.write(msg+"\n")
+                msg = log_queue.get()
+                f.write(msg + "\n")
 
     def _process_regular_files(self, rootfs_dir, rfiles_list, target_dir):
-        with Manager() as manager, \
-            tempfile.NamedTemporaryFile(delete=False) as flog:
+        with Manager() as manager, tempfile.NamedTemporaryFile(delete=False) as flog:
             log_file_path, log_q, ev = flog.name, manager.Queue(), manager.Event()
+            ecb_queue = manager.Queue()
             # variables passed to child processes
             # variable naming pattern: <prefix>-<type>-<var_name>
             # prefix tmp: for temporary use
             # prefix staging: used to update corresponding class attribute
             gvar_dict = {
                 "tmp-queue-log_queue": log_q,
-                "tmp-dict-hardlink_reg": manager.dict(), 
-                "staging-dict-_rollback_dict": manager.dict()
-            } 
-        
+                "tmp-dict-hardlink_reg": manager.dict(),
+                "staging-dict-_rollback_dict": manager.dict(),
+            }
+
             # launch log2file logger
             #   passing file descriptor to sub-process is not possible,
             #   so we pass the log file path to the logger, and let the logger
             #   open the log file by itself
             p_logger = Process(
-                target=self._process_regular_files_log2file_listener, 
-                args=(log_file_path, log_q, ev, )
-                )
+                target=self._process_regular_files_log2file_listener,
+                args=(
+                    log_file_path,
+                    log_q,
+                    ev,
+                ),
+            )
             p_logger.start()
 
             # default to one worker per CPU core
             with Pool(
-                initializer=self._process_regular_files_pool_init,
-                initargs=(gvar_dict,)
+                initializer=self._process_regular_files_pool_init, initargs=(gvar_dict,)
             ) as pool:
+
+                # error_callback for workers
+                #   terminate all sub-processes
+                #   and pass exception to main process
+                def ecb(e):
+                    ecb_queue.put(e)
+                    pool.terminate()
+
                 for rfile_inf in rfiles_list:
-                    if int(rfile_inf.links) >=2 and rfile_inf.sha256hash not in gvar_dict["tmp-dict-hardlink_reg"]:
+                    if (
+                        int(rfile_inf.links) >= 2
+                        and rfile_inf.sha256hash
+                        not in gvar_dict["tmp-dict-hardlink_reg"]
+                    ):
                         # block the flow until the first copy of hardlinked file is ready
                         pool.apply(
                             self._process_regular_file,
                             (rootfs_dir, target_dir, rfile_inf),
+                            error_callback=ecb,
                         )
                     else:
                         pool.apply_async(
                             self._process_regular_file,
                             (rootfs_dir, target_dir, rfile_inf),
+                            error_callback=ecb,
                         )
-                
+
                 # stop accepting new tasks
                 pool.close()
                 # wait for all tasks to complete
@@ -1002,37 +1017,48 @@ class OtaClient:
                 ev.set()
                 # avoid logger hangging
                 log_q.put("All tasks finished!")
-            
-            # update corresponding class attribute
-            self._process_regular_files_exit(gvar_dict)
 
             # wait for logger
             p_logger.join()
-   
-    def _process_regular_file(
-        self, 
-        rootfs_dir, target_dir, rfile_inf: RegularInf):
-        
-        prev_inf = ""
-        # hardlinked file
-        if int(rfile_inf.links) >= 2:
-            # if the upcoming rfile entry is the first copy of hardlinked file
-            # then the prev_inf should be ""
-            prev_inf = global_var_dict["tmp-dict-hardlink_reg"]. \
-                get(rfile_inf.sha256hash, "")
-      
-        if rfile_inf.path.find("/boot/") == 0:
-            # /boot directory file
-            logger.debug(f"boot file: {rfile_inf.path}")
-            self._gen_boot_dir_file(
-                rootfs_dir, target_dir, rfile_inf, prev_inf
-            )
-        else:
-            # others
-            logger.debug(f"no boot file: {rfile_inf.path}")
-            self._gen_regular_file(
-                rootfs_dir, target_dir, rfile_inf, prev_inf
-            )
+
+            # check if any exception is triggered
+            if not ecb_queue.empty():
+                # if any exception being raised in any child processes,
+                # raise it again in the main process.
+                e = ecb_queue.get()
+                logger.error(
+                    f"process regular files failed: {e}. All sub processess terminated."
+                )
+                raise OtaError(f"process regular files failed!")
+            else:  # everything is ALLRIGHT!
+                # update corresponding class attribute
+                self._process_regular_files_exit(gvar_dict)
+
+    def _process_regular_file(self, rootfs_dir, target_dir, rfile_inf: RegularInf):
+        """
+        main entry for paralleling processing regular files
+        """
+        try:
+            prev_inf = ""
+            # hardlinked file
+            if int(rfile_inf.links) >= 2:
+                # if the upcoming rfile entry is the first copy of hardlinked file
+                # then the prev_inf should be ""
+                prev_inf = global_var_dict["tmp-dict-hardlink_reg"].get(
+                    rfile_inf.sha256hash, ""
+                )
+
+            if rfile_inf.path.find("/boot/") == 0:
+                # /boot directory file
+                logger.debug(f"boot file: {rfile_inf.path}")
+                self._gen_boot_dir_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
+            else:
+                # others
+                logger.debug(f"no boot file: {rfile_inf.path}")
+                self._gen_regular_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
+        except Exception as e:
+            logger.exception(f"worker[{os.getpid()}]: process regular file failed!")
+            raise e
 
     def _setup_regular_files(self, target_dir):
         """
