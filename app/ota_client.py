@@ -566,9 +566,6 @@ class OtaClient:
             logger.error(f"hash missmatch: {dest_file}")
             logger.error(f"  dl hash: {digest}")
             logger.error(f"  hash: {target_hash}")
-            fl = global_var_dict["tmp-queue-log_queue"]
-            if fl != "":
-                fl.put("hash missmatch: " + dest_file + "\n")
             return False
         return True
 
@@ -939,42 +936,17 @@ class OtaClient:
                 elif vname[1] == "list":
                     setattr(self, vname[-1], list(v))
 
-    def _process_regular_files_log2file_listener(self, flog_path, log_queue, event):
-        """
-        logger worker for _process_regular_files
-        """
-        with open(flog_path, "w") as f:
-            while not event.is_set() or not log_queue.empty():
-                msg = log_queue.get()
-                f.write(msg + "\n")
-
     def _process_regular_files(self, rootfs_dir, rfiles_list, target_dir):
-        with Manager() as manager, tempfile.NamedTemporaryFile(delete=False) as flog:
-            log_file_path, log_q, ev = flog.name, manager.Queue(), manager.Event()
+        with Manager() as manager:
             ecb_queue = manager.Queue()
             # variables passed to child processes
             # variable naming pattern: <prefix>-<type>-<var_name>
             # prefix tmp: for temporary use
             # prefix staging: used to update corresponding class attribute
             gvar_dict = {
-                "tmp-queue-log_queue": log_q,
                 "tmp-dict-hardlink_reg": manager.dict(),
                 "staging-dict-_rollback_dict": manager.dict(),
             }
-
-            # launch log2file logger
-            #   passing file descriptor to sub-process is not possible,
-            #   so we pass the log file path to the logger, and let the logger
-            #   open the log file by itself
-            p_logger = Process(
-                target=self._process_regular_files_log2file_listener,
-                args=(
-                    log_file_path,
-                    log_q,
-                    ev,
-                ),
-            )
-            p_logger.start()
 
             # default to one worker per CPU core
             with Pool(
@@ -1012,14 +984,6 @@ class OtaClient:
                 # wait for all tasks to complete
                 # not apply timeout currently
                 pool.join()
-
-                # notify the logger to terminate
-                ev.set()
-                # avoid logger hangging
-                log_q.put("All tasks finished!")
-
-            # wait for logger
-            p_logger.join()
 
             # check if any exception is triggered
             if not ecb_queue.empty():
