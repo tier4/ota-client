@@ -967,17 +967,25 @@ class OtaClient:
                         not in gvar_dict["tmp-dict-hardlink_reg"]
                     ):
                         # block the flow until the first copy of hardlinked file is ready
-                        pool.apply(
-                            self._process_regular_file,
-                            (rootfs_dir, target_dir, rfile_inf),
-                            error_callback=ecb,
-                        )
+                        try:
+                            pool.apply(
+                                self._process_regular_file,
+                                (rootfs_dir, target_dir, rfile_inf),
+                            )
+                        except Exception as e:
+                            ecb(e)
+                            break
                     else:
-                        pool.apply_async(
-                            self._process_regular_file,
-                            (rootfs_dir, target_dir, rfile_inf),
-                            error_callback=ecb,
-                        )
+                        try:
+                            pool.apply_async(
+                                self._process_regular_file,
+                                (rootfs_dir, target_dir, rfile_inf),
+                                error_callback=ecb,
+                            )
+                        except:
+                            # the only exception will be catched is ValueError
+                            # caused by calling pool.apply_async when the pool terminated
+                            pass
 
                 # stop accepting new tasks
                 pool.close()
@@ -989,9 +997,8 @@ class OtaClient:
             if not ecb_queue.empty():
                 # if any exception being raised in any child processes,
                 # raise it again in the main process.
-                e = ecb_queue.get()
                 logger.error(
-                    f"process regular files failed: {e}. All sub processess terminated."
+                    f"process regular files failed: {ecb_queue.get()}. All sub processess terminated."
                 )
                 raise OtaError(f"process regular files failed!")
             else:  # everything is ALLRIGHT!
