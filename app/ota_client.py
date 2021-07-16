@@ -1013,11 +1013,13 @@ class OtaClient:
             prev_inf = ""
             # hardlinked file
             if int(rfile_inf.links) >= 2:
+                prev_inf = global_var_dict["tmp-dict-hardlink_reg"].setdefault(
+                    rfile_inf.sha256hash, rfile_inf
+                )
                 # if the upcoming rfile entry is the first copy of hardlinked file
                 # then the prev_inf should be ""
-                prev_inf = global_var_dict["tmp-dict-hardlink_reg"].get(
-                    rfile_inf.sha256hash, ""
-                )
+                if prev_inf == rfile_inf:
+                    prev_inf = ""
 
             if rfile_inf.path.find("/boot/") == 0:
                 # /boot directory file
