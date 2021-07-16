@@ -13,6 +13,7 @@ import requests
 import json
 import yaml
 import logging
+import copy
 
 import re
 from hashlib import sha256
@@ -419,7 +420,7 @@ class OtaClient:
         self.__ecuinfo_yaml_file = ecuinfo_yaml_file
         self.__ecu_info = _read_ecu_info(ecuinfo_yaml_file)
         self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file + ".update"
-        self.__update_ecu_info = self.__ecu_info
+        self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
 
         self._ota_dir = "/boot/ota"
         self._rollback_dir = "/boot/ota/rollback"
