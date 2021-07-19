@@ -6,6 +6,7 @@ import shlex
 import shutil
 import subprocess
 import yaml
+import re
 
 from logging import getLogger, INFO, DEBUG
 
@@ -13,131 +14,54 @@ logger = getLogger(__name__)
 logger.setLevel(INFO)
 
 
-def _blkid():
-    """
-    do lockid command and return result
-    """
-    try:
-        command_line = "blkid"
-        logger.debug(f"commandline: {command_line}")
-        blk_info = subprocess.check_output(shlex.split(command_line))
-        blks_byte = blk_info.split(b"\n")
-        blks = []
-        for blk in blks_byte:
-            blk_dict = {
-                "DEV": "",
-                "LABEL": "",
-                "UUID": "",
-                "TYPE": "",
-                "PARTLABEL": "",
-            }
-            for info in blk.decode().split():
-                if info[-1] == ":":
-                    blk_dict["DEV"] = info[:-1]
-                elif info.find("LABEL=") == 0:
-                    blk_dict["LABEL"] = info[7:-1]
-                elif info.find("UUID=") == 0:
-                    blk_dict["UUID"] = info[6:-1]
-                elif info.find("TYPE=") == 0:
-                    blk_dict["TYPE"] = info[6:-1]
-                elif info.find("PARTLABEL=") == 0:
-                    blk_dict["PARTLABEL"] = info[11:-1]
-            blks.append(blk_dict)
-            logger.debug(f"{blk_dict}")
-    except Exception as e:
-        logger.exception("execution error!:")
-        return []
+def _blkid_command(device=None):
+    command_line = "blkid" if device is None else f"blkid {device}"
+    return subprocess.check_output(shlex.split(command_line))
+
+
+def _get_ext4_blks(device=None):
+    blkid = _blkid_command(device)
+
+    blks = []
+    for blk in blkid.split(b"\n"):
+        match = re.match(r'(.*):\s+UUID="([a-f0-9-]*)"\s+TYPE="ext4"', blk.decode())
+        if match:
+            ext4 = {}
+            ext4["DEV"] = match.group(1)
+            ext4["UUID"] = match.group(2)
+            blks.append(ext4)
     return blks
-
-
-def _get_ext4_blks_by_blkid():
-    """"""
-    ext4_blks = []
-    blks = _blkid()
-    # dev_info = getdevinfo.getdevinfo.get_info()
-    if blks == []:
-        logger.debug("Cannot get block info!")
-    else:
-        for info in blks:
-            if info["TYPE"] == "ext4":
-                ext4_blks.append(info)
-    return ext4_blks
 
 
 def _get_uuid_from_blkid(bank):
     """
     get bank device uuid by the 'blkid' command
     """
-    logger.debug(f"bank: {bank}")
-    # passwd = (getpass.getpass() + '\n').encode()
-    command_line = "blkid " + bank
-    logger.debug(f"command_line: {command_line}")
-    out = subprocess.check_output(shlex.split(command_line))
-    out_decode = out.decode("utf-8")
-    logger.debug(f"{out_decode}")
-    blk = shlex.split(out.decode("utf-8"))
-    logger.debug(f"{blk}")
-    uuid = ""
-    if len(blk) > 0:
-        pos = blk[1].find("UUID=")
-        if pos == 0:
-            uuid = blk[1].replace("UUID=", "")
-    logger.debug(f"uuid for {bank} : {uuid}")
-    return uuid
-
-
-def _get_devfile(fstab_dev):
-    if fstab_dev.find("UUID=") == 0:
-        # UUID
-        uuid = fstab_dev[5:]
-        uuid_dev = "/dev/disk/by-uuid/" + uuid
-        if os.path.exists(uuid_dev):
-            devfile = os.path.realpath(uuid_dev)
-            return devfile, uuid
-        else:
-            logger.debug(f"No uuid device: {uuid_dev}")
-            return "", ""
-    elif fstab_dev.find("/dev/disk/by-uuid/") == 0:
-        # uuid devicefile
-        uuid = fstab_dev[18:]
-        uuid_dev = fstab_dev
-        if os.path.exists(uuid_dev):
-            devfile = os.path.realpath(uuid_dev)
-            return devfile, uuid
-        else:
-            logger.debug(f"No uuid device: {uuid_dev}")
-            return "", ""
-    elif fstab_dev.find("/dev/") == 0:
-        # devfile
-        return fstab_dev, ""
-    else:
-        logger.debug(f"device is not UUID or devfile: {fstab_dev}")
-    return "", ""
+    return _get_ext4_blks(device=bank)[0]["UUID"]
 
 
 def _get_current_devfile_by_fstab(fstab_file):
     """"""
-    if not os.path.isfile(fstab_file):
-        logger.debug(f"file not exist: {fstab_file}")
-        return "", "", "", ""
     with open(fstab_file, "r") as f:
-        lines = f.readlines()
-        root_devfile = ""
-        root_uuid = ""
-        boot_devfile = ""
-        boot_uuid = ""
-        for l in lines:
-            if l[0] == "#":
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            match = re.match(
+                r"^(?!#)(\/dev\/disk\/by-uuid\/|UUID=)([a-f0-9-]*)\s+(.*?)\s+", line
+            )
+            if not match:
                 continue
-            fstab_list = l.split()
-            if fstab_list[1] == "/":
-                logger.debug(f"rootp found: {fstab_list[1]}")
-                root_devfile, root_uuid = _get_devfile(fstab_list[0])
-            elif fstab_list[1] == "/boot":
-                logger.debug(f"bootp found: {fstab_list[1]}")
-                boot_devfile, boot_uuid = _get_devfile(fstab_list[0])
-            else:
-                logger.debug(f"others: {fstab_list}")
+            if match.group(3) == "/":
+                root_uuid = match.group(2)
+                root_devfile = os.path.realpath(f"/dev/disk/by-uuid/{match.group(2)}")
+                logger.debug(f"root_uuid: {root_uuid}, root_devfile: {root_devfile}")
+            elif match.group(3) == "/boot":
+                boot_uuid = match.group(2)
+                boot_devfile = os.path.realpath(f"/dev/disk/by-uuid/{match.group(2)}")
+                logger.debug(f"boot_uuid: {boot_uuid}, boot_devfile: {boot_devfile}")
+    # NOTE: if all root_devfile, root_uuid, boot_devfile and boot_uuid are not set,
+    # the following line raises exception.
     return root_devfile, root_uuid, boot_devfile, boot_uuid
 
 
@@ -151,21 +75,18 @@ def _gen_bankinfo_file(bank_info_file, fstab_file):
         boot_devfile,
         boot_uuid,
     ) = _get_current_devfile_by_fstab(fstab_file)
-    blks = _get_ext4_blks_by_blkid()
+    blks = _get_ext4_blks()
     stby_devfile = ""
     for blk in blks:
-        if blk["TYPE"] == "ext4":
-            if blk["DEV"] == root_devfile or blk["UUID"] == root_uuid:
-                logger.debug(f"root dev: {root_devfile} {root_uuid}")
-            elif blk["DEV"] == boot_devfile or blk["UUID"] == boot_uuid:
-                logger.debug(f"boot dev: {boot_devfile} {boot_uuid}")
-            else:
-                logger.debug(f"another bank: {blk}")
-                stby_devfile = blk["DEV"]
-                stby_uuid = blk["UUID"]
-                break
+        if blk["DEV"] == root_devfile or blk["UUID"] == root_uuid:
+            logger.debug(f"root dev: {root_devfile} {root_uuid}")
+        elif blk["DEV"] == boot_devfile or blk["UUID"] == boot_uuid:
+            logger.debug(f"boot dev: {boot_devfile} {boot_uuid}")
         else:
-            logger.debug(f"no ext4: {blk}")
+            logger.debug(f"another bank: {blk}")
+            stby_devfile = blk["DEV"]
+            stby_uuid = blk["UUID"]
+            break
     if boot_devfile == "" or root_devfile == "" or stby_devfile == "":
         logger.error("device info error!")
         logger.info(f"root: {root_devfile} boot: {boot_devfile} stby: {stby_devfile}")
@@ -181,8 +102,7 @@ def _gen_bankinfo_file(bank_info_file, fstab_file):
                 f.flush()
         os.sync()
         dir_name = os.path.dirname(bank_info_file)
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name)
+        os.makedirs(dir_name, exist_ok=True)
         shutil.move(tmp_file, bank_info_file)
         os.sync()
     return True

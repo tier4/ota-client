@@ -18,27 +18,12 @@ logger = getLogger(__name__)
 logger.setLevel(INFO)
 
 
-def _setup_ecus():
-    """
-    read ECU configuration
-    """
-    ecuinfo = {}
-    ecuinfo["ecu_name"] = "Autoware"
-    ecuinfo["ecu_type"] = "autoware"
-    ecuinfo["ecu_id"] = "1"
-    ecuinfo["version"] = "0.0.0"
-    ecuinfo["independent"] = True
-    return ecuinfo
-
-
 class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
     """
     OTA lient service class
     """
 
     def __init__(self, otaclient):
-        self._ecuinfo = _setup_ecus()
-        self._subecu_port = {}
         self._ota_client = otaclient
 
     def OtaUpdate(self, request, context):

@@ -52,6 +52,7 @@ menuentry 'GNU/Linux' {{
 def grub_ctl_instance(tmpdir, mocker, bankinfo_file, custom_cfg_file):
     from grub_control import GrubCtl
     from bank import BankInfo
+    import bank
 
     def mock_get_uuid_from_blkid(bank):
         if bank == "/dev/sda3":
@@ -88,9 +89,11 @@ def grub_ctl_instance(tmpdir, mocker, bankinfo_file, custom_cfg_file):
     return grub_ctl
 
 
-def test_grub_ctl_grub_configuration(tmpdir, grub_file_default):
+def test_grub_ctl_grub_configuration(mocker, tmpdir, grub_file_default):
     from grub_control import GrubCtl
+    import bank
 
+    mocker.patch("bank._get_current_devfile_by_fstab", return_value=("", "", "", ""))
     grub_ctl = GrubCtl(default_grub_file=grub_file_default)
     r = grub_ctl._grub_configuration()
     assert r
