@@ -926,15 +926,7 @@ class OtaClient:
         DO NOT call this method from other functions
         except for _process_regular_files
         """
-        for k, v in gvar_dict.items():
-            # apply staged data to target attribute
-            vname = k.split("-")
-            if vname[0] == "staging":
-                if vname[1] == "dict":
-                    # TODO: update or replace?
-                    setattr(self, vname[-1], dict(v))
-                elif vname[1] == "list":
-                    setattr(self, vname[-1], list(v))
+        setattr(self, "_rollback_dict", dict(gvar_dict["staging-dict-_rollback_dict"]))
 
     def _process_regular_files(self, rootfs_dir, rfiles_list, target_dir):
         with Manager() as manager:
