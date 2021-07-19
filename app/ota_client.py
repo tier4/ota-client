@@ -21,6 +21,7 @@ from hashlib import sha256
 from ota_status import OtaStatus
 from grub_control import GrubCtl
 from ota_metadata import OtaMetaData
+from multiprocessing import Process, Pool, Manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -538,7 +539,7 @@ class OtaClient:
         # logger.info(response.text)
         return response
 
-    def _download_raw_file(self, url, dest_file, target_hash="", fl=""):
+    def _download_raw_file(self, url, dest_file, target_hash=""):
         """
         download file
         """
@@ -566,15 +567,13 @@ class OtaClient:
             logger.error(f"hash missmatch: {dest_file}")
             logger.error(f"  dl hash: {digest}")
             logger.error(f"  hash: {target_hash}")
-            if fl != "":
-                fl.write("hash missmatch: " + dest_file + "\n")
             return False
         return True
 
-    def _download_raw_file_with_retry(self, url, dest_file, target_hash="", fl=""):
+    def _download_raw_file_with_retry(self, url, dest_file, target_hash=""):
         """"""
         for i in range(self.__download_retry):
-            if self._download_raw_file(url, dest_file, target_hash, fl):
+            if self._download_raw_file(url, dest_file, target_hash):
                 logger.debug(f"retry count: {i}")
                 return True
         return False
@@ -772,9 +771,7 @@ class OtaClient:
     # def _make_url_path(url, rootfs_dir, regular_file):
     #    return os.path.join(url, rootfs_dir + urllib.parse.quote(regular_file))
 
-    def _download_regular_file(
-        self, rootfs_dir, target_path, regular_file, hash256, fl
-    ):
+    def _download_regular_file(self, rootfs_dir, target_path, regular_file, hash256):
         """
         Download regular file
         """
@@ -783,9 +780,9 @@ class OtaClient:
             self.__url, rootfs_dir + urllib.parse.quote(regular_file)
         )
         logger.debug(f"download file: {regular_url}")
-        return self._download_raw_file_with_retry(regular_url, target_path, hash256, fl)
+        return self._download_raw_file_with_retry(regular_url, target_path, hash256)
 
-    def _gen_boot_dir_file(self, rootfs_dir, target_dir, regular_inf, prev_inf, fl):
+    def _gen_boot_dir_file(self, rootfs_dir, target_dir, regular_inf, prev_inf):
         """
         generate /boot directory file
         """
@@ -799,15 +796,12 @@ class OtaClient:
         if match is not None:
             self._boot_initrd = match.group(1)
 
-        if (
-            int(regular_inf.links) >= 2
-            and prev_inf != ""
-            and prev_inf.sha256hash == regular_inf.sha256hash
-        ):
+        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
             logger.debug(f"links: {regular_inf.links}")
             os.link(prev_inf.path, regular_inf.path)
         else:
+            staging_rollback_dict = global_var_dict["staging-dict-_rollback_dict"]
             # no hard link
             if (
                 os.path.isfile(regular_inf.path)
@@ -818,7 +812,8 @@ class OtaClient:
                     self._rollback_dir, os.path.basename(regular_inf.path)
                 )
                 _copy_complete(regular_inf.path, rollback_file)
-                self._rollback_dict[regular_inf.path] = regular_inf.path
+
+                staging_rollback_dict[regular_inf.path] = regular_inf.path
                 logger.debug("file already exist! no copy or download!")
             else:
                 if os.path.isfile(regular_inf.path):
@@ -827,16 +822,15 @@ class OtaClient:
                         self._rollback_dir, os.path.basename(regular_inf.path)
                     )
                     _copy_complete(regular_inf.path, rollback_file)
-                    self._rollback_dict[regular_inf.path] = rollback_file
+                    staging_rollback_dict[regular_inf.path] = rollback_file
                 else:
-                    self._rollback_dict[regular_inf.path] = ""
+                    staging_rollback_dict[regular_inf.path] = ""
                 # download new file
                 if self._download_regular_file(
                     rootfs_dir,
                     regular_inf.path,
                     regular_inf.path,
                     regular_inf.sha256hash,
-                    fl,
                 ):
                     logger.debug(f"Download: {regular_inf.path}")
                     logger.debug(f"file hash: {regular_inf.sha256hash}")
@@ -846,15 +840,12 @@ class OtaClient:
                 os.chown(regular_inf.path, int(regular_inf.uid), int(regular_inf.gpid))
                 os.chmod(regular_inf.path, int(regular_inf.mode, 8))
 
-    def _gen_regular_file(self, rootfs_dir, target_dir, regular_inf, prev_inf, fl):
+    def _gen_regular_file(self, rootfs_dir, target_dir, regular_inf, prev_inf):
         """
         generate regular file
         """
         dest_path = os.path.join(target_dir, "." + regular_inf.path)
-        if (
-            int(regular_inf.links) >= 2
-            and prev_inf.sha256hash == regular_inf.sha256hash
-        ):
+        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
             logger.debug(f"links: {regular_inf.links}")
             src_path = os.path.join(target_dir, "." + prev_inf.path)
@@ -878,7 +869,7 @@ class OtaClient:
                     pass
                 # download new file
                 elif self._download_regular_file(
-                    rootfs_dir, dest_path, regular_inf.path, regular_inf.sha256hash, fl
+                    rootfs_dir, dest_path, regular_inf.path, regular_inf.sha256hash
                 ):
                     if self._ota_cache is not None:
                         self._ota_cache.save(dest_path)
@@ -897,48 +888,143 @@ class OtaClient:
         """
         self._boot_vmlinuz = None  # clear
         self._boot_initrd = None  # clear
-        with tempfile.NamedTemporaryFile(delete=False) as flog:
-            log_file = flog.name
-            with open(flog.name, "w") as fl:
-                res = True
-                with open(regulars_file) as f:
-                    try:
-                        cwd = os.getcwd()
-                        os.chdir(target_dir)
-                        logger.debug(f"target_dir: {target_dir}")
-                        prev_inf = ""
-                        rlist = []
-                        for l in f.readlines():
-                            rlist.append(RegularInf(l))
-                        sorted_rlist = sorted(rlist, key=lambda x: x.sha256hash)
-                        # with open('./tests/sorted_regular_list.txt', "w") as fdst:
-                        #    for lst in sorted_list:
-                        #        fdst.write(str(lst) + '\n')
-                        for l in sorted_rlist:
-                            regular_inf = l
-                            logger.debug(
-                                f"file: {regular_inf.path}, hash: {regular_inf.sha256hash}"
+
+        cwd = os.getcwd()
+        os.chdir(target_dir)
+
+        rfiles_list = []
+        with open(regulars_file) as f:
+            logger.debug(f"target_dir: {target_dir}")
+            rfiles_list = [RegularInf(l) for l in f.readlines()]
+
+        # process all regular files here
+        try:
+            self._process_regular_files(rootfs_dir, rfiles_list, target_dir)
+        except:
+            logger.exception(f"gen regular files error!")
+            return False
+        finally:
+            os.chdir(cwd)
+
+        return True
+
+    def _process_regular_files_pool_init(self, gvar_dict):
+        """
+        Used by _process_regular_files
+        Init the worker pool with shared variables
+
+        DO NOT call this method from other functions
+        except for _process_regular_files
+        """
+        global global_var_dict
+        global_var_dict = gvar_dict
+
+    def _process_regular_files_exit(self, gvar_dict):
+        """
+        Used by _process_regular_files
+        Update corresponding class attributes
+
+        DO NOT call this method from other functions
+        except for _process_regular_files
+        """
+        setattr(self, "_rollback_dict", dict(gvar_dict["staging-dict-_rollback_dict"]))
+
+    def _process_regular_files(self, rootfs_dir, rfiles_list, target_dir):
+        with Manager() as manager:
+            ecb_queue = manager.Queue()
+            # variables passed to child processes
+            # variable naming pattern: <prefix>-<type>-<var_name>
+            # prefix tmp: for temporary use
+            # prefix staging: used to update corresponding class attribute
+            gvar_dict = {
+                "tmp-dict-hardlink_reg": manager.dict(),
+                "staging-dict-_rollback_dict": manager.dict(),
+            }
+
+            # default to one worker per CPU core
+            with Pool(
+                initializer=self._process_regular_files_pool_init, initargs=(gvar_dict,)
+            ) as pool:
+
+                # error_callback for workers
+                #   terminate all sub-processes
+                #   and pass exception to main process
+                def ecb(e):
+                    ecb_queue.put(e)
+                    pool.terminate()
+
+                for rfile_inf in rfiles_list:
+                    if (
+                        int(rfile_inf.links) >= 2
+                        and rfile_inf.sha256hash
+                        not in gvar_dict["tmp-dict-hardlink_reg"]
+                    ):
+                        # block the flow until the first copy of hardlinked file is ready
+                        try:
+                            pool.apply(
+                                self._process_regular_file,
+                                (rootfs_dir, target_dir, rfile_inf),
                             )
-                            if regular_inf.path.find("/boot/") == 0:
-                                # /boot directory file
-                                logger.debug(f"boot file: {regular_inf.path}")
-                                self._gen_boot_dir_file(
-                                    rootfs_dir, target_dir, regular_inf, prev_inf, fl
-                                )
-                            else:
-                                # others
-                                logger.debug(f"no boot file: {regular_inf.path}")
-                                self._gen_regular_file(
-                                    rootfs_dir, target_dir, regular_inf, prev_inf, fl
-                                )
-                            prev_inf = regular_inf
-                    except Exception as e:
-                        logger.exception("regular files setup error!:")
-                        res = False
-                    finally:
-                        os.chdir(cwd)
-        shutil.copy(log_file, "./regulars_dl.log")
-        return res
+                        except Exception as e:
+                            ecb(e)
+                            break
+                    else:
+                        try:
+                            pool.apply_async(
+                                self._process_regular_file,
+                                (rootfs_dir, target_dir, rfile_inf),
+                                error_callback=ecb,
+                            )
+                        except:
+                            # the only exception will be catched is ValueError
+                            # caused by calling pool.apply_async when the pool terminated
+                            pass
+
+                # stop accepting new tasks
+                pool.close()
+                # wait for all tasks to complete
+                # not apply timeout currently
+                pool.join()
+
+            # check if any exception is triggered
+            if not ecb_queue.empty():
+                # if any exception being raised in any child processes,
+                # raise it again in the main process.
+                logger.error(
+                    f"process regular files failed: {ecb_queue.get()}. All sub processess terminated."
+                )
+                raise OtaError(f"process regular files failed!")
+            else:  # everything is ALLRIGHT!
+                # update corresponding class attribute
+                self._process_regular_files_exit(gvar_dict)
+
+    def _process_regular_file(self, rootfs_dir, target_dir, rfile_inf: RegularInf):
+        """
+        main entry for paralleling processing regular files
+        """
+        try:
+            prev_inf: RegularInf = None
+            # hardlinked file
+            if int(rfile_inf.links) >= 2:
+                prev_inf = global_var_dict["tmp-dict-hardlink_reg"].setdefault(
+                    rfile_inf.sha256hash, rfile_inf
+                )
+                # if the upcoming rfile entry is the first copy of hardlinked file
+                # then the prev_inf should be None
+                if prev_inf.path == rfile_inf.path:
+                    prev_inf = None
+
+            if rfile_inf.path.find("/boot/") == 0:
+                # /boot directory file
+                logger.debug(f"boot file: {rfile_inf.path}")
+                self._gen_boot_dir_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
+            else:
+                # others
+                logger.debug(f"no boot file: {rfile_inf.path}")
+                self._gen_regular_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
+        except Exception as e:
+            logger.exception(f"worker[{os.getpid()}]: process regular file failed!")
+            raise e
 
     def _setup_regular_files(self, target_dir):
         """
