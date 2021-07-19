@@ -1002,7 +1002,7 @@ class OtaClient:
         main entry for paralleling processing regular files
         """
         try:
-            prev_inf = None
+            prev_inf: RegularInf = None
             # hardlinked file
             if int(rfile_inf.links) >= 2:
                 prev_inf = global_var_dict["tmp-dict-hardlink_reg"].setdefault(
@@ -1010,7 +1010,7 @@ class OtaClient:
                 )
                 # if the upcoming rfile entry is the first copy of hardlinked file
                 # then the prev_inf should be None
-                if prev_inf == rfile_inf:
+                if prev_inf and prev_inf.path == rfile_inf.path:
                     prev_inf = None
 
             if rfile_inf.path.find("/boot/") == 0:
