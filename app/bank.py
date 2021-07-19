@@ -320,22 +320,7 @@ class BankInfo:
         """
         Confirm the current bank
         """
-        #
-        if bank_str != self._banka and bank_str != self._bankb:
-            logger.error(f"device mismatch error: {bank_str}")
-            logger.info(f"    banka: {self._banka}")
-            logger.info(f"    bankb: {self._bankb}")
-            return False
-        # get current root device
-        if self._current_bank != self._banka_dev and self._current_bank != self._banka:
-            logger.error(f"current root mismatch error: {self._current_bank}")
-            logger.info(f"    banka: {self._banka}")
-            logger.info(f"    bankb: {self._bankb}")
-            return False
-        #
-        if self._current_bank == bank_str:
-            return True
-        return False
+        return self._current_bank == bank_str
 
     def get_next_bank(self):
         """
