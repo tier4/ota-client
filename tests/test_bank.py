@@ -79,6 +79,7 @@ UUID=B8F9-2BE3                            /boot/efi       vfat    umask=0077    
 /swapfile                                 none            swap    sw              0       0
 """
 
+
 def mock__blkid_command(device=None):
     if device is None:
         return BLKIDS
@@ -100,6 +101,7 @@ def test__get_ext4_blks_1(mocker):
         {"DEV": "/dev/sda3", "UUID": "3a1c99e7-46d9-41b1-8b0a-b07bceef1d02"},
         {"DEV": "/dev/sda2", "UUID": "cc59073d-9e5b-41e1-b724-576259341132"},
     ]
+
 
 def test__get_ext4_blks_2(mocker):
     import bank
@@ -170,6 +172,7 @@ def test__get_current_devfile_by_fstab_with_exception_1(tmp_path):
     with pytest.raises(UnboundLocalError):
         bank._get_current_devfile_by_fstab(fstab_file)
 
+
 def test__get_current_devfile_by_fstab_with_exception_2(tmp_path):
     import bank
 
@@ -191,7 +194,7 @@ bankb: /dev/sda4
 
     bankinfo_file.write_text(BANKINFO)
 
-    banka, bankb = bank._get_bank_info(bankinfo_file) 
+    banka, bankb = bank._get_bank_info(bankinfo_file)
     assert banka == "/dev/sda3"
     assert bankb == "/dev/sda4"
 
@@ -205,9 +208,9 @@ banka: /dev/sda3
 bankb: /dev/sda4
 """
 
-    #bankinfo_file.write_text(BANKINFO)
+    # bankinfo_file.write_text(BANKINFO)
 
-    banka, bankb = bank._get_bank_info(bankinfo_file) 
+    banka, bankb = bank._get_bank_info(bankinfo_file)
     assert banka == ""
     assert bankb == ""
 
@@ -216,16 +219,23 @@ def test__gen_bankinfo_file(mocker, tmp_path):
     import bank
 
     def mock__get_current_devfile_by_fstab(fstab_file):
-        return "/dev/sda3", "3a1c99e7-46d9-41b1-8b0a-b07bceef1d02", "/dev/sda2", "cc59073d-9e5b-41e1-b724-576259341132"
+        return (
+            "/dev/sda3",
+            "3a1c99e7-46d9-41b1-8b0a-b07bceef1d02",
+            "/dev/sda2",
+            "cc59073d-9e5b-41e1-b724-576259341132",
+        )
 
     fstab_file = tmp_path / "fstab"
     fstab_file.write_text(FSTAB_EFI_UUID)
 
-    mocker.patch("bank._get_current_devfile_by_fstab", mock__get_current_devfile_by_fstab)
+    mocker.patch(
+        "bank._get_current_devfile_by_fstab", mock__get_current_devfile_by_fstab
+    )
     mocker.patch("bank._blkid_command", mock__blkid_command)
     bankinfo_file = tmp_path / "bankinfo"
     assert bank._gen_bankinfo_file(bankinfo_file, fstab_file)
-    banka, bankb = bank._get_bank_info(bankinfo_file) 
+    banka, bankb = bank._get_bank_info(bankinfo_file)
     assert banka == "/dev/sda3"
     assert bankb == "/dev/sda4"
 
@@ -252,7 +262,7 @@ def test_BankInfo___init__(mocker, tmp_path):
             return "ad0cd79a-1752-47bb-9274-f9aa4e289cb9"
         else:
             return ""
-    
+
     mocker.patch("bank.os.path.exists", mock_os_path_exists)
     mocker.patch("bank._gen_bankinfo_file", mock__gen_bankinfo_file)
     mocker.patch("bank._get_bank_info", mock__get_bank_info)
@@ -272,9 +282,14 @@ def test_BankInfo___init__(mocker, tmp_path):
     assert bankinfo.get_bankb_uuid() == "ad0cd79a-1752-47bb-9274-f9aa4e289cb9"
     assert bankinfo.get_current_bank() == "/dev/sda4"
     assert bankinfo.get_next_bank() == "/dev/sda3"
-    assert bankinfo.get_current_bank_uuid() ==  "ad0cd79a-1752-47bb-9274-f9aa4e289cb9"
+    assert bankinfo.get_current_bank_uuid() == "ad0cd79a-1752-47bb-9274-f9aa4e289cb9"
     assert bankinfo.get_next_bank_uuid() == "3a1c99e7-46d9-41b1-8b0a-b07bceef1d02"
-    assert bankinfo.get_current_bank_uuid_str() ==  "UUID=ad0cd79a-1752-47bb-9274-f9aa4e289cb9"
-    assert bankinfo.get_next_bank_uuid_str() == "UUID=3a1c99e7-46d9-41b1-8b0a-b07bceef1d02"
+    assert (
+        bankinfo.get_current_bank_uuid_str()
+        == "UUID=ad0cd79a-1752-47bb-9274-f9aa4e289cb9"
+    )
+    assert (
+        bankinfo.get_next_bank_uuid_str() == "UUID=3a1c99e7-46d9-41b1-8b0a-b07bceef1d02"
+    )
     assert bankinfo.is_current_bank("/dev/sda4")
     assert not bankinfo.is_current_bank("/dev/sda3")
