@@ -5,7 +5,7 @@ import os
 import shutil
 
 from ota_status import OtaStatus
-from grub_control import GrubCtl
+import grub_control
 
 from logging import getLogger, INFO, DEBUG
 
@@ -56,7 +56,7 @@ class OtaBoot:
         if not os.path.exists(ota_status_file):
             _gen_ota_status_file(ota_status_file)
         self._ota_status = OtaStatus(ota_status_file=ota_status_file)
-        self._grub_ctl = GrubCtl(
+        self._grub_ctl = grub_control.GrubCtl(
             default_grub_file=default_grub_file,
             grub_config_file=grub_config_file,
             custom_config_file=custom_config_file,
@@ -64,11 +64,11 @@ class OtaBoot:
             fstab_file=fstab_file,
         )
 
-    def _error_nortify(self, err_str):
+    def _error_notify(self, err_str):
         """
-        Error nortify (stub)
+        Error notify (stub)
         """
-        logger.debug(f"Error Nortify: {err_str}")
+        logger.error(f"Error notify: {err_str}")
 
     def _confirm_banka(self):
         """
@@ -91,8 +91,9 @@ class OtaBoot:
         if os.path.isfile(src_file):
             if os.path.exists(dest_file):
                 # To do : copy for rollback
-                logger.debug(f"file move: {src_file} to {dest_file}")
-                shutil.move(src_file, dest_file)
+                pass
+            logger.debug(f"file move: {src_file} to {dest_file}")
+            shutil.move(src_file, dest_file)
         else:
             logger.error(f"file not found: {src_file}")
             return False
@@ -138,10 +139,8 @@ class OtaBoot:
                 else:
                     logger.debug("delete custom.cfg")
                     self._grub_ctl.delete_custom_cfg_file()
-                self._error_nortify(err_str)
-            # set to normal status
-            self._ota_status.set_ota_status("NORMAL")
-            result = "SWITCH_BOOT"
+                self._error_notify(err_str)
+                result = "SWITCH_BOOT_FAIL"
         elif status == "SWITCHB":
             # boot switching A to B bank
             logger.debug("OTA switch to B Bank boot")
@@ -166,10 +165,8 @@ class OtaBoot:
                 else:
                     logger.debug("delete custom.cfg")
                     self._grub_ctl.delete_custom_cfg_file()
-                self._error_nortify(err_str)
+                self._error_notify(err_str)
                 result = "SWITCH_BOOT_FAIL"
-            # set to normal status
-            self._ota_status.set_ota_status("NORMAL")
         elif status == "ROLLBACKA":
             logger.debug("OTA rollback to A Bank boot")
             if self._confirm_banka():
@@ -178,7 +175,7 @@ class OtaBoot:
             else:
                 err_str = "Error: OTA rollback to A Bank boot error!"
                 # rollback
-                self._error_nortify(err_str)
+                self._error_notify(err_str)
                 result = "ROLLBACK_BOOT_FAIL"
         elif status == "ROLLBACKB":
             logger.debug("OTA rollback to B Bank boot")
@@ -188,25 +185,25 @@ class OtaBoot:
             else:
                 err_str = "Error: OTA rollback to B Bank boot error!"
                 # rollback
-                self._error_nortify(err_str)
+                self._error_notify(err_str)
                 result = "ROLLBACK_BOOT_FAIL"
         elif status == "ROLLBACK":
             logger.debug("Rollback imcomplete!")
             # status error!
             err_str = "OTA Status error: " + status
-            self._error_nortify(err_str)
-            result = "ROLLBACK_BOOT_FAIL"
-            # set to normal status
+            self._error_notify(err_str)
+            result = "ROLLBACK_IMCOMPLETE"
             # toDo : clean up '/boot'
-            self._ota_status.set_ota_status("NORMAL")
         else:
             # status error!
             logger.error(f"OTA status error: {status}")
             err_str = "OTA Status error: " + status
-            self._error_nortify(err_str)
+            self._error_notify(err_str)
             result = "UPDATE_IMCOMPLETE"
-            # set to normal status
             # toDo : clean up '/boot'
+
+        if status != "NORMAL":
+            # set to normal status
             self._ota_status.set_ota_status("NORMAL")
 
         return result
