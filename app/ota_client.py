@@ -1254,9 +1254,9 @@ class OtaClient:
         return ecu_found
 
     def update(self, ecu_update_info):
-        return self._update(ecu_update_info, reboot=False)
+        return self._update(ecu_update_info)
 
-    def _update(self, ecu_update_info, reboot=False):
+    def _update(self, ecu_update_info):
         """
         OTA update execution
         """
@@ -1298,8 +1298,6 @@ class OtaClient:
         # -----------------------------------------------------------
         # set 'PREPARED' state
         self._ota_status.set_ota_status("PREPARED")
-        if reboot:
-            self.reboot()
 
         return True
 
