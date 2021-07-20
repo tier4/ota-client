@@ -32,13 +32,16 @@ def test__gen_ota_status_file(tmp_path):
 
 def test_OtaBoot__update_finalize_ecuinfo_file_1(mocker, tmp_path):
     import ota_boot
+    import grub_control
     import os
     import yaml
 
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("NORMAL")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
+
     ecuinfo_path = tmp_path / "ecuinfo.yaml"
     ecuinfo_update_path = tmp_path / "ecuinfo.yaml.update"
     ecuinfo_path.write_text(ECUINFO)
@@ -57,11 +60,13 @@ def test_OtaBoot__update_finalize_ecuinfo_file_1(mocker, tmp_path):
 
 def test_OtaBoot__boot_1(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("NORMAL")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "NORMAL_BOOT"
@@ -70,6 +75,7 @@ def test_OtaBoot__boot_1(mocker, tmp_path):
 
 def test_OtaBoot__boot_2(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     def mock__confirm_banka(self):
         return True
@@ -78,7 +84,8 @@ def test_OtaBoot__boot_2(mocker, tmp_path):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("SWITCHA")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "SWITCH_BOOT"
@@ -87,6 +94,7 @@ def test_OtaBoot__boot_2(mocker, tmp_path):
 
 def test_OtaBoot__boot_3(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     def mock__confirm_banka(self):
         return False
@@ -95,7 +103,8 @@ def test_OtaBoot__boot_3(mocker, tmp_path):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("SWITCHA")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "SWITCH_BOOT_FAIL"
@@ -104,6 +113,7 @@ def test_OtaBoot__boot_3(mocker, tmp_path):
 
 def test_OtaBoot__boot_4(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     def mock__confirm_bankb(self):
         return True
@@ -112,7 +122,8 @@ def test_OtaBoot__boot_4(mocker, tmp_path):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("SWITCHB")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "SWITCH_BOOT"
@@ -121,6 +132,7 @@ def test_OtaBoot__boot_4(mocker, tmp_path):
 
 def test_OtaBoot__boot_5(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     def mock__confirm_bankb(self):
         return False
@@ -129,7 +141,8 @@ def test_OtaBoot__boot_5(mocker, tmp_path):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("SWITCHB")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "SWITCH_BOOT_FAIL"
@@ -138,6 +151,7 @@ def test_OtaBoot__boot_5(mocker, tmp_path):
 
 def test_OtaBoot__boot_6(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     def mock__confirm_banka(self):
         return True
@@ -146,7 +160,8 @@ def test_OtaBoot__boot_6(mocker, tmp_path):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("ROLLBACKA")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "ROLLBACK_BOOT"
@@ -155,6 +170,7 @@ def test_OtaBoot__boot_6(mocker, tmp_path):
 
 def test_OtaBoot__boot_7(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     def mock__confirm_banka(self):
         return False
@@ -163,7 +179,8 @@ def test_OtaBoot__boot_7(mocker, tmp_path):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("ROLLBACKA")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "ROLLBACK_BOOT_FAIL"
@@ -172,6 +189,7 @@ def test_OtaBoot__boot_7(mocker, tmp_path):
 
 def test_OtaBoot__boot_8(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     def mock__confirm_bankb(self):
         return True
@@ -180,7 +198,8 @@ def test_OtaBoot__boot_8(mocker, tmp_path):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("ROLLBACKB")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "ROLLBACK_BOOT"
@@ -189,6 +208,7 @@ def test_OtaBoot__boot_8(mocker, tmp_path):
 
 def test_OtaBoot__boot_9(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     def mock__confirm_bankb(self):
         return False
@@ -197,7 +217,8 @@ def test_OtaBoot__boot_9(mocker, tmp_path):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("ROLLBACKB")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "ROLLBACK_BOOT_FAIL"
@@ -206,24 +227,28 @@ def test_OtaBoot__boot_9(mocker, tmp_path):
 
 def test_OtaBoot__boot_10(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("ROLLBACK")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch('grub_control.GrubCtl', return_value=grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "ROLLBACK_IMCOMPLETE"
     assert ota_status_path.read_text() == "NORMAL"
 
 
-def test_OtaBoot__boot_10(mocker, tmp_path):
+def test_OtaBoot__boot_11(mocker, tmp_path):
     import ota_boot
+    import grub_control
 
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text("UPDATE")
 
-    mocker.patch("grub_control.GrubCtl")
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    mocker.patch("grub_control.GrubCtl", grubctl_mock)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "UPDATE_IMCOMPLETE"

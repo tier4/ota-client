@@ -5,7 +5,7 @@ import os
 import shutil
 
 from ota_status import OtaStatus
-from grub_control import GrubCtl
+import grub_control
 
 from logging import getLogger, INFO, DEBUG
 
@@ -56,7 +56,7 @@ class OtaBoot:
         if not os.path.exists(ota_status_file):
             _gen_ota_status_file(ota_status_file)
         self._ota_status = OtaStatus(ota_status_file=ota_status_file)
-        self._grub_ctl = GrubCtl(
+        self._grub_ctl = grub_control.GrubCtl(
             default_grub_file=default_grub_file,
             grub_config_file=grub_config_file,
             custom_config_file=custom_config_file,
