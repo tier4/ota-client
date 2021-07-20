@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import pytest
 
-ECUINFO="""\
+ECUINFO = """\
 main_ecu:
   ecu_name: 'autoware_ecu'
   ecu_type: 'autoware'
@@ -11,7 +11,7 @@ main_ecu:
   ip_addr: '192.168.10.2'
 """
 
-ECUINFO_UPDATE="""\
+ECUINFO_UPDATE = """\
 main_ecu:
   ecu_name: 'autoware_ecu'
   ecu_type: 'autoware'
@@ -186,7 +186,6 @@ def test_OtaBoot__boot_7(mocker, tmp_path):
     assert ota_status_path.read_text() == "NORMAL"
 
 
-
 def test_OtaBoot__boot_8(mocker, tmp_path):
     import ota_boot
     import grub_control
@@ -253,5 +252,3 @@ def test_OtaBoot__boot_10(mocker, tmp_path):
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(noexec=True) == "UPDATE_IMCOMPLETE"
     assert ota_status_path.read_text() == "NORMAL"
-
-
