@@ -91,8 +91,9 @@ class OtaBoot:
         if os.path.isfile(src_file):
             if os.path.exists(dest_file):
                 # To do : copy for rollback
-                logger.debug(f"file move: {src_file} to {dest_file}")
-                shutil.move(src_file, dest_file)
+                pass
+            logger.debug(f"file move: {src_file} to {dest_file}")
+            shutil.move(src_file, dest_file)
         else:
             logger.error(f"file not found: {src_file}")
             return False
@@ -139,9 +140,9 @@ class OtaBoot:
                     logger.debug("delete custom.cfg")
                     self._grub_ctl.delete_custom_cfg_file()
                 self._error_nortify(err_str)
+                result = "SWITCH_BOOT_FAIL"
             # set to normal status
             self._ota_status.set_ota_status("NORMAL")
-            result = "SWITCH_BOOT"
         elif status == "SWITCHB":
             # boot switching A to B bank
             logger.debug("OTA switch to B Bank boot")
@@ -180,6 +181,8 @@ class OtaBoot:
                 # rollback
                 self._error_nortify(err_str)
                 result = "ROLLBACK_BOOT_FAIL"
+            # set to normal status
+            self._ota_status.set_ota_status("NORMAL")
         elif status == "ROLLBACKB":
             logger.debug("OTA rollback to B Bank boot")
             if self._confirm_bankb():
@@ -190,14 +193,16 @@ class OtaBoot:
                 # rollback
                 self._error_nortify(err_str)
                 result = "ROLLBACK_BOOT_FAIL"
+            # set to normal status
+            self._ota_status.set_ota_status("NORMAL")
         elif status == "ROLLBACK":
             logger.debug("Rollback imcomplete!")
             # status error!
             err_str = "OTA Status error: " + status
             self._error_nortify(err_str)
-            result = "ROLLBACK_BOOT_FAIL"
-            # set to normal status
+            result = "ROLLBACK_IMCOMPLETE"
             # toDo : clean up '/boot'
+            # set to normal status
             self._ota_status.set_ota_status("NORMAL")
         else:
             # status error!
@@ -205,8 +210,8 @@ class OtaBoot:
             err_str = "OTA Status error: " + status
             self._error_nortify(err_str)
             result = "UPDATE_IMCOMPLETE"
-            # set to normal status
             # toDo : clean up '/boot'
+            # set to normal status
             self._ota_status.set_ota_status("NORMAL")
 
         return result
