@@ -116,7 +116,8 @@ class OtaMetaData:
                 "hash": payload[6]["hash"],
             }
         else:
-            logger.error(f"version error! version: {version}")
+            logger.error(f"Metadata version error! version: {version}")
+            raise Exception(f"Metadata version error! version: {version}")
         return payload_dict
 
     def _parse_metadata(self, metadata_jwt):
