@@ -13,25 +13,6 @@ logger = getLogger(__name__)
 logger.setLevel(INFO)
 
 
-def _gen_ota_status_file(ota_status_file):
-    """
-    generate OTA status file
-    """
-    with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-        tmp_file = ftmp.name
-        with open(ftmp.name, "w") as f:
-            f.write("NORMAL")
-            f.flush()
-    os.sync()
-    dir_name = os.path.dirname(ota_status_file)
-    if not os.path.exists(dir_name):
-        os.makedirs(dir_name)
-    shutil.move(tmp_file, ota_status_file)
-    logger.info(f"{ota_status_file}  generated.")
-    os.sync()
-    return True
-
-
 class OtaBoot:
     """
     OTA Startup class
@@ -52,9 +33,6 @@ class OtaBoot:
         """
         self._grub_cfg_file = grub_config_file
         self.__ecuinfo_yaml_file = ecuinfo_yaml_file
-        # status exist check
-        if not os.path.exists(ota_status_file):
-            _gen_ota_status_file(ota_status_file)
         self._ota_status = OtaStatus(ota_status_file=ota_status_file)
         self._grub_ctl = grub_control.GrubCtl(
             default_grub_file=default_grub_file,

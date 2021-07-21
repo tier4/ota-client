@@ -3,6 +3,15 @@
 import pytest
 
 
+def test__gen_ota_status_file(tmp_path):
+    from ota_status import OtaStatus
+    import os
+
+    ota_status_path = tmp_path / "ots_status"
+    assert OtaStatus._gen_ota_status_file(ota_status_path) == "NORMAL"
+    assert os.path.isfile(str(ota_status_path))
+
+
 def test__initial_read_ota_status_no_file(tmp_path):
     from ota_status import OtaStatus
     import os

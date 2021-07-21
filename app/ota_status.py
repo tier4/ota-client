@@ -80,27 +80,28 @@ class OtaStatus:
         """
         status = ""
         logger.debug(f"ota status file: {self._status_file}")
-        if os.path.exists(self._status_file):
+        try:
             with open(self._status_file, mode="r") as f:
                 status = f.readline().replace("\n", "")
                 logger.debug(f"line: {status}")
-        else:
+        except Exception:
             logger.warning(f"No OTA status file: {self._status_file}")
-            self._gen_ota_status_file(self._status_file)
+            status = self._gen_ota_status_file(self._status_file)
         return status
 
     def _initial_read_rollback_count(self):
         """"""
         count_str = "0"
         logger.debug(f"ota status file: {self._rollback_file}")
-        if os.path.exists(self._rollback_file):
+        try:
             with open(self._rollback_file, mode="r") as f:
                 count_str = f.readline().replace("\n", "")
                 logger.debug(f"rollback: {count_str}")
-        else:
+        except Exception:
             logger.debug(f"No rollback count file!: {self._rollback_file}")
             with open(self._rollback_file, mode="w") as f:
                 f.write(count_str)
+            os.sync()
         logger.debug(f"count_str: {count_str}")
         return int(count_str)
 
@@ -109,16 +110,16 @@ class OtaStatus:
         """
         generate OTA status file
         """
+        status = "NORMAL"
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             tmp_file = ftmp.name
             with open(ftmp.name, "w") as f:
-                f.write("NORMAL")
+                f.write(status)
                 f.flush()
         os.sync()
         dir_name = os.path.dirname(ota_status_file)
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name)
+        os.makedirs(dir_name, exist_ok=True)
         shutil.move(tmp_file, ota_status_file)
         logger.info(f"{ota_status_file}  generated.")
         os.sync()
-        return True
+        return status
