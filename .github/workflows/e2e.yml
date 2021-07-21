@@ -3,9 +3,9 @@ name: E2E CI
 on: [pull_request]
 
 env:
-  FMSAutowareAdapter_REPO: git@github.com:tier4/FMSAutowareAdapter
+  FMSAutowareAdapter_REPO: tier4/FMSAutowareAdapter
   FMSAutowareAdapter_REPO_BRANCH: feature/ota-poc
-  OTA_metadata_REPO: https://github.com/tier4/ota-metadata.git
+  OTA_metadata_REPO: tier4/ota-metadata
 
 jobs:
   ota_image_build:
@@ -14,13 +14,20 @@ jobs:
     steps:
       # TODO: setup repo
       - name: Checkout OTA image repo
+        uses: actions/checkout@v2
+        with:
+          name: ${{ env.FMSAutowareAdapter_REPO }}
+          ref: ${{ env.FMSAutowareAdapter_REPO_BRANCH }}
+          token: ${{ secrets.pat_FMSAutowareAdapter }}
+          path: ./FMSAutowareAdapter
       - name: Setup Docker buildx
         id: buildx
         uses: docker/setup-buildx-action@v1
         with: 
           install: true
       - name: Build OTA image
-        run: | 
+        working-directory: FMSAutowareAdapter/common/ota/base-image/eva
+        run: |
           docker build -t base-image --build-arg KERNEL_VERSION=5.8.0-53-generic .
           docker create -e LD_PRELOAD=/libfake-uname.so -v ~/.ssh:/home/autoware/.ssh --name base-image base-image
           docker export base-image > /tmp/base-image.tgz
@@ -36,10 +43,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Setup OTA-image sign tools
-        run: |
-          git clone ${{ env.OTA_metadata_REPO }}
-          python -m pip install --upgrade pip
-          python -m pip install -r ota-metadata/metadata/ota_metadata/requirements.txt
+        uses: actions/checkout@v2
+        with:
+          name: ${{ env.OTA_metadata_REPO }}
+          path: ./ota-metadata
       - name: Get OTA image from the previous job
         uses: actions/download-artifact@v2
         with:
@@ -70,6 +77,15 @@ jobs:
           sudo cp FMSAutowareAdapter/common/ota/metadata/persistents-x1.txt .
       - name: Start local OTA server in the background
         run: | 
-          nohup sudo $pythonLocation/bin/python -m http.server 8080 2>&1 &
+          nohup sudo $pythonLocation/bin/python -m http.server 8080 > /dev/null 2>&1 &
       # TODO: testing OTA update by pytest
       - name: Testing OTA update
+        run: | 
+          nohup sudo $pythonLocation/bin/python -m pytest \
+            --cov-report term-missing --cov=app ./tests/mock_ota_client_service.py \
+            | tee pytest-coverage.txt
+          $pythonLocation/bin/python -m pytest ./tests/mock_grpc_client.py
+      # export the coverage report to the comment!
+      - name: Add coverage report to PR comment
+        continue-on-error: true
+        uses: coroo/pytest-coverage-commentator@v1.0.2
