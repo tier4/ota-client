@@ -1,0 +1,75 @@
+name: E2E CI
+
+on: [pull_request]
+
+env:
+  FMSAutowareAdapter_REPO: git@github.com:tier4/FMSAutowareAdapter
+  FMSAutowareAdapter_REPO_BRANCH: feature/ota-poc
+  OTA_metadata_REPO: https://github.com/tier4/ota-metadata.git
+
+jobs:
+  ota_image_build:
+    runs-on: ubuntu-20.04
+    timeout-minutes: 10
+    steps:
+      # TODO: setup repo
+      - name: Checkout OTA image repo
+      - name: Setup Docker buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+        with: 
+          install: true
+      - name: Build OTA image
+        run: | 
+          docker build -t base-image --build-arg KERNEL_VERSION=5.8.0-53-generic .
+          docker create -e LD_PRELOAD=/libfake-uname.so -v ~/.ssh:/home/autoware/.ssh --name base-image base-image
+          docker export base-image > /tmp/base-image.tgz
+      # prepare the image for next job
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: base-image
+          path: /tmp/base-image.tgz
+  ota_update_test:
+    runs-on: ubuntu-20.04
+    needs: ota_image_build
+    timeout-minutes: 10
+    steps:
+      - name: Setup OTA-image sign tools
+        run: |
+          git clone ${{ env.OTA_metadata_REPO }}
+          python -m pip install --upgrade pip
+          python -m pip install -r ota-metadata/metadata/ota_metadata/requirements.txt
+      - name: Get OTA image from the previous job
+        uses: actions/download-artifact@v2
+        with:
+          name: base-image
+          path: /tmp
+          if-no-files-found: error # if previous build failed
+      - name: Extract OTA image
+        run: |
+          mkdir ./data
+          sudo tar xf /tmp/base-image.tgz -C ./data
+      - name: Generate metadata
+        run: | 
+          sudo $pythonLocation/bin/python \
+            ota-metadata/metadata/ota_metadata/metadata_gen.py \
+              --target-dir data --ignore-file ota-metadata/metadata/ignore.txt
+      - name: Self-sign metadata
+        run: |
+          sudo ota-metadata/metadata/key-gen.sh
+          sudo $pythonLocation/bin/python \
+            ota-metadata/metadata/ota_metadata/metadata_sign.py \
+              --sign-key privatekey.pem \
+              --cert-file certificate.pem \
+              --directory-file dirs.txt \
+              --symlink-file symlinks.txt \
+              --regular-file regulars.txt \
+              --rootfs-directory data \
+              --persistent-file FMSAutowareAdapter/common/ota/metadata/persistents-x1.txt
+          sudo cp FMSAutowareAdapter/common/ota/metadata/persistents-x1.txt .
+      - name: Start local OTA server in the background
+        run: | 
+          nohup sudo $pythonLocation/bin/python -m http.server 8080 2>&1 &
+      # TODO: testing OTA update by pytest
+      - name: Testing OTA update
