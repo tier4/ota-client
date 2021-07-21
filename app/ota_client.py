@@ -1026,7 +1026,7 @@ class OtaClient:
         """
         update files copy to another bank
         """
-        rootfs_dir = self._metadata.get_rootfsdir_info()
+        rootfsdir_info = self._metadata.get_rootfsdir_info()
         # get regular metadata
         regularslist = self._metadata.get_regulars_info()
         regularslist_url = os.path.join(self.__url, regularslist["file"])
@@ -1034,7 +1034,9 @@ class OtaClient:
         if self._download_raw_file_with_retry(
             regularslist_url, tmp_list_file, regularslist["hash"]
         ):
-            if self._gen_regular_files(rootfs_dir, tmp_list_file, target_dir):
+            if self._gen_regular_files(
+                rootfsdir_info["file"], tmp_list_file, target_dir
+            ):
                 # move list file to rollback dir
                 dest_file = os.path.join(self._rollback_dir, self._regularlist_file)
                 shutil.move(tmp_list_file, dest_file)

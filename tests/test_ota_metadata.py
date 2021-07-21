@@ -114,7 +114,7 @@ def test_get_rootfsdir_info():
 
     otametadata = OtaMetaData(METADATA_JWT)
     rootfs_dir = otametadata.get_rootfsdir_info()
-    assert rootfs_dir == ROOTFS_DIR
+    assert rootfs_dir["file"] == ROOTFS_DIR
 
 
 def test_get_certificate_info():

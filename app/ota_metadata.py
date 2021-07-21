@@ -87,37 +87,31 @@ class OtaMetaData:
         """
         Parse payload json file
         """
-        payload_dict = {}
-        # read payload json
+        keys_version_1 = {
+            "directory",
+            "symboliclink",
+            "regular",
+            "certificate",
+            "persistent",
+            "rootfs_directory",
+        }
+        hash_key = "hash"
         payload = json.loads(payload_json)
-        logger.debug(f"payload: {payload}")
-        payload_dict["version"] = payload[0]["version"]
-        version = payload[0]["version"]
-        if version == 1:
-            payload_dict["directory"] = {
-                "file": payload[1]["directory"],
-                "hash": payload[1]["hash"],
-            }
-            payload_dict["symboliclink"] = {
-                "file": payload[2]["symboliclink"],
-                "hash": payload[2]["hash"],
-            }
-            payload_dict["regular"] = {
-                "file": payload[3]["regular"],
-                "hash": payload[3]["hash"],
-            }
-            payload_dict["persistent"] = {
-                "file": payload[4]["persistent"],
-                "hash": payload[4]["hash"],
-            }
-            payload_dict["rootfs_directory"] = payload[5]["rootfs_directory"]
-            payload_dict["certificate"] = {
-                "file": payload[6]["certificate"],
-                "hash": payload[6]["hash"],
-            }
-        else:
-            logger.error(f"Metadata version error! version: {version}")
-            raise Exception(f"Metadata version error! version: {version}")
+        payload_dict = {
+            "version": list(entry.values())[0]
+            for entry in payload
+            if entry.get("version")
+        }
+
+        if payload_dict["version"] == 1:
+            keys_version = keys_version_1
+        for entry in payload:
+            for key in keys_version:
+                if key in entry.keys():
+                    payload_dict[key] = {}
+                    payload_dict[key]["file"] = entry.get(key)
+                    if hash_key in entry:
+                        payload_dict[key][hash_key] = entry.get(hash_key)
         return payload_dict
 
     def _parse_metadata(self, metadata_jwt):
@@ -161,41 +155,41 @@ class OtaMetaData:
     def get_directories_info(self):
         """
         return
-            directory file info list: { "file": path name, "hash": file hash }
+            directory file info list: { "file": file name, "hash": file hash }
         """
         return self.__metadata_dict["directory"]
 
     def get_symboliclinks_info(self):
         """
         return
-            symboliclink file info: { "file": path name, "hash": file hash }
+            symboliclink file info: { "file": file name, "hash": file hash }
         """
         return self.__metadata_dict["symboliclink"]
 
     def get_regulars_info(self):
         """
         return
-            regular file info: { "file": path name, "hash": file hash }
+            regular file info: { "file": file name, "hash": file hash }
         """
         return self.__metadata_dict["regular"]
 
     def get_persistent_info(self):
         """
         return
-            persistent file info: { "file": path name, "hash": file hash }
+            persistent file info: { "file": file name, "hash": file hash }
         """
         return self.__metadata_dict["persistent"]
 
     def get_rootfsdir_info(self):
         """
         return
-            rootfs_directory path name
+            rootfs_directory info: {"file": dir name }
         """
         return self.__metadata_dict["rootfs_directory"]
 
     def get_certificate_info(self):
         """
         return
-            certificate file info: { "file": path name, "hash": file hash }
+            certificate file info: { "file": file name, "hash": file hash }
         """
         return self.__metadata_dict["certificate"]
