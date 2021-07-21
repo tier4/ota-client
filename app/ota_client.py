@@ -1254,9 +1254,6 @@ class OtaClient:
         return ecu_found
 
     def update(self, ecu_update_info):
-        return self._update(ecu_update_info)
-
-    def _update(self, ecu_update_info):
         """
         OTA update execution
         """
