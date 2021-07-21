@@ -805,6 +805,7 @@ class OtaClient:
             # no hard link
             if (
                 os.path.isfile(regular_inf.path)
+                and not os.path.islink(regular_inf.path)
                 and _file_sha256(regular_inf.path) == regular_inf.sha256hash
             ):
                 # nothing to do
@@ -856,6 +857,7 @@ class OtaClient:
             current_file = os.path.join("/", "." + regular_inf.path)
             if (
                 os.path.isfile(current_file)
+                and not os.path.islink(regular_inf.path)
                 and _file_sha256(current_file) == regular_inf.sha256hash
             ):
                 # copy from current bank
