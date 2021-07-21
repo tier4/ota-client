@@ -22,17 +22,10 @@ main_ecu:
 """
 
 
-def test__gen_ota_status_file(tmp_path):
-    import ota_boot
-
-    ota_status_path = tmp_path / "ota_status"
-    ota_boot._gen_ota_status_file(ota_status_path)
-    assert ota_status_path.read_text() == "NORMAL"
-
-
 def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path):
     import ota_boot
     import grub_control
+    import ota_status
     import os
     import yaml
 
@@ -40,7 +33,9 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path):
     ota_status_path.write_text("NORMAL")
 
     grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    otastatus_mock = mocker.Mock(spec=ota_status.OtaStatus)
     mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock)
+    mocker.patch("ota_status.OtaStatus", return_value=otastatus_mock)
 
     ecuinfo_path = tmp_path / "ecuinfo.yaml"
     ecuinfo_update_path = tmp_path / "ecuinfo.yaml.update"
@@ -77,6 +72,7 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path):
 def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result):
     import ota_boot
     import grub_control
+    import ota_status
 
     def mock__confirm_banka(self):
         return confirm_bank
@@ -89,9 +85,14 @@ def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result):
     ota_status_path = tmp_path / "ota_status"
     ota_status_path.write_text(boot_state)
 
+    # def mock__get_ota_status():
+    #    return boot_state
+
     grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    otastatus_mock = mocker.Mock(spec=ota_status.OtaStatus)
     mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock)
+    mocker.patch("ota_status.OtaStatus", return_value=otastatus_mock)
+    # mocker.patch("ota_status.OtaStatus._get_ota_status", mock__get_ota_status)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
-    assert otaboot._boot(noexec=True) == result
-    assert ota_status_path.read_text() == "NORMAL"
+    assert otaboot._boot(boot_state, noexec=True) == result
