@@ -23,7 +23,7 @@ class OtaStatus:
         self._status_file = ota_status_file
         self._rollback_file = ota_rollback_file
         self._status = self._initial_read_ota_status()
-        self._rollback_count = 0  # self._initial_read_rollback_count()
+        self._rollback_count = self._initial_read_rollback_count()
 
     def set_ota_status(self, ota_status):
         """
@@ -78,17 +78,14 @@ class OtaStatus:
         """
         initial read ota status
         """
-        status = ""
         logger.debug(f"ota status file: {self._status_file}")
         try:
-            if os.path.exists(self._status_file):
-                with open(self._status_file, mode="r") as f:
-                    status = f.readline().replace("\n", "")
-                    logger.debug(f"line: {status}")
-            else:
-                logger.warning(f"No OTA status file: {self._status_file}")
-        except:
-            logger.exception("OTA status read error!")
+            with open(self._status_file, mode="r") as f:
+                status = f.readline().replace("\n", "")
+                logger.debug(f"line: {status}")
+        except Exception:
+            logger.warning(f"No OTA status file: {self._status_file}")
+            status = self._gen_ota_status_file(self._status_file)
         return status
 
     def _initial_read_rollback_count(self):
@@ -96,15 +93,32 @@ class OtaStatus:
         count_str = "0"
         logger.debug(f"ota status file: {self._rollback_file}")
         try:
-            if os.path.exists(self._rollback_file):
-                with open(self._rollback_file, mode="r") as f:
-                    count_str = f.readline().replace("\n", "")
-                    logger.debug(f"rollback: {count_str}")
-            else:
-                logger.debug(f"No rollback count file!: {self._rollback_file}")
-                with open(self._rollback_file, mode="w") as f:
-                    f.write(count_str)
-        except:
-            logger.exception("OTA rollback count read error!")
+            with open(self._rollback_file, mode="r") as f:
+                count_str = f.readline().replace("\n", "")
+                logger.debug(f"rollback: {count_str}")
+        except Exception:
+            logger.debug(f"No rollback count file!: {self._rollback_file}")
+            with open(self._rollback_file, mode="w") as f:
+                f.write(count_str)
+            os.sync()
         logger.debug(f"count_str: {count_str}")
         return int(count_str)
+
+    @staticmethod
+    def _gen_ota_status_file(ota_status_file):
+        """
+        generate OTA status file
+        """
+        status = "NORMAL"
+        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
+            tmp_file = ftmp.name
+            with open(ftmp.name, "w") as f:
+                f.write(status)
+                f.flush()
+        os.sync()
+        dir_name = os.path.dirname(ota_status_file)
+        os.makedirs(dir_name, exist_ok=True)
+        shutil.move(tmp_file, ota_status_file)
+        logger.info(f"{ota_status_file}  generated.")
+        os.sync()
+        return status
