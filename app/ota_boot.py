@@ -4,7 +4,7 @@ import tempfile
 import os
 import shutil
 
-from ota_status import OtaStatus
+import ota_status
 import grub_control
 
 from logging import getLogger, INFO, DEBUG
@@ -33,7 +33,7 @@ class OtaBoot:
         """
         self._grub_cfg_file = grub_config_file
         self.__ecuinfo_yaml_file = ecuinfo_yaml_file
-        self._ota_status = OtaStatus(ota_status_file=ota_status_file)
+        self._ota_status = ota_status.OtaStatus(ota_status_file=ota_status_file)
         self._grub_ctl = grub_control.GrubCtl(
             default_grub_file=default_grub_file,
             grub_config_file=grub_config_file,
@@ -78,16 +78,14 @@ class OtaBoot:
         return True
 
     def boot(self):
-        self._boot(noexec=False)
+        status = self._ota_status.get_ota_status()
+        logger.debug(f"Status: {status}")
+        self._boot(status, noexec=False)
 
-    def _boot(self, noexec=False):
+    def _boot(self, status, noexec=False):
         """
         OTA boot
         """
-        result = ""
-        # get status
-        status = self._ota_status.get_ota_status()
-        logger.debug(f"Status: {status}")
 
         if status == "NORMAL":
             # normal boot
