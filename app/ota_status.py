@@ -78,7 +78,6 @@ class OtaStatus:
         """
         initial read ota status
         """
-        status = ""
         logger.debug(f"ota status file: {self._status_file}")
         try:
             with open(self._status_file, mode="r") as f:
