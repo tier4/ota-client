@@ -625,37 +625,31 @@ class OtaClient:
             return False
         return True
 
-    def _get_certificate_url(self):
-        """
-        Get certificate file(temp.)
-        """
-        return os.path.join(self.__url, "ota-intermediate.pem")
-
-    def _download_certificate(self):
+    def _download_certificate(self, cert_file):
         """
         Download certificate file
         """
-        url = self._get_certificate_url()
+        url = os.path.join(self.__url, cert_file)
         return self._download(url)
 
     def _verify_metadata_jwt(self, metadata):
         """
         verify metadata.jwt
         """
-        cert_file, cert_hash = metadata.get_certificate_info()
-        response = self._download_certificate()
+        cert = metadata.get_certificate_info()
+        response = self._download_certificate(cert["file"])
         if response.status_code == 200:
             pem = response.text
-            if sha256(pem.encode()).hexdigest() != cert_hash:
+            hash = cert["hash"]
+            if sha256(pem.encode()).hexdigest() != hash:
                 logger.error("certificate hash missmatch:")
                 logger.error(f"    dl hash: {sha256(pem).hexdigest()}")
-                logger.error(f"    hash: {cert_hash}")
+                logger.error(f"    hash: {hash}")
                 return False
             return metadata.verify(pem)
         else:
             logger.error(f"response error: {response.status_code}")
             return False
-        return True
 
     def _cleanup_rollback_dir(self):
         """"""
@@ -701,10 +695,10 @@ class OtaClient:
         generate directories on another bank
         """
         # get directories metadata
-        dirs_file, dirs_hash = self._metadata.get_directories_info()
-        dirs_url = os.path.join(self.__url, dirs_file)
-        tmp_list_file = os.path.join("/tmp", dirs_file)
-        if self._download_raw_file_with_retry(dirs_url, tmp_list_file, dirs_hash):
+        dirs = self._metadata.get_directories_info()
+        dirs_url = os.path.join(self.__url, dirs["file"])
+        tmp_list_file = os.path.join("/tmp", dirs["file"])
+        if self._download_raw_file_with_retry(dirs_url, tmp_list_file, dirs["hash"]):
             # generate directories
             if _gen_directories(tmp_list_file, target_dir):
                 # move list file to rollback dir
@@ -753,11 +747,11 @@ class OtaClient:
         generate symboliclinks on another bank
         """
         # get symboliclink metadata
-        symlinks_file, syminks_hash = self._metadata.get_symboliclinks_info()
-        symlinks_url = os.path.join(self.__url, symlinks_file)
-        tmp_list_file = os.path.join("/tmp", symlinks_file)
+        symlinks = self._metadata.get_symboliclinks_info()
+        symlinks_url = os.path.join(self.__url, symlinks["file"])
+        tmp_list_file = os.path.join("/tmp", symlinks["file"])
         if self._download_raw_file_with_retry(
-            symlinks_url, tmp_list_file, syminks_hash
+            symlinks_url, tmp_list_file, symlinks["hash"]
         ):
             # generate symboliclinks
             if self._gen_symbolic_links(tmp_list_file, target_dir):
@@ -1032,15 +1026,17 @@ class OtaClient:
         """
         update files copy to another bank
         """
-        rootfs_dir = self._metadata.get_rootfsdir_info()
+        rootfsdir_info = self._metadata.get_rootfsdir_info()
         # get regular metadata
-        regularslist_file, regularslist_hash = self._metadata.get_regulars_info()
-        regularslist_url = os.path.join(self.__url, regularslist_file)
-        tmp_list_file = os.path.join("/tmp", regularslist_file)
+        regularslist = self._metadata.get_regulars_info()
+        regularslist_url = os.path.join(self.__url, regularslist["file"])
+        tmp_list_file = os.path.join("/tmp", regularslist["file"])
         if self._download_raw_file_with_retry(
-            regularslist_url, tmp_list_file, regularslist_hash
+            regularslist_url, tmp_list_file, regularslist["hash"]
         ):
-            if self._gen_regular_files(rootfs_dir, tmp_list_file, target_dir):
+            if self._gen_regular_files(
+                rootfsdir_info["file"], tmp_list_file, target_dir
+            ):
                 # move list file to rollback dir
                 dest_file = os.path.join(self._rollback_dir, self._regularlist_file)
                 shutil.move(tmp_list_file, dest_file)
@@ -1055,21 +1051,17 @@ class OtaClient:
         """
         setup persistent files
         """
-        if self._metadata.is_persistent_enabled():
-            # get persistent metadata
-            persistent_file, persistent_hash = self._metadata.get_persistent_info()
-            persistent_url = os.path.join(self.__url, persistent_file)
-            tmp_list_file = os.path.join("/tmp", persistent_file)
-            if not self._download_raw_file_with_retry(
-                persistent_url, tmp_list_file, persistent_hash
-            ):
-                logger.error(f"persistent file download error: {persistent_url}")
-                return False
-            else:
-                logger.info(f"persistent file download success: {persistent_url}")
+        # get persistent metadata
+        persistent = self._metadata.get_persistent_info()
+        persistent_url = os.path.join(self.__url, persistent["file"])
+        tmp_list_file = os.path.join("/tmp", persistent["file"])
+        if not self._download_raw_file_with_retry(
+            persistent_url, tmp_list_file, persistent["hash"]
+        ):
+            logger.error(f"persistent file download error: {persistent_url}")
+            return False
         else:
-            # read list from the local file
-            tmp_list_file = self._persistentlist_file
+            logger.info(f"persistent file download success: {persistent_url}")
 
         if _gen_persistent_files(tmp_list_file, target_dir):
             # move list file to rollback dir
