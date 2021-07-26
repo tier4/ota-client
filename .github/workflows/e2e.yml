@@ -34,6 +34,10 @@ jobs:
     needs: ota_image_build
     timeout-minutes: 10
     steps:
+      - name: Checkout OTA client repo
+        uses: actions/checkout@v2
+        with:
+          path: ./ota-client
       - name: Setup OTA-image sign tools
         uses: actions/checkout@v2
         with:
@@ -47,7 +51,7 @@ jobs:
           if-no-files-found: error # if previous build failed
       - name: Extract OTA image
         run: |
-          mkdir ./data
+          mkdir -p ./data
           sudo tar xf /tmp/base-image.tgz -C ./data
       - name: Generate metadata
         run: | 
@@ -65,8 +69,8 @@ jobs:
               --symlink-file symlinks.txt \
               --regular-file regulars.txt \
               --rootfs-directory data \
-              --persistent-file FMSAutowareAdapter/common/ota/metadata/persistents-x1.txt
-          sudo cp FMSAutowareAdapter/common/ota/metadata/persistents-x1.txt .
+              --persistent-file ota-client/tests/persistents-x1.txt
+          sudo cp ota-client/tests/persistents-x1.txt .
       - name: Start local OTA server in the background
         run: | 
           nohup sudo $pythonLocation/bin/python -m http.server 8080 > /dev/null 2>&1 &
