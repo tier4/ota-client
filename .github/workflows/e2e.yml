@@ -3,8 +3,6 @@ name: E2E CI
 on: [pull_request]
 
 env:
-  FMSAutowareAdapter_REPO: tier4/FMSAutowareAdapter
-  FMSAutowareAdapter_REPO_BRANCH: feature/ota-poc
   OTA_metadata_REPO: tier4/ota-metadata
 
 jobs:
@@ -12,24 +10,18 @@ jobs:
     runs-on: ubuntu-20.04
     timeout-minutes: 10
     steps:
-      # TODO: setup repo
-      - name: Checkout OTA image repo
+      - name: Checkout OTA client repo
         uses: actions/checkout@v2
-        with:
-          name: ${{ env.FMSAutowareAdapter_REPO }}
-          ref: ${{ env.FMSAutowareAdapter_REPO_BRANCH }}
-          token: ${{ secrets.pat_FMSAutowareAdapter }}
-          path: ./FMSAutowareAdapter
       - name: Setup Docker buildx
         id: buildx
         uses: docker/setup-buildx-action@v1
         with: 
           install: true
-      - name: Build OTA image
-        working-directory: FMSAutowareAdapter/common/ota/base-image/eva
+      - name: Build and export the OTA baseimage
+        working-directory: ./tests/
         run: |
-          docker build -t base-image --build-arg KERNEL_VERSION=5.8.0-53-generic .
-          docker create -e LD_PRELOAD=/libfake-uname.so -v ~/.ssh:/home/autoware/.ssh --name base-image base-image
+          docker build -t base-image --build-arg KERNEL_VERSION=5.8.0-53-generic ./Dockerfile_OTA-baseimage
+          docker create --name base-image base-image
           docker export base-image > /tmp/base-image.tgz
       # prepare the image for next job
       - name: Upload artifact
