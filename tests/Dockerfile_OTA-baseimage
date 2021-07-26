@@ -7,9 +7,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 # install all dependencies
 RUN apt update && \
     apt install -y sudo ubuntu-minimal openssh-server && \
-    apt install -y ubuntu-desktop-minimal --no-install-recommends && \
-    apt install -y fonts-ubuntu && \
-    apt install -y systemd-coredump vim git ansible && \
     apt install -y grub-efi-amd64 && \
     apt install -y linux-image-${KERNEL_VERSION} linux-headers-${KERNEL_VERSION} linux-modules-extra-${KERNEL_VERSION} && \
     apt install -y apt-utils python3-pip usbutils
