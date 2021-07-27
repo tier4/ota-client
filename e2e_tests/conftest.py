@@ -27,10 +27,10 @@ main_ecu:
 @pytest.fixture(scope="session", autouse=True)
 def configs():
     return {
-        "OTA_SOURCE_DIR": "./data",
-        "BOOT_DIR": "boot/ota",
-        "BANKA_DIR": "banka",
-        "BANKB_DIR": "bankb",
+        "OTA_SOURCE_DIR": pathlib.Path("./data"),
+        "BOOT_DIR": pathlib.Path("boot/ota"),
+        "BANKA_DIR": pathlib.Path("./banka"),
+        "BANKB_DIR": pathlib.Path("./bankb"),
     }
 
 # prepare files needed for the OTA
