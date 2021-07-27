@@ -65,7 +65,9 @@ def _find_file_separate(string):
 
 
 def _copy_complete(src_file, dst_file):
-
+    """
+    copy file complete
+    """
     src_dir = os.path.dirname(src_file)
     dst_dir = os.path.dirname(dst_file)
     _copydirs_complete(src_dir, dst_dir)
@@ -138,29 +140,28 @@ def _read_ecuid(ecuid_file):
     """
     initial read ECU ID
     """
-    ecuid = ""
     logger.debug(f"ECU ID file: {ecuid_file}")
     try:
-        if os.path.exists(ecuid_file):
-            with open(ecuid_file, mode="r") as f:
-                ecuid = f.readline().replace("\n", "")
-                logger.debug(f"line: {ecuid}")
-        else:
-            logger.info(f"No ECU ID file!: {ecuid_file}")
+        with open(ecuid_file, mode="r") as f:
+            ecuid = f.readline().replace("\n", "")
+            logger.debug(f"line: {ecuid}")
     except:
-        logger.warning("ECU ID read error!")
+        logger.exception("ECU ID read error!")
+        raise Error
     return ecuid
 
 
 def _read_ecu_info(ecu_info_yaml_file):
-    """"""
-    ecuinfo = {}
-    if os.path.isfile(ecu_info_yaml_file):
+    """
+    Read ECU Information from yaml file.
+    """
+    try:
         with open(ecu_info_yaml_file, "r") as fyml:
             logger.debug(f"open: {ecu_info_yaml_file}")
             ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
-    else:
-        logger.warning(f"No ECU info file: {ecu_info_yaml_file}")
+    except:
+        logger.exception(f"No ECU info file: {ecu_info_yaml_file}")
+        raise Error
     return ecuinfo
 
 
@@ -168,29 +169,19 @@ def _mount_bank(bank, target_dir):
     """
     mount next bank
     """
-    try:
-        command_line = "mount " + bank + " " + target_dir
-        logger.debug(f"commandline: {command_line}")
-        subprocess.check_output(shlex.split(command_line))
-    except Exception as e:
-        logger.exception("Mount error!:")
-        return False
-    return True
+    command_line = "mount " + bank + " " + target_dir
+    logger.debug(f"commandline: {command_line}")
+    subprocess.check_output(shlex.split(command_line))
 
 
 def _unmount_bank(target_dir):
     """
     unmount bank
     """
-    try:
-        if pathlib.Path(target_dir).is_mount():
-            command_line = "umount " + target_dir
-            logger.debug(f"commandline: {command_line}")
-            subprocess.check_output(shlex.split(command_line))
-    except Exception as e:
-        logger.exception("Unmount error!:")
-        return False
-    return True
+    if pathlib.Path(target_dir).is_mount():
+        command_line = "umount " + target_dir
+        logger.debug(f"commandline: {command_line}")
+        subprocess.check_output(shlex.split(command_line))
 
 
 def _cleanup_dir(target_dir):
@@ -199,17 +190,13 @@ def _cleanup_dir(target_dir):
     """
     logger.debug(f"cleanup directory: {target_dir}")
     if target_dir == "" or target_dir == "/":
-        return False
-    try:
-        command_line = "rm -rf " + str(target_dir) + "/*"
-        logger.debug(f"commandline: {command_line}")
-        # subprocess.check_output(shlex.split(command_line))
-        # proc = subprocess.call(command_line.strip().split(" "))
-        proc = subprocess.call(command_line, shell=True)
-    except Exception as e:
-        logger.exception("rm error!:")
-        return False
-    return True
+        raise Error
+    command_line = "rm -rf " + str(target_dir) + "/*"
+    logger.debug(f"commandline: {command_line}")
+    proc = subprocess.call(command_line, shell=True)
+    if proc != 0:
+        logger.error(f"{command_line} : return {proc}")
+        raise Error
 
 
 def _gen_directories(dirlist_file, target_dir):
@@ -219,11 +206,8 @@ def _gen_directories(dirlist_file, target_dir):
     try:
         with open(dirlist_file) as f:
             for l in f.read().splitlines():
-                # logger.info(str(l))
                 dirinf = DirectoryInf(l)
-                # logger.info(f"dir inf: {dirinf.path}")
-                # logger.info(f"target dir: {target_dir}")
-                # target_path = os.path.join(target_dir, dirinf.path)
+                logger.debug(f"dir inf: {dirinf.path}")
                 target_path = target_dir + dirinf.path
                 logger.debug(f"target path: {target_path}")
                 os.makedirs(target_path, mode=int(dirinf.mode, 8))
@@ -235,6 +219,31 @@ def _gen_directories(dirlist_file, target_dir):
     return True
 
 
+def _copy_persistent(src_path, target_dir):
+    """
+    copy persistent dir/file
+    """
+    if src_path[0] == "/":
+        dest_path = os.path.join(target_dir, "." + src_path)
+    else:
+        dest_path = os.path.join(target_dir, src_path)
+    if os.path.exists(src_path):
+        if os.path.isdir(src_path):
+            if os.path.exists(dest_path):
+                logger.debug(f"rmtree: {dest_path}")
+                shutil.rmtree(dest_path)
+            logger.debug(f"persistent dir copy: {src_path} -> {dest_path}")
+            _copytree_complete(src_path, dest_path)
+        else:
+            logger.debug(f"persistent file copy: {src_path} -> {dest_path}")
+            if os.path.exists(dest_path):
+                logger.info(f"rm file: {dest_path}")
+                os.remove(dest_path)
+            _copy_complete(src_path, dest_path)
+    else:
+        logger.warning(f"persistent file not exist: {src_path}")
+
+
 def _gen_persistent_files(list_file, target_dir):
     """
     generate persistent files
@@ -242,8 +251,8 @@ def _gen_persistent_files(list_file, target_dir):
     res = True
     logging_level = logging.root.level
     logging.basicConfig(level=logging.DEBUG)
-    with open(list_file, mode="r") as f:
-        try:
+    try:
+        with open(list_file, mode="r") as f:
             for l in f.read().splitlines():
                 persistent_info = PersistentInf(l)
                 src_path = persistent_info.path
@@ -252,32 +261,10 @@ def _gen_persistent_files(list_file, target_dir):
                     logger.info(f"do nothing for boot dir file: {src_path}")
                 else:
                     # others
-                    if src_path[0] == "/":
-                        dest_path = os.path.join(target_dir, "." + src_path)
-                    else:
-                        dest_path = os.path.join(target_dir, src_path)
-                    if os.path.exists(src_path):
-                        if os.path.isdir(src_path):
-                            if os.path.exists(dest_path):
-                                logger.debug(f"rmtree: {dest_path}")
-                                shutil.rmtree(dest_path)
-                            logger.debug(
-                                f"persistent dir copy: {src_path} -> {dest_path}"
-                            )
-                            _copytree_complete(src_path, dest_path)
-                        else:
-                            logger.debug(
-                                f"persistent file copy: {src_path} -> {dest_path}"
-                            )
-                            if os.path.exists(dest_path):
-                                logger.info(f"rm file: {dest_path}")
-                                os.remove(dest_path)
-                            _copy_complete(src_path, dest_path)
-                    else:
-                        logger.warning(f"persistent file not exist: {src_path}")
-        except Exception as e:
-            logger.exception("persistent file error:")
-            res = False
+                    _copy_persistent(src_path, target_dir)
+    except Exception as e:
+        logger.exception("persistent file error:")
+        res = False
     logging.basicConfig(level=logging_level)
     return res
 
@@ -290,16 +277,6 @@ def _header_str_to_dict(header_str):
         if len(kl) == 2:
             header_dict[kl[0]] = kl[1]
     return header_dict
-
-
-def _find_ecuinfo(ecuupdateinfo_list, ecu_id):
-    """"""
-    ecu_info = None
-    for ecuupdateinfo in ecuupdateinfo_list:
-        if ecu_id == ecuupdateinfo.ecu_info.ecu_id:
-            logger.debug(f"[found] id={ecuupdateinfo.ecu_info.ecu_id}")
-            ecu_info = ecuupdateinfo
-    return ecu_info
 
 
 def _save_update_ecuinfo(update_ecuinfo_yaml_file, update_ecu_info):
@@ -411,45 +388,42 @@ class OtaClient:
         OTA Client initialize
         """
         self.__main_ecu = True
-        self.__download_retry = 5
+        # OTA
         self._boot_status = boot_status
-        #
-        self.__url = url
-        self.__header_dict = {}
-        #
+        self._ota_status = OtaStatus(ota_status_file=ota_status_file)
+        self._ota_dir = "/boot/ota"
+        self._grub_dir = "/boot/grub"
+        self._grub_conf_file = "grub.conf"
+        self._grub_ctl = GrubCtl(bank_info_file=bank_info_file)
+        self._boot_vmlinuz = None
+        self._boot_initrd = None
+        # ECU information
         self.__my_ecuid = _read_ecuid(ecuid_file)
         self.__ecuinfo_yaml_file = ecuinfo_yaml_file
         self.__ecu_info = _read_ecu_info(ecuinfo_yaml_file)
         self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file + ".update"
         self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
-
-        self._ota_dir = "/boot/ota"
-        self._rollback_dir = "/boot/ota/rollback"
-        self._grub_dir = "/boot/grub"
-        self._grub_conf_file = "grub.conf"
-        #
-        self._catalog_file = "/boot/ota/.catalog"
-        self._rollback_dict = {}
-        # backup files
-        self._dirlist_file = "dirlist.txt"
-        self._symlinklist_file = "symlinklist.txt"
-        self._regularlist_file = "regularlist.txt"
-        self._persistentlist_file = "persistentlist.txt"
-        #
-        self._ota_status = OtaStatus(ota_status_file=ota_status_file)
-        self._grub_ctl = GrubCtl(bank_info_file=bank_info_file)
-        #
-        self._certificate_pem = None
+        # remote
+        self.__url = url
+        self.__header_dict = {}
+        self.__download_retry = 5
+        self._ota_cache = ota_cache
         # metadata data
         self._metadata = None
         #
         self._mount_point = "/mnt/bank"
-        self._fstab_file = "/etc/fstab"
         if not os.path.isdir(self._mount_point):
             os.makedirs(self._mount_point, exist_ok=True)
-        self._ota_cache = ota_cache
-        self._boot_vmlinuz = None
-        self._boot_initrd = None
+        self._fstab_file = "/etc/fstab"
+        # rollback info
+        self._rollback_dir = "/boot/ota/rollback"
+        self._rollback_dict = {}
+        self.backup_files = {
+            "dirlist": "dirlist.txt",
+            "symlinklist": "symlinklist.txt",
+            "regularlist": "regularlist.txt",
+            "persistentlist": "persistentlist.txt",
+        }
 
     def is_main_ecu(self):
         return self.__main_ecu
@@ -469,12 +443,6 @@ class OtaClient:
 
     def _set_url(self, url):
         self.__url = url
-
-    def _get_metadata_jwt_url(self):
-        """
-        get metadata.jwt URL for test
-        """
-        return os.path.join(self.__url, "metadata.jwt")
 
     def _is_banka(self, bank):
         return self._grub_ctl.get_bank_info().get_banka() == bank
@@ -652,32 +620,29 @@ class OtaClient:
             return False
 
     def _cleanup_rollback_dir(self):
-        """"""
-        try:
-            if os.path.isdir(self._rollback_dir):
-                logger.info(f"removedir: {self._rollback_dir}")
-                shutil.rmtree(self._rollback_dir)
-            logger.debug(f"makedir: {self._rollback_dir}")
-            os.mkdir(self._rollback_dir)
-        except Exception as e:
-            logger.exception("cleanup rollback directory error!:")
-            return False
-        return True
+        """
+        clean up rollback directory
+        """
+        if os.path.isdir(self._rollback_dir):
+            logger.info(f"removedir: {self._rollback_dir}")
+            shutil.rmtree(self._rollback_dir)
+        logger.debug(f"makedir: {self._rollback_dir}")
+        os.mkdir(self._rollback_dir)
 
     def _prepare_next_bank(self, bank, target_dir):
         """
         prepare next boot bank
             mount & clean up
         """
-        # mount
-        if not _mount_bank(bank, target_dir):
-            return False
-        # cleanup
-        if not _cleanup_dir(target_dir):
-            _unmount_bank(target_dir)
-            return False
-        # clean rollback dir
-        if not self._cleanup_rollback_dir():
+        try:
+            # mount
+            _mount_bank(bank, target_dir)
+            # cleanup
+            _cleanup_dir(target_dir)
+            # clean rollback dir
+            self._cleanup_rollback_dir()
+        except:
+            logger.exception("Standby bank preoparing error!")
             _unmount_bank(target_dir)
             return False
         return True
@@ -702,7 +667,9 @@ class OtaClient:
             # generate directories
             if _gen_directories(tmp_list_file, target_dir):
                 # move list file to rollback dir
-                dest_file = os.path.join(self._rollback_dir, self._dirlist_file)
+                dest_file = os.path.join(
+                    self._rollback_dir, self.backup_files["dirlist"]
+                )
                 shutil.move(tmp_list_file, dest_file)
                 return True
         return False
@@ -756,14 +723,12 @@ class OtaClient:
             # generate symboliclinks
             if self._gen_symbolic_links(tmp_list_file, target_dir):
                 # move list file to rollback dir
-                dest_file = os.path.join(self._rollback_dir, self._symlinklist_file)
+                dest_file = os.path.join(
+                    self._rollback_dir, self.backup_files["symlinklist"]
+                )
                 shutil.move(tmp_list_file, dest_file)
                 return True
         return False
-
-    # @staticmethod
-    # def _make_url_path(url, rootfs_dir, regular_file):
-    #    return os.path.join(url, rootfs_dir + urllib.parse.quote(regular_file))
 
     def _download_regular_file(self, rootfs_dir, target_path, regular_file, hash256):
         """
@@ -1038,7 +1003,9 @@ class OtaClient:
                 rootfsdir_info["file"], tmp_list_file, target_dir
             ):
                 # move list file to rollback dir
-                dest_file = os.path.join(self._rollback_dir, self._regularlist_file)
+                dest_file = os.path.join(
+                    self._rollback_dir, self.backup_files["regularlist"]
+                )
                 shutil.move(tmp_list_file, dest_file)
                 return True
             if self._boot_vmlinuz is None or self._boot_initrd is None:
@@ -1065,7 +1032,9 @@ class OtaClient:
 
         if _gen_persistent_files(tmp_list_file, target_dir):
             # move list file to rollback dir
-            dest_file = os.path.join(self._rollback_dir, self._persistentlist_file)
+            dest_file = os.path.join(
+                self._rollback_dir, self.backup_files["persistentlist"]
+            )
             shutil.move(tmp_list_file, dest_file)
             return True
         return False
@@ -1178,39 +1147,6 @@ class OtaClient:
 
         return
 
-    def _load_cookie(self):
-        """
-        read cookie form file
-        """
-        with open(self._cookie_file) as f:
-            self.cookie = f.readline()
-
-    def _load_url(self):
-        """
-        read url from file
-        """
-        with open(self._url_file) as f:
-            self.__url = f.readline()
-
-    def _load_catalog(self):
-        """
-        read catalog from file
-        """
-        with open(self._catalog_file) as f:
-            catalog_json = json.load(f)
-            # toDo: perse catalog
-
-    def _load_update_files(self):
-        """"""
-        try:
-            self._load_url()
-            self._load_cookie()
-            self._load_catalog()
-        except Exception as e:
-            logger.exception("Load update files error:")
-            return False
-        return True
-
     def set_update_ecuinfo(self, update_info):
         """"""
         logger.info("_update_ecu_info start")
@@ -1317,9 +1253,6 @@ class OtaClient:
         self._grub_ctl.reboot()
         return True
 
-    def find_ecuinfo(self, ecuupdateinfo_list, ecu_id):
-        return _find_ecuinfo(ecuupdateinfo_list, ecu_id)
-
     def save_update_ecuinfo(self):
         return _save_update_ecuinfo(
             self.__update_ecuinfo_yaml_file, self.__update_ecu_info
@@ -1356,7 +1289,9 @@ class OtaClient:
             #
             # rollback /boot regulars
             #
-            regular_list_file = os.path.join(self._rollback_dir, self._regularlist_file)
+            regular_list_file = os.path.join(
+                self._rollback_dir, self.backup_files["regularlist"]
+            )
             with open(regular_list_file, "r") as f:
                 for l in f.readlines():
                     reginf = RegularInf(l)
