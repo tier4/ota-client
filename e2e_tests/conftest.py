@@ -24,13 +24,17 @@ main_ecu:
   ip_addr: ''
 """
 
+# TODO: find a way to define the working_dir
 @pytest.fixture(scope="session", autouse=True)
-def configs():
+def configs(
+    tmp_path_factory: pathlib.Path,
+    working_dir: str,
+    ):
     return {
-        "OTA_SOURCE_DIR": pathlib.Path("./data"),
-        "BOOT_DIR": pathlib.Path("boot/ota"),
-        "BANKA_DIR": pathlib.Path("./banka"),
-        "BANKB_DIR": pathlib.Path("./bankb"),
+        "OTA_SOURCE_DIR": pathlib.Path(working_dir) / "./data",
+        "BOOT_DIR": tmp_path_factory / "boot/ota",
+        "BANKA_DIR": pathlib.Path(working_dir) / "./banka",
+        "BANKB_DIR": pathlib.Path(working_dir) / "./bankb",
     }
 
 # prepare files needed for the OTA
