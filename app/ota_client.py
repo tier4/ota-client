@@ -1019,7 +1019,6 @@ class OtaClient:
         shutil.move(tmp_list_file, dest_file)
         return True
 
-
     def _setup_next_bank_fstab(self, fstab_file, target_dir):
         """
         setup next bank to fstab
