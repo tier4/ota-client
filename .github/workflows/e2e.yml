@@ -43,6 +43,14 @@ jobs:
         with:
           name: ${{ env.OTA_metadata_REPO }}
           path: ./ota-metadata
+      - name: Install package dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ./ota-client/app/requirements.txt
+          python -m pip install -r ./ota-metadata/metadata/ota_metadata/requirements.txt
+      - name: Install test dependencies
+        run: |
+          python -m pip install -r ./ota-client/tests/requirements.txt
       - name: Get OTA image from the previous job
         uses: actions/download-artifact@v2
         with:
@@ -76,7 +84,8 @@ jobs:
       #     nohup sudo $pythonLocation/bin/python -m http.server 8080 > /dev/null 2>&1 &
       - name: Testing OTA update
         run: |
-          nohup sudo $pythonLocation/bin/python -m pytest \
+          set -o pipefail
+          sudo $pythonLocation/bin/python -m pytest \
             --cov-report term-missing --cov=app ./e2e_tests \
             | tee pytest-coverage.txt
       # export the coverage report to the comment!

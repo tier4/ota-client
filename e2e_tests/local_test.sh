@@ -53,8 +53,8 @@ _echo "Switch to working dir. Current working_dir is `$pwd`."
 # install test dependencies
 _echo "Install test dependencies..."
 python3 -m pip install --upgrade pip
-python3 -m pip install -r "$REPO/app/requirements.txt"
-python3 -m pip install -r "$REPO/tests/requirements.txt"
+python3 -m pip install -r ./"$REPO"/app/requirements.txt
+python3 -m pip install -r ./"$REPO"/tests/requirements.txt
 
 # build & prepare ota baseimage
 _echo "Building OTA baseimage..."
@@ -73,6 +73,7 @@ sudo tar xf ./base-image.tgz -C ./data
 # sign the ota baseimage
 _echo "Setup ota-metadata signtools..."
 git clone https://github.com/tier4/ota-metadata
+python3 -m pip install -r ./ota-metadata/metadata/ota_metadata/requirements.txt
 _echo "Signing the OTA-metadata..."
 sudo -E python3 ./ota-metadata/metadata/ota_metadata/metadata_gen.py \
     --target-dir ./data --ignore-file ./ota-metadata/metadata/ignore.txt
