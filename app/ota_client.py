@@ -1293,6 +1293,9 @@ class OtaClient:
         return True
 
     def reboot(self):
+        """
+        Reboot 
+        """
         if self.get_ota_status() == "PREPARED":
             # switch reboot
             if not self._grub_ctl.prepare_grub_switching_reboot(
@@ -1326,9 +1329,9 @@ class OtaClient:
         )
 
     def _rollback(self):
-        """"""
-        if self.get_ota_status() == "NORMAL":
-            return False
+        """
+        Rollback 
+        """
 
         if self._ota_status.is_rollback_available() and os.path.isdir(
             self._rollback_dir

@@ -54,22 +54,23 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "boot_state, confirm_bank, result",
+    "boot_state, confirm_bank, result_state, result_boot",
     [
-        ("NORMAL", True, "NORMAL_BOOT"),
-        ("SWITCHA", True, "SWITCH_BOOT"),
-        ("SWITCHA", False, "SWITCH_BOOT_FAIL"),
-        ("SWITCHB", True, "SWITCH_BOOT"),
-        ("SWITCHB", False, "SWITCH_BOOT_FAIL"),
-        ("ROLLBACKA", True, "ROLLBACK_BOOT"),
-        ("ROLLBACKA", False, "ROLLBACK_BOOT_FAIL"),
-        ("ROLLBACKB", True, "ROLLBACK_BOOT"),
-        ("ROLLBACKB", False, "ROLLBACK_BOOT_FAIL"),
-        ("ROLLBACK", True, "ROLLBACK_INCOMPLETE"),
-        ("UPDATE", True, "UPDATE_INCOMPLETE"),
+        ("NORMAL", True, "NORMAL", "NORMAL_BOOT"),
+        ("SWITCHA", True, "NORMAL", "SWITCH_BOOT"),
+        ("SWITCHA", False, "UPDATE_FAILED", "SWITCH_BOOT_FAILED"),
+        ("SWITCHB", True, "NORMAL", "SWITCH_BOOT"),
+        ("SWITCHB", False, "UPDATE_FAILED", "SWITCH_BOOT_FAILED"),
+        ("ROLLBACKA", True, "NORMAL", "ROLLBACK_BOOT"),
+        ("ROLLBACKA", False, "ROLLBACK_FAILED", "ROLLBACK_BOOT_FAILED"),
+        ("ROLLBACKB", True, "NORMAL", "ROLLBACK_BOOT"),
+        ("ROLLBACKB", False, "ROLLBACK_FAILED", "ROLLBACK_BOOT_FAILED"),
+        ("UPDATE", True, "UPDATE_FAILED", "UPDATE_INCOMPLETE"),
+        ("PREPARED", True, "UPDATE_FAILED", "UPDATE_INCOMPLETE"),
+        ("ROLLBACK", True, "ROLLBACK_FAILED", "ROLLBACK_INCOMPLETE"),
     ],
 )
-def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result):
+def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result_state, result_boot):
     import ota_boot
     import grub_control
     import ota_status
@@ -95,26 +96,28 @@ def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result):
     # mocker.patch("ota_status.OtaStatus._get_ota_status", mock__get_ota_status)
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
-    assert otaboot._boot(boot_state, noexec=True) == result
-
+    res_boot, res_state = otaboot._boot(boot_state, noexec=True)
+    assert res_boot == result_boot
+    assert res_state == result_state
 
 @pytest.mark.parametrize(
-    "boot_state, confirm_bank, result",
+    "boot_state, confirm_bank, result_state, result_boot",
     [
-        ("NORMAL", True, "NORMAL_BOOT"),
-        ("SWITCHA", True, "SWITCH_BOOT"),
-        ("SWITCHA", False, "SWITCH_BOOT_FAIL"),
-        ("SWITCHB", True, "SWITCH_BOOT"),
-        ("SWITCHB", False, "SWITCH_BOOT_FAIL"),
-        ("ROLLBACKA", True, "ROLLBACK_BOOT"),
-        ("ROLLBACKA", False, "ROLLBACK_BOOT_FAIL"),
-        ("ROLLBACKB", True, "ROLLBACK_BOOT"),
-        ("ROLLBACKB", False, "ROLLBACK_BOOT_FAIL"),
-        ("ROLLBACK", True, "ROLLBACK_INCOMPLETE"),
-        ("UPDATE", True, "UPDATE_INCOMPLETE"),
+        ("NORMAL", True, "NORMAL", "NORMAL_BOOT"),
+        ("SWITCHA", True, "NORMAL", "SWITCH_BOOT"),
+        ("SWITCHA", False, "UPDATE_FAILED", "SWITCH_BOOT_FAILED"),
+        ("SWITCHB", True, "NORMAL", "SWITCH_BOOT"),
+        ("SWITCHB", False, "UPDATE_FAILED", "SWITCH_BOOT_FAILED"),
+        ("ROLLBACKA", True, "NORMAL", "ROLLBACK_BOOT"),
+        ("ROLLBACKA", False, "ROLLBACK_FAILED", "ROLLBACK_BOOT_FAILED"),
+        ("ROLLBACKB", True, "NORMAL", "ROLLBACK_BOOT"),
+        ("ROLLBACKB", False, "ROLLBACK_FAILED", "ROLLBACK_BOOT_FAILED"),
+        ("UPDATE", True, "UPDATE_FAILED", "UPDATE_INCOMPLETE"),
+        ("PREPARED", True, "UPDATE_FAILED", "UPDATE_INCOMPLETE"),
+        ("ROLLBACK", True, "ROLLBACK_FAILED", "ROLLBACK_INCOMPLETE"),
     ],
 )
-def test_OtaBoot_boot(mocker, tmp_path, boot_state, confirm_bank, result):
+def test_OtaBoot_boot(mocker, tmp_path, boot_state, confirm_bank, result_state, result_boot):
     import ota_boot
     import grub_control
     import ota_status
@@ -140,4 +143,4 @@ def test_OtaBoot_boot(mocker, tmp_path, boot_state, confirm_bank, result):
         instanse = ota_status.OtaStatus.return_value
         instanse.get_ota_status.return_value = boot_state
         otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
-        assert otaboot.boot() == result
+        assert otaboot.boot() == result_boot

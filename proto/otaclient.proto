@@ -92,12 +92,14 @@ message EcuStatusRequest {
 
 // ECU status type
 enum EcuStatusType {
-  ECU_STATUS_NORMAL = 0;      // Normal
-  ECU_STATUS_UPDATING = 1;    // Updating
-  ECU_STATUS_DOWNLOADED = 2;  // Downloaded
-  ECU_STATUS_ROLLBACK = 3;    // Rollback
-  ECU_STATUS_REBOOT = 4;      // Reboot
-  ECU_STATUS_UNKNOWN = 5;     // Unknown
+  ECU_STATUS_NORMAL = 0;          // Normal
+  ECU_STATUS_UPDATING = 1;        // Updating
+  ECU_STATUS_DOWNLOADED = 2;      // Downloaded
+  ECU_STATUS_ROLLBACK = 3;        // Rollback
+  ECU_STATUS_REBOOT = 4;          // Reboot
+  ECU_STATUS_UPDATE_ERROR = 5;    // Update error
+  ECU_STATUS_ROLLBACK_ERROR = 6;  // Rollback error
+  ECU_STATUS_UNKNOWN = 7;         // Unknown
 }
 
 // ECU Boot Status type

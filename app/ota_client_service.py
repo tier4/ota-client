@@ -73,6 +73,10 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
             status = otaclient_pb2.EcuStatusType.ECU_STATUS_SWITCH
         elif ecu_status == "ROLLBACKA" or ecu_status == "ROLLBACKB":
             status = otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK
+        elif ecu_status == "UPDATE_FAILED":
+            status = otaclient_pb2.EcuStatusType.ECU_STATUS_UPDATE_FAILED
+        elif ecu_status == "ROLLBACK_FAILED":
+            status = otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK_FAILED
         else:
             status = otaclient_pb2.EcuStatusType.ECU_STATUS_UNKNOWN
         boot_status = self._ota_client.get_boot_status()
