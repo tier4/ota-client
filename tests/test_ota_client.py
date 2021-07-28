@@ -361,7 +361,7 @@ def test__header_str_to_dict(tmp_path):
         .replace("/", "~")
         .replace("=", "_")
     )
-    key_id = "K2JIMUVA7KL9FE"
+    key_id = "ABCDEFGHIJKLMN"
     HEADER_STR = (
         "Cookie:"
         + "CloudFront-Policy="
