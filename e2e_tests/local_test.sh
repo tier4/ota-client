@@ -27,7 +27,7 @@ _clean_up() {
     fi
 }
 
-trap '_clean_up' SIGINI SIGKILL SIGTERM EXIT
+trap '_clean_up' SIGINT SIGKILL SIGTERM EXIT
 
 # working_dir and repo_location must be set
 if [ -z "$WORKING_DIR" ] || [ -z "$REPO_LOCATION" ]
