@@ -141,13 +141,9 @@ def _read_ecuid(ecuid_file):
     initial read ECU ID
     """
     logger.debug(f"ECU ID file: {ecuid_file}")
-    try:
-        with open(ecuid_file, mode="r") as f:
-            ecuid = f.readline().replace("\n", "")
-            logger.debug(f"line: {ecuid}")
-    except:
-        logger.exception("ECU ID read error!")
-        raise Error
+    with open(ecuid_file, mode="r") as f:
+        ecuid = f.readline().replace("\n", "")
+        logger.debug(f"line: {ecuid}")
     return ecuid
 
 
@@ -155,13 +151,9 @@ def _read_ecu_info(ecu_info_yaml_file):
     """
     Read ECU Information from yaml file.
     """
-    try:
-        with open(ecu_info_yaml_file, "r") as fyml:
-            logger.debug(f"open: {ecu_info_yaml_file}")
-            ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
-    except:
-        logger.exception(f"No ECU info file: {ecu_info_yaml_file}")
-        raise Error
+    with open(ecu_info_yaml_file, "r") as fyml:
+        logger.debug(f"open: {ecu_info_yaml_file}")
+        ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
     return ecuinfo
 
 
@@ -169,7 +161,7 @@ def _mount_bank(bank, target_dir):
     """
     mount next bank
     """
-    command_line = "mount " + bank + " " + target_dir
+    command_line = f"mount {bank} {target_dir}"
     logger.debug(f"commandline: {command_line}")
     subprocess.check_output(shlex.split(command_line))
 
@@ -179,7 +171,7 @@ def _unmount_bank(target_dir):
     unmount bank
     """
     if pathlib.Path(target_dir).is_mount():
-        command_line = "umount " + target_dir
+        command_line = f"umount {target_dir}"
         logger.debug(f"commandline: {command_line}")
         subprocess.check_output(shlex.split(command_line))
 
@@ -189,9 +181,7 @@ def _cleanup_dir(target_dir):
     cleanup next bank
     """
     logger.debug(f"cleanup directory: {target_dir}")
-    if target_dir == "" or target_dir == "/":
-        raise Error
-    command_line = "rm -rf " + str(target_dir) + "/*"
+    command_line = f"rm -rf {str(target_dir)}/*"
     logger.debug(f"commandline: {command_line}")
     proc = subprocess.call(command_line, shell=True)
     if proc != 0:
@@ -203,19 +193,15 @@ def _gen_directories(dirlist_file, target_dir):
     """
     generate directories on another bank
     """
-    try:
-        with open(dirlist_file) as f:
-            for l in f.read().splitlines():
-                dirinf = DirectoryInf(l)
-                logger.debug(f"dir inf: {dirinf.path}")
-                target_path = target_dir + dirinf.path
-                logger.debug(f"target path: {target_path}")
-                os.makedirs(target_path, mode=int(dirinf.mode, 8))
-                os.chown(target_path, int(dirinf.uid), int(dirinf.gpid))
-                os.chmod(target_path, int(dirinf.mode, 8))
-    except Exception as e:
-        logger.exception("directory setup error!:")
-        return False
+    with open(dirlist_file) as f:
+        for l in f.read().splitlines():
+            dirinf = DirectoryInf(l)
+            logger.debug(f"dir inf: {dirinf.path}")
+            target_path = target_dir + dirinf.path
+            logger.debug(f"target path: {target_path}")
+            os.makedirs(target_path, mode=int(dirinf.mode, 8))
+            os.chown(target_path, int(dirinf.uid), int(dirinf.gpid))
+            os.chmod(target_path, int(dirinf.mode, 8))
     return True
 
 
@@ -248,25 +234,19 @@ def _gen_persistent_files(list_file, target_dir):
     """
     generate persistent files
     """
-    res = True
     logging_level = logging.root.level
     logging.basicConfig(level=logging.DEBUG)
-    try:
-        with open(list_file, mode="r") as f:
-            for l in f.read().splitlines():
-                persistent_info = PersistentInf(l)
-                src_path = persistent_info.path
-                if src_path.find("/boot") == 0:
-                    # /boot directory
-                    logger.info(f"do nothing for boot dir file: {src_path}")
-                else:
-                    # others
-                    _copy_persistent(src_path, target_dir)
-    except Exception as e:
-        logger.exception("persistent file error:")
-        res = False
+    with open(list_file, mode="r") as f:
+        for l in f.read().splitlines():
+            persistent_info = PersistentInf(l)
+            src_path = persistent_info.path
+            if src_path.find("/boot") == 0:
+                # /boot directory
+                logger.info(f"do nothing for boot dir file: {src_path}")
+            else:
+                # others
+                _copy_persistent(src_path, target_dir)
     logging.basicConfig(level=logging_level)
-    return res
 
 
 def _header_str_to_dict(header_str):
@@ -1030,14 +1010,15 @@ class OtaClient:
         else:
             logger.info(f"persistent file download success: {persistent_url}")
 
-        if _gen_persistent_files(tmp_list_file, target_dir):
-            # move list file to rollback dir
-            dest_file = os.path.join(
-                self._rollback_dir, self.backup_files["persistentlist"]
-            )
-            shutil.move(tmp_list_file, dest_file)
-            return True
-        return False
+        # generate persistent files, copying from current bank.
+        _gen_persistent_files(tmp_list_file, target_dir)
+        # move list file to rollback dir
+        dest_file = os.path.join(
+            self._rollback_dir, self.backup_files["persistentlist"]
+        )
+        shutil.move(tmp_list_file, dest_file)
+        return True
+
 
     def _setup_next_bank_fstab(self, fstab_file, target_dir):
         """
