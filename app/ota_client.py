@@ -185,8 +185,7 @@ def _cleanup_dir(target_dir):
     logger.debug(f"commandline: {command_line}")
     proc = subprocess.call(command_line, shell=True)
     if proc != 0:
-        logger.error(f"{command_line} : return {proc}")
-        raise Error
+        raise Exception(f"{command_line} : return {proc}")
 
 
 def _gen_directories(dirlist_file, target_dir):
