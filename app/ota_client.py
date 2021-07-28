@@ -209,7 +209,7 @@ def _copy_persistent(src_path, target_dir):
     """
     copy persistent dir/file
     """
-    if src_path[0] == "/":
+    if src_path.startswith("/"):
         dest_path = os.path.join(target_dir, "." + src_path)
     else:
         dest_path = os.path.join(target_dir, src_path)
