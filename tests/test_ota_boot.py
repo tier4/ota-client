@@ -65,8 +65,8 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path):
         ("ROLLBACKA", False, "ROLLBACK_BOOT_FAIL"),
         ("ROLLBACKB", True, "ROLLBACK_BOOT"),
         ("ROLLBACKB", False, "ROLLBACK_BOOT_FAIL"),
-        ("ROLLBACK", True, "ROLLBACK_IMCOMPLETE"),
-        ("UPDATE", True, "UPDATE_IMCOMPLETE"),
+        ("ROLLBACK", True, "ROLLBACK_INCOMPLETE"),
+        ("UPDATE", True, "UPDATE_INCOMPLETE"),
     ],
 )
 def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result):
@@ -96,3 +96,48 @@ def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result):
 
     otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
     assert otaboot._boot(boot_state, noexec=True) == result
+
+
+@pytest.mark.parametrize(
+    "boot_state, confirm_bank, result",
+    [
+        ("NORMAL", True, "NORMAL_BOOT"),
+        ("SWITCHA", True, "SWITCH_BOOT"),
+        ("SWITCHA", False, "SWITCH_BOOT_FAIL"),
+        ("SWITCHB", True, "SWITCH_BOOT"),
+        ("SWITCHB", False, "SWITCH_BOOT_FAIL"),
+        ("ROLLBACKA", True, "ROLLBACK_BOOT"),
+        ("ROLLBACKA", False, "ROLLBACK_BOOT_FAIL"),
+        ("ROLLBACKB", True, "ROLLBACK_BOOT"),
+        ("ROLLBACKB", False, "ROLLBACK_BOOT_FAIL"),
+        ("ROLLBACK", True, "ROLLBACK_INCOMPLETE"),
+        ("UPDATE", True, "UPDATE_INCOMPLETE"),
+    ],
+)
+def test_OtaBoot_boot(mocker, tmp_path, boot_state, confirm_bank, result):
+    import ota_boot
+    import grub_control
+    import ota_status
+    from unittest.mock import patch
+
+    def mock__confirm_banka(self):
+        return confirm_bank
+
+    def mock__confirm_bankb(self):
+        return confirm_bank
+
+    mocker.patch("ota_boot.OtaBoot._confirm_banka", mock__confirm_banka)
+    mocker.patch("ota_boot.OtaBoot._confirm_bankb", mock__confirm_bankb)
+
+    ota_status_path = tmp_path / "ota_status"
+    ota_status_path.write_text(boot_state)
+
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    # otastatus_mock = mocker.Mock(spec=ota_status.OtaStatus)
+    mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock)
+
+    with patch("ota_status.OtaStatus"):
+        instanse = ota_status.OtaStatus.return_value
+        instanse.get_ota_status.return_value = boot_state
+        otaboot = ota_boot.OtaBoot(ota_status_file=str(ota_status_path))
+        assert otaboot.boot() == result

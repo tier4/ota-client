@@ -105,10 +105,11 @@ enum BootStatusType {
   NORMAL_BOOT = 0;            // Normal boot success
   SWITCH_BOOT = 1;            // Bank switching boot success
   ROLLBACK_BOOT = 2;          // Rollback boot success
-  SWITCHING_BOOT_FAIL = 3;    // Bank switching boot failed
+  SWITCHING_BOOT_FAIL = 3;    // Bank switching boot failed(no switching)
   ROLLBACK_BOOT_FAIL = 4;     // Rollback boot failed
-  UPDATE_IMCOMPLETE = 5;      // Update imcomplete
-  UNKNOWN = 6;                // Unknown state
+  UPDATE_INCOMPLETE = 5;      // Update incomplete
+  ROLLBACK_INCOMPLETE = 6;    // Rollback incomplete
+  UNKNOWN = 7;                // Unknown state
 }
 
 

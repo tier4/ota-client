@@ -80,7 +80,7 @@ class OtaBoot:
     def boot(self):
         status = self._ota_status.get_ota_status()
         logger.debug(f"Status: {status}")
-        self._boot(status, noexec=False)
+        return self._boot(status, noexec=False)
 
     def _boot(self, status, noexec=False):
         """
@@ -168,14 +168,14 @@ class OtaBoot:
             # status error!
             err_str = "OTA Status error: " + status
             self._error_notify(err_str)
-            result = "ROLLBACK_IMCOMPLETE"
+            result = "ROLLBACK_INCOMPLETE"
             # toDo : clean up '/boot'
         else:
             # status error!
             logger.error(f"OTA status error: {status}")
             err_str = "OTA Status error: " + status
             self._error_notify(err_str)
-            result = "UPDATE_IMCOMPLETE"
+            result = "UPDATE_INCOMPLETE"
             # toDo : clean up '/boot'
 
         if status != "NORMAL":
