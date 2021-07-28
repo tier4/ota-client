@@ -1294,7 +1294,7 @@ class OtaClient:
 
     def reboot(self):
         """
-        Reboot 
+        Reboot
         """
         if self.get_ota_status() == "PREPARED":
             # switch reboot
@@ -1330,7 +1330,7 @@ class OtaClient:
 
     def _rollback(self):
         """
-        Rollback 
+        Rollback
         """
 
         if self._ota_status.is_rollback_available() and os.path.isdir(
