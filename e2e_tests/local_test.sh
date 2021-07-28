@@ -5,13 +5,15 @@ WORKING_DIR=$1
 REPO_LOCATION=$2
 REPO=`basename $2`
 DEPENDENCIES=(python3 docker)
+TIMESTAMP_FORMAT='%Y-%m-%d %H:%M:%S'
 
 _print_usage() {
     echo "Usage: local_test.sh <workding_dir> <repo_location>\n"
 }
 
 _echo() {
-    printf '[%s] %s\n' "$(date +'%Y/%m/%d %H:%M:%S')" "$1"
+    printf "[%(${TIMESTAMP_FORMAT})T] "
+    printf "$1\n"
 }
 
 _clean_up() {
