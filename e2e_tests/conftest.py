@@ -1,5 +1,6 @@
 import pytest
 import pathlib
+from pytest_xprocess import ProcessStarter
 
 from ota_client import OtaClient
 from ota_client_service import OtaClientService
@@ -40,6 +41,7 @@ def configs(
         "WORKDING_DIR": pathlib.Path(working_dir),
         "MOUNT_POINT": pathlib.Path(working_dir) / "mnt",
         "ETC_DIR": pathlib.Path(working_dir) / "etc",
+        "GRUB_DIR": pathlib.Path(working_dir) / "boot/grub",
         "OTA_SOURCE_DIR": pathlib.Path(working_dir) / "data",
         "BOOT_DIR": tmp_path_factory / "boot",
         "OTA_DIR": tmp_path_factory / "boot/ota",
@@ -56,7 +58,9 @@ def init_test_environment(configs):
     prepare ota_status file, bank_info_file, 
     ecuid_file and ecuinfo_yaml_file
     '''
-    # TODO: init all needed folders here
+    # make all needed folders here
+    for _, path in configs.items():
+        path.mkdir(parents=True, exist_ok=True)
 
     ota_d = configs["OTA_DIR"]
     ota_status_file = ota_d / "ota_status"
@@ -64,6 +68,8 @@ def init_test_environment(configs):
     ecuid_file = ota_d / "ecuid"
     ecuinfo_yaml_file = ota_d / "ecuinfo.yaml"
     
+    # prepare all needed initial files here
+    # TODO: fstab, grub file, default grub file(configs["ETC_DIR"]/"default_grub")
     ota_status_file.write_text(OTA_STATUS)
     bank_info_file.write_text(BANK_INFO)
     ecuid_file.write_text(ECUID)
