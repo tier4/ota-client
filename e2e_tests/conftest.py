@@ -141,3 +141,15 @@ def ota_request():
     )
     eui.metadata = "metadata.jwt"
     return update_req
+
+# create background http server to serve ota baseimage
+@pytest.fixture(scope="session", autouse=True)
+def ota_server(xprocess):
+    class ServerStarter(ProcessStarter):
+        pattern = "Serving HTTP"
+        max_read_lines = 3
+        args = ['sudo', '-E', 'python3', '-m', 'http.server']
+
+    xprocess.ensure("ota_server", ServerStarter)
+    yield
+    xprocess.getinfo("ota_server").terminate()
