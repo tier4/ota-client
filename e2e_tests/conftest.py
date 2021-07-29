@@ -101,19 +101,25 @@ def ota_client_instance(
     # set the attribute of otaclient
     setattr(ota_client_instance, "_ota_dir", configs["OTA_DIR"])
     setattr(ota_client_instance, "_rollback_dir", configs["OTA_DIR"] / "rollback")
-    setattr(ota_client_instance, "_grub_dir", configs["BOOT_DIR"] / "grub")
+    setattr(ota_client_instance, "_grub_dir", configs["GRUB_DIR"])
     setattr(ota_client_instance, "_catalog_file", configs["OTA_DIR"] / ".catalog")
     setattr(ota_client_instance, "_mount_point", configs["MOUNT_POINT"])
     setattr(ota_client_instance, "_fstab_file", configs["ETC_DIR"] / "fstab")
     
     # set a real GrubCtl object and OtaStatus object to the instance
     grub_ctl_object = grub_control.GrubCtl(
-        default_grub_file=configs["ETC_DIR"]/"default/grub",
-        grub_config_file=configs["BOOT_DIR"]/"grub/grub.cfg",
-        custom_config_file=configs["BOOT_DIR"]/"grub/custom.cfg",
+        default_grub_file=configs["ETC_DIR"]/"default_grub",
+        grub_config_file=configs["GRUB_DIR"]/"grub.cfg",
+        custom_config_file=configs["GRUB_DIR"]/"custom.cfg",
         bank_info_file=configs["OTA_DIR"]/"bankinfo.yaml",
         fstab_file=configs["ETC_DIR"]/"fstab",
     )
+    ota_status_object = ota_status.OtaStatus(
+        ota_status_file=configs["BOOT_DIR"]/"ota_status",
+        ota_rollback_file=configs["BOOT_DIR"]/"ota_rollback_count",
+    )
+    setattr(ota_client_instance, "_grub_ctl", grub_ctl_object)
+    setattr(ota_client_instance, "_ota_status", ota_status_object)
 
     return ota_client_instance
 
