@@ -70,7 +70,9 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path):
         ("ROLLBACK", True, "ROLLBACK_FAILED", "ROLLBACK_INCOMPLETE"),
     ],
 )
-def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result_state, result_boot):
+def test_OtaBoot__boot(
+    mocker, tmp_path, boot_state, confirm_bank, result_state, result_boot
+):
     import ota_boot
     import grub_control
     import ota_status
@@ -100,6 +102,7 @@ def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result_state,
     assert res_boot == result_boot
     assert res_state == result_state
 
+
 @pytest.mark.parametrize(
     "boot_state, confirm_bank, result_state, result_boot",
     [
@@ -117,7 +120,9 @@ def test_OtaBoot__boot(mocker, tmp_path, boot_state, confirm_bank, result_state,
         ("ROLLBACK", True, "ROLLBACK_FAILED", "ROLLBACK_INCOMPLETE"),
     ],
 )
-def test_OtaBoot_boot(mocker, tmp_path, boot_state, confirm_bank, result_state, result_boot):
+def test_OtaBoot_boot(
+    mocker, tmp_path, boot_state, confirm_bank, result_state, result_boot
+):
     import ota_boot
     import grub_control
     import ota_status

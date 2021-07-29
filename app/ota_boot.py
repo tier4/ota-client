@@ -90,7 +90,6 @@ class OtaBoot:
         self._grub_ctl.delete_custom_cfg_file()
         self._ota_status.inc_rollback_count()
 
-
     def _finalize_rollback(self, noexec=False):
         if noexec:
             logger.debug("NOEXRC delete custom.cfg")
@@ -98,50 +97,50 @@ class OtaBoot:
         logger.debug("delete custom.cfg")
         self._grub_ctl.delete_custom_cfg_file()
 
-
     def _boot(self, status, noexec=False):
         """
         OTA boot
         """
+
         def func_true():
             return True
 
         state_table = {
             "NORMAL": {
-                "func" : func_true,
-                "success" : {"state" : "NORMAL", "boot" : "NORMAL_BOOT"},
+                "func": func_true,
+                "success": {"state": "NORMAL", "boot": "NORMAL_BOOT"},
             },
-            "SWITCHA" : {
-                "func" : self._confirm_bankb,
-                "success" : {"state" : "NORMAL", "boot" : "SWITCH_BOOT"},
-                "failed" : {"state" : "UPDATE_FAILED", "boot" : "SWITCH_BOOT_FAILED"},
+            "SWITCHA": {
+                "func": self._confirm_bankb,
+                "success": {"state": "NORMAL", "boot": "SWITCH_BOOT"},
+                "failed": {"state": "UPDATE_FAILED", "boot": "SWITCH_BOOT_FAILED"},
             },
-            "SWITCHB" : {
-                "func" : self._confirm_bankb,
-                "success" : {"state" : "NORMAL", "boot" : "SWITCH_BOOT"},
-                "failed" : {"state" : "UPDATE_FAILED", "boot" : "SWITCH_BOOT_FAILED"},
+            "SWITCHB": {
+                "func": self._confirm_bankb,
+                "success": {"state": "NORMAL", "boot": "SWITCH_BOOT"},
+                "failed": {"state": "UPDATE_FAILED", "boot": "SWITCH_BOOT_FAILED"},
             },
-            "ROLLBACKA" : {
-                "func" : self._confirm_banka,
-                "success" : {"state" : "NORMAL", "boot" : "ROLLBACK_BOOT"},
-                "failed" : {"state" : "ROLLBACK_FAILED", "boot" : "ROLLBACK_BOOT_FAILED"},
+            "ROLLBACKA": {
+                "func": self._confirm_banka,
+                "success": {"state": "NORMAL", "boot": "ROLLBACK_BOOT"},
+                "failed": {"state": "ROLLBACK_FAILED", "boot": "ROLLBACK_BOOT_FAILED"},
             },
-            "ROLLBACKB" : {
-                "func" : self._confirm_bankb,
-                "success" : {"state" : "NORMAL", "boot" : "ROLLBACK_BOOT"},
-                "failed" : {"state" : "ROLLBACK_FAILED", "boot" : "ROLLBACK_BOOT_FAILED"},
+            "ROLLBACKB": {
+                "func": self._confirm_bankb,
+                "success": {"state": "NORMAL", "boot": "ROLLBACK_BOOT"},
+                "failed": {"state": "ROLLBACK_FAILED", "boot": "ROLLBACK_BOOT_FAILED"},
             },
             "UPDATE": {
-                "func" : func_true,
-                "success" : {"state" : "UPDATE_FAILED", "boot" : "UPDATE_INCOMPLETE"},
+                "func": func_true,
+                "success": {"state": "UPDATE_FAILED", "boot": "UPDATE_INCOMPLETE"},
             },
             "PREPARED": {
-                "func" : func_true,
-                "success" : {"state" : "UPDATE_FAILED", "boot" : "UPDATE_INCOMPLETE"},
+                "func": func_true,
+                "success": {"state": "UPDATE_FAILED", "boot": "UPDATE_INCOMPLETE"},
             },
             "ROLLBACK": {
-                "func" : func_true,
-                "success" : {"state" : "ROLLBACK_FAILED", "boot" : "ROLLBACK_INCOMPLETE"},
+                "func": func_true,
+                "success": {"state": "ROLLBACK_FAILED", "boot": "ROLLBACK_INCOMPLETE"},
             },
         }
 
@@ -154,4 +153,3 @@ class OtaBoot:
         result_boot = state_table[status][func_result]["boot"]
 
         return result_boot, result_state
-
