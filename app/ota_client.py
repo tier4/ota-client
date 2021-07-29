@@ -725,12 +725,12 @@ class OtaClient:
         generate /boot directory file
         """
         # starts with `/boot/vmlinuz-`.
-        match = re.match("^/boot/(vmlinuz-.*)", regular_inf.path)
+        match = re.match(r"^/boot/(vmlinuz-.*)", regular_inf.path)
         if match is not None:
             self._boot_vmlinuz = match.group(1)
 
         # starts with `/boot/initrd.img-`, but doesnot end with `.old-dkms`.
-        match = re.match("^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", regular_inf.path)
+        match = re.match(r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", regular_inf.path)
         if match is not None:
             self._boot_initrd = match.group(1)
 
