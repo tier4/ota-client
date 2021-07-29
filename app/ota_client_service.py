@@ -92,11 +92,11 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         elif boot_status == "ROLLBACK_BOOT_FAIL":
             bstatus = otaclient_pb2.BootStatusType.ROLLBACK_BOOT_FAIL
         elif boot_status == "UPDATE_INCOMPLETE":
-            bstatus = otaclient_pb2.BootStatusType.UPDATE_IMCOMPLETE
+            bstatus = otaclient_pb2.BootStatusType.UPDATE_INCOMPLETE
         elif boot_status == "ROLLBACK_INCOMPLETE":
-            bstatus = otaclient_pb2.BootStatusType.ROLLBACK_IMCOMPLETE
+            bstatus = otaclient_pb2.BootStatusType.ROLLBACK_INCOMPLETE
         else:
-            bstatus = otaclient_pb2.BootStatusType.UNKOWN
+            bstatus = otaclient_pb2.BootStatusType.UNKNOWN
         return otaclient_pb2.EcuStatusReply(status=status, boot_status=bstatus)
 
     def EcuVersion(self, request, context):
