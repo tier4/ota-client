@@ -116,6 +116,16 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         # print(ver_reply_msg)
         return ver_reply_msg
 
+    @staticmethod
+    def _find_ecuinfo(ecuupdateinfo_list, ecu_id):
+        """"""
+        ecu_info = None
+        for ecuupdateinfo in ecuupdateinfo_list:
+            if ecu_id == ecuupdateinfo.ecu_info.ecu_id:
+                logger.debug(f"[found] id={ecuupdateinfo.ecu_info.ecu_id}")
+                ecu_info = ecuupdateinfo
+        return ecu_info
+
     def _ota_update(self, request):
         """
         OTA update function
@@ -134,7 +144,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         # find my ECU info
         ecuupdateinfo = request.ecu_update_info
         logger.info(f"my ECU ID: {self._ota_client.get_my_ecuid()}")
-        my_update_info = self._ota_client.find_ecuinfo(
+        my_update_info = self._find_ecuinfo(
             ecuupdateinfo, self._ota_client.get_my_ecuid()
         )
         if my_update_info is not None:
@@ -191,7 +201,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         ecurollbackinfo = request.ecu_rollback_info
         logger.debug(f"{ecurollbackinfo[0].ecu_info}")
         logger.debug(f"my ECU ID: {self._ota_client.get_my_ecuid}")
-        my_rollback_info = self._ota_client.find_ecuinfo(
+        my_rollback_info = self._find_ecuinfo(
             ecurollbackinfo, self._ota_client.get_my_ecuid()
         )
         print(my_rollback_info)
