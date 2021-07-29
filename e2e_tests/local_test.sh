@@ -3,12 +3,11 @@ set -e # exit if any command failed
 
 WORKING_DIR=$1
 REPO_LOCATION=$2
-REPO=`basename $2`
 DEPENDENCIES=(python3 docker)
 TIMESTAMP_FORMAT='%Y-%m-%d %H:%M:%S'
 
 _print_usage() {
-    echo "Usage: local_test.sh <workding_dir> <repo_location>\n"
+    echo "Usage: local_test.sh <workding_dir> <repo_location>"
 }
 
 _echo() {
@@ -20,16 +19,14 @@ _clean_up() {
     [ $? == 0 ] && \
         _echo "Test finished!" || \
         _echo "Test failed!"
-    read -r -p "Cleanup the working_dir $WORKING_DIR? [Y/N]:"
+    read -rp "$(_echo "Cleanup the working_dir $WORKING_DIR? [Y/N]:")" reply
     echo
-    if [ $REPLAY == "Y" ]
+    if [ "$reply" == "Y" ]
     then
         rm -rf "$WORKING_DIR"
         _echo "Finished cleaning up working dir!"
     fi
 }
-
-trap '_clean_up' SIGINT SIGKILL SIGTERM EXIT
 
 # working_dir and repo_location must be set
 if [ -z "$WORKING_DIR" ] || [ -z "$REPO_LOCATION" ]
@@ -37,6 +34,10 @@ then
     _print_usage
     exit -1
 fi
+REPO=`basename $2`
+
+############# start E2E test ################
+trap '_clean_up' SIGINT SIGKILL SIGTERM EXIT
 
 # check dependencies
 _echo "Checking dependencies..."
@@ -92,8 +93,7 @@ sudo cp ./"$REPO"/e2e_tests/persistents-x1.txt .
 _echo "Finished preparing the OTA baseimage!"
 
 _echo "Start OTA E2E test..."
-sudo python3 -m pytest --cov-report term-missing --cov=app ./"$REPO"/e2e_tests > pytest-coverage.txt
-cat pytest-coverage.txt
+sudo python3 -m pytest --cov-report term-missing --cov=app ./"$REPO"/e2e_tests
 _echo "Finished OTA E2E test!"
 
 exit 0
