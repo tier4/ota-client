@@ -5,39 +5,17 @@ from pytest_xprocess import ProcessStarter
 from ota_client import OtaClient
 from ota_client_service import OtaClientService
 
-# initial status const
-OTA_STATUS = "NORMAL"
-BANK_INFO = """\
-banka: /dev/sda3
-bankb: /dev/sda4
-"""
-ECUID = "1\n"
-ECUINFO_YAML = """\
-main_ecu:
-  ecu_name: 'autoware_ecu' 
-  ecu_type: 'autoware'
-  ecu_id: '1'
-  version: '0.0.0'
-  independent: True
-  ip_addr: ''
-"""
-ECUINFO_UPDATE_YAML = """\
-main_ecu:
-  ecu_name: 'autoware_ecu'
-  ecu_type: 'autoware'
-  ecu_id: '1'
-  version: '0.5.1'
-  independent: True
-"""
+from params_for_test import *
 
+############ test configures & consts ############
 # TODO: find a way to define the working_dir
 @pytest.fixture(scope="session", autouse=True)
-def configs(
+def dir_list(
     tmp_path_factory: pathlib.Path,
     working_dir: str,
-    ):
+):
 
-    configs =  {
+    dir_list = {
         "WORKDING_DIR": pathlib.Path(working_dir),
         "MOUNT_POINT": pathlib.Path(working_dir) / "mnt",
         "ETC_DIR": pathlib.Path(working_dir) / "etc",
@@ -49,80 +27,135 @@ def configs(
         "BANKB_DIR": pathlib.Path(working_dir) / "bankb",
     }
 
-    return configs
-
-# prepare files needed for the OTA
-@pytest.fixture(scope="session", autouse=True)
-def init_test_environment(configs):
-    '''
-    prepare ota_status file, bank_info_file, 
-    ecuid_file and ecuinfo_yaml_file
-    '''
-    # make all needed folders here
-    for _, path in configs.items():
+    for _, path in dir_list.items():
         path.mkdir(parents=True, exist_ok=True)
 
-    ota_d = configs["OTA_DIR"]
-    ota_status_file = ota_d / "ota_status"
-    bank_info_file = ota_d / "bankinfo.yaml"
-    ecuid_file = ota_d / "ecuid"
-    ecuinfo_yaml_file = ota_d / "ecuinfo.yaml"
-    
-    # prepare all needed initial files here
-    # TODO: fstab, grub file, default grub file(configs["ETC_DIR"]/"default_grub")
+    return dir_list
+
+
+########### files needed for testing ###########
+# create and set the contents to initial status
+
+@pytest.fixture(scope="session")
+def ota_status_file(dir_list):
+    OTA_STATUS = "NORMAL"
+    ota_status_file = dir_list["OTA_DIR"] / "ota_status"
     ota_status_file.write_text(OTA_STATUS)
-    bank_info_file.write_text(BANK_INFO)
+    return ota_status_file
+
+
+@pytest.fixture(scope="session")
+def ecuid_file(dir_list):
+    ecuid_file = dir_list["OTA_DIR"] / "ecuid"
     ecuid_file.write_text(ECUID)
+    return ecuid_file
+
+
+@pytest.fixture(scope="session")
+def ecuinfo_yaml_file(dir_list):
+    ecuinfo_yaml_file = dir_list["OTA_DIR"] / "ecuinfo.yaml"
     ecuinfo_yaml_file.write_text(ECUINFO_YAML)
+    return ecuinfo_yaml_file
 
-# TODO: check the scope of this patch, it should be last for the whole session
-@pytest.fixture(scope="session", autouse=True)
-def patch_ota_client_service(mocker):
-    mocker.patch.object(OtaClientService, "_ota_reboot")
 
-# generate a ota_client fixture for testing
-# TODO: mock OtaClient init method/ mock GrubCtl
+@pytest.fixture(scope="session")
+def bankinfo_file(dir_list):
+    bankinfo = dir_list["OTA_DIR"] / "bankinfo.yaml"
+    bankinfo.write(BANK_INFO)
+    return bankinfo
+
+
+@pytest.fixture(scope="session")
+def grub_file_default(dir_list):
+    grub_file = dir_list["ETC_DIR"] / "default_grub"
+    grub_file.write(GRUB_DEFAULT)
+    return grub_file
+
+
+@pytest.fixture(scope="session")
+def custom_cfg_file(dir_list):
+    custom_cfg = dir_list["GRUB_DIR"] / "custom.cfg"
+    custom_cfg.write(GRUB_CUSTOM_CFG)
+    return custom_cfg
+
+
+@pytest.fixture(scope="session")
+def fstab_file(dir_list):
+    fstab_file = dir_list["ETC_DIR"] / "fstab"
+    fstab_file.write(FSTAB_BY_UUID_BANKA)
+    return fstab_file
+
+
+@pytest.fixture(scope="session")
+def grub_cfg_file(dir_list):
+    grub = dir_list["GRUB_DIR"] / "grub.cfg"
+    grub.write_text(grub_cfg_custom_cfg_params["grub_cfg"])
+
+
+########### function fixture ###########
+
+########### ota client instances #########
+
+# TODO: mock OtaClient and GrubCtl
 @pytest.fixture(scope="session")
 def ota_client_instance(
-    mocker, 
-    configs,
-    ):
+    mocker,
+    dir_list,
+    ota_status_file,
+    ecuid,
+    ecuinfo_yaml,
+    bankinfo_file,
+    grub_file_default,
+    grub_cfg_file,
+    custom_cfg_file,
+    fstab_file,
+):
     import grub_control
     import ota_status
 
     # temporary assign a mock object during ota_client_instance init
     grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
     otastatus_mock = mocker.Mock(spec=ota_status.OtaStatus)
-    with mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock), \
-        mocker.patch("ota_status.OtaStatus", return_value=otastatus_mock):
+    with mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock), mocker.patch(
+        "ota_status.OtaStatus", return_value=otastatus_mock
+    ):
 
         ota_client_instance = OtaClient(
             boot_status="NORMAL_BOOT",
-            ota_status_file=str(configs["OTA_DIR"] / "ota_status"),
-            bank_info_file=str(configs["OTA_DIR"] / "bankinfo.yaml"),
-            ecuid_file=str(configs["OTA_DIR"] / "ecuid"),
-            ecuinfo_yaml_file=str(configs["OTA_DIR"] / "ecuinfo.yaml"),
+            ota_status_file=ota_status_file,
+            bank_info_file=bankinfo_file,
+            ecuid_file=ecuid,
+            ecuinfo_yaml_file=ecuinfo_yaml,
         )
 
     # set the attribute of otaclient
-    setattr(ota_client_instance, "_ota_dir", configs["OTA_DIR"])
-    setattr(ota_client_instance, "_rollback_dir", configs["OTA_DIR"] / "rollback")
-    setattr(ota_client_instance, "_grub_dir", configs["GRUB_DIR"])
-    setattr(ota_client_instance, "_catalog_file", configs["OTA_DIR"] / ".catalog")
-    setattr(ota_client_instance, "_mount_point", configs["MOUNT_POINT"])
-    setattr(ota_client_instance, "_fstab_file", configs["ETC_DIR"] / "fstab")
-    
+    # TODO: init rollback dir and fstab file
+    setattr(ota_client_instance, "_ota_dir", dir_list["OTA_DIR"])
+    setattr(ota_client_instance, "_rollback_dir", dir_list["OTA_DIR"] / "rollback")
+    setattr(ota_client_instance, "_grub_dir", dir_list["GRUB_DIR"])
+    setattr(ota_client_instance, "_catalog_file", dir_list["OTA_DIR"] / ".catalog")
+    setattr(ota_client_instance, "_mount_point", dir_list["MOUNT_POINT"])
+    setattr(ota_client_instance, "_fstab_file", fstab_file)
+
     # set a real GrubCtl object and OtaStatus object to the instance
+    # TODO: patch GrubCtl class:
+    #   1. patch reboot
+    #   2. patch any sys calls that may impact the OS
+    mocker.patch.object(grub_control.os.sync)
+    mocker.patch.object(grub_control.GrubCtl, "reboot", return_value=True)
+    mocker.patch.object(grub_control.GrubCtl, "set_next_bank_boot", return_value=True)
+
+    # TODO: ensure the logic of getting active bank and next bank when doing OTA update
     grub_ctl_object = grub_control.GrubCtl(
-        default_grub_file=configs["ETC_DIR"]/"default_grub",
-        grub_config_file=configs["GRUB_DIR"]/"grub.cfg",
-        custom_config_file=configs["GRUB_DIR"]/"custom.cfg",
-        bank_info_file=configs["OTA_DIR"]/"bankinfo.yaml",
-        fstab_file=configs["ETC_DIR"]/"fstab",
+        default_grub_file=grub_file_default,
+        grub_config_file=grub_cfg_file,
+        custom_config_file=custom_cfg_file,
+        bank_info_file=bankinfo_file,
+        fstab_file=fstab_file,
     )
     ota_status_object = ota_status.OtaStatus(
-        ota_status_file=configs["BOOT_DIR"]/"ota_status",
-        ota_rollback_file=configs["BOOT_DIR"]/"ota_rollback_count",
+        ota_status_file=ota_status_file,
+        ota_rollback_file=dir_list["BOOT_DIR"] / "ota_rollback_count",
     )
     setattr(ota_client_instance, "_grub_ctl", grub_ctl_object)
     setattr(ota_client_instance, "_ota_status", ota_status_object)
@@ -134,6 +167,7 @@ def ota_client_instance(
 @pytest.fixture(scope="session", autouse=True)
 def ota_client_service_instance(ota_client_instance):
     return OtaClientService(ota_client_instance)
+
 
 # generate ota request
 @pytest.fixture(scope="session")
@@ -148,11 +182,12 @@ def ota_request():
     eui.ecu_info.ecu_id = "1"
     eui.ecu_info.version = "0.5.1"
     eui.ecu_info.independent = True
-    eui.url = (
-        "http://127.0.0.1:8080"
-    )
+    eui.url = "http://127.0.0.1:8080"
     eui.metadata = "metadata.jwt"
     return update_req
+
+
+########## OTA baseimage server ###########
 
 # create background http server to serve ota baseimage
 @pytest.fixture(scope="session", autouse=True)
@@ -160,7 +195,7 @@ def ota_server(xprocess):
     class ServerStarter(ProcessStarter):
         pattern = "Serving HTTP"
         max_read_lines = 3
-        args = ['sudo', '-E', 'python3', '-m', 'http.server']
+        args = ["sudo", "-E", "python3", "-m", "http.server"]
 
     xprocess.ensure("ota_server", ServerStarter)
     yield
