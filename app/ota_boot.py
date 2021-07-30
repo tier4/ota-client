@@ -18,6 +18,15 @@ class OtaBoot:
     OTA Startup class
     """
 
+    # boot status
+    NORMAL_BOOT = "NORMAL_BOOT"
+    SWITCH_BOOT = "SWITCH_BOOT"
+    SWITCH_BOOT_FAIL = "SWITCH_BOOT_FAIL"
+    ROLLBACK_BOOT = "ROLLBACK_BOOT"
+    ROLLBACK_BOOT_FAIL = "ROLLBACK_BOOT_FAIL"
+    UPDATE_INCOMPLETE = "UPDATE_INCOMPLETE"
+    ROLLBACK_INCOMPLETE = "ROLLBACK_INCOMPLETE"
+
     def __init__(
         self,
         ota_status_file="/boot/ota/ota_status",
@@ -27,13 +36,16 @@ class OtaBoot:
         bank_info_file="/boot/ota/bankinfo.yaml",
         fstab_file="/etc/fstab",
         ecuinfo_yaml_file="/boot/ota/ecuinfo.yaml",
+        ota_rollback_file="/boot/ota/ota_rollback_count",
     ):
         """
         Initialize
         """
         self._grub_cfg_file = grub_config_file
         self.__ecuinfo_yaml_file = ecuinfo_yaml_file
-        self._ota_status = ota_status.OtaStatus(ota_status_file=ota_status_file)
+        self._ota_status = ota_status.OtaStatus(
+            ota_status_file=ota_status_file, ota_rollback_file=ota_rollback_file
+        )
         self._grub_ctl = grub_control.GrubCtl(
             default_grub_file=default_grub_file,
             grub_config_file=grub_config_file,
@@ -101,55 +113,98 @@ class OtaBoot:
         """
         OTA boot
         """
+        from ota_status import OtaStatus
 
         def func_true():
             return True
 
+        func_key = "func"
+        success_key = "success"
+        failed_key = "failed"
+        state_key = "state"
+        boot_key = "boot"
+
         state_table = {
-            "NORMAL": {
-                "func": func_true,
-                "success": {"state": "NORMAL", "boot": "NORMAL_BOOT"},
+            OtaStatus.NORMAL_STATE: {
+                func_key: func_true,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.NORMAL_BOOT,
+                },
             },
-            "SWITCHA": {
-                "func": self._confirm_bankb,
-                "success": {"state": "NORMAL", "boot": "SWITCH_BOOT"},
-                "failed": {"state": "UPDATE_FAILED", "boot": "SWITCH_BOOT_FAILED"},
+            OtaStatus.SWITCHA_STATE: {
+                func_key: self._confirm_bankb,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.SWITCH_BOOT,
+                },
+                failed_key: {
+                    state_key: OtaStatus.UPDATE_FAIL_STATE,
+                    boot_key: OtaBoot.SWITCH_BOOT_FAIL,
+                },
             },
-            "SWITCHB": {
-                "func": self._confirm_bankb,
-                "success": {"state": "NORMAL", "boot": "SWITCH_BOOT"},
-                "failed": {"state": "UPDATE_FAILED", "boot": "SWITCH_BOOT_FAILED"},
+            OtaStatus.SWITCHB_STATE: {
+                func_key: self._confirm_bankb,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.SWITCH_BOOT,
+                },
+                failed_key: {
+                    state_key: OtaStatus.UPDATE_FAIL_STATE,
+                    boot_key: OtaBoot.SWITCH_BOOT_FAIL,
+                },
             },
-            "ROLLBACKA": {
-                "func": self._confirm_banka,
-                "success": {"state": "NORMAL", "boot": "ROLLBACK_BOOT"},
-                "failed": {"state": "ROLLBACK_FAILED", "boot": "ROLLBACK_BOOT_FAILED"},
+            OtaStatus.ROLLBACKA_STATE: {
+                func_key: self._confirm_banka,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_BOOT,
+                },
+                failed_key: {
+                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_BOOT_FAIL,
+                },
             },
-            "ROLLBACKB": {
-                "func": self._confirm_bankb,
-                "success": {"state": "NORMAL", "boot": "ROLLBACK_BOOT"},
-                "failed": {"state": "ROLLBACK_FAILED", "boot": "ROLLBACK_BOOT_FAILED"},
+            OtaStatus.ROLLBACKB_STATE: {
+                func_key: self._confirm_bankb,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_BOOT,
+                },
+                failed_key: {
+                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_BOOT_FAIL,
+                },
             },
-            "UPDATE": {
-                "func": func_true,
-                "success": {"state": "UPDATE_FAILED", "boot": "UPDATE_INCOMPLETE"},
+            OtaStatus.UPDATE_STATE: {
+                func_key: func_true,
+                success_key: {
+                    state_key: OtaStatus.UPDATE_FAIL_STATE,
+                    boot_key: OtaBoot.UPDATE_INCOMPLETE,
+                },
             },
-            "PREPARED": {
-                "func": func_true,
-                "success": {"state": "UPDATE_FAILED", "boot": "UPDATE_INCOMPLETE"},
+            OtaStatus.PREPARED_STATE: {
+                func_key: func_true,
+                success_key: {
+                    state_key: OtaStatus.UPDATE_FAIL_STATE,
+                    boot_key: OtaBoot.UPDATE_INCOMPLETE,
+                },
             },
-            "ROLLBACK": {
-                "func": func_true,
-                "success": {"state": "ROLLBACK_FAILED", "boot": "ROLLBACK_INCOMPLETE"},
+            OtaStatus.ROLLBACK_STATE: {
+                func_key: func_true,
+                success_key: {
+                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_INCOMPLETE,
+                },
             },
         }
-
-        if state_table[status]["func"]():
-            func_result = "success"
+        print(f"status: {OtaStatus.NORMAL_STATE}")
+        if state_table[status][func_key]():
+            func_result = success_key
         else:
-            func_result = "failed"
+            func_result = failed_key
 
-        result_state = state_table[status][func_result]["state"]
-        result_boot = state_table[status][func_result]["boot"]
+        result_state = state_table[status][func_result][state_key]
+        result_boot = state_table[status][func_result][boot_key]
 
         return result_boot, result_state

@@ -1253,7 +1253,7 @@ class OtaClient:
         """
         # -----------------------------------------------------------
         # set 'UPDATE' state
-        self._ota_status.set_ota_status("UPDATE")
+        self._ota_status.set_ota_status(OtaStatus.UPDATE_STATE)
         logger.debug(ecu_update_info)
         self.__url = ecu_update_info.url
         metadata = ecu_update_info.metadata
@@ -1269,7 +1269,7 @@ class OtaClient:
             # inform error
             self._inform_update_error("Can not get metadata!")
             # set 'NORMAL' state
-            self._ota_status.set_ota_status("NORMAL")
+            self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
             return False
 
         #
@@ -1282,13 +1282,13 @@ class OtaClient:
             # inform error
             self._inform_update_error("Can not construct update bank!")
             # set 'NORMAL' state
-            self._ota_status.set_ota_status("NORMAL")
+            self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
             _unmount_bank(self._mount_point)
             return False
         #
         # -----------------------------------------------------------
         # set 'PREPARED' state
-        self._ota_status.set_ota_status("PREPARED")
+        self._ota_status.set_ota_status(OtaStatus.PREPARED_STATE)
 
         return True
 
@@ -1296,7 +1296,7 @@ class OtaClient:
         """
         Reboot
         """
-        if self.get_ota_status() == "PREPARED":
+        if self.get_ota_status() == OtaStatus.PREPARED_STATE:
             # switch reboot
             if not self._grub_ctl.prepare_grub_switching_reboot(
                 self._boot_vmlinuz, self._boot_initrd
@@ -1304,7 +1304,7 @@ class OtaClient:
                 # inform error
                 self._inform_update_error("Switching bank failed!")
                 # set 'NORMAL' state
-                self._ota_status.set_ota_status("NORMAL")
+                self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
                 _unmount_bank(self._mount_point)
                 return False
             #
@@ -1340,7 +1340,7 @@ class OtaClient:
             # OTA status
             #
             self._ota_status.dec_rollback_count()
-            self._ota_status.set_ota_status("ROLLBACK")
+            self._ota_status.set_ota_status(OtaStatus.ROLLBACK_STATE)
             #
             # rollback /boot symlinks
             #

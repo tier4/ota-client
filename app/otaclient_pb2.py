@@ -20,7 +20,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=b'\242\002\003OTA',
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n\x0fotaclient.proto\x12\tOtaClient\"c\n\x07\x45\x63uInfo\x12\x10\n\x08\x65\x63u_name\x18\x01 \x01(\t\x12\x10\n\x08\x65\x63u_type\x18\x02 \x01(\t\x12\x0e\n\x06\x65\x63u_id\x18\x03 \x01(\t\x12\x0f\n\x07version\x18\x04 \x01(\t\x12\x13\n\x0bindependent\x18\x05 \x01(\x08\"d\n\rEcuUpdateInfo\x12$\n\x08\x65\x63u_info\x18\x01 \x01(\x0b\x32\x12.OtaClient.EcuInfo\x12\x0b\n\x03url\x18\x02 \x01(\t\x12\x10\n\x08metadata\x18\x03 \x01(\t\x12\x0e\n\x06header\x18\x04 \x01(\t\"V\n\x10OtaUpdateRequest\x12\x0f\n\x07version\x18\x01 \x01(\t\x12\x31\n\x0f\x65\x63u_update_info\x18\x02 \x03(\x0b\x32\x18.OtaClient.EcuUpdateInfo\"c\n\x0eOtaUpdateReply\x12+\n\x06result\x18\x01 \x01(\x0e\x32\x1b.OtaClient.UpdateResultType\x12$\n\x08\x65\x63u_info\x18\x02 \x03(\x0b\x32\x12.OtaClient.EcuInfo\":\n\x12OtaRollbackRequest\x12$\n\x08\x65\x63u_info\x18\x01 \x03(\x0b\x32\x12.OtaClient.EcuInfo\"g\n\x10OtaRollbackReply\x12-\n\x06result\x18\x01 \x01(\x0e\x32\x1d.OtaClient.RollbackResultType\x12$\n\x08\x65\x63u_info\x18\x02 \x03(\x0b\x32\x12.OtaClient.EcuInfo\"\x12\n\x10\x45\x63uStatusRequest\"j\n\x0e\x45\x63uStatusReply\x12(\n\x06status\x18\x01 \x01(\x0e\x32\x18.OtaClient.EcuStatusType\x12.\n\x0b\x62oot_status\x18\x02 \x01(\x0e\x32\x19.OtaClient.BootStatusType\"\x13\n\x11\x45\x63uVersionRequest\"7\n\x0f\x45\x63uVersionReply\x12$\n\x08\x65\x63u_info\x18\x01 \x03(\x0b\x32\x12.OtaClient.EcuInfo\"\x12\n\x10OtaRebootRequest\"\x10\n\x0eOtaRebootReply*\x8a\x01\n\x10UpdateResultType\x12\x1b\n\x17UPDATE_DOWNLOAD_SUCCESS\x10\x00\x12\x0f\n\x0bUPDATE_FAIL\x10\x01\x12\x16\n\x12UPDATE_FAIL_NO_ECU\x10\x02\x12\x18\n\x14UPDATE_DOWNLOAD_FAIL\x10\x03\x12\x16\n\x12UPDATE_REBOOT_FAIL\x10\x04*Y\n\x12RollbackResultType\x12\x14\n\x10ROLLBACK_SUCCESS\x10\x00\x12\x11\n\rROLLBACK_FAIL\x10\x01\x12\x1a\n\x16ROLLBACK_NOT_AVAILABLE\x10\x02*\xa2\x01\n\rEcuStatusType\x12\x15\n\x11\x45\x43U_STATUS_NORMAL\x10\x00\x12\x17\n\x13\x45\x43U_STATUS_UPDATING\x10\x01\x12\x19\n\x15\x45\x43U_STATUS_DOWNLOADED\x10\x02\x12\x17\n\x13\x45\x43U_STATUS_ROLLBACK\x10\x03\x12\x15\n\x11\x45\x43U_STATUS_REBOOT\x10\x04\x12\x16\n\x12\x45\x43U_STATUS_UNKNOWN\x10\x05*\xb3\x01\n\x0e\x42ootStatusType\x12\x0f\n\x0bNORMAL_BOOT\x10\x00\x12\x0f\n\x0bSWITCH_BOOT\x10\x01\x12\x11\n\rROLLBACK_BOOT\x10\x02\x12\x17\n\x13SWITCHING_BOOT_FAIL\x10\x03\x12\x16\n\x12ROLLBACK_BOOT_FAIL\x10\x04\x12\x15\n\x11UPDATE_INCOMPLETE\x10\x05\x12\x17\n\x13ROLLBACK_INCOMPLETE\x10\x06\x12\x0b\n\x07UNKNOWN\x10\x07\x32\xff\x02\n\x10OtaClientService\x12\x45\n\tOtaUpdate\x12\x1b.OtaClient.OtaUpdateRequest\x1a\x19.OtaClient.OtaUpdateReply\"\x00\x12K\n\x0bOtaRollback\x12\x1d.OtaClient.OtaRollbackRequest\x1a\x1b.OtaClient.OtaRollbackReply\"\x00\x12\x45\n\tOtaReboot\x12\x1b.OtaClient.OtaRebootRequest\x1a\x19.OtaClient.OtaRebootReply\"\x00\x12\x46\n\tEcuStatus\x12\x1c.OtaClient.EcuVersionRequest\x1a\x19.OtaClient.EcuStatusReply\"\x00\x12H\n\nEcuVersion\x12\x1c.OtaClient.EcuVersionRequest\x1a\x1a.OtaClient.EcuVersionReply\"\x00\x42\x06\xa2\x02\x03OTAb\x06proto3'
+  serialized_pb=b'\n\x0fotaclient.proto\x12\tOtaClient\"c\n\x07\x45\x63uInfo\x12\x10\n\x08\x65\x63u_name\x18\x01 \x01(\t\x12\x10\n\x08\x65\x63u_type\x18\x02 \x01(\t\x12\x0e\n\x06\x65\x63u_id\x18\x03 \x01(\t\x12\x0f\n\x07version\x18\x04 \x01(\t\x12\x13\n\x0bindependent\x18\x05 \x01(\x08\"d\n\rEcuUpdateInfo\x12$\n\x08\x65\x63u_info\x18\x01 \x01(\x0b\x32\x12.OtaClient.EcuInfo\x12\x0b\n\x03url\x18\x02 \x01(\t\x12\x10\n\x08metadata\x18\x03 \x01(\t\x12\x0e\n\x06header\x18\x04 \x01(\t\"V\n\x10OtaUpdateRequest\x12\x0f\n\x07version\x18\x01 \x01(\t\x12\x31\n\x0f\x65\x63u_update_info\x18\x02 \x03(\x0b\x32\x18.OtaClient.EcuUpdateInfo\"c\n\x0eOtaUpdateReply\x12+\n\x06result\x18\x01 \x01(\x0e\x32\x1b.OtaClient.UpdateResultType\x12$\n\x08\x65\x63u_info\x18\x02 \x03(\x0b\x32\x12.OtaClient.EcuInfo\":\n\x12OtaRollbackRequest\x12$\n\x08\x65\x63u_info\x18\x01 \x03(\x0b\x32\x12.OtaClient.EcuInfo\"g\n\x10OtaRollbackReply\x12-\n\x06result\x18\x01 \x01(\x0e\x32\x1d.OtaClient.RollbackResultType\x12$\n\x08\x65\x63u_info\x18\x02 \x03(\x0b\x32\x12.OtaClient.EcuInfo\"\x12\n\x10\x45\x63uStatusRequest\"j\n\x0e\x45\x63uStatusReply\x12(\n\x06status\x18\x01 \x01(\x0e\x32\x18.OtaClient.EcuStatusType\x12.\n\x0b\x62oot_status\x18\x02 \x01(\x0e\x32\x19.OtaClient.BootStatusType\"\x13\n\x11\x45\x63uVersionRequest\"7\n\x0f\x45\x63uVersionReply\x12$\n\x08\x65\x63u_info\x18\x01 \x03(\x0b\x32\x12.OtaClient.EcuInfo\"\x12\n\x10OtaRebootRequest\"\x10\n\x0eOtaRebootReply*\x8a\x01\n\x10UpdateResultType\x12\x1b\n\x17UPDATE_DOWNLOAD_SUCCESS\x10\x00\x12\x0f\n\x0bUPDATE_FAIL\x10\x01\x12\x16\n\x12UPDATE_FAIL_NO_ECU\x10\x02\x12\x18\n\x14UPDATE_DOWNLOAD_FAIL\x10\x03\x12\x16\n\x12UPDATE_REBOOT_FAIL\x10\x04*Y\n\x12RollbackResultType\x12\x14\n\x10ROLLBACK_SUCCESS\x10\x00\x12\x11\n\rROLLBACK_FAIL\x10\x01\x12\x1a\n\x16ROLLBACK_NOT_AVAILABLE\x10\x02*\xde\x01\n\rEcuStatusType\x12\x15\n\x11\x45\x43U_STATUS_NORMAL\x10\x00\x12\x17\n\x13\x45\x43U_STATUS_UPDATING\x10\x01\x12\x19\n\x15\x45\x43U_STATUS_DOWNLOADED\x10\x02\x12\x17\n\x13\x45\x43U_STATUS_ROLLBACK\x10\x03\x12\x15\n\x11\x45\x43U_STATUS_REBOOT\x10\x04\x12\x1b\n\x17\x45\x43U_STATUS_UPDATE_ERROR\x10\x05\x12\x1d\n\x19\x45\x43U_STATUS_ROLLBACK_ERROR\x10\x06\x12\x16\n\x12\x45\x43U_STATUS_UNKNOWN\x10\x07*\xb3\x01\n\x0e\x42ootStatusType\x12\x0f\n\x0bNORMAL_BOOT\x10\x00\x12\x0f\n\x0bSWITCH_BOOT\x10\x01\x12\x11\n\rROLLBACK_BOOT\x10\x02\x12\x17\n\x13SWITCHING_BOOT_FAIL\x10\x03\x12\x16\n\x12ROLLBACK_BOOT_FAIL\x10\x04\x12\x15\n\x11UPDATE_INCOMPLETE\x10\x05\x12\x17\n\x13ROLLBACK_INCOMPLETE\x10\x06\x12\x0b\n\x07UNKNOWN\x10\x07\x32\xff\x02\n\x10OtaClientService\x12\x45\n\tOtaUpdate\x12\x1b.OtaClient.OtaUpdateRequest\x1a\x19.OtaClient.OtaUpdateReply\"\x00\x12K\n\x0bOtaRollback\x12\x1d.OtaClient.OtaRollbackRequest\x1a\x1b.OtaClient.OtaRollbackReply\"\x00\x12\x45\n\tOtaReboot\x12\x1b.OtaClient.OtaRebootRequest\x1a\x19.OtaClient.OtaRebootReply\"\x00\x12\x46\n\tEcuStatus\x12\x1c.OtaClient.EcuVersionRequest\x1a\x19.OtaClient.EcuStatusReply\"\x00\x12H\n\nEcuVersion\x12\x1c.OtaClient.EcuVersionRequest\x1a\x1a.OtaClient.EcuVersionReply\"\x00\x42\x06\xa2\x02\x03OTAb\x06proto3'
 )
 
 _UPDATERESULTTYPE = _descriptor.EnumDescriptor(
@@ -128,7 +128,17 @@ _ECUSTATUSTYPE = _descriptor.EnumDescriptor(
       type=None,
       create_key=_descriptor._internal_create_key),
     _descriptor.EnumValueDescriptor(
-      name='ECU_STATUS_UNKNOWN', index=5, number=5,
+      name='ECU_STATUS_UPDATE_ERROR', index=5, number=5,
+      serialized_options=None,
+      type=None,
+      create_key=_descriptor._internal_create_key),
+    _descriptor.EnumValueDescriptor(
+      name='ECU_STATUS_ROLLBACK_ERROR', index=6, number=6,
+      serialized_options=None,
+      type=None,
+      create_key=_descriptor._internal_create_key),
+    _descriptor.EnumValueDescriptor(
+      name='ECU_STATUS_UNKNOWN', index=7, number=7,
       serialized_options=None,
       type=None,
       create_key=_descriptor._internal_create_key),
@@ -136,7 +146,7 @@ _ECUSTATUSTYPE = _descriptor.EnumDescriptor(
   containing_type=None,
   serialized_options=None,
   serialized_start=1064,
-  serialized_end=1226,
+  serialized_end=1286,
 )
 _sym_db.RegisterEnumDescriptor(_ECUSTATUSTYPE)
 
@@ -191,8 +201,8 @@ _BOOTSTATUSTYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1229,
-  serialized_end=1408,
+  serialized_start=1289,
+  serialized_end=1468,
 )
 _sym_db.RegisterEnumDescriptor(_BOOTSTATUSTYPE)
 
@@ -210,7 +220,9 @@ ECU_STATUS_UPDATING = 1
 ECU_STATUS_DOWNLOADED = 2
 ECU_STATUS_ROLLBACK = 3
 ECU_STATUS_REBOOT = 4
-ECU_STATUS_UNKNOWN = 5
+ECU_STATUS_UPDATE_ERROR = 5
+ECU_STATUS_ROLLBACK_ERROR = 6
+ECU_STATUS_UNKNOWN = 7
 NORMAL_BOOT = 0
 SWITCH_BOOT = 1
 ROLLBACK_BOOT = 2
@@ -776,8 +788,8 @@ _OTACLIENTSERVICE = _descriptor.ServiceDescriptor(
   index=0,
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_start=1411,
-  serialized_end=1794,
+  serialized_start=1471,
+  serialized_end=1854,
   methods=[
   _descriptor.MethodDescriptor(
     name='OtaUpdate',
