@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import tempfile
 import os
 import shutil
 
@@ -86,15 +85,11 @@ class OtaBoot:
     def boot(self):
         status = self._ota_status.get_ota_status()
         logger.debug(f"Status: {status}")
-        result_boot, result_state = self._boot(status, noexec=False)
+        result_boot, result_state = self._boot(status)
         self._ota_status.set_ota_status(result_state)
         return result_boot
 
-    def _finalize_update(self, noexec=False):
-        if noexec:
-            logger.debug("NOEXRC regenerate grub.cfg")
-            logger.debug("NOEXRC delete custum.cfg")
-            return
+    def _finalize_update(self):
         logger.debug("regenerate grub.cfg")
         logger.debug("delete custum.cfg")
         self._update_finalize_ecuinfo_file()
@@ -102,109 +97,113 @@ class OtaBoot:
         self._grub_ctl.delete_custom_cfg_file()
         self._ota_status.inc_rollback_count()
 
-    def _finalize_rollback(self, noexec=False):
-        if noexec:
-            logger.debug("NOEXRC delete custom.cfg")
-            return
+    def _finalize_rollback(self):
         logger.debug("delete custom.cfg")
         self._grub_ctl.delete_custom_cfg_file()
 
-    def _boot(self, status, noexec=False):
+    def _boot(self, status):
         """
         OTA boot
         """
         from ota_status import OtaStatus
 
-        def func_true():
-            return True
-
-        func_key = "func"
+        status_checker_key = "status_checker"
         success_key = "success"
-        failed_key = "failed"
+        failure_key = "failure"
         state_key = "state"
         boot_key = "boot"
+        finalize_key = "finalize"
 
         state_table = {
             OtaStatus.NORMAL_STATE: {
-                func_key: func_true,
                 success_key: {
                     state_key: OtaStatus.NORMAL_STATE,
                     boot_key: OtaBoot.NORMAL_BOOT,
                 },
             },
             OtaStatus.SWITCHA_STATE: {
-                func_key: self._confirm_bankb,
+                status_checker_key: self._confirm_bankb,
                 success_key: {
                     state_key: OtaStatus.NORMAL_STATE,
                     boot_key: OtaBoot.SWITCH_BOOT,
+                    finalize_key: self._finalize_update,
                 },
-                failed_key: {
+                failure_key: {
                     state_key: OtaStatus.UPDATE_FAIL_STATE,
                     boot_key: OtaBoot.SWITCH_BOOT_FAIL,
                 },
             },
             OtaStatus.SWITCHB_STATE: {
-                func_key: self._confirm_bankb,
+                status_checker_key: self._confirm_bankb,
                 success_key: {
                     state_key: OtaStatus.NORMAL_STATE,
                     boot_key: OtaBoot.SWITCH_BOOT,
+                    finalize_key: self._finalize_update,
                 },
-                failed_key: {
+                failure_key: {
                     state_key: OtaStatus.UPDATE_FAIL_STATE,
                     boot_key: OtaBoot.SWITCH_BOOT_FAIL,
                 },
             },
             OtaStatus.ROLLBACKA_STATE: {
-                func_key: self._confirm_banka,
+                status_checker_key: self._confirm_banka,
                 success_key: {
                     state_key: OtaStatus.NORMAL_STATE,
                     boot_key: OtaBoot.ROLLBACK_BOOT,
+                    finalize_key: self._finalize_rollback,
                 },
-                failed_key: {
+                failure_key: {
                     state_key: OtaStatus.ROLLBACK_FAIL_STATE,
                     boot_key: OtaBoot.ROLLBACK_BOOT_FAIL,
                 },
             },
             OtaStatus.ROLLBACKB_STATE: {
-                func_key: self._confirm_bankb,
+                status_checker_key: self._confirm_bankb,
                 success_key: {
                     state_key: OtaStatus.NORMAL_STATE,
                     boot_key: OtaBoot.ROLLBACK_BOOT,
+                    finalize_key: self._finalize_rollback,
                 },
-                failed_key: {
+                failure_key: {
                     state_key: OtaStatus.ROLLBACK_FAIL_STATE,
                     boot_key: OtaBoot.ROLLBACK_BOOT_FAIL,
                 },
             },
             OtaStatus.UPDATE_STATE: {
-                func_key: func_true,
                 success_key: {
                     state_key: OtaStatus.UPDATE_FAIL_STATE,
                     boot_key: OtaBoot.UPDATE_INCOMPLETE,
                 },
             },
             OtaStatus.PREPARED_STATE: {
-                func_key: func_true,
                 success_key: {
                     state_key: OtaStatus.UPDATE_FAIL_STATE,
                     boot_key: OtaBoot.UPDATE_INCOMPLETE,
                 },
             },
             OtaStatus.ROLLBACK_STATE: {
-                func_key: func_true,
                 success_key: {
                     state_key: OtaStatus.ROLLBACK_FAIL_STATE,
                     boot_key: OtaBoot.ROLLBACK_INCOMPLETE,
                 },
             },
         }
-        print(f"status: {OtaStatus.NORMAL_STATE}")
-        if state_table[status][func_key]():
-            func_result = success_key
+
+        if (
+            state_table[status].get(status_checker_key) is None
+            or state_table[status][status_checker_key]()
+        ):
+            # check OK
+            checker_result_key = success_key
         else:
-            func_result = failed_key
+            # check NG
+            checker_result_key = failure_key
 
-        result_state = state_table[status][func_result][state_key]
-        result_boot = state_table[status][func_result][boot_key]
+        if state_table[status][checker_result_key].get(finalize_key) is not None:
+            # Do finalize update/rollback
+            state_table[status][checker_result_key][finalize_key]()
 
-        return result_boot, result_state
+        return (
+            state_table[status][checker_result_key][boot_key],  # boot status
+            state_table[status][checker_result_key][state_key],  # ecu status
+        )
