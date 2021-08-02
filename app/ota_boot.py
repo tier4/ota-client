@@ -192,7 +192,7 @@ class OtaBoot:
                     state_key: OtaStatus.NORMAL_STATE,
                     boot_key: OtaBoot.NORMAL_BOOT,
                 },
-            }
+            },
         }
 
         if (
