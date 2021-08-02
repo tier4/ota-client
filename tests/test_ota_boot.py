@@ -54,27 +54,28 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "boot_state, confirm_bank, result_state, result_boot, callcnt_finalize_update, callcnt_finalize_rollback",
+    "boot_state, confirm_banka, confirm_bankb, result_state, result_boot, callcnt_finalize_update, callcnt_finalize_rollback",
     [
-        ("NORMAL", True, "NORMAL", "NORMAL_BOOT", 0, 0),
-        ("SWITCHA", True, "NORMAL", "SWITCH_BOOT", 1, 0),
-        ("SWITCHA", False, "UPDATE_FAIL", "SWITCH_BOOT_FAIL", 0, 0),
-        ("SWITCHB", True, "NORMAL", "SWITCH_BOOT", 1, 0),
-        ("SWITCHB", False, "UPDATE_FAIL", "SWITCH_BOOT_FAIL", 0, 0),
-        ("ROLLBACKA", True, "NORMAL", "ROLLBACK_BOOT", 0, 1),
-        ("ROLLBACKA", False, "ROLLBACK_FAIL", "ROLLBACK_BOOT_FAIL", 0, 0),
-        ("ROLLBACKB", True, "NORMAL", "ROLLBACK_BOOT", 0, 1),
-        ("ROLLBACKB", False, "ROLLBACK_FAIL", "ROLLBACK_BOOT_FAIL", 0, 0),
-        ("UPDATE", True, "UPDATE_FAIL", "UPDATE_INCOMPLETE", 0, 0),
-        ("PREPARED", True, "UPDATE_FAIL", "UPDATE_INCOMPLETE", 0, 0),
-        ("ROLLBACK", True, "ROLLBACK_FAIL", "ROLLBACK_INCOMPLETE", 0, 0),
+        ("NORMAL", True, False, "NORMAL", "NORMAL_BOOT", 0, 0),
+        ("SWITCHA", True, False, "NORMAL", "SWITCH_BOOT", 1, 0),
+        ("SWITCHA", False, True, "UPDATE_FAIL", "SWITCH_BOOT_FAIL", 0, 0),
+        ("SWITCHB", False, True, "NORMAL", "SWITCH_BOOT", 1, 0),
+        ("SWITCHB", True, False, "UPDATE_FAIL", "SWITCH_BOOT_FAIL", 0, 0),
+        ("ROLLBACKA", True, False, "NORMAL", "ROLLBACK_BOOT", 0, 1),
+        ("ROLLBACKA", False, True, "ROLLBACK_FAIL", "ROLLBACK_BOOT_FAIL", 0, 0),
+        ("ROLLBACKB", False, True, "NORMAL", "ROLLBACK_BOOT", 0, 1),
+        ("ROLLBACKB", True, False, "ROLLBACK_FAIL", "ROLLBACK_BOOT_FAIL", 0, 0),
+        ("UPDATE", True, False, "UPDATE_FAIL", "UPDATE_INCOMPLETE", 0, 0),
+        ("PREPARED", True, False, "UPDATE_FAIL", "UPDATE_INCOMPLETE", 0, 0),
+        ("ROLLBACK", True, False, "ROLLBACK_FAIL", "ROLLBACK_INCOMPLETE", 0, 0),
     ],
 )
 def test_OtaBoot__boot(
     mocker,
     tmp_path,
     boot_state,
-    confirm_bank,
+    confirm_banka,
+    confirm_bankb,
     result_state,
     result_boot,
     callcnt_finalize_update,
@@ -84,10 +85,10 @@ def test_OtaBoot__boot(
     import grub_control
 
     def mock__confirm_banka(self):
-        return confirm_bank
+        return confirm_banka
 
     def mock__confirm_bankb(self):
-        return confirm_bank
+        return confirm_bankb
 
     def mock__finalize_update(self):
         return
@@ -122,27 +123,28 @@ def test_OtaBoot__boot(
 
 
 @pytest.mark.parametrize(
-    "boot_state, confirm_bank, result_state, result_boot, callcnt_finalize_update, callcnt_finalize_rollback",
+    "boot_state, confirm_banka, confirm_bankb, result_state, result_boot, callcnt_finalize_update, callcnt_finalize_rollback",
     [
-        ("NORMAL", True, "NORMAL", "NORMAL_BOOT", 0, 0),
-        ("SWITCHA", True, "NORMAL", "SWITCH_BOOT", 1, 0),
-        ("SWITCHA", False, "UPDATE_FAIL", "SWITCH_BOOT_FAIL", 0, 0),
-        ("SWITCHB", True, "NORMAL", "SWITCH_BOOT", 1, 0),
-        ("SWITCHB", False, "UPDATE_FAIL", "SWITCH_BOOT_FAIL", 0, 0),
-        ("ROLLBACKA", True, "NORMAL", "ROLLBACK_BOOT", 0, 1),
-        ("ROLLBACKA", False, "ROLLBACK_FAIL", "ROLLBACK_BOOT_FAIL", 0, 0),
-        ("ROLLBACKB", True, "NORMAL", "ROLLBACK_BOOT", 0, 1),
-        ("ROLLBACKB", False, "ROLLBACK_FAIL", "ROLLBACK_BOOT_FAIL", 0, 0),
-        ("UPDATE", True, "UPDATE_FAIL", "UPDATE_INCOMPLETE", 0, 0),
-        ("PREPARED", True, "UPDATE_FAIL", "UPDATE_INCOMPLETE", 0, 0),
-        ("ROLLBACK", True, "ROLLBACK_FAIL", "ROLLBACK_INCOMPLETE", 0, 0),
+        ("NORMAL", True, False, "NORMAL", "NORMAL_BOOT", 0, 0),
+        ("SWITCHA", True, False, "NORMAL", "SWITCH_BOOT", 1, 0),
+        ("SWITCHA", False, True, "UPDATE_FAIL", "SWITCH_BOOT_FAIL", 0, 0),
+        ("SWITCHB", False, True, "NORMAL", "SWITCH_BOOT", 1, 0),
+        ("SWITCHB", True, False, "UPDATE_FAIL", "SWITCH_BOOT_FAIL", 0, 0),
+        ("ROLLBACKA", True, False, "NORMAL", "ROLLBACK_BOOT", 0, 1),
+        ("ROLLBACKA", False, True, "ROLLBACK_FAIL", "ROLLBACK_BOOT_FAIL", 0, 0),
+        ("ROLLBACKB", False, True, "NORMAL", "ROLLBACK_BOOT", 0, 1),
+        ("ROLLBACKB", True, False, "ROLLBACK_FAIL", "ROLLBACK_BOOT_FAIL", 0, 0),
+        ("UPDATE", True, False, "UPDATE_FAIL", "UPDATE_INCOMPLETE", 0, 0),
+        ("PREPARED", True, False, "UPDATE_FAIL", "UPDATE_INCOMPLETE", 0, 0),
+        ("ROLLBACK", True, False, "ROLLBACK_FAIL", "ROLLBACK_INCOMPLETE", 0, 0),
     ],
 )
 def test_OtaBoot_boot(
     mocker,
     tmp_path,
     boot_state,
-    confirm_bank,
+    confirm_banka,
+    confirm_bankb,
     result_state,
     result_boot,
     callcnt_finalize_update,
@@ -152,10 +154,10 @@ def test_OtaBoot_boot(
     import grub_control
 
     def mock__confirm_banka(self):
-        return confirm_bank
+        return confirm_banka
 
     def mock__confirm_bankb(self):
-        return confirm_bank
+        return confirm_bankb
 
     mocker.patch("ota_boot.OtaBoot._confirm_banka", mock__confirm_banka)
     mocker.patch("ota_boot.OtaBoot._confirm_bankb", mock__confirm_bankb)
