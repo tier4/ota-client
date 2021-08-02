@@ -85,8 +85,8 @@ jobs:
       - name: Testing OTA update
         run: |
           set -o pipefail
-          sudo $pythonLocation/bin/python -m pytest \
-            --cov-report term-missing --cov=app ./e2e_tests \
+          export WORKING_DIR="./"
+          sudo -E $pythonLocation/bin/python -m pytest --cov-report term-missing --cov=app ./e2e_tests \
             | tee pytest-coverage.txt
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment

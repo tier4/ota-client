@@ -113,7 +113,7 @@ do
         REPO_LOCATION=$OPTARG
         REPO=`basename $OPTARG`;;
     w)
-        WORKING_DIR=$OPTARG;;
+        export WORKING_DIR=$OPTARG;;
     s)
         SETUP_ENVIRONMENT=1;;
     e)

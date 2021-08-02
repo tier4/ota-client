@@ -1,3 +1,4 @@
+import os
 import pytest
 import pathlib
 from pytest_xprocess import ProcessStarter
@@ -8,23 +9,26 @@ from ota_client_service import OtaClientService
 from params_for_test import *
 
 ############ test configures & consts ############
-# TODO: find a way to define the working_dir
 @pytest.fixture(scope="session", autouse=True)
 def dir_list(
     tmp_path_factory: pathlib.Path,
-    working_dir: str,
 ):
+    working_dir = pathlib.Path(os.environ["WORKING_DIR"])
+    if not working_dir.is_dir():
+        print("Please specifc working dir via WORKING_DIR environment variable.")
+        raise ValueError("Invalid working dir.")
 
     dir_list = {
-        "WORKDING_DIR": pathlib.Path(working_dir),
-        "MOUNT_POINT": pathlib.Path(working_dir) / "mnt",
-        "ETC_DIR": pathlib.Path(working_dir) / "etc",
-        "GRUB_DIR": pathlib.Path(working_dir) / "boot/grub",
-        "OTA_SOURCE_DIR": pathlib.Path(working_dir) / "data",
+        "WORKDING_DIR": working_dir,
+        "MOUNT_POINT": working_dir / "mnt",
+        "ETC_DIR": working_dir / "etc",
+        "GRUB_DIR": working_dir / "boot/grub",
+        "OTA_SOURCE_DIR": working_dir / "data",
         "BOOT_DIR": tmp_path_factory / "boot",
         "OTA_DIR": tmp_path_factory / "boot/ota",
-        "BANKA_DIR": pathlib.Path(working_dir) / "banka",
-        "BANKB_DIR": pathlib.Path(working_dir) / "bankb",
+        "ROLLBACK_DIR": tmp_path_factory / "boot/ota/rollback",
+        "BANKA_DIR": working_dir / "banka",
+        "BANKB_DIR": working_dir / "bankb",
     }
 
     for _, path in dir_list.items():
@@ -131,9 +135,8 @@ def ota_client_instance(
         )
 
     # set the attribute of otaclient
-    # TODO: init rollback dir and fstab file
     setattr(ota_client_instance, "_ota_dir", dir_list["OTA_DIR"])
-    setattr(ota_client_instance, "_rollback_dir", dir_list["OTA_DIR"] / "rollback")
+    setattr(ota_client_instance, "_rollback_dir", dir_list["ROLLBACK_DIR"])
     setattr(ota_client_instance, "_grub_dir", dir_list["GRUB_DIR"])
     setattr(ota_client_instance, "_catalog_file", dir_list["OTA_DIR"] / ".catalog")
     setattr(ota_client_instance, "_mount_point", dir_list["MOUNT_POINT"])
