@@ -184,6 +184,7 @@ def _unmount_bank(target_dir):
     """
     try:
         if pathlib.Path(target_dir).is_mount():
+            os.sync()
             command_line = "umount " + target_dir
             logger.debug(f"commandline: {command_line}")
             subprocess.check_output(shlex.split(command_line))
@@ -670,6 +671,7 @@ class OtaClient:
             mount & clean up
         """
         # mount
+        _unmount_bank(target_dir)
         if not _mount_bank(bank, target_dir):
             return False
         # cleanup
@@ -1289,7 +1291,7 @@ class OtaClient:
         # -----------------------------------------------------------
         # set 'PREPARED' state
         self._ota_status.set_ota_status(OtaStatus.PREPARED_STATE)
-
+        _unmount_bank(self._mount_point)
         return True
 
     def reboot(self):
