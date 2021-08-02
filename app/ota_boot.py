@@ -122,7 +122,7 @@ class OtaBoot:
                 },
             },
             OtaStatus.SWITCHA_STATE: {
-                status_checker_key: self._confirm_bankb,
+                status_checker_key: self._confirm_banka,
                 success_key: {
                     state_key: OtaStatus.NORMAL_STATE,
                     boot_key: OtaBoot.SWITCH_BOOT,
