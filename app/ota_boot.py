@@ -187,6 +187,12 @@ class OtaBoot:
                     boot_key: OtaBoot.ROLLBACK_INCOMPLETE,
                 },
             },
+            OtaStatus.UPDATE_FAIL_STATE: {
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.NORMAL_BOOT,
+                },
+            }
         }
 
         if (
