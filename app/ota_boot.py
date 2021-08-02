@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import tempfile
 import os
 import shutil
 
@@ -18,6 +17,15 @@ class OtaBoot:
     OTA Startup class
     """
 
+    # boot status
+    NORMAL_BOOT = "NORMAL_BOOT"
+    SWITCH_BOOT = "SWITCH_BOOT"
+    SWITCH_BOOT_FAIL = "SWITCH_BOOT_FAIL"
+    ROLLBACK_BOOT = "ROLLBACK_BOOT"
+    ROLLBACK_BOOT_FAIL = "ROLLBACK_BOOT_FAIL"
+    UPDATE_INCOMPLETE = "UPDATE_INCOMPLETE"
+    ROLLBACK_INCOMPLETE = "ROLLBACK_INCOMPLETE"
+
     def __init__(
         self,
         ota_status_file="/boot/ota/ota_status",
@@ -27,13 +35,16 @@ class OtaBoot:
         bank_info_file="/boot/ota/bankinfo.yaml",
         fstab_file="/etc/fstab",
         ecuinfo_yaml_file="/boot/ota/ecuinfo.yaml",
+        ota_rollback_file="/boot/ota/ota_rollback_count",
     ):
         """
         Initialize
         """
         self._grub_cfg_file = grub_config_file
         self.__ecuinfo_yaml_file = ecuinfo_yaml_file
-        self._ota_status = ota_status.OtaStatus(ota_status_file=ota_status_file)
+        self._ota_status = ota_status.OtaStatus(
+            ota_status_file=ota_status_file, ota_rollback_file=ota_rollback_file
+        )
         self._grub_ctl = grub_control.GrubCtl(
             default_grub_file=default_grub_file,
             grub_config_file=grub_config_file,
@@ -41,12 +52,6 @@ class OtaBoot:
             bank_info_file=bank_info_file,
             fstab_file=fstab_file,
         )
-
-    def _error_notify(self, err_str):
-        """
-        Error notify (stub)
-        """
-        logger.error(f"Error notify: {err_str}")
 
     def _confirm_banka(self):
         """
@@ -80,121 +85,131 @@ class OtaBoot:
     def boot(self):
         status = self._ota_status.get_ota_status()
         logger.debug(f"Status: {status}")
-        self._boot(status, noexec=False)
+        result_boot, result_state = self._boot(status)
+        self._ota_status.set_ota_status(result_state)
+        return result_boot
 
-    def _boot(self, status, noexec=False):
+    def _finalize_update(self):
+        logger.debug("regenerate grub.cfg")
+        logger.debug("delete custum.cfg")
+        self._update_finalize_ecuinfo_file()
+        self._grub_ctl.re_generate_grub_config()
+        self._grub_ctl.delete_custom_cfg_file()
+        self._ota_status.inc_rollback_count()
+
+    def _finalize_rollback(self):
+        logger.debug("delete custom.cfg")
+        self._grub_ctl.delete_custom_cfg_file()
+
+    def _boot(self, status):
         """
         OTA boot
         """
+        from ota_status import OtaStatus
 
-        if status == "NORMAL":
-            # normal boot
-            logger.debug("OTA normal boot!")
-            result = "NORMAL_BOOT"
-        elif status == "SWITCHA":
-            # boot switching B to A bank
-            logger.debug("OTA switch to A bank boot")
-            if self._confirm_banka():
-                # regenerate 'grub.cfg' file
-                if noexec:
-                    logger.debug("NOEXRC regenerate grub.cfg")
-                    logger.debug("NOEXRC delete custum.cfg")
-                else:
-                    logger.debug("regenerate grub.cfg")
-                    logger.debug("delete custum.cfg")
-                    self._update_finalize_ecuinfo_file()
-                    self._grub_ctl.re_generate_grub_config()
-                    self._grub_ctl.delete_custom_cfg_file()
-                    self._ota_status.inc_rollback_count()
-                result = "SWITCH_BOOT"
-            else:
-                err_str = "Error: OTA switch to A Bank boot error!"
-                # rollback
-                if noexec:
-                    logger.debug("NOEXRC delete custom.cfg")
-                else:
-                    logger.debug("delete custom.cfg")
-                    self._grub_ctl.delete_custom_cfg_file()
-                self._error_notify(err_str)
-                result = "SWITCH_BOOT_FAIL"
-        elif status == "SWITCHB":
-            # boot switching A to B bank
-            logger.debug("OTA switch to B Bank boot")
-            if self._confirm_bankb():
-                # regenerate 'grub.cfg' file
-                if noexec:
-                    logger.debug("NOEXRC regenerate grub.cfg")
-                    logger.debug("NOEXRC delete custum.cfg")
-                else:
-                    logger.debug("regenerate grub.cfg")
-                    logger.debug("delete custum.cfg")
-                    self._update_finalize_ecuinfo_file()
-                    self._grub_ctl.re_generate_grub_config()
-                    self._grub_ctl.delete_custom_cfg_file()
-                    self._ota_status.inc_rollback_count()
-                result = "SWITCH_BOOT"
-            else:
-                err_str = "Error: OTA switch to B Bank boot error!"
-                # rollback
-                if noexec:
-                    logger.debug("NOEXRC delete custom.cfg")
-                else:
-                    logger.debug("delete custom.cfg")
-                    self._grub_ctl.delete_custom_cfg_file()
-                self._error_notify(err_str)
-                result = "SWITCH_BOOT_FAIL"
-        elif status == "ROLLBACKA":
-            logger.debug("OTA rollback to A Bank boot")
-            if self._confirm_banka():
-                logger.debug("bank A OK")
-                result = "ROLLBACK_BOOT"
-            else:
-                err_str = "Error: OTA rollback to A Bank boot error!"
-                # rollback
-                self._error_notify(err_str)
-                result = "ROLLBACK_BOOT_FAIL"
-        elif status == "ROLLBACKB":
-            logger.debug("OTA rollback to B Bank boot")
-            if self._confirm_bankb():
-                logger.debug("bank B OK")
-                result = "ROLLBACK_BOOT"
-            else:
-                err_str = "Error: OTA rollback to B Bank boot error!"
-                # rollback
-                self._error_notify(err_str)
-                result = "ROLLBACK_BOOT_FAIL"
-        elif status == "ROLLBACK":
-            logger.debug("Rollback imcomplete!")
-            # status error!
-            err_str = "OTA Status error: " + status
-            self._error_notify(err_str)
-            result = "ROLLBACK_IMCOMPLETE"
-            # toDo : clean up '/boot'
+        status_checker_key = "status_checker"
+        success_key = "success"
+        failure_key = "failure"
+        state_key = "state"
+        boot_key = "boot"
+        finalize_key = "finalize"
+
+        state_table = {
+            OtaStatus.NORMAL_STATE: {
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.NORMAL_BOOT,
+                },
+            },
+            OtaStatus.SWITCHA_STATE: {
+                status_checker_key: self._confirm_banka,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.SWITCH_BOOT,
+                    finalize_key: self._finalize_update,
+                },
+                failure_key: {
+                    state_key: OtaStatus.UPDATE_FAIL_STATE,
+                    boot_key: OtaBoot.SWITCH_BOOT_FAIL,
+                },
+            },
+            OtaStatus.SWITCHB_STATE: {
+                status_checker_key: self._confirm_bankb,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.SWITCH_BOOT,
+                    finalize_key: self._finalize_update,
+                },
+                failure_key: {
+                    state_key: OtaStatus.UPDATE_FAIL_STATE,
+                    boot_key: OtaBoot.SWITCH_BOOT_FAIL,
+                },
+            },
+            OtaStatus.ROLLBACKA_STATE: {
+                status_checker_key: self._confirm_banka,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_BOOT,
+                    finalize_key: self._finalize_rollback,
+                },
+                failure_key: {
+                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_BOOT_FAIL,
+                },
+            },
+            OtaStatus.ROLLBACKB_STATE: {
+                status_checker_key: self._confirm_bankb,
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_BOOT,
+                    finalize_key: self._finalize_rollback,
+                },
+                failure_key: {
+                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_BOOT_FAIL,
+                },
+            },
+            OtaStatus.UPDATE_STATE: {
+                success_key: {
+                    state_key: OtaStatus.UPDATE_FAIL_STATE,
+                    boot_key: OtaBoot.UPDATE_INCOMPLETE,
+                },
+            },
+            OtaStatus.PREPARED_STATE: {
+                success_key: {
+                    state_key: OtaStatus.UPDATE_FAIL_STATE,
+                    boot_key: OtaBoot.UPDATE_INCOMPLETE,
+                },
+            },
+            OtaStatus.ROLLBACK_STATE: {
+                success_key: {
+                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
+                    boot_key: OtaBoot.ROLLBACK_INCOMPLETE,
+                },
+            },
+            OtaStatus.UPDATE_FAIL_STATE: {
+                success_key: {
+                    state_key: OtaStatus.NORMAL_STATE,
+                    boot_key: OtaBoot.NORMAL_BOOT,
+                },
+            },
+        }
+
+        if (
+            state_table[status].get(status_checker_key) is None
+            or state_table[status][status_checker_key]()
+        ):
+            # check OK
+            checker_result_key = success_key
         else:
-            # status error!
-            logger.error(f"OTA status error: {status}")
-            err_str = "OTA Status error: " + status
-            self._error_notify(err_str)
-            result = "UPDATE_IMCOMPLETE"
-            # toDo : clean up '/boot'
+            # check NG
+            checker_result_key = failure_key
 
-        if status != "NORMAL":
-            # set to normal status
-            self._ota_status.set_ota_status("NORMAL")
+        if state_table[status][checker_result_key].get(finalize_key) is not None:
+            # Do finalize update/rollback
+            state_table[status][checker_result_key][finalize_key]()
 
-        return result
-
-
-if __name__ == "__main__":
-    """
-    OTA boot main
-    """
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--noexec", help="No file handling execution.", default=False)
-
-    args = parser.parse_args()
-    otaboot = OtaBoot()
-    result = otaboot._boot(noexec=args.noexec)
-    print("boot result:", result)
+        return (
+            state_table[status][checker_result_key][boot_key],  # boot status
+            state_table[status][checker_result_key][state_key],  # ecu status
+        )

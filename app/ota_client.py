@@ -1112,9 +1112,9 @@ class OtaClient:
         get switch status for reboot
         """
         if self._grub_ctl.get_bank_info().is_banka(next_bank):
-            return "SWITCHA"
+            return OtaStatus.SWITCHA_STATE
         elif self._grub_ctl.get_bank_info().is_bankb(next_bank):
-            return "SWITCHB"
+            return OtaStatus.SWITCHB_STATE
         raise Exception("Bank is not A/B bank!")
 
     def _inform_update_error(self, error):
@@ -1168,7 +1168,7 @@ class OtaClient:
         """
         # -----------------------------------------------------------
         # set 'UPDATE' state
-        self._ota_status.set_ota_status("UPDATE")
+        self._ota_status.set_ota_status(OtaStatus.UPDATE_STATE)
         logger.debug(ecu_update_info)
         self.__url = ecu_update_info.url
         metadata = ecu_update_info.metadata
@@ -1184,7 +1184,7 @@ class OtaClient:
             # inform error
             self._inform_update_error("Can not get metadata!")
             # set 'NORMAL' state
-            self._ota_status.set_ota_status("NORMAL")
+            self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
             return False
 
         #
@@ -1197,18 +1197,21 @@ class OtaClient:
             # inform error
             self._inform_update_error("Can not construct update bank!")
             # set 'NORMAL' state
-            self._ota_status.set_ota_status("NORMAL")
+            self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
             _unmount_bank(self._mount_point)
             return False
         #
         # -----------------------------------------------------------
         # set 'PREPARED' state
-        self._ota_status.set_ota_status("PREPARED")
+        self._ota_status.set_ota_status(OtaStatus.PREPARED_STATE)
 
         return True
 
     def reboot(self):
-        if self.get_ota_status() == "PREPARED":
+        """
+        Reboot
+        """
+        if self.get_ota_status() == OtaStatus.PREPARED_STATE:
             # switch reboot
             if not self._grub_ctl.prepare_grub_switching_reboot(
                 self._boot_vmlinuz, self._boot_initrd
@@ -1216,7 +1219,7 @@ class OtaClient:
                 # inform error
                 self._inform_update_error("Switching bank failed!")
                 # set 'NORMAL' state
-                self._ota_status.set_ota_status("NORMAL")
+                self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
                 _unmount_bank(self._mount_point)
                 return False
             #
@@ -1238,9 +1241,9 @@ class OtaClient:
         )
 
     def _rollback(self):
-        """"""
-        if self.get_ota_status() == "NORMAL":
-            return False
+        """
+        Rollback
+        """
 
         if self._ota_status.is_rollback_available() and os.path.isdir(
             self._rollback_dir
@@ -1249,7 +1252,7 @@ class OtaClient:
             # OTA status
             #
             self._ota_status.dec_rollback_count()
-            self._ota_status.set_ota_status("ROLLBACK")
+            self._ota_status.set_ota_status(OtaStatus.ROLLBACK_STATE)
             #
             # rollback /boot symlinks
             #

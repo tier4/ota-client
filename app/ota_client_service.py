@@ -4,6 +4,7 @@ import argparse
 import sys
 import os
 
+from ota_status import OtaStatus
 from ota_boot import OtaBoot
 from ota_client import OtaClient
 from concurrent import futures
@@ -58,40 +59,55 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         reboot_reply_msg = otaclient_pb2.OtaRebootReply()
         return reboot_reply_msg
 
+    @staticmethod
+    def _conv_ecu_status(ecu_status):
+        # convert ecu_status to gRPC ecu_status
+        ecu_status_table = {
+            OtaStatus.NORMAL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_NORMAL,
+            OtaStatus.UPDATE_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_UPDATING,
+            OtaStatus.PREPARED_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_DOWNLOADED,
+            OtaStatus.SWITCHA_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
+            OtaStatus.SWITCHB_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
+            OtaStatus.UPDATE_FAIL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_UPDATE_ERROR,
+            OtaStatus.ROLLBACK_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK,
+            OtaStatus.ROLLBACKA_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
+            OtaStatus.ROLLBACKB_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
+            OtaStatus.ROLLBACK_FAIL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK_ERROR,
+        }
+        try:
+            ecu_status_pb2 = ecu_status_table[ecu_status]
+        except:
+            ecu_status_pb2 = otaclient_pb2.EcuStatusType.ECU_STATUS_UNKNOWN
+        return ecu_status_pb2
+
+    @staticmethod
+    def _conv_ecu_boot_status(boot_status):
+        # convert ecu boot_status to gRPC boot_status
+        boot_status_table = {
+            OtaBoot.NORMAL_BOOT: otaclient_pb2.BootStatusType.NORMAL_BOOT,
+            OtaBoot.SWITCH_BOOT: otaclient_pb2.BootStatusType.SWITCH_BOOT,
+            OtaBoot.SWITCH_BOOT_FAIL: otaclient_pb2.BootStatusType.SWITCHING_BOOT_FAIL,
+            OtaBoot.ROLLBACK_BOOT: otaclient_pb2.BootStatusType.ROLLBACK_BOOT,
+            OtaBoot.ROLLBACK_BOOT_FAIL: otaclient_pb2.BootStatusType.ROLLBACK_BOOT_FAIL,
+            OtaBoot.UPDATE_INCOMPLETE: otaclient_pb2.BootStatusType.UPDATE_INCOMPLETE,
+            OtaBoot.ROLLBACK_INCOMPLETE: otaclient_pb2.BootStatusType.ROLLBACK_INCOMPLETE,
+        }
+        try:
+            boot_status_pb2 = boot_status_table[boot_status]
+        except:
+            boot_status_pb2 = otaclient_pb2.BootStatusType.UNKNOWN
+        return boot_status_pb2
+
     def EcuStatus(self, request, context):
         # return ECU status info
         ecu_status = self._ota_client.get_ota_status()
         logger.info(f"ECU status: {ecu_status}")
-        status = status = otaclient_pb2.EcuStatusType.ECU_STATUS_NORMAL
-        if ecu_status == "NORMAL":
-            status = otaclient_pb2.EcuStatusType.ECU_STATUS_NORMAL
-        elif ecu_status == "UPDATING":
-            status = otaclient_pb2.EcuStatusType.ECU_STATUS_UPDATING
-        elif ecu_status == "PREPARED":
-            status = otaclient_pb2.EcuStatusType.ECU_STATUS_DOWNLOADED
-        elif ecu_status == "SWITCHA" or ecu_status == "SWITCHB":
-            status = otaclient_pb2.EcuStatusType.ECU_STATUS_SWITCH
-        elif ecu_status == "ROLLBACKA" or ecu_status == "ROLLBACKB":
-            status = otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK
-        else:
-            status = otaclient_pb2.EcuStatusType.ECU_STATUS_UNKNOWN
         boot_status = self._ota_client.get_boot_status()
-        bstatus = otaclient_pb2.BootStatusType.NORMAL_BOOT
-        if boot_status == "NORMAL_BOOT":
-            bstatus = otaclient_pb2.BootStatusType.NORMAL_BOOT
-        elif boot_status == "SWITCH_BOOT":
-            bstatus = otaclient_pb2.BootStatusType.SWITCH_BOOT
-        elif boot_status == "ROLLBACK_BOOT":
-            bstatus = otaclient_pb2.BootStatusType.ROLLBACK_BOOT
-        elif boot_status == "SWITCH_BOOT_FAIL":
-            bstatus = otaclient_pb2.BootStatusType.SWITCH_BOOT_FAIL
-        elif boot_status == "ROLLBACK_BOOT_FAIL":
-            bstatus = otaclient_pb2.BootStatusType.ROLLBACK_BOOT_FAIL
-        elif boot_status == "UPDATE_IMCOMPLETE":
-            bstatus = otaclient_pb2.BootStatusType.UPDATE_IMCOMPLETE
-        else:
-            bstatus = otaclient_pb2.BootStatusType.UNKOWN
-        return otaclient_pb2.EcuStatusReply(status=status, boot_status=bstatus)
+        logger.info(f"ECU boot status: {boot_status}")
+        return otaclient_pb2.EcuStatusReply(
+            status=self._conv_ecu_status(ecu_status),
+            boot_status=self._conv_ecu_boot_status(boot_status),
+        )
 
     def EcuVersion(self, request, context):
         # Return ECU version info
