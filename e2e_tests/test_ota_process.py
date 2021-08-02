@@ -3,6 +3,7 @@ import pathlib
 
 from params_for_test import *
 
+
 def _compare_files(path_l: pathlib.Path, path_r: pathlib.Path):
     """
     check whether files in the same relative path are the same
@@ -43,9 +44,11 @@ def test_bank_b(dir_list):
         # TODO: some files are generated during OTA update, should whitelist those files
         assert _compare_files(entry_bank_b, entry_source)
 
+
 def test_fstab(fstab_file):
     with open(fstab_file) as f:
         assert f.read() == FSTAB_BY_UUID_BANKB
+
 
 # step2.2: test custom grub files
 def test_custom_grub(custom_cfg_file):
@@ -68,4 +71,3 @@ def test_updated_ecuinfo(ecuinfo_yaml_file):
         updated_ecuinfo = yaml.safe_load(f)
 
     assert updated_ecuinfo == expected
-    

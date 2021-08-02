@@ -1,13 +1,17 @@
 from string import Template
+from tests.grub_cfg_params import grub_cfg_wo_submenu
 
 ############## template #############
-TEMPLATE_GRUB_CUSTOM_CFG = Template("""
+TEMPLATE_GRUB_CUSTOM_CFG = Template(
+    """
 menuentry 'GNU/Linux' {{
         linux   /vmlinuz-5.4.0-74-generic root=UUID=${uuid} ro  quiet splash $vt_handoff
         initrd  /initrd.img-5.4.0-74-generic
-}}""")
+}}"""
+)
 
-TEMPLATE_FSTAB = Template("""\
+TEMPLATE_FSTAB = Template(
+    """\
 # /etc/fstab: static file system information.
 #
 # Use 'blkid' to print the universally unique identifier for a
@@ -19,7 +23,8 @@ TEMPLATE_FSTAB = Template("""\
 UUID=${boot_uuid} /               ext4    errors=remount-ro 0       1
 UUID=${bank_uuid} /boot           ext4    errors=remount-ro 0       1
 /swapfile                                 none            swap    sw              0       0
-""")
+"""
+)
 
 ############## consts ##############
 
@@ -55,11 +60,13 @@ GRUB_CMDLINE_LINUX=""
 """
 
 GRUB_CUSTOM_CFG = TEMPLATE_GRUB_CUSTOM_CFG.substitute(uuid=BANKA_UUID)
-FSTAB_BY_UUID_BANKA = TEMPLATE_FSTAB.substitute(boot_uuid=BOOT_UUID, bank_uuid=BANKA_UUID)
+FSTAB_BY_UUID_BANKA = TEMPLATE_FSTAB.substitute(
+    boot_uuid=BOOT_UUID, bank_uuid=BANKA_UUID
+)
 
 ### updated status ###
 # status switched from NORMAL to SWITCHB
-UPDATED_OTA_STATUS="SWITCHB"
+UPDATED_OTA_STATUS = "SWITCHB"
 
 UPDATED_ECUINFO_YAML = """\
 main_ecu:
@@ -70,5 +77,7 @@ main_ecu:
   independent: True
 """
 
-FSTAB_BY_UUID_BANKB = TEMPLATE_FSTAB.substitute(boot_uuid=BOOT_UUID, bank_uuid=BANKB_UUID)
+FSTAB_BY_UUID_BANKB = TEMPLATE_FSTAB.substitute(
+    boot_uuid=BOOT_UUID, bank_uuid=BANKB_UUID
+)
 GRUB_CUSTOM_CFG_BANKB = TEMPLATE_GRUB_CUSTOM_CFG.substitute(uuid=BANKB_UUID)

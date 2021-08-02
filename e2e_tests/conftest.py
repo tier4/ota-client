@@ -36,6 +36,7 @@ def dir_list(
 ########### files needed for testing ###########
 # create and set the contents to initial status
 
+
 @pytest.fixture(scope="session")
 def ota_status_file(dir_list):
     OTA_STATUS = "NORMAL"
@@ -86,10 +87,11 @@ def fstab_file(dir_list):
     return fstab_file
 
 
+# TODO: load the grub_cfg file
 @pytest.fixture(scope="session")
 def grub_cfg_file(dir_list):
     grub = dir_list["GRUB_DIR"] / "grub.cfg"
-    grub.write_text(grub_cfg_custom_cfg_params["grub_cfg"])
+    grub.write_text(grub_cfg_wo_submenu)
 
 
 ########### function fixture ###########
