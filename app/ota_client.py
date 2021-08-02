@@ -1164,9 +1164,9 @@ class OtaClient:
         get switch status for reboot
         """
         if self._grub_ctl.get_bank_info().is_banka(next_bank):
-            return "SWITCHA"
+            return OtaStatus.SWITCHA_STATE
         elif self._grub_ctl.get_bank_info().is_bankb(next_bank):
-            return "SWITCHB"
+            return OtaStatus.SWITCHB_STATE
         raise Exception("Bank is not A/B bank!")
 
     def _inform_update_error(self, error):
