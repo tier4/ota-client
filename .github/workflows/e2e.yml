@@ -21,7 +21,7 @@ jobs:
       - name: Build and export the OTA baseimage
         working-directory: ./tests/
         run: |
-          docker build -t base-image --build-arg KERNEL_VERSION=5.8.0-53-generic ./Dockerfile_OTA-baseimage
+          docker build -t base-image --build-arg KERNEL_VERSION=5.8.0-53-generic ./e2e_tests/Dockerfile_OTA-baseimage
           docker create --name base-image base-image
           docker export base-image > /tmp/base-image.tgz
       # prepare the image for next job
@@ -66,7 +66,7 @@ jobs:
         run: | 
           sudo $pythonLocation/bin/python \
             ota-metadata/metadata/ota_metadata/metadata_gen.py \
-              --target-dir data --ignore-file ota-metadata/metadata/ignore.txt
+              --target-dir ./data --ignore-file ./ota-metadata/metadata/ignore.txt
       - name: Self-sign metadata
         run: |
           sudo ota-metadata/metadata/key-gen.sh
@@ -78,11 +78,8 @@ jobs:
               --symlink-file symlinks.txt \
               --regular-file regulars.txt \
               --rootfs-directory data \
-              --persistent-file ota-client/tests/persistents-x1.txt
-          sudo cp ota-client/tests/persistents-x1.txt .
-      # - name: Start local OTA server in the background
-      #   run: |
-      #     nohup sudo $pythonLocation/bin/python -m http.server 8080 > /dev/null 2>&1 &
+              --persistent-file ./ota-client/tests/persistents-x1.txt
+          sudo cp ./ota-client/tests/persistents-x1.txt ./
       - name: Testing OTA update
         run: |
           set -o pipefail
