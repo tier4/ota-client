@@ -1,6 +1,49 @@
 import os
+from _pytest import mark
 import pytest
 import subprocess
+
+from tests.ota_client_params import PRIVATE_PEM, POLICY_JSON, ECU_INFO
+
+
+@pytest.mark.parametrize(
+    "name, decapsuled",
+    [
+        ("'/A/B/C'", "/A/B/C"),
+        ("'/A/ファイル'", "/A/ファイル"),
+        ("'/A/'file name''", "/A/'file name'"),
+    ],
+)
+def test__decapsulate(name, decapsuled):
+    import ota_client
+
+    assert ota_client._decapsulate(name) == decapsuled
+
+
+def test__file_sha256():
+    import ota_client
+    import shlex
+
+    file_path = __file__
+    cmd = f"sha256sum {file_path}"
+    result = subprocess.check_output(shlex.split(cmd))
+    assert ota_client._file_sha256(file_path) == shlex.split(result.decode("utf-8"))[0]
+
+
+@pytest.mark.parametrize(
+    "string, search, num, array, pos",
+    [
+        ("0755,0,100,'/etc/ssl/certs'", ",", 1, ["0755"], 5),
+        ("0755,0,100,'/etc/ssl/certs'", ",", 2, ["0755", "0"], 7),
+        ("0755,0,100,'/etc/ssl/certs'", ",", 3, ["0755", "0", "100"], 11),
+    ],
+)
+def test__get_setparated_strings(string, search, num, array, pos):
+    import ota_client
+
+    arr, curr = ota_client._get_separated_strings(string, search, num)
+    assert arr == array
+    assert curr == pos
 
 
 def _assert_own(entry, uid, gid):
@@ -14,7 +57,7 @@ def _assert_own(entry, uid, gid):
     assert st.st_gid == gid
 
 
-def test_ota_client_copy_complete(tmpdir):
+def test__copy_complete(tmpdir):
     import ota_client
 
     src = tmpdir.mkdir("src")
@@ -48,7 +91,7 @@ def test_ota_client_copy_complete(tmpdir):
     _assert_own(tmpdir.join("dst/A/B/a"), 4567, 7654)
 
 
-def test_ota_client_copy_complete_symlink_doesnot_exist(tmpdir):
+def test__copy_complete_symlink_doesnot_exist(tmpdir):
     import ota_client
 
     src = tmpdir.mkdir("src")
@@ -74,7 +117,7 @@ def test_ota_client_copy_complete_symlink_doesnot_exist(tmpdir):
     _assert_own(tmpdir.join("dst/a"), 2345, 5432)
 
 
-def test_ota_client_copytree_complete(tmpdir):
+def test__copytree_complete(tmpdir):
     import ota_client
 
     src = tmpdir.mkdir("src")
@@ -158,7 +201,7 @@ main_ecu:
     assert rd_ecuinfo["main_ecu"]["ip_addr"] == ""
 
 
-def test_ota_client_cleanup_dir(tmpdir):
+def test__cleanup_dir(tmpdir):
     import ota_client
 
     clean_dir_path = tmpdir.mkdir("cleantest")
@@ -195,3 +238,206 @@ def test_ota_client_cleanup_dir(tmpdir):
     assert not os.path.exists(str(cldA))
     assert not os.path.exists(str(cldB))
     assert not os.path.exists(str(cldC))
+
+
+def test__gen_directories(tmpdir):
+    import ota_client
+
+    DIR_LIST_DATA = """\
+1777,0,0,'/A'
+0700,0,0,'/B'
+0755,0,0,'/C'
+2750,0,30,'/C/D'
+0755,0,0,'/C/E'
+0755,0,0,'/C/E/F'
+"""
+
+    src = tmpdir.mkdir("src")
+    dirs_file = src.join("dirs.txt")
+    dirs_file.write(DIR_LIST_DATA)
+    dst = tmpdir.mkdir("dst")
+    ota_client._gen_directories(str(dirs_file), str(dst))
+    assert os.path.isdir(str(dst) + "/A")
+    assert os.path.isdir(str(dst) + "/B")
+    assert os.path.isdir(str(dst) + "/C")
+    assert os.path.isdir(str(dst) + "/C/D")
+    assert os.path.isdir(str(dst) + "/C/E")
+    assert os.path.isdir(str(dst) + "/C/E/F")
+
+
+@pytest.mark.parametrize(
+    "persistent, result, type",
+    [
+        ("/A", "/A", "dir"),
+        ("/B", "/B", "dir"),
+        ("/C/D", "/C", "dir"),
+        ("/C/D", "/C/D", "dir"),
+        ("/C/D", "/C/D/E", "dir"),
+        ("/C/D", "/C/D/E/a", "file"),
+        ("/C/D", "/C/D/a", "symlink"),
+    ],
+)
+def test__copy_persistent(tmpdir, persistent, result, type):
+    import ota_client
+
+    src = tmpdir.mkdir("src")
+    dst = tmpdir.mkdir("dst")
+    src_A = src.mkdir("A")
+    src_B = src.mkdir("B")
+    src_B_a = src_B.join("a")
+    src_B_a.write("a")
+    src_C = src.mkdir("C")
+    src_C_D = src_C.mkdir("D")
+    src_C_D_E = src_C_D.mkdir("E")
+    src_C_D_E_a = src_C_D_E.join("a")
+    src_C_D_E_a.write("a")
+    src_C_D_a = src_C_D.join("a")
+    src_C_D_a.mksymlinkto("E/a")
+
+    src_path = src.join(persistent)
+    ota_client._copy_persistent(str(src_path), str(dst))
+    dst_path = dst.join(src).join(result)
+    print(f"src: {src_path} dst: {dst_path}")
+    if type == "dir":
+        assert os.path.isdir(str(dst_path))
+    elif type == "file":
+        assert os.path.isfile(str(dst_path))
+    if type == "symlink":
+        assert os.path.islink(str(dst_path))
+
+
+def test__gen_persistent_files(tmpdir):
+    import ota_client
+
+    src = tmpdir.mkdir("src")
+    dst = tmpdir.mkdir("dst")
+    src_A = src.mkdir("A")
+    src_B = src.mkdir("B")
+    src_B_a = src_B.join("a")
+    src_B_a.write("a")
+    src_C = src.mkdir("C")
+    src_C_D = src_C.mkdir("D")
+    src_C_D_E = src_C_D.mkdir("E")
+    src_C_D_E_a = src_C_D_E.join("a")
+    src_C_D_E_a.write("a")
+    src_C_D_a = src_C_D.join("a")
+    src_C_D_a.mksymlinkto("E/a")
+
+    PERSISTENT_DATA = f"'{str(src)}/A'\n'{str(src)}/B'\n'{str(src)}/C/D'\n"
+    persistent_file = tmpdir.join("persistent.txt")
+    persistent_file.write(PERSISTENT_DATA)
+
+    ota_client._gen_persistent_files(str(persistent_file), str(dst))
+
+    assert os.path.isdir(str(dst) + str(src) + "/A")
+    assert os.path.isdir(str(dst) + str(src) + "/B")
+    assert os.path.isfile(str(dst) + str(src_B_a))
+    assert os.path.isdir(str(dst) + str(src_C))
+    assert os.path.isdir(str(dst) + str(src_C_D))
+    assert os.path.isdir(str(dst) + str(src_C_D_E))
+    assert os.path.isfile(str(dst) + str(src_C_D_E_a))
+    assert os.path.islink(str(dst) + str(src_C_D_a))
+
+
+def test__header_str_to_dict(tmp_path):
+    import ota_client
+    from OpenSSL import crypto
+    import base64
+
+    private_key = crypto.load_privatekey(crypto.FILETYPE_PEM, PRIVATE_PEM)
+    policy_str = POLICY_JSON.replace("\n", "").encode()
+    policy = (
+        base64.b64encode(policy_str)
+        .decode()
+        .replace("+", "-")
+        .replace("/", "~")
+        .replace("=", "_")
+    )
+    signature = crypto.sign(private_key, policy_str, "sha1")
+    sign = (
+        base64.b64encode(signature)
+        .decode()
+        .replace("+", "-")
+        .replace("/", "~")
+        .replace("=", "_")
+    )
+    key_id = "ABCDEFGHIJKLMN"
+    HEADER_STR = (
+        "Cookie:"
+        + "CloudFront-Policy="
+        + policy
+        + ";CloudFront-Signature="
+        + sign
+        + ";CloudFront-Key-Pair-Id="
+        + key_id
+    )
+
+    # print(HEADER_STR)
+
+    header_dict = ota_client._header_str_to_dict(HEADER_STR)
+    print(f"{header_dict}")
+    assert (
+        header_dict["Cookie"]
+        == "CloudFront-Policy="
+        + policy
+        + ";CloudFront-Signature="
+        + sign
+        + ";CloudFront-Key-Pair-Id="
+        + key_id
+    )
+
+
+def test__save_update_ecuinfo(tmp_path):
+    import ota_client
+    import yaml
+
+    ecuinfo_yaml_path = tmp_path / "ecuinfo.yaml"
+    ecu_info = {
+        "main_ecu": {
+            "ecu_name": "Autoware ECU",
+            "ecu_type": "autoware",
+            "ecu_id": "1",
+            "version": "0.1.0",
+            "independent": True,
+            "ip_addr": "",
+        },
+        "sub_ecus": [
+            {
+                "ecu_name": "Perception ECU",
+                "ecu_type": "perception",
+                "ecu_id": "2",
+                "version": "0.2.0",
+                "independent": True,
+                "ip_addr": "",
+            },
+            {
+                "ecu_name": "Logging ECU",
+                "ecu_type": "log",
+                "ecu_id": "3",
+                "version": "0.3.0",
+                "independent": True,
+                "ip_addr": "",
+            },
+        ],
+    }
+
+    ota_client._save_update_ecuinfo(ecuinfo_yaml_path, ecu_info)
+    assert os.path.isfile(ecuinfo_yaml_path)
+
+    with open(ecuinfo_yaml_path, "r") as f:
+        rd_ecuinfo = yaml.load(f, Loader=yaml.SafeLoader)
+        assert rd_ecuinfo["main_ecu"]["ecu_name"] == "Autoware ECU"
+        assert rd_ecuinfo["main_ecu"]["ecu_type"] == "autoware"
+        assert rd_ecuinfo["main_ecu"]["ecu_id"] == "1"
+        assert rd_ecuinfo["main_ecu"]["version"] == "0.1.0"
+        assert rd_ecuinfo["main_ecu"]["independent"] == True
+        assert rd_ecuinfo["sub_ecus"][0]["ecu_name"] == "Perception ECU"
+        assert rd_ecuinfo["sub_ecus"][0]["ecu_type"] == "perception"
+        assert rd_ecuinfo["sub_ecus"][0]["ecu_id"] == "2"
+        assert rd_ecuinfo["sub_ecus"][0]["version"] == "0.2.0"
+        assert rd_ecuinfo["sub_ecus"][0]["independent"] == True
+        assert rd_ecuinfo["sub_ecus"][1]["ecu_name"] == "Logging ECU"
+        assert rd_ecuinfo["sub_ecus"][1]["ecu_type"] == "log"
+        assert rd_ecuinfo["sub_ecus"][1]["ecu_id"] == "3"
+        assert rd_ecuinfo["sub_ecus"][1]["version"] == "0.3.0"
+        assert rd_ecuinfo["sub_ecus"][1]["independent"] == True

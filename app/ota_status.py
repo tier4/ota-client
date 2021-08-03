@@ -15,6 +15,18 @@ class OtaStatus:
     OTA status class
     """
 
+    # status
+    NORMAL_STATE = "NORMAL"
+    UPDATE_STATE = "UPDATE"
+    PREPARED_STATE = "PREPARED"
+    SWITCHA_STATE = "SWITCHA"
+    SWITCHB_STATE = "SWITCHB"
+    UPDATE_FAIL_STATE = "UPDATE_FAIL"
+    ROLLBACK_STATE = "ROLLBACK"
+    ROLLBACKA_STATE = "ROLLBACKA"
+    ROLLBACKB_STATE = "ROLLBACKB"
+    ROLLBACK_FAIL_STATE = "ROLLBACK_FAIL"
+
     def __init__(
         self,
         ota_status_file="/boot/ota/ota_status",
