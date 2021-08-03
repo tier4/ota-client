@@ -59,7 +59,7 @@ sub_ecus:
   version: '0.2.0'
   independent: True
   ip_addr: ''
-- ecu_name: 'Loging ECU'
+- ecu_name: 'Logging ECU'
   ecu_type: 'log'
   ecu_id: '3'
   version: '0.3.0'

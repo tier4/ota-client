@@ -1,9 +1,47 @@
+from app.otaclient_pb2 import ROLLBACK_BOOT
 import os
 from _pytest import mark
+from _pytest.fixtures import fixture
 import pytest
 import subprocess
 
 from tests.ota_client_params import PRIVATE_PEM, POLICY_JSON, ECU_INFO
+
+
+@pytest.fixture
+def otaclient(mocker, tmpdir):
+    import ota_client
+    import grub_control
+    import ota_status
+
+    boot_status = "NORMAL_BOOT"
+    url = "https://abcd.efg.hi/jkl/mn"
+    fstab_file = tmpdir.join("fstab")
+    bank_dir = tmpdir.mkdir("bank")
+    grub_dir = tmpdir.mkdir("grub")
+    ota_dir = tmpdir.mkdir("ota")
+    ota_status_file = ota_dir.join("ota_status")
+    ota_status_file.write("NORMAL")
+    ecuid_file = ota_dir.join("ecuid")
+    ecuid_file.write("1")
+    ecuinfo_file = ota_dir.join("ecuinfo.yaml")
+    ecuinfo_file.write(ECU_INFO)
+
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    otastatus_mock = mocker.Mock(spec=ota_status.OtaStatus)
+
+    mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock)
+    mocker.patch("ota_status.OtaStatus", return_value=otastatus_mock)
+
+    otaclient = ota_client.OtaClient(
+        boot_status=boot_status,
+        url=url,
+        mount_point=bank_dir,
+        fstab_file=fstab_file,
+        ota_dir=ota_dir,
+        grub_dir=grub_dir,
+    )
+    return otaclient
 
 
 @pytest.mark.parametrize(
@@ -441,3 +479,182 @@ def test__save_update_ecuinfo(tmp_path):
         assert rd_ecuinfo["sub_ecus"][1]["ecu_id"] == "3"
         assert rd_ecuinfo["sub_ecus"][1]["version"] == "0.3.0"
         assert rd_ecuinfo["sub_ecus"][1]["independent"] == True
+
+
+def test_OtaClient_is_main_ecu(otaclient):
+    assert otaclient.is_main_ecu() == True
+
+
+def test_OtaClient_get_my_ecuid(otaclient):
+
+    assert otaclient.get_my_ecuid() == "1"
+
+
+def test_OtaClient_get_ecuinfo(otaclient):
+
+    ecuinfo = otaclient.get_ecuinfo()
+    assert ecuinfo["main_ecu"]["ecu_name"] == "Autoware ECU"
+    assert ecuinfo["main_ecu"]["ecu_type"] == "autoware"
+    assert ecuinfo["main_ecu"]["ecu_id"] == "1"
+    assert ecuinfo["main_ecu"]["version"] == "0.1.0"
+    assert ecuinfo["main_ecu"]["independent"] == True
+    assert ecuinfo["sub_ecus"][0]["ecu_name"] == "Perception ECU"
+    assert ecuinfo["sub_ecus"][0]["ecu_type"] == "perception"
+    assert ecuinfo["sub_ecus"][0]["ecu_id"] == "2"
+    assert ecuinfo["sub_ecus"][0]["version"] == "0.2.0"
+    assert ecuinfo["sub_ecus"][0]["independent"] == True
+    assert ecuinfo["sub_ecus"][1]["ecu_name"] == "Logging ECU"
+    assert ecuinfo["sub_ecus"][1]["ecu_type"] == "log"
+    assert ecuinfo["sub_ecus"][1]["ecu_id"] == "3"
+    assert ecuinfo["sub_ecus"][1]["version"] == "0.3.0"
+    assert ecuinfo["sub_ecus"][1]["independent"] == True
+
+
+@pytest.mark.parametrize(
+    "boot_state, result_state",
+    [
+        ("NORMAL_BOOT", "NORMAL_BOOT"),
+        ("SWITCH_BOOT", "SWITCH_BOOT"),
+        ("SWITCH_BOOT_FAIL", "SWITCH_BOOT_FAIL"),
+        ("ROLLBACK_BOOT", "ROLLBACK_BOOT"),
+        ("ROLLBACK_BOOT_FAIL", "ROLLBACK_BOOT_FAIL"),
+        ("UPDATE_INCOMPLETE", "UPDATE_INCOMPLETE"),
+        ("ROLLBACK_INCOMPLETE", "ROLLBACK_INCOMPLETE"),
+    ],
+)
+def test_OtaClient_get_boot_status(mocker, tmpdir, boot_state, result_state):
+    import ota_client
+    import grub_control
+    import ota_status
+
+    boot_status = boot_state
+    url = "https://abcd.efg.hi/jkl/mn"
+    fstab_file = tmpdir.join("fstab")
+    bank_dir = tmpdir.mkdir("bank")
+    grub_dir = tmpdir.mkdir("grub")
+    ota_dir = tmpdir.mkdir("ota")
+    ota_status_file = ota_dir.join("ota_status")
+    ota_status_file.write("NORMAL")
+    ecuid_file = ota_dir.join("ecuid")
+    ecuid_file.write("1")
+    ecuinfo_file = ota_dir.join("ecuinfo.yaml")
+    ecuinfo_file.write(ECU_INFO)
+
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+    otastatus_mock = mocker.Mock(spec=ota_status.OtaStatus)
+
+    mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock)
+    mocker.patch("ota_status.OtaStatus", return_value=otastatus_mock)
+
+    otaclient = ota_client.OtaClient(
+        boot_status=boot_status,
+        url=url,
+        mount_point=bank_dir,
+        fstab_file=fstab_file,
+        ota_dir=ota_dir,
+        grub_dir=grub_dir,
+    )
+
+    assert otaclient.get_boot_status() == result_state
+
+
+@pytest.mark.parametrize(
+    "ota_state, result_state",
+    [
+        ("NORMAL", "NORMAL"),
+        ("SWITCHA", "SWITCHA"),
+        ("SWITCHB", "SWITCHB"),
+        ("UPDATE", "UPDATE"),
+        ("PREPARED", "PREPARED"),
+        ("ROLLBACK", "ROLLBACK"),
+        ("ROLLBACKA", "ROLLBACKA"),
+        ("ROLLBACKB", "ROLLBACKB"),
+    ],
+)
+def test_OtaClient_get_ota_status(mocker, tmpdir, ota_state, result_state):
+    import ota_client
+    import grub_control
+
+    boot_status = "NORMAL_STATE"
+    url = "https://abcd.efg.hi/jkl/mn"
+    fstab_file = tmpdir.join("fstab")
+    bank_dir = tmpdir.mkdir("bank")
+    grub_dir = tmpdir.mkdir("grub")
+    ota_dir = tmpdir.mkdir("ota")
+    ota_status_file = ota_dir.join("ota_status")
+    ota_status_file.write(ota_state)
+    ecuid_file = ota_dir.join("ecuid")
+    ecuid_file.write("1")
+    ecuinfo_file = ota_dir.join("ecuinfo.yaml")
+    ecuinfo_file.write(ECU_INFO)
+
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+
+    mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock)
+
+    otaclient = ota_client.OtaClient(
+        boot_status=boot_status,
+        url=url,
+        mount_point=bank_dir,
+        fstab_file=fstab_file,
+        ota_dir=ota_dir,
+        grub_dir=grub_dir,
+    )
+    assert otaclient.get_ota_status() == result_state
+
+
+def test_OtaClient_get_metadata_url(otaclient):
+
+    assert otaclient._get_metadata_url() == "https://abcd.efg.hi/jkl/mn/metadata.jwt"
+
+
+def test_OtaClient__cleanup_rollback_dir(mocker, tmpdir):
+    import ota_client
+    import grub_control
+    import os
+
+    boot_status = "NORMAL_STATE"
+    url = "https://abcd.efg.hi/jkl/mn"
+    fstab_file = tmpdir.join("fstab")
+    bank_dir = tmpdir.mkdir("bank")
+    grub_dir = tmpdir.mkdir("grub")
+    ota_dir = tmpdir.mkdir("ota")
+    ota_status_file = ota_dir.join("ota_status")
+    ota_status_file.write("NORMAL")
+    ecuid_file = ota_dir.join("ecuid")
+    ecuid_file.write("1")
+    ecuinfo_file = ota_dir.join("ecuinfo.yaml")
+    ecuinfo_file.write(ECU_INFO)
+
+    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
+
+    mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock)
+
+    rollback_dir = ota_dir.mkdir("rollback")
+    rollback_a = rollback_dir.join("a")
+    rollback_a.write("a")
+    rollback_b = rollback_dir.join("b")
+    rollback_b.write("b")
+    rollback_c = rollback_dir.join("c")
+    rollback_c.write("c")
+
+    otaclient = ota_client.OtaClient(
+        boot_status=boot_status,
+        url=url,
+        mount_point=bank_dir,
+        fstab_file=fstab_file,
+        ota_dir=ota_dir,
+        grub_dir=grub_dir,
+    )
+
+    assert os.path.isdir(str(rollback_dir))
+    assert os.path.isfile(str(rollback_a))
+    assert os.path.isfile(str(rollback_b))
+    assert os.path.isfile(str(rollback_c))
+
+    otaclient._cleanup_rollback_dir()
+
+    assert os.path.isdir(str(rollback_dir))
+    assert not os.path.exists(str(rollback_a))
+    assert not os.path.exists(str(rollback_b))
+    assert not os.path.exists(str(rollback_c))
