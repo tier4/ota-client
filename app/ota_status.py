@@ -29,7 +29,7 @@ class OtaStatus:
 
     def __init__(
         self,
-        ota_dir = "/boot/ota",
+        ota_dir="/boot/ota",
         ota_status_file="ota_status",
         ota_rollback_file="ota_rollback_count",
     ):
