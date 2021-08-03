@@ -13,7 +13,7 @@ import grpc
 import otaclient_pb2
 import otaclient_pb2_grpc
 
-from logging import getLogger, INFO, DEBUG
+from logging import getLogger, INFO, DEBUG, basicConfig
 
 logger = getLogger(__name__)
 logger.setLevel(INFO)
@@ -28,6 +28,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         self._ota_client = otaclient
 
     def OtaUpdate(self, request, context):
+        logger.info(f"request: {request}")
         # do update
         result = self._ota_update(request)
         update_reply_msg = otaclient_pb2.OtaUpdateReply()
@@ -37,9 +38,11 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
             )
         else:
             update_reply_msg.result = otaclient_pb2.UpdateResultType.UPDATE_FAIL
+        logger.info(f"reply {update_reply_msg}")
         return update_reply_msg
 
     def OtaRollback(self, request, context):
+        logger.info(f"request: {request}")
         # do rollback
         result = self._ota_rollback(request)
         rollback_reply_msg = otaclient_pb2.OtaRollbackReply()
@@ -50,13 +53,16 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         ei.ecu_type = info.ecu_type
         ei.ecu_id = info.ecu_id
         ei.version = info.version
+        logger.info(f"reply {rollback_reply_msg}")
         return rollback_reply_msg
 
     def OtaReboot(self, request, context):
+        logger.info(f"request: {request}")
         # do reboot
         logger.info("OTA reboot request!")
         self._ota_reboot()
         reboot_reply_msg = otaclient_pb2.OtaRebootReply()
+        logger.info(f"reply {reboot_reply_msg}")
         return reboot_reply_msg
 
     @staticmethod
@@ -99,17 +105,21 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
         return boot_status_pb2
 
     def EcuStatus(self, request, context):
+        logger.info(f"request: {request}")
         # return ECU status info
         ecu_status = self._ota_client.get_ota_status()
         logger.info(f"ECU status: {ecu_status}")
         boot_status = self._ota_client.get_boot_status()
         logger.info(f"ECU boot status: {boot_status}")
-        return otaclient_pb2.EcuStatusReply(
+        reply = otaclient_pb2.EcuStatusReply(
             status=self._conv_ecu_status(ecu_status),
             boot_status=self._conv_ecu_boot_status(boot_status),
         )
+        logger.info(f"reply {reply}")
+        return reply
 
     def EcuVersion(self, request, context):
+        logger.info(f"request: {request}")
         # Return ECU version info
         ver_reply_msg = otaclient_pb2.EcuVersionReply()
         ei = ver_reply_msg.ecu_info.add()
@@ -130,6 +140,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
                 ei.version = ecuinf["version"]
                 ei.independent = ecuinf["independent"]
         # print(ver_reply_msg)
+        logger.info(f"reply {ver_reply_msg}")
         return ver_reply_msg
 
     @staticmethod
@@ -271,6 +282,11 @@ if __name__ == "__main__":
     """
     OTA client service main
     """
+    basicConfig(
+        format="%(asctime)s[%(levelname).3s][%(filename)s:%(funcName)s(%(lineno)d)] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--daemonize", help="daemonize OTA Client service", default=False

@@ -23,8 +23,10 @@ from grub_control import GrubCtl
 from ota_metadata import OtaMetaData
 from multiprocessing import Process, Pool, Manager
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from logging import getLogger, INFO, DEBUG
+
+logger = getLogger(__name__)
+logger.setLevel(INFO)
 
 
 class OtaError(Exception):
@@ -233,8 +235,6 @@ def _gen_persistent_files(list_file, target_dir):
     """
     generate persistent files
     """
-    logging_level = logging.root.level
-    logging.basicConfig(level=logging.DEBUG)
     with open(list_file, mode="r") as f:
         for l in f.read().splitlines():
             persistent_info = PersistentInf(l)
@@ -245,7 +245,6 @@ def _gen_persistent_files(list_file, target_dir):
             else:
                 # others
                 _copy_persistent(src_path, target_dir)
-    logging.basicConfig(level=logging_level)
 
 
 def _header_str_to_dict(header_str):
@@ -994,7 +993,7 @@ class OtaClient:
                 shutil.move(tmp_list_file, dest_file)
                 return True
             if self._boot_vmlinuz is None or self._boot_initrd is None:
-                logging.warning(
+                logger.warning(
                     "vmlinuz or initrd is not set. This condition will be treated as an error in the future."
                 )
         return False
