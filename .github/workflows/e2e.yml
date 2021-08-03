@@ -1,5 +1,6 @@
 name: E2E CI
 
+# trigger the workflow manually
 on: [workflow_dispatch]
 
 env:
