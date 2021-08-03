@@ -12,6 +12,7 @@ import urllib
 import requests
 import json
 import yaml
+import logging
 import copy
 
 import re

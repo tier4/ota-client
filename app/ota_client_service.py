@@ -13,7 +13,7 @@ import grpc
 import otaclient_pb2
 import otaclient_pb2_grpc
 
-from logging import getLogger, INFO, DEBUG
+from logging import getLogger, INFO, DEBUG, basicConfig
 
 logger = getLogger(__name__)
 logger.setLevel(INFO)
@@ -283,8 +283,8 @@ if __name__ == "__main__":
     """
     OTA client service main
     """
-    logging.basicConfig(
-        format="%(asctime)s[%(levelname).3s][%(filename)s:%(funcName)s:(%(lineno)%d)] %(message)s",
+    basicConfig(
+        format="%(asctime)s[%(levelname).3s][%(filename)s:%(funcName)s:(%(lineno)d)] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
