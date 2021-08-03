@@ -122,9 +122,10 @@ def grub_cfg_file(dir_list):
 
 ########### function fixture ###########
 
+
 ########### ota client instances #########
 
-# TODO: mock OtaClient and GrubCtl
+
 @pytest.fixture(scope="session")
 def ota_client_instance(
     mocker,
@@ -164,14 +165,15 @@ def ota_client_instance(
     setattr(ota_client_instance, "_fstab_file", fstab_file)
 
     # set a real GrubCtl object and OtaStatus object to the instance
-    # TODO: patch GrubCtl class:
     #   1. patch reboot
     #   2. patch any sys calls that may impact the OS
     mocker.patch.object(grub_control.os, "sync")
     mocker.patch.object(grub_control.GrubCtl, "reboot", return_value=True)
     mocker.patch.object(grub_control.GrubCtl, "set_next_bank_boot", return_value=True)
 
-    # TODO: ensure the logic of getting active bank and next bank when doing OTA update
+    mocker.patch.object(OtaClient, "_unmount_bank")
+    mocker.patch.object(OtaClient, "_mount_bank")
+
     grub_ctl_object = grub_control.GrubCtl(
         default_grub_file=grub_file_default,
         grub_config_file=grub_cfg_file,
