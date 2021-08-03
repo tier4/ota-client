@@ -614,6 +614,8 @@ class OtaClient:
             mount & clean up
         """
         try:
+            # unmount
+            _unmount_bank(target_dir)
             # mount
             _mount_bank(bank, target_dir)
             # cleanup
@@ -1208,7 +1210,8 @@ class OtaClient:
         # -----------------------------------------------------------
         # set 'PREPARED' state
         self._ota_status.set_ota_status(OtaStatus.PREPARED_STATE)
-
+        # unmount bank
+        _unmount_bank(self._mount_point)
         return True
 
     def reboot(self):
