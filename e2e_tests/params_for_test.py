@@ -27,6 +27,8 @@ UUID=${bank_uuid} /boot           ext4    errors=remount-ro 0       1
 )
 
 ############## consts ##############
+## OTA server port
+DEFAULT_OTA_SERVER_PORT = 8080
 
 ### os status ###
 BANKA_UUID, BANKA_DEV = "3a1c99e7-46d9-41b1-8b0a-b07bceef1d02", "/dev/sda3"
