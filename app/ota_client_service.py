@@ -30,7 +30,6 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
     def OtaUpdate(self, request, context):
         logger.info(f"request: {request}")
         # do update
-        logger.info(context)
         result = self._ota_update(request)
         update_reply_msg = otaclient_pb2.OtaUpdateReply()
         if result:
@@ -284,7 +283,7 @@ if __name__ == "__main__":
     OTA client service main
     """
     basicConfig(
-        format="%(asctime)s[%(levelname).3s][%(filename)s:%(funcName)s:(%(lineno)d)] %(message)s",
+        format="%(asctime)s[%(levelname).3s][%(filename)s:%(funcName)s(%(lineno)d)] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
