@@ -142,14 +142,13 @@ def ota_client_instance(
     import ota_status
 
     # temporary assign a mock object during ota_client_instance init
-    grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
-    otastatus_mock = mocker.Mock(spec=ota_status.OtaStatus)
-    with mocker.patch("grub_control.GrubCtl", return_value=grubctl_mock), mocker.patch(
-        "ota_status.OtaStatus", return_value=otastatus_mock
+    with mocker.patch.object(
+        grub_control, "GrubCtl", return_value=mocker.Mock(spec=grub_control.GrubCtl)
+    ), mocker.patch.object(
+        ota_status, "OtaStatus", return_value=mocker.Mock(spec=ota_status.OtaStatus)
     ):
-
         ota_client_instance = OtaClient(
-            boot_status="NORMAL_BOOT",
+            boot_status=BOOT_STATUS,
             ota_status_file=ota_status_file,
             bank_info_file=bankinfo_file,
             ecuid_file=ecuid,
@@ -184,6 +183,8 @@ def ota_client_instance(
         ota_status_file=ota_status_file,
         ota_rollback_file=dir_list["BOOT_DIR"] / "ota_rollback_count",
     )
+
+    # assign patched grub_ctl and ota_status object to ota_client
     setattr(ota_client_instance, "_grub_ctl", grub_ctl_object)
     setattr(ota_client_instance, "_ota_status", ota_status_object)
 

@@ -41,6 +41,8 @@ bankb: {BANKB_DEV}
 """
 
 ### initial status ###
+OTA_STATUS = "NORMAL"
+BOOT_STATUS = "NORMAL_BOOT"
 ECUID = "1\n"
 ECUINFO_YAML = """\
 main_ecu:
