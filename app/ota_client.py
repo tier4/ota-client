@@ -18,7 +18,9 @@ import copy
 import re
 from hashlib import sha256
 
+import ota_status
 from ota_status import OtaStatus
+import grub_control
 from grub_control import GrubCtl
 from ota_metadata import OtaMetaData
 from multiprocessing import Process, Pool, Manager
@@ -355,47 +357,68 @@ class OtaClient:
 
     def __init__(
         self,
+        main_ecu=True,
         boot_status="NORMAL_BOOT",
         url="",
-        ota_status_file="/boot/ota/ota_status",
-        bank_info_file="/boot/ota/bankinfo.yaml",
-        ecuid_file="/boot/ota/ecuid",
-        ecuinfo_yaml_file="/boot/ota/ecuinfo.yaml",
+        mount_point="/mnt/bank",
+        fstab_file="/etc/fstab",
+        ota_dir="/boot/ota",
+        grub_dir="/boot/grub",
+        rollback_dir="rollback",
+        ota_status_file="ota_status",
+        bank_info_file="bankinfo.yaml",
+        ecuid_file="ecuid",
+        ecuinfo_yaml_file="ecuinfo.yaml",
+        metadata_file="metadata.jwt",
+        grub_cfg_file="grub.cfg",
+        custom_cfg_file="custom.cfg",
+        dl_retry=5,
         ota_cache=None,
     ):
         """
         OTA Client initialize
         """
-        self.__main_ecu = True
+        self.__main_ecu = main_ecu
         # OTA
         self._boot_status = boot_status
-        self._ota_status = OtaStatus(ota_status_file=ota_status_file)
-        self._ota_dir = "/boot/ota"
-        self._grub_dir = "/boot/grub"
-        self._grub_conf_file = "grub.conf"
-        self._grub_ctl = GrubCtl(bank_info_file=bank_info_file)
+        self._ota_files_dict = {
+            "mount_point": mount_point,
+            "ota_status_file": os.path.join(ota_dir, ota_status_file),
+            "ecuid_file": os.path.join(ota_dir, ecuid_file),
+            "bankinfo_file": os.path.join(ota_dir, bank_info_file),
+            "ecuinfo_file": os.path.join(ota_dir, ecuinfo_yaml_file),
+            "ecuinfo_update_file": f"{os.path.join(ota_dir, ecuinfo_yaml_file)}.update",
+            "rollback_dir": os.path.join(ota_dir, rollback_dir),
+            "metadata_file": os.path.join(ota_dir, metadata_file),
+            "grub_cfg_file": os.path.join(grub_dir, grub_cfg_file),
+            "custom_cfg_file": os.path.join(grub_dir, custom_cfg_file),
+            "fstab": fstab_file,
+        }
+        #
+        self._ota_status = ota_status.OtaStatus(
+            ota_status_file=self._ota_files_dict["ota_status_file"]
+        )
+        self._grub_ctl = grub_control.GrubCtl(
+            bank_info_file=self._ota_files_dict["bankinfo_file"]
+        )
+        # /boot kernel info
         self._boot_vmlinuz = None
         self._boot_initrd = None
         # ECU information
-        self.__my_ecuid = _read_ecuid(ecuid_file)
-        self.__ecuinfo_yaml_file = ecuinfo_yaml_file
-        self.__ecu_info = _read_ecu_info(ecuinfo_yaml_file)
-        self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file + ".update"
+        self.__my_ecuid = _read_ecuid(self._ota_files_dict["ecuid_file"])
+        self.__ecu_info = _read_ecu_info(self._ota_files_dict["ecuinfo_file"])
         self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
         # remote
         self.__url = url
         self.__header_dict = {}
-        self.__download_retry = 5
+        self.__download_retry = dl_retry
         self._ota_cache = ota_cache
         # metadata data
         self._metadata = None
-        #
-        self._mount_point = "/mnt/bank"
-        if not os.path.isdir(self._mount_point):
-            os.makedirs(self._mount_point, exist_ok=True)
-        self._fstab_file = "/etc/fstab"
+        # mount point
+        if not os.path.isdir(self._ota_files_dict["mount_point"]):
+            os.makedirs(self._ota_files_dict["mount_point"], exist_ok=True)
         # rollback info
-        self._rollback_dir = "/boot/ota/rollback"
         self._rollback_dict = {}
         self.backup_files = {
             "dirlist": "dirlist.txt",
@@ -445,7 +468,9 @@ class OtaClient:
         """
         get metadata URL
         """
-        return os.path.join(self.__url, "metadata.jwt")
+        return os.path.join(
+            self.__url, os.path.basename(self._ota_files_dict["metadata_file"])
+        )
 
     def _download_raw(self, url, target_file):
         """"""
@@ -525,30 +550,6 @@ class OtaClient:
                 return True
         return False
 
-    def _download_metadata_jwt(self, metadata_url):
-        """
-        Download metadata.jwt
-        """
-        # url = self._get_metadata_url()
-        return self._download(metadata_url)
-
-    def _download_metadata_jwt_file(self, dest_file):
-        """
-        Download metadata.jwt file(for debagging)
-        """
-        try:
-            # download metadata.jwt
-            metadata_url = self._get_metadata_url()
-            dest_path = "/tmp/" + dest_file
-            logger.debug(f"url: {metadata_url}")
-            logger.debug(f"metadata dest path: {dest_path}")
-            if not self._download_raw_file_with_retry(metadata_url, dest_path):
-                return False
-        except Exception as e:
-            logger.exception("metadata error!:")
-            return False
-        return True
-
     def _download_metadata(self, metadata_url):
         """
         Download OTA metadata
@@ -561,7 +562,7 @@ class OtaClient:
             logger.debug(f"response: {response.status_code}")
             if response.status_code == 200:
                 self._metadata_jwt = response.text
-                with open("/boot/ota/metadata.jwt", "w") as f:
+                with open(self._ota_files_dict["metadata_file"], "w") as f:
                     f.write(self._metadata_jwt)
                 self._metadata = OtaMetaData(self._metadata_jwt)
             else:
@@ -602,11 +603,12 @@ class OtaClient:
         """
         clean up rollback directory
         """
-        if os.path.isdir(self._rollback_dir):
-            logger.info(f"removedir: {self._rollback_dir}")
-            shutil.rmtree(self._rollback_dir)
-        logger.debug(f"makedir: {self._rollback_dir}")
-        os.mkdir(self._rollback_dir)
+        rollback_dir = self._ota_files_dict["rollback_dir"]
+        if os.path.isdir(rollback_dir):
+            logger.info(f"removedir: {rollback_dir}")
+            shutil.rmtree(rollback_dir)
+        logger.debug(f"makedir: {rollback_dir}")
+        os.mkdir(rollback_dir)
 
     def _prepare_next_bank(self, bank, target_dir):
         """
@@ -649,7 +651,7 @@ class OtaClient:
             if _gen_directories(tmp_list_file, target_dir):
                 # move list file to rollback dir
                 dest_file = os.path.join(
-                    self._rollback_dir, self.backup_files["dirlist"]
+                    self._ota_files_dict["rollback_dir"], self.backup_files["dirlist"]
                 )
                 shutil.move(tmp_list_file, dest_file)
                 return True
@@ -673,7 +675,7 @@ class OtaClient:
                         try:
                             dest_file = ""
                             if os.path.islink(slinkf.slink):
-                                dest_dir = self._rollback_dir + "/"
+                                dest_dir = f"{self._ota_files_dict['rollback_dir']}/"
                                 shutil.move(slinkf.slink, dest_dir)
                             os.symlink(slinkf.srcpath, slinkf.slink)
                         except Exception as e:
@@ -705,7 +707,8 @@ class OtaClient:
             if self._gen_symbolic_links(tmp_list_file, target_dir):
                 # move list file to rollback dir
                 dest_file = os.path.join(
-                    self._rollback_dir, self.backup_files["symlinklist"]
+                    self._ota_files_dict["rollback_dir"],
+                    self.backup_files["symlinklist"],
                 )
                 shutil.move(tmp_list_file, dest_file)
                 return True
@@ -751,7 +754,8 @@ class OtaClient:
             ):
                 # nothing to do
                 rollback_file = os.path.join(
-                    self._rollback_dir, os.path.basename(regular_inf.path)
+                    self._ota_files_dict["rollback_dir"],
+                    os.path.basename(regular_inf.path),
                 )
                 _copy_complete(regular_inf.path, rollback_file)
 
@@ -761,7 +765,8 @@ class OtaClient:
                 if os.path.isfile(regular_inf.path):
                     # backup for rollback
                     rollback_file = os.path.join(
-                        self._rollback_dir, os.path.basename(regular_inf.path)
+                        self._ota_files_dict["rollback_dir"],
+                        os.path.basename(regular_inf.path),
                     )
                     _copy_complete(regular_inf.path, rollback_file)
                     staging_rollback_dict[regular_inf.path] = rollback_file
@@ -989,7 +994,8 @@ class OtaClient:
             ):
                 # move list file to rollback dir
                 dest_file = os.path.join(
-                    self._rollback_dir, self.backup_files["regularlist"]
+                    self._ota_files_dict["rollback_dir"],
+                    self.backup_files["regularlist"],
                 )
                 shutil.move(tmp_list_file, dest_file)
                 return True
@@ -1019,7 +1025,7 @@ class OtaClient:
         _gen_persistent_files(tmp_list_file, target_dir)
         # move list file to rollback dir
         dest_file = os.path.join(
-            self._rollback_dir, self.backup_files["persistentlist"]
+            self._ota_files_dict["rollback_dir"], self.backup_files["persistentlist"]
         )
         shutil.move(tmp_list_file, dest_file)
         return True
@@ -1108,7 +1114,9 @@ class OtaClient:
         #
         # setup fstab
         #
-        if not self._setup_next_bank_fstab(self._fstab_file, target_dir):
+        if not self._setup_next_bank_fstab(
+            self._ota_files_dict["fstab_file"], target_dir
+        ):
             return False
 
         return True
@@ -1244,17 +1252,18 @@ class OtaClient:
 
     def save_update_ecuinfo(self):
         return _save_update_ecuinfo(
-            self.__update_ecuinfo_yaml_file, self.__update_ecu_info
+            # self.__update_ecuinfo_yaml_file,
+            self._ota_files_dict["ecuinfo_update_file"],
+            self.__update_ecu_info,
         )
 
     def _rollback(self):
         """
         Rollback
         """
+        rollback_dir = self._ota_files_dict["rollback_dir"]
 
-        if self._ota_status.is_rollback_available() and os.path.isdir(
-            self._rollback_dir
-        ):
+        if self._ota_status.is_rollback_available() and os.path.isdir(rollback_dir):
             #
             # OTA status
             #
@@ -1263,13 +1272,13 @@ class OtaClient:
             #
             # rollback /boot symlinks
             #
-            symlink_list_file = os.path.join(self._rollback_dir, self._symlinklist_dir)
+            symlink_list_file = os.path.join(rollback_dir, self._symlinklist_dir)
             with open(symlink_list_file, "r") as f:
                 for l in f.readlines():
                     symlinkinf = SymbolicLinkInf(l)
                     if os.path.dirname(symlinkinf.slink) == "/boot":
                         rollback_link = os.path.join(
-                            self._rollback_dir, os.path.basename(symlinkinf.slink)
+                            rollback_dir, os.path.basename(symlinkinf.slink)
                         )
                         if os.path.exists(rollback_link):
                             # if os.path.islink(symlinkinf.slink):
@@ -1279,7 +1288,7 @@ class OtaClient:
             # rollback /boot regulars
             #
             regular_list_file = os.path.join(
-                self._rollback_dir, self.backup_files["regularlist"]
+                rollback_dir, self.backup_files["regularlist"]
             )
             with open(regular_list_file, "r") as f:
                 for l in f.readlines():
@@ -1287,7 +1296,7 @@ class OtaClient:
                     # if reginf.path.find('/boot/') == 0:
                     if os.path.dirname(reginf.path) == "/boot":
                         rollback_file = os.path.join(
-                            self._rollback_dir, os.path.basename(reginf.path)
+                            rollback_dir, os.path.basename(reginf.path)
                         )
                         if os.path.exists(rollback_file):
                             # rollback file exist, restore file
@@ -1298,19 +1307,21 @@ class OtaClient:
             #
             # rollback grub file
             #
-            grub_file = os.path.join(self._rollback_dir, self._grub_conf_file)
+            grub_file = os.path.join(
+                rollback_dir, os.path.basename(self._ota_files_dict["grub_cfg_file"])
+            )
             if os.path.exists(grub_file):
-                dest_file = os.path.join(self._grub_dir, self._grub_conf_file)
+                dest_file = self._ota_files_dict["grub_cfg_file"]
                 if os.path.exists(dest_file):
                     os.remove(dest_file)
                 shutil.move(grub_file, dest_file)
             #
             # rollback dir backup
             #
-            rollback_backup = self._rollback_dir + ".back"
+            rollback_backup = f"{rollback_dir}.back"
             if os.path.exists(rollback_backup):
                 shutil.rmtree(rollback_backup)
-            os.move(self._rollback_dir, rollback_backup)
+            os.move(rollback_dir, rollback_backup)
             #
             # OTA status
             #
