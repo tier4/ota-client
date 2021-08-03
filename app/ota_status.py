@@ -29,11 +29,12 @@ class OtaStatus:
 
     def __init__(
         self,
-        ota_status_file="/boot/ota/ota_status",
-        ota_rollback_file="/boot/ota/ota_rollback_count",
+        ota_dir = "/boot/ota",
+        ota_status_file="ota_status",
+        ota_rollback_file="ota_rollback_count",
     ):
-        self._status_file = ota_status_file
-        self._rollback_file = ota_rollback_file
+        self._status_file = os.path.join(ota_dir, ota_status_file)
+        self._rollback_file = os.path.join(ota_dir, ota_rollback_file)
         self._status = self._initial_read_ota_status()
         self._rollback_count = self._initial_read_rollback_count()
 

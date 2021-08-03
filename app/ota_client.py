@@ -365,6 +365,7 @@ class OtaClient:
         ota_dir="/boot/ota",
         grub_dir="/boot/grub",
         rollback_dir="rollback",
+        rollback_count_file="ota_rollback_count",
         ota_status_file="ota_status",
         bank_info_file="bankinfo.yaml",
         ecuid_file="ecuid",
@@ -389,6 +390,7 @@ class OtaClient:
             "ecuinfo_file": os.path.join(ota_dir, ecuinfo_yaml_file),
             "ecuinfo_update_file": f"{os.path.join(ota_dir, ecuinfo_yaml_file)}.update",
             "rollback_dir": os.path.join(ota_dir, rollback_dir),
+            "rollback_count_file": os.path.join(ota_dir, rollback_count_file),
             "metadata_file": os.path.join(ota_dir, metadata_file),
             "grub_cfg_file": os.path.join(grub_dir, grub_cfg_file),
             "custom_cfg_file": os.path.join(grub_dir, custom_cfg_file),
@@ -396,7 +398,8 @@ class OtaClient:
         }
         #
         self._ota_status = ota_status.OtaStatus(
-            ota_status_file=self._ota_files_dict["ota_status_file"]
+            ota_dir=ota_dir,
+            ota_status_file=ota_status_file,
         )
         self._grub_ctl = grub_control.GrubCtl(
             bank_info_file=self._ota_files_dict["bankinfo_file"]
