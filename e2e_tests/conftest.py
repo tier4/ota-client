@@ -24,11 +24,10 @@ def configs_for_test():
     try:
         port = int(os.environ["OTA_SERVER_PORT"])
         if port < 0 or port > 65535:
-            print("Please specifc working dir via WORKING_DIR environment variable.")
             raise ValueError()
         cfg["OTA_SERVER_PORT"] = port
     except:
-        print(f"Invalid port number, use default port {DEFAULT_OTA_SERVER_PORT}")
+        print(f"Use default port {DEFAULT_OTA_SERVER_PORT}")
         cfg["OTA_SERVER_PORT"] = DEFAULT_OTA_SERVER_PORT
 
     return cfg
