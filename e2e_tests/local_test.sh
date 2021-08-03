@@ -11,10 +11,10 @@ DO_TEST=0
 _print_usage() {
     echo "Usage: local_test.sh -w <workding_dir> -r <repo_location> [-s, -e]"
     echo "options: "
-    echo "  w <working_dir>       E2e test will executed under this folder."
-    echo "  r <repo_location>     The location of the to be tested repository."
-    echo "  s                     Setup the test environment."
-    echo "  e                     Do the e2e test."
+    echo "  -w <working_dir>       E2e test will executed under this folder."
+    echo "  -r <repo_location>     The location of the to be tested repository."
+    echo "  -s                     Setup the test environment."
+    echo "  -e                     Do the e2e test."
     echo ""
     echo "If neither -s or -e are set, the whole test will be carried out."
 }
@@ -98,7 +98,8 @@ do_e2e_test() {
     python3 -m pip install -r ./"$REPO"/tests/requirements.txt
 
     _echo "Start OTA E2E test..."
-    sudo python3 -m pytest --cov-report term-missing --cov=app ./"$REPO"/e2e_tests
+    export WORKING_DIR="$WORKING_DIR"
+    sudo -E python3 -m pytest --cov-report term-missing --cov=app ./"$REPO"/e2e_tests
     _echo "Finished OTA E2E test!"
 }
 
@@ -113,7 +114,7 @@ do
         REPO_LOCATION=$OPTARG
         REPO=`basename $OPTARG`;;
     w)
-        export WORKING_DIR=$OPTARG;;
+        WORKING_DIR=$OPTARG;;
     s)
         SETUP_ENVIRONMENT=1;;
     e)
@@ -128,6 +129,10 @@ if [ -z "$WORKING_DIR" ] || [ -z "$REPO_LOCATION" ]
 then
     _print_usage
     exit -1
+else
+    _echo "Get absolute paths for WORKING_DIR and REPO_LOCATION..."
+    WORKING_DIR=`readlink -f $WORKING_DIR`
+    REPO_LOCATION=`readlink -f $REPO_LOCATION`
 fi
 
 ############# start the script ################
