@@ -724,15 +724,16 @@ class OtaClient:
         """
         generate /boot directory file
         """
+        staging_kernel_files = global_var_dict["staging-_kernel_files"]
         # starts with `/boot/vmlinuz-`.
         match = re.match(r"^/boot/(vmlinuz-.*)", regular_inf.path)
         if match is not None:
-            self._boot_vmlinuz = match.group(1)
+            staging_kernel_files["vmlinuz"] = match.group(1)
 
         # starts with `/boot/initrd.img-`, but doesnot end with `.old-dkms`.
         match = re.match(r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", regular_inf.path)
         if match is not None:
-            self._boot_initrd = match.group(1)
+            staging_kernel_files["initrd"] = match.group(1)
 
         if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
@@ -868,6 +869,8 @@ class OtaClient:
         except for _process_regular_files
         """
         setattr(self, "_rollback_dict", dict(gvar_dict["staging-dict-_rollback_dict"]))
+        setattr(self, "_boot_vmlinuz", gvar_dict["staging-_kernel_files"]["vmlinuz"])
+        setattr(self, "_boot_initrd", gvar_dict["staging-_kernel_files"]["initrd"])
 
     def _process_regular_files(self, rootfs_dir, rfiles_list, target_dir):
         with Manager() as manager:
@@ -879,6 +882,7 @@ class OtaClient:
             gvar_dict = {
                 "tmp-dict-hardlink_reg": manager.dict(),
                 "staging-dict-_rollback_dict": manager.dict(),
+                "staging-_kernel_files": manager.dict(),
             }
 
             # default to one worker per CPU core

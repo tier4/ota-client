@@ -413,13 +413,11 @@ class GrubCtl:
         res = self.set_next_boot_entry(len(menus))
         return res
 
-    @staticmethod
-    def delete_custom_cfg_file():
+    def delete_custom_cfg_file(self):
         """
-        delete custom.cfg file
+        move custom.cfg file to custom.cfg.bak
         """
-        target_file = "/boot/grub/custom.cfg"
-        os.remove(target_file)
+        shutil.move(self._custom_cfg_file, f"{self._custom_cfg_file}.bak")
 
     @staticmethod
     def reboot():
