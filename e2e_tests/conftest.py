@@ -6,7 +6,12 @@ from xprocess import ProcessStarter
 
 from e2e_tests.params_for_test import *
 
-from params_for_test import *
+############ path fix ############
+@pytest.fixture(scope="session", autouse=True)
+def pythonpath():
+    sys.path.append(
+        os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../app/")
+    )
 
 
 ############ test configures & consts ############
@@ -138,9 +143,12 @@ def ota_client_instance(
     grub_cfg_file,
     custom_cfg_file,
     fstab_file,
+    pythonpath,
 ):
     import grub_control
     import ota_status
+
+    from ota_client import OtaClient
 
     # temporary assign a mock object during ota_client_instance init
     with mocker.patch.object(
@@ -152,8 +160,8 @@ def ota_client_instance(
             boot_status=BOOT_STATUS,
             ota_status_file=ota_status_file,
             bank_info_file=bankinfo_file,
-            ecuid_file=ecuid,
-            ecuinfo_yaml_file=ecuinfo_yaml,
+            ecuid_file=ecuid_file,
+            ecuinfo_yaml_file=ecuinfo_yaml_file,
         )
 
     # set the attribute of otaclient

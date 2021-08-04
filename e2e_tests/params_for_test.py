@@ -3,9 +3,9 @@ from tests.grub_cfg_params import grub_cfg_wo_submenu
 
 ############## template #############
 TEMPLATE_GRUB_CUSTOM_CFG = Template(
-    """
+"""
 menuentry 'GNU/Linux' {{
-        linux   /vmlinuz-5.4.0-74-generic root=UUID=${uuid} ro  quiet splash $vt_handoff
+        linux   /vmlinuz-5.4.0-74-generic root=UUID=${uuid} ro  quiet splash $$vt_handoff
         initrd  /initrd.img-5.4.0-74-generic
 }}"""
 )
