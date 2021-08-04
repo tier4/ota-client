@@ -1,12 +1,13 @@
 import os
+import sys
 import pytest
 import pathlib
-from pytest_xprocess import ProcessStarter
+from xprocess import ProcessStarter
 
-from ota_client import OtaClient
-from ota_client_service import OtaClientService
+from e2e_tests.params_for_test import *
 
 from params_for_test import *
+
 
 ############ test configures & consts ############
 @pytest.fixture(scope="session", autouse=True)
@@ -88,28 +89,28 @@ def ecuinfo_yaml_file(dir_list):
 @pytest.fixture(scope="session")
 def bankinfo_file(dir_list):
     bankinfo = dir_list["OTA_DIR"] / "bankinfo.yaml"
-    bankinfo.write(BANK_INFO)
+    bankinfo.write_text(BANK_INFO)
     return bankinfo
 
 
 @pytest.fixture(scope="session")
 def grub_file_default(dir_list):
     grub_file = dir_list["ETC_DIR"] / "default_grub"
-    grub_file.write(GRUB_DEFAULT)
+    grub_file.write_text(GRUB_DEFAULT)
     return grub_file
 
 
 @pytest.fixture(scope="session")
 def custom_cfg_file(dir_list):
     custom_cfg = dir_list["GRUB_DIR"] / "custom.cfg"
-    custom_cfg.write(GRUB_CUSTOM_CFG)
+    custom_cfg.write_text(GRUB_CUSTOM_CFG)
     return custom_cfg
 
 
 @pytest.fixture(scope="session")
 def fstab_file(dir_list):
     fstab_file = dir_list["ETC_DIR"] / "fstab"
-    fstab_file.write(FSTAB_BY_UUID_BANKA)
+    fstab_file.write_text(FSTAB_BY_UUID_BANKA)
     return fstab_file
 
 
@@ -124,14 +125,14 @@ def grub_cfg_file(dir_list):
 
 ########### ota client instances #########
 
-
+# TODO: use mocker_session instead of mocker
 @pytest.fixture(scope="session")
 def ota_client_instance(
     mocker,
     dir_list,
     ota_status_file,
-    ecuid,
-    ecuinfo_yaml,
+    ecuid_file,
+    ecuinfo_yaml_file,
     bankinfo_file,
     grub_file_default,
     grub_cfg_file,
@@ -195,6 +196,8 @@ def ota_client_instance(
 # generate a ota_client_service fixture for testing
 @pytest.fixture(scope="session", autouse=True)
 def ota_client_service_instance(ota_client_instance):
+    from ota_client_service import OtaClientService
+
     return OtaClientService(ota_client_instance)
 
 

@@ -1,7 +1,7 @@
 import pytest
 import pathlib
 
-from params_for_test import *
+from e2e_tests.params_for_test import *
 
 
 def _compare_files(path_l: pathlib.Path, path_r: pathlib.Path):
@@ -24,13 +24,11 @@ def _compare_files(path_l: pathlib.Path, path_r: pathlib.Path):
     return True
 
 
+# TODO: REFACTORING REQUIRED! ALL TEST SHOULD BE BOUNDED TOGETHER!
 # step1: apply the OTA update
 def test_ota_update(ota_request, ota_client_service_instance):
-    # start the OTA process
-    ota_result = ota_client_service_instance._ota_update(ota_request)
-
     # check if ota is successful
-    assert ota_result
+    assert ota_client_service_instance._ota_update(ota_request)
 
 
 # step2.1: test the bankB and fstab file
