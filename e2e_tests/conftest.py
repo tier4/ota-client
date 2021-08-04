@@ -15,7 +15,7 @@ def pythonpath():
 
 
 ############ test configures & consts ############
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def configs_for_test():
     cfg = dict()
 
@@ -39,7 +39,7 @@ def configs_for_test():
     return cfg
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def dir_list(configs_for_test):
     """
     list of dirs to used for testing
@@ -70,56 +70,56 @@ def dir_list(configs_for_test):
 # create and set the contents to initial status
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ota_status_file(dir_list):
     ota_status_file = dir_list["OTA_DIR"] / "ota_status"
     ota_status_file.write_text(OTA_STATUS)
     return ota_status_file
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ecuid_file(dir_list):
     ecuid_file = dir_list["OTA_DIR"] / "ecuid"
     ecuid_file.write_text(ECUID)
     return ecuid_file
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ecuinfo_yaml_file(dir_list):
     ecuinfo_yaml_file = dir_list["OTA_DIR"] / "ecuinfo.yaml"
     ecuinfo_yaml_file.write_text(ECUINFO_YAML)
     return ecuinfo_yaml_file
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def bankinfo_file(dir_list):
     bankinfo = dir_list["OTA_DIR"] / "bankinfo.yaml"
     bankinfo.write_text(BANK_INFO)
     return bankinfo
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def grub_file_default(dir_list):
     grub_file = dir_list["ETC_DIR"] / "default_grub"
     grub_file.write_text(GRUB_DEFAULT)
     return grub_file
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def custom_cfg_file(dir_list):
     custom_cfg = dir_list["GRUB_DIR"] / "custom.cfg"
     custom_cfg.write_text(GRUB_CUSTOM_CFG)
     return custom_cfg
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def fstab_file(dir_list):
     fstab_file = dir_list["ETC_DIR"] / "fstab"
     fstab_file.write_text(FSTAB_BY_UUID_BANKA)
     return fstab_file
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def grub_cfg_file(dir_list):
     grub = dir_list["GRUB_DIR"] / "grub.cfg"
     grub.write_text(grub_cfg_wo_submenu)
@@ -130,10 +130,9 @@ def grub_cfg_file(dir_list):
 
 ########### ota client instances #########
 
-# TODO: use mocker_session instead of mocker
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ota_client_instance(
-    mocker,
+    module_mocker,
     dir_list,
     ota_status_file,
     ecuid_file,
@@ -151,10 +150,10 @@ def ota_client_instance(
     from ota_client import OtaClient
 
     # temporary assign a mock object during ota_client_instance init
-    with mocker.patch.object(
-        grub_control, "GrubCtl", return_value=mocker.Mock(spec=grub_control.GrubCtl)
-    ), mocker.patch.object(
-        ota_status, "OtaStatus", return_value=mocker.Mock(spec=ota_status.OtaStatus)
+    with module_mocker.patch.object(
+        grub_control, "GrubCtl", return_value=module_mocker.Mock(spec=grub_control.GrubCtl)
+    ), module_mocker.patch.object(
+        ota_status, "OtaStatus", return_value=module_mocker.Mock(spec=ota_status.OtaStatus)
     ):
         ota_client_instance = OtaClient(
             boot_status=BOOT_STATUS,
@@ -175,12 +174,12 @@ def ota_client_instance(
     # set a real GrubCtl object and OtaStatus object to the instance
     #   1. patch reboot
     #   2. patch any sys calls that may impact the OS
-    mocker.patch.object(grub_control.os, "sync")
-    mocker.patch.object(grub_control.GrubCtl, "reboot", return_value=True)
-    mocker.patch.object(grub_control.GrubCtl, "set_next_bank_boot", return_value=True)
+    module_mocker.patch.object(grub_control.os, "sync")
+    module_mocker.patch.object(grub_control.GrubCtl, "reboot", return_value=True)
+    module_mocker.patch.object(grub_control.GrubCtl, "set_next_bank_boot", return_value=True)
 
-    mocker.patch.object(OtaClient, "_unmount_bank")
-    mocker.patch.object(OtaClient, "_mount_bank")
+    module_mocker.patch.object(OtaClient, "_unmount_bank")
+    module_mocker.patch.object(OtaClient, "_mount_bank")
 
     grub_ctl_object = grub_control.GrubCtl(
         default_grub_file=grub_file_default,
@@ -202,7 +201,7 @@ def ota_client_instance(
 
 
 # generate a ota_client_service fixture for testing
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="module")
 def ota_client_service_instance(ota_client_instance):
     from ota_client_service import OtaClientService
 
@@ -210,7 +209,7 @@ def ota_client_service_instance(ota_client_instance):
 
 
 # generate ota request
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ota_request(configs_for_test):
     import otaclient_pb2
 
@@ -230,6 +229,7 @@ def ota_request(configs_for_test):
 ########## OTA baseimage server ###########
 
 # create background http server to serve ota baseimage
+# this server will last for the whole session
 @pytest.fixture(scope="session", autouse=True)
 def ota_server(xprocess, configs_for_test):
     class ServerStarter(ProcessStarter):
