@@ -675,6 +675,12 @@ class OtaClient:
                                 dest_dir = self._rollback_dir + "/"
                                 shutil.move(slinkf.slink, dest_dir)
                             os.symlink(slinkf.srcpath, slinkf.slink)
+                            os.chown(
+                                slinkf.slink,
+                                int(slinkf.uid),
+                                int(slinkf.gpid),
+                                follow_symlinks=False,
+                            )
                         except Exception as e:
                             logger.exception("symbolic link error!")
                             if dest_file != "":
@@ -684,6 +690,12 @@ class OtaClient:
                         # others
                         slink = target_dir + slinkf.slink
                         os.symlink(slinkf.srcpath, slink)
+                        os.chown(
+                            slink,
+                            int(slinkf.uid),
+                            int(slinkf.gpid),
+                            follow_symlinks=False,
+                        )
             except Exception as e:
                 logger.exception("symboliclink error:")
                 res = False
