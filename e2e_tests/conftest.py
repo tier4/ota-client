@@ -146,21 +146,36 @@ def ota_client_instance(
 ):
     import grub_control
     import ota_status
+    import ota_client
 
-    from ota_client import OtaClient
+    # patch the ota_client
+    module_mocker.patch.object(ota_client, "_unmount_bank")
+    module_mocker.patch.object(ota_client, "_mount_bank")
+    module_mocker.patch.object(ota_client.OtaClient, "_get_next_bank", return_value=str(dir_list["BANKB_DIR"]))
+    module_mocker.patch.object(ota_client.OtaClient, "_get_current_bank", return_value=str(dir_list["BANKA_DIR"]))
+    module_mocker.patch.object(ota_client.OtaClient, "_get_current_bank_uuid", return_value=BANKA_UUID)
+    module_mocker.patch.object(ota_client.OtaClient, "_get_next_bank_uuid", return_value=BANKB_UUID)
+    # set a real GrubCtl object and OtaStatus object to the instance
+    #   1. patch reboot
+    #   2. patch any sys calls that may impact the OS
+    module_mocker.patch.object(grub_control.os, "sync")
+    module_mocker.patch.object(grub_control.GrubCtl, "reboot", return_value=True)
+    module_mocker.patch.object(grub_control.GrubCtl, "set_next_bank_boot", return_value=True)
+    # mock out the whole BankInfo object 
+    module_mocker.patch.object(grub_control, "BankInfo")
 
     # temporary assign a mock object during ota_client_instance init
     with module_mocker.patch.object(
-        grub_control, "GrubCtl", return_value=module_mocker.Mock(spec=grub_control.GrubCtl)
+        ota_client, "GrubCtl", return_value=module_mocker.Mock(spec=grub_control.GrubCtl)
     ), module_mocker.patch.object(
-        ota_status, "OtaStatus", return_value=module_mocker.Mock(spec=ota_status.OtaStatus)
+        ota_client, "OtaStatus", return_value=module_mocker.Mock(spec=ota_status.OtaStatus)
     ):
-        ota_client_instance = OtaClient(
+        ota_client_instance = ota_client.OtaClient(
             boot_status=BOOT_STATUS,
-            ota_status_file=ota_status_file,
-            bank_info_file=bankinfo_file,
-            ecuid_file=ecuid_file,
-            ecuinfo_yaml_file=ecuinfo_yaml_file,
+            ota_status_file=str(ota_status_file),
+            bank_info_file=str(bankinfo_file),
+            ecuid_file=str(ecuid_file),
+            ecuinfo_yaml_file=str(ecuinfo_yaml_file),
         )
 
     # set the attribute of otaclient
@@ -171,26 +186,17 @@ def ota_client_instance(
     setattr(ota_client_instance, "_mount_point", dir_list["MOUNT_POINT"])
     setattr(ota_client_instance, "_fstab_file", fstab_file)
 
-    # set a real GrubCtl object and OtaStatus object to the instance
-    #   1. patch reboot
-    #   2. patch any sys calls that may impact the OS
-    module_mocker.patch.object(grub_control.os, "sync")
-    module_mocker.patch.object(grub_control.GrubCtl, "reboot", return_value=True)
-    module_mocker.patch.object(grub_control.GrubCtl, "set_next_bank_boot", return_value=True)
-
-    module_mocker.patch.object(OtaClient, "_unmount_bank")
-    module_mocker.patch.object(OtaClient, "_mount_bank")
-
     grub_ctl_object = grub_control.GrubCtl(
-        default_grub_file=grub_file_default,
-        grub_config_file=grub_cfg_file,
-        custom_config_file=custom_cfg_file,
-        bank_info_file=bankinfo_file,
-        fstab_file=fstab_file,
+        default_grub_file=str(grub_file_default),
+        grub_config_file=str(grub_cfg_file),
+        custom_config_file=str(custom_cfg_file),
+        bank_info_file=str(bankinfo_file),
+        fstab_file=str(fstab_file),
     )
+
     ota_status_object = ota_status.OtaStatus(
-        ota_status_file=ota_status_file,
-        ota_rollback_file=dir_list["BOOT_DIR"] / "ota_rollback_count",
+        ota_status_file=str(ota_status_file),
+        ota_rollback_file=str(dir_list["BOOT_DIR"] / "ota_rollback_count"),
     )
 
     # assign patched grub_ctl and ota_status object to ota_client
@@ -230,9 +236,10 @@ def ota_request(configs_for_test):
 
 # create background http server to serve ota baseimage
 # this server will last for the whole session
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="module")
 def ota_server(xprocess, configs_for_test):
     class ServerStarter(ProcessStarter):
+        timeout = 20
         pattern = "Serving HTTP"
         max_read_lines = 3
         args = [
@@ -243,7 +250,6 @@ def ota_server(xprocess, configs_for_test):
             "http.server",
             "--directory",
             str(configs_for_test["WORKING_DIR"]),
-            "--port",
             configs_for_test["OTA_SERVER_PORT"],
         ]
 
