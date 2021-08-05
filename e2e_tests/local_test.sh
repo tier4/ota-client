@@ -6,9 +6,8 @@ DEPENDENCIES=(python3 docker)
 TIMESTAMP_FORMAT='%Y-%m-%d %H:%M:%S'
 E2E_IMAGE_NAME="e2e-test-baseimage"
 E2E_CONTAINER_NAME="e2e-test-container-`date +%s`"
-# flags
-SETUP_ENVIRONMENT=0
-DO_TEST=0
+# res
+TEST_RES=-1
 
 _print_usage() {
     echo "Usage: local_test.sh -w <workding_dir> -r <repo_location> [-s -e -c]"
@@ -19,7 +18,7 @@ _print_usage() {
     echo "  -e                     Do the e2e test."
     echo "  -c                     Cleanup the working dir after the test."
     echo ""
-    echo "If neither -s or -e are set, the whole test will be carried out."
+    echo "If neither -s nor -e are set, the whole test will be carried out."
 }
 
 _echo() {
@@ -36,25 +35,32 @@ _echo() {
 }
 
 _clean_up() {
-    [ $? == 0 ] && \
+    # ensure the _clean_up function only be called once
+    [ "$CLEANUP_COMPLETE" == "1" ] && exit $TEST_RES
+
+    [ "$TEST_RES" == "0" ] && \
         _echo "Test finished!" || \
         _echo "Error" "Test failed!"
 
-    ([ $SETUP_ENVIRONMENT == 1 ] && [ $DO_TEST == 0 ] ) || [ $CLEANUP == 1 ] && {
-        read -rp "$(_echo "Warn" "Cleanup the working_dir $WORKING_DIR? [Y/N]:")" reply
+    [ "$CLEANUP" == "1" ] && {
+        read -rp "$(echo "\033[1;33mCleanup the working_dir $WORKING_DIR? [Y/N]:\033[0m")" reply
         if [ "$reply" == "Y" ]
         then
             rm -rf "$WORKING_DIR"
             _echo "Finished cleaning up working dir!"
         fi
 
-        read -rp "$(_echo "Warn" "Delete the test container $E2E_CONTAINER_NAME? [Y/N]:")" reply
-        if [ "$reply" == "Y" ]
-        then
-            docker rm -f "$E2E_CONTAINER_NAME"
-            _echo "Finished cleaning up test container!"
-        fi
+        ([ "$WHOLE_TEST" == "1" ] || [ "$DO_TEST" == "1" ]) && {
+            read -rp "$(echo "\033[1;33mDelete the test container $E2E_CONTAINER_NAME? [Y/N]:\033[0m")" reply
+            if [ "$reply" == "Y" ]
+            then
+                docker rm -f "$E2E_CONTAINER_NAME"
+                _echo "Finished cleaning up test container!"
+            fi
+        }
     }
+
+    CLEANUP_COMPLETE=1
 }
 
 setup_test_environment() {
@@ -64,7 +70,7 @@ setup_test_environment() {
     _echo "Copying the $REPO source codes to $WORKING_DIR..."
     cp -a "$REPO_LOCATION" "$WORKING_DIR"
     cd "$WORKING_DIR" && \
-        _echo "Warn" "Switch to working dir. Current working_dir is `$WORKING_DIR`."
+        _echo "Warn" "Switch to working dir. Current working_dir is $PWD."
 
     # build & prepare ota baseimage
     _echo "Warn" "Building OTA baseimage..."
@@ -130,11 +136,13 @@ do
     w)
         WORKING_DIR=$OPTARG;;
     s)
+        WHOLE_TEST=0
         SETUP_ENVIRONMENT=1;;
     e)
+        WHOLE_TEST=0
         DO_TEST=1;;
     c)
-        CLEANUP=1
+        CLEANUP=1;;
     *)
         _print_usage
         exit;;
@@ -163,13 +171,13 @@ done
 ############# start the script ################
 trap '_clean_up' SIGINT SIGKILL SIGTERM EXIT
 
-if [ $SETUP_ENVIRONMENT == 1 ] && [ $DO_TEST == 0 ];then
+if [ "$SETUP_ENVIRONMENT" == "1" ];then
     _echo "Warn" "Setup test environment only..."
     setup_test_environment
-elif [ $SETUP_ENVIRONMENT == 0 ] && [ $DO_TEST == 1 ];then
+elif [ "$DO_TEST" == "1" ];then
     _echo "Warn" "Do the e2e test only..."
     do_e2e_test
-else
+elif [ "$WHOLE_TEST" == "1" ];then
     _echo "Warn" "Do the whole e2e test ..."
     setup_test_environment
     do_e2e_test
