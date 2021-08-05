@@ -22,9 +22,20 @@ def configs_for_test():
     # config the working dir
     working_dir = pathlib.Path(os.environ["WORKING_DIR"])
     if not working_dir.is_dir():
-        print("Please specifc working dir via WORKING_DIR environment variable.")
-        raise ValueError("Invalid working dir.")
+        print("Please specifc working dir via WORKING_DIR environment variable.")      
+        working_dir = pathlib.Path("/")
+        working_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Using default config: {working_dir}.")
     cfg["WORKING_DIR"] = working_dir
+
+    # config the ota baseimage dir
+    ota_image_dir = pathlib.Path(os.environ["OTA_IMAGE_DIR"])
+    if not ota_image_dir.is_dir():
+        print("Please specifc ota image dir via OTA_IMAGE_DIR environment variable.")        
+        ota_image_dir = pathlib.Path("/ota-image")
+        ota_image_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Using default config: {ota_image_dir}.")
+    cfg["OTA_IMAGE_DIR"] = ota_image_dir
 
     # config the ota_server listen port
     try:
@@ -51,7 +62,6 @@ def dir_list(configs_for_test):
         "WORKDING_DIR": working_dir,
         "MOUNT_POINT": working_dir / "mnt",
         "ETC_DIR": working_dir / "etc",
-        "OTA_SOURCE_DIR": working_dir / "data",
         "BOOT_DIR": working_dir / "boot",
         "GRUB_DIR": working_dir / "boot/grub",
         "OTA_DIR": working_dir / "boot/ota",
@@ -100,8 +110,8 @@ def bankinfo_file(dir_list):
 
 @pytest.fixture(scope="module")
 def grub_file_default(dir_list):
-    grub_file = dir_list["ETC_DIR"] / "default_grub"
-    grub_file.write_text(GRUB_DEFAULT)
+    grub_file = dir_list["ETC_DIR"] / "default/grub"
+    # grub_file.write_text(GRUB_DEFAULT)
     return grub_file
 
 
@@ -239,9 +249,9 @@ def ota_request(configs_for_test):
 @pytest.fixture(scope="module")
 def ota_server(xprocess, configs_for_test):
     class ServerStarter(ProcessStarter):
-        timeout = 20
+        timeout = 300
         pattern = "Serving HTTP"
-        max_read_lines = 3
+        max_read_lines = 20
         args = [
             "sudo",
             "-E",
