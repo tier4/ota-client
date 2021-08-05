@@ -4,7 +4,8 @@ set -e # exit if any command failed
 # configs
 DEPENDENCIES=(python3 docker)
 TIMESTAMP_FORMAT='%Y-%m-%d %H:%M:%S'
-CONTAINER_NAME=base-image-`date +%s`
+E2E_IMAGE_NAME="e2e-test-baseimage"
+E2E_CONTAINER_NAME="e2e-test-container-`date +%s`"
 # flags
 SETUP_ENVIRONMENT=0
 DO_TEST=0
@@ -41,28 +42,29 @@ _clean_up() {
 
     ([ $SETUP_ENVIRONMENT == 1 ] && [ $DO_TEST == 0 ] ) || [ $CLEANUP == 1 ] && {
         read -rp "$(_echo "Warn" "Cleanup the working_dir $WORKING_DIR? [Y/N]:")" reply
-        echo
         if [ "$reply" == "Y" ]
         then
             rm -rf "$WORKING_DIR"
             _echo "Finished cleaning up working dir!"
         fi
+
+        read -rp "$(_echo "Warn" "Delete the test container $E2E_CONTAINER_NAME? [Y/N]:")" reply
+        if [ "$reply" == "Y" ]
+        then
+            docker rm -f "$E2E_CONTAINER_NAME"
+            _echo "Finished cleaning up test container!"
+        fi
     }
 }
 
 setup_test_environment() {
-    # check dependencies
-    _echo "Warn" "Checking dependencies..."
-    for cmd in ${DEPENDENCIES[@]}
-    do
-        _echo "Check for $cmd presents..."
-        which $cmd > /dev/null
-    done
+    CONTAINER_NAME=baseimage-`date +%s`
 
     # cp the repo to the working dir
     _echo "Copying the $REPO source codes to $WORKING_DIR..."
     cp -a "$REPO_LOCATION" "$WORKING_DIR"
-    cd "$WORKING_DIR" && _echo "Warn" "Switch to working dir. Current working_dir is `$WORKING_DIR`."
+    cd "$WORKING_DIR" && \
+        _echo "Warn" "Switch to working dir. Current working_dir is `$WORKING_DIR`."
 
     # build & prepare ota baseimage
     _echo "Warn" "Building OTA baseimage..."
@@ -72,7 +74,6 @@ setup_test_environment() {
     docker create --name $CONTAINER_NAME base-image
     docker export $CONTAINER_NAME > ./base-image.tgz
     docker rm -f $CONTAINER_NAME
-
     _echo "Finished building OTA baseimage."
 
     _echo "Warn" "Extracting OTA baseimage..."
@@ -97,22 +98,22 @@ setup_test_environment() {
         --persistent-file ./"$REPO"/e2e_tests/persistents-x1.txt
     cp ./"$REPO"/e2e_tests/persistents-x1.txt .
     _echo "Finished preparing the OTA baseimage!"
+
+    # generate e2e test baseimage
+    _echo "Warn" "Building E2E test baseimage..."
+    docker build \
+        -t $E2E_IMAGE_NAME < "./$REPO/e2e_tests/Dockerfile_E2E-test-image"
+    _echo "Finished preparing the E2E test baseimage!"
+    _echo "Warn" "The image tag is: ${E2E_IMAGE_NAME}:latest"
 }
 
 do_e2e_test() {
-    # switch to the working dir
-    cd "$WORKING_DIR" && \
-    _echo "Warn" "Switch to working dir. Current working_dir is $PWD."
-
-    # install test dependencies
-    _echo "Warn" "Install test dependencies..."
-    python3 -m pip install --upgrade pip
-    python3 -m pip install -r ./"$REPO"/app/requirements.txt
-    python3 -m pip install -r ./"$REPO"/e2e_tests/requirements.txt
-
+    # execute the ota e2e test in the container
     _echo "Warn" "Start OTA E2E test..."
-    export WORKING_DIR="$WORKING_DIR"
-    python3 -m pytest --cov-report term-missing --cov=app ./"$REPO"/e2e_tests
+    docker run -it --name $E2E_CONTAINER_NAME \
+        -v $WORKING_DIR:/ota-image:ro \
+        $E2E_IMAGE_NAME \
+        "sudo -E python3 -m pytest --cov-report term-missing --cov=app /ota-client/e2e_tests"
     _echo "Finished OTA E2E test!"
 }
 
@@ -151,6 +152,13 @@ else
 fi
 # check priviledge
 [ `whoami` != "root" ] && _echo "Error" "Please run the script under root priviledge!" && exit -1
+# check dependencies
+_echo "Warn" "Checking dependencies..."
+for cmd in ${DEPENDENCIES[@]}
+do
+    _echo "Check for $cmd presents..."
+    which $cmd > /dev/null
+done
 
 ############# start the script ################
 trap '_clean_up' SIGINT SIGKILL SIGTERM EXIT
