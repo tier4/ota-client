@@ -1,8 +1,9 @@
 FROM base-image:latest
+ARG REPO_LOCATION
 
+USER root
 # prepare the repo
 COPY ${REPO_LOCATION} /ota-client
-# setup the permission
 RUN chown -R autoware:autoware /ota-client
 
 # install dependencies
@@ -11,4 +12,3 @@ RUN python3 -m pip install --upgrade pip && \
     python3 -m pip install -r /ota-client/e2e_tests/requirements.txt
 
 WORKDIR /ota-client
-USER autoware
