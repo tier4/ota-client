@@ -44,10 +44,12 @@ def test_ota_update(
     ota_source = dir_list["OTA_SOURCE_DIR"]
 
     # walk through bank_b to check the files are correctly applied
+    test_success = True
     for entry_bank_b in bank_b.rglob("*"):
         entry_source = ota_source / entry_bank_b.relative_to(bank_b)
         # TODO: some files are generated during OTA update, should whitelist those files
-        assert _compare_files(entry_bank_b, entry_source)
+        test_success = test_success and _compare_files(entry_bank_b, entry_source)
+    assert test_success
 
     with open(fstab_file) as f:
         assert f.read() == FSTAB_BY_UUID_BANKB
