@@ -4,6 +4,7 @@ set -e # exit if any command failed
 # configs
 DEPENDENCIES=(python3 docker)
 TIMESTAMP_FORMAT='%Y-%m-%d %H:%M:%S'
+CONTAINER_NAME=baseimage-`date +%s`
 E2E_IMAGE_NAME="e2e-test-baseimage"
 E2E_CONTAINER_NAME="e2e-test-container-`date +%s`"
 # res
@@ -15,7 +16,7 @@ _print_usage() {
     echo "  -w <working_dir>       E2e test will executed under this folder."
     echo "  -r <repo_location>     The location of the to be tested repository."
     echo "  -s                     Setup the test environment."
-    echo "  -e                     Do the e2e test."
+    echo "  -e                     Do the e2e test in a docker container."
     echo "  -c                     Cleanup the working dir after the test."
     echo ""
     echo "If neither -s nor -e are set, the whole test will be carried out."
@@ -43,7 +44,7 @@ _clean_up() {
         _echo "Error" "Test failed!\n"
 
     [ "$CLEANUP" == "1" ] && {
-        read -rp "$(_echo "Cleanup the working_dir $WORKING_DIR? [Y/N]:")" reply
+        read -rp "$(_echo "Warn" "Cleanup the working_dir $WORKING_DIR? [Y/N]:")" reply
         if [ "$reply" == "Y" ]
         then
             rm -rf "$WORKING_DIR"
@@ -51,7 +52,7 @@ _clean_up() {
         fi
 
         ([ "$WHOLE_TEST" == "1" ] || [ "$DO_TEST" == "1" ]) && {
-            read -rp "$(_echo "Delete the test container $E2E_CONTAINER_NAME? [Y/N]:")" reply
+            read -rp "$(_echo "Warn" "Delete the test container $E2E_CONTAINER_NAME? [Y/N]:")" reply
             if [ "$reply" == "Y" ]
             then
                 docker rm -f "$E2E_CONTAINER_NAME"
@@ -64,8 +65,6 @@ _clean_up() {
 }
 
 setup_test_environment() {
-    CONTAINER_NAME=baseimage-`date +%s`
-
     # cp the repo to the working dir
     _echo "Copying the $REPO source codes to $WORKING_DIR...\n"
     cp -a "$REPO_LOCATION" "$WORKING_DIR"
@@ -101,7 +100,7 @@ setup_test_environment() {
         --symlink-file symlinks.txt \
         --regular-file regulars.txt \
         --rootfs-directory data \
-        --persistent-file ./"$REPO"/e2e_tests/persistents-x1.txt
+        --persistent-file "./$REPO/e2e_tests/persistents-x1.txt"
     cp "./$REPO/e2e_tests/persistents-x1.txt" .
     _echo "Finished preparing the OTA baseimage!\n"
 
