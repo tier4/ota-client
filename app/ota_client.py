@@ -862,7 +862,7 @@ class OtaClient:
 
         return True
 
-    def _process_regular_files_pool_init(self, gvar_dict, awc, te):
+    def _process_regular_files_pool_init(self, gvar_dict, awc):
         """
         Used by _process_regular_files
         Init the worker pool with shared variables
@@ -873,7 +873,6 @@ class OtaClient:
         global global_var_dict, await_counter, terminate_event
         global_var_dict = gvar_dict
         await_counter = awc
-        terminate_event = te
 
     def _process_regular_files_exit(self, gvar_dict):
         """
@@ -900,12 +899,12 @@ class OtaClient:
                 "staging-_kernel_files": manager.dict(),
             }
             await_c = manager.list()
-            terminate_e = manager.Event()
+            terminate_event = manager.Event()
 
             # default to one worker per CPU core
             with Pool(
                 initializer=self._process_regular_files_pool_init, 
-                initargs=(gvar_dict, await_c, terminate_e),
+                initargs=(gvar_dict, await_c),
             ) as pool:
 
                 # error_callback for workers
@@ -945,7 +944,7 @@ class OtaClient:
                 pool.close()
                 # wait for all tasks to complete
                 # not apply timeout currently
-                while len(await_counter) < len(rfile_inf):
+                while len(await_c) < len(rfiles_list):
                     # if one of the subprocess raise error,
                     # terminate the whole pool
                     if terminate_event.is_set():
