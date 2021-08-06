@@ -191,12 +191,12 @@ def ota_client_instance(
         )
 
     # set the attribute of otaclient
-    setattr(ota_client_instance, "_ota_dir", dir_list["OTA_DIR"])
-    setattr(ota_client_instance, "_rollback_dir", dir_list["ROLLBACK_DIR"])
-    setattr(ota_client_instance, "_grub_dir", dir_list["GRUB_DIR"])
-    setattr(ota_client_instance, "_catalog_file", dir_list["OTA_DIR"] / ".catalog")
-    setattr(ota_client_instance, "_mount_point", dir_list["MOUNT_POINT"])
-    setattr(ota_client_instance, "_fstab_file", fstab_file)
+    setattr(ota_client_instance, "_ota_dir", str(dir_list["OTA_DIR"]))
+    setattr(ota_client_instance, "_rollback_dir", str(dir_list["ROLLBACK_DIR"]))
+    setattr(ota_client_instance, "_grub_dir", str(dir_list["GRUB_DIR"]))
+    setattr(ota_client_instance, "_catalog_file", str(dir_list["OTA_DIR"] / ".catalog"))
+    setattr(ota_client_instance, "_mount_point", str(dir_list["MOUNT_POINT"]))
+    setattr(ota_client_instance, "_fstab_file", str(fstab_file))
 
     grub_ctl_object = grub_control.GrubCtl(
         default_grub_file=str(grub_file_default),
