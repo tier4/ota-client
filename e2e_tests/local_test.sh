@@ -153,6 +153,11 @@ then
     _print_usage
     exit -1
 else
+    [ ! -d "$WORKING_DIR" ] && \
+        _echo "Warn" "Specified WORKING_DIR doesn't exist!\n" && \
+        _echo "Warn" "Create the WORKING_DIR using mkdir -p\n..." && \
+        mkdir -p "$WORKING_DIR"
+
     _echo "Warn" "Get absolute paths for WORKING_DIR and REPO_LOCATION...\n"
     WORKING_DIR=`readlink -f $WORKING_DIR`
     REPO_LOCATION=`readlink -f $REPO_LOCATION`

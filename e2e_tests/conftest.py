@@ -251,17 +251,17 @@ def ota_request(configs_for_test):
 @pytest.fixture(scope="module")
 def ota_server(xprocess, configs_for_test):
     class ServerStarter(ProcessStarter):
-        timeout = 300
+        timeout = 3
         pattern = "Serving HTTP"
-        max_read_lines = 20
+        max_read_lines = 3
+        terminate_on_interrupt = True
         args = [
-            "sudo",
-            "-E",
             "python3",
+            "-u",
             "-m",
             "http.server",
             "--directory",
-            str(configs_for_test["WORKING_DIR"]),
+            str(configs_for_test["OTA_IMAGE_DIR"]),
             configs_for_test["OTA_SERVER_PORT"],
         ]
 
