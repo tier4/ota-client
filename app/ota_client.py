@@ -862,7 +862,7 @@ class OtaClient:
 
         return True
 
-    def _process_regular_files_pool_init(self, gvar_dict):
+    def _process_regular_files_pool_init(self, gvar_dict, awc, te):
         """
         Used by _process_regular_files
         Init the worker pool with shared variables
@@ -870,8 +870,10 @@ class OtaClient:
         DO NOT call this method from other functions
         except for _process_regular_files
         """
-        global global_var_dict
+        global global_var_dict, await_counter, terminate_event
         global_var_dict = gvar_dict
+        await_counter = awc
+        terminate_event = te
 
     def _process_regular_files_exit(self, gvar_dict):
         """
@@ -897,18 +899,20 @@ class OtaClient:
                 "staging-dict-_rollback_dict": manager.dict(),
                 "staging-_kernel_files": manager.dict(),
             }
+            await_c = manager.list()
+            terminate_e = manager.Event()
 
             # default to one worker per CPU core
             with Pool(
-                initializer=self._process_regular_files_pool_init, initargs=(gvar_dict,)
+                initializer=self._process_regular_files_pool_init, 
+                initargs=(gvar_dict, await_c, terminate_e),
             ) as pool:
 
                 # error_callback for workers
-                #   terminate all sub-processes
-                #   and pass exception to main process
+                #   signal the main process to terminate the pool
                 def ecb(e):
                     ecb_queue.put(e)
-                    pool.terminate()
+                    terminate_event.set()
 
                 for rfile_inf in rfiles_list:
                     if (
@@ -941,7 +945,12 @@ class OtaClient:
                 pool.close()
                 # wait for all tasks to complete
                 # not apply timeout currently
-                pool.join()
+                while len(await_counter) < len(rfile_inf):
+                    # if one of the subprocess raise error,
+                    # terminate the whole pool
+                    if terminate_event.is_set():
+                        pool.terminate()
+                        break
 
             # check if any exception is triggered
             if not ecb_queue.empty():
@@ -982,6 +991,9 @@ class OtaClient:
         except Exception as e:
             logger.exception(f"worker[{os.getpid()}]: process regular file failed!")
             raise e
+        
+        # if job finished successfully
+        await_counter.append(os.getpid())
 
     def _setup_regular_files(self, target_dir):
         """
