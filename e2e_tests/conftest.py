@@ -20,21 +20,23 @@ def configs_for_test():
     cfg = dict()
 
     # config the working dir
-    working_dir = pathlib.Path(os.environ["WORKING_DIR"])
-    if not working_dir.is_dir():
-        print("Please specifc working dir via WORKING_DIR environment variable.")      
+    try:
+        working_dir = pathlib.Path(os.environ["WORKING_DIR"])
+        if not working_dir.is_dir():
+            raise ValueError("Invalid WORKING_DIR.")
+    except:
         working_dir = pathlib.Path("/")
-        working_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Using default config: {working_dir}.")
+        print(f"WORKING_DIR: Using default value {working_dir}.")
     cfg["WORKING_DIR"] = working_dir
 
     # config the ota baseimage dir
-    ota_image_dir = pathlib.Path(os.environ["OTA_IMAGE_DIR"])
-    if not ota_image_dir.is_dir():
-        print("Please specifc ota image dir via OTA_IMAGE_DIR environment variable.")        
+    try:
+        ota_image_dir = pathlib.Path(os.environ["OTA_IMAGE_DIR"])
+        if not ota_image_dir.is_dir():
+            raise ValueError("Invalid OTA_IMAGE_DIR.")
+    except:    
         ota_image_dir = pathlib.Path("/ota-image")
-        ota_image_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Using default config: {ota_image_dir}.")
+        print(f"OTA_IMAGE_DIR: Using default value {ota_image_dir}.")
     cfg["OTA_IMAGE_DIR"] = ota_image_dir
 
     # config the ota_server listen port

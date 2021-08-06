@@ -107,7 +107,7 @@ setup_test_environment() {
     # generate e2e test baseimage
     _echo "Warn" "Building E2E test baseimage...\n"
     docker build \
-        -t $E2E_IMAGE_NAME "./$REPO" < "./$REPO/e2e_tests/Dockerfile_E2E-test-image\n"
+        -t $E2E_IMAGE_NAME "./$REPO" -f "./$REPO/e2e_tests/Dockerfile_E2E-test-image"
     _echo "Finished preparing the E2E test baseimage!\n"
     _echo "Warn" "The image tag is: ${E2E_IMAGE_NAME}:latest\n"
 }
