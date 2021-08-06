@@ -24,15 +24,22 @@ def _compare_files(path_l: pathlib.Path, path_r: pathlib.Path):
     return True
 
 
-# TODO: REFACTORING REQUIRED! ALL TEST SHOULD BE BOUNDED TOGETHER!
 # step1: apply the OTA update
-def test_ota_update(ota_request, ota_client_service_instance):
-    # check if ota is successful
+def test_ota_update(
+    dir_list,
+    ota_request, 
+    ota_client_service_instance, 
+    ota_server,
+    fstab_file,
+    custom_cfg_file,
+    ecuinfo_yaml_file,
+    ):
+    import yaml
+
+    ## check if ota is successful
     assert ota_client_service_instance._ota_update(ota_request)
 
-
-# step2.1: test the bankB and fstab file
-def test_bank_b(dir_list):
+    ## step2.1: test the bankB and fstab file
     bank_b = dir_list["BANKB_DIR"]
     ota_source = dir_list["OTA_SOURCE_DIR"]
 
@@ -42,28 +49,18 @@ def test_bank_b(dir_list):
         # TODO: some files are generated during OTA update, should whitelist those files
         assert _compare_files(entry_bank_b, entry_source)
 
-
-def test_fstab(fstab_file):
     with open(fstab_file) as f:
         assert f.read() == FSTAB_BY_UUID_BANKB
 
-
-# step2.2: test custom grub files
-def test_custom_grub(custom_cfg_file):
+    ## step2.2: test custom grub files
     with open(custom_cfg_file) as f:
         assert f.read() == GRUB_CUSTOM_CFG_BANKB
 
-
-# step2.3: test ota status
-def test_ota_status(dir_list):
+    ## step2.3: test ota status
     ota_status_file = dir_list["BOOT_DIR"] / "ota_status"
     assert ota_status_file.read_text() == UPDATED_OTA_STATUS
 
-
-# step2.4: test updated ecuinfo
-def test_updated_ecuinfo(ecuinfo_yaml_file):
-    import yaml
-
+    # step2.4: test updated ecuinfo
     expected = yaml.safe_load(UPDATED_ECUINFO_YAML)
     with open(ecuinfo_yaml_file) as f:
         updated_ecuinfo = yaml.safe_load(f)
