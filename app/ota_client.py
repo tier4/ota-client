@@ -899,11 +899,11 @@ class OtaClient:
                 "staging-_kernel_files": manager.dict(),
             }
             await_c = manager.list()
-            terminate_event = manager.Event()
+            terminate_event = manager.Event()  # use in ecb and _process_regular_files
 
             # default to one worker per CPU core
             with Pool(
-                initializer=self._process_regular_files_pool_init, 
+                initializer=self._process_regular_files_pool_init,
                 initargs=(gvar_dict, await_c),
             ) as pool:
 
@@ -956,8 +956,9 @@ class OtaClient:
                 # if any exception being raised in any child processes,
                 # raise it again in the main process.
                 logger.error(
-                    f"process regular files failed: {ecb_queue.get()}. All sub processess terminated."
+                    f"process regular files failed. All sub processess terminated."
                 )
+                logger.error(f"last exception: {ecb_queue.get()}")
                 raise OtaError(f"process regular files failed!")
             else:  # everything is ALLRIGHT!
                 # update corresponding class attribute
@@ -990,7 +991,7 @@ class OtaClient:
         except Exception as e:
             logger.exception(f"worker[{os.getpid()}]: process regular file failed!")
             raise e
-        
+
         # if job finished successfully
         await_counter.append(os.getpid())
 
