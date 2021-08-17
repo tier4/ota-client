@@ -993,7 +993,7 @@ class OtaClient:
             raise e
 
         # if job finished successfully
-        await_counter.append(os.getpid())
+        await_counter.append(True)
 
     def _setup_regular_files(self, target_dir):
         """
