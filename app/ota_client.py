@@ -870,7 +870,7 @@ class OtaClient:
         DO NOT call this method from other functions
         except for _process_regular_files
         """
-        global global_var_dict, await_counter, terminate_event
+        global global_var_dict, await_counter
         global_var_dict = gvar_dict
         await_counter = awc
 
@@ -899,7 +899,6 @@ class OtaClient:
                 "staging-_kernel_files": manager.dict(),
             }
             await_c = manager.list()
-            terminate_event = manager.Event()  # use in ecb and _process_regular_files
 
             # default to one worker per CPU core
             with Pool(
@@ -911,7 +910,6 @@ class OtaClient:
                 #   signal the main process to terminate the pool
                 def ecb(e):
                     ecb_queue.put(e)
-                    terminate_event.set()
 
                 for rfile_inf in rfiles_list:
                     if (
@@ -947,22 +945,17 @@ class OtaClient:
                 while len(await_c) < len(rfiles_list):
                     # if one of the subprocess raise error,
                     # terminate the whole pool
-                    if terminate_event.is_set():
+                    if not ecb_queue.empty():
                         pool.terminate()
-                        break
 
-            # check if any exception is triggered
-            if not ecb_queue.empty():
-                # if any exception being raised in any child processes,
-                # raise it again in the main process.
-                logger.error(
-                    f"process regular files failed. All sub processess terminated."
-                )
-                logger.error(f"last exception: {ecb_queue.get()}")
-                raise OtaError(f"process regular files failed!")
-            else:  # everything is ALLRIGHT!
-                # update corresponding class attribute
-                self._process_regular_files_exit(gvar_dict)
+                        logger.error(f"process regular files failed. All sub processess terminated.")
+                        logger.error(f"last exception: {ecb_queue.get()}")
+                        raise OtaError(f"process regular files failed!")
+
+            # everything is ALLRIGHT!
+            # update corresponding class attribute
+            self._process_regular_files_exit(gvar_dict)
+
 
     def _process_regular_file(self, rootfs_dir, target_dir, rfile_inf: RegularInf):
         """
