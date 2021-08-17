@@ -948,14 +948,15 @@ class OtaClient:
                     if not ecb_queue.empty():
                         pool.terminate()
 
-                        logger.error(f"process regular files failed. All sub processess terminated.")
+                        logger.error(
+                            f"process regular files failed. All sub processess terminated."
+                        )
                         logger.error(f"last exception: {ecb_queue.get()}")
                         raise OtaError(f"process regular files failed!")
 
             # everything is ALLRIGHT!
             # update corresponding class attribute
             self._process_regular_files_exit(gvar_dict)
-
 
     def _process_regular_file(self, rootfs_dir, target_dir, rfile_inf: RegularInf):
         """
