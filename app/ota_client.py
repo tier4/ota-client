@@ -17,29 +17,19 @@ import copy
 
 import re
 from hashlib import sha256
+from bank import BankInfo
 
+import configs as cfg
 from ota_status import OtaStatus
 from grub_control import GrubCtl
 from ota_metadata import OtaMetaData
 from multiprocessing import Process, Pool, Manager
+from exceptions import *
 
 from logging import getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
 logger.setLevel(INFO)
-
-
-class OtaError(Exception):
-    """
-    OTA error
-    """
-
-    pass
-
-
-class Error(OSError):
-    pass
-
 
 def _decapsulate(name):
     return name[1:-1].replace("'\\''", "'")
@@ -351,15 +341,27 @@ class OtaClient:
     """
     OTA Client class
     """
+    #
+    # files
+    #
+    ota_status_file = cfg.OTA_STATUS_FILE
+    ecuid_file = cfg.ECUID_FILE
+    ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
+    _grub_conf_file = cfg.GRUB_CFG_FILE
+    _fstab_file = cfg.FSTAB_FILE
+
+    #
+    # dirs
+    #
+    _ota_dir = cfg.OTA_DIR
+    _mount_point = cfg.MOUNT_POINT
+    _grub_dir = cfg.GRUB_DIR
+    _rollback_dir = cfg.ROLLBACK_DIR
 
     def __init__(
         self,
         boot_status="NORMAL_BOOT",
         url="",
-        ota_status_file="/boot/ota/ota_status",
-        bank_info_file="/boot/ota/bankinfo.yaml",
-        ecuid_file="/boot/ota/ecuid",
-        ecuinfo_yaml_file="/boot/ota/ecuinfo.yaml",
         ota_cache=None,
     ):
         """
@@ -367,18 +369,15 @@ class OtaClient:
         """
         self.__main_ecu = True
         # OTA
-        self._boot_status = boot_status
-        self._ota_status = OtaStatus(ota_status_file=ota_status_file)
-        self._ota_dir = "/boot/ota"
-        self._grub_dir = "/boot/grub"
-        self._grub_conf_file = "grub.conf"
-        self._grub_ctl = GrubCtl(bank_info_file=bank_info_file)
+        self.boot_status = boot_status
+        self._ota_status = OtaStatus(ota_status_file=self.ota_status_file)
+        self._grub_ctl = GrubCtl()
         self._boot_vmlinuz = None
         self._boot_initrd = None
         # ECU information
-        self.__my_ecuid = _read_ecuid(ecuid_file)
-        self.__ecuinfo_yaml_file = ecuinfo_yaml_file
-        self.__ecu_info = _read_ecu_info(ecuinfo_yaml_file)
+        self.__my_ecuid = _read_ecuid(self.ecuid_file)
+        self.__ecuinfo_yaml_file = self.ecuinfo_yaml_file
+        self.__ecu_info = _read_ecu_info(self.ecuinfo_yaml_file)
         self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file + ".update"
         self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
         # remote
@@ -388,13 +387,11 @@ class OtaClient:
         self._ota_cache = ota_cache
         # metadata data
         self._metadata = None
-        #
-        self._mount_point = "/mnt/bank"
+        
         if not os.path.isdir(self._mount_point):
             os.makedirs(self._mount_point, exist_ok=True)
-        self._fstab_file = "/etc/fstab"
+        
         # rollback info
-        self._rollback_dir = "/boot/ota/rollback"
         self._rollback_dict = {}
         self.backup_files = {
             "dirlist": "dirlist.txt",
@@ -421,24 +418,6 @@ class OtaClient:
 
     def _set_url(self, url):
         self.__url = url
-
-    def _is_banka(self, bank):
-        return self._grub_ctl.get_bank_info().get_banka() == bank
-
-    def _is_bankb(self, bank):
-        return self._grub_ctl.get_bank_info().get_bankb() == bank
-
-    def _get_current_bank(self):
-        return self._grub_ctl.get_bank_info().get_current_bank()
-
-    def _get_current_bank_uuid(self):
-        return self._grub_ctl.get_bank_info().get_current_bank_uuid()
-
-    def _get_next_bank(self):
-        return self._grub_ctl.get_bank_info().get_next_bank()
-
-    def _get_next_bank_uuid(self):
-        return self._grub_ctl.get_bank_info().get_next_bank_uuid()
 
     def _get_metadata_url(self):
         """
@@ -1051,47 +1030,7 @@ class OtaClient:
 
         dest_fstab_file = os.path.join(target_dir, "." + fstab_file)
 
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            with open(ftmp.name, "w") as fout:
-                with open(fstab_file, "r") as f:
-                    lines = f.readlines()
-                    for l in lines:
-                        if l[0] == "#":
-                            fout.write(l)
-                            continue
-                        fstab_list = l.split()
-                        if fstab_list[1] == "/":
-                            lnext = ""
-                            current_bank = self._get_current_bank()
-                            next_bank = self._get_next_bank()
-                            current_bank_uuid = self._get_current_bank_uuid()
-                            next_bank_uuid = self._get_next_bank_uuid()
-                            if fstab_list[0].find(current_bank) >= 0:
-                                # devf found
-                                lnext = l.replace(current_bank, next_bank)
-                            elif fstab_list[0].find(current_bank_uuid) >= 0:
-                                # uuid found
-                                lnext = l.replace(current_bank_uuid, next_bank_uuid)
-                            elif (
-                                fstab_list[0].find(current_bank) >= 0
-                                or fstab_list[0].find(next_bank_uuid) >= 0
-                            ):
-                                # next bank found
-                                logger.debug("Already set to next bank!")
-                                lnext = l
-                            else:
-                                raise (Exception("root device mismatch in fstab."))
-                            fout.write(lnext)
-                        else:
-                            fout.write(l)
-                fout.flush()
-        # replace to new fstab file
-        if os.path.exists(dest_fstab_file):
-            _copy_complete(dest_fstab_file, dest_fstab_file + ".old")
-        shutil.move(tmp_file, dest_fstab_file)
-
-        return True
+        return self._grub_ctl.gen_next_bank_fstab(dest_fstab_file)
 
     def _construct_next_bank(self, next_bank, target_dir):
         """

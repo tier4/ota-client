@@ -211,6 +211,49 @@ class GrubCtl:
 
         return True
 
+    def gen_next_bank_fstab(self, dest):
+
+        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
+            tmp_file = ftmp.name
+            with open(ftmp.name, "w") as fout:
+                with open(self._bank_info._fstab_file, "r") as f:
+                    lines = f.readlines()
+                    for l in lines:
+                        if l[0] == "#":
+                            fout.write(l)
+                            continue
+                        fstab_list = l.split()
+                        if fstab_list[1] == "/":
+                            lnext = ""
+                            current_bank = self._bank_info.get_current_bank()
+                            next_bank = self._bank_info.get_next_bank()
+                            current_bank_uuid = self._bank_info.get_current_bank_uuid()
+                            next_bank_uuid = self._bank_info.get_next_bank_uuid()
+                            if fstab_list[0].find(current_bank) >= 0:
+                                # devf found
+                                lnext = l.replace(current_bank, next_bank)
+                            elif fstab_list[0].find(current_bank_uuid) >= 0:
+                                # uuid found
+                                lnext = l.replace(current_bank_uuid, next_bank_uuid)
+                            elif (
+                                fstab_list[0].find(current_bank) >= 0
+                                or fstab_list[0].find(next_bank_uuid) >= 0
+                            ):
+                                # next bank found
+                                logger.debug("Already set to next bank!")
+                                lnext = l
+                            else:
+                                raise Exception("root device mismatch in fstab.")
+                            fout.write(lnext)
+                        else:
+                            fout.write(l)
+                fout.flush()
+        # replace to new fstab file
+        if os.path.exists(dest):
+            shutil.move(dest, dest + ".old")
+        shutil.move(tmp_file, dest)
+
+        return True
     def make_grub_custom_configuration_file(
         self, input_file, output_file, vmlinuz, initrd
     ):
