@@ -10,7 +10,7 @@ _configs_file_list = (
     'OTA_STATUS_FILE',
     'BANK_INFO_FILE',
     'ECUID_FILE',
-    'ECUID_YAML_FILE',
+    'ECUINFO_YAML_FILE',
     'CUSTOM_CONFIG_FILE',
     'GRUB_CFG_FILE',
     'GRUB_DEFAUT_FILE',
@@ -18,6 +18,7 @@ _configs_file_list = (
 )
 
 __all__ = _configs_dir_list + _configs_file_list
+# __all__ = ('GRUB_DEFAULT_FILE')
 
 #
 # dirs
@@ -26,6 +27,7 @@ OTA_DIR=Path("/boot/ota")
 GRUB_DIR=Path("/boot/grub")
 ETC_DIR=Path("/etc")
 MOUNT_POINT=Path("/mnt/bank")
+ROLLBACK_DIR=Path("/boot/ota/rollback")
 
 #
 # files
@@ -34,7 +36,7 @@ MOUNT_POINT=Path("/mnt/bank")
 OTA_STATUS_FILE=OTA_DIR / "ota_status"
 BANK_INFO_FILE=OTA_DIR / "bankinfo.yaml"
 ECUID_FILE=OTA_DIR / "ecuid"
-ECUID_YAML_FILE=OTA_DIR / "ecuinfo.yaml"
+ECUINFO_YAML_FILE=OTA_DIR / "ecuinfo.yaml"
 CUSTOM_CONFIG_FILE=GRUB_DIR / "custom.cfg"
 # system file
 GRUB_CFG_FILE=GRUB_DIR / "grub.conf"
