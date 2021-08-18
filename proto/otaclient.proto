@@ -27,7 +27,7 @@ service OtaClientService {
   rpc OtaUpdate (OtaUpdateRequest) returns (OtaUpdateReply) {}
   rpc OtaRollback (OtaRollbackRequest) returns (OtaRollbackReply) {}
   rpc OtaReboot (OtaRebootRequest) returns (OtaRebootReply) {}
-  rpc EcuStatus (EcuVersionRequest) returns (EcuStatusReply) {}
+  rpc EcuStatus (EcuStatusRequest) returns (EcuStatusReply) {}
   rpc EcuVersion (EcuVersionRequest) returns (EcuVersionReply) {}
 }
 

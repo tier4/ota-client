@@ -32,7 +32,7 @@ class OtaClientServiceStub(object):
                 )
         self.EcuStatus = channel.unary_unary(
                 '/OtaClient.OtaClientService/EcuStatus',
-                request_serializer=otaclient__pb2.EcuVersionRequest.SerializeToString,
+                request_serializer=otaclient__pb2.EcuStatusRequest.SerializeToString,
                 response_deserializer=otaclient__pb2.EcuStatusReply.FromString,
                 )
         self.EcuVersion = channel.unary_unary(
@@ -97,7 +97,7 @@ def add_OtaClientServiceServicer_to_server(servicer, server):
             ),
             'EcuStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.EcuStatus,
-                    request_deserializer=otaclient__pb2.EcuVersionRequest.FromString,
+                    request_deserializer=otaclient__pb2.EcuStatusRequest.FromString,
                     response_serializer=otaclient__pb2.EcuStatusReply.SerializeToString,
             ),
             'EcuVersion': grpc.unary_unary_rpc_method_handler(
@@ -179,7 +179,7 @@ class OtaClientService(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/OtaClient.OtaClientService/EcuStatus',
-            otaclient__pb2.EcuVersionRequest.SerializeToString,
+            otaclient__pb2.EcuStatusRequest.SerializeToString,
             otaclient__pb2.EcuStatusReply.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
