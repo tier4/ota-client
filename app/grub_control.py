@@ -7,8 +7,10 @@ import platform
 import shlex
 import shutil
 import subprocess
+
 from bank import BankInfo
-from pprint import pprint  # for debug
+from exceptions import GrubCtrolError
+import configs as cfg
 
 from logging import getLogger, INFO, DEBUG
 
@@ -99,23 +101,16 @@ class GrubCtl:
     """
     OTA GRUB control class
     """
+    _grub_cfg_file = cfg.GRUB_CFG_FILE
+    _custom_cfg_file = cfg.CUSTOM_CONFIG_FILE
+    _default_grub_file = cfg.GRUB_DEFAUT_FILE
 
-    def __init__(
-        self,
-        default_grub_file="/etc/default/grub",
-        grub_config_file="/boot/grub/grub.cfg",
-        custom_config_file="/boot/grub/custom.cfg",
-        bank_info_file="/boot/ota/bankinfo.yaml",
-        fstab_file="/etc/fstab",
-    ):
+    def __init__(self):
         """"""
-        self._bank_info = BankInfo(bank_info_file=bank_info_file, fstab_file=fstab_file)
-        self._grub_cfg_file = grub_config_file
-        self._custom_cfg_file = custom_config_file
-        self._default_grub_file = default_grub_file
+        self._bank_info = BankInfo()
 
     def get_bank_info(self):
-        return self._bank_info
+        return self._bank_info.export()
 
     def _replace_linux(self, line, vmlinuz):
         # get bank info
@@ -213,6 +208,7 @@ class GrubCtl:
             shutil.copy(config_file, config_file + ".old")
         # mv tmp file to custom config file
         shutil.move(tmp_file, config_file)
+
         return True
 
     def make_grub_custom_configuration_file(
