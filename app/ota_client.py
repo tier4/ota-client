@@ -21,6 +21,7 @@ from bank import BankInfo
 
 import configs as cfg
 from ota_status import OtaStatus
+from constants import OtaStatusString
 from grub_control import GrubCtl
 from ota_metadata import OtaMetaData
 from multiprocessing import Process, Pool, Manager
@@ -344,7 +345,6 @@ class OtaClient:
     #
     # files
     #
-    ota_status_file = cfg.OTA_STATUS_FILE
     ecuid_file = cfg.ECUID_FILE
     ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
     _grub_conf_file = cfg.GRUB_CFG_FILE
@@ -370,7 +370,7 @@ class OtaClient:
         self.__main_ecu = True
         # OTA
         self.boot_status = boot_status
-        self._ota_status = OtaStatus(ota_status_file=self.ota_status_file)
+        self._ota_status = OtaStatus()
         self._grub_ctl = GrubCtl()
         self._boot_vmlinuz = None
         self._boot_initrd = None
@@ -388,8 +388,8 @@ class OtaClient:
         # metadata data
         self._metadata = None
         
-        if not os.path.isdir(self._mount_point):
-            os.makedirs(self._mount_point, exist_ok=True)
+        if not self._mount_point.is_dir():
+            self._mount_point.mkdir(parents=True, exist_ok=True)
         
         # rollback info
         self._rollback_dict = {}
@@ -527,7 +527,7 @@ class OtaClient:
             return False
         return True
 
-    def _download_metadata(self, metadata_url):
+    def _download_metadata(self, metadata_file, metadata_url):
         """
         Download OTA metadata
         """
@@ -539,7 +539,7 @@ class OtaClient:
             logger.debug(f"response: {response.status_code}")
             if response.status_code == 200:
                 self._metadata_jwt = response.text
-                with open("/boot/ota/metadata.jwt", "w") as f:
+                with open(metadata_file, "w") as f:
                     f.write(self._metadata_jwt)
                 self._metadata = OtaMetaData(self._metadata_jwt)
             else:
@@ -606,6 +606,7 @@ class OtaClient:
             return False
         return True
 
+    # TODO: hardcoded to use tmp here
     def _download_list_file(self, url, list_file, hash=""):
         """
         Download list file(debug)
@@ -678,6 +679,7 @@ class OtaClient:
                 res = False
         return res
 
+    # TODO: hardcoded '/tmp' used
     def _setup_symboliclinks(self, target_dir):
         """
         generate symboliclinks on another bank
@@ -1067,14 +1069,15 @@ class OtaClient:
 
         return True
 
+    # TODO: move this function to grub_control?
     def _get_switch_status_for_reboot(self, next_bank):
         """
         get switch status for reboot
         """
-        if self._grub_ctl.get_bank_info().is_banka(next_bank):
-            return OtaStatus.SWITCHA_STATE
-        elif self._grub_ctl.get_bank_info().is_bankb(next_bank):
-            return OtaStatus.SWITCHB_STATE
+        if self._grub_ctl.is_banka(next_bank):
+            return OtaStatusString.SWITCHA_STATE
+        elif self._grub_ctl.is_bankb(next_bank):
+            return OtaStatusString.SWITCHB_STATE
         raise Exception("Bank is not A/B bank!")
 
     def _inform_update_error(self, error):
@@ -1128,7 +1131,7 @@ class OtaClient:
         """
         # -----------------------------------------------------------
         # set 'UPDATE' state
-        self._ota_status.set_ota_status(OtaStatus.UPDATE_STATE)
+        self._ota_status.set_ota_status(OtaStatusString.UPDATE_STATE)
         logger.debug(ecu_update_info)
         self.__url = ecu_update_info.url
         metadata = ecu_update_info.metadata
@@ -1140,11 +1143,11 @@ class OtaClient:
         #
         # download metadata
         #
-        if not self._download_metadata(metadata_jwt_url):
+        if not self._download_metadata(cfg.OTA_METADATA_FILE, metadata_jwt_url):
             # inform error
             self._inform_update_error("Can not get metadata!")
             # set 'NORMAL' state
-            self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
+            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
             return False
 
         #
@@ -1152,18 +1155,18 @@ class OtaClient:
         # set 'METADATA' state
         # self._ota_status.set_ota_status('METADATA')
 
-        next_bank = self._get_next_bank()
+        next_bank = self._grub_ctl.get_next_bank()
         if not self._construct_next_bank(next_bank, self._mount_point):
             # inform error
             self._inform_update_error("Can not construct update bank!")
             # set 'NORMAL' state
-            self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
+            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
             _unmount_bank(self._mount_point)
             return False
         #
         # -----------------------------------------------------------
         # set 'PREPARED' state
-        self._ota_status.set_ota_status(OtaStatus.PREPARED_STATE)
+        self._ota_status.set_ota_status(OtaStatusString.PREPARED_STATE)
         # unmount bank
         _unmount_bank(self._mount_point)
         return True
@@ -1172,7 +1175,7 @@ class OtaClient:
         """
         Reboot
         """
-        if self.get_ota_status() == OtaStatus.PREPARED_STATE:
+        if self.get_ota_status() == OtaStatusString.PREPARED_STATE:
             # switch reboot
             if not self._grub_ctl.prepare_grub_switching_reboot(
                 self._boot_vmlinuz, self._boot_initrd
@@ -1180,13 +1183,13 @@ class OtaClient:
                 # inform error
                 self._inform_update_error("Switching bank failed!")
                 # set 'NORMAL' state
-                self._ota_status.set_ota_status(OtaStatus.NORMAL_STATE)
+                self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
                 _unmount_bank(self._mount_point)
                 return False
             #
             # -----------------------------------------------------------
             # set 'SWITCHA/SWITCHB' state
-            next_bank = self._get_next_bank()
+            next_bank = self._grub_ctl.get_next_bank()
             next_state = self._get_switch_status_for_reboot(next_bank)
             self._ota_status.set_ota_status(next_state)
         #
@@ -1213,7 +1216,7 @@ class OtaClient:
             # OTA status
             #
             self._ota_status.dec_rollback_count()
-            self._ota_status.set_ota_status(OtaStatus.ROLLBACK_STATE)
+            self._ota_status.set_ota_status(OtaStatusString.ROLLBACK_STATE)
             #
             # rollback /boot symlinks
             #
@@ -1269,7 +1272,7 @@ class OtaClient:
             # OTA status
             #
             # set 'SWITCHA/SWITCHB' state
-            next_state = self._get_switch_status_for_reboot(self._get_next_bank())
+            next_state = self._get_switch_status_for_reboot(self._grub_ctl.get_next_bank())
             self._ota_status.set_ota_status(next_state)
             #
             # reboot

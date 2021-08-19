@@ -109,6 +109,7 @@ class GrubCtl:
         """"""
         self._bank_info = BankInfo()
 
+    # wrappers around bank_info methods
     def get_bank_info(self):
         return self._bank_info.export()
 
@@ -123,6 +124,12 @@ class GrubCtl:
     
     def get_current_bank_uuid(self):
         return self._bank_info.get_current_bank_uuid()
+
+    def is_banka(self, bank):
+        return self._bank_info.is_banka(bank)
+    
+    def is_bankb(self, bank):
+        return self._bank_info.is_bankb(bank)
 
     def _replace_linux(self, line, vmlinuz):
         # get bank info
