@@ -112,12 +112,24 @@ class GrubCtl:
     def get_bank_info(self):
         return self._bank_info.export()
 
+    def get_next_bank(self):
+        return self._bank_info.get_next_bank()
+
+    def get_next_bank_uuid(self):
+        return self._bank_info.get_next_bank_uuid()
+
+    def get_current_bank(self):
+        return self._bank_info.get_current_bank()
+    
+    def get_current_bank_uuid(self):
+        return self._bank_info.get_current_bank_uuid()
+
     def _replace_linux(self, line, vmlinuz):
         # get bank info
-        current_bank = self._bank_info.get_current_bank()
-        current_bank_uuid = self._bank_info.get_current_bank_uuid()
-        next_bank = self._bank_info.get_next_bank()
-        next_bank_uuid = self._bank_info.get_next_bank_uuid()
+        current_bank = self.get_current_bank()
+        current_bank_uuid = self.get_current_bank_uuid()
+        next_bank = self.get_next_bank()
+        next_bank_uuid = self.get_next_bank_uuid()
 
         match = re.match(r"(\s*linux\s+)(\S*)(\s+root=)(\S*)(.*)", line)
         if match is None:
@@ -225,10 +237,10 @@ class GrubCtl:
                         fstab_list = l.split()
                         if fstab_list[1] == "/":
                             lnext = ""
-                            current_bank = self._bank_info.get_current_bank()
-                            next_bank = self._bank_info.get_next_bank()
-                            current_bank_uuid = self._bank_info.get_current_bank_uuid()
-                            next_bank_uuid = self._bank_info.get_next_bank_uuid()
+                            current_bank = self.get_current_bank()
+                            next_bank = self.get_next_bank()
+                            current_bank_uuid = self.get_current_bank_uuid()
+                            next_bank_uuid = self.get_next_bank_uuid()
                             if fstab_list[0].find(current_bank) >= 0:
                                 # devf found
                                 lnext = l.replace(current_bank, next_bank)
@@ -254,6 +266,7 @@ class GrubCtl:
         shutil.move(tmp_file, dest)
 
         return True
+
     def make_grub_custom_configuration_file(
         self, input_file, output_file, vmlinuz, initrd
     ):
@@ -265,8 +278,8 @@ class GrubCtl:
         logger.debug(f"output_file: {output_file}")
 
         linux_root_re = r"linux.+root="
-        root_device_uuid_str = "root=UUID=" + self._bank_info.get_current_bank_uuid()
-        root_device_str = "root=" + self._bank_info.get_current_bank()
+        root_device_uuid_str = "root=UUID=" + self.get_current_bank_uuid()
+        root_device_str = "root=" + self.get_current_bank()
 
         def find_linux_entry(menus, uuid, device, kernel_release):
             for menu in menus:
