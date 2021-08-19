@@ -4,10 +4,10 @@ import argparse
 import sys
 import os
 
-from ota_status import OtaStatus
 from ota_boot import OtaBoot
 from ota_client import OtaClient
 from concurrent import futures
+from constants import OtaStatusString, OtaBootStatusString
 
 import grpc
 import otaclient_pb2
@@ -69,16 +69,16 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
     def _conv_ecu_status(ecu_status):
         # convert ecu_status to gRPC ecu_status
         ecu_status_table = {
-            OtaStatus.NORMAL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_NORMAL,
-            OtaStatus.UPDATE_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_UPDATING,
-            OtaStatus.PREPARED_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_DOWNLOADED,
-            OtaStatus.SWITCHA_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
-            OtaStatus.SWITCHB_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
-            OtaStatus.UPDATE_FAIL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_UPDATE_ERROR,
-            OtaStatus.ROLLBACK_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK,
-            OtaStatus.ROLLBACKA_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
-            OtaStatus.ROLLBACKB_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
-            OtaStatus.ROLLBACK_FAIL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK_ERROR,
+            OtaStatusString.NORMAL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_NORMAL,
+            OtaStatusString.UPDATE_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_UPDATING,
+            OtaStatusString.PREPARED_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_DOWNLOADED,
+            OtaStatusString.SWITCHA_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
+            OtaStatusString.SWITCHB_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
+            OtaStatusString.UPDATE_FAIL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_UPDATE_ERROR,
+            OtaStatusString.ROLLBACK_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK,
+            OtaStatusString.ROLLBACKA_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
+            OtaStatusString.ROLLBACKB_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_REBOOT,
+            OtaStatusString.ROLLBACK_FAIL_STATE: otaclient_pb2.EcuStatusType.ECU_STATUS_ROLLBACK_ERROR,
         }
         try:
             ecu_status_pb2 = ecu_status_table[ecu_status]
@@ -90,13 +90,13 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
     def _conv_ecu_boot_status(boot_status):
         # convert ecu boot_status to gRPC boot_status
         boot_status_table = {
-            OtaBoot.NORMAL_BOOT: otaclient_pb2.BootStatusType.NORMAL_BOOT,
-            OtaBoot.SWITCH_BOOT: otaclient_pb2.BootStatusType.SWITCH_BOOT,
-            OtaBoot.SWITCH_BOOT_FAIL: otaclient_pb2.BootStatusType.SWITCHING_BOOT_FAIL,
-            OtaBoot.ROLLBACK_BOOT: otaclient_pb2.BootStatusType.ROLLBACK_BOOT,
-            OtaBoot.ROLLBACK_BOOT_FAIL: otaclient_pb2.BootStatusType.ROLLBACK_BOOT_FAIL,
-            OtaBoot.UPDATE_INCOMPLETE: otaclient_pb2.BootStatusType.UPDATE_INCOMPLETE,
-            OtaBoot.ROLLBACK_INCOMPLETE: otaclient_pb2.BootStatusType.ROLLBACK_INCOMPLETE,
+            OtaBootStatusString.NORMAL_BOOT: otaclient_pb2.BootStatusType.NORMAL_BOOT,
+            OtaBootStatusString.SWITCH_BOOT: otaclient_pb2.BootStatusType.SWITCH_BOOT,
+            OtaBootStatusString.SWITCH_BOOT_FAIL: otaclient_pb2.BootStatusType.SWITCHING_BOOT_FAIL,
+            OtaBootStatusString.ROLLBACK_BOOT: otaclient_pb2.BootStatusType.ROLLBACK_BOOT,
+            OtaBootStatusString.ROLLBACK_BOOT_FAIL: otaclient_pb2.BootStatusType.ROLLBACK_BOOT_FAIL,
+            OtaBootStatusString.UPDATE_INCOMPLETE: otaclient_pb2.BootStatusType.UPDATE_INCOMPLETE,
+            OtaBootStatusString.ROLLBACK_INCOMPLETE: otaclient_pb2.BootStatusType.ROLLBACK_INCOMPLETE,
         }
         try:
             boot_status_pb2 = boot_status_table[boot_status]
