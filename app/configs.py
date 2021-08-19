@@ -14,7 +14,9 @@ _configs_file_list = (
     'CUSTOM_CONFIG_FILE',
     'GRUB_CFG_FILE',
     'GRUB_DEFAUT_FILE',
-    'FSTAB_FILE'
+    'FSTAB_FILE',
+    'OTA_ROLLBACK_FILE',
+    'OTA_METADATA_FILE'
 )
 
 __all__ = _configs_dir_list + _configs_file_list
@@ -38,6 +40,8 @@ BANK_INFO_FILE=OTA_DIR / "bankinfo.yaml"
 ECUID_FILE=OTA_DIR / "ecuid"
 ECUINFO_YAML_FILE=OTA_DIR / "ecuinfo.yaml"
 CUSTOM_CONFIG_FILE=GRUB_DIR / "custom.cfg"
+OTA_ROLLBACK_FILE=OTA_DIR / "ota_rollback_count"
+OTA_METADATA_FILE=OTA_DIR / "metadata.jwt"
 # system file
 GRUB_CFG_FILE=GRUB_DIR / "grub.conf"
 GRUB_DEFAUT_FILE=ETC_DIR / "default/grub"
