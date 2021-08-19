@@ -4,6 +4,8 @@ import tempfile
 import os
 import shutil
 
+import configs as cfg
+from constants import OtaStatusString
 from logging import getLogger, INFO
 
 logger = getLogger(__name__)
@@ -14,26 +16,10 @@ class OtaStatus:
     """
     OTA status class
     """
+    ota_status_file = cfg.OTA_STATUS_FILE
+    ota_rollback_file = cfg.OTA_ROLLBACK_FILE
 
-    # status
-    NORMAL_STATE = "NORMAL"
-    UPDATE_STATE = "UPDATE"
-    PREPARED_STATE = "PREPARED"
-    SWITCHA_STATE = "SWITCHA"
-    SWITCHB_STATE = "SWITCHB"
-    UPDATE_FAIL_STATE = "UPDATE_FAIL"
-    ROLLBACK_STATE = "ROLLBACK"
-    ROLLBACKA_STATE = "ROLLBACKA"
-    ROLLBACKB_STATE = "ROLLBACKB"
-    ROLLBACK_FAIL_STATE = "ROLLBACK_FAIL"
-
-    def __init__(
-        self,
-        ota_status_file="/boot/ota/ota_status",
-        ota_rollback_file="/boot/ota/ota_rollback_count",
-    ):
-        self._status_file = ota_status_file
-        self._rollback_file = ota_rollback_file
+    def __init__(self):
         self._status = self._initial_read_ota_status()
         self._rollback_count = self._initial_read_rollback_count()
 
@@ -86,31 +72,33 @@ class OtaStatus:
     def is_rollback_available(self):
         return self._rollback_count > 0
 
-    def _initial_read_ota_status(self):
+    @classmethod
+    def _initial_read_ota_status(cls):
         """
         initial read ota status
         """
-        logger.debug(f"ota status file: {self._status_file}")
+        logger.debug(f"ota status file: {cls._status_file}")
         try:
-            with open(self._status_file, mode="r") as f:
+            with open(cls._status_file, mode="r") as f:
                 status = f.readline().replace("\n", "")
                 logger.debug(f"line: {status}")
         except Exception:
-            logger.warning(f"No OTA status file: {self._status_file}")
-            status = self._gen_ota_status_file(self._status_file)
+            logger.warning(f"No OTA status file: {cls._status_file}")
+            status = cls._gen_ota_status_file(cls._status_file)
         return status
 
-    def _initial_read_rollback_count(self):
+    @classmethod
+    def _initial_read_rollback_count(cls):
         """"""
         count_str = "0"
-        logger.debug(f"ota status file: {self._rollback_file}")
+        logger.debug(f"ota status file: {cls._rollback_file}")
         try:
-            with open(self._rollback_file, mode="r") as f:
+            with open(cls._rollback_file, mode="r") as f:
                 count_str = f.readline().replace("\n", "")
                 logger.debug(f"rollback: {count_str}")
         except Exception:
-            logger.debug(f"No rollback count file!: {self._rollback_file}")
-            with open(self._rollback_file, mode="w") as f:
+            logger.debug(f"No rollback count file!: {cls._rollback_file}")
+            with open(cls._rollback_file, mode="w") as f:
                 f.write(count_str)
             os.sync()
         logger.debug(f"count_str: {count_str}")
