@@ -640,8 +640,6 @@ class OtaClient:
         res = True
         with open(symlinks_file, mode="r") as f:
             try:
-                cwd = os.getcwd()
-                real_root = os.open("/", os.O_RDONLY)
                 for l in f.read().splitlines():
                     slinkf = SymbolicLinkInf(l)
                     logger.debug(f"src: {slinkf.srcpath}")
