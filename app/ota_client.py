@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 
-from genericpath import isfile
 import sys
 import tempfile
 import os
-from pathlib import Path
 import stat
 import shlex
 import shutil
@@ -15,6 +13,7 @@ import yaml
 import logging
 import copy
 import re
+from pathlib import Path
 from typing import List
 from multiprocessing import Pool, Manager
 from hashlib import sha256
@@ -32,30 +31,9 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
-def _decapsulate(name) -> str:
-    return name[1:-1].replace("'\\''", "'")
-
-
 def _file_sha256(filename) -> str:
     with open(filename, "rb") as f:
-        digest = sha256(f.read()).hexdigest()
-        return digest
-
-
-def _get_separated_strings(string, search, num):
-    arr = []
-    curr = 0
-    for _ in range(num):
-        pos = string[curr:].find(search)
-        arr.append(string[curr : curr + pos])
-        curr += pos + 1
-    return arr, curr
-
-
-def _find_file_separate(string) -> int:
-    match = re.search(r"','(?!\\'')", string)  # find ',' not followed by \\''
-    return match.start()
-
+        return sha256(f.read()).hexdigest()
 
 def _copy_complete(src_file: Path, dst_file: Path):
     """
@@ -192,7 +170,7 @@ def _gen_directories(dirlist_file: Path, target_dir: Path):
             target_path = target_dir.joinpath(dirinf.path)
             logger.debug(f"target path: {target_path}")
             target_path.mkdir(mode=dirinf.mode, parents=True)
-            os.chown(target_path, dirinf.uid, dirinf.gpid)
+            os.chown(target_path, dirinf.uid, dirinf.gid)
             os.chmod(target_path, dirinf.mode)
     return True
 
@@ -263,61 +241,56 @@ def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
     shutil.move(tmp_file_name, output_file)
     return True
 
+class _baseInf:
+    @staticmethod
+    def _decapsulate(name: str) -> str:
+        return name.strip("\'\"")
 
-class DirectoryInf:
+    def __init__(self, info):
+        self._components: list = info.strip("\n", "").split(',')
+        self.mode = int(self._components.pop(0), 8)
+        self.uid = int(self._components.pop(0))
+        self.gid = int(self._components.pop(0))
+
+class DirectoryInf(_baseInf):
     """
     Directory file information class
     """
 
     def __init__(self, info):
-        line = info.strip("\n", "")
-        info_list, last = _get_separated_strings(line, ",", 3)
-        self.mode = int(info_list[0], 8)
-        self.uid = int(info_list[1])
-        self.gpid = int(info_list[2])
-        self.path = Path(_decapsulate(line[last:]))
+        super().__init__(info)
+        self.path = Path(self._decapsulate(self._components[0]))
 
 
-class SymbolicLinkInf:
+class SymbolicLinkInf(_baseInf):
     """
     Symbolik link information class
     """
 
     def __init__(self, info):
-        line = info.strip("\n", "")
-        info_list, last = _get_separated_strings(line, ",", 3)
-        self.mode = int(info_list[0], 8)
-        self.uid = int(info_list[1])
-        self.gpid = int(info_list[2])
-        sep_pos = _find_file_separate(line)
-        self.slink = Path(_decapsulate(line[last : sep_pos + 1]))
-        self.srcpath = Path(_decapsulate(line[sep_pos + 2 :]))
+        super().__init__(info)
+        self.slink = Path(self._decapsulate(self._components[0]))
+        self.srcpath = Path(self._decapsulate(self._components[1]))
 
-
-class RegularInf:
+class RegularInf(_baseInf):
     """
     Regular file information class
     """
 
     def __init__(self, info):
-        line = info.strip("\n", "")
-        info_list, last = _get_separated_strings(line, ",", 5)
-        self.mode = int(info_list[0], 8)
-        self.uid = int(info_list[1])
-        self.gpid = int(info_list[2])
-        self.links = int(info_list[3])
-        self.sha256hash = info_list[4]
-        self.path = Path(_decapsulate(line[last:]))
+        super().__init__(info)
+        self.nlink = int(self._components[0])
+        self.sha256hash = self._components[1]
+        self.path = Path(self._decapsulate(self._components[2]))
 
 
-class PersistentInf:
+class PersistentInf(_baseInf):
     """
     Persistent file information class
     """
-
     def __init__(self, info):
-        info_list = info.strip("\n", "").split(",")
-        self.path = Path(_decapsulate(info_list[0]))
+        super().__init__(info)
+        self.path = Path(self._decapsulate(self._components[0]))
 
 
 class OtaCache:
@@ -648,8 +621,8 @@ class OtaClient:
                             slinkf.srcpath.symlink_to(slinkf.slink)
                             os.chown(
                                 slinkf.slink,
-                                int(slinkf.uid),
-                                int(slinkf.gpid),
+                                slinkf.uid,
+                                slinkf.gid,
                                 follow_symlinks=False,
                             )
                         except Exception as e:
@@ -663,8 +636,8 @@ class OtaClient:
                         slinkf.srcpath.symlink_to(slink)
                         os.chown(
                             slink,
-                            int(slinkf.uid),
-                            int(slinkf.gpid),
+                            slinkf.uid,
+                            slinkf.gid,
                             follow_symlinks=False,
                         )
             except Exception as e:
@@ -719,7 +692,7 @@ class OtaClient:
 
         if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
-            logger.debug(f"links: {regular_inf.links}")
+            logger.debug(f"links: {regular_inf.nlink}")
             prev_inf.path.link_to(regular_inf.path)
         else:
             staging_rollback_dict = global_var_dict["staging-dict-_rollback_dict"]
@@ -755,7 +728,7 @@ class OtaClient:
                 else:
                     raise OtaError("File down load error!")
                 logger.debug(f"regular_file: {regular_inf.path}")
-                os.chown(regular_inf.path, regular_inf.uid, regular_inf.gpid)
+                os.chown(regular_inf.path, regular_inf.uid, regular_inf.gid)
                 os.chmod(regular_inf.path, regular_inf.mode)
 
     def _gen_regular_file(self, rootfs_dir: Path, target_dir: Path, regular_inf: RegularInf, prev_inf: RegularInf):
@@ -765,12 +738,12 @@ class OtaClient:
         dest_path = target_dir.joinpath(regular_inf.path)
         if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
-            logger.debug(f"links: {regular_inf.links}")
+            logger.debug(f"links: {regular_inf.nlink}")
             src_path = target_dir.joinpath(prev_inf.path)
             src_path.link_to(dest_path)
         else:
             # no hard link
-            logger.debug(f"No hard links: {regular_inf.links}")
+            logger.debug(f"No hard links: {regular_inf.nlink}")
             current_file: Path = regular_inf.path
             if (
                 current_file.is_file()
@@ -799,7 +772,7 @@ class OtaClient:
                     raise OtaError("File down load error!")
             logger.debug(f"regular_file: {dest_path}")
             logger.debug(f"permissoin: {regular_inf.mode}")
-            os.chown(dest_path, regular_inf.uid, regular_inf.gpid)
+            os.chown(dest_path, regular_inf.uid, regular_inf.gid)
             os.chmod(dest_path, regular_inf.mode)
 
     def _gen_regular_files(self, rootfs_dir: Path, regulars_file: RegularInf, target_dir: Path):
@@ -879,7 +852,7 @@ class OtaClient:
 
                 for rfile_inf in rfiles_list:
                     if (
-                        int(rfile_inf.links) >= 2
+                        rfile_inf.nlink >= 2
                         and rfile_inf.sha256hash
                         not in gvar_dict["tmp-dict-hardlink_reg"]
                     ):
@@ -931,7 +904,7 @@ class OtaClient:
         try:
             prev_inf: RegularInf = None
             # hardlinked file
-            if int(rfile_inf.links) >= 2:
+            if rfile_inf.nlink >= 2:
                 prev_inf = global_var_dict["tmp-dict-hardlink_reg"].setdefault(
                     rfile_inf.sha256hash, rfile_inf
                 )
