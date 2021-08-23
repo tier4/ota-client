@@ -101,7 +101,7 @@ def _gen_bankinfo_file(bank_info_file: Path, fstab_file: Path):
                 logger.debug(f"bankb: {stby_devfile}")
                 f.flush()
 
-        bank_info_file.parent().mkdir()
+        bank_info_file.parent.mkdir()
         bank_info_file.replace(tmp_file)
     return True
 
