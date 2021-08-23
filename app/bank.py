@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
 import tempfile
-import os
 import shlex
-import shutil
 import subprocess
 import yaml
 import re
@@ -55,18 +54,18 @@ def _get_current_devfile_by_fstab(fstab_file):
                 continue
             if match.group(3) == "/":
                 root_uuid = match.group(2)
-                root_devfile = os.path.realpath(f"/dev/disk/by-uuid/{match.group(2)}")
+                root_devfile = Path(f"/dev/disk/by-uuid/{match.group(2)}").resolve()
                 logger.debug(f"root_uuid: {root_uuid}, root_devfile: {root_devfile}")
             elif match.group(3) == "/boot":
                 boot_uuid = match.group(2)
-                boot_devfile = os.path.realpath(f"/dev/disk/by-uuid/{match.group(2)}")
+                boot_devfile = Path(f"/dev/disk/by-uuid/{match.group(2)}").resolve()
                 logger.debug(f"boot_uuid: {boot_uuid}, boot_devfile: {boot_devfile}")
     # NOTE: if all root_devfile, root_uuid, boot_devfile and boot_uuid are not set,
     # the following line raises exception.
     return root_devfile, root_uuid, boot_devfile, boot_uuid
 
 
-def _gen_bankinfo_file(bank_info_file, fstab_file):
+def _gen_bankinfo_file(bank_info_file: Path, fstab_file: Path):
     """
     generate the bank information file
     """
@@ -101,15 +100,13 @@ def _gen_bankinfo_file(bank_info_file, fstab_file):
                 logger.debug(f"banka: {root_devfile}")
                 logger.debug(f"bankb: {stby_devfile}")
                 f.flush()
-        os.sync()
-        dir_name = os.path.dirname(bank_info_file)
-        os.makedirs(dir_name, exist_ok=True)
-        shutil.move(tmp_file, bank_info_file)
-        os.sync()
+
+        bank_info_file.parent().mkdir()
+        bank_info_file.replace(tmp_file)
     return True
 
 
-def _get_bank_info(ota_config_file):
+def _get_bank_info(ota_config_file: Path):
     """
     get bank information
     """
@@ -193,7 +190,7 @@ class BankInfo(_baseBankInfo):
     """
     OTA Bank device info class
     """
-    _fstab_file = cfg.FSTAB_FILE
+    _fstab_file: Path = cfg.FSTAB_FILE
 
     def __init__(self):
         # init current bank status
