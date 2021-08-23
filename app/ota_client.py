@@ -191,9 +191,9 @@ def _gen_directories(dirlist_file: Path, target_dir: Path):
             logger.debug(f"dir inf: {dirinf.path}")
             target_path = target_dir.joinpath(dirinf.path)
             logger.debug(f"target path: {target_path}")
-            target_path.mkdir(mode=int(dirinf.mode, 8), parents=True)
-            os.chown(target_path, int(dirinf.uid), int(dirinf.gpid))
-            os.chmod(target_path, int(dirinf.mode, 8))
+            target_path.mkdir(mode=dirinf.mode, parents=True)
+            os.chown(target_path, dirinf.uid, dirinf.gpid)
+            os.chmod(target_path, dirinf.mode)
     return True
 
 
@@ -270,11 +270,11 @@ class DirectoryInf:
     """
 
     def __init__(self, info):
-        line = info.replace("\n", "")
+        line = info.strip("\n", "")
         info_list, last = _get_separated_strings(line, ",", 3)
-        self.mode = info_list[0]
-        self.uid = info_list[1]
-        self.gpid = info_list[2]
+        self.mode = int(info_list[0], 8)
+        self.uid = int(info_list[1])
+        self.gpid = int(info_list[2])
         self.path = Path(_decapsulate(line[last:]))
 
 
@@ -284,11 +284,11 @@ class SymbolicLinkInf:
     """
 
     def __init__(self, info):
-        line = info.replace("\n", "")
+        line = info.strip("\n", "")
         info_list, last = _get_separated_strings(line, ",", 3)
-        self.mode = info_list[0]
-        self.uid = info_list[1]
-        self.gpid = info_list[2]
+        self.mode = int(info_list[0], 8)
+        self.uid = int(info_list[1])
+        self.gpid = int(info_list[2])
         sep_pos = _find_file_separate(line)
         self.slink = Path(_decapsulate(line[last : sep_pos + 1]))
         self.srcpath = Path(_decapsulate(line[sep_pos + 2 :]))
@@ -300,12 +300,12 @@ class RegularInf:
     """
 
     def __init__(self, info):
-        line = info.replace("\n", "")
+        line = info.strip("\n", "")
         info_list, last = _get_separated_strings(line, ",", 5)
-        self.mode = info_list[0]
-        self.uid = info_list[1]
-        self.gpid = info_list[2]
-        self.links = info_list[3]
+        self.mode = int(info_list[0], 8)
+        self.uid = int(info_list[1])
+        self.gpid = int(info_list[2])
+        self.links = int(info_list[3])
         self.sha256hash = info_list[4]
         self.path = Path(_decapsulate(line[last:]))
 
@@ -316,7 +316,7 @@ class PersistentInf:
     """
 
     def __init__(self, info):
-        info_list = info.replace("\n", "").split(",")
+        info_list = info.strip("\n", "").split(",")
         self.path = Path(_decapsulate(info_list[0]))
 
 
@@ -755,8 +755,8 @@ class OtaClient:
                 else:
                     raise OtaError("File down load error!")
                 logger.debug(f"regular_file: {regular_inf.path}")
-                os.chown(regular_inf.path, int(regular_inf.uid), int(regular_inf.gpid))
-                os.chmod(regular_inf.path, int(regular_inf.mode, 8))
+                os.chown(regular_inf.path, regular_inf.uid, regular_inf.gpid)
+                os.chmod(regular_inf.path, regular_inf.mode)
 
     def _gen_regular_file(self, rootfs_dir: Path, target_dir: Path, regular_inf: RegularInf, prev_inf: RegularInf):
         """
@@ -798,9 +798,9 @@ class OtaClient:
                 else:
                     raise OtaError("File down load error!")
             logger.debug(f"regular_file: {dest_path}")
-            logger.debug(f"permissoin: {str(regular_inf.mode)}")
-            os.chown(dest_path, int(regular_inf.uid), int(regular_inf.gpid))
-            os.chmod(dest_path, int(regular_inf.mode, 8))
+            logger.debug(f"permissoin: {regular_inf.mode}")
+            os.chown(dest_path, regular_inf.uid, regular_inf.gpid)
+            os.chmod(dest_path, regular_inf.mode)
 
     def _gen_regular_files(self, rootfs_dir: Path, regulars_file: RegularInf, target_dir: Path):
         """
