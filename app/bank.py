@@ -102,7 +102,7 @@ def _gen_bankinfo_file(bank_info_file: Path, fstab_file: Path):
                 f.flush()
 
         bank_info_file.parent.mkdir()
-        bank_info_file.replace(tmp_file)
+        Path(tmp_file).replace(bank_info_file)
     return True
 
 
