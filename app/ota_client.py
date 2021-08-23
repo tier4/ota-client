@@ -31,9 +31,11 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 def _file_sha256(filename) -> str:
     with open(filename, "rb") as f:
         return sha256(f.read()).hexdigest()
+
 
 def _copy_complete(src_file: Path, dst_file: Path):
     """
@@ -58,9 +60,7 @@ def _copydirs_complete(src: Path, dst: Path):
     # check parent directory
     src_parent_dir = src.parent
     dst_parent_dir = dst.parent
-    if dst_parent_dir.is_dir() or _copydirs_complete(
-        src_parent_dir, dst_parent_dir
-    ):
+    if dst_parent_dir.is_dir() or _copydirs_complete(src_parent_dir, dst_parent_dir):
         # parent exist, make directory
         logger.debug("mkdir: {dst}")
         dst.mkdir()
@@ -241,16 +241,18 @@ def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
     shutil.move(tmp_file_name, output_file)
     return True
 
+
 class _baseInf:
     @staticmethod
     def _decapsulate(name: str) -> str:
-        return name.strip("\'\"")
+        return name.strip("'\"")
 
     def __init__(self, info):
-        self._components: list = info.strip("\n", "").split(',')
+        self._components: list = info.strip("\n", "").split(",")
         self.mode = int(self._components.pop(0), 8)
         self.uid = int(self._components.pop(0))
         self.gid = int(self._components.pop(0))
+
 
 class DirectoryInf(_baseInf):
     """
@@ -272,6 +274,7 @@ class SymbolicLinkInf(_baseInf):
         self.slink = Path(self._decapsulate(self._components[0]))
         self.srcpath = Path(self._decapsulate(self._components[1]))
 
+
 class RegularInf(_baseInf):
     """
     Regular file information class
@@ -288,6 +291,7 @@ class PersistentInf(_baseInf):
     """
     Persistent file information class
     """
+
     def __init__(self, info):
         super().__init__(info)
         self.path = Path(self._decapsulate(self._components[0]))
@@ -315,6 +319,7 @@ class OtaClient:
     """
     OTA Client class
     """
+
     #
     # files
     #
@@ -360,10 +365,10 @@ class OtaClient:
         self._ota_cache = ota_cache
         # metadata data
         self._metadata = None
-        
+
         if not self._mount_point.is_dir():
             self._mount_point.mkdir(parents=True, exist_ok=True)
-        
+
         # rollback info
         self._rollback_dict = {}
         self.backup_files = {
@@ -659,23 +664,34 @@ class OtaClient:
             # generate symboliclinks
             if self._gen_symbolic_links(tmp_list_file, target_dir):
                 # move list file to rollback dir
-                dest_file = self._rollback_dir.joinpath(self.backup_files["symlinklist"])
+                dest_file = self._rollback_dir.joinpath(
+                    self.backup_files["symlinklist"]
+                )
                 shutil.move(tmp_list_file, dest_file)
                 return True
         return False
 
-    def _download_regular_file(self, rootfs_dir: Path, target_path: Path, regular_file: Path, hash256):
+    def _download_regular_file(
+        self, rootfs_dir: Path, target_path: Path, regular_file: Path, hash256
+    ):
         """
         Download regular file
         """
         # download new file
         regular_url = urllib.parse.urljoin(
-            urllib.parse.urljoin(self.__url, rootfs_dir), urllib.parse.quote(str(regular_file))
+            urllib.parse.urljoin(self.__url, rootfs_dir),
+            urllib.parse.quote(str(regular_file)),
         )
         logger.debug(f"download file: {regular_url}")
         return self._download_raw_file_with_retry(regular_url, target_path, hash256)
 
-    def _gen_boot_dir_file(self, rootfs_dir: Path, target_dir: Path, regular_inf: RegularInf, prev_inf: RegularInf):
+    def _gen_boot_dir_file(
+        self,
+        rootfs_dir: Path,
+        target_dir: Path,
+        regular_inf: RegularInf,
+        prev_inf: RegularInf,
+    ):
         """
         generate /boot directory file
         """
@@ -731,7 +747,13 @@ class OtaClient:
                 os.chown(regular_inf.path, regular_inf.uid, regular_inf.gid)
                 os.chmod(regular_inf.path, regular_inf.mode)
 
-    def _gen_regular_file(self, rootfs_dir: Path, target_dir: Path, regular_inf: RegularInf, prev_inf: RegularInf):
+    def _gen_regular_file(
+        self,
+        rootfs_dir: Path,
+        target_dir: Path,
+        regular_inf: RegularInf,
+        prev_inf: RegularInf,
+    ):
         """
         generate regular file
         """
@@ -775,7 +797,9 @@ class OtaClient:
             os.chown(dest_path, regular_inf.uid, regular_inf.gid)
             os.chmod(dest_path, regular_inf.mode)
 
-    def _gen_regular_files(self, rootfs_dir: Path, regulars_file: RegularInf, target_dir: Path):
+    def _gen_regular_files(
+        self, rootfs_dir: Path, regulars_file: RegularInf, target_dir: Path
+    ):
         """
         generate regular files
         """
@@ -825,7 +849,9 @@ class OtaClient:
         setattr(self, "_boot_vmlinuz", gvar_dict["staging-_kernel_files"]["vmlinuz"])
         setattr(self, "_boot_initrd", gvar_dict["staging-_kernel_files"]["initrd"])
 
-    def _process_regular_files(self, rootfs_dir: Path, rfiles_list: List[RegularInf], target_dir: Path):
+    def _process_regular_files(
+        self, rootfs_dir: Path, rfiles_list: List[RegularInf], target_dir: Path
+    ):
         with Manager() as manager:
             ecb_queue = manager.Queue()
             # variables passed to child processes
@@ -897,7 +923,9 @@ class OtaClient:
             # update corresponding class attribute
             self._process_regular_files_exit(gvar_dict)
 
-    def _process_regular_file(self, rootfs_dir: Path, target_dir: Path, rfile_inf: RegularInf):
+    def _process_regular_file(
+        self, rootfs_dir: Path, target_dir: Path, rfile_inf: RegularInf
+    ):
         """
         main entry for paralleling processing regular files
         """
@@ -944,7 +972,9 @@ class OtaClient:
                 rootfsdir_info["file"], tmp_list_file, target_dir
             ):
                 # move list file to rollback dir
-                dest_file = self._rollback_dir.joinpath(self.backup_files["regularlist"])
+                dest_file = self._rollback_dir.joinpath(
+                    self.backup_files["regularlist"]
+                )
                 shutil.move(tmp_list_file, dest_file)
                 return True
             if self._boot_vmlinuz is None or self._boot_initrd is None:
@@ -1191,7 +1221,9 @@ class OtaClient:
             #
             # rollback /boot regulars
             #
-            regular_list_file = self._rollback_dir.joinpath(self.backup_files["regularlist"])
+            regular_list_file = self._rollback_dir.joinpath(
+                self.backup_files["regularlist"]
+            )
 
             with open(regular_list_file, "r") as f:
                 for l in f.readlines():
@@ -1225,7 +1257,9 @@ class OtaClient:
             # OTA status
             #
             # set 'SWITCHA/SWITCHB' state
-            next_state = self._get_switch_status_for_reboot(self._grub_ctl.get_next_bank())
+            next_state = self._get_switch_status_for_reboot(
+                self._grub_ctl.get_next_bank()
+            )
             self._ota_status.set_ota_status(next_state)
             #
             # reboot

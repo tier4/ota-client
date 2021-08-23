@@ -1,5 +1,6 @@
 # boot status
 
+
 class OtaBootStatusString:
     NORMAL_BOOT = "NORMAL_BOOT"
     SWITCH_BOOT = "SWITCH_BOOT"
@@ -8,6 +9,7 @@ class OtaBootStatusString:
     ROLLBACK_BOOT_FAIL = "ROLLBACK_BOOT_FAIL"
     UPDATE_INCOMPLETE = "UPDATE_INCOMPLETE"
     ROLLBACK_INCOMPLETE = "ROLLBACK_INCOMPLETE"
+
 
 class OtaStatusString:
     NORMAL_STATE = "NORMAL"

@@ -16,6 +16,7 @@ class OtaStatus:
     """
     OTA status class
     """
+
     ota_status_file = cfg.OTA_STATUS_FILE
     ota_rollback_file = cfg.OTA_ROLLBACK_FILE
 

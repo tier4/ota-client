@@ -14,6 +14,7 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 def _blkid_command(device=None):
     command_line = "blkid" if device is None else f"blkid {device}"
     return subprocess.check_output(shlex.split(command_line))
@@ -123,6 +124,7 @@ def _get_bank_info(ota_config_file: Path):
         logger.exception("Cannot get bank infomation!:")
     return banka, bankb
 
+
 class _baseBankInfo:
     _bank_info_file = cfg.BANK_INFO_FILE
 
@@ -186,10 +188,12 @@ class _baseBankInfo:
         """
         return bank_uuid == cls.bank_b_uuid
 
+
 class BankInfo(_baseBankInfo):
     """
     OTA Bank device info class
     """
+
     _fstab_file: Path = cfg.FSTAB_FILE
 
     def __init__(self):
@@ -262,10 +266,13 @@ class BankInfo(_baseBankInfo):
                     else:
                         logger.error("current bank is not banka or bankb!")
                         raise Exception("failed to parse fstab file.")
-        
-        self._current_bank, self._current_bank_uuid_str, self._next_bank, self._next_bank_uuid_str = (
-            _current_bank, _current_bank_uuid_str, _next_bank, _next_bank_uuid_str
-            )
+
+        (
+            self._current_bank,
+            self._current_bank_uuid_str,
+            self._next_bank,
+            self._next_bank_uuid_str,
+        ) = (_current_bank, _current_bank_uuid_str, _next_bank, _next_bank_uuid_str)
 
     def get_current_bank(self):
         """
@@ -320,6 +327,7 @@ class BankInfo(_baseBankInfo):
 
     def export(self):
         return deepcopy(self)
+
 
 if __name__ == "__main__":
     import argparse

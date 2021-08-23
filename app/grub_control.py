@@ -101,6 +101,7 @@ class GrubCtl:
     """
     OTA GRUB control class
     """
+
     _grub_cfg_file = cfg.GRUB_CFG_FILE
     _custom_cfg_file = cfg.CUSTOM_CONFIG_FILE
     _default_grub_file = cfg.GRUB_DEFAUT_FILE
@@ -121,13 +122,13 @@ class GrubCtl:
 
     def get_current_bank(self):
         return self._bank_info.get_current_bank()
-    
+
     def get_current_bank_uuid(self):
         return self._bank_info.get_current_bank_uuid()
 
     def is_banka(self, bank):
         return self._bank_info.is_banka(bank)
-    
+
     def is_bankb(self, bank):
         return self._bank_info.is_bankb(bank)
 

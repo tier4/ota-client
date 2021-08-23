@@ -13,15 +13,20 @@ from logging import getLogger, INFO, DEBUG
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
+
 class OtaBootInterface(ABC):
-    '''
+    """
     OtaBoot interface for implementing OtaBoot
-    '''
+    """
+
     # alias
     require_check, bypass_check = True, False
     check_passed, check_failed = True, False
     finalize_succeeded, finalize_failed = True, False
-    bypass_finalization_check_passed, bypass_finalization_check_failed = "no_f_c_p", "no_f_c_f"
+    bypass_finalization_check_passed, bypass_finalization_check_failed = (
+        "no_f_c_p",
+        "no_f_c_f",
+    )
     bypass_check = "no_c"
 
     # methods needed for boot checking and finalizing
@@ -43,11 +48,11 @@ class OtaBootInterface(ABC):
 
     @abstractmethod
     def boot(self):
-        '''
+        """
         main function of OtaBoot
-        '''
+        """
         pass
-    
+
     return_value = {
         finalize_succeeded: {
             OtaStatusString.SWITCHA_STATE: {
@@ -65,7 +70,7 @@ class OtaBootInterface(ABC):
             OtaStatusString.ROLLBACKB_STATE: {
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.ROLLBACK_BOOT,
-            }
+            },
         },
         finalize_failed: {
             OtaStatusString.SWITCHA_STATE: {
@@ -83,7 +88,7 @@ class OtaBootInterface(ABC):
             OtaStatusString.ROLLBACKB_STATE: {
                 OtaStatusString.ROLLBACK_FAIL_STATE,
                 OtaBootStatusString.ROLLBACK_BOOT_FAIL,
-            }       
+            },
         },
         bypass_finalization_check_passed: {},
         bypass_finalization_check_failed: {},
@@ -107,21 +112,21 @@ class OtaBootInterface(ABC):
             OtaStatusString.UPDATE_FAIL_STATE: {
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.NORMAL_BOOT,
-            }
-        }
+            },
+        },
     }
 
     def __init__(self):
-        '''
+        """
         dynamically bind methods when the concrete class is being created.
-        '''
+        """
         # step 1: check
-        self.check = {       
+        self.check = {
             OtaStatusString.SWITCHA_STATE: self._confirm_banka,
             OtaStatusString.SWITCHB_STATE: self._confirm_bankb,
             OtaStatusString.ROLLBACKA_STATE: self._confirm_banka,
             OtaStatusString.ROLLBACKB_STATE: self._confirm_bankb,
-            }
+        }
 
         # step 2: finalize
         self.finalize = {
@@ -134,10 +139,12 @@ class OtaBootInterface(ABC):
             self.check_failed: {},
         }
 
+
 class OtaBoot(OtaBootInterface):
     """
     OTA Startup class
     """
+
     _grub_config_file = cfg.GRUB_CFG_FILE
     _ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
 
@@ -145,7 +152,7 @@ class OtaBoot(OtaBootInterface):
         """
         Initialize
         """
-        super().__init__() # methods binding
+        super().__init__()  # methods binding
         self._ota_status = OtaStatus()
         self._grub_ctl = GrubCtl()
 
@@ -204,15 +211,19 @@ class OtaBoot(OtaBootInterface):
                     finalize_res: bool = self.finalize[check_res][status]()
                     res = self.return_value[finalize_res].get(status)
                 # no finalization
-                else: 
+                else:
                     if check_res:
-                        res = self.return_value[self.bypass_finalization_check_passed].get(status)
+                        res = self.return_value[
+                            self.bypass_finalization_check_passed
+                        ].get(status)
                     else:
-                        res = self.return_value[self.bypass_finalization_check_failed].get(status)
+                        res = self.return_value[
+                            self.bypass_finalization_check_failed
+                        ].get(status)
             # no check required
-            else: 
+            else:
                 res = self.return_value[self.bypass_check].get(status)
-            
+
             if res is None:
                 raise OtaBootError("unexpected boot result")
         except Exception as e:
