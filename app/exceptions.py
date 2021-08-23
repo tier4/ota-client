@@ -13,3 +13,6 @@ class GrubCtrolError(Exception):
 
 class BankError(Exception):
     pass
+
+class OtaBootError(Exception):
+    pass
