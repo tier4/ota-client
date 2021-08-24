@@ -168,9 +168,9 @@ def _gen_directories(dirlist_file: Path, target_dir: Path):
         for l in f.read().splitlines():
             dirinf = DirectoryInf(l)
             logger.debug(f"dir inf: {dirinf.path}")
-            target_path = target_dir.joinpath(dirinf.path)
+            target_path = target_dir.joinpath(dirinf.path.relative_to("/"))
             logger.debug(f"target path: {target_path}")
-            target_path.mkdir(mode=dirinf.mode, parents=True)
+            target_path.mkdir(mode=dirinf.mode, parents=True, exist_ok=True)
             os.chown(target_path, dirinf.uid, dirinf.gid)
             os.chmod(target_path, dirinf.mode)
     return True
@@ -184,6 +184,7 @@ def _copy_persistent(src_path: Path, target_dir: Path):
         dest_path = target_dir.joinpath(src_path.relative_to("/"))
     else:
         dest_path = target_dir.joinpath(src_path)
+    
     if src_path.exists():
         if src_path.is_dir():
             if dest_path.exists():
@@ -249,7 +250,7 @@ class _baseInf:
         return name.strip("'\"")
 
     def __init__(self, info):
-        self._components: list = info.strip("\n", "").split(",")
+        self._components: list = info.strip("\n").split(",")
         self.mode = int(self._components.pop(0), 8)
         self.uid = int(self._components.pop(0))
         self.gid = int(self._components.pop(0))
@@ -404,7 +405,7 @@ class OtaClient:
         """
         return urllib.parse.urljoin(self.__url, "metadata.jwt")
 
-    def _download_raw(self, url, target_file: Path):
+    def _download_raw(self, url, target_file):
         """"""
         header = self.__header_dict  # self.__cookie
         header["Accept-encording"] = "gzip"
@@ -417,14 +418,14 @@ class OtaClient:
         total_length = response.headers.get("content-length")
         if total_length is None:
             m.update(response.content)
-            target_file.write_bytes(response.content)
+            target_file.write(response.content)
         else:
             dl = 0
             total_length = int(total_length)
             for data in response.iter_content(chunk_size=4096):
                 dl += len(data)
                 m.update(data)
-                target_file.write_bytes(data)
+                target_file.write(data)
                 # TODO: not sure what these codes are for
                 # NOTE: CRITICAL:50, ERROR:40, WARNING:30, INFO:20, DEBUG:10
                 if logging.root.level <= logging.DEBUG:
@@ -458,8 +459,8 @@ class OtaClient:
                 if response.status_code != 200:
                     logger.error(f"status_code={response.status_code}, url={url}")
                     return False
-            # file move
-            shutil.move(tmp_file_name, dest_file)
+                # file move
+                shutil.move(tmp_file_name, dest_file)
         except Exception as e:
             logger.exception(f"File download error!: {e}")
             return False
@@ -617,14 +618,14 @@ class OtaClient:
                     slinkf = SymbolicLinkInf(l)
                     logger.debug(f"src: {slinkf.srcpath}")
                     logger.debug(f"slink: {slinkf.slink}")
-                    if slinkf.slink.find("/boot") == 0:
+                    if Path("/boot") in slinkf.slink.parents == 0:
                         # /boot directory
                         try:
                             dest_file = ""
                             if slinkf.slink.is_symlink():
                                 dest_dir = self._rollback_dir
                                 shutil.move(slinkf.slink, dest_dir)
-                            slinkf.srcpath.symlink_to(slinkf.slink)
+                            slinkf.slink.symlink_to(slinkf.srcpath)
                             os.chown(
                                 slinkf.slink,
                                 slinkf.uid,
@@ -638,8 +639,8 @@ class OtaClient:
                             raise (OtaError("Cannot make symbolic link."))
                     else:
                         # others
-                        slink = target_dir.joinpath(slinkf.slink)
-                        slinkf.srcpath.symlink_to(slink)
+                        slink = target_dir.joinpath(slinkf.slink.relative_to("/"))
+                        slink.symlink_to(slinkf.srcpath)
                         os.chown(
                             slink,
                             slinkf.uid,
@@ -673,22 +674,23 @@ class OtaClient:
         return False
 
     def _download_regular_file(
-        self, rootfs_dir: Path, target_path: Path, regular_file: Path, hash256
+        self, rootfs_dir: str, target_path: Path, regular_file: Path, hash256
     ):
         """
         Download regular file
         """
         # download new file
         regular_url = urllib.parse.urljoin(
-            urllib.parse.urljoin(self.__url, rootfs_dir),
-            urllib.parse.quote(str(regular_file)),
+            self.__url, urllib.parse.quote(
+                str(Path(rootfs_dir).joinpath(regular_file.relative_to("/")))
+            )
         )
         logger.debug(f"download file: {regular_url}")
         return self._download_raw_file_with_retry(regular_url, target_path, hash256)
 
     def _gen_boot_dir_file(
         self,
-        rootfs_dir: Path,
+        rootfs_dir: str,
         target_dir: Path,
         regular_inf: RegularInf,
         prev_inf: RegularInf,
@@ -750,7 +752,7 @@ class OtaClient:
 
     def _gen_regular_file(
         self,
-        rootfs_dir: Path,
+        rootfs_dir: str,
         target_dir: Path,
         regular_inf: RegularInf,
         prev_inf: RegularInf,
@@ -758,12 +760,12 @@ class OtaClient:
         """
         generate regular file
         """
-        dest_path = target_dir.joinpath(regular_inf.path)
+        dest_path = target_dir.joinpath(regular_inf.path.relative_to("/"))
         if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
             logger.debug(f"links: {regular_inf.nlink}")
-            src_path = target_dir.joinpath(prev_inf.path)
-            src_path.link_to(dest_path)
+            src_path = target_dir.joinpath(prev_inf.path.relative_to("/"))
+            dest_path.link_to(src_path)
         else:
             # no hard link
             logger.debug(f"No hard links: {regular_inf.nlink}")
@@ -799,7 +801,7 @@ class OtaClient:
             os.chmod(dest_path, regular_inf.mode)
 
     def _gen_regular_files(
-        self, rootfs_dir: Path, regulars_file: RegularInf, target_dir: Path
+        self, rootfs_dir: str, regulars_file: RegularInf, target_dir: Path
     ):
         """
         generate regular files
@@ -851,7 +853,7 @@ class OtaClient:
         setattr(self, "_boot_initrd", gvar_dict["staging-_kernel_files"]["initrd"])
 
     def _process_regular_files(
-        self, rootfs_dir: Path, rfiles_list: List[RegularInf], target_dir: Path
+        self, rootfs_dir: str, rfiles_list: List[RegularInf], target_dir: Path
     ):
         with Manager() as manager:
             ecb_queue = manager.Queue()
@@ -925,7 +927,7 @@ class OtaClient:
             self._process_regular_files_exit(gvar_dict)
 
     def _process_regular_file(
-        self, rootfs_dir: Path, target_dir: Path, rfile_inf: RegularInf
+        self, rootfs_dir: str, target_dir: Path, rfile_inf: RegularInf
     ):
         """
         main entry for paralleling processing regular files
@@ -1142,7 +1144,7 @@ class OtaClient:
         # set 'METADATA' state
         # self._ota_status.set_ota_status('METADATA')
 
-        next_bank = self._grub_ctl.get_next_bank()
+        next_bank = Path(self._grub_ctl.get_next_bank())
         if not self._construct_next_bank(next_bank, self._mount_point):
             # inform error
             self._inform_update_error("Can not construct update bank!")
