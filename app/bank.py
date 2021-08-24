@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import tempfile
+import shutil
 import shlex
 import subprocess
 import yaml
@@ -96,14 +97,14 @@ def _gen_bankinfo_file(bank_info_file: Path, fstab_file: Path):
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             tmp_file = ftmp.name
             with open(ftmp.name, "w") as f:
-                f.write("banka: " + root_devfile + "\n")
-                f.write("bankb: " + stby_devfile + "\n")
+                f.write("banka: " + str(root_devfile) + "\n")
+                f.write("bankb: " + str(stby_devfile) + "\n")
                 logger.debug(f"banka: {root_devfile}")
                 logger.debug(f"bankb: {stby_devfile}")
                 f.flush()
 
-        bank_info_file.parent.mkdir()
-        Path(tmp_file).replace(bank_info_file)
+        bank_info_file.parent.mkdir(exist_ok=True)
+        shutil.move(tmp_file, bank_info_file)
     return True
 
 
@@ -126,11 +127,15 @@ def _get_bank_info(ota_config_file: Path):
 
 
 class _baseBankInfo:
-    _bank_info_file = cfg.BANK_INFO_FILE
+    _bank_info_file: Path = cfg.BANK_INFO_FILE
+    _fstab_file: Path = cfg.FSTAB_FILE
 
-    bank_a, bank_b = _get_bank_info(_bank_info_file)
-    bank_a_uuid = _get_uuid_from_blkid(bank_a)
-    bank_b_uuid = _get_uuid_from_blkid(bank_b)
+    def __init__(self):
+        if not self._bank_info_file.is_file():
+            _gen_bankinfo_file(self._bank_info_file, self._fstab_file)
+        self.bank_a, self.bank_b = _get_bank_info(self._bank_info_file)
+        self.bank_a_uuid = _get_uuid_from_blkid(self.bank_a)
+        self.bank_b_uuid = _get_uuid_from_blkid(self.bank_b)
 
     @classmethod
     def get_banka(cls):
@@ -193,11 +198,9 @@ class BankInfo(_baseBankInfo):
     """
     OTA Bank device info class
     """
-
-    _fstab_file: Path = cfg.FSTAB_FILE
-
     def __init__(self):
         # init current bank status
+        super().__init__()
         self._setup_current_next_root_dev(self._fstab_file)
 
     def _setup_current_next_root_dev(self, fstab_file):
@@ -218,16 +221,16 @@ class BankInfo(_baseBankInfo):
                 if fstab_list[0].find("UUID=") == 0:
                     # UUID type definition
                     _current_bank_uuid_str = fstab_list[0]
-                    if _current_bank_uuid_str.find(_baseBankInfo.bank_a_uuid) >= 0:
+                    if _current_bank_uuid_str.find(self.bank_a_uuid) >= 0:
                         # current bank is A
-                        _current_bank = _baseBankInfo.bank_a
-                        _next_bank = _baseBankInfo.bank_b
-                        _next_bank_uuid_str = "UUID=" + _baseBankInfo.bank_b_uuid
-                    elif _current_bank_uuid_str.find(_baseBankInfo.bank_b_uuid) >= 0:
+                        _current_bank = self.bank_a
+                        _next_bank = self.bank_b
+                        _next_bank_uuid_str = "UUID=" + self.bank_b_uuid
+                    elif _current_bank_uuid_str.find(self.bank_b_uuid) >= 0:
                         # current bank is B
-                        _current_bank = _baseBankInfo.bank_b
-                        _next_bank = _baseBankInfo.bank_a
-                        _next_bank_uuid_str = "UUID=" + _baseBankInfo.bank_a_uuid
+                        _current_bank = self.bank_b
+                        _next_bank = self.bank_a
+                        _next_bank_uuid_str = "UUID=" + self.bank_a_uuid
                     else:
                         # current bank is another bank
                         logger.error("current bank is not banka or bankb!")
@@ -235,19 +238,19 @@ class BankInfo(_baseBankInfo):
                 elif fstab_list[0].find("/dev/disk/by-uuid/") == 0:
                     # by-uuid device file
                     _current_bank_uuid_str = fstab_list[0]
-                    if _current_bank_uuid_str.find(_baseBankInfo.bank_a_uuid) >= 0:
+                    if _current_bank_uuid_str.find(self.bank_a_uuid) >= 0:
                         # current bank is A
-                        _current_bank = _baseBankInfo.bank_a
-                        _next_bank = _baseBankInfo.bank_b
+                        _current_bank = self.bank_a
+                        _next_bank = self.bank_b
                         _next_bank_uuid_str = (
-                            "/dev/disk/by-uuid/" + _baseBankInfo.bank_b_uuid
+                            "/dev/disk/by-uuid/" + self.bank_b_uuid
                         )
-                    elif _current_bank_uuid_str.find(_baseBankInfo.bank_b_uuid) >= 0:
+                    elif _current_bank_uuid_str.find(self.bank_b_uuid) >= 0:
                         # current bank is B
-                        _current_bank = _baseBankInfo.bank_b
-                        _next_bank = _baseBankInfo.bank_a
+                        _current_bank = self.bank_b
+                        _next_bank = self.bank_a
                         _next_bank_uuid_str = (
-                            "/dev/disk/by-uuid/" + _baseBankInfo.bank_a_uuid
+                            "/dev/disk/by-uuid/" + self.bank_a_uuid
                         )
                     else:
                         logger.error("current bank is not banka or bankb!")
@@ -255,14 +258,14 @@ class BankInfo(_baseBankInfo):
                 else:
                     # device file name
                     _current_bank = fstab_list[0]
-                    if _current_bank == _baseBankInfo.bank_a:
-                        _current_bank_uuid_str = "UUID=" + _baseBankInfo.bank_a_uuid
-                        _next_bank = _baseBankInfo.bank_b
-                        _next_bank_uuid_str = "UUID" + _baseBankInfo.bank_b_uuid
-                    elif _current_bank == _baseBankInfo.bank_b:
-                        _current_bank_uuid_str = "UUID=" + _baseBankInfo.bank_b_uuid
-                        _next_bank = _baseBankInfo.bank_a
-                        _next_bank_uuid_str = "UUID=" + _baseBankInfo.bank_a_uuid
+                    if _current_bank == self.bank_a:
+                        _current_bank_uuid_str = "UUID=" + self.bank_a_uuid
+                        _next_bank = self.bank_b
+                        _next_bank_uuid_str = "UUID" + self.bank_b_uuid
+                    elif _current_bank == self.bank_b:
+                        _current_bank_uuid_str = "UUID=" + self.bank_b_uuid
+                        _next_bank = self.bank_a
+                        _next_bank_uuid_str = "UUID=" + self.bank_a_uuid
                     else:
                         logger.error("current bank is not banka or bankb!")
                         raise Exception("failed to parse fstab file.")
