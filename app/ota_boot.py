@@ -231,6 +231,6 @@ class OtaBoot(OtaBootInterface):
             raise OtaBootError(e)
 
         logger.debug(f"otaboot result: {res}")
-        result_boot, result_state = res
+        result_state, result_boot = res
         self._ota_status.set_ota_status(result_state)
         return result_boot
