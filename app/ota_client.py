@@ -20,6 +20,7 @@ from hashlib import sha256
 
 
 import configs as cfg
+import constants
 from ota_status import OtaStatus
 from constants import OtaStatusString
 from grub_control import GrubCtl
@@ -338,7 +339,7 @@ class OtaClient:
 
     def __init__(
         self,
-        boot_status="NORMAL_BOOT",
+        boot_status=constants.OtaBootStatusString.NORMAL_BOOT,
         url="",
         ota_cache=None,
     ):
@@ -356,7 +357,7 @@ class OtaClient:
         self.__my_ecuid = _read_ecuid(self.ecuid_file)
         self.__ecuinfo_yaml_file = self.ecuinfo_yaml_file
         self.__ecu_info = _read_ecu_info(self.ecuinfo_yaml_file)
-        self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file + ".update"
+        self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file.with_suffix(".update")
         self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
         # remote
         self.__url = url

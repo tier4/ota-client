@@ -3,6 +3,7 @@
 import argparse
 import sys
 import os
+import constants
 
 from ota_boot import OtaBoot
 from ota_client import OtaClient
@@ -268,7 +269,7 @@ def _daemonize(port, no_boot=False):
         sys.exit()
     if pid == 0:
         # child process
-        boot_result = "NORMAL_BOOT"
+        boot_result = constants.OtaBootStatusString.NORMAL_BOOT
         if not args.no_boot:
             # otaboot = OtaBoot(ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml')
             otaboot = OtaBoot()
@@ -303,7 +304,7 @@ if __name__ == "__main__":
         logger.info("Daemonize!")
         _daemonize(args.port)
     else:
-        boot_result = "NORMAL_BOOT"
+        boot_result = constants.OtaBootStatusString.NORMAL_BOOT
         if not args.no_boot:
             # otaboot = OtaBoot(ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml')
             otaboot = OtaBoot()

@@ -8,6 +8,8 @@ import configs as cfg
 from constants import OtaStatusString
 from logging import getLogger, INFO
 
+import constants
+
 logger = getLogger(__name__)
 logger.setLevel(INFO)
 
@@ -17,8 +19,8 @@ class OtaStatus:
     OTA status class
     """
 
-    ota_status_file = cfg.OTA_STATUS_FILE
-    ota_rollback_file = cfg.OTA_ROLLBACK_FILE
+    _status_file = cfg.OTA_STATUS_FILE
+    _rollback_file = cfg.OTA_ROLLBACK_FILE
 
     def __init__(self):
         self._status = self._initial_read_ota_status()
@@ -35,7 +37,7 @@ class OtaStatus:
                     with open(ftmp.name, mode="w") as f:
                         f.writelines(ota_status)
                     src = self._status_file
-                    dst = self._status_file + ".old"
+                    dst = self._status_file.with_suffix(".old")
                     logger.debug(f"copy src: {src} dst: {dst}")
                     shutil.copyfile(src, dst)
                     logger.debug("backuped!")
@@ -110,7 +112,7 @@ class OtaStatus:
         """
         generate OTA status file
         """
-        status = "NORMAL"
+        status = constants.OtaStatusString.NORMAL_STATE
         with tempfile.NamedTemporaryFile(delete=False) as ftmp:
             tmp_file = ftmp.name
             with open(ftmp.name, "w") as f:
