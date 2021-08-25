@@ -55,64 +55,64 @@ class OtaBootInterface(ABC):
 
     return_value = {
         finalize_succeeded: {
-            OtaStatusString.SWITCHA_STATE: {
+            OtaStatusString.SWITCHA_STATE: (
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.SWITCH_BOOT,
-            },
-            OtaStatusString.SWITCHB_STATE: {
+            ),
+            OtaStatusString.SWITCHB_STATE: (
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.SWITCH_BOOT,
-            },
-            OtaStatusString.ROLLBACKA_STATE: {
+            ),
+            OtaStatusString.ROLLBACKA_STATE: (
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.ROLLBACK_BOOT,
-            },
-            OtaStatusString.ROLLBACKB_STATE: {
+            ),
+            OtaStatusString.ROLLBACKB_STATE: (
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.ROLLBACK_BOOT,
-            },
+            ),
         },
         finalize_failed: {
-            OtaStatusString.SWITCHA_STATE: {
+            OtaStatusString.SWITCHA_STATE: (
                 OtaStatusString.UPDATE_FAIL_STATE,
                 OtaBootStatusString.SWITCH_BOOT_FAIL,
-            },
-            OtaStatusString.SWITCHB_STATE: {
+            ),
+            OtaStatusString.SWITCHB_STATE: (
                 OtaStatusString.UPDATE_FAIL_STATE,
                 OtaBootStatusString.SWITCH_BOOT_FAIL,
-            },
-            OtaStatusString.ROLLBACKA_STATE: {
+            ),
+            OtaStatusString.ROLLBACKA_STATE: (
                 OtaStatusString.ROLLBACK_FAIL_STATE,
                 OtaBootStatusString.ROLLBACK_BOOT_FAIL,
-            },
-            OtaStatusString.ROLLBACKB_STATE: {
+            ),
+            OtaStatusString.ROLLBACKB_STATE: (
                 OtaStatusString.ROLLBACK_FAIL_STATE,
                 OtaBootStatusString.ROLLBACK_BOOT_FAIL,
-            },
+            ),
         },
         bypass_finalization_check_passed: {},
         bypass_finalization_check_failed: {},
         bypass_check: {
-            OtaStatusString.NORMAL_STATE: {
+            OtaStatusString.NORMAL_STATE: (
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.NORMAL_BOOT,
-            },
-            OtaStatusString.UPDATE_STATE: {
+            ),
+            OtaStatusString.UPDATE_STATE: (
                 OtaStatusString.UPDATE_FAIL_STATE,
                 OtaBootStatusString.UPDATE_INCOMPLETE,
-            },
-            OtaStatusString.PREPARED_STATE: {
+            ),
+            OtaStatusString.PREPARED_STATE: (
                 OtaStatusString.UPDATE_FAIL_STATE,
                 OtaBootStatusString.UPDATE_INCOMPLETE,
-            },
-            OtaStatusString.ROLLBACK_STATE: {
+            ),
+            OtaStatusString.ROLLBACK_STATE: (
                 OtaStatusString.ROLLBACK_FAIL_STATE,
                 OtaBootStatusString.ROLLBACK_INCOMPLETE,
-            },
-            OtaStatusString.UPDATE_FAIL_STATE: {
+            ),
+            OtaStatusString.UPDATE_FAIL_STATE: (
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.NORMAL_BOOT,
-            },
+            ),
         },
     }
 
@@ -200,7 +200,7 @@ class OtaBoot(OtaBootInterface):
     def boot(self):
         status: str = self._ota_status.get_ota_status()
         logger.debug(f"Status: {status}")
-        res: tuple[OtaBootStatusString, OtaStatusString]
+        res: tuple[OtaStatusString, OtaBootStatusString]
 
         try:
             # step1: check
