@@ -130,12 +130,14 @@ class _baseBankInfo:
     _bank_info_file: Path = cfg.BANK_INFO_FILE
     _fstab_file: Path = cfg.FSTAB_FILE
 
-    def __init__(self):
-        if not self._bank_info_file.is_file():
-            _gen_bankinfo_file(self._bank_info_file, self._fstab_file)
-        self.bank_a, self.bank_b = _get_bank_info(self._bank_info_file)
-        self.bank_a_uuid = _get_uuid_from_blkid(self.bank_a)
-        self.bank_b_uuid = _get_uuid_from_blkid(self.bank_b)
+    def __new__(cls):
+        if not cls._bank_info_file.is_file():
+            _gen_bankinfo_file(cls._bank_info_file, cls._fstab_file)
+        cls.bank_a, cls.bank_b = _get_bank_info(cls._bank_info_file)
+        cls.bank_a_uuid = _get_uuid_from_blkid(cls.bank_a)
+        cls.bank_b_uuid = _get_uuid_from_blkid(cls.bank_b)
+
+        return super().__new__(cls)
 
     @classmethod
     def get_banka(cls):
@@ -198,16 +200,18 @@ class BankInfo(_baseBankInfo):
     """
     OTA Bank device info class
     """
+    def __new__(cls):
+        return super().__new__(cls)
+
     def __init__(self):
         # init current bank status
-        super().__init__()
-        self._setup_current_next_root_dev(self._fstab_file)
+        self._setup_current_next_root_dev()
 
-    def _setup_current_next_root_dev(self, fstab_file):
+    def _setup_current_next_root_dev(self):
         """
         setup the current/next root device from '/etc/fstab'
         """
-        with open(fstab_file, "r") as f:
+        with open(self._fstab_file, "r") as f:
             lines = f.readlines()
 
         for l in lines:
