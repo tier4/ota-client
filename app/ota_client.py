@@ -63,7 +63,7 @@ def _copydirs_complete(src: Path, dst: Path):
     dst_parent_dir = dst.parent
     if dst_parent_dir.is_dir() or _copydirs_complete(src_parent_dir, dst_parent_dir):
         # parent exist, make directory
-        logger.debug("mkdir: {dst}")
+        logger.debug(f"mkdir: {dst}")
         dst.mkdir()
         shutil.copystat(src, dst, follow_symlinks=False)
         st = os.stat(src, follow_symlinks=False)
@@ -86,11 +86,11 @@ def _copytree_complete(src: Path, dst: Path) -> Path:
     # copy entries
     for srcentry in entries:
         srcname = src.joinpath(srcentry.name)
-        dstname = src.joinpath(srcentry.name)
+        dstname = dst.joinpath(srcentry.name)
         try:
             if srcentry.is_symlink():
                 linksrc = Path(os.readlink(srcname))
-                linksrc.symlink_to(dstname)
+                dstname.symlink_to(linksrc)
                 st = os.stat(srcname, follow_symlinks=False)
                 os.chown(
                     dstname, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False
@@ -245,15 +245,15 @@ def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
 
 
 class _baseInf:
-    @staticmethod
-    def _decapsulate(name: str) -> str:
-        return name.strip("'\"")
+    _base_pattern = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)")
 
-    def __init__(self, info):
-        self._components: list = info.strip("\n").split(",")
-        self.mode = int(self._components.pop(0), 8)
-        self.uid = int(self._components.pop(0))
-        self.gid = int(self._components.pop(0))
+    def __init__(self, info: str):
+        match_res: re.Match = self._base_pattern.match(info.strip("\n"))
+        self.mode = int(match_res.group("mode"), 8)
+        self.uid = int(match_res.group("uid"))
+        self.gid = int(match_res.group("gid"))
+
+        self._left: str = match_res.group("left_over")
 
 
 class DirectoryInf(_baseInf):
@@ -263,30 +263,35 @@ class DirectoryInf(_baseInf):
 
     def __init__(self, info):
         super().__init__(info)
-        self.path = Path(self._decapsulate(self._components[0]))
+        self.path = Path(self._left.strip("\'"))
 
 
 class SymbolicLinkInf(_baseInf):
     """
     Symbolik link information class
     """
+    _pattern = re.compile(r"'(?P<link>[^\']*)','(?P<target>[^\']*)'")
 
     def __init__(self, info):
         super().__init__(info)
-        self.slink = Path(self._decapsulate(self._components[0]))
-        self.srcpath = Path(self._decapsulate(self._components[1]))
+        res = self._pattern.match(self._left)
+        self.slink = Path(res.group("link"))
+        self.srcpath = Path(res.group("target"))
 
 
 class RegularInf(_baseInf):
     """
     Regular file information class
     """
+    _pattern = re.compile(r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>[^\']+)'")
 
     def __init__(self, info):
         super().__init__(info)
-        self.nlink = int(self._components[0])
-        self.sha256hash = self._components[1]
-        self.path = Path(self._decapsulate(self._components[2]))
+
+        res = self._pattern.match(self._left)
+        self.nlink = int(res.group("nlink"))
+        self.sha256hash = res.group("hash")
+        self.path = Path(res.group("path"))
 
 
 class PersistentInf(_baseInf):
@@ -294,9 +299,8 @@ class PersistentInf(_baseInf):
     Persistent file information class
     """
 
-    def __init__(self, info):
-        super().__init__(info)
-        self.path = Path(self._decapsulate(self._components[0]))
+    def __init__(self, info: str):
+        self.path = Path(info.strip("'"))
 
 
 class OtaCache:
@@ -700,12 +704,12 @@ class OtaClient:
         """
         staging_kernel_files = global_var_dict["staging-_kernel_files"]
         # starts with `/boot/vmlinuz-`.
-        match = re.match(r"^/boot/(vmlinuz-.*)", regular_inf.path)
+        match = re.match(r"^/boot/(vmlinuz-.*)", str(regular_inf.path))
         if match is not None:
             staging_kernel_files["vmlinuz"] = match.group(1)
 
         # starts with `/boot/initrd.img-`, but doesnot end with `.old-dkms`.
-        match = re.match(r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", regular_inf.path)
+        match = re.match(r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", str(regular_inf.path))
         if match is not None:
             staging_kernel_files["initrd"] = match.group(1)
 
@@ -745,7 +749,7 @@ class OtaClient:
                     logger.debug(f"Download: {regular_inf.path}")
                     logger.debug(f"file hash: {regular_inf.sha256hash}")
                 else:
-                    raise OtaError("File down load error!")
+                    raise OtaError("Filedown load error! {regular_inf}")
                 logger.debug(f"regular_file: {regular_inf.path}")
                 os.chown(regular_inf.path, regular_inf.uid, regular_inf.gid)
                 os.chmod(regular_inf.path, regular_inf.mode)
@@ -765,7 +769,7 @@ class OtaClient:
             # create hard link
             logger.debug(f"links: {regular_inf.nlink}")
             src_path = target_dir.joinpath(prev_inf.path.relative_to("/"))
-            dest_path.link_to(src_path)
+            src_path.link_to(dest_path)
         else:
             # no hard link
             logger.debug(f"No hard links: {regular_inf.nlink}")
@@ -794,7 +798,7 @@ class OtaClient:
                     logger.debug(f"Download: {regular_inf.path}")
                     logger.debug(f"file hash: {regular_inf.sha256hash}")
                 else:
-                    raise OtaError("File down load error!")
+                    raise OtaError("File download error! {regular_inf}")
             logger.debug(f"regular_file: {dest_path}")
             logger.debug(f"permissoin: {regular_inf.mode}")
             os.chown(dest_path, regular_inf.uid, regular_inf.gid)
@@ -944,7 +948,7 @@ class OtaClient:
                 if prev_inf.path == rfile_inf.path:
                     prev_inf = None
 
-            if Path("/boot") in rfile_inf.path.parents == 0:
+            if Path("/boot") in rfile_inf.path.parents:
                 # /boot directory file
                 logger.debug(f"boot file: {rfile_inf.path}")
                 self._gen_boot_dir_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
@@ -1017,7 +1021,7 @@ class OtaClient:
             logger.error(f"file not exist: {fstab_file}")
             return False
 
-        dest_fstab_file = target_dir.joinpath(fstab_file)
+        dest_fstab_file = target_dir.joinpath(fstab_file.relative_to("/"))
 
         return self._grub_ctl.gen_next_bank_fstab(dest_fstab_file)
 
