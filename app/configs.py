@@ -1,13 +1,5 @@
 from pathlib import Path
 
-import bank
-import grub_control
-import ota_boot
-import ota_client
-import ota_client_service
-import ota_status
-import ota_metadata
-
 from logging import DEBUG, INFO, ERROR
 
 _configs_dir_list = (
@@ -34,16 +26,18 @@ _configs_file_list = (
 __all__ = _configs_dir_list + _configs_file_list
 # __all__ = ('GRUB_DEFAULT_FILE')
 
+#
 # configs
+#
 # LOG_LEVEL_TABLE = {}
 LOG_LEVEL_TABLE = {
-    bank.__name__: DEBUG,
-    grub_control.__name__: DEBUG,
-    ota_boot.__name__: DEBUG,
-    ota_client.__name__: DEBUG,
-    ota_client_service.__name__: DEBUG,
-    ota_metadata.__name__: DEBUG,
-    ota_status.__name__: DEBUG,
+    "bank": DEBUG,
+    "grub_control": DEBUG,
+    "ota_boot": DEBUG,
+    "ota_client": DEBUG,
+    "ota_client_service": DEBUG,
+    "ota_metadata": DEBUG,
+    "ota_status": DEBUG,
 }
 
 #
