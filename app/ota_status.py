@@ -11,7 +11,7 @@ from logging import getLogger, INFO
 import constants
 
 logger = getLogger(__name__)
-logger.setLevel(INFO)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, default=INFO))
 
 
 class OtaStatus:

@@ -5,6 +5,7 @@ import sys
 import os
 import constants
 
+import configs as cfg
 from ota_boot import OtaBoot
 from ota_client import OtaClient
 from concurrent import futures
@@ -17,7 +18,7 @@ import otaclient_pb2_grpc
 from logging import getLogger, INFO, DEBUG, basicConfig
 
 logger = getLogger(__name__)
-logger.setLevel(INFO)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, default=INFO))
 
 
 class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):

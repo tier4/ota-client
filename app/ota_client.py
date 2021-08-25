@@ -30,7 +30,7 @@ from exceptions import Error, OtaError
 from logging import getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(INFO)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, default=INFO))
 
 
 def _file_sha256(filename) -> str:

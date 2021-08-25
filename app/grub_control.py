@@ -12,10 +12,10 @@ from bank import BankInfo
 from exceptions import GrubCtrolError
 import configs as cfg
 
-from logging import getLogger, INFO, DEBUG
+from logging import debug, getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(INFO)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, default=INFO))
 
 
 def _make_grub_configuration_file(output_file):
