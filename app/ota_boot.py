@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from abc import ABC, abstractmethod
 from pathlib import Path
+import shutil
 
 from ota_status import OtaStatus
 from grub_control import GrubCtl
@@ -31,19 +32,19 @@ class OtaBootInterface(ABC):
 
     # methods needed for boot checking and finalizing
     @abstractmethod
-    def _confirm_banka(self):
+    def _confirm_banka(self) -> bool:
         pass
 
     @abstractmethod
-    def _confirm_bankb(self):
+    def _confirm_bankb(self)-> bool:
         pass
 
     @abstractmethod
-    def _finalize_update(self):
+    def _finalize_update(self)-> bool:
         pass
 
     @abstractmethod
-    def _finalize_rollback(self):
+    def _finalize_rollback(self)-> bool:
         pass
 
     @abstractmethod
@@ -179,23 +180,34 @@ class OtaBoot(OtaBootInterface):
                 # To do : copy for rollback
                 pass
             logger.debug(f"file move: {src_file} to {dest_file}")
-            dest_file.replace(src_file)
+            shutil.move(src_file, dest_file)
         else:
             logger.error(f"file not found: {src_file}")
             return False
         return True
 
-    def _finalize_update(self):
-        logger.debug("regenerate grub.cfg")
-        logger.debug("delete custum.cfg")
-        self._update_finalize_ecuinfo_file()
-        self._grub_ctl.re_generate_grub_config()
-        self._grub_ctl.delete_custom_cfg_file()
-        self._ota_status.inc_rollback_count()
+    def _finalize_update(self) -> bool:
+        try:
+            logger.debug("regenerate grub.cfg")
+            logger.debug("delete custum.cfg")
+            self._update_finalize_ecuinfo_file()
+            self._grub_ctl.re_generate_grub_config()
+            self._grub_ctl.delete_custom_cfg_file()
+            self._ota_status.inc_rollback_count()
+        except Exception as e:
+            logger.debug(f"finalize update failed! {e}")
+            raise e
+        
+        return True
 
-    def _finalize_rollback(self):
-        logger.debug("delete custom.cfg")
-        self._grub_ctl.delete_custom_cfg_file()
+    def _finalize_rollback(self) -> bool:
+        try:
+            logger.debug("delete custom.cfg")
+            self._grub_ctl.delete_custom_cfg_file()
+        except Exception as e:
+            logger.debug(f"finalize rollback failed! {e}")
+
+        return True
 
     def boot(self):
         status: str = self._ota_status.get_ota_status()
@@ -225,7 +237,7 @@ class OtaBoot(OtaBootInterface):
                 res = self.return_value[self.bypass_check].get(status)
 
             if res is None:
-                raise OtaBootError("unexpected boot result")
+                raise OtaBootError(f"unexpected boot result. check status: {check_res}, finalize status: {finalize_res}")
         except Exception as e:
             logger.error(f"otaboot failed: {e}")
             raise OtaBootError(e)
