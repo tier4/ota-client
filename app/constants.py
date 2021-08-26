@@ -1,6 +1,3 @@
-# boot status
-
-
 class OtaBootStatusString:
     NORMAL_BOOT = "NORMAL_BOOT"
     SWITCH_BOOT = "SWITCH_BOOT"

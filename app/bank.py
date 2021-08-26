@@ -233,16 +233,12 @@ class BankInfo(_baseBankInfo):
                         # current bank is A
                         _current_bank = self.bank_a
                         _next_bank = self.bank_b
-                        _next_bank_uuid_str = (
-                            "/dev/disk/by-uuid/" + self.bank_b_uuid
-                        )
+                        _next_bank_uuid_str = "/dev/disk/by-uuid/" + self.bank_b_uuid
                     elif _current_bank_uuid_str.find(self.bank_b_uuid) >= 0:
                         # current bank is B
                         _current_bank = self.bank_b
                         _next_bank = self.bank_a
-                        _next_bank_uuid_str = (
-                            "/dev/disk/by-uuid/" + self.bank_a_uuid
-                        )
+                        _next_bank_uuid_str = "/dev/disk/by-uuid/" + self.bank_a_uuid
                     else:
                         logger.error("current bank is not banka or bankb!")
                         raise Exception("failed to parse fstab file.")

@@ -36,15 +36,15 @@ class OtaBootInterface(ABC):
         pass
 
     @abstractmethod
-    def _confirm_bankb(self)-> bool:
+    def _confirm_bankb(self) -> bool:
         pass
 
     @abstractmethod
-    def _finalize_update(self)-> bool:
+    def _finalize_update(self) -> bool:
         pass
 
     @abstractmethod
-    def _finalize_rollback(self)-> bool:
+    def _finalize_rollback(self) -> bool:
         pass
 
     @abstractmethod
@@ -197,7 +197,7 @@ class OtaBoot(OtaBootInterface):
         except Exception as e:
             logger.debug(f"finalize update failed! {e}")
             raise e
-        
+
         return True
 
     def _finalize_rollback(self) -> bool:
@@ -237,7 +237,9 @@ class OtaBoot(OtaBootInterface):
                 res = self.return_value[self.bypass_check].get(status)
 
             if res is None:
-                raise OtaBootError(f"unexpected boot result. check status: {check_res}, finalize status: {finalize_res}")
+                raise OtaBootError(
+                    f"unexpected boot result. check status: {check_res}, finalize status: {finalize_res}"
+                )
         except Exception as e:
             logger.error(f"otaboot failed: {e}")
             raise OtaBootError(e)

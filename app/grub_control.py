@@ -195,30 +195,31 @@ class GrubCtl:
             logger.warning(f"File not exist: {config_file}")
             return False
         logger.debug("geberate temp file!")
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f, \
-            open(config_file, mode="r") as fcustom:
-                tmp_file_name = f.name
-                logger.debug(f"custum config file open: {config_file}")
-                # read lines from custum config file
-                lines = fcustom.readlines()
-                for l in lines:
-                    try:
-                        # `linux`
-                        line = self._replace_linux(l, vmlinuz)
-                        if line is not None:
-                            f.write(line)
-                            continue
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f, open(
+            config_file, mode="r"
+        ) as fcustom:
+            tmp_file_name = f.name
+            logger.debug(f"custum config file open: {config_file}")
+            # read lines from custum config file
+            lines = fcustom.readlines()
+            for l in lines:
+                try:
+                    # `linux`
+                    line = self._replace_linux(l, vmlinuz)
+                    if line is not None:
+                        f.write(line)
+                        continue
 
-                        # `initrd`
-                        line = self._replace_initrd(l, initrd)
-                        if line is not None:
-                            f.write(line)
-                            continue
+                    # `initrd`
+                    line = self._replace_initrd(l, initrd)
+                    if line is not None:
+                        f.write(line)
+                        continue
 
-                        f.write(l)
-                    except Exception as e:
-                        logger.exception("_replace_linux")
-                        return False
+                    f.write(l)
+                except Exception as e:
+                    logger.exception("_replace_linux")
+                    return False
 
         if config_file.is_file():
             # backup
@@ -380,14 +381,17 @@ class GrubCtl:
         if default is not None:
             replace_list.append({"search": "GRUB_DEFAULT=", "replace": str(default)})
 
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as ftmp, \
-            open(self._default_grub_file, mode="r") as fgrub:
+        with tempfile.NamedTemporaryFile(
+            "w", delete=False, prefix=__name__
+        ) as ftmp, open(self._default_grub_file, mode="r") as fgrub:
             temp_file = ftmp.name
             GrubCtl._replace_or_append(fgrub, ftmp, replace_list)
 
             # move temp to grub
             if self._default_grub_file.is_file():
-                shutil.move(self._default_grub_file, self._default_grub_file.with_suffix(".old"))
+                shutil.move(
+                    self._default_grub_file, self._default_grub_file.with_suffix(".old")
+                )
             shutil.move(temp_file, self._default_grub_file)
         return True
 
@@ -504,7 +508,9 @@ class GrubCtl:
         """
         # copy for rollback
         if self._grub_cfg_file.is_file():
-            shutil.copy2(self._grub_cfg_file, self._grub_cfg_file.with_suffix(".rollback"))
+            shutil.copy2(
+                self._grub_cfg_file, self._grub_cfg_file.with_suffix(".rollback")
+            )
         else:
             logger.error("grub configuratiuion file not exist!")
             return False

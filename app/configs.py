@@ -29,16 +29,16 @@ __all__ = _configs_dir_list + _configs_file_list
 #
 # configs
 #
-# LOG_LEVEL_TABLE = {}
-LOG_LEVEL_TABLE = {
-    "bank": DEBUG,
-    "grub_control": DEBUG,
-    "ota_boot": DEBUG,
-    "ota_client": DEBUG,
-    "ota_client_service": DEBUG,
-    "ota_metadata": DEBUG,
-    "ota_status": DEBUG,
-}
+LOG_LEVEL_TABLE = {}
+# LOG_LEVEL_TABLE = {
+#     "bank": DEBUG,
+#     "grub_control": DEBUG,
+#     "ota_boot": DEBUG,
+#     "ota_client": DEBUG,
+#     "ota_client_service": DEBUG,
+#     "ota_metadata": DEBUG,
+#     "ota_status": DEBUG,
+# }
 
 #
 # dirs

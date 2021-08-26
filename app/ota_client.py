@@ -185,7 +185,7 @@ def _copy_persistent(src_path: Path, target_dir: Path):
         dest_path = target_dir.joinpath(src_path.relative_to("/"))
     else:
         dest_path = target_dir.joinpath(src_path)
-    
+
     if src_path.exists():
         if src_path.is_dir():
             if dest_path.exists():
@@ -245,7 +245,9 @@ def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
 
 
 class _baseInf:
-    _base_pattern = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)")
+    _base_pattern = re.compile(
+        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
+    )
 
     def __init__(self, info: str):
         match_res: re.Match = self._base_pattern.match(info.strip("\n"))
@@ -263,13 +265,14 @@ class DirectoryInf(_baseInf):
 
     def __init__(self, info):
         super().__init__(info)
-        self.path = Path(self._left.strip("\'"))
+        self.path = Path(self._left.strip("'"))
 
 
 class SymbolicLinkInf(_baseInf):
     """
     Symbolik link information class
     """
+
     _pattern = re.compile(r"'(?P<link>[^\']*)','(?P<target>[^\']*)'")
 
     def __init__(self, info):
@@ -283,6 +286,7 @@ class RegularInf(_baseInf):
     """
     Regular file information class
     """
+
     _pattern = re.compile(r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>[^\']+)'")
 
     def __init__(self, info):
@@ -362,7 +366,9 @@ class OtaClient:
         self.__my_ecuid = _read_ecuid(self.ecuid_file)
         self.__ecuinfo_yaml_file = self.ecuinfo_yaml_file
         self.__ecu_info = _read_ecu_info(self.ecuinfo_yaml_file)
-        self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file.with_suffix(".update")
+        self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file.with_suffix(
+            ".update"
+        )
         self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
         # remote
         self.__url = url
@@ -456,7 +462,9 @@ class OtaClient:
         digest = ""
         time_stamp = str(int(time.time()))
         try:
-            with tempfile.NamedTemporaryFile("wb", delete=False, prefix=__name__+time_stamp) as ftmp:
+            with tempfile.NamedTemporaryFile(
+                "wb", delete=False, prefix=__name__ + time_stamp
+            ) as ftmp:
                 tmp_file_name = ftmp.name
                 # download
                 response, digest = self._download_raw(url, ftmp)
@@ -686,9 +694,10 @@ class OtaClient:
         """
         # download new file
         regular_url = urllib.parse.urljoin(
-            self.__url, urllib.parse.quote(
+            self.__url,
+            urllib.parse.quote(
                 str(Path(rootfs_dir).joinpath(regular_file.relative_to("/")))
-            )
+            ),
         )
         logger.debug(f"download file: {regular_url}")
         return self._download_raw_file_with_retry(regular_url, target_path, hash256)
@@ -710,7 +719,9 @@ class OtaClient:
             staging_kernel_files["vmlinuz"] = match.group(1)
 
         # starts with `/boot/initrd.img-`, but doesnot end with `.old-dkms`.
-        match = re.match(r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", str(regular_inf.path))
+        match = re.match(
+            r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", str(regular_inf.path)
+        )
         if match is not None:
             staging_kernel_files["initrd"] = match.group(1)
 
