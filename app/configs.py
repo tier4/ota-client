@@ -63,6 +63,6 @@ CUSTOM_CONFIG_FILE = GRUB_DIR / "custom.cfg"
 OTA_ROLLBACK_FILE = OTA_DIR / "ota_rollback_count"
 OTA_METADATA_FILE = OTA_DIR / "metadata.jwt"
 # system file
-GRUB_CFG_FILE = GRUB_DIR / "grub.conf"
+GRUB_CFG_FILE = GRUB_DIR / "grub.cfg"
 GRUB_DEFAUT_FILE = ETC_DIR / "default/grub"
 FSTAB_FILE = ETC_DIR / "fstab"
