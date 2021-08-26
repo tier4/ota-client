@@ -13,6 +13,7 @@ import yaml
 import logging
 import copy
 import re
+import time
 from pathlib import Path
 from typing import List
 from multiprocessing import Pool, Manager
@@ -235,11 +236,10 @@ def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
     """
     output_file = update_ecuinfo_yaml_file
     logger.info(f"output_file: {output_file}")
-    with tempfile.NamedTemporaryFile("w", delete=False) as ftmp:
+    with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as ftmp:
         tmp_file_name = ftmp.name
-        with open(tmp_file_name, "w") as f:
-            f.write(yaml.dump(update_ecu_info))
-            f.flush()
+        ftmp.write(yaml.dump(update_ecu_info))
+
     shutil.move(tmp_file_name, output_file)
     return True
 
@@ -454,17 +454,18 @@ class OtaClient:
         """
         logger.debug(f"DL File: {dest_file}")
         digest = ""
+        time_stamp = str(int(time.time()))
         try:
-            with tempfile.NamedTemporaryFile("wb", delete=False) as ftmp:
+            with tempfile.NamedTemporaryFile("wb", delete=False, prefix=__name__+time_stamp) as ftmp:
                 tmp_file_name = ftmp.name
-                logger.debug(f"temp_file: {tmp_file_name}")
                 # download
                 response, digest = self._download_raw(url, ftmp)
                 if response.status_code != 200:
                     logger.error(f"status_code={response.status_code}, url={url}")
                     return False
-                # file move
-                shutil.move(tmp_file_name, dest_file)
+
+            # file move
+            shutil.move(tmp_file_name, dest_file)
         except Exception as e:
             logger.exception(f"File download error!: {e}")
             return False
