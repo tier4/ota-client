@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from io import TextIOWrapper
+from pathlib import Path
 import tempfile
 import re
 import os
@@ -18,24 +20,22 @@ logger = getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, INFO))
 
 
-def _make_grub_configuration_file(output_file):
+def _make_grub_configuration_file(opt_file: str):
     """
     make the "grub.cfg" file
     """
     command_line = "grub-mkconfig"
+    output_file = Path(opt_file)
 
     try:
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            with open(tmp_file, mode="w") as f:
-                logger.debug(f"tmp file opened!: {ftmp.name}")
-                res = subprocess.check_call(shlex.split(command_line), stdout=f)
-            # move temp to grub.cfg
-            if os.path.exists(output_file):
-                if os.path.exists(output_file + ".old"):
-                    os.remove(output_file + ".old")
-                shutil.copy2(output_file, output_file + ".old")
-            shutil.move(tmp_file, output_file)
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
+            tmp_file = f.name
+            subprocess.check_call(shlex.split(command_line), stdout=f)
+
+        # move temp to grub.cfg
+        if output_file.is_file():
+            shutil.move(output_file, output_file.with_suffix(".old"))
+        shutil.move(tmp_file, output_file)
     except:
         logger.exception("failed genetrating grub.cfg")
         return False
@@ -186,108 +186,106 @@ class GrubCtl:
         params = match.group(3)
         return f"{label}{image}{params}\n"
 
-    def change_to_next_bank(self, config_file, vmlinuz, initrd):
+    def change_to_next_bank(self, cfg_file: str, vmlinuz, initrd):
         """
         change the custum configuration menu root partition device
         """
-        if not os.path.exists(config_file):
+        config_file = Path(cfg_file)
+        if not config_file.is_file():
             logger.warning(f"File not exist: {config_file}")
             return False
         logger.debug("geberate temp file!")
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            logger.debug(f"temp file: {ftmp.name}")
-            with open(tmp_file, mode="w") as f:
-                logger.debug("temp file open!")
-                with open(config_file, mode="r") as fcustom:
-                    logger.debug(f"custum config file open: {config_file}")
-                    # read lines from custum config file
-                    lines = fcustom.readlines()
-                    for l in lines:
-                        try:
-                            # `linux`
-                            line = self._replace_linux(l, vmlinuz)
-                            if line is not None:
-                                f.write(line)
-                                continue
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f, \
+            open(config_file, mode="r") as fcustom:
+                tmp_file_name = f.name
+                logger.debug(f"custum config file open: {config_file}")
+                # read lines from custum config file
+                lines = fcustom.readlines()
+                for l in lines:
+                    try:
+                        # `linux`
+                        line = self._replace_linux(l, vmlinuz)
+                        if line is not None:
+                            f.write(line)
+                            continue
 
-                            # `initrd`
-                            line = self._replace_initrd(l, initrd)
-                            if line is not None:
-                                f.write(line)
-                                continue
+                        # `initrd`
+                        line = self._replace_initrd(l, initrd)
+                        if line is not None:
+                            f.write(line)
+                            continue
 
-                            f.write(l)
-                        except Exception as e:
-                            logger.exception("_replace_linux")
-                            return False
+                        f.write(l)
+                    except Exception as e:
+                        logger.exception("_replace_linux")
+                        return False
 
-                    f.flush()
-        if os.path.exists(config_file):
+        if config_file.is_file():
             # backup
-            shutil.copy(config_file, config_file + ".old")
+            shutil.copy(config_file, config_file.with_suffix(".old"))
         # mv tmp file to custom config file
-        shutil.move(tmp_file, config_file)
+        shutil.move(tmp_file_name, config_file)
 
         return True
 
-    def gen_next_bank_fstab(self, dest):
+    def gen_next_bank_fstab(self, dest: Path):
 
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            with open(ftmp.name, "w") as fout:
-                with open(self._bank_info._fstab_file, "r") as f:
-                    lines = f.readlines()
-                    for l in lines:
-                        if l[0] == "#":
-                            fout.write(l)
-                            continue
-                        fstab_list = l.split()
-                        if fstab_list[1] == "/":
-                            lnext = ""
-                            current_bank = self.get_current_bank()
-                            next_bank = self.get_next_bank()
-                            current_bank_uuid = self.get_current_bank_uuid()
-                            next_bank_uuid = self.get_next_bank_uuid()
-                            if fstab_list[0].find(current_bank) >= 0:
-                                # devf found
-                                lnext = l.replace(current_bank, next_bank)
-                            elif fstab_list[0].find(current_bank_uuid) >= 0:
-                                # uuid found
-                                lnext = l.replace(current_bank_uuid, next_bank_uuid)
-                            elif (
-                                fstab_list[0].find(current_bank) >= 0
-                                or fstab_list[0].find(next_bank_uuid) >= 0
-                            ):
-                                # next bank found
-                                logger.debug("Already set to next bank!")
-                                lnext = l
-                            else:
-                                raise Exception("root device mismatch in fstab.")
-                            fout.write(lnext)
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as fout:
+            tmp_file = fout.name
+            with open(self._bank_info._fstab_file, "r") as f:
+                lines = f.readlines()
+                for l in lines:
+                    if l[0] == "#":
+                        fout.write(l)
+                        continue
+                    fstab_list = l.split()
+                    if fstab_list[1] == "/":
+                        lnext = ""
+                        current_bank = self.get_current_bank()
+                        next_bank = self.get_next_bank()
+                        current_bank_uuid = self.get_current_bank_uuid()
+                        next_bank_uuid = self.get_next_bank_uuid()
+                        if fstab_list[0].find(current_bank) >= 0:
+                            # devf found
+                            lnext = l.replace(current_bank, next_bank)
+                        elif fstab_list[0].find(current_bank_uuid) >= 0:
+                            # uuid found
+                            lnext = l.replace(current_bank_uuid, next_bank_uuid)
+                        elif (
+                            fstab_list[0].find(current_bank) >= 0
+                            or fstab_list[0].find(next_bank_uuid) >= 0
+                        ):
+                            # next bank found
+                            logger.debug("Already set to next bank!")
+                            lnext = l
                         else:
-                            fout.write(l)
-                fout.flush()
+                            raise Exception("root device mismatch in fstab.")
+                        fout.write(lnext)
+                    else:
+                        fout.write(l)
+
         # replace to new fstab file
-        if os.path.exists(dest):
-            shutil.move(dest, dest + ".old")
+        if dest.is_file():
+            shutil.move(dest, dest.with_suffix(".old"))
         shutil.move(tmp_file, dest)
 
         return True
 
     def make_grub_custom_configuration_file(
-        self, input_file, output_file, vmlinuz, initrd
+        self, input_file: Path, output_file: Path, vmlinuz, initrd
     ):
         """
         generate the custom configuration file for the another bank boot.
         """
         # input_file = self._grub_cfg_file
-        logger.debug(f"input_file: {input_file}")
-        logger.debug(f"output_file: {output_file}")
+        logger.debug(f"input_file: {str(input_file)}")
+        logger.debug(f"output_file: {str(output_file)}")
 
         linux_root_re = r"linux.+root="
         root_device_uuid_str = "root=UUID=" + self.get_current_bank_uuid()
         root_device_str = "root=" + self.get_current_bank()
+        logger.debug(f"current root uuid: {root_device_uuid_str}")
+        logger.debug(f"current bank: {root_device_str}")
 
         def find_linux_entry(menus, uuid, device, kernel_release):
             for menu in menus:
@@ -314,11 +312,9 @@ class GrubCtl:
             logger.error("No menu entry found!")
             return False
 
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            logger.debug(f"tmp file: {ftmp.name}")
-            with open(ftmp.name, mode="w") as fout:
-                fout.write(menu_entry["entry"])
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as fout:
+            tmp_file = fout.name
+            fout.write(menu_entry["entry"])
 
         try:
             # change root partition
@@ -327,15 +323,15 @@ class GrubCtl:
             logger.exception("Change next bank error:")
             return False
 
-        if os.path.exists(output_file):
+        if output_file.is_file():
             # backup
-            shutil.copy(output_file, output_file + ".old")
+            shutil.copy(output_file, output_file.with_suffix(".old"))
         # mv tmp file to custom config file
         shutil.move(tmp_file, output_file)
         return True
 
     @staticmethod
-    def _replace_or_append(infile, outfile, replace_list):
+    def _replace_or_append(infile: TextIOWrapper, outfile: TextIOWrapper, replace_list):
         """
         replaces infile with replace_list and outputs to outfile.
         if replace entry is not found in infile, the entry is appended.
@@ -384,21 +380,14 @@ class GrubCtl:
         if default is not None:
             replace_list.append({"search": "GRUB_DEFAULT=", "replace": str(default)})
 
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as ftmp, \
+            open(self._default_grub_file, mode="r") as fgrub:
             temp_file = ftmp.name
-            logger.debug(f"tem file: {ftmp.name}")
-
-            with open(ftmp.name, mode="w") as f:
-                with open(self._default_grub_file, mode="r") as fgrub:
-                    GrubCtl._replace_or_append(fgrub, f, replace_list)
-                    f.flush()
+            GrubCtl._replace_or_append(fgrub, ftmp, replace_list)
 
             # move temp to grub
-            os.sync()
-            if os.path.exists(self._default_grub_file):
-                if os.path.exists(self._default_grub_file + ".old"):
-                    os.remove(self._default_grub_file + ".old")
-                shutil.copy2(self._default_grub_file, self._default_grub_file + ".old")
+            if self._default_grub_file.is_file():
+                shutil.move(self._default_grub_file, self._default_grub_file.with_suffix(".old"))
             shutil.move(temp_file, self._default_grub_file)
         return True
 
@@ -448,7 +437,7 @@ class GrubCtl:
         self._grub_configuration(default=grub_default)
 
         # make the grub configuration file
-        res = _make_grub_configuration_file(self._grub_cfg_file)
+        res = _make_grub_configuration_file(str(self._grub_cfg_file))
         return res
 
     def set_next_boot_entry(self, menuentry_no):
@@ -477,7 +466,7 @@ class GrubCtl:
         """
         move custom.cfg file to custom.cfg.bak
         """
-        shutil.move(self._custom_cfg_file, f"{self._custom_cfg_file}.bak")
+        shutil.move(self._custom_cfg_file, self._custom_cfg_file.with_suffix(".bak"))
 
     @staticmethod
     def reboot():
@@ -514,8 +503,8 @@ class GrubCtl:
 
         """
         # copy for rollback
-        if os.path.exists(self._grub_cfg_file):
-            shutil.copy2(self._grub_cfg_file, self._grub_cfg_file + ".rollback")
+        if self._grub_cfg_file.is_file():
+            shutil.copy2(self._grub_cfg_file, self._grub_cfg_file.with_suffix(".rollback"))
         else:
             logger.error("grub configuratiuion file not exist!")
             return False

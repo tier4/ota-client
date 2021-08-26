@@ -94,14 +94,12 @@ def _gen_bankinfo_file(bank_info_file: Path, fstab_file: Path):
         logger.info(f"root: {root_devfile} boot: {boot_devfile} stby: {stby_devfile}")
         return False
     else:
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            with open(ftmp.name, "w") as f:
-                f.write("banka: " + str(root_devfile) + "\n")
-                f.write("bankb: " + str(stby_devfile) + "\n")
-                logger.debug(f"banka: {root_devfile}")
-                logger.debug(f"bankb: {stby_devfile}")
-                f.flush()
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
+            tmp_file = f.name
+            f.write("banka: " + str(root_devfile) + "\n")
+            f.write("bankb: " + str(stby_devfile) + "\n")
+            logger.debug(f"banka: {root_devfile}")
+            logger.debug(f"bankb: {stby_devfile}")
 
         bank_info_file.parent.mkdir(exist_ok=True)
         shutil.move(tmp_file, bank_info_file)
@@ -130,81 +128,70 @@ class _baseBankInfo:
     _bank_info_file: Path = cfg.BANK_INFO_FILE
     _fstab_file: Path = cfg.FSTAB_FILE
 
-    def __new__(cls):
-        if not cls._bank_info_file.is_file():
-            _gen_bankinfo_file(cls._bank_info_file, cls._fstab_file)
-        cls.bank_a, cls.bank_b = _get_bank_info(cls._bank_info_file)
-        cls.bank_a_uuid = _get_uuid_from_blkid(cls.bank_a)
-        cls.bank_b_uuid = _get_uuid_from_blkid(cls.bank_b)
+    def __init__(self):
+        if not self._bank_info_file.is_file():
+            _gen_bankinfo_file(self._bank_info_file, self._fstab_file)
+        self.bank_a, self.bank_b = _get_bank_info(self._bank_info_file)
+        self.bank_a_uuid = _get_uuid_from_blkid(self.bank_a)
+        self.bank_b_uuid = _get_uuid_from_blkid(self.bank_b)
 
-        return super().__new__(cls)
-
-    @classmethod
-    def get_banka(cls):
+    def get_banka(self):
         """
         Get bank A
         """
-        return cls.bank_a
+        return self.bank_a
 
-    @classmethod
-    def get_banka_uuid(cls):
+    def get_banka_uuid(self):
         """
         Get bank A UUID
         """
-        return cls.bank_a_uuid
+        return self.bank_a_uuid
 
-    @classmethod
-    def is_banka(cls, bank):
+    def is_banka(self, bank):
         """
         Is bank A
         """
-        return bank == cls.bank_a
+        return bank == self.bank_a
 
-    @classmethod
-    def is_banka_uuid(cls, bank_uuid):
+    def is_banka_uuid(self, bank_uuid):
         """
         Is bank A UUID
         """
-        return bank_uuid == cls.bank_a_uuid
+        return bank_uuid == self.bank_a_uuid
 
-    @classmethod
-    def get_bankb(cls):
+    def get_bankb(self):
         """
         Get bank B
         """
-        return cls.bank_b
+        return self.bank_b
 
-    @classmethod
-    def get_bankb_uuid(cls):
+    def get_bankb_uuid(self):
         """
         Get bank B UUID
         """
-        return cls.bank_b_uuid
+        return self.bank_b_uuid
 
-    @classmethod
-    def is_bankb(cls, bank):
+    def is_bankb(self, bank):
         """
         Is bank B
         """
-        return bank == cls.bank_b
+        return bank == self.bank_b
 
-    @classmethod
-    def is_bankb_uuid(cls, bank_uuid):
+    def is_bankb_uuid(self, bank_uuid):
         """
         Is bank B UUID
         """
-        return bank_uuid == cls.bank_b_uuid
+        return bank_uuid == self.bank_b_uuid
 
 
 class BankInfo(_baseBankInfo):
     """
     OTA Bank device info class
     """
-    def __new__(cls):
-        return super().__new__(cls)
 
     def __init__(self):
         # init current bank status
+        super().__init__()
         self._setup_current_next_root_dev()
 
     def _setup_current_next_root_dev(self):

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
 import tempfile
 import os
 import shutil
@@ -32,7 +33,7 @@ class OtaStatus:
         """
         try:
             if self._status != ota_status:
-                with tempfile.NamedTemporaryFile(delete=False) as ftmp:
+                with tempfile.NamedTemporaryFile(delete=False, prefix=__name__) as ftmp:
                     logger.debug(f"tmp file: {ftmp.name}")
                     with open(ftmp.name, mode="w") as f:
                         f.writelines(ota_status)
@@ -108,20 +109,18 @@ class OtaStatus:
         return int(count_str)
 
     @staticmethod
-    def _gen_ota_status_file(ota_status_file):
+    def _gen_ota_status_file(ota_status_file: Path):
         """
         generate OTA status file
         """
         status = constants.OtaStatusString.NORMAL_STATE
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            with open(ftmp.name, "w") as f:
-                f.write(status)
-                f.flush()
-        os.sync()
-        dir_name = os.path.dirname(ota_status_file)
-        os.makedirs(dir_name, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
+            tmp_file = f.name
+            f.write(status)
+
+        dir_name: Path = ota_status_file.parent()
+        dir_name.mkdir(exist_ok=True, parents=True)
         shutil.move(tmp_file, ota_status_file)
         logger.info(f"{ota_status_file}  generated.")
-        os.sync()
+
         return status
