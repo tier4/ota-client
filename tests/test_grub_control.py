@@ -97,17 +97,9 @@ def grub_ctl_instance(tmp_path: Path, mocker, bankinfo_file, custom_cfg_file):
     return grub_ctl
 
 
-def test_grub_ctl_grub_configuration(mocker, tmp_path: Path, grub_file_default: Path):
-    import grub_control
-    import bank
-
-    mocker.patch.object(grub_control.GrubCtl, "_default_grub_file", grub_file_default)
-    mocker.patch.object(
-        bank, "_get_current_devfile_by_fstab", return_value=("", "", "", "")
-    )
-    grub_ctl = grub_control.GrubCtl()
-    r = grub_ctl._grub_configuration()
-    assert r
+def test_grub_ctl_grub_configuration(mocker, tmp_path: Path, grub_file_default: Path, grub_ctl_instance):
+    mocker.patch.object(grub_ctl_instance, "_default_grub_file", grub_file_default)
+    assert grub_ctl_instance._grub_configuration()
 
     grub_exp = """\
 GRUB_DEFAULT=0
