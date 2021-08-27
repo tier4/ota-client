@@ -95,20 +95,20 @@ class OtaBootInterface(ABC):
         bypass_finalization_check_failed: {
             OtaStatusString.SWITCHA_STATE: (
                 OtaStatusString.UPDATE_FAIL_STATE,
-                OtaBootStatusString.SWITCH_BOOT_FAIL
+                OtaBootStatusString.SWITCH_BOOT_FAIL,
             ),
             OtaStatusString.SWITCHB_STATE: (
                 OtaStatusString.UPDATE_FAIL_STATE,
-                OtaBootStatusString.SWITCH_BOOT_FAIL
+                OtaBootStatusString.SWITCH_BOOT_FAIL,
             ),
             OtaStatusString.ROLLBACKA_STATE: (
                 OtaStatusString.ROLLBACK_FAIL_STATE,
-                OtaBootStatusString.ROLLBACK_BOOT_FAIL
+                OtaBootStatusString.ROLLBACK_BOOT_FAIL,
             ),
             OtaStatusString.ROLLBACKB_STATE: (
                 OtaStatusString.ROLLBACK_FAIL_STATE,
-                OtaBootStatusString.ROLLBACK_BOOT_FAIL
-            )
+                OtaBootStatusString.ROLLBACK_BOOT_FAIL,
+            ),
         },
         bypass_check: {
             OtaStatusString.NORMAL_STATE: (
@@ -190,7 +190,9 @@ class OtaBoot(OtaBootInterface):
 
     def _update_finalize_ecuinfo_file(self):
         """"""
-        src_file: Path = self._ecuinfo_yaml_file.with_suffix(self._ecuinfo_yaml_file.suffix + ".update")
+        src_file: Path = self._ecuinfo_yaml_file.with_suffix(
+            self._ecuinfo_yaml_file.suffix + ".update"
+        )
         dest_file: Path = self._ecuinfo_yaml_file
         if src_file.is_file():
             if dest_file.exists():

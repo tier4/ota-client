@@ -6,6 +6,7 @@ import subprocess
 
 from tests.ota_client_params import PRIVATE_PEM, POLICY_JSON, ECU_INFO
 
+
 def test__file_sha256():
     import ota_client
     import shlex
@@ -15,14 +16,27 @@ def test__file_sha256():
     result = subprocess.check_output(shlex.split(cmd))
     assert ota_client._file_sha256(file_path) == shlex.split(result.decode("utf-8"))[0]
 
+
 @pytest.mark.parametrize(
     "regular_inf_entry, mode, uid, gid, nlink, hash, path",
     [
-        ("0644,0,0,1,1d0f3bebaa884e594ace543fb936a0db41c3092e59891427e9aa67126d3885c1,'/usr/share/i18n/charmaps/ISO_8859-1,GL.gz'", \
-            int("0644", 8), 0, 0, 1, "1d0f3bebaa884e594ace543fb936a0db41c3092e59891427e9aa67126d3885c1", Path("/usr/share/i18n/charmaps/ISO_8859-1,GL.gz")
+        (
+            "0644,0,0,1,1d0f3bebaa884e594ace543fb936a0db41c3092e59891427e9aa67126d3885c1,'/usr/share/i18n/charmaps/ISO_8859-1,GL.gz'",
+            int("0644", 8),
+            0,
+            0,
+            1,
+            "1d0f3bebaa884e594ace543fb936a0db41c3092e59891427e9aa67126d3885c1",
+            Path("/usr/share/i18n/charmaps/ISO_8859-1,GL.gz"),
         ),
-        ("0755,0,0,3,aea949a9f55c8655953bb921ceb4b7ba92a9d218bcacbc178005baf7ee1450d3,'/usr/bin/bzcat'", \
-            int("0755", 8), 0, 0, 3, "aea949a9f55c8655953bb921ceb4b7ba92a9d218bcacbc178005baf7ee1450d3", Path("/usr/bin/bzcat")
+        (
+            "0755,0,0,3,aea949a9f55c8655953bb921ceb4b7ba92a9d218bcacbc178005baf7ee1450d3,'/usr/bin/bzcat'",
+            int("0755", 8),
+            0,
+            0,
+            3,
+            "aea949a9f55c8655953bb921ceb4b7ba92a9d218bcacbc178005baf7ee1450d3",
+            Path("/usr/bin/bzcat"),
         ),
     ],
 )
@@ -38,10 +52,16 @@ def test_RegularInf(regular_inf_entry, mode, uid, gid, nlink, hash, path):
     assert parsed.sha256hash == hash
     assert parsed.path == path
 
+
 @pytest.mark.parametrize(
-    "entry, mode, uid, gid, path",[
-        ("0755,0,0,'/usr/lib/python3/dist-packages/ansible/modules/network/layer3'", \
-            int("0755", 8), 0, 0, Path("/usr/lib/python3/dist-packages/ansible/modules/network/layer3")
+    "entry, mode, uid, gid, path",
+    [
+        (
+            "0755,0,0,'/usr/lib/python3/dist-packages/ansible/modules/network/layer3'",
+            int("0755", 8),
+            0,
+            0,
+            Path("/usr/lib/python3/dist-packages/ansible/modules/network/layer3"),
         )
     ],
 )
@@ -55,10 +75,17 @@ def test_DirectoryInf(entry, mode, uid, gid, path):
     assert parsed.gid == gid
     assert parsed.path == path
 
+
 @pytest.mark.parametrize(
-    "entry, mode, uid, gid, link, target",[
-        ("0777,0,0,'/usr/lib/gvfs/gvfsd','../../libexec/gvfsd'", \
-            int("0777", 8), 0, 0, Path("/usr/lib/gvfs/gvfsd"), Path("../../libexec/gvfsd")
+    "entry, mode, uid, gid, link, target",
+    [
+        (
+            "0777,0,0,'/usr/lib/gvfs/gvfsd','../../libexec/gvfsd'",
+            int("0777", 8),
+            0,
+            0,
+            Path("/usr/lib/gvfs/gvfsd"),
+            Path("../../libexec/gvfsd"),
         )
     ],
 )
@@ -72,6 +99,7 @@ def test_SymbolicLinkInf(entry, mode, uid, gid, link, target):
     assert parsed.gid == gid
     assert parsed.slink == link
     assert parsed.srcpath == target
+
 
 def _assert_own(entry: Path, uid, gid):
     st = entry.lstat()
@@ -87,7 +115,7 @@ def test__copy_complete(tmp_path: Path):
     src_A_B.mkdir(parents=True)
 
     src_A_B_a = src_A_B / "a"
-    src_A_B_a.write_text("a")   
+    src_A_B_a.write_text("a")
 
     os.chown(src, 1234, 4321)
     os.chown(src / "A", 2345, 5432)
@@ -122,7 +150,7 @@ def test__copy_complete_symlink_doesnot_exist(tmp_path: Path):
     src_a = src / "a"
     src_a.symlink_to("doesnotexist")  # src_a -> doesnotexist
 
-    dst = tmp_path / "dst" # dst shouldn't exist
+    dst = tmp_path / "dst"  # dst shouldn't exist
 
     os.chown(src, 1234, 4321)
     os.chown(src_a, 2345, 5432, follow_symlinks=False)
@@ -155,7 +183,7 @@ def test__copytree_complete(tmp_path: Path):
 
     src_A_B = src_A / "B"
     src_A_B.mkdir()
-    
+
     src_A_b = src_A / "b"
     src_A_b.symlink_to("B")  # b -> B
 
@@ -232,6 +260,7 @@ main_ecu:
     assert rd_ecuinfo["main_ecu"]["version"] == "0.0.0"
     assert rd_ecuinfo["main_ecu"]["independent"] == True
     assert rd_ecuinfo["main_ecu"]["ip_addr"] == ""
+
 
 def test__cleanup_dir(tmp_path: Path):
     import ota_client

@@ -51,6 +51,7 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path: Path):
     print(f"ecuinfo: {ecuinfo}")
     assert ecuinfo["main_ecu"]["version"] == "0.1.0"
 
+
 @pytest.mark.parametrize(
     "boot_state, confirm_banka, confirm_bankb, result_state, result_boot, callcnt_finalize_update, callcnt_finalize_rollback",
     [
@@ -101,8 +102,12 @@ def test_OtaBoot_boot(
 
     mocker.patch("ota_boot.OtaStatus._status_file", ota_status_path)
     mocker.patch("ota_boot.OtaStatus._rollback_file", ota_rollback_count_path)
-    finalize_update_mock = mocker.patch.object(ota_boot.OtaBoot, "_finalize_update", return_value=True)
-    finalize_rollback_mock = mocker.patch.object(ota_boot.OtaBoot, "_finalize_rollback", return_value=True)
+    finalize_update_mock = mocker.patch.object(
+        ota_boot.OtaBoot, "_finalize_update", return_value=True
+    )
+    finalize_rollback_mock = mocker.patch.object(
+        ota_boot.OtaBoot, "_finalize_rollback", return_value=True
+    )
     otaboot = ota_boot.OtaBoot()
 
     res_boot = otaboot.boot()

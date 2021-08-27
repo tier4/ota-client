@@ -11,6 +11,7 @@ from tests.grub_cfg_params import (
     UUID_B,
 )
 
+
 @pytest.fixture
 def bankinfo_file(tmp_path: Path):
     bank = """\
@@ -80,11 +81,15 @@ def grub_ctl_instance(tmp_path: Path, mocker, bankinfo_file, custom_cfg_file):
     mocker.patch.object(grub_control.GrubCtl, "_custom_cfg_file", custom_cfg_file)
 
     mocker.patch.object(bank, "_get_uuid_from_blkid", mock_get_uuid_from_blkid)
-    mocker.patch.object(bank.BankInfo, "get_current_bank_uuid", mock_get_current_bank_uuid)
+    mocker.patch.object(
+        bank.BankInfo, "get_current_bank_uuid", mock_get_current_bank_uuid
+    )
     mocker.patch.object(bank.BankInfo, "get_next_bank_uuid", mock_get_next_bank_uuid)
     mocker.patch.object(bank.BankInfo, "get_current_bank", mock_get_current_bank)
     mocker.patch.object(bank.BankInfo, "get_next_bank", mock_get_next_bank)
-    mocker.patch.object(bank.BankInfo, "_setup_current_next_root_dev", return_value=True)
+    mocker.patch.object(
+        bank.BankInfo, "_setup_current_next_root_dev", return_value=True
+    )
     mocker.patch.object(
         grub_control, "_make_grub_configuration_file", mock_make_grub_configuration_file
     )
@@ -97,7 +102,9 @@ def test_grub_ctl_grub_configuration(mocker, tmp_path: Path, grub_file_default: 
     import bank
 
     mocker.patch.object(grub_control.GrubCtl, "_default_grub_file", grub_file_default)
-    mocker.patch.object(bank, "_get_current_devfile_by_fstab", return_value=("", "", "", ""))
+    mocker.patch.object(
+        bank, "_get_current_devfile_by_fstab", return_value=("", "", "", "")
+    )
     grub_ctl = grub_control.GrubCtl()
     r = grub_ctl._grub_configuration()
     assert r
@@ -169,7 +176,13 @@ def test_grub_cfg_parser(grub_cfg, expect):
     ids=[p[0]["id"] for p in grub_cfg_custom_cfg_params],
 )
 def test_make_grub_custom_configuration_file(
-    mocker, grub_cfg: Path, custom_cfg: Path, vmlinuz, initrd, grub_ctl_instance, tmp_path: Path
+    mocker,
+    grub_cfg: Path,
+    custom_cfg: Path,
+    vmlinuz,
+    initrd,
+    grub_ctl_instance,
+    tmp_path: Path,
 ):
     grub = tmp_path / "grub.cfg"
     grub.write_text(grub_cfg["grub_cfg"])
