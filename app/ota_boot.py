@@ -173,7 +173,7 @@ class OtaBoot(OtaBootInterface):
 
     def _update_finalize_ecuinfo_file(self):
         """"""
-        src_file: Path = self._ecuinfo_yaml_file.with_suffix(".update")
+        src_file: Path = self._ecuinfo_yaml_file.with_suffix(self._ecuinfo_yaml_file.suffix + ".update")
         dest_file: Path = self._ecuinfo_yaml_file
         if src_file.is_file():
             if dest_file.exists():
