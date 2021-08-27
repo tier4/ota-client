@@ -97,7 +97,9 @@ def grub_ctl_instance(tmp_path: Path, mocker, bankinfo_file, custom_cfg_file):
     return grub_ctl
 
 
-def test_grub_ctl_grub_configuration(mocker, tmp_path: Path, grub_file_default: Path, grub_ctl_instance):
+def test_grub_ctl_grub_configuration(
+    mocker, tmp_path: Path, grub_file_default: Path, grub_ctl_instance
+):
     mocker.patch.object(grub_ctl_instance, "_default_grub_file", grub_file_default)
     assert grub_ctl_instance._grub_configuration()
 
