@@ -460,7 +460,7 @@ class OtaClient:
         """
         logger.debug(f"DL File: {dest_file}")
         digest = ""
-        time_stamp = str(int(time.time()))
+        time_stamp = str(time.time())
         try:
             with tempfile.NamedTemporaryFile(
                 "wb", delete=False, prefix=__name__ + time_stamp
