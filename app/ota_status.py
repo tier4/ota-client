@@ -38,7 +38,9 @@ class OtaStatus:
                     with open(ftmp.name, mode="w") as f:
                         f.writelines(ota_status)
                     src = self._status_file
-                    dst = self._status_file.with_suffix(".old")
+                    dst = self._status_file.with_suffix(
+                        self._status_file.suffix + ".old"
+                    )
                     logger.debug(f"copy src: {src} dst: {dst}")
                     shutil.copyfile(src, dst)
                     logger.debug("backuped!")

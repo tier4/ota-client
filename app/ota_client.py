@@ -367,7 +367,7 @@ class OtaClient:
         self.__ecuinfo_yaml_file = self.ecuinfo_yaml_file
         self.__ecu_info = _read_ecu_info(self.ecuinfo_yaml_file)
         self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file.with_suffix(
-            ".update"
+            self.__ecuinfo_yaml_file.suffix + ".update"
         )
         self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
         # remote
@@ -1268,7 +1268,9 @@ class OtaClient:
             #
             # rollback dir backup
             #
-            rollback_backup = self._rollback_dir.with_suffix(".back")
+            rollback_backup = self._rollback_dir.with_suffix(
+                self._rollback_dir.suffix + ".back"
+            )
             if rollback_backup.exists():
                 shutil.rmtree(rollback_backup)
             os.move(self._rollback_dir, rollback_backup)

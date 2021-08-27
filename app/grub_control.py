@@ -34,7 +34,9 @@ def _make_grub_configuration_file(opt_file: str):
 
         # move temp to grub.cfg
         if output_file.is_file():
-            shutil.move(output_file, output_file.with_suffix(".old"))
+            shutil.move(
+                output_file, output_file.with_suffix(output_file.suffix + ".old")
+            )
         shutil.move(tmp_file, output_file)
     except:
         logger.exception("failed genetrating grub.cfg")
@@ -223,7 +225,9 @@ class GrubCtl:
 
         if config_file.is_file():
             # backup
-            shutil.copy(config_file, config_file.with_suffix(".old"))
+            shutil.copy(
+                config_file, config_file.with_suffix(config_file.suffix + ".old")
+            )
         # mv tmp file to custom config file
         shutil.move(tmp_file_name, config_file)
 
@@ -267,7 +271,7 @@ class GrubCtl:
 
         # replace to new fstab file
         if dest.is_file():
-            shutil.move(dest, dest.with_suffix(".old"))
+            shutil.move(dest, dest.with_suffix(dest.suffix + ".old"))
         shutil.move(tmp_file, dest)
 
         return True
@@ -326,7 +330,9 @@ class GrubCtl:
 
         if output_file.is_file():
             # backup
-            shutil.copy(output_file, output_file.with_suffix(".old"))
+            shutil.copy(
+                output_file, output_file.with_suffix(output_file.suffix + ".old")
+            )
         # mv tmp file to custom config file
         shutil.move(tmp_file, output_file)
         return True
@@ -390,7 +396,10 @@ class GrubCtl:
             # move temp to grub
             if self._default_grub_file.is_file():
                 shutil.move(
-                    self._default_grub_file, self._default_grub_file.with_suffix(".old")
+                    self._default_grub_file,
+                    self._default_grub_file.with_suffix(
+                        self._default_grub_file.suffix + ".old"
+                    ),
                 )
             shutil.move(temp_file, self._default_grub_file)
         return True
@@ -470,7 +479,10 @@ class GrubCtl:
         """
         move custom.cfg file to custom.cfg.bak
         """
-        shutil.move(self._custom_cfg_file, self._custom_cfg_file.with_suffix(".bak"))
+        shutil.move(
+            self._custom_cfg_file,
+            self._custom_cfg_file.with_suffix(self._custom_cfg_file.suffix + ".bak"),
+        )
 
     @staticmethod
     def reboot():
@@ -509,7 +521,10 @@ class GrubCtl:
         # copy for rollback
         if self._grub_cfg_file.is_file():
             shutil.copy2(
-                self._grub_cfg_file, self._grub_cfg_file.with_suffix(".rollback")
+                self._grub_cfg_file,
+                self._grub_cfg_file.with_suffix(
+                    self._grub_cfg_file.suffix + ".rollback"
+                ),
             )
         else:
             logger.error("grub configuratiuion file not exist!")
