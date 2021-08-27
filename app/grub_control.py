@@ -17,7 +17,7 @@ import configs as cfg
 from logging import debug, getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, INFO))
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
 def _make_grub_configuration_file(opt_file: str):

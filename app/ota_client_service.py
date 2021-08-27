@@ -18,7 +18,7 @@ import otaclient_pb2_grpc
 from logging import getLogger, INFO, DEBUG, basicConfig
 
 logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, INFO))
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
 class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):

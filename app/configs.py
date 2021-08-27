@@ -30,6 +30,7 @@ __all__ = _configs_dir_list + _configs_file_list
 # configs
 #
 LOG_LEVEL_TABLE = {}
+DEFAULT_LOG_LEVEL = INFO
 # LOG_LEVEL_TABLE = {
 #     "bank": DEBUG,
 #     "grub_control": DEBUG,
