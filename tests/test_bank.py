@@ -1,3 +1,4 @@
+from pathlib import Path
 import re
 import pytest
 
@@ -151,7 +152,7 @@ def test__get_uuid_from_blkid_2(mocker):
     ],
 )
 def test__get_current_devfile_by_fstab(
-    mocker, tmp_path, fstab, root_uuid_exp, boot_uuid_exp
+    mocker, tmp_path: Path, fstab, root_uuid_exp, boot_uuid_exp
 ):
     import bank
 
@@ -163,7 +164,7 @@ def test__get_current_devfile_by_fstab(
     assert boot_uuid == boot_uuid_exp
 
 
-def test__get_current_devfile_by_fstab_with_exception_1(tmp_path):
+def test__get_current_devfile_by_fstab_with_exception_1(tmp_path: Path):
     import bank
 
     fstab_file = tmp_path / "fstab"
@@ -173,7 +174,7 @@ def test__get_current_devfile_by_fstab_with_exception_1(tmp_path):
         bank._get_current_devfile_by_fstab(fstab_file)
 
 
-def test__get_current_devfile_by_fstab_with_exception_2(tmp_path):
+def test__get_current_devfile_by_fstab_with_exception_2(tmp_path: Path):
     import bank
 
     fstab_file = tmp_path / "fstab"
@@ -183,7 +184,7 @@ def test__get_current_devfile_by_fstab_with_exception_2(tmp_path):
         bank._get_current_devfile_by_fstab(fstab_file)
 
 
-def test__get_bank_info(tmp_path):
+def test__get_bank_info(tmp_path: Path):
     import bank
 
     bankinfo_file = tmp_path / "bankinfo"
@@ -199,7 +200,7 @@ bankb: /dev/sda4
     assert bankb == "/dev/sda4"
 
 
-def test__get_bank_info_with_exception(tmp_path):
+def test__get_bank_info_with_exception(tmp_path: Path):
     import bank
 
     bankinfo_file = tmp_path / "bankinfo"
@@ -215,7 +216,7 @@ bankb: /dev/sda4
     assert bankb == ""
 
 
-def test__gen_bankinfo_file(mocker, tmp_path):
+def test__gen_bankinfo_file(mocker, tmp_path: Path):
     import bank
 
     def mock__get_current_devfile_by_fstab(fstab_file):
@@ -240,14 +241,11 @@ def test__gen_bankinfo_file(mocker, tmp_path):
     assert bankb == "/dev/sda4"
 
 
-def test_BankInfo___init__(mocker, tmp_path):
+def test_BankInfo___init__(mocker, tmp_path: Path):
     import bank
 
     fstab_file = tmp_path / "fstab"
     fstab_file.write_text(FSTAB_EFI_UUID)
-
-    def mock_os_path_exists(file_name):
-        return True
 
     def mock__gen_bankinfo_file(bank_info_file, fstab_file):
         return
@@ -263,11 +261,11 @@ def test_BankInfo___init__(mocker, tmp_path):
         else:
             return ""
 
-    mocker.patch("bank.os.path.exists", mock_os_path_exists)
+    mocker.patch("bank._baseBankInfo._fstab_file", fstab_file)
     mocker.patch("bank._gen_bankinfo_file", mock__gen_bankinfo_file)
     mocker.patch("bank._get_bank_info", mock__get_bank_info)
     mocker.patch("bank._get_uuid_from_blkid", mock__get_uuid_from_blkid)
-    bankinfo = bank.BankInfo(fstab_file=fstab_file)
+    bankinfo = bank.BankInfo()
     assert bankinfo.get_banka() == "/dev/sda3"
     assert bankinfo.get_bankb() == "/dev/sda4"
     assert bankinfo.get_banka_uuid() == "3a1c99e7-46d9-41b1-8b0a-b07bceef1d02"

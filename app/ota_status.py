@@ -118,7 +118,7 @@ class OtaStatus:
             tmp_file = f.name
             f.write(status)
 
-        dir_name: Path = ota_status_file.parent()
+        dir_name: Path = ota_status_file.parent
         dir_name.mkdir(exist_ok=True, parents=True)
         shutil.move(tmp_file, ota_status_file)
         logger.info(f"{ota_status_file}  generated.")
