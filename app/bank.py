@@ -191,12 +191,12 @@ class BankInfo(_BaseBankInfo):
 
     def __init__(self, *, fstab_file: str = None, bank_info_file: str = None):
         # init current bank status
-        super().__init__()
         if fstab_file:
             self._fstab_file = Path(fstab_file)
         if bank_info_file:
             self._bank_info_file = Path(bank_info_file)
-
+        
+        super().__init__()
         self._setup_current_next_root_dev()
 
     def _setup_current_next_root_dev(self):
