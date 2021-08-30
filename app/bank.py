@@ -189,9 +189,14 @@ class BankInfo(_BaseBankInfo):
     OTA Bank device info class
     """
 
-    def __init__(self):
+    def __init__(self, *, fstab_file: str = None, bank_info_file: str = None):
         # init current bank status
         super().__init__()
+        if fstab_file:
+            self._fstab_file = Path(fstab_file)
+        if bank_info_file:
+            self._bank_info_file = Path(bank_info_file)
+
         self._setup_current_next_root_dev()
 
     def _setup_current_next_root_dev(self):
@@ -322,12 +327,9 @@ class BankInfo(_BaseBankInfo):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--bankinfo", help="bank info file path name", default="/boot/ota/bankinfo.yaml"
-    )
-    parser.add_argument("--fstab", help="fstab file path name", default="/etc/fstab")
+    parser = argparse.ArgumentParser("Parse fstab file and bankinfo file.")
+    parser.add_argument("--bankinfo", help="bank info file path name")
+    parser.add_argument("--fstab", help="fstab file path name")
 
     args = parser.parse_args()
 
@@ -337,9 +339,7 @@ if __name__ == "__main__":
     print("boot dev: ", boot_dev)
     print("boot uuid: ", boot_uuid)
 
-    cfg.FSTAB_FILE = args.fstab
-    cfg.BANK_INFO_FILE = args.bankinfo
-    bank_info = BankInfo()
+    bank_info = BankInfo(fstab_file=args.fstab, bank_info_file=args.bankinfo)
     print("bank a: ", bank_info.bank_a)
     print("bank a uuid:", bank_info.bank_a_uuid)
 
