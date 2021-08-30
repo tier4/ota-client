@@ -266,7 +266,7 @@ class DirectoryInf(_BaseInf):
 
     def __init__(self, info):
         super().__init__(info)
-        self.path = Path(self._left.strip("'"))
+        self.path = Path(self._left[1:-1])
 
 
 class SymbolicLinkInf(_BaseInf):
@@ -307,7 +307,7 @@ class PersistentInf(_BaseInf):
     """
 
     def __init__(self, info: str):
-        self.path = Path(info.strip("\'\""))
+        self.path = Path(info[1:-1])
 
 
 class OtaCache:
