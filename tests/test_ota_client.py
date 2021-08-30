@@ -80,12 +80,20 @@ def test_DirectoryInf(entry, mode, uid, gid, path):
     "entry, mode, uid, gid, link, target",
     [
         (
-            "0777,0,0,'/usr/lib/gvfs/gvfsd','../../libexec/gvfsd'",
+            r"0777,0,0,'/usr/lib/gvfs/gvfsd','../../libexec/gvfsd'",
             int("0777", 8),
             0,
             0,
-            Path("/usr/lib/gvfs/gvfsd"),
-            Path("../../libexec/gvfsd"),
+            Path(r"/usr/lib/gvfs/gvfsd"),
+            Path(r"../../libexec/gvfsd"),
+        ),
+        (
+            r"0777,0,0,'/var/lib/ieee-data/iab.csv','/usr/share/ieee-data/'\'','\''iab.csv'",
+            int("0777", 8),
+            0,
+            0,
+            Path(r"/var/lib/ieee-data/iab.csv"),
+            Path(r"/usr/share/ieee-data/','iab.csv"),
         )
     ],
 )

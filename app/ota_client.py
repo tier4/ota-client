@@ -249,6 +249,10 @@ class _BaseInf:
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
     )
 
+    @staticmethod
+    def de_escape(s: str) -> str:
+        return s.replace(r"'\''", r"'")
+
     def __init__(self, info: str):
         match_res: re.Match = self._base_pattern.match(info.strip("\n"))
         assert match_res is not None
@@ -266,7 +270,7 @@ class DirectoryInf(_BaseInf):
 
     def __init__(self, info):
         super().__init__(info)
-        self.path = Path(self._left[1:-1])
+        self.path = Path(self.de_escape(self._left[1:-1]))
 
 
 class SymbolicLinkInf(_BaseInf):
@@ -274,14 +278,14 @@ class SymbolicLinkInf(_BaseInf):
     Symbolik link information class
     """
 
-    _pattern = re.compile(r"'(?P<link>.+)','(?P<target>.+)'")
+    _pattern = re.compile(r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'")
 
     def __init__(self, info):
         super().__init__(info)
         res = self._pattern.match(self._left)
         assert res is not None
-        self.slink = Path(res.group("link"))
-        self.srcpath = Path(res.group("target"))
+        self.slink = Path(self.de_escape(res.group("link")))
+        self.srcpath = Path(self.de_escape(res.group("target")))
 
 
 class RegularInf(_BaseInf):
@@ -298,7 +302,7 @@ class RegularInf(_BaseInf):
         assert res is not None
         self.nlink = int(res.group("nlink"))
         self.sha256hash = res.group("hash")
-        self.path = Path(res.group("path"))
+        self.path = Path(self.de_escape(res.group("path")))
 
 
 class PersistentInf(_BaseInf):
@@ -307,7 +311,7 @@ class PersistentInf(_BaseInf):
     """
 
     def __init__(self, info: str):
-        self.path = Path(info[1:-1])
+        self.path = Path(self.de_escape(info[1:-1]))
 
 
 class OtaCache:
