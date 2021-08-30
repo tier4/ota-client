@@ -138,7 +138,7 @@ class OtaBootInterface(ABC):
 
     def __init__(self):
         """
-        dynamically bind methods when the concrete class is being created.
+        dynamically bind methods when the instance is being created.
         """
         # step 1: check
         self.check = {

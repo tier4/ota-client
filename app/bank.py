@@ -195,7 +195,7 @@ class BankInfo(_BaseBankInfo):
             self._fstab_file = Path(fstab_file)
         if bank_info_file:
             self._bank_info_file = Path(bank_info_file)
-        
+
         super().__init__()
         self._setup_current_next_root_dev()
 
