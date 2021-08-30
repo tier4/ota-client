@@ -94,7 +94,7 @@ def test_DirectoryInf(entry, mode, uid, gid, path):
             0,
             Path(r"/var/lib/ieee-data/iab.csv"),
             Path(r"/usr/share/ieee-data/','iab.csv"),
-        )
+        ),
     ],
 )
 def test_SymbolicLinkInf(entry, mode, uid, gid, link, target):
