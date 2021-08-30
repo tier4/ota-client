@@ -249,12 +249,6 @@ class _BaseInf:
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
     )
 
-    @staticmethod
-    def regulate_escape(s: str):
-        # according to the document, single quote ' is escaped to '\''
-        # regulate to \' to avoid regex mismatch
-        return s.replace(r"'\''", r"\'")
-
     def __init__(self, info: str):
         match_res: re.Match = self._base_pattern.match(info.strip("\n"))
         assert match_res is not None
@@ -262,7 +256,7 @@ class _BaseInf:
         self.uid = int(match_res.group("uid"))
         self.gid = int(match_res.group("gid"))
 
-        self._left: str = self.regulate_escape(match_res.group("left_over"))
+        self._left: str = match_res.group("left_over")
 
 
 class DirectoryInf(_BaseInf):
@@ -272,7 +266,7 @@ class DirectoryInf(_BaseInf):
 
     def __init__(self, info):
         super().__init__(info)
-        self.path = Path(self.regulate_escape(self._left[1:-1]))
+        self.path = Path(self._left[1:-1])
 
 
 class SymbolicLinkInf(_BaseInf):
@@ -313,7 +307,7 @@ class PersistentInf(_BaseInf):
     """
 
     def __init__(self, info: str):
-        self.path = Path(self.regulate_escape(info[1:-1]))
+        self.path = Path(info[1:-1])
 
 
 class OtaCache:
