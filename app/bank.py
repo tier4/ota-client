@@ -124,7 +124,7 @@ def _get_bank_info(ota_config_file: Path):
     return banka, bankb
 
 
-class _baseBankInfo:
+class _BaseBankInfo:
     _bank_info_file: Path = cfg.BANK_INFO_FILE
     _fstab_file: Path = cfg.FSTAB_FILE
 
@@ -184,7 +184,7 @@ class _baseBankInfo:
         return bank_uuid == self.bank_b_uuid
 
 
-class BankInfo(_baseBankInfo):
+class BankInfo(_BaseBankInfo):
     """
     OTA Bank device info class
     """

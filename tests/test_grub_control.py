@@ -77,7 +77,7 @@ def grub_ctl_instance(tmp_path: Path, mocker, bankinfo_file, custom_cfg_file):
         with open(output_file, mode="w") as f:
             f.write(grub_cfg_wo_submenu)
 
-    mocker.patch.object(bank._baseBankInfo, "_bank_info_file", bankinfo_file)
+    mocker.patch.object(bank._BaseBankInfo, "_bank_info_file", bankinfo_file)
     mocker.patch.object(grub_control.GrubCtl, "_custom_cfg_file", custom_cfg_file)
 
     mocker.patch.object(bank, "_get_uuid_from_blkid", mock_get_uuid_from_blkid)

@@ -261,7 +261,7 @@ def test_BankInfo___init__(mocker, tmp_path: Path):
         else:
             return ""
 
-    mocker.patch("bank._baseBankInfo._fstab_file", fstab_file)
+    mocker.patch("bank._BaseBankInfo._fstab_file", fstab_file)
     mocker.patch("bank._gen_bankinfo_file", mock__gen_bankinfo_file)
     mocker.patch("bank._get_bank_info", mock__get_bank_info)
     mocker.patch("bank._get_uuid_from_blkid", mock__get_uuid_from_blkid)
