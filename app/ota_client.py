@@ -244,13 +244,14 @@ def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
     return True
 
 
-class _baseInf:
+class _BaseInf:
     _base_pattern = re.compile(
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
     )
 
     def __init__(self, info: str):
         match_res: re.Match = self._base_pattern.match(info.strip("\n"))
+        assert match_res is not None
         self.mode = int(match_res.group("mode"), 8)
         self.uid = int(match_res.group("uid"))
         self.gid = int(match_res.group("gid"))
@@ -258,7 +259,7 @@ class _baseInf:
         self._left: str = match_res.group("left_over")
 
 
-class DirectoryInf(_baseInf):
+class DirectoryInf(_BaseInf):
     """
     Directory file information class
     """
@@ -268,43 +269,45 @@ class DirectoryInf(_baseInf):
         self.path = Path(self._left.strip("'"))
 
 
-class SymbolicLinkInf(_baseInf):
+class SymbolicLinkInf(_BaseInf):
     """
     Symbolik link information class
     """
 
-    _pattern = re.compile(r"'(?P<link>[^\']*)','(?P<target>[^\']*)'")
+    _pattern = re.compile(r"'(?P<link>.+)','(?P<target>.+)'")
 
     def __init__(self, info):
         super().__init__(info)
         res = self._pattern.match(self._left)
+        assert res is not None
         self.slink = Path(res.group("link"))
         self.srcpath = Path(res.group("target"))
 
 
-class RegularInf(_baseInf):
+class RegularInf(_BaseInf):
     """
     Regular file information class
     """
 
-    _pattern = re.compile(r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>[^\']+)'")
+    _pattern = re.compile(r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'")
 
     def __init__(self, info):
         super().__init__(info)
 
         res = self._pattern.match(self._left)
+        assert res is not None
         self.nlink = int(res.group("nlink"))
         self.sha256hash = res.group("hash")
         self.path = Path(res.group("path"))
 
 
-class PersistentInf(_baseInf):
+class PersistentInf(_BaseInf):
     """
     Persistent file information class
     """
 
     def __init__(self, info: str):
-        self.path = Path(info.strip("'"))
+        self.path = Path(info.strip("\'\""))
 
 
 class OtaCache:
