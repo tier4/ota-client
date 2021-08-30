@@ -21,14 +21,16 @@ class OtaBootInterface(ABC):
     """
 
     # alias
-    require_check, bypass_check = True, False
+    # stage 1: check
     check_passed, check_failed = True, False
+    # stage 2: finalize
     finalize_succeeded, finalize_failed = True, False
-    bypass_finalization_check_passed, bypass_finalization_check_failed = (
+    # return value
+    bypass_finalization_check_passed, bypass_finalization_check_failed, bypass_check = (
         "no_f_c_p",
         "no_f_c_f",
+        "no_c",
     )
-    bypass_check = "no_c"
 
     # methods needed for boot checking and finalizing
     @abstractmethod
@@ -256,9 +258,7 @@ class OtaBoot(OtaBootInterface):
                 res = self.return_value[self.bypass_check].get(status)
 
             if res is None:
-                raise OtaBootError(
-                    f"unexpected boot result. check status: {check_res}, finalize status: {finalize_res}"
-                )
+                raise OtaBootError(f"unexpected boot result.")
         except Exception as e:
             logger.error(f"otaboot failed: {e}")
             raise OtaBootError(e)
