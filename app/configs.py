@@ -4,7 +4,7 @@ from typing import Any, Mapping
 
 from logging import DEBUG, INFO, ERROR
 
-__all__ = ('get_default_cfg', 'get_default_conf_dict', 'LOG_LEVEL_TABLE', 'DEFAULT_LOG_LEVEL')
+__all__ = ('get_empty_conf', 'get_default_cfg', 'get_default_conf_dict', 'LOG_LEVEL_TABLE', 'DEFAULT_LOG_LEVEL')
 
 #
 # configs
@@ -63,14 +63,14 @@ _DEFAULT_CONF_DICT = _DefaultConfiguration.create_default_configuration_dict()
 def get_default_conf_dict():
     return _DEFAULT_CONF_DICT.copy()
 
-class Configuration(UserDict):
-    def __init__(self, __dict: Mapping[str, Any] = _DEFAULT_CONF_DICT) -> None:
-        super().__init__(__dict=__dict)
-
-    def __getattr__(self, name: str):
-        return self.data[name]
-
-_DEFAULT_CONF = Configuration()
+class Configuration():
+    def __init__(self, **kwargs) -> None:
+        if kwargs:
+            for k, v in kwargs.items():
+                self.__setattr__(k, v)
 
 def get_default_conf():
-    return _DEFAULT_CONF.copy()
+    return Configuration(**_DEFAULT_CONF_DICT)
+
+def get_empty_conf():
+    return Configuration()
