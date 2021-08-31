@@ -6,6 +6,7 @@ import shutil
 from ota_status import OtaStatus
 from grub_control import GrubCtl
 from constants import OtaBootStatusString, OtaStatusString
+from constants import OtaBootStageAlias as StageAlias
 from exceptions import OtaBootError
 import configs as cfg
 
@@ -20,17 +21,10 @@ class OtaBootInterface(ABC):
     OtaBoot interface for implementing OtaBoot
     """
 
-    # alias
     # stage 1: check
     check_passed, check_failed = True, False
     # stage 2: finalize
     finalize_succeeded, finalize_failed = True, False
-    # return value
-    bypass_finalization_check_passed, bypass_finalization_check_failed, bypass_check = (
-        "no_f_c_p",
-        "no_f_c_f",
-        "no_c",
-    )
 
     # methods needed for boot checking and finalizing
     @abstractmethod
@@ -93,8 +87,8 @@ class OtaBootInterface(ABC):
                 OtaBootStatusString.ROLLBACK_BOOT_FAIL,
             ),
         },
-        bypass_finalization_check_passed: {},
-        bypass_finalization_check_failed: {
+        StageAlias.BYPASS_FINALIZATION_CHECK_PASSED: {},
+        StageAlias.BYPASS_FINALIZATION_CHECK_FAILED: {
             OtaStatusString.SWITCHA_STATE: (
                 OtaStatusString.UPDATE_FAIL_STATE,
                 OtaBootStatusString.SWITCH_BOOT_FAIL,
@@ -112,7 +106,7 @@ class OtaBootInterface(ABC):
                 OtaBootStatusString.ROLLBACK_BOOT_FAIL,
             ),
         },
-        bypass_check: {
+        StageAlias.BYPASS_CHECK: {
             OtaStatusString.NORMAL_STATE: (
                 OtaStatusString.NORMAL_STATE,
                 OtaBootStatusString.NORMAL_BOOT,
@@ -247,15 +241,15 @@ class OtaBoot(OtaBootInterface):
                 else:
                     if check_res:
                         res = self.return_value[
-                            self.bypass_finalization_check_passed
+                            StageAlias.BYPASS_FINALIZATION_CHECK_PASSED
                         ].get(status)
                     else:
                         res = self.return_value[
-                            self.bypass_finalization_check_failed
+                            StageAlias.BYPASS_FINALIZATION_CHECK_FAILED
                         ].get(status)
             # no check required
             else:
-                res = self.return_value[self.bypass_check].get(status)
+                res = self.return_value[StageAlias.BYPASS_CHECK].get(status)
 
             if res is None:
                 raise OtaBootError(f"unexpected boot result.")

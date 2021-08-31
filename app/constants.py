@@ -1,3 +1,6 @@
+from enum import Enum, auto, unique
+
+
 class OtaBootStatusString:
     NORMAL_BOOT = "NORMAL_BOOT"
     SWITCH_BOOT = "SWITCH_BOOT"
@@ -19,3 +22,13 @@ class OtaStatusString:
     ROLLBACKA_STATE = "ROLLBACKA"
     ROLLBACKB_STATE = "ROLLBACKB"
     ROLLBACK_FAIL_STATE = "ROLLBACK_FAIL"
+
+
+@unique
+class OtaBootStageAlias(Enum):
+    # bypass finalization
+    BYPASS_FINALIZATION = auto()  # not used
+    BYPASS_FINALIZATION_CHECK_PASSED = auto()
+    BYPASS_FINALIZATION_CHECK_FAILED = auto()
+    # bypass check
+    BYPASS_CHECK = auto()
