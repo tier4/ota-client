@@ -63,14 +63,20 @@ _DEFAULT_CONF_DICT = _DefaultConfiguration.create_default_configuration_dict()
 def get_default_conf_dict():
     return _DEFAULT_CONF_DICT.copy()
 
-class Configuration():
+class Configuration(_DefaultConfiguration):
     def __init__(self, **kwargs) -> None:
         if kwargs:
             for k, v in kwargs.items():
                 self.__setattr__(k, v)
+    
+    def empty(self):
+        # clear default config values and return the empty config object 
+        for k in _DEFAULT_CONF_DICT.keys():
+            self.__setattr__(k, None)
+        return self
 
 def get_default_conf():
-    return Configuration(**_DEFAULT_CONF_DICT)
+    return Configuration()
 
 def get_empty_conf():
-    return Configuration()
+    return Configuration().empty()
