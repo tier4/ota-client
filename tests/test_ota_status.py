@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from app.configs import get_empty_conf
 
 from pathlib import Path
 import pytest
@@ -20,9 +21,11 @@ def test__initial_read_ota_status_no_file(mocker, tmp_path: Path):
     ota_status_path = tmp_path / "ots_status"
     rollback_count_path = tmp_path / "rollback_count"
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
-    otastatus = OtaStatus()
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
+
+    otastatus = OtaStatus(cfg)
     assert otastatus._initial_read_ota_status() == "NORMAL"
     assert ota_status_path.is_file()
 
@@ -47,10 +50,11 @@ def test__initial_read_ota_status(mocker, tmp_path: Path, ota_state, result_stat
     rollback_count_path = tmp_path / "rollback_count"
     rollback_count_path.write_text("0")
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     assert otastatus._initial_read_ota_status() == result_state
 
 
@@ -62,10 +66,11 @@ def test__initial_read_rollback_count_no_file(mocker, tmp_path: Path):
     ota_status_path.write_text("NORMAL")
     rollback_count_path = tmp_path / "rollback_count"
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     assert otastatus._initial_read_rollback_count() == 0
     assert rollback_count_path.is_file()
 
@@ -86,10 +91,11 @@ def test__initial_read_rollback_count(mocker, tmp_path: Path, rollback_count, re
 
     rollback_count_path.write_text(rollback_count)
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     assert otastatus._initial_read_rollback_count() == result
 
 
@@ -108,10 +114,11 @@ def test_get_rollback_count(mocker, tmp_path: Path, rollback_count, result):
     rollback_count_path = tmp_path / "rollback_count"
     rollback_count_path.write_text(rollback_count)
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     assert otastatus.get_rollback_count() == result
 
 
@@ -130,10 +137,11 @@ def test_is_rollback_available(mocker, tmp_path: Path, rollback_count, result):
     rollback_count_path = tmp_path / "rollback_count"
     rollback_count_path.write_text(rollback_count)
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     assert otastatus.is_rollback_available() == result
 
 
@@ -152,10 +160,11 @@ def test_inc_rollback_count(mocker, tmp_path: Path, rollback_count, result):
     rollback_count_path = tmp_path / "rollback_count"
     rollback_count_path.write_text(rollback_count)
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     otastatus.inc_rollback_count()
     assert otastatus.get_rollback_count() == result
     assert otastatus._initial_read_rollback_count() == result
@@ -176,10 +185,11 @@ def test_dec_rollback_count(mocker, tmp_path: Path, rollback_count, result):
     rollback_count_path = tmp_path / "rollback_count"
     rollback_count_path.write_text(rollback_count)
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     otastatus.dec_rollback_count()
     assert otastatus.get_rollback_count() == result
     assert otastatus._initial_read_rollback_count() == result
@@ -205,10 +215,11 @@ def test_set_ota_status(mocker, tmp_path: Path, ota_state, result_state):
     rollback_count_path = tmp_path / "rollback_count"
     rollback_count_path.write_text("0")
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     otastatus.set_ota_status(ota_state)
     assert otastatus.get_ota_status() == result_state
     assert ota_status_path.read_text() == result_state
@@ -234,8 +245,9 @@ def test_get_ota_status(mocker, tmp_path: Path, ota_state, result_state):
     rollback_count_path = tmp_path / "rollback_count"
     rollback_count_path.write_text("0")
 
-    mocker.patch.object(OtaStatus, "_status_file", ota_status_path)
-    mocker.patch.object(OtaStatus, "_rollback_file", rollback_count_path)
+    cfg = get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
-    otastatus = OtaStatus()
+    otastatus = OtaStatus(cfg)
     assert otastatus.get_ota_status() == result_state

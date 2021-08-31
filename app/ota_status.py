@@ -5,25 +5,26 @@ import tempfile
 import os
 import shutil
 
-import configs as cfg
+import configs
 from constants import OtaStatusString
 from logging import getLogger, INFO
 
 import constants
 
 logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL))
 
-
+default_cfg = configs.get_default_conf()
 class OtaStatus:
     """
     OTA status class
     """
+    def __new__(cls, cfg: configs.Configuration=default_cfg):
+        cls._status_file = cfg.OTA_STATUS_FILE
+        cls._rollback_file = cfg.OTA_ROLLBACK_FILE
+        return super().__new__(cls)
 
-    _status_file = cfg.OTA_STATUS_FILE
-    _rollback_file = cfg.OTA_ROLLBACK_FILE
-
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self._status = self._initial_read_ota_status()
         self._rollback_count = self._initial_read_rollback_count()
 
