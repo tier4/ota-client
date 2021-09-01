@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import functools
 import sys
 import tempfile
 import os
@@ -9,16 +10,20 @@ import shutil
 import subprocess
 import urllib.parse
 import requests
+from requests.api import head
+from requests.models import Response
 import yaml
 import logging
 import copy
 import re
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Union
 from multiprocessing import Pool, Manager
 from hashlib import sha256
-
+from http import HTTPStatus
+from functools import partial
+from abc import ABC, abstractmethod
 
 import configs
 import constants
@@ -246,6 +251,45 @@ def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
     return True
 
 
+def _download_util(
+        url: str,
+        *,
+        headers: dict={},
+        enable_verify: bool=False,
+        sha256_hash: str=None,
+        enable_filesave: bool=False,
+        save_to: Path=None,
+        retry_count=1,
+        timeout=10,
+    ) -> Union[requests.Response, hash: str]:
+    h = headers.copy()
+    m, hash_value = sha256(), ""
+
+    for _ in range(retry_count):
+        r = requests.get(url, headers=h, timeout=timeout)
+        if r.status_code == HTTPStatus.OK:
+            break
+
+    if r.status_code != HTTPStatus.OK:
+        # TODO: exception type
+        raise Exception(f"{url}: download failed after {retry_count} try")
+
+    if enable_verify and sha256_hash:
+        m.update(r.content)
+        hash_value = m.hexdigest()
+
+        if hash_value != sha256_hash:
+            raise Exception(f"{url}: hash mismatch. except:{sha256_hash}, local: {hash_value}")
+
+    if enable_filesave and save_to:
+        with open(save_to, "wb") as f:
+            for data in r.iter_content(chunk_size=4096):
+                m.update(data)
+                f.write(data)
+
+    return r, hash_value
+
+
 class _BaseInf:
     _base_pattern = re.compile(
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
@@ -337,8 +381,515 @@ class OtaCache:
             return True
         return False
 
+class OtaClientInterface(ABC):
 
-class OtaClient:
+    @abstractmethod
+    def update(self, ecu_update_info):
+        pass
+
+    @abstractmethod
+    def rollback(self):
+        pass
+
+    @abstractmethod
+    def reboot(self):
+        pass
+
+# TODO: make Downloader independent
+class DownloaderMixin:
+
+    _header_dict = {"Accept-encoding":"gzip"}
+    _download_retry = 5
+    _cookie_loaded = False
+
+    # TODO: add a lock to these 2 functions?
+    def _load_cookie(self, cookie: dict):
+        self._header_dict.update(cookie)
+        self._cookie_loaded = True
+
+    def _load_functions(self):
+        # dynamically generate functions according to headers
+        self._download = functools.partial(_download_util, headers=self._header_dict)
+        self._download_file = functools.partial(
+            _download_util,
+            headers=self._header_dict,
+            enable_filesave=True,
+            retry_count = self._download_retry,
+        )
+        self._download_file_with_verification = functools.partial(
+            _download_util,
+            headers = self._header_dict,
+            enable_verfiy = True,
+            enable_filesave=True,
+            retry_count = self._download_retry,
+        )
+
+    def _function_wrapper(self, **kwargs) -> function:
+        try:
+            f = functools.partial(
+                _download_util,
+                **kwargs
+            )
+        except Exception as e:
+            logger.error(f"failed to customize download util: {e}")
+            return None
+        
+        return f
+
+class ConstructNextBankMixinInterface:
+    
+    def __init__(self):
+        # place holder
+        self._grub_ctl: GrubCtl = None
+        self._fstab_file: Path = None
+
+    @abstractmethod
+    def _construct_next_bank(self, next_bank: Path, target_dir: Path):
+        pass
+
+class ConstructNextBankMixin(ConstructNextBankMixinInterface):
+    
+    def _construct_next_bank(self, next_bank: Path, target_dir: Path):
+        """
+        next bank construction
+        """
+        #
+        # prepare next bank
+        #
+        if not self._prepare_next_bank(next_bank, target_dir):
+            return False
+        #
+        # setup directories
+        #
+        if not self._setup_directories(target_dir):
+            return False
+        #
+        # setup symbolic links
+        #
+        if not self._setup_symboliclinks(target_dir):
+            return False
+        #
+        # setup regular files
+        #
+        if not self._setup_regular_files(target_dir):
+            return False
+        #
+        # setup persistent file
+        #
+        if not self._setup_persistent_files(target_dir):
+            return False
+        #
+        # setup fstab
+        #
+        if not self._setup_next_bank_fstab(self._fstab_file, target_dir):
+            return False
+
+        return True
+
+
+    def _prepare_next_bank(self, bank: Path, target_dir: Path):
+        """
+        prepare next boot bank
+            mount & clean up
+        """
+        try:
+            # unmount
+            _unmount_bank(target_dir)
+            # mount
+            _mount_bank(bank, target_dir)
+            # cleanup
+            _cleanup_dir(target_dir)
+            # clean rollback dir
+            self._cleanup_rollback_dir()
+        except:
+            logger.exception("Standby bank preoparing error!")
+            _unmount_bank(target_dir)
+            return False
+        return True
+
+
+    def _setup_directories(self, target_dir: Path):
+        """
+        generate directories on another bank
+        """
+        # get directories metadata
+        dirs = self._metadata.get_directories_info()
+        dirs_url = urllib.parse.urljoin(self.__url, dirs["file"])
+        tmp_list_file = self._tmp_dir.joinpath(dirs["file"])
+        if self._download_raw_file_with_retry(dirs_url, tmp_list_file, dirs["hash"]):
+            # generate directories
+            if _gen_directories(tmp_list_file, target_dir):
+                # move list file to rollback dir
+                dest_file = self._rollback_dir / self.backup_files["dirlist"]
+                shutil.move(tmp_list_file, dest_file)
+                return True
+        return False
+
+
+    def _setup_symboliclinks(self, target_dir: Path):
+        """
+        generate symboliclinks on another bank
+        """
+        # get symboliclink metadata
+        symlinks = self._metadata.get_symboliclinks_info()
+        symlinks_url = urllib.parse.urljoin(self.__url, symlinks["file"])
+        tmp_list_file = self._tmp_dir.joinpath(symlinks["file"])
+        if self._download_raw_file_with_retry(
+            symlinks_url, tmp_list_file, symlinks["hash"]
+        ):
+            # generate symboliclinks
+            if self._gen_symbolic_links(tmp_list_file, target_dir):
+                # move list file to rollback dir
+                dest_file = self._rollback_dir.joinpath(
+                    self.backup_files["symlinklist"]
+                )
+                shutil.move(tmp_list_file, dest_file)
+                return True
+        return False
+
+    def _setup_regular_files(self, target_dir: Path):
+        """
+        update files copy to another bank
+        """
+        rootfsdir_info = self._metadata.get_rootfsdir_info()
+        # get regular metadata
+        regularslist = self._metadata.get_regulars_info()
+        regularslist_url = urllib.parse.urljoin(self.__url, regularslist["file"])
+        tmp_list_file = self._tmp_dir.joinpath(regularslist["file"])
+        if self._download_raw_file_with_retry(
+            regularslist_url, tmp_list_file, regularslist["hash"]
+        ):
+            if self._gen_regular_files(
+                rootfsdir_info["file"], tmp_list_file, target_dir
+            ):
+                # move list file to rollback dir
+                dest_file = self._rollback_dir.joinpath(
+                    self.backup_files["regularlist"]
+                )
+                shutil.move(tmp_list_file, dest_file)
+                return True
+            if self._boot_vmlinuz is None or self._boot_initrd is None:
+                logger.warning(
+                    "vmlinuz or initrd is not set. This condition will be treated as an error in the future."
+                )
+        return False
+
+    def _setup_persistent_files(self, target_dir: Path):
+        """
+        setup persistent files
+        """
+        # get persistent metadata
+        persistent = self._metadata.get_persistent_info()
+        persistent_url = urllib.parse.urljoin(self.__url, persistent["file"])
+        tmp_list_file = self._tmp_dir.joinpath(persistent["file"])
+        if not self._download_raw_file_with_retry(
+            persistent_url, tmp_list_file, persistent["hash"]
+        ):
+            logger.error(f"persistent file download error: {persistent_url}")
+            return False
+        else:
+            logger.info(f"persistent file download success: {persistent_url}")
+
+        # generate persistent files, copying from current bank.
+        _gen_persistent_files(tmp_list_file, target_dir)
+        # move list file to rollback dir
+        dest_file = self._rollback_dir.joinpath(self.backup_files["persistentlist"])
+        shutil.move(tmp_list_file, dest_file)
+        return True
+
+    def _setup_next_bank_fstab(self, fstab_file: Path, target_dir: Path):
+        """
+        setup next bank to fstab
+        """
+        if not fstab_file.is_file():
+            logger.error(f"file not exist: {fstab_file}")
+            return False
+
+        dest_fstab_file = target_dir.joinpath(fstab_file.relative_to("/"))
+
+        return self._grub_ctl.gen_next_bank_fstab(dest_fstab_file)
+
+class ECUInfoProcessorMixin:
+    pass
+
+class OtaBootMixin:
+    pass
+
+class GrubCtlMixin:
+    pass
+
+class ProcessRegularFilesMixin:
+
+    def _process_regular_files_pool_init(self, gvar_dict: dict, awc: list):
+        """
+        Used by _process_regular_files
+        Init the worker pool with shared variables
+
+        DO NOT call this method from other functions
+        except for _process_regular_files
+        """
+        global global_var_dict, await_counter
+        global_var_dict = gvar_dict
+        await_counter = awc
+
+    def _process_regular_files_exit(self, gvar_dict: dict):
+        """
+        Used by _process_regular_files
+        Update corresponding class attributes
+
+        DO NOT call this method from other functions
+        except for _process_regular_files
+        """
+        setattr(self, "_rollback_dict", dict(gvar_dict["staging-dict-_rollback_dict"]))
+        setattr(self, "_boot_vmlinuz", gvar_dict["staging-_kernel_files"]["vmlinuz"])
+        setattr(self, "_boot_initrd", gvar_dict["staging-_kernel_files"]["initrd"])
+
+    def _process_regular_files(
+        self, rootfs_dir: str, rfiles_list: List[RegularInf], target_dir: Path
+    ):
+        with Manager() as manager:
+            ecb_queue = manager.Queue()
+            # variables passed to child processes
+            # variable naming pattern: <prefix>-<type>-<var_name>
+            # prefix tmp: for temporary use
+            # prefix staging: used to update corresponding class attribute
+            gvar_dict = {
+                "tmp-dict-hardlink_reg": manager.dict(),
+                "staging-dict-_rollback_dict": manager.dict(),
+                "staging-_kernel_files": manager.dict(),
+            }
+            await_c = manager.list()
+
+            # default to one worker per CPU core
+            with Pool(
+                initializer=self._process_regular_files_pool_init,
+                initargs=(gvar_dict, await_c),
+            ) as pool:
+
+                # error_callback for workers
+                #   signal the main process to terminate the pool
+                def ecb(e):
+                    ecb_queue.put(e)
+
+                for rfile_inf in rfiles_list:
+                    if (
+                        rfile_inf.nlink >= 2
+                        and rfile_inf.sha256hash
+                        not in gvar_dict["tmp-dict-hardlink_reg"]
+                    ):
+                        # block the flow until the first copy of hardlinked file is ready
+                        try:
+                            pool.apply(
+                                self._process_regular_file,
+                                (rootfs_dir, target_dir, rfile_inf),
+                            )
+                        except Exception as e:
+                            ecb(e)
+                            break
+                    else:
+                        try:
+                            pool.apply_async(
+                                self._process_regular_file,
+                                (rootfs_dir, target_dir, rfile_inf),
+                                error_callback=ecb,
+                            )
+                        except:
+                            # the only exception will be catched is ValueError
+                            # caused by calling pool.apply_async when the pool terminated
+                            pass
+
+                # stop accepting new tasks
+                pool.close()
+                # wait for all tasks to complete
+                # not apply timeout currently
+                while len(await_c) < len(rfiles_list):
+                    # if one of the subprocess raise error,
+                    # terminate the whole pool
+                    if not ecb_queue.empty():
+                        pool.terminate()
+
+                        logger.error(
+                            f"process regular files failed. All sub processess terminated."
+                        )
+                        logger.error(f"last exception: {ecb_queue.get()}")
+                        raise OtaError(f"process regular files failed!")
+
+            # everything is ALLRIGHT!
+            # update corresponding class attribute
+            self._process_regular_files_exit(gvar_dict)
+
+    def _process_regular_file(
+        self, rootfs_dir: str, target_dir: Path, rfile_inf: RegularInf
+    ):
+        """
+        main entry for paralleling processing regular files
+        """
+        try:
+            prev_inf: RegularInf = None
+            # hardlinked file
+            if rfile_inf.nlink >= 2:
+                prev_inf = global_var_dict["tmp-dict-hardlink_reg"].setdefault(
+                    rfile_inf.sha256hash, rfile_inf
+                )
+                # if the upcoming rfile entry is the first copy of hardlinked file
+                # then the prev_inf should be None
+                if prev_inf.path == rfile_inf.path:
+                    prev_inf = None
+
+            if Path("/boot") in rfile_inf.path.parents:
+                # /boot directory file
+                logger.debug(f"boot file: {rfile_inf.path}")
+                self._gen_boot_dir_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
+            else:
+                # others
+                logger.debug(f"no boot file: {rfile_inf.path}")
+                self._gen_regular_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
+        except Exception as e:
+            logger.exception(f"worker[{os.getpid()}]: process regular file failed!")
+            raise e
+
+        # if job finished successfully
+        await_counter.append(True)
+
+class OtaUpdateInterface:
+
+    def __init__(self):
+        # place holder
+        self._ota_status: OtaStatus = None
+        self._grub_ctl: GrubCtl = None
+
+    @abstractmethod
+    def update(self, ecu_update_info):
+        pass
+
+class OtaUpdate(ConstructNextBankMixin, OtaUpdateInterface):
+    """
+    implementation of OtaClientInterface.update
+    """
+
+    def update(self, ecu_update_info):
+        """
+        OTA update execution
+        """
+        # -----------------------------------------------------------
+        # set 'UPDATE' state
+        self._ota_status.set_ota_status(OtaStatusString.UPDATE_STATE)
+        logger.debug(ecu_update_info)
+        self.__url = ecu_update_info.url
+        metadata = ecu_update_info.metadata
+        metadata_jwt_url = urllib.parse.urljoin(self.__url, metadata)
+        self.__header_dict = _header_str_to_dict(ecu_update_info.header)
+        logger.debug(f"[metadata_jwt] {metadata_jwt_url}")
+        logger.debug(f"[header] {self.__header_dict}")
+
+        #
+        # download metadata
+        #
+        if not self._download_metadata(self._ota_metadata_file, metadata_jwt_url):
+            # inform error
+            self._inform_update_error("Can not get metadata!")
+            # set 'NORMAL' state
+            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
+            return False
+
+        #
+        # -----------------------------------------------------------
+        # set 'METADATA' state
+        # self._ota_status.set_ota_status('METADATA')
+
+        # TODO: make construct next bank to a mixin
+        next_bank = Path(self._grub_ctl.get_next_bank())
+        if not self._construct_next_bank(next_bank, self._mount_point):
+            # inform error
+            self._inform_update_error("Can not construct update bank!")
+            # set 'NORMAL' state
+            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
+            _unmount_bank(self._mount_point)
+            return False
+        #
+        # -----------------------------------------------------------
+        # set 'PREPARED' state
+        self._ota_status.set_ota_status(OtaStatusString.PREPARED_STATE)
+        # unmount bank
+        _unmount_bank(self._mount_point)
+        return True
+
+    def _download_metadata(self, metadata_file: Path, metadata_url):
+        """
+        Download OTA metadata
+        """
+        try:
+            # dounload and write meta data.
+            # url = self._get_metadata_url()
+            logger.debug(f"metadata url: {metadata_url}")
+            # TODO: make Downloader an independent class
+            response = self._download(metadata_url)
+            logger.debug(f"response: {response.status_code}")
+            if response.status_code == 200:
+                self._metadata_jwt = response.text
+                metadata_file.write_text(response.text)
+                self._metadata = OtaMetaData(self._metadata_jwt)
+            else:
+                self._metadata_jwt = ""
+        except Exception as e:
+            self._meta_data_file = ""
+            logger.exception("Error: OTA meta data download fail.:")
+            return False
+        return True
+
+    def _inform_update_error(self, error):
+        """
+        inform update error
+        """
+        logger.error(f"Update error!: {str(error)}")
+        # TODO : implement
+
+        return
+
+class OtaRollback:
+    """
+    implementation of OtaCLientInterface.rollback
+    """
+    def rollback(self):
+        pass
+
+class OtaReboot:
+    """
+    implementation of OtaClientInterface.reboot
+    """
+    def __init__(self):
+        # place holder
+        self._ota_status: OtaStatus = None
+        self._grub_ctl: GrubCtl = None
+
+    def reboot(self):
+        """
+        Reboot
+        """
+        if self.get_ota_status() == OtaStatusString.PREPARED_STATE:
+            # switch reboot
+            if not self._grub_ctl.prepare_grub_switching_reboot(
+                self._boot_vmlinuz, self._boot_initrd
+            ):
+                # inform error
+                self._inform_update_error("Switching bank failed!")
+                # set 'NORMAL' state
+                self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
+                _unmount_bank(self._mount_point)
+                return False
+            #
+            # -----------------------------------------------------------
+            # set 'SWITCHA/SWITCHB' state
+            next_bank = self._grub_ctl.get_next_bank()
+            next_state = self._get_switch_status_for_reboot(next_bank)
+            self._ota_status.set_ota_status(next_state)
+        #
+        # reboot
+        #
+        self._grub_ctl.reboot()
+        return True
+
+class OtaClient(OtaClientInterface):
     """
     OTA Client class
     """
@@ -404,8 +955,6 @@ class OtaClient:
         self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
         # remote
         self.__url = url
-        self.__header_dict = {}
-        self.__download_retry = 5
         self._ota_cache = ota_cache
         # metadata data
         self._metadata = None
@@ -446,45 +995,6 @@ class OtaClient:
         get metadata URL
         """
         return urllib.parse.urljoin(self.__url, "metadata.jwt")
-
-    def _download_raw(self, url, target_file):
-        """"""
-        header = self.__header_dict  # self.__cookie
-        header["Accept-encording"] = "gzip"
-        response = requests.get(url, headers=header, timeout=10)
-        if response.status_code != 200:
-            logger.error(f"status_code={response.status_code}, url={url}")
-            return response, ""
-
-        m = sha256()
-        total_length = response.headers.get("content-length")
-        if total_length is None:
-            m.update(response.content)
-            target_file.write(response.content)
-        else:
-            dl = 0
-            total_length = int(total_length)
-            for data in response.iter_content(chunk_size=4096):
-                dl += len(data)
-                m.update(data)
-                target_file.write(data)
-                # TODO: not sure what these codes are for
-                # NOTE: CRITICAL:50, ERROR:40, WARNING:30, INFO:20, DEBUG:10
-                if logging.root.level <= logging.DEBUG:
-                    done = int(50 * dl / total_length)
-                    sys.stdout.write("\r[%s%s]" % ("=" * done, " " * (50 - done)))
-                    sys.stdout.flush()
-        return response, m.hexdigest()
-
-    def _download(self, url):
-        """"""
-        header = self.__header_dict  # self.__cookie
-        header["Accept-encording"] = "gzip"
-        response = requests.get(url, headers=header)
-        response.encoding = response.apparent_encoding
-        logger.debug(f"encording: {response.encoding}")
-        # logger.info(response.text)
-        return response
 
     def _download_raw_file(self, url, dest_file: Path, target_hash=""):
         """
@@ -546,28 +1056,6 @@ class OtaClient:
                 return False
         except Exception as e:
             logger.exception("metadata error!:")
-            return False
-        return True
-
-    def _download_metadata(self, metadata_file: Path, metadata_url):
-        """
-        Download OTA metadata
-        """
-        try:
-            # dounload and write meta data.
-            # url = self._get_metadata_url()
-            logger.debug(f"metadata url: {metadata_url}")
-            response = self._download(metadata_url)
-            logger.debug(f"response: {response.status_code}")
-            if response.status_code == 200:
-                self._metadata_jwt = response.text
-                metadata_file.write_text(response.text)
-                self._metadata = OtaMetaData(self._metadata_jwt)
-            else:
-                self._metadata_jwt = ""
-        except Exception as e:
-            self._meta_data_file = ""
-            logger.exception("Error: OTA meta data download fail.:")
             return False
         return True
 
@@ -876,137 +1364,6 @@ class OtaClient:
 
         return True
 
-    def _process_regular_files_pool_init(self, gvar_dict: dict, awc: list):
-        """
-        Used by _process_regular_files
-        Init the worker pool with shared variables
-
-        DO NOT call this method from other functions
-        except for _process_regular_files
-        """
-        global global_var_dict, await_counter
-        global_var_dict = gvar_dict
-        await_counter = awc
-
-    def _process_regular_files_exit(self, gvar_dict: dict):
-        """
-        Used by _process_regular_files
-        Update corresponding class attributes
-
-        DO NOT call this method from other functions
-        except for _process_regular_files
-        """
-        setattr(self, "_rollback_dict", dict(gvar_dict["staging-dict-_rollback_dict"]))
-        setattr(self, "_boot_vmlinuz", gvar_dict["staging-_kernel_files"]["vmlinuz"])
-        setattr(self, "_boot_initrd", gvar_dict["staging-_kernel_files"]["initrd"])
-
-    def _process_regular_files(
-        self, rootfs_dir: str, rfiles_list: List[RegularInf], target_dir: Path
-    ):
-        with Manager() as manager:
-            ecb_queue = manager.Queue()
-            # variables passed to child processes
-            # variable naming pattern: <prefix>-<type>-<var_name>
-            # prefix tmp: for temporary use
-            # prefix staging: used to update corresponding class attribute
-            gvar_dict = {
-                "tmp-dict-hardlink_reg": manager.dict(),
-                "staging-dict-_rollback_dict": manager.dict(),
-                "staging-_kernel_files": manager.dict(),
-            }
-            await_c = manager.list()
-
-            # default to one worker per CPU core
-            with Pool(
-                initializer=self._process_regular_files_pool_init,
-                initargs=(gvar_dict, await_c),
-            ) as pool:
-
-                # error_callback for workers
-                #   signal the main process to terminate the pool
-                def ecb(e):
-                    ecb_queue.put(e)
-
-                for rfile_inf in rfiles_list:
-                    if (
-                        rfile_inf.nlink >= 2
-                        and rfile_inf.sha256hash
-                        not in gvar_dict["tmp-dict-hardlink_reg"]
-                    ):
-                        # block the flow until the first copy of hardlinked file is ready
-                        try:
-                            pool.apply(
-                                self._process_regular_file,
-                                (rootfs_dir, target_dir, rfile_inf),
-                            )
-                        except Exception as e:
-                            ecb(e)
-                            break
-                    else:
-                        try:
-                            pool.apply_async(
-                                self._process_regular_file,
-                                (rootfs_dir, target_dir, rfile_inf),
-                                error_callback=ecb,
-                            )
-                        except:
-                            # the only exception will be catched is ValueError
-                            # caused by calling pool.apply_async when the pool terminated
-                            pass
-
-                # stop accepting new tasks
-                pool.close()
-                # wait for all tasks to complete
-                # not apply timeout currently
-                while len(await_c) < len(rfiles_list):
-                    # if one of the subprocess raise error,
-                    # terminate the whole pool
-                    if not ecb_queue.empty():
-                        pool.terminate()
-
-                        logger.error(
-                            f"process regular files failed. All sub processess terminated."
-                        )
-                        logger.error(f"last exception: {ecb_queue.get()}")
-                        raise OtaError(f"process regular files failed!")
-
-            # everything is ALLRIGHT!
-            # update corresponding class attribute
-            self._process_regular_files_exit(gvar_dict)
-
-    def _process_regular_file(
-        self, rootfs_dir: str, target_dir: Path, rfile_inf: RegularInf
-    ):
-        """
-        main entry for paralleling processing regular files
-        """
-        try:
-            prev_inf: RegularInf = None
-            # hardlinked file
-            if rfile_inf.nlink >= 2:
-                prev_inf = global_var_dict["tmp-dict-hardlink_reg"].setdefault(
-                    rfile_inf.sha256hash, rfile_inf
-                )
-                # if the upcoming rfile entry is the first copy of hardlinked file
-                # then the prev_inf should be None
-                if prev_inf.path == rfile_inf.path:
-                    prev_inf = None
-
-            if Path("/boot") in rfile_inf.path.parents:
-                # /boot directory file
-                logger.debug(f"boot file: {rfile_inf.path}")
-                self._gen_boot_dir_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
-            else:
-                # others
-                logger.debug(f"no boot file: {rfile_inf.path}")
-                self._gen_regular_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
-        except Exception as e:
-            logger.exception(f"worker[{os.getpid()}]: process regular file failed!")
-            raise e
-
-        # if job finished successfully
-        await_counter.append(True)
-
     def _setup_regular_files(self, target_dir: Path):
         """
         update files copy to another bank
@@ -1034,78 +1391,6 @@ class OtaClient:
                 )
         return False
 
-    def _setup_persistent_files(self, target_dir: Path):
-        """
-        setup persistent files
-        """
-        # get persistent metadata
-        persistent = self._metadata.get_persistent_info()
-        persistent_url = urllib.parse.urljoin(self.__url, persistent["file"])
-        tmp_list_file = self._tmp_dir.joinpath(persistent["file"])
-        if not self._download_raw_file_with_retry(
-            persistent_url, tmp_list_file, persistent["hash"]
-        ):
-            logger.error(f"persistent file download error: {persistent_url}")
-            return False
-        else:
-            logger.info(f"persistent file download success: {persistent_url}")
-
-        # generate persistent files, copying from current bank.
-        _gen_persistent_files(tmp_list_file, target_dir)
-        # move list file to rollback dir
-        dest_file = self._rollback_dir.joinpath(self.backup_files["persistentlist"])
-        shutil.move(tmp_list_file, dest_file)
-        return True
-
-    def _setup_next_bank_fstab(self, fstab_file: Path, target_dir: Path):
-        """
-        setup next bank to fstab
-        """
-        if not fstab_file.is_file():
-            logger.error(f"file not exist: {fstab_file}")
-            return False
-
-        dest_fstab_file = target_dir.joinpath(fstab_file.relative_to("/"))
-
-        return self._grub_ctl.gen_next_bank_fstab(dest_fstab_file)
-
-    def _construct_next_bank(self, next_bank: Path, target_dir: Path):
-        """
-        next bank construction
-        """
-        #
-        # prepare next bank
-        #
-        if not self._prepare_next_bank(next_bank, target_dir):
-            return False
-        #
-        # setup directories
-        #
-        if not self._setup_directories(target_dir):
-            return False
-        #
-        # setup symbolic links
-        #
-        if not self._setup_symboliclinks(target_dir):
-            return False
-        #
-        # setup regular files
-        #
-        if not self._setup_regular_files(target_dir):
-            return False
-        #
-        # setup persistent file
-        #
-        if not self._setup_persistent_files(target_dir):
-            return False
-        #
-        # setup fstab
-        #
-        if not self._setup_next_bank_fstab(self._fstab_file, target_dir):
-            return False
-
-        return True
-
     # TODO: move this function to grub_control?
     def _get_switch_status_for_reboot(self, next_bank: Path):
         """
@@ -1116,15 +1401,6 @@ class OtaClient:
         elif self._grub_ctl.is_bankb(next_bank):
             return OtaStatusString.SWITCHB_STATE
         raise Exception("Bank is not A/B bank!")
-
-    def _inform_update_error(self, error):
-        """
-        inform update error
-        """
-        logger.error(f"Update error!: {str(error)}")
-        # TODO : implement
-
-        return
 
     def set_update_ecuinfo(self, update_info):
         """"""
@@ -1206,33 +1482,6 @@ class OtaClient:
         self._ota_status.set_ota_status(OtaStatusString.PREPARED_STATE)
         # unmount bank
         _unmount_bank(self._mount_point)
-        return True
-
-    def reboot(self):
-        """
-        Reboot
-        """
-        if self.get_ota_status() == OtaStatusString.PREPARED_STATE:
-            # switch reboot
-            if not self._grub_ctl.prepare_grub_switching_reboot(
-                self._boot_vmlinuz, self._boot_initrd
-            ):
-                # inform error
-                self._inform_update_error("Switching bank failed!")
-                # set 'NORMAL' state
-                self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
-                _unmount_bank(self._mount_point)
-                return False
-            #
-            # -----------------------------------------------------------
-            # set 'SWITCHA/SWITCHB' state
-            next_bank = self._grub_ctl.get_next_bank()
-            next_state = self._get_switch_status_for_reboot(next_bank)
-            self._ota_status.set_ota_status(next_state)
-        #
-        # reboot
-        #
-        self._grub_ctl.reboot()
         return True
 
     def save_update_ecuinfo(self):
