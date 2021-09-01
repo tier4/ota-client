@@ -27,6 +27,7 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path: Path):
     import ota_boot
     import grub_control
     import ota_status
+    import configs
     import os
     import yaml
 
@@ -35,13 +36,15 @@ def test_OtaBoot__update_finalize_ecuinfo_file(mocker, tmp_path: Path):
     ecuinfo_path.write_text(ECUINFO)
     ecuinfo_update_path.write_text(ECUINFO_UPDATE)
 
+    cfg = configs.get_empty_conf()
+    cfg.ECUINFO_YAML_FILE = ecuinfo_path
+
     grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
     otastatus_mock = mocker.Mock(spec=ota_status.OtaStatus)
 
-    mocker.patch.object(ota_boot.OtaBoot, "_ecuinfo_yaml_file", ecuinfo_path)
     mocker.patch("ota_boot.GrubCtl", return_value=grubctl_mock)
     mocker.patch("ota_boot.OtaStatus", return_value=otastatus_mock)
-    otaboot = ota_boot.OtaBoot()
+    otaboot = ota_boot.OtaBoot(cfg=cfg)
     otaboot._update_finalize_ecuinfo_file()
 
     ecuinfo = ecuinfo_path.read_text()
@@ -82,6 +85,7 @@ def test_OtaBoot_boot(
 ):
     import ota_boot
     import grub_control
+    import configs
 
     def mock__confirm_banka(self):
         return confirm_banka
@@ -97,18 +101,20 @@ def test_OtaBoot_boot(
     ota_rollback_count_path = tmp_path / "ota_rollback_count"
     ota_rollback_count_path.write_text("0")
 
+    cfg = configs.get_empty_conf()
+    cfg.OTA_STATUS_FILE = ota_status_path
+    cfg.OTA_ROLLBACK_FILE = ota_rollback_count_path
+
     grubctl_mock = mocker.Mock(spec=grub_control.GrubCtl)
     mocker.patch("ota_boot.GrubCtl", return_value=grubctl_mock)
 
-    mocker.patch("ota_boot.OtaStatus._status_file", ota_status_path)
-    mocker.patch("ota_boot.OtaStatus._rollback_file", ota_rollback_count_path)
     finalize_update_mock = mocker.patch.object(
         ota_boot.OtaBoot, "_finalize_update", return_value=True
     )
     finalize_rollback_mock = mocker.patch.object(
         ota_boot.OtaBoot, "_finalize_rollback", return_value=True
     )
-    otaboot = ota_boot.OtaBoot()
+    otaboot = ota_boot.OtaBoot(cfg=cfg)
 
     res_boot = otaboot.boot()
     assert res_boot == result_boot

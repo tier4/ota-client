@@ -8,14 +8,14 @@ from grub_control import GrubCtl
 from constants import OtaBootStatusString, OtaStatusString
 from constants import OtaBootStageAlias as StageAlias
 from exceptions import OtaBootError
-import configs as cfg
+import configs
 
 from logging import getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL))
 
-
+default_cfg = configs.get_default_conf()
 class OtaBootInterface(ABC):
     """
     OtaBoot interface for implementing OtaBoot
@@ -158,17 +158,22 @@ class OtaBoot(OtaBootInterface):
     """
     OTA Startup class
     """
+    # default
+    _grub_config_file = default_cfg.GRUB_CFG_FILE
+    _ecuinfo_yaml_file = default_cfg.ECUINFO_YAML_FILE
 
-    _grub_config_file = cfg.GRUB_CFG_FILE
-    _ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
-
-    def __init__(self):
+    def __init__(self, *, cfg: configs.Configuration=None):
         """
         Initialize
         """
+        # config overwritten
+        if cfg:
+            self._grub_config_file = cfg.GRUB_CFG_FILE
+            self._ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
+
         super().__init__()  # methods binding
-        self._ota_status = OtaStatus()
-        self._grub_ctl = GrubCtl()
+        self._ota_status = OtaStatus(cfg=cfg)
+        self._grub_ctl = GrubCtl(cfg=cfg)
 
     def _confirm_banka(self):
         """
