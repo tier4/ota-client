@@ -35,6 +35,7 @@ logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL)
 
 default_cfg = configs.get_default_conf()
 
+
 def _file_sha256(filename) -> str:
     with open(filename, "rb") as f:
         return sha256(f.read()).hexdigest()
@@ -318,10 +319,10 @@ class PersistentInf(_BaseInf):
 class OtaCache:
     _directory = default_cfg.OTA_CACHE_DIR
 
-    def __init__(self, cfg: configs.Configuration=None):
+    def __init__(self, cfg: configs.Configuration = None):
         if cfg:
             self._directory = cfg.OTA_CACHE_DIR
-        
+
         self._directory.mkdir(exist_ok=True)
 
     def save(self, name):
@@ -367,7 +368,7 @@ class OtaClient:
         url="",
         ota_cache=None,
         *,
-        cfg: configs.Configuration=None
+        cfg: configs.Configuration = None,
     ):
         """
         OTA Client initialize
@@ -385,7 +386,6 @@ class OtaClient:
             self._grub_dir = cfg.GRUB_DIR
             self._rollback_dir = cfg.ROLLBACK_DIR
             self._tmp_dir = cfg.TMP_DIR
-
 
         # OTA
         self.boot_status = boot_status

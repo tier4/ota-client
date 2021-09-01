@@ -15,16 +15,19 @@ logger = getLogger(__name__)
 logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL))
 
 default_cfg = configs.get_default_conf()
+
+
 class OtaStatus:
     """
     OTA status class
     """
+
     # default config
     _status_file = default_cfg.OTA_STATUS_FILE
     _rollback_file = default_cfg.OTA_ROLLBACK_FILE
 
-    def __init__(self, cfg: configs.Configuration=None):
-        # manually config 
+    def __init__(self, cfg: configs.Configuration = None):
+        # manually config
         if cfg:
             self._status_file = cfg.OTA_STATUS_FILE
             self._rollback_file = cfg.OTA_ROLLBACK_FILE

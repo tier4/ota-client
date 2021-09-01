@@ -1,4 +1,4 @@
-from enum import Enum, auto, unique
+from enum import Enum, auto
 
 
 class OtaBootStatusString:
@@ -24,7 +24,6 @@ class OtaStatusString:
     ROLLBACK_FAIL_STATE = "ROLLBACK_FAIL"
 
 
-@unique
 class OtaBootStageAlias(Enum):
     # bypass finalization
     BYPASS_FINALIZATION = auto()  # not used

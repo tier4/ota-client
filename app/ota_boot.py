@@ -16,6 +16,8 @@ logger = getLogger(__name__)
 logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL))
 
 default_cfg = configs.get_default_conf()
+
+
 class OtaBootInterface(ABC):
     """
     OtaBoot interface for implementing OtaBoot
@@ -158,11 +160,12 @@ class OtaBoot(OtaBootInterface):
     """
     OTA Startup class
     """
+
     # default
     _grub_config_file = default_cfg.GRUB_CFG_FILE
     _ecuinfo_yaml_file = default_cfg.ECUINFO_YAML_FILE
 
-    def __init__(self, *, cfg: configs.Configuration=None):
+    def __init__(self, *, cfg: configs.Configuration = None):
         """
         Initialize
         """

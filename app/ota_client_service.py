@@ -5,7 +5,7 @@ import sys
 import os
 import constants
 
-import configs as cfg
+import configs
 from ota_boot import OtaBoot
 from ota_client import OtaClient
 from concurrent import futures
@@ -18,7 +18,9 @@ import otaclient_pb2_grpc
 from logging import getLogger, INFO, DEBUG, basicConfig
 
 logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL))
+
+default_cfg = configs.get_default_conf()
 
 
 class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
@@ -26,7 +28,7 @@ class OtaClientService(otaclient_pb2_grpc.OtaClientServiceServicer):
     OTA lient service class
     """
 
-    def __init__(self, otaclient):
+    def __init__(self, otaclient: OtaClient):
         self._ota_client = otaclient
 
     def OtaUpdate(self, request, context):
@@ -272,10 +274,8 @@ def _daemonize(port, no_boot=False):
         # child process
         boot_result = constants.OtaBootStatusString.NORMAL_BOOT
         if not args.no_boot:
-            # otaboot = OtaBoot(ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml')
             otaboot = OtaBoot()
             boot_result = otaboot.boot()
-        # otaclient = OtaClient(boot_status=boot_result, ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml', ecuid_file='tests/ecuid', ecuinfo_yaml_file='tests/ecuinfo.yaml')
         otaclient = OtaClient(boot_status=boot_result)
         _otaclient_service(otaclient, port)
 
@@ -307,7 +307,6 @@ if __name__ == "__main__":
     else:
         boot_result = constants.OtaBootStatusString.NORMAL_BOOT
         if not args.no_boot:
-            # otaboot = OtaBoot(ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml')
             otaboot = OtaBoot()
             boot_result = otaboot.boot()
         # otaclient = OtaClient(boot_status=boot_result, ota_status_file='tests/ota_status', bank_info_file='tests/bankinfo.yaml', ecuid_file='tests/ecuid', ecuinfo_yaml_file='tests/ecuinfo.yaml')

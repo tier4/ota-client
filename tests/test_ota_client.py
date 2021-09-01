@@ -6,6 +6,7 @@ import subprocess
 
 from tests.ota_client_params import PRIVATE_PEM, POLICY_JSON, ECU_INFO
 
+
 @pytest.fixture(autouse=True)
 def custome_test_configs(tmp_path: Path):
     import configs
@@ -15,6 +16,7 @@ def custome_test_configs(tmp_path: Path):
     cfg.TMP_DIR = tmp_dir
 
     return cfg
+
 
 def test__file_sha256():
     import ota_client

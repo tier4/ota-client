@@ -49,8 +49,11 @@ menuentry 'GNU/Linux' {{
     custom_cfg.write_text(cfg)
     return custom_cfg
 
+
 @pytest.fixture
-def custom_test_configs(tmp_path: Path, custom_cfg_file, grub_file_default, bankinfo_file):
+def custom_test_configs(
+    tmp_path: Path, custom_cfg_file, grub_file_default, bankinfo_file
+):
     import configs
 
     cfg = configs.get_empty_conf()
@@ -59,6 +62,7 @@ def custom_test_configs(tmp_path: Path, custom_cfg_file, grub_file_default, bank
     cfg.BANK_INFO_FILE = bankinfo_file
 
     return cfg
+
 
 @pytest.fixture
 def grub_ctl_instance(tmp_path: Path, mocker, custom_test_configs):

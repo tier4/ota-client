@@ -17,6 +17,7 @@ logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL)
 
 default_cfg = configs.get_default_conf()
 
+
 def _blkid_command(device=None):
     command_line = "blkid" if device is None else f"blkid {device}"
     return subprocess.check_output(shlex.split(command_line))
@@ -130,7 +131,7 @@ class _BaseBankInfo:
     _bank_info_file: Path = default_cfg.BANK_INFO_FILE
     _fstab_file: Path = default_cfg.FSTAB_FILE
 
-    def __init__(self, *, cfg: configs.Configuration=None):
+    def __init__(self, *, cfg: configs.Configuration = None):
         # config overwritten
         if cfg:
             self._bank_info_file: Path = cfg.BANK_INFO_FILE
@@ -196,7 +197,7 @@ class BankInfo(_BaseBankInfo):
     OTA Bank device info class
     """
 
-    def __init__(self, *, cfg: configs.Configuration=None):
+    def __init__(self, *, cfg: configs.Configuration = None):
         super().__init__(cfg=cfg)
         self._setup_current_next_root_dev()
 
