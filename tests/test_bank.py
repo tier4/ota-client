@@ -1,3 +1,5 @@
+import app.configs as configs
+
 from pathlib import Path
 import re
 import pytest
@@ -246,6 +248,7 @@ def test_BankInfo___init__(mocker, tmp_path: Path):
 
     fstab_file = tmp_path / "fstab"
     fstab_file.write_text(FSTAB_EFI_UUID)
+    bank_info_file = tmp_path / "bankinfo.yaml"
 
     def mock__gen_bankinfo_file(bank_info_file, fstab_file):
         return
@@ -261,11 +264,14 @@ def test_BankInfo___init__(mocker, tmp_path: Path):
         else:
             return ""
 
-    mocker.patch("bank._BaseBankInfo._fstab_file", fstab_file)
+    cfg = configs.get_empty_conf()
+    cfg.FSTAB_FILE = fstab_file
+    cfg.BANK_INFO_FILE = bank_info_file
+
     mocker.patch("bank._gen_bankinfo_file", mock__gen_bankinfo_file)
     mocker.patch("bank._get_bank_info", mock__get_bank_info)
     mocker.patch("bank._get_uuid_from_blkid", mock__get_uuid_from_blkid)
-    bankinfo = bank.BankInfo()
+    bankinfo = bank.BankInfo(cfg=cfg)
     assert bankinfo.get_banka() == "/dev/sda3"
     assert bankinfo.get_bankb() == "/dev/sda4"
     assert bankinfo.get_banka_uuid() == "3a1c99e7-46d9-41b1-8b0a-b07bceef1d02"

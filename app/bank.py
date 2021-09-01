@@ -9,12 +9,13 @@ import yaml
 import re
 from copy import deepcopy
 
-import configs as cfg
+import configs
 from logging import getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, INFO))
+logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL))
 
+default_cfg = configs.get_default_conf()
 
 def _blkid_command(device=None):
     command_line = "blkid" if device is None else f"blkid {device}"
@@ -125,10 +126,16 @@ def _get_bank_info(ota_config_file: Path):
 
 
 class _BaseBankInfo:
-    _bank_info_file: Path = cfg.BANK_INFO_FILE
-    _fstab_file: Path = cfg.FSTAB_FILE
+    # default config
+    _bank_info_file: Path = default_cfg.BANK_INFO_FILE
+    _fstab_file: Path = default_cfg.FSTAB_FILE
 
-    def __init__(self):
+    def __init__(self, *, cfg: configs.Configuration=None):
+        # config overwritten
+        if cfg:
+            self._bank_info_file: Path = cfg.BANK_INFO_FILE
+            self._fstab_file: Path = cfg.FSTAB_FILE
+
         if not self._bank_info_file.is_file():
             _gen_bankinfo_file(self._bank_info_file, self._fstab_file)
         self.bank_a, self.bank_b = _get_bank_info(self._bank_info_file)
@@ -189,14 +196,8 @@ class BankInfo(_BaseBankInfo):
     OTA Bank device info class
     """
 
-    def __init__(self, *, fstab_file: str = None, bank_info_file: str = None):
-        # init current bank status
-        if fstab_file:
-            self._fstab_file = Path(fstab_file)
-        if bank_info_file:
-            self._bank_info_file = Path(bank_info_file)
-
-        super().__init__()
+    def __init__(self, *, cfg: configs.Configuration=None):
+        super().__init__(cfg=cfg)
         self._setup_current_next_root_dev()
 
     def _setup_current_next_root_dev(self):
