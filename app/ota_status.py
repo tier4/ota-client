@@ -19,14 +19,18 @@ class OtaStatus:
     """
     OTA status class
     """
-    def __new__(cls, cfg: configs.Configuration=default_cfg):
-        cls._status_file = cfg.OTA_STATUS_FILE
-        cls._rollback_file = cfg.OTA_ROLLBACK_FILE
-        return super().__new__(cls)
+    # default config
+    _status_file = default_cfg.OTA_STATUS_FILE
+    _rollback_file = default_cfg.OTA_ROLLBACK_FILE
 
-    def __init__(self, *args, **kwargs):
-        self._status = self._initial_read_ota_status()
-        self._rollback_count = self._initial_read_rollback_count()
+    def __init__(self, cfg: configs.Configuration=None):
+        # manually config 
+        if cfg:
+            self._status_file = cfg.OTA_STATUS_FILE
+            self._rollback_file = cfg.OTA_ROLLBACK_FILE
+
+        self._status = self._initial_read_ota_status(self._status_file)
+        self._rollback_count = self._initial_read_rollback_count(self._rollback_file)
 
     def set_ota_status(self, ota_status):
         """
@@ -80,32 +84,32 @@ class OtaStatus:
         return self._rollback_count > 0
 
     @classmethod
-    def _initial_read_ota_status(cls):
+    def _initial_read_ota_status(cls, _status_file):
         """
         initial read ota status
         """
-        logger.debug(f"ota status file: {cls._status_file}")
+        logger.debug(f"ota status file: {_status_file}")
         try:
-            with open(cls._status_file, mode="r") as f:
+            with open(_status_file, mode="r") as f:
                 status = f.readline().replace("\n", "")
                 logger.debug(f"line: {status}")
         except Exception:
-            logger.warning(f"No OTA status file: {cls._status_file}")
-            status = cls._gen_ota_status_file(cls._status_file)
+            logger.warning(f"No OTA status file: {_status_file}")
+            status = cls._gen_ota_status_file(_status_file)
         return status
 
     @classmethod
-    def _initial_read_rollback_count(cls):
+    def _initial_read_rollback_count(cls, _rollback_file):
         """"""
         count_str = "0"
-        logger.debug(f"ota status file: {cls._rollback_file}")
+        logger.debug(f"ota status file: {_rollback_file}")
         try:
-            with open(cls._rollback_file, mode="r") as f:
+            with open(_rollback_file, mode="r") as f:
                 count_str = f.readline().replace("\n", "")
                 logger.debug(f"rollback: {count_str}")
         except Exception:
-            logger.debug(f"No rollback count file!: {cls._rollback_file}")
-            with open(cls._rollback_file, mode="w") as f:
+            logger.debug(f"No rollback count file!: {_rollback_file}")
+            with open(_rollback_file, mode="w") as f:
                 f.write(count_str)
             os.sync()
         logger.debug(f"count_str: {count_str}")

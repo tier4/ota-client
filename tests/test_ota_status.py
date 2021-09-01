@@ -26,7 +26,7 @@ def test__initial_read_ota_status_no_file(mocker, tmp_path: Path):
     cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
     otastatus = OtaStatus(cfg)
-    assert otastatus._initial_read_ota_status() == "NORMAL"
+    assert otastatus._initial_read_ota_status(ota_status_path) == "NORMAL"
     assert ota_status_path.is_file()
 
 
@@ -55,7 +55,7 @@ def test__initial_read_ota_status(mocker, tmp_path: Path, ota_state, result_stat
     cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
     otastatus = OtaStatus(cfg)
-    assert otastatus._initial_read_ota_status() == result_state
+    assert otastatus._initial_read_ota_status(ota_status_path) == result_state
 
 
 def test__initial_read_rollback_count_no_file(mocker, tmp_path: Path):
@@ -71,7 +71,7 @@ def test__initial_read_rollback_count_no_file(mocker, tmp_path: Path):
     cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
     otastatus = OtaStatus(cfg)
-    assert otastatus._initial_read_rollback_count() == 0
+    assert otastatus._initial_read_rollback_count(rollback_count_path) == 0
     assert rollback_count_path.is_file()
 
 
@@ -96,7 +96,7 @@ def test__initial_read_rollback_count(mocker, tmp_path: Path, rollback_count, re
     cfg.OTA_ROLLBACK_FILE = rollback_count_path
 
     otastatus = OtaStatus(cfg)
-    assert otastatus._initial_read_rollback_count() == result
+    assert otastatus._initial_read_rollback_count(rollback_count_path) == result
 
 
 @pytest.mark.parametrize(
@@ -167,7 +167,7 @@ def test_inc_rollback_count(mocker, tmp_path: Path, rollback_count, result):
     otastatus = OtaStatus(cfg)
     otastatus.inc_rollback_count()
     assert otastatus.get_rollback_count() == result
-    assert otastatus._initial_read_rollback_count() == result
+    assert otastatus._initial_read_rollback_count(rollback_count_path) == result
 
 
 @pytest.mark.parametrize(
@@ -192,7 +192,7 @@ def test_dec_rollback_count(mocker, tmp_path: Path, rollback_count, result):
     otastatus = OtaStatus(cfg)
     otastatus.dec_rollback_count()
     assert otastatus.get_rollback_count() == result
-    assert otastatus._initial_read_rollback_count() == result
+    assert otastatus._initial_read_rollback_count(rollback_count_path) == result
 
 
 @pytest.mark.parametrize(
