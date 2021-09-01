@@ -49,9 +49,19 @@ menuentry 'GNU/Linux' {{
     custom_cfg.write_text(cfg)
     return custom_cfg
 
+@pytest.fixture
+def custom_test_configs(tmp_path: Path, custom_cfg_file, grub_file_default, bankinfo_file):
+    import configs
+
+    cfg = configs.get_empty_conf()
+    cfg.CUSTOM_CONFIG_FILE = custom_cfg_file
+    cfg.GRUB_DEFAUT_FILE = grub_file_default
+    cfg.BANK_INFO_FILE = bankinfo_file
+
+    return cfg
 
 @pytest.fixture
-def grub_ctl_instance(tmp_path: Path, mocker, bankinfo_file, custom_cfg_file):
+def grub_ctl_instance(tmp_path: Path, mocker, custom_test_configs):
     import bank
     import grub_control
 
@@ -77,9 +87,6 @@ def grub_ctl_instance(tmp_path: Path, mocker, bankinfo_file, custom_cfg_file):
         with open(output_file, mode="w") as f:
             f.write(grub_cfg_wo_submenu)
 
-    mocker.patch.object(bank._BaseBankInfo, "_bank_info_file", bankinfo_file)
-    mocker.patch.object(grub_control.GrubCtl, "_custom_cfg_file", custom_cfg_file)
-
     mocker.patch.object(bank, "_get_uuid_from_blkid", mock_get_uuid_from_blkid)
     mocker.patch.object(
         bank.BankInfo, "get_current_bank_uuid", mock_get_current_bank_uuid
@@ -93,7 +100,7 @@ def grub_ctl_instance(tmp_path: Path, mocker, bankinfo_file, custom_cfg_file):
     mocker.patch.object(
         grub_control, "_make_grub_configuration_file", mock_make_grub_configuration_file
     )
-    grub_ctl = grub_control.GrubCtl()
+    grub_ctl = grub_control.GrubCtl(cfg=custom_test_configs)
     return grub_ctl
 
 

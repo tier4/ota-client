@@ -12,13 +12,14 @@ import subprocess
 
 from bank import BankInfo
 from exceptions import GrubCtrolError
-import configs as cfg
+import configs
 
 from logging import debug, getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL))
 
+default_cfg = configs.get_default_conf()
 
 def _make_grub_configuration_file(opt_file: str):
     """
@@ -103,14 +104,19 @@ class GrubCtl:
     """
     OTA GRUB control class
     """
+    # default config
+    _grub_cfg_file = default_cfg.GRUB_CFG_FILE
+    _custom_cfg_file = default_cfg.CUSTOM_CONFIG_FILE
+    _default_grub_file = default_cfg.GRUB_DEFAUT_FILE
 
-    _grub_cfg_file = cfg.GRUB_CFG_FILE
-    _custom_cfg_file = cfg.CUSTOM_CONFIG_FILE
-    _default_grub_file = cfg.GRUB_DEFAUT_FILE
-
-    def __init__(self):
-        """"""
-        self._bank_info = BankInfo()
+    def __init__(self, *, cfg: configs.Configuration=None):
+        # config overwritten
+        if cfg:
+            self._grub_cfg_file = cfg.GRUB_CFG_FILE
+            self._custom_cfg_file = cfg.CUSTOM_CONFIG_FILE
+            self._default_grub_file = cfg.GRUB_DEFAUT_FILE
+            
+        self._bank_info = BankInfo(cfg=cfg)
 
     # wrappers around bank_info methods
     def get_bank_info(self):
