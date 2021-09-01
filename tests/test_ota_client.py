@@ -6,6 +6,15 @@ import subprocess
 
 from tests.ota_client_params import PRIVATE_PEM, POLICY_JSON, ECU_INFO
 
+@pytest.fixture(autouse=True)
+def custome_test_configs(tmp_path: Path):
+    import configs
+
+    tmp_dir = tmp_path / "tmp"
+    cfg = configs.get_empty_conf()
+    cfg.TMP_DIR = tmp_dir
+
+    return cfg
 
 def test__file_sha256():
     import ota_client
@@ -57,11 +66,11 @@ def test_RegularInf(regular_inf_entry, mode, uid, gid, nlink, hash, path):
     "entry, mode, uid, gid, path",
     [
         (
-            "0755,0,0,'/usr/lib/python3/dist-packages/ansible/modules/network/layer3'",
+            r"0755,0,0,'/usr/lib/python3/dist-packages/ansible/modules/network/layer3'",
             int("0755", 8),
             0,
             0,
-            Path("/usr/lib/python3/dist-packages/ansible/modules/network/layer3"),
+            Path(r"/usr/lib/python3/dist-packages/ansible/modules/network/layer3"),
         )
     ],
 )

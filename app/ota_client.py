@@ -20,7 +20,7 @@ from multiprocessing import Pool, Manager
 from hashlib import sha256
 
 
-import configs as cfg
+import configs
 import constants
 from ota_status import OtaStatus
 from constants import OtaStatusString
@@ -31,8 +31,9 @@ from exceptions import Error, OtaError
 from logging import getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger.setLevel(configs.LOG_LEVEL_TABLE.get(__name__, configs.DEFAULT_LOG_LEVEL))
 
+default_cfg = configs.get_default_conf()
 
 def _file_sha256(filename) -> str:
     with open(filename, "rb") as f:
@@ -315,9 +316,13 @@ class PersistentInf(_BaseInf):
 
 
 class OtaCache:
-    def __init__(self, directory=cfg.OTA_CACHE_DIR):
-        self._directory = Path(directory)
-        directory.mkdir(exist_ok=True)
+    _directory = default_cfg.OTA_CACHE_DIR
+
+    def __init__(self, cfg: configs.Configuration=None):
+        if cfg:
+            self._directory = cfg.OTA_CACHE_DIR
+        
+        self._directory.mkdir(exist_ok=True)
 
     def save(self, name):
         dst: Path = self._directory / name
@@ -337,39 +342,59 @@ class OtaClient:
     OTA Client class
     """
 
+    # default configs
     #
     # files
     #
-    ecuid_file = cfg.ECUID_FILE
-    ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
-    _grub_conf_file = cfg.GRUB_CFG_FILE
-    _fstab_file = cfg.FSTAB_FILE
+    ecuid_file = default_cfg.ECUID_FILE
+    ecuinfo_yaml_file = default_cfg.ECUINFO_YAML_FILE
+    _grub_conf_file = default_cfg.GRUB_CFG_FILE
+    _fstab_file = default_cfg.FSTAB_FILE
+    _ota_metadata_file = default_cfg.OTA_METADATA_FILE
 
     #
     # dirs
     #
-    _ota_dir = cfg.OTA_DIR
-    _mount_point = cfg.MOUNT_POINT
-    _grub_dir = cfg.GRUB_DIR
-    _rollback_dir = cfg.ROLLBACK_DIR
+    _ota_dir = default_cfg.OTA_DIR
+    _mount_point = default_cfg.MOUNT_POINT
+    _grub_dir = default_cfg.GRUB_DIR
+    _rollback_dir = default_cfg.ROLLBACK_DIR
+    _tmp_dir = default_cfg.TMP_DIR
 
     def __init__(
         self,
         boot_status=constants.OtaBootStatusString.NORMAL_BOOT,
         url="",
         ota_cache=None,
+        *,
+        cfg: configs.Configuration=None
     ):
         """
         OTA Client initialize
         """
-        self.__main_ecu = True
+        # configs overwritten
+        if cfg:
+            self.ecuid_file = cfg.ECUID_FILE
+            self.ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
+            self._grub_conf_file = cfg.GRUB_CFG_FILE
+            self._fstab_file = cfg.FSTAB_FILE
+            self._ota_metadata_file = cfg.OTA_METADATA_FILE
+
+            self._ota_dir = cfg.OTA_DIR
+            self._mount_point = cfg.MOUNT_POINT
+            self._grub_dir = cfg.GRUB_DIR
+            self._rollback_dir = cfg.ROLLBACK_DIR
+            self._tmp_dir = cfg.TMP_DIR
+
+
         # OTA
         self.boot_status = boot_status
-        self._ota_status = OtaStatus()
-        self._grub_ctl = GrubCtl()
+        self._ota_status = OtaStatus(cfg)
+        self._grub_ctl = GrubCtl(cfg)
         self._boot_vmlinuz = None
         self._boot_initrd = None
         # ECU information
+        self.__main_ecu = True
         self.__my_ecuid = _read_ecuid(self.ecuid_file)
         self.__ecuinfo_yaml_file = self.ecuinfo_yaml_file
         self.__ecu_info = _read_ecu_info(self.ecuinfo_yaml_file)
@@ -514,7 +539,7 @@ class OtaClient:
         try:
             # download metadata.jwt
             metadata_url = self._get_metadata_url()
-            dest_path = cfg.TMP_DIR.joinpath(dest_file)
+            dest_path = self._tmp_dir.joinpath(dest_file)
             logger.debug(f"url: {metadata_url}")
             logger.debug(f"metadata dest path: {dest_path}")
             if not self._download_raw_file_with_retry(metadata_url, dest_path):
@@ -607,7 +632,7 @@ class OtaClient:
         Download list file(debug)
         """
         dirs_url = urllib.parse.urljoin(url, list_file)
-        dest_path = cfg.TMP_DIR.joinpath(list_file)
+        dest_path = self._tmp_dir.joinpath(list_file)
         return self._download_raw_file_with_retry(dirs_url, dest_path, hash)
 
     def _setup_directories(self, target_dir: Path):
@@ -617,7 +642,7 @@ class OtaClient:
         # get directories metadata
         dirs = self._metadata.get_directories_info()
         dirs_url = urllib.parse.urljoin(self.__url, dirs["file"])
-        tmp_list_file = cfg.TMP_DIR.joinpath(dirs["file"])
+        tmp_list_file = self._tmp_dir.joinpath(dirs["file"])
         if self._download_raw_file_with_retry(dirs_url, tmp_list_file, dirs["hash"]):
             # generate directories
             if _gen_directories(tmp_list_file, target_dir):
@@ -679,7 +704,7 @@ class OtaClient:
         # get symboliclink metadata
         symlinks = self._metadata.get_symboliclinks_info()
         symlinks_url = urllib.parse.urljoin(self.__url, symlinks["file"])
-        tmp_list_file = cfg.TMP_DIR.joinpath(symlinks["file"])
+        tmp_list_file = self._tmp_dir.joinpath(symlinks["file"])
         if self._download_raw_file_with_retry(
             symlinks_url, tmp_list_file, symlinks["hash"]
         ):
@@ -990,7 +1015,7 @@ class OtaClient:
         # get regular metadata
         regularslist = self._metadata.get_regulars_info()
         regularslist_url = urllib.parse.urljoin(self.__url, regularslist["file"])
-        tmp_list_file = cfg.TMP_DIR.joinpath(regularslist["file"])
+        tmp_list_file = self._tmp_dir.joinpath(regularslist["file"])
         if self._download_raw_file_with_retry(
             regularslist_url, tmp_list_file, regularslist["hash"]
         ):
@@ -1016,7 +1041,7 @@ class OtaClient:
         # get persistent metadata
         persistent = self._metadata.get_persistent_info()
         persistent_url = urllib.parse.urljoin(self.__url, persistent["file"])
-        tmp_list_file = cfg.TMP_DIR.joinpath(persistent["file"])
+        tmp_list_file = self._tmp_dir.joinpath(persistent["file"])
         if not self._download_raw_file_with_retry(
             persistent_url, tmp_list_file, persistent["hash"]
         ):
@@ -1155,7 +1180,7 @@ class OtaClient:
         #
         # download metadata
         #
-        if not self._download_metadata(cfg.OTA_METADATA_FILE, metadata_jwt_url):
+        if not self._download_metadata(self._ota_metadata_file, metadata_jwt_url):
             # inform error
             self._inform_update_error("Can not get metadata!")
             # set 'NORMAL' state
