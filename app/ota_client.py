@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import functools
-import sys
 import tempfile
 import os
 import stat
@@ -317,6 +316,8 @@ def _download_util(
     enable_verify: bool = False,
     sha256_hash: str = None,
     enable_filesave: bool = False,
+    enable_tempfile: bool = False,
+    tempfile_prefix: str = "",
     save_to: Path = None,
     retry_count=1,
     timeout=10,
@@ -347,9 +348,20 @@ def _download_util(
             )
 
     if enable_filesave and save_to:
-        with open(save_to, "wb") as f:
-            for data in r.iter_content(chunk_size=4096):
-                f.write(data)
+        if enable_tempfile:
+            # use a temp file to hold the data, and then move to the target
+            with tempfile.NamedTemporaryFile(
+                "wb", delete=False, prefix=tempfile_prefix
+            ) as f:
+                fname = f.name
+                for data in r.iter_content(chunk_size=4096):
+                    f.write(data)
+            shutil.move(fname, save_to)
+        else:
+            # directly save to target path
+            with open(save_to, "wb") as f:
+                for data in r.iter_content(chunk_size=4096):
+                    f.write(data)
 
     return r, hash_value
 
@@ -477,6 +489,7 @@ class Downloader:
         _download_util,
         enable_verfiy=True,
         enable_filesave=True,
+        enable_tempfile=True,
         retry_count=_download_retry,
     )
 
@@ -739,6 +752,7 @@ class _ProcessRegularFilesMixin:
                     Downloader._download_file_with_verification(
                         target_url,
                         headers=self._header_dict,
+                        tempfile_prefix=__name__ + str(time.time()),
                         save_to=regular_inf.path,
                         sha256_hash=regular_inf.sha256hash,
                     )
@@ -800,6 +814,7 @@ class _ProcessRegularFilesMixin:
                         target_url,
                         headers=self._header_dict,
                         save_to=dest_path,
+                        tempfile_prefix=__name__ + str(time.time()),
                         sha256_hash=regular_inf.sha256hash,
                     )
                 except:
@@ -1147,11 +1162,7 @@ class OtaStatusWrapper:
         return self._boot_status
 
 
-class OtaUpdate(
-    BankConstructorMixin,
-    OtaMetadataWrapper,
-    OtaStatusWrapper
-):
+class OtaUpdate(BankConstructorMixin, OtaMetadataWrapper, OtaStatusWrapper):
     """
     implementation of OtaClientInterface.update
     """
