@@ -250,16 +250,16 @@ def test__copytree_complete(tmp_path: Path):
 
 
 def test_otaclient_read_ecuid(tmp_path: Path):
-    import ota_client
+    from ota_client import ECUInfoUtil
 
     ecuid_path = tmp_path / "ecuid"
     ecuid = """1\n"""
     ecuid_path.write_text(ecuid)
-    assert ota_client._read_ecuid(ecuid_path) == "1"
+    assert ECUInfoUtil._read_ecuid(ecuid_path) == "1"
 
 
 def test_otaclient_read_ecu_info(tmp_path: Path):
-    import ota_client
+    from ota_client import ECUInfoUtil
 
     ecuinfo_path = tmp_path / "ecuinfo.yaml"
     ecuinfo = """\
@@ -272,7 +272,7 @@ main_ecu:
   ip_addr: ''
 """
     ecuinfo_path.write_text(ecuinfo)
-    rd_ecuinfo = ota_client._read_ecu_info(ecuinfo_path)
+    rd_ecuinfo = ECUInfoUtil._read_ecu_info(ecuinfo_path)
     assert rd_ecuinfo["main_ecu"]["ecu_name"] == "autoware_ecu"
     assert rd_ecuinfo["main_ecu"]["ecu_type"] == "autoware"
     assert rd_ecuinfo["main_ecu"]["ecu_id"] == "1"
@@ -499,7 +499,7 @@ def test__header_str_to_dict(tmp_path: Path):
 
 
 def test__save_update_ecuinfo(tmp_path: Path):
-    import ota_client
+    from ota_client import ECUInfoUtil
     import yaml
 
     ecuinfo_yaml_path = tmp_path / "ecuinfo.yaml"
@@ -532,7 +532,7 @@ def test__save_update_ecuinfo(tmp_path: Path):
         ],
     }
 
-    ota_client._save_update_ecuinfo(ecuinfo_yaml_path, ecu_info)
+    ECUInfoUtil._save_update_ecuinfo(ecuinfo_yaml_path, ecu_info)
     assert ecuinfo_yaml_path.is_file()
 
     with open(ecuinfo_yaml_path, "r") as f:

@@ -10,19 +10,15 @@ import shutil
 import subprocess
 import urllib.parse
 import requests
-from requests.api import head
-from requests.models import Response
 import yaml
-import logging
 import copy
 import re
 import time
 from pathlib import Path
-from typing import List, Union
+from typing import Callable, List, Union
 from multiprocessing import Pool, Manager
 from hashlib import sha256
 from http import HTTPStatus
-from functools import partial
 from abc import ABC, abstractmethod
 
 import configs
@@ -324,7 +320,11 @@ def _download_util(
     save_to: Path = None,
     retry_count=1,
     timeout=10,
-) -> Union[requests.Response, hash:str]:
+) -> Union[requests.Response, str]:
+    """
+    general download util function
+    """
+
     h = headers.copy()
     m, hash_value = sha256(), ""
 
@@ -480,7 +480,7 @@ class Downloader:
         retry_count=_download_retry,
     )
 
-    def _function_wrapper(self, **kwargs) -> function:
+    def _function_wrapper(self, **kwargs) -> Callable:
         try:
             f = functools.partial(_download_util, **kwargs)
         except Exception as e:
@@ -1147,22 +1147,10 @@ class OtaStatusWrapper:
         return self._boot_status
 
 
-class OtaUpdateInterface:
-    def __init__(self):
-        # place holder
-        self._ota_status: OtaStatus = None
-        self._grub_ctl: GrubCtl = None
-
-    @abstractmethod
-    def update(self, ecu_update_info):
-        pass
-
-
 class OtaUpdate(
     BankConstructorMixin,
     OtaMetadataWrapper,
-    OtaStatusWrapper,
-    OtaUpdateInterface,
+    OtaStatusWrapper
 ):
     """
     implementation of OtaClientInterface.update
@@ -1334,7 +1322,7 @@ class OtaReboot(
     _boot_vmlinuz: str = None
     _boot_initrd: str = None
     _mount_point: str = None
-    _inform_update_error: function = None
+    _inform_update_error: Callable = None
 
     def reboot(self):
         """
