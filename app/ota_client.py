@@ -118,12 +118,12 @@ def _copytree_complete(src: Path, dst: Path) -> Path:
 
 class ECUInfoUtil:
 
-    #place holder
-    __ecu_info: dict = None
-    __main_ecu: dict = None
-    __my_ecuid: dict = None
-    __update_ecuinfo_yaml_file: Path = None
-    __update_ecu_info: Path = None
+    # place holder
+    _ecu_info: dict = None
+    _main_ecu: dict = None
+    _my_ecuid: dict = None
+    _update_ecuinfo_yaml_file: Path = None
+    _update_ecu_info: Path = None
 
     @staticmethod
     def _read_ecuid(ecuid_file: Path) -> str:
@@ -147,9 +147,7 @@ class ECUInfoUtil:
         return ecuinfo
 
     @staticmethod
-    def _save_update_ecuinfo(
-        update_ecuinfo_yaml_file: Path, update_ecu_info: Path
-        ):
+    def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
         """
         save update ecuinfo.yaml
         """
@@ -161,22 +159,22 @@ class ECUInfoUtil:
 
         shutil.move(tmp_file_name, output_file)
         return True
-    
+
     def get_ecuinfo(self):
-        return self.__ecu_info
+        return self._ecu_info
 
     def get_my_ecuid(self):
-        return self.__my_ecuid
+        return self._my_ecuid
 
     def get_ecuinfo(self):
-        return self.__ecu_info
-    
+        return self._ecu_info
+
     def is_main_ecu(self):
-        return self.__main_ecu
+        return self._main_ecu
 
     def save_update_ecuinfo(self):
         return self._save_update_ecuinfo(
-            self.__update_ecuinfo_yaml_file, self.__update_ecu_info
+            self._update_ecuinfo_yaml_file, self._update_ecu_info
         )
 
     def set_update_ecuinfo(self, update_info):
@@ -185,30 +183,30 @@ class ECUInfoUtil:
         ecuinfo = update_info.ecu_info
         logger.debug(f"[ecu_info] {ecuinfo}")
         ecu_found = False
-        if ecuinfo.ecu_id == self.__update_ecu_info["main_ecu"]["ecu_id"]:
+        if ecuinfo.ecu_id == self._update_ecu_info["main_ecu"]["ecu_id"]:
             logger.info("ecu_id matched!")
-            self.__update_ecu_info["main_ecu"]["ecu_name"] = ecuinfo.ecu_name
-            self.__update_ecu_info["main_ecu"]["ecu_type"] = ecuinfo.ecu_type
-            self.__update_ecu_info["main_ecu"]["version"] = ecuinfo.version
-            self.__update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
+            self._update_ecu_info["main_ecu"]["ecu_name"] = ecuinfo.ecu_name
+            self._update_ecu_info["main_ecu"]["ecu_type"] = ecuinfo.ecu_type
+            self._update_ecu_info["main_ecu"]["version"] = ecuinfo.version
+            self._update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
             ecu_found = True
-            logger.debug(f"__update_ecu_info: {self.__update_ecu_info}")
+            logger.debug(f"__update_ecu_info: {self._update_ecu_info}")
         else:
             logger.debug("ecu_id not matched!")
-            if "sub_ecus" in self.__update_ecu_info:
-                for i, subecuinfo in enumerate(self.__update_ecu_info["sub_ecus"]):
+            if "sub_ecus" in self._update_ecu_info:
+                for i, subecuinfo in enumerate(self._update_ecu_info["sub_ecus"]):
                     ecuinfo = subecuinfo.ecu_info
                     if ecuinfo.ecu_id == subecuinfo["ecu_id"]:
-                        self.__update_ecu_info["sub_ecus"][i][
+                        self._update_ecu_info["sub_ecus"][i][
                             "ecu_name"
                         ] = ecuinfo.ecu_name
-                        self.__update_ecu_info["sub_ecus"][i][
+                        self._update_ecu_info["sub_ecus"][i][
                             "ecu_type"
                         ] = ecuinfo.ecu_type
-                        self.__update_ecu_info["sub_ecus"][i][
+                        self._update_ecu_info["sub_ecus"][i][
                             "version"
                         ] = ecuinfo.version
-                        self.__update_ecu_info["sub_ecus"][i][
+                        self._update_ecu_info["sub_ecus"][i][
                             "independent"
                         ] = ecuinfo.independent
                         ecu_found = True
@@ -317,16 +315,16 @@ def _header_str_to_dict(header_str):
 
 
 def _download_util(
-        url: str,
-        *,
-        headers: dict={},
-        enable_verify: bool=False,
-        sha256_hash: str=None,
-        enable_filesave: bool=False,
-        save_to: Path=None,
-        retry_count=1,
-        timeout=10,
-    ) -> Union[requests.Response, hash: str]:
+    url: str,
+    *,
+    headers: dict = {},
+    enable_verify: bool = False,
+    sha256_hash: str = None,
+    enable_filesave: bool = False,
+    save_to: Path = None,
+    retry_count=1,
+    timeout=10,
+) -> Union[requests.Response, hash:str]:
     h = headers.copy()
     m, hash_value = sha256(), ""
 
@@ -344,7 +342,9 @@ def _download_util(
         hash_value = m.hexdigest()
 
         if hash_value != sha256_hash:
-            raise Exception(f"{url}: hash mismatch. except:{sha256_hash}, local: {hash_value}")
+            raise Exception(
+                f"{url}: hash mismatch. except:{sha256_hash}, local: {hash_value}"
+            )
 
     if enable_filesave and save_to:
         with open(save_to, "wb") as f:
@@ -445,8 +445,8 @@ class OtaCache:
             return True
         return False
 
-class OtaClientInterface(ABC):
 
+class OtaClientInterface(ABC):
     @abstractmethod
     def update(self, ecu_update_info):
         pass
@@ -459,7 +459,11 @@ class OtaClientInterface(ABC):
     def reboot(self):
         pass
 
+
 class DownloaderMixin:
+    """
+    downloader functionalities
+    """
 
     _download_retry = 5
 
@@ -467,39 +471,66 @@ class DownloaderMixin:
     _download_file = functools.partial(
         _download_util,
         enable_filesave=True,
-        retry_count = _download_retry,
+        retry_count=_download_retry,
     )
     _download_file_with_verification = functools.partial(
         _download_util,
-        enable_verfiy = True,
+        enable_verfiy=True,
         enable_filesave=True,
-        retry_count = _download_retry,
+        retry_count=_download_retry,
     )
 
     def _function_wrapper(self, **kwargs) -> function:
         try:
-            f = functools.partial(
-                _download_util,
-                **kwargs
-            )
+            f = functools.partial(_download_util, **kwargs)
         except Exception as e:
             logger.error(f"failed to customize download util: {e}")
             return None
-        
+
         return f
 
 
-class OtaMetadataWrapper:
-    _metadata: OtaMetaData =None
+class OtaMetadataWrapper(DownloaderMixin):
+    _metadata: OtaMetaData = None
+
+    def _download_metadata(self, metadata_file: Path, metadata_url):
+        """
+        Download OTA metadata
+        """
+        try:
+            # dounload and write meta data.
+            # TODO: no authentication here for downloading metadata?
+            response, _ = self._download(metadata_url)
+            self._metadata_jwt = response.text
+            metadata_file.write_text(response.text)
+            self._metadata = OtaMetaData(self._metadata_jwt)
+        except Exception as e:
+            self._metadata_jwt = ""
+            self._meta_data_file = ""
+            logger.exception("Error: OTA meta data download fail")
+            return False
+        return True
 
     def get_directories_info(self):
         return self._metadata.get_directories_info()
+
+    def get_symboliclinks_info(self):
+        return self._metadata.get_symboliclinks_info()
+
+    def get_rootfsdir_info(self):
+        return self._metadata.get_rootfsdir_info()
+
+    def get_regulars_info(self):
+        return self._metadata.get_regulars_info()
+
+    def get_persistent_info(self):
+        return self._metadata.get_persistent_info()
 
 
 class _ProcessRegularFilesMixin(DownloaderMixin):
     """
     implementation of regular files processing logis
-    main_entry: 
+    main_entry:
         _process_regular_files(
             self, rootfs_dir: str, rfiles_list: List[RegularInf], target_dir: Path
         )
@@ -507,8 +538,8 @@ class _ProcessRegularFilesMixin(DownloaderMixin):
 
     # place holder
     _rollback_dir: Path = None
-    __url: str = None
-    __header_dict: str =  None
+    _url: str = None
+    _header_dict: str = None
 
     def _process_regular_files_pool_init(self, gvar_dict: dict, awc: list):
         """
@@ -643,7 +674,7 @@ class _ProcessRegularFilesMixin(DownloaderMixin):
 
         # if job finished successfully
         await_counter.append(True)
-  
+
     def _gen_boot_dir_file(
         self,
         rootfs_dir: str,
@@ -693,19 +724,21 @@ class _ProcessRegularFilesMixin(DownloaderMixin):
                     staging_rollback_dict[regular_inf.path] = rollback_file
                 else:
                     staging_rollback_dict[regular_inf.path] = ""
-                    
+
                 # download new file
                 target_url = urllib.parse.urljoin(
-                    self.__url,
+                    self._url,
                     urllib.parse.quote(
-                        str(Path(rootfs_dir).joinpath(regular_inf.path.relative_to("/")))
+                        str(
+                            Path(rootfs_dir).joinpath(regular_inf.path.relative_to("/"))
+                        )
                     ),
                 )
 
                 try:
                     self._download_file_with_verification(
                         target_url,
-                        headers=self.__header_dict,
+                        headers=self._header_dict,
                         save_to=regular_inf.path,
                         sha256_hash=regular_inf.sha256hash,
                     )
@@ -754,16 +787,18 @@ class _ProcessRegularFilesMixin(DownloaderMixin):
 
                 # download new file
                 target_url = urllib.parse.urljoin(
-                    self.__url,
+                    self._url,
                     urllib.parse.quote(
-                        str(Path(rootfs_dir).joinpath(regular_inf.path.relative_to("/")))
+                        str(
+                            Path(rootfs_dir).joinpath(regular_inf.path.relative_to("/"))
+                        )
                     ),
                 )
 
                 try:
                     self._download_file_with_verification(
                         target_url,
-                        headers=self.__header_dict,
+                        headers=self._header_dict,
                         save_to=dest_path,
                         sha256_hash=regular_inf.sha256hash,
                     )
@@ -778,11 +813,11 @@ class _ProcessRegularFilesMixin(DownloaderMixin):
             os.chmod(dest_path, regular_inf.mode)
 
 
-
 class GrubCtlWrapper:
     """
     a wrapper around _grub_ctl
     """
+
     # place holder
     _grub_ctl: GrubCtl = None
 
@@ -792,16 +827,12 @@ class GrubCtlWrapper:
     def _reboot(self):
         return self._grub_ctl.reboot()
 
-    def _prepare_grub_switching_reboot(
-        self, vmlinux: str, initrd: str
-    ):
+    def _prepare_grub_switching_reboot(self, vmlinux: str, initrd: str):
         return self._grub_ctl.prepare_grub_switching_reboot(
             vmlinuz=vmlinux, initrd=initrd
         )
 
-    def _get_switch_status_for_reboot(
-        self, next_bank: Path
-    ):
+    def _get_switch_status_for_reboot(self, next_bank: Path):
         """
         get switch status for reboot
         """
@@ -809,9 +840,9 @@ class GrubCtlWrapper:
             return OtaStatusString.SWITCHA_STATE
         elif self._grub_ctl.is_bankb(next_bank):
             return OtaStatusString.SWITCHB_STATE
-        
+
         raise Exception("Bank is not A/B bank!")
-    
+
     def _gen_next_bank_fstab(self, fstab_file: Path):
         return self._grub_ctl.gen_next_bank_fstab(fstab_file)
 
@@ -821,16 +852,16 @@ class BankConstructorMixin(
     GrubCtlWrapper,
     OtaMetadataWrapper,
     DownloaderMixin,
-    ):
+):
 
     # place holder
     _fstab_file: Path = None
     _rollback_dir: Path = None
-    __url: str = None
+    _url: str = None
     _tmp_dir: Path = None
     backup_files: dict = None
-    __header_dict: dict = None
-    
+    _header_dict: dict = None
+
     def _construct_next_bank(self, next_bank: Path, target_dir: Path):
         """
         main function: next bank construction
@@ -868,7 +899,6 @@ class BankConstructorMixin(
 
         return True
 
-
     def _prepare_next_bank(self, bank: Path, target_dir: Path):
         """
         prepare next boot bank
@@ -890,21 +920,21 @@ class BankConstructorMixin(
             return False
         return True
 
-
     def _setup_directories(self, target_dir: Path):
         """
         generate directories on another bank
         """
         # get directories metadata
         dirs = self.get_directories_info()
-        dirs_url = urllib.parse.urljoin(self.__url, dirs["file"])
+        dirs_url = urllib.parse.urljoin(self._url, dirs["file"])
         tmp_list_file = self._tmp_dir.joinpath(dirs["file"])
         try:
             self._download_file(
-                dirs_url, 
-                headers=self.__header_dict,
-                save_to=tmp_list_file, 
-                sha256_hash=dirs["hash"])
+                dirs_url,
+                headers=self._header_dict,
+                save_to=tmp_list_file,
+                sha256_hash=dirs["hash"],
+            )
             # generate directories
             if _gen_directories(tmp_list_file, target_dir):
                 # move list file to rollback dir
@@ -916,21 +946,20 @@ class BankConstructorMixin(
 
         return False
 
-
     def _setup_symboliclinks(self, target_dir: Path):
         """
         generate symboliclinks on another bank
         """
         # get symboliclink metadata
-        symlinks = self._metadata.get_symboliclinks_info()
-        symlinks_url = urllib.parse.urljoin(self.__url, symlinks["file"])
+        symlinks = self.get_symboliclinks_info()
+        symlinks_url = urllib.parse.urljoin(self._url, symlinks["file"])
         tmp_list_file = self._tmp_dir.joinpath(symlinks["file"])
         try:
             self._download_file_with_verification(
-                symlinks_url, 
-                headers=self.__header_dict,
-                save_to=tmp_list_file, 
-                sha256_hash=symlinks["hash"]
+                symlinks_url,
+                headers=self._header_dict,
+                save_to=tmp_list_file,
+                sha256_hash=symlinks["hash"],
             )
             # generate symboliclinks
             if self._gen_symbolic_links(tmp_list_file, target_dir):
@@ -949,17 +978,17 @@ class BankConstructorMixin(
         """
         update files copy to another bank
         """
-        rootfsdir_info = self._metadata.get_rootfsdir_info()
+        rootfsdir_info = self.get_rootfsdir_info()
         # get regular metadata
-        regularslist = self._metadata.get_regulars_info()
-        regularslist_url = urllib.parse.urljoin(self.__url, regularslist["file"])
+        regularslist = self.get_regulars_info()
+        regularslist_url = urllib.parse.urljoin(self._url, regularslist["file"])
         tmp_list_file = self._tmp_dir.joinpath(regularslist["file"])
         try:
             self._download_file_with_verification(
-                regularslist_url, 
-                headers=self.__header_dict,
-                save_to=tmp_list_file, 
-                sha256_hash=regularslist["hash"]
+                regularslist_url,
+                headers=self._header_dict,
+                save_to=tmp_list_file,
+                sha256_hash=regularslist["hash"],
             )
             if self._gen_regular_files(
                 rootfsdir_info["file"], tmp_list_file, target_dir
@@ -984,14 +1013,14 @@ class BankConstructorMixin(
         setup persistent files
         """
         # get persistent metadata
-        persistent = self._metadata.get_persistent_info()
-        persistent_url = urllib.parse.urljoin(self.__url, persistent["file"])
+        persistent = self.get_persistent_info()
+        persistent_url = urllib.parse.urljoin(self._url, persistent["file"])
         tmp_list_file = self._tmp_dir.joinpath(persistent["file"])
         try:
             self._download_file_with_verification(
-                persistent_url, 
-                headers=self.__header_dict,
-                save_to=tmp_list_file, 
+                persistent_url,
+                headers=self._header_dict,
+                save_to=tmp_list_file,
                 sha256_hash=persistent["hash"],
             )
         except:
@@ -1018,7 +1047,6 @@ class BankConstructorMixin(
         dest_fstab_file = target_dir.joinpath(fstab_file.relative_to("/"))
 
         return self._gen_next_bank_fstab(dest_fstab_file)
-
 
     def _gen_symbolic_links(self, symlinks_file: Path, target_dir: Path):
         """
@@ -1065,7 +1093,6 @@ class BankConstructorMixin(
                 res = False
         return res
 
-
     def _gen_regular_files(
         self, rootfs_dir: str, regulars_file: Path, target_dir: Path
     ):
@@ -1095,13 +1122,14 @@ class BankConstructorMixin(
         return True
 
 
-
 class OtaStatusWrapper:
     """
     a wrapper around _ota_status
     """
+
     # place holder
     _ota_status: OtaStatus = None
+    _boot_status = None
 
     def set_ota_status(self, status: str):
         return self._ota_status.set_ota_status(status)
@@ -1115,8 +1143,11 @@ class OtaStatusWrapper:
     def dec_rollback_count(self):
         return self._ota_status.dec_rollback_count()
 
-class OtaUpdateInterface:
+    def get_boot_status(self):
+        return self._boot_status
 
+
+class OtaUpdateInterface:
     def __init__(self):
         # place holder
         self._ota_status: OtaStatus = None
@@ -1126,11 +1157,14 @@ class OtaUpdateInterface:
     def update(self, ecu_update_info):
         pass
 
+
 class OtaUpdate(
-    BankConstructorMixin, 
-    GrubCtlWrapper,
+    BankConstructorMixin,
+    OtaMetadataWrapper,
+    OtaStatusWrapper,
     DownloaderMixin,
-    OtaUpdateInterface):
+    OtaUpdateInterface,
+):
     """
     implementation of OtaClientInterface.update
     """
@@ -1146,12 +1180,12 @@ class OtaUpdate(
         # set 'UPDATE' state
         self._ota_status.set_ota_status(OtaStatusString.UPDATE_STATE)
         logger.debug(ecu_update_info)
-        self.__url = ecu_update_info.url
+        self._url = ecu_update_info.url
         metadata = ecu_update_info.metadata
-        metadata_jwt_url = urllib.parse.urljoin(self.__url, metadata)
-        self.__header_dict = _header_str_to_dict(ecu_update_info.header)
+        metadata_jwt_url = urllib.parse.urljoin(self._url, metadata)
+        self._header_dict = _header_str_to_dict(ecu_update_info.header)
         logger.debug(f"[metadata_jwt] {metadata_jwt_url}")
-        logger.debug(f"[header] {self.__header_dict}")
+        logger.debug(f"[header] {self._header_dict}")
 
         #
         # download metadata
@@ -1174,7 +1208,7 @@ class OtaUpdate(
             # inform error
             self._inform_update_error("Can not construct update bank!")
             # set 'NORMAL' state
-            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
+            self.set_ota_status(OtaStatusString.NORMAL_STATE)
             _unmount_bank(self._mount_point)
             return False
         #
@@ -1183,26 +1217,6 @@ class OtaUpdate(
         self._ota_status.set_ota_status(OtaStatusString.PREPARED_STATE)
         # unmount bank
         _unmount_bank(self._mount_point)
-        return True
-
-    def _download_metadata(self, metadata_file: Path, metadata_url):
-        """
-        Download OTA metadata
-        """
-        try:
-            # dounload and write meta data.
-            # url = self._get_metadata_url()
-            logger.debug(f"metadata url: {metadata_url}")
-
-            response, _ = self._download(metadata_url)
-            self._metadata_jwt = response.text
-            metadata_file.write_text(response.text)
-            self._metadata = OtaMetaData(self._metadata_jwt)
-        except Exception as e:
-            self._metadata_jwt = ""
-            self._meta_data_file = ""
-            logger.exception("Error: OTA meta data download fail")
-            return False
         return True
 
     def _inform_update_error(self, error):
@@ -1215,15 +1229,13 @@ class OtaUpdate(
         return
 
 
-class OtaRollback(
-    GrubCtlWrapper,
-    OtaStatusWrapper
-    ):
+class OtaRollback(GrubCtlWrapper, OtaStatusWrapper):
     """
     implementation of OtaCLientInterface.rollback
     """
+
     # place holder
-    _rollback_dir: Path =  None
+    _rollback_dir: Path = None
     backup_files: dict = None
 
     def rollback(self):
@@ -1319,8 +1331,11 @@ class OtaReboot(
     """
     implementation of OtaClientInterface.reboot
     """
+
     _boot_vmlinuz: str = None
     _boot_initrd: str = None
+    _mount_point: str = None
+    _inform_update_error: function = None
 
     def reboot(self):
         """
@@ -1349,29 +1364,11 @@ class OtaReboot(
         self._grub_ctl.reboot()
         return True
 
-class OtaClient(OtaClientInterface):
-    """
-    OTA Client class
-    """
 
-    # default configs
-    #
-    # files
-    #
-    ecuid_file = default_cfg.ECUID_FILE
-    ecuinfo_yaml_file = default_cfg.ECUINFO_YAML_FILE
-    _grub_conf_file = default_cfg.GRUB_CFG_FILE
-    _fstab_file = default_cfg.FSTAB_FILE
-    _ota_metadata_file = default_cfg.OTA_METADATA_FILE
-
-    #
-    # dirs
-    #
-    _ota_dir = default_cfg.OTA_DIR
-    _mount_point = default_cfg.MOUNT_POINT
-    _grub_dir = default_cfg.GRUB_DIR
-    _rollback_dir = default_cfg.ROLLBACK_DIR
-    _tmp_dir = default_cfg.TMP_DIR
+class OtaClient(OtaUpdate, OtaReboot, OtaRollback, ECUInfoUtil, OtaClientInterface):
+    """
+    main OTA Client class
+    """
 
     def __init__(
         self,
@@ -1384,37 +1381,47 @@ class OtaClient(OtaClientInterface):
         """
         OTA Client initialize
         """
-        # configs overwritten
-        if cfg:
-            self.ecuid_file = cfg.ECUID_FILE
-            self.ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
-            self._grub_conf_file = cfg.GRUB_CFG_FILE
-            self._fstab_file = cfg.FSTAB_FILE
-            self._ota_metadata_file = cfg.OTA_METADATA_FILE
 
-            self._ota_dir = cfg.OTA_DIR
-            self._mount_point = cfg.MOUNT_POINT
-            self._grub_dir = cfg.GRUB_DIR
-            self._rollback_dir = cfg.ROLLBACK_DIR
-            self._tmp_dir = cfg.TMP_DIR
+        # embeded class instances
+        self._ota_status = OtaStatus(cfg)
+        self._grub_ctl = GrubCtl(cfg)
+
+        if cfg is None:
+            cfg = default_cfg
+
+        #
+        # files
+        #
+        self._ecuid_file = cfg.ECUID_FILE
+        self._ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
+        self._grub_conf_file = cfg.GRUB_CFG_FILE
+        self._fstab_file = cfg.FSTAB_FILE
+        self._ota_metadata_file = cfg.OTA_METADATA_FILE
+
+        #
+        # dirs
+        #
+        self._ota_dir = cfg.OTA_DIR
+        self._mount_point = cfg.MOUNT_POINT
+        self._grub_dir = cfg.GRUB_DIR
+        self._rollback_dir = cfg.ROLLBACK_DIR
+        self._tmp_dir = cfg.TMP_DIR
 
         # OTA
         self.boot_status = boot_status
-        self._ota_status = OtaStatus(cfg)
-        self._grub_ctl = GrubCtl(cfg)
         self._boot_vmlinuz = None
         self._boot_initrd = None
+
         # ECU information
-        self.__main_ecu = True
-        self.__my_ecuid = _read_ecuid(self.ecuid_file)
-        self.__ecuinfo_yaml_file = self.ecuinfo_yaml_file
-        self.__ecu_info = _read_ecu_info(self.ecuinfo_yaml_file)
-        self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file.with_suffix(
-            self.__ecuinfo_yaml_file.suffix + ".update"
+        self._main_ecu = True
+        self._my_ecuid = self._read_ecuid(self._ecuid_file)
+        self._ecu_info = self._read_ecu_info(self._ecuinfo_yaml_file)
+        self._update_ecuinfo_yaml_file = self._ecuinfo_yaml_file.with_suffix(
+            self._ecuinfo_yaml_file.suffix + ".update"
         )
-        self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
+        self._update_ecu_info = copy.deepcopy(self._ecu_info)
         # remote
-        self.__url = url
+        self._url = url
         self._ota_cache = ota_cache
         # metadata data
         self._metadata = None
@@ -1431,88 +1438,18 @@ class OtaClient(OtaClientInterface):
             "persistentlist": "persistentlist.txt",
         }
 
-    def get_boot_status(self):
-        return self.boot_status
-
     def _set_url(self, url):
-        self.__url = url
+        self._url = url
 
-    def _get_metadata_url(self):
-        """
-        get metadata URL
-        """
-        return urllib.parse.urljoin(self.__url, "metadata.jwt")
-
-    def _download_raw_file(self, url, dest_file: Path, target_hash=""):
-        """
-        download file
-        """
-        logger.debug(f"DL File: {dest_file}")
-        digest = ""
-        time_stamp = str(time.time())
-        try:
-            with tempfile.NamedTemporaryFile(
-                "wb", delete=False, prefix=__name__ + time_stamp
-            ) as ftmp:
-                tmp_file_name = ftmp.name
-                # download
-                response, digest = self._download_raw(url, ftmp)
-                if response.status_code != 200:
-                    logger.error(f"status_code={response.status_code}, url={url}")
-                    return False
-
-            # file move
-            shutil.move(tmp_file_name, dest_file)
-        except Exception as e:
-            logger.exception(f"File download error!: {e}")
-            return False
-        # check sha256 hash
-        if target_hash != "" and digest != target_hash:
-            logger.error(f"hash missmatch: {dest_file}")
-            logger.error(f"  dl hash: {digest}")
-            logger.error(f"  hash: {target_hash}")
-            return False
-        return True
-
-    def _download_raw_file_with_retry(self, url, dest_file: Path, target_hash=""):
-        """"""
-        for i in range(self.__download_retry):
-            if self._download_raw_file(url, dest_file, target_hash):
-                logger.debug(f"retry count: {i}")
-                return True
-        return False
-
-    def _download_metadata_jwt(self, metadata_url):
-        """
-        Download metadata.jwt
-        """
-        # url = self._get_metadata_url()
-        return self._download(metadata_url)
-
-    def _download_metadata_jwt_file(self, dest_file: Path):
-        """
-        Download metadata.jwt file(for debagging)
-        """
-        try:
-            # download metadata.jwt
-            metadata_url = self._get_metadata_url()
-            dest_path = self._tmp_dir.joinpath(dest_file)
-            logger.debug(f"url: {metadata_url}")
-            logger.debug(f"metadata dest path: {dest_path}")
-            if not self._download_raw_file_with_retry(metadata_url, dest_path):
-                return False
-        except Exception as e:
-            logger.exception("metadata error!:")
-            return False
-        return True
-
+    # TODO: un-used function?
     def _download_certificate(self, cert_file):
         """
         Download certificate file
         """
-        url = urllib.parse.urljoin(self.__url, cert_file)
+        url = urllib.parse.urljoin(self._url, cert_file)
         return self._download(url)
 
+    # TODO: un-used function?
     def _verify_metadata_jwt(self, metadata: OtaMetaData):
         """
         verify metadata.jwt
@@ -1531,27 +1468,3 @@ class OtaClient(OtaClientInterface):
         else:
             logger.error(f"response error: {response.status_code}")
             return False
-
-    def _download_list_file(self, url, list_file: Path, hash=""):
-        """
-        Download list file(debug)
-        """
-        dirs_url = urllib.parse.urljoin(url, list_file)
-        dest_path = self._tmp_dir.joinpath(list_file)
-        return self._download_raw_file_with_retry(dirs_url, dest_path, hash)
-
-    def _download_regular_file(
-        self, rootfs_dir: str, target_path: Path, regular_file: Path, hash256
-    ):
-        """
-        Download regular file
-        """
-        # download new file
-        regular_url = urllib.parse.urljoin(
-            self.__url,
-            urllib.parse.quote(
-                str(Path(rootfs_dir).joinpath(regular_file.relative_to("/")))
-            ),
-        )
-        logger.debug(f"download file: {regular_url}")
-        return self._download_raw_file_with_retry(regular_url, target_path, hash256)
