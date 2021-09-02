@@ -116,25 +116,104 @@ def _copytree_complete(src: Path, dst: Path) -> Path:
     return dst
 
 
-def _read_ecuid(ecuid_file: Path) -> str:
-    """
-    initial read ECU ID
-    """
-    logger.debug(f"ECU ID file: {ecuid_file}")
-    with open(ecuid_file, mode="r") as f:
-        ecuid = f.readline().replace("\n", "")
-        logger.debug(f"line: {ecuid}")
-    return ecuid
+class ECUInfoUtil:
 
+    #place holder
+    __ecu_info: dict = None
+    __main_ecu: dict = None
+    __my_ecuid: dict = None
+    __update_ecuinfo_yaml_file: Path = None
+    __update_ecu_info: Path = None
 
-def _read_ecu_info(ecu_info_yaml_file: Path):
-    """
-    Read ECU Information from yaml file.
-    """
-    with open(ecu_info_yaml_file, "r") as fyml:
-        logger.debug(f"open: {ecu_info_yaml_file}")
-        ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
-    return ecuinfo
+    @staticmethod
+    def _read_ecuid(ecuid_file: Path) -> str:
+        """
+        initial read ECU ID
+        """
+        logger.debug(f"ECU ID file: {ecuid_file}")
+        with open(ecuid_file, mode="r") as f:
+            ecuid = f.readline().replace("\n", "")
+            logger.debug(f"line: {ecuid}")
+        return ecuid
+
+    @staticmethod
+    def _read_ecu_info(ecu_info_yaml_file: Path):
+        """
+        Read ECU Information from yaml file.
+        """
+        with open(ecu_info_yaml_file, "r") as fyml:
+            logger.debug(f"open: {ecu_info_yaml_file}")
+            ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
+        return ecuinfo
+
+    @staticmethod
+    def _save_update_ecuinfo(
+        update_ecuinfo_yaml_file: Path, update_ecu_info: Path
+        ):
+        """
+        save update ecuinfo.yaml
+        """
+        output_file = update_ecuinfo_yaml_file
+        logger.info(f"output_file: {output_file}")
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as ftmp:
+            tmp_file_name = ftmp.name
+            ftmp.write(yaml.dump(update_ecu_info))
+
+        shutil.move(tmp_file_name, output_file)
+        return True
+    
+    def get_ecuinfo(self):
+        return self.__ecu_info
+
+    def get_my_ecuid(self):
+        return self.__my_ecuid
+
+    def get_ecuinfo(self):
+        return self.__ecu_info
+    
+    def is_main_ecu(self):
+        return self.__main_ecu
+
+    def save_update_ecuinfo(self):
+        return self._save_update_ecuinfo(
+            self.__update_ecuinfo_yaml_file, self.__update_ecu_info
+        )
+
+    def set_update_ecuinfo(self, update_info):
+        """"""
+        logger.info("_update_ecu_info start")
+        ecuinfo = update_info.ecu_info
+        logger.debug(f"[ecu_info] {ecuinfo}")
+        ecu_found = False
+        if ecuinfo.ecu_id == self.__update_ecu_info["main_ecu"]["ecu_id"]:
+            logger.info("ecu_id matched!")
+            self.__update_ecu_info["main_ecu"]["ecu_name"] = ecuinfo.ecu_name
+            self.__update_ecu_info["main_ecu"]["ecu_type"] = ecuinfo.ecu_type
+            self.__update_ecu_info["main_ecu"]["version"] = ecuinfo.version
+            self.__update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
+            ecu_found = True
+            logger.debug(f"__update_ecu_info: {self.__update_ecu_info}")
+        else:
+            logger.debug("ecu_id not matched!")
+            if "sub_ecus" in self.__update_ecu_info:
+                for i, subecuinfo in enumerate(self.__update_ecu_info["sub_ecus"]):
+                    ecuinfo = subecuinfo.ecu_info
+                    if ecuinfo.ecu_id == subecuinfo["ecu_id"]:
+                        self.__update_ecu_info["sub_ecus"][i][
+                            "ecu_name"
+                        ] = ecuinfo.ecu_name
+                        self.__update_ecu_info["sub_ecus"][i][
+                            "ecu_type"
+                        ] = ecuinfo.ecu_type
+                        self.__update_ecu_info["sub_ecus"][i][
+                            "version"
+                        ] = ecuinfo.version
+                        self.__update_ecu_info["sub_ecus"][i][
+                            "independent"
+                        ] = ecuinfo.independent
+                        ecu_found = True
+        logger.info("_update_ecu_info end")
+        return ecu_found
 
 
 def _mount_bank(bank: Path, target_dir: Path):
@@ -237,20 +316,6 @@ def _header_str_to_dict(header_str):
     return header_dict
 
 
-def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
-    """
-    save update ecuinfo.yaml
-    """
-    output_file = update_ecuinfo_yaml_file
-    logger.info(f"output_file: {output_file}")
-    with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as ftmp:
-        tmp_file_name = ftmp.name
-        ftmp.write(yaml.dump(update_ecu_info))
-
-    shutil.move(tmp_file_name, output_file)
-    return True
-
-
 def _download_util(
         url: str,
         *,
@@ -284,7 +349,6 @@ def _download_util(
     if enable_filesave and save_to:
         with open(save_to, "wb") as f:
             for data in r.iter_content(chunk_size=4096):
-                m.update(data)
                 f.write(data)
 
     return r, hash_value
@@ -395,34 +459,22 @@ class OtaClientInterface(ABC):
     def reboot(self):
         pass
 
-# TODO: make Downloader independent
 class DownloaderMixin:
 
-    _header_dict = {"Accept-encoding":"gzip"}
     _download_retry = 5
-    _cookie_loaded = False
 
-    # TODO: add a lock to these 2 functions?
-    def _load_cookie(self, cookie: dict):
-        self._header_dict.update(cookie)
-        self._cookie_loaded = True
-
-    def _load_functions(self):
-        # dynamically generate functions according to headers
-        self._download = functools.partial(_download_util, headers=self._header_dict)
-        self._download_file = functools.partial(
-            _download_util,
-            headers=self._header_dict,
-            enable_filesave=True,
-            retry_count = self._download_retry,
-        )
-        self._download_file_with_verification = functools.partial(
-            _download_util,
-            headers = self._header_dict,
-            enable_verfiy = True,
-            enable_filesave=True,
-            retry_count = self._download_retry,
-        )
+    _download = _download_util
+    _download_file = functools.partial(
+        _download_util,
+        enable_filesave=True,
+        retry_count = _download_retry,
+    )
+    _download_file_with_verification = functools.partial(
+        _download_util,
+        enable_verfiy = True,
+        enable_filesave=True,
+        retry_count = _download_retry,
+    )
 
     def _function_wrapper(self, **kwargs) -> function:
         try:
@@ -436,189 +488,27 @@ class DownloaderMixin:
         
         return f
 
-class ConstructNextBankMixinInterface:
-    
-    def __init__(self):
-        # place holder
-        self._grub_ctl: GrubCtl = None
-        self._fstab_file: Path = None
 
-    @abstractmethod
-    def _construct_next_bank(self, next_bank: Path, target_dir: Path):
-        pass
+class OtaMetadataWrapper:
+    _metadata: OtaMetaData =None
 
-class ConstructNextBankMixin(ConstructNextBankMixinInterface):
-    
-    def _construct_next_bank(self, next_bank: Path, target_dir: Path):
-        """
-        next bank construction
-        """
-        #
-        # prepare next bank
-        #
-        if not self._prepare_next_bank(next_bank, target_dir):
-            return False
-        #
-        # setup directories
-        #
-        if not self._setup_directories(target_dir):
-            return False
-        #
-        # setup symbolic links
-        #
-        if not self._setup_symboliclinks(target_dir):
-            return False
-        #
-        # setup regular files
-        #
-        if not self._setup_regular_files(target_dir):
-            return False
-        #
-        # setup persistent file
-        #
-        if not self._setup_persistent_files(target_dir):
-            return False
-        #
-        # setup fstab
-        #
-        if not self._setup_next_bank_fstab(self._fstab_file, target_dir):
-            return False
-
-        return True
+    def get_directories_info(self):
+        return self._metadata.get_directories_info()
 
 
-    def _prepare_next_bank(self, bank: Path, target_dir: Path):
-        """
-        prepare next boot bank
-            mount & clean up
-        """
-        try:
-            # unmount
-            _unmount_bank(target_dir)
-            # mount
-            _mount_bank(bank, target_dir)
-            # cleanup
-            _cleanup_dir(target_dir)
-            # clean rollback dir
-            self._cleanup_rollback_dir()
-        except:
-            logger.exception("Standby bank preoparing error!")
-            _unmount_bank(target_dir)
-            return False
-        return True
+class _ProcessRegularFilesMixin(DownloaderMixin):
+    """
+    implementation of regular files processing logis
+    main_entry: 
+        _process_regular_files(
+            self, rootfs_dir: str, rfiles_list: List[RegularInf], target_dir: Path
+        )
+    """
 
-
-    def _setup_directories(self, target_dir: Path):
-        """
-        generate directories on another bank
-        """
-        # get directories metadata
-        dirs = self._metadata.get_directories_info()
-        dirs_url = urllib.parse.urljoin(self.__url, dirs["file"])
-        tmp_list_file = self._tmp_dir.joinpath(dirs["file"])
-        if self._download_raw_file_with_retry(dirs_url, tmp_list_file, dirs["hash"]):
-            # generate directories
-            if _gen_directories(tmp_list_file, target_dir):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir / self.backup_files["dirlist"]
-                shutil.move(tmp_list_file, dest_file)
-                return True
-        return False
-
-
-    def _setup_symboliclinks(self, target_dir: Path):
-        """
-        generate symboliclinks on another bank
-        """
-        # get symboliclink metadata
-        symlinks = self._metadata.get_symboliclinks_info()
-        symlinks_url = urllib.parse.urljoin(self.__url, symlinks["file"])
-        tmp_list_file = self._tmp_dir.joinpath(symlinks["file"])
-        if self._download_raw_file_with_retry(
-            symlinks_url, tmp_list_file, symlinks["hash"]
-        ):
-            # generate symboliclinks
-            if self._gen_symbolic_links(tmp_list_file, target_dir):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir.joinpath(
-                    self.backup_files["symlinklist"]
-                )
-                shutil.move(tmp_list_file, dest_file)
-                return True
-        return False
-
-    def _setup_regular_files(self, target_dir: Path):
-        """
-        update files copy to another bank
-        """
-        rootfsdir_info = self._metadata.get_rootfsdir_info()
-        # get regular metadata
-        regularslist = self._metadata.get_regulars_info()
-        regularslist_url = urllib.parse.urljoin(self.__url, regularslist["file"])
-        tmp_list_file = self._tmp_dir.joinpath(regularslist["file"])
-        if self._download_raw_file_with_retry(
-            regularslist_url, tmp_list_file, regularslist["hash"]
-        ):
-            if self._gen_regular_files(
-                rootfsdir_info["file"], tmp_list_file, target_dir
-            ):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir.joinpath(
-                    self.backup_files["regularlist"]
-                )
-                shutil.move(tmp_list_file, dest_file)
-                return True
-            if self._boot_vmlinuz is None or self._boot_initrd is None:
-                logger.warning(
-                    "vmlinuz or initrd is not set. This condition will be treated as an error in the future."
-                )
-        return False
-
-    def _setup_persistent_files(self, target_dir: Path):
-        """
-        setup persistent files
-        """
-        # get persistent metadata
-        persistent = self._metadata.get_persistent_info()
-        persistent_url = urllib.parse.urljoin(self.__url, persistent["file"])
-        tmp_list_file = self._tmp_dir.joinpath(persistent["file"])
-        if not self._download_raw_file_with_retry(
-            persistent_url, tmp_list_file, persistent["hash"]
-        ):
-            logger.error(f"persistent file download error: {persistent_url}")
-            return False
-        else:
-            logger.info(f"persistent file download success: {persistent_url}")
-
-        # generate persistent files, copying from current bank.
-        _gen_persistent_files(tmp_list_file, target_dir)
-        # move list file to rollback dir
-        dest_file = self._rollback_dir.joinpath(self.backup_files["persistentlist"])
-        shutil.move(tmp_list_file, dest_file)
-        return True
-
-    def _setup_next_bank_fstab(self, fstab_file: Path, target_dir: Path):
-        """
-        setup next bank to fstab
-        """
-        if not fstab_file.is_file():
-            logger.error(f"file not exist: {fstab_file}")
-            return False
-
-        dest_fstab_file = target_dir.joinpath(fstab_file.relative_to("/"))
-
-        return self._grub_ctl.gen_next_bank_fstab(dest_fstab_file)
-
-class ECUInfoProcessorMixin:
-    pass
-
-class OtaBootMixin:
-    pass
-
-class GrubCtlMixin:
-    pass
-
-class ProcessRegularFilesMixin:
+    # place holder
+    _rollback_dir: Path = None
+    __url: str = None
+    __header_dict: str =  None
 
     def _process_regular_files_pool_init(self, gvar_dict: dict, awc: list):
         """
@@ -647,6 +537,9 @@ class ProcessRegularFilesMixin:
     def _process_regular_files(
         self, rootfs_dir: str, rfiles_list: List[RegularInf], target_dir: Path
     ):
+        """
+        main entry of this mixin
+        """
         with Manager() as manager:
             ecb_queue = manager.Queue()
             # variables passed to child processes
@@ -750,6 +643,477 @@ class ProcessRegularFilesMixin:
 
         # if job finished successfully
         await_counter.append(True)
+  
+    def _gen_boot_dir_file(
+        self,
+        rootfs_dir: str,
+        target_dir: Path,
+        regular_inf: RegularInf,
+        prev_inf: RegularInf,
+    ):
+        """
+        generate /boot directory file
+        """
+        staging_kernel_files = global_var_dict["staging-_kernel_files"]
+        # starts with `/boot/vmlinuz-`.
+        match = re.match(r"^/boot/(vmlinuz-.*)", str(regular_inf.path))
+        if match is not None:
+            staging_kernel_files["vmlinuz"] = match.group(1)
+
+        # starts with `/boot/initrd.img-`, but doesnot end with `.old-dkms`.
+        match = re.match(
+            r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", str(regular_inf.path)
+        )
+        if match is not None:
+            staging_kernel_files["initrd"] = match.group(1)
+
+        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
+            # create hard link
+            logger.debug(f"links: {regular_inf.nlink}")
+            prev_inf.path.link_to(regular_inf.path)
+        else:
+            staging_rollback_dict = global_var_dict["staging-dict-_rollback_dict"]
+            # no hard link
+            if (
+                regular_inf.path.is_file()
+                and not regular_inf.path.is_symlink()
+                and _file_sha256(regular_inf.path) == regular_inf.sha256hash
+            ):
+                # nothing to do
+                rollback_file = self._rollback_dir.joinpath(regular_inf.path.name)
+                _copy_complete(regular_inf.path, rollback_file)
+
+                staging_rollback_dict[regular_inf.path] = regular_inf.path
+                logger.debug("file already exist! no copy or download!")
+            else:
+                if regular_inf.path.is_file():
+                    # backup for rollback
+                    rollback_file = self._rollback_dir.joinpath(regular_inf.path.name)
+                    _copy_complete(regular_inf.path, rollback_file)
+                    staging_rollback_dict[regular_inf.path] = rollback_file
+                else:
+                    staging_rollback_dict[regular_inf.path] = ""
+                    
+                # download new file
+                target_url = urllib.parse.urljoin(
+                    self.__url,
+                    urllib.parse.quote(
+                        str(Path(rootfs_dir).joinpath(regular_inf.path.relative_to("/")))
+                    ),
+                )
+
+                try:
+                    self._download_file_with_verification(
+                        target_url,
+                        headers=self.__header_dict,
+                        save_to=regular_inf.path,
+                        sha256_hash=regular_inf.sha256hash,
+                    )
+                except:
+                    raise OtaError(f"Filedown load error! {regular_inf}")
+
+                os.chown(regular_inf.path, regular_inf.uid, regular_inf.gid)
+                os.chmod(regular_inf.path, regular_inf.mode)
+
+    def _gen_regular_file(
+        self,
+        rootfs_dir: str,
+        target_dir: Path,
+        regular_inf: RegularInf,
+        prev_inf: RegularInf,
+    ):
+        """
+        generate regular file
+        """
+        dest_path = target_dir.joinpath(regular_inf.path.relative_to("/"))
+        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
+            # create hard link
+            logger.debug(f"links: {regular_inf.nlink}")
+            src_path = target_dir.joinpath(prev_inf.path.relative_to("/"))
+            src_path.link_to(dest_path)
+        else:
+            # no hard link
+            logger.debug(f"No hard links: {regular_inf.nlink}")
+            current_file: Path = regular_inf.path
+            if (
+                current_file.is_file()
+                and not current_file.is_symlink()
+                and _file_sha256(current_file) == regular_inf.sha256hash
+            ):
+                # copy from current bank
+                logger.debug(f"copy from current: {current_file}")
+                _copy_complete(current_file, dest_path)
+            else:
+                # use ota cache if available
+                # TODO: ota_cache
+                if self._ota_cache is not None and self._ota_cache.restore(
+                    dest_path, regular_inf.sha256hash
+                ):
+                    # TODO: NOT IMPLEMENTED
+                    pass
+
+                # download new file
+                target_url = urllib.parse.urljoin(
+                    self.__url,
+                    urllib.parse.quote(
+                        str(Path(rootfs_dir).joinpath(regular_inf.path.relative_to("/")))
+                    ),
+                )
+
+                try:
+                    self._download_file_with_verification(
+                        target_url,
+                        headers=self.__header_dict,
+                        save_to=dest_path,
+                        sha256_hash=regular_inf.sha256hash,
+                    )
+                except:
+                    raise OtaError(f"File download error! {regular_inf}")
+
+                # TODO: ota_cache
+                if self._ota_cache is not None:
+                    self._ota_cache.save(dest_path)
+
+            os.chown(dest_path, regular_inf.uid, regular_inf.gid)
+            os.chmod(dest_path, regular_inf.mode)
+
+
+
+class GrubCtlWrapper:
+    """
+    a wrapper around _grub_ctl
+    """
+    # place holder
+    _grub_ctl: GrubCtl = None
+
+    def _get_next_bank(self):
+        return self._grub_ctl.get_next_bank()
+
+    def _reboot(self):
+        return self._grub_ctl.reboot()
+
+    def _prepare_grub_switching_reboot(
+        self, vmlinux: str, initrd: str
+    ):
+        return self._grub_ctl.prepare_grub_switching_reboot(
+            vmlinuz=vmlinux, initrd=initrd
+        )
+
+    def _get_switch_status_for_reboot(
+        self, next_bank: Path
+    ):
+        """
+        get switch status for reboot
+        """
+        if self._grub_ctl.is_banka(next_bank):
+            return OtaStatusString.SWITCHA_STATE
+        elif self._grub_ctl.is_bankb(next_bank):
+            return OtaStatusString.SWITCHB_STATE
+        
+        raise Exception("Bank is not A/B bank!")
+    
+    def _gen_next_bank_fstab(self, fstab_file: Path):
+        return self._grub_ctl.gen_next_bank_fstab(fstab_file)
+
+
+class BankConstructorMixin(
+    _ProcessRegularFilesMixin,
+    GrubCtlWrapper,
+    OtaMetadataWrapper,
+    DownloaderMixin,
+    ):
+
+    # place holder
+    _fstab_file: Path = None
+    _rollback_dir: Path = None
+    __url: str = None
+    _tmp_dir: Path = None
+    backup_files: dict = None
+    __header_dict: dict = None
+    
+    def _construct_next_bank(self, next_bank: Path, target_dir: Path):
+        """
+        main function: next bank construction
+        """
+        #
+        # prepare next bank
+        #
+        if not self._prepare_next_bank(next_bank, target_dir):
+            return False
+        #
+        # setup directories
+        #
+        if not self._setup_directories(target_dir):
+            return False
+        #
+        # setup symbolic links
+        #
+        if not self._setup_symboliclinks(target_dir):
+            return False
+        #
+        # setup regular files
+        #
+        if not self._setup_regular_files(target_dir):
+            return False
+        #
+        # setup persistent file
+        #
+        if not self._setup_persistent_files(target_dir):
+            return False
+        #
+        # setup fstab
+        #
+        if not self._setup_next_bank_fstab(self._fstab_file, target_dir):
+            return False
+
+        return True
+
+
+    def _prepare_next_bank(self, bank: Path, target_dir: Path):
+        """
+        prepare next boot bank
+            mount & clean up
+        """
+        try:
+            # unmount
+            _unmount_bank(target_dir)
+            # mount
+            _mount_bank(bank, target_dir)
+            # cleanup
+            _cleanup_dir(target_dir)
+            # clean rollback dir
+            _cleanup_dir(self._rollback_dir)
+            self._rollback_dir.mkdir(exist_ok=True)
+        except:
+            logger.exception("Standby bank preoparing error!")
+            _unmount_bank(target_dir)
+            return False
+        return True
+
+
+    def _setup_directories(self, target_dir: Path):
+        """
+        generate directories on another bank
+        """
+        # get directories metadata
+        dirs = self.get_directories_info()
+        dirs_url = urllib.parse.urljoin(self.__url, dirs["file"])
+        tmp_list_file = self._tmp_dir.joinpath(dirs["file"])
+        try:
+            self._download_file(
+                dirs_url, 
+                headers=self.__header_dict,
+                save_to=tmp_list_file, 
+                sha256_hash=dirs["hash"])
+            # generate directories
+            if _gen_directories(tmp_list_file, target_dir):
+                # move list file to rollback dir
+                dest_file = self._rollback_dir / self.backup_files["dirlist"]
+                shutil.move(tmp_list_file, dest_file)
+                return True
+        except:
+            return False
+
+        return False
+
+
+    def _setup_symboliclinks(self, target_dir: Path):
+        """
+        generate symboliclinks on another bank
+        """
+        # get symboliclink metadata
+        symlinks = self._metadata.get_symboliclinks_info()
+        symlinks_url = urllib.parse.urljoin(self.__url, symlinks["file"])
+        tmp_list_file = self._tmp_dir.joinpath(symlinks["file"])
+        try:
+            self._download_file_with_verification(
+                symlinks_url, 
+                headers=self.__header_dict,
+                save_to=tmp_list_file, 
+                sha256_hash=symlinks["hash"]
+            )
+            # generate symboliclinks
+            if self._gen_symbolic_links(tmp_list_file, target_dir):
+                # move list file to rollback dir
+                dest_file = self._rollback_dir.joinpath(
+                    self.backup_files["symlinklist"]
+                )
+                shutil.move(tmp_list_file, dest_file)
+                return True
+        except:
+            return False
+
+        return False
+
+    def _setup_regular_files(self, target_dir: Path):
+        """
+        update files copy to another bank
+        """
+        rootfsdir_info = self._metadata.get_rootfsdir_info()
+        # get regular metadata
+        regularslist = self._metadata.get_regulars_info()
+        regularslist_url = urllib.parse.urljoin(self.__url, regularslist["file"])
+        tmp_list_file = self._tmp_dir.joinpath(regularslist["file"])
+        try:
+            self._download_file_with_verification(
+                regularslist_url, 
+                headers=self.__header_dict,
+                save_to=tmp_list_file, 
+                sha256_hash=regularslist["hash"]
+            )
+            if self._gen_regular_files(
+                rootfsdir_info["file"], tmp_list_file, target_dir
+            ):
+                # move list file to rollback dir
+                dest_file = self._rollback_dir.joinpath(
+                    self.backup_files["regularlist"]
+                )
+                shutil.move(tmp_list_file, dest_file)
+                return True
+            if self._boot_vmlinuz is None or self._boot_initrd is None:
+                logger.warning(
+                    "vmlinuz or initrd is not set. This condition will be treated as an error in the future."
+                )
+        except:
+            return False
+
+        return False
+
+    def _setup_persistent_files(self, target_dir: Path):
+        """
+        setup persistent files
+        """
+        # get persistent metadata
+        persistent = self._metadata.get_persistent_info()
+        persistent_url = urllib.parse.urljoin(self.__url, persistent["file"])
+        tmp_list_file = self._tmp_dir.joinpath(persistent["file"])
+        try:
+            self._download_file_with_verification(
+                persistent_url, 
+                headers=self.__header_dict,
+                save_to=tmp_list_file, 
+                sha256_hash=persistent["hash"],
+            )
+        except:
+            logger.error(f"persistent file download error: {persistent_url}")
+            return False
+
+        logger.info(f"persistent file download success: {persistent_url}")
+
+        # generate persistent files, copying from current bank.
+        _gen_persistent_files(tmp_list_file, target_dir)
+        # move list file to rollback dir
+        dest_file = self._rollback_dir.joinpath(self.backup_files["persistentlist"])
+        shutil.move(tmp_list_file, dest_file)
+        return True
+
+    def _setup_next_bank_fstab(self, fstab_file: Path, target_dir: Path):
+        """
+        setup next bank to fstab
+        """
+        if not fstab_file.is_file():
+            logger.error(f"file not exist: {fstab_file}")
+            return False
+
+        dest_fstab_file = target_dir.joinpath(fstab_file.relative_to("/"))
+
+        return self._gen_next_bank_fstab(dest_fstab_file)
+
+
+    def _gen_symbolic_links(self, symlinks_file: Path, target_dir: Path):
+        """
+        generate symbolic_links on another bank
+        """
+        res = True
+        with open(symlinks_file, mode="r") as f:
+            try:
+                for l in f.read().splitlines():
+                    slinkf = SymbolicLinkInf(l)
+                    logger.debug(f"src: {slinkf.srcpath}")
+                    logger.debug(f"slink: {slinkf.slink}")
+                    if Path("/boot") in slinkf.slink.parents == 0:
+                        # /boot directory
+                        try:
+                            dest_file = ""
+                            if slinkf.slink.is_symlink():
+                                dest_dir = self._rollback_dir
+                                shutil.move(slinkf.slink, dest_dir)
+                            slinkf.slink.symlink_to(slinkf.srcpath)
+                            os.chown(
+                                slinkf.slink,
+                                slinkf.uid,
+                                slinkf.gid,
+                                follow_symlinks=False,
+                            )
+                        except Exception as e:
+                            logger.exception("symbolic link error!")
+                            if dest_file != "":
+                                shutil.move(dest_file, slinkf.slink)
+                            raise (OtaError("Cannot make symbolic link."))
+                    else:
+                        # others
+                        slink = target_dir.joinpath(slinkf.slink.relative_to("/"))
+                        slink.symlink_to(slinkf.srcpath)
+                        os.chown(
+                            slink,
+                            slinkf.uid,
+                            slinkf.gid,
+                            follow_symlinks=False,
+                        )
+            except Exception as e:
+                logger.exception("symboliclink error:")
+                res = False
+        return res
+
+
+    def _gen_regular_files(
+        self, rootfs_dir: str, regulars_file: Path, target_dir: Path
+    ):
+        """
+        generate regular files
+        """
+        self._boot_vmlinuz = None  # clear
+        self._boot_initrd = None  # clear
+
+        cwd = os.getcwd()
+        os.chdir(target_dir)
+
+        rfiles_list = []
+        with open(regulars_file) as f:
+            logger.debug(f"target_dir: {target_dir}")
+            rfiles_list = [RegularInf(l) for l in f.readlines()]
+
+        # process all regular files here
+        try:
+            self._process_regular_files(rootfs_dir, rfiles_list, target_dir)
+        except:
+            logger.exception(f"gen regular files error!")
+            return False
+        finally:
+            os.chdir(cwd)
+
+        return True
+
+
+
+class OtaStatusWrapper:
+    """
+    a wrapper around _ota_status
+    """
+    # place holder
+    _ota_status: OtaStatus = None
+
+    def set_ota_status(self, status: str):
+        return self._ota_status.set_ota_status(status)
+
+    def get_ota_status(self):
+        return self._ota_status.get_ota_status()
+
+    def is_rollback_available(self):
+        return self._ota_status.is_rollback_available()
+
+    def dec_rollback_count(self):
+        return self._ota_status.dec_rollback_count()
 
 class OtaUpdateInterface:
 
@@ -762,10 +1126,17 @@ class OtaUpdateInterface:
     def update(self, ecu_update_info):
         pass
 
-class OtaUpdate(ConstructNextBankMixin, OtaUpdateInterface):
+class OtaUpdate(
+    BankConstructorMixin, 
+    GrubCtlWrapper,
+    DownloaderMixin,
+    OtaUpdateInterface):
     """
     implementation of OtaClientInterface.update
     """
+
+    _ota_metadata_file: Path = None
+    _mount_point: Path = None
 
     def update(self, ecu_update_info):
         """
@@ -797,8 +1168,8 @@ class OtaUpdate(ConstructNextBankMixin, OtaUpdateInterface):
         # set 'METADATA' state
         # self._ota_status.set_ota_status('METADATA')
 
-        # TODO: make construct next bank to a mixin
-        next_bank = Path(self._grub_ctl.get_next_bank())
+        # construct next bank
+        next_bank = Path(self._get_next_bank())
         if not self._construct_next_bank(next_bank, self._mount_point):
             # inform error
             self._inform_update_error("Can not construct update bank!")
@@ -822,18 +1193,15 @@ class OtaUpdate(ConstructNextBankMixin, OtaUpdateInterface):
             # dounload and write meta data.
             # url = self._get_metadata_url()
             logger.debug(f"metadata url: {metadata_url}")
-            # TODO: make Downloader an independent class
-            response = self._download(metadata_url)
-            logger.debug(f"response: {response.status_code}")
-            if response.status_code == 200:
-                self._metadata_jwt = response.text
-                metadata_file.write_text(response.text)
-                self._metadata = OtaMetaData(self._metadata_jwt)
-            else:
-                self._metadata_jwt = ""
+
+            response, _ = self._download(metadata_url)
+            self._metadata_jwt = response.text
+            metadata_file.write_text(response.text)
+            self._metadata = OtaMetaData(self._metadata_jwt)
         except Exception as e:
+            self._metadata_jwt = ""
             self._meta_data_file = ""
-            logger.exception("Error: OTA meta data download fail.:")
+            logger.exception("Error: OTA meta data download fail")
             return False
         return True
 
@@ -846,25 +1214,117 @@ class OtaUpdate(ConstructNextBankMixin, OtaUpdateInterface):
 
         return
 
-class OtaRollback:
+
+class OtaRollback(
+    GrubCtlWrapper,
+    OtaStatusWrapper
+    ):
     """
     implementation of OtaCLientInterface.rollback
     """
-    def rollback(self):
-        pass
+    # place holder
+    _rollback_dir: Path =  None
+    backup_files: dict = None
 
-class OtaReboot:
+    def rollback(self):
+        """
+        Rollback
+        """
+
+        if self.is_rollback_available() and self._rollback_dir.is_dir():
+            #
+            # OTA status
+            #
+            self.dec_rollback_count()
+            self.set_ota_status(OtaStatusString.ROLLBACK_STATE)
+            #
+            # rollback /boot symlinks
+            #
+
+            # TODO: what is self._symlinklist_dir???
+            # symlink_list_file = self._rollback_dir.joinpath(self._symlinklist_dir)
+            # with open(symlink_list_file, "r") as f:
+            #     for l in f.readlines():
+            #         symlinkinf = SymbolicLinkInf(l)
+            #         if os.path.dirname(symlinkinf.slink) == "/boot":
+            #             rollback_link = os.path.join(
+            #                 self._rollback_dir, os.path.basename(symlinkinf.slink)
+            #             )
+            #             if os.path.exists(rollback_link):
+            #                 # if os.path.islink(symlinkinf.slink):
+            #                 #    os.remove(symlinkinf.slink)
+            #                 shutil.move(rollback_link, symlinkinf.slink)
+
+            #
+            # rollback /boot regulars
+            #
+            regular_list_file = self._rollback_dir.joinpath(
+                self.backup_files["regularlist"]
+            )
+
+            with open(regular_list_file, "r") as f:
+                for l in f.readlines():
+                    reginf = RegularInf(l)
+                    # if reginf.path.find('/boot/') == 0:
+                    if Path("/boot") in reginf.path.parents:
+                        rollback_file = self._rollback_dir.joinpath(reginf.path.name)
+
+                        if rollback_file.exists():
+                            # rollback file exist, restore file
+                            shutil.move(rollback_file, reginf.path)
+                        else:
+                            # remove file
+                            os.remove(reginf.path)
+
+            # TODO: move these logics to grub_ctl?
+            #
+            # rollback grub file
+            #
+            grub_file = self._rollback_dir.joinpath(self._grub_conf_file)
+            if grub_file.exists():
+                dest_file = self._grub_dir.joinpath(self._grub_conf_file)
+                dest_file.unlink(missing_ok=True)
+                shutil.move(grub_file, dest_file)
+            #
+            # rollback dir backup
+            #
+            rollback_backup = self._rollback_dir.with_suffix(
+                self._rollback_dir.suffix + ".back"
+            )
+            if rollback_backup.exists():
+                shutil.rmtree(rollback_backup)
+            os.move(self._rollback_dir, rollback_backup)
+            #
+            # OTA status
+            #
+            # set 'SWITCHA/SWITCHB' state
+            next_state = self._get_switch_status_for_reboot(
+                self._grub_ctl.get_next_bank()
+            )
+            self._ota_status.set_ota_status(next_state)
+            #
+            # reboot
+            #
+            self._reboot()
+        else:
+            logger.error("No available rollback.")
+            return False
+        return True
+
+
+class OtaReboot(
+    GrubCtlWrapper,
+    OtaStatusWrapper,
+):
     """
     implementation of OtaClientInterface.reboot
     """
-    def __init__(self):
-        # place holder
-        self._ota_status: OtaStatus = None
-        self._grub_ctl: GrubCtl = None
+    _boot_vmlinuz: str = None
+    _boot_initrd: str = None
 
     def reboot(self):
         """
-        Reboot
+        main entry for OtaReboot
         """
         if self.get_ota_status() == OtaStatusString.PREPARED_STATE:
             # switch reboot
@@ -971,21 +1431,8 @@ class OtaClient(OtaClientInterface):
             "persistentlist": "persistentlist.txt",
         }
 
-    def is_main_ecu(self):
-        return self.__main_ecu
-
-    def get_my_ecuid(self):
-        return self.__my_ecuid
-
-    def get_ecuinfo(self):
-        """"""
-        return self.__ecu_info
-
     def get_boot_status(self):
         return self.boot_status
-
-    def get_ota_status(self):
-        return self._ota_status.get_ota_status()
 
     def _set_url(self, url):
         self.__url = url
@@ -1085,36 +1532,6 @@ class OtaClient(OtaClientInterface):
             logger.error(f"response error: {response.status_code}")
             return False
 
-    def _cleanup_rollback_dir(self):
-        """
-        clean up rollback directory
-        """
-        if self._rollback_dir.is_dir():
-            logger.info(f"removedir: {self._rollback_dir}")
-            shutil.rmtree(self._rollback_dir)
-        logger.debug(f"makedir: {self._rollback_dir}")
-        self._rollback_dir.mkdir(exist_ok=True)
-
-    def _prepare_next_bank(self, bank: Path, target_dir: Path):
-        """
-        prepare next boot bank
-            mount & clean up
-        """
-        try:
-            # unmount
-            _unmount_bank(target_dir)
-            # mount
-            _mount_bank(bank, target_dir)
-            # cleanup
-            _cleanup_dir(target_dir)
-            # clean rollback dir
-            self._cleanup_rollback_dir()
-        except:
-            logger.exception("Standby bank preoparing error!")
-            _unmount_bank(target_dir)
-            return False
-        return True
-
     def _download_list_file(self, url, list_file: Path, hash=""):
         """
         Download list file(debug)
@@ -1122,89 +1539,6 @@ class OtaClient(OtaClientInterface):
         dirs_url = urllib.parse.urljoin(url, list_file)
         dest_path = self._tmp_dir.joinpath(list_file)
         return self._download_raw_file_with_retry(dirs_url, dest_path, hash)
-
-    def _setup_directories(self, target_dir: Path):
-        """
-        generate directories on another bank
-        """
-        # get directories metadata
-        dirs = self._metadata.get_directories_info()
-        dirs_url = urllib.parse.urljoin(self.__url, dirs["file"])
-        tmp_list_file = self._tmp_dir.joinpath(dirs["file"])
-        if self._download_raw_file_with_retry(dirs_url, tmp_list_file, dirs["hash"]):
-            # generate directories
-            if _gen_directories(tmp_list_file, target_dir):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir / self.backup_files["dirlist"]
-                shutil.move(tmp_list_file, dest_file)
-                return True
-        return False
-
-    def _gen_symbolic_links(self, symlinks_file: Path, target_dir: Path):
-        """
-        generate symbolic_links on another bank
-        """
-        res = True
-        with open(symlinks_file, mode="r") as f:
-            try:
-                for l in f.read().splitlines():
-                    slinkf = SymbolicLinkInf(l)
-                    logger.debug(f"src: {slinkf.srcpath}")
-                    logger.debug(f"slink: {slinkf.slink}")
-                    if Path("/boot") in slinkf.slink.parents == 0:
-                        # /boot directory
-                        try:
-                            dest_file = ""
-                            if slinkf.slink.is_symlink():
-                                dest_dir = self._rollback_dir
-                                shutil.move(slinkf.slink, dest_dir)
-                            slinkf.slink.symlink_to(slinkf.srcpath)
-                            os.chown(
-                                slinkf.slink,
-                                slinkf.uid,
-                                slinkf.gid,
-                                follow_symlinks=False,
-                            )
-                        except Exception as e:
-                            logger.exception("symbolic link error!")
-                            if dest_file != "":
-                                shutil.move(dest_file, slinkf.slink)
-                            raise (OtaError("Cannot make symbolic link."))
-                    else:
-                        # others
-                        slink = target_dir.joinpath(slinkf.slink.relative_to("/"))
-                        slink.symlink_to(slinkf.srcpath)
-                        os.chown(
-                            slink,
-                            slinkf.uid,
-                            slinkf.gid,
-                            follow_symlinks=False,
-                        )
-            except Exception as e:
-                logger.exception("symboliclink error:")
-                res = False
-        return res
-
-    def _setup_symboliclinks(self, target_dir: Path):
-        """
-        generate symboliclinks on another bank
-        """
-        # get symboliclink metadata
-        symlinks = self._metadata.get_symboliclinks_info()
-        symlinks_url = urllib.parse.urljoin(self.__url, symlinks["file"])
-        tmp_list_file = self._tmp_dir.joinpath(symlinks["file"])
-        if self._download_raw_file_with_retry(
-            symlinks_url, tmp_list_file, symlinks["hash"]
-        ):
-            # generate symboliclinks
-            if self._gen_symbolic_links(tmp_list_file, target_dir):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir.joinpath(
-                    self.backup_files["symlinklist"]
-                )
-                shutil.move(tmp_list_file, dest_file)
-                return True
-        return False
 
     def _download_regular_file(
         self, rootfs_dir: str, target_path: Path, regular_file: Path, hash256
@@ -1221,353 +1555,3 @@ class OtaClient(OtaClientInterface):
         )
         logger.debug(f"download file: {regular_url}")
         return self._download_raw_file_with_retry(regular_url, target_path, hash256)
-
-    def _gen_boot_dir_file(
-        self,
-        rootfs_dir: str,
-        target_dir: Path,
-        regular_inf: RegularInf,
-        prev_inf: RegularInf,
-    ):
-        """
-        generate /boot directory file
-        """
-        staging_kernel_files = global_var_dict["staging-_kernel_files"]
-        # starts with `/boot/vmlinuz-`.
-        match = re.match(r"^/boot/(vmlinuz-.*)", str(regular_inf.path))
-        if match is not None:
-            staging_kernel_files["vmlinuz"] = match.group(1)
-
-        # starts with `/boot/initrd.img-`, but doesnot end with `.old-dkms`.
-        match = re.match(
-            r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", str(regular_inf.path)
-        )
-        if match is not None:
-            staging_kernel_files["initrd"] = match.group(1)
-
-        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
-            # create hard link
-            logger.debug(f"links: {regular_inf.nlink}")
-            prev_inf.path.link_to(regular_inf.path)
-        else:
-            staging_rollback_dict = global_var_dict["staging-dict-_rollback_dict"]
-            # no hard link
-            if (
-                regular_inf.path.is_file()
-                and not regular_inf.path.is_symlink()
-                and _file_sha256(regular_inf.path) == regular_inf.sha256hash
-            ):
-                # nothing to do
-                rollback_file = self._rollback_dir.joinpath(regular_inf.path.name)
-                _copy_complete(regular_inf.path, rollback_file)
-
-                staging_rollback_dict[regular_inf.path] = regular_inf.path
-                logger.debug("file already exist! no copy or download!")
-            else:
-                if regular_inf.path.is_file():
-                    # backup for rollback
-                    rollback_file = self._rollback_dir.joinpath(regular_inf.path.name)
-                    _copy_complete(regular_inf.path, rollback_file)
-                    staging_rollback_dict[regular_inf.path] = rollback_file
-                else:
-                    staging_rollback_dict[regular_inf.path] = ""
-                # download new file
-                if self._download_regular_file(
-                    rootfs_dir,
-                    regular_inf.path,
-                    regular_inf.path,
-                    regular_inf.sha256hash,
-                ):
-                    logger.debug(f"Download: {regular_inf.path}")
-                    logger.debug(f"file hash: {regular_inf.sha256hash}")
-                else:
-                    raise OtaError("Filedown load error! {regular_inf}")
-                logger.debug(f"regular_file: {regular_inf.path}")
-                os.chown(regular_inf.path, regular_inf.uid, regular_inf.gid)
-                os.chmod(regular_inf.path, regular_inf.mode)
-
-    def _gen_regular_file(
-        self,
-        rootfs_dir: str,
-        target_dir: Path,
-        regular_inf: RegularInf,
-        prev_inf: RegularInf,
-    ):
-        """
-        generate regular file
-        """
-        dest_path = target_dir.joinpath(regular_inf.path.relative_to("/"))
-        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
-            # create hard link
-            logger.debug(f"links: {regular_inf.nlink}")
-            src_path = target_dir.joinpath(prev_inf.path.relative_to("/"))
-            src_path.link_to(dest_path)
-        else:
-            # no hard link
-            logger.debug(f"No hard links: {regular_inf.nlink}")
-            current_file: Path = regular_inf.path
-            if (
-                current_file.is_file()
-                and not current_file.is_symlink()
-                and _file_sha256(current_file) == regular_inf.sha256hash
-            ):
-                # copy from current bank
-                logger.debug(f"copy from current: {current_file}")
-                _copy_complete(current_file, dest_path)
-            else:
-                # use ota cache if available
-                if self._ota_cache is not None and self._ota_cache.restore(
-                    dest_path, regular_inf.sha256hash
-                ):
-                    # TODO: NOT IMPLEMENTED
-                    pass
-                # download new file
-                elif self._download_regular_file(
-                    rootfs_dir, dest_path, regular_inf.path, regular_inf.sha256hash
-                ):
-                    if self._ota_cache is not None:
-                        self._ota_cache.save(dest_path)
-                    logger.debug(f"Download: {regular_inf.path}")
-                    logger.debug(f"file hash: {regular_inf.sha256hash}")
-                else:
-                    raise OtaError("File download error! {regular_inf}")
-            logger.debug(f"regular_file: {dest_path}")
-            logger.debug(f"permissoin: {regular_inf.mode}")
-            os.chown(dest_path, regular_inf.uid, regular_inf.gid)
-            os.chmod(dest_path, regular_inf.mode)
-
-    def _gen_regular_files(
-        self, rootfs_dir: str, regulars_file: RegularInf, target_dir: Path
-    ):
-        """
-        generate regular files
-        """
-        self._boot_vmlinuz = None  # clear
-        self._boot_initrd = None  # clear
-
-        cwd = os.getcwd()
-        os.chdir(target_dir)
-
-        rfiles_list = []
-        with open(regulars_file) as f:
-            logger.debug(f"target_dir: {target_dir}")
-            rfiles_list = [RegularInf(l) for l in f.readlines()]
-
-        # process all regular files here
-        try:
-            self._process_regular_files(rootfs_dir, rfiles_list, target_dir)
-        except:
-            logger.exception(f"gen regular files error!")
-            return False
-        finally:
-            os.chdir(cwd)
-
-        return True
-
-    def _setup_regular_files(self, target_dir: Path):
-        """
-        update files copy to another bank
-        """
-        rootfsdir_info = self._metadata.get_rootfsdir_info()
-        # get regular metadata
-        regularslist = self._metadata.get_regulars_info()
-        regularslist_url = urllib.parse.urljoin(self.__url, regularslist["file"])
-        tmp_list_file = self._tmp_dir.joinpath(regularslist["file"])
-        if self._download_raw_file_with_retry(
-            regularslist_url, tmp_list_file, regularslist["hash"]
-        ):
-            if self._gen_regular_files(
-                rootfsdir_info["file"], tmp_list_file, target_dir
-            ):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir.joinpath(
-                    self.backup_files["regularlist"]
-                )
-                shutil.move(tmp_list_file, dest_file)
-                return True
-            if self._boot_vmlinuz is None or self._boot_initrd is None:
-                logger.warning(
-                    "vmlinuz or initrd is not set. This condition will be treated as an error in the future."
-                )
-        return False
-
-    # TODO: move this function to grub_control?
-    def _get_switch_status_for_reboot(self, next_bank: Path):
-        """
-        get switch status for reboot
-        """
-        if self._grub_ctl.is_banka(next_bank):
-            return OtaStatusString.SWITCHA_STATE
-        elif self._grub_ctl.is_bankb(next_bank):
-            return OtaStatusString.SWITCHB_STATE
-        raise Exception("Bank is not A/B bank!")
-
-    def set_update_ecuinfo(self, update_info):
-        """"""
-        logger.info("_update_ecu_info start")
-        ecuinfo = update_info.ecu_info
-        logger.debug(f"[ecu_info] {ecuinfo}")
-        ecu_found = False
-        if ecuinfo.ecu_id == self.__update_ecu_info["main_ecu"]["ecu_id"]:
-            logger.info("ecu_id matched!")
-            self.__update_ecu_info["main_ecu"]["ecu_name"] = ecuinfo.ecu_name
-            self.__update_ecu_info["main_ecu"]["ecu_type"] = ecuinfo.ecu_type
-            self.__update_ecu_info["main_ecu"]["version"] = ecuinfo.version
-            self.__update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
-            ecu_found = True
-            logger.debug(f"__update_ecu_info: {self.__update_ecu_info}")
-        else:
-            logger.debug("ecu_id not matched!")
-            if "sub_ecus" in self.__update_ecu_info:
-                for i, subecuinfo in enumerate(self.__update_ecu_info["sub_ecus"]):
-                    ecuinfo = subecuinfo.ecu_info
-                    if ecuinfo.ecu_id == subecuinfo["ecu_id"]:
-                        self.__update_ecu_info["sub_ecus"][i][
-                            "ecu_name"
-                        ] = ecuinfo.ecu_name
-                        self.__update_ecu_info["sub_ecus"][i][
-                            "ecu_type"
-                        ] = ecuinfo.ecu_type
-                        self.__update_ecu_info["sub_ecus"][i][
-                            "version"
-                        ] = ecuinfo.version
-                        self.__update_ecu_info["sub_ecus"][i][
-                            "independent"
-                        ] = ecuinfo.independent
-                        ecu_found = True
-        logger.info("_update_ecu_info end")
-        return ecu_found
-
-    def update(self, ecu_update_info):
-        """
-        OTA update execution
-        """
-        # -----------------------------------------------------------
-        # set 'UPDATE' state
-        self._ota_status.set_ota_status(OtaStatusString.UPDATE_STATE)
-        logger.debug(ecu_update_info)
-        self.__url = ecu_update_info.url
-        metadata = ecu_update_info.metadata
-        metadata_jwt_url = urllib.parse.urljoin(self.__url, metadata)
-        self.__header_dict = _header_str_to_dict(ecu_update_info.header)
-        logger.debug(f"[metadata_jwt] {metadata_jwt_url}")
-        logger.debug(f"[header] {self.__header_dict}")
-
-        #
-        # download metadata
-        #
-        if not self._download_metadata(self._ota_metadata_file, metadata_jwt_url):
-            # inform error
-            self._inform_update_error("Can not get metadata!")
-            # set 'NORMAL' state
-            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
-            return False
-
-        #
-        # -----------------------------------------------------------
-        # set 'METADATA' state
-        # self._ota_status.set_ota_status('METADATA')
-
-        next_bank = Path(self._grub_ctl.get_next_bank())
-        if not self._construct_next_bank(next_bank, self._mount_point):
-            # inform error
-            self._inform_update_error("Can not construct update bank!")
-            # set 'NORMAL' state
-            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
-            _unmount_bank(self._mount_point)
-            return False
-        #
-        # -----------------------------------------------------------
-        # set 'PREPARED' state
-        self._ota_status.set_ota_status(OtaStatusString.PREPARED_STATE)
-        # unmount bank
-        _unmount_bank(self._mount_point)
-        return True
-
-    def save_update_ecuinfo(self):
-        return _save_update_ecuinfo(
-            self.__update_ecuinfo_yaml_file, self.__update_ecu_info
-        )
-
-    def _rollback(self):
-        """
-        Rollback
-        """
-
-        if self._ota_status.is_rollback_available() and self._rollback_dir.is_dir():
-            #
-            # OTA status
-            #
-            self._ota_status.dec_rollback_count()
-            self._ota_status.set_ota_status(OtaStatusString.ROLLBACK_STATE)
-            #
-            # rollback /boot symlinks
-            #
-
-            # TODO: what is self._symlinklist_dir???
-            # symlink_list_file = self._rollback_dir.joinpath(self._symlinklist_dir)
-            # with open(symlink_list_file, "r") as f:
-            #     for l in f.readlines():
-            #         symlinkinf = SymbolicLinkInf(l)
-            #         if os.path.dirname(symlinkinf.slink) == "/boot":
-            #             rollback_link = os.path.join(
-            #                 self._rollback_dir, os.path.basename(symlinkinf.slink)
-            #             )
-            #             if os.path.exists(rollback_link):
-            #                 # if os.path.islink(symlinkinf.slink):
-            #                 #    os.remove(symlinkinf.slink)
-            #                 shutil.move(rollback_link, symlinkinf.slink)
-
-            #
-            # rollback /boot regulars
-            #
-            regular_list_file = self._rollback_dir.joinpath(
-                self.backup_files["regularlist"]
-            )
-
-            with open(regular_list_file, "r") as f:
-                for l in f.readlines():
-                    reginf = RegularInf(l)
-                    # if reginf.path.find('/boot/') == 0:
-                    if Path("/boot") in reginf.path.parents:
-                        rollback_file = self._rollback_dir.joinpath(reginf.path.name)
-
-                        if rollback_file.exists():
-                            # rollback file exist, restore file
-                            shutil.move(rollback_file, reginf.path)
-                        else:
-                            # remove file
-                            os.remove(reginf.path)
-            #
-            # rollback grub file
-            #
-            grub_file = self._rollback_dir.joinpath(self._grub_conf_file)
-            if grub_file.exists():
-                dest_file = self._grub_dir.joinpath(self._grub_conf_file)
-                dest_file.unlink(missing_ok=True)
-                shutil.move(grub_file, dest_file)
-            #
-            # rollback dir backup
-            #
-            rollback_backup = self._rollback_dir.with_suffix(
-                self._rollback_dir.suffix + ".back"
-            )
-            if rollback_backup.exists():
-                shutil.rmtree(rollback_backup)
-            os.move(self._rollback_dir, rollback_backup)
-            #
-            # OTA status
-            #
-            # set 'SWITCHA/SWITCHB' state
-            next_state = self._get_switch_status_for_reboot(
-                self._grub_ctl.get_next_bank()
-            )
-            self._ota_status.set_ota_status(next_state)
-            #
-            # reboot
-            #
-            self._grub_ctl.reboot()
-        else:
-            logger.error("No available rollback.")
-            return False
-        return True
