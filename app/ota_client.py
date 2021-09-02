@@ -460,7 +460,7 @@ class OtaClientInterface(ABC):
         pass
 
 
-class DownloaderMixin:
+class Downloader:
     """
     downloader functionalities
     """
@@ -490,7 +490,7 @@ class DownloaderMixin:
         return f
 
 
-class OtaMetadataWrapper(DownloaderMixin):
+class OtaMetadataWrapper:
     _metadata: OtaMetaData = None
 
     def _download_metadata(self, metadata_file: Path, metadata_url):
@@ -500,7 +500,7 @@ class OtaMetadataWrapper(DownloaderMixin):
         try:
             # dounload and write meta data.
             # TODO: no authentication here for downloading metadata?
-            response, _ = self._download(metadata_url)
+            response, _ = Downloader._download(metadata_url)
             self._metadata_jwt = response.text
             metadata_file.write_text(response.text)
             self._metadata = OtaMetaData(self._metadata_jwt)
@@ -527,7 +527,7 @@ class OtaMetadataWrapper(DownloaderMixin):
         return self._metadata.get_persistent_info()
 
 
-class _ProcessRegularFilesMixin(DownloaderMixin):
+class _ProcessRegularFilesMixin:
     """
     implementation of regular files processing logis
     main_entry:
@@ -736,7 +736,7 @@ class _ProcessRegularFilesMixin(DownloaderMixin):
                 )
 
                 try:
-                    self._download_file_with_verification(
+                    Downloader._download_file_with_verification(
                         target_url,
                         headers=self._header_dict,
                         save_to=regular_inf.path,
@@ -796,7 +796,7 @@ class _ProcessRegularFilesMixin(DownloaderMixin):
                 )
 
                 try:
-                    self._download_file_with_verification(
+                    Downloader._download_file_with_verification(
                         target_url,
                         headers=self._header_dict,
                         save_to=dest_path,
@@ -851,7 +851,6 @@ class BankConstructorMixin(
     _ProcessRegularFilesMixin,
     GrubCtlWrapper,
     OtaMetadataWrapper,
-    DownloaderMixin,
 ):
 
     # place holder
@@ -929,7 +928,7 @@ class BankConstructorMixin(
         dirs_url = urllib.parse.urljoin(self._url, dirs["file"])
         tmp_list_file = self._tmp_dir.joinpath(dirs["file"])
         try:
-            self._download_file(
+            Downloader._download_file(
                 dirs_url,
                 headers=self._header_dict,
                 save_to=tmp_list_file,
@@ -955,7 +954,7 @@ class BankConstructorMixin(
         symlinks_url = urllib.parse.urljoin(self._url, symlinks["file"])
         tmp_list_file = self._tmp_dir.joinpath(symlinks["file"])
         try:
-            self._download_file_with_verification(
+            Downloader._download_file_with_verification(
                 symlinks_url,
                 headers=self._header_dict,
                 save_to=tmp_list_file,
@@ -983,8 +982,9 @@ class BankConstructorMixin(
         regularslist = self.get_regulars_info()
         regularslist_url = urllib.parse.urljoin(self._url, regularslist["file"])
         tmp_list_file = self._tmp_dir.joinpath(regularslist["file"])
+        # TODO: re-adjust here?
         try:
-            self._download_file_with_verification(
+            Downloader._download_file_with_verification(
                 regularslist_url,
                 headers=self._header_dict,
                 save_to=tmp_list_file,
@@ -1017,7 +1017,7 @@ class BankConstructorMixin(
         persistent_url = urllib.parse.urljoin(self._url, persistent["file"])
         tmp_list_file = self._tmp_dir.joinpath(persistent["file"])
         try:
-            self._download_file_with_verification(
+            Downloader._download_file_with_verification(
                 persistent_url,
                 headers=self._header_dict,
                 save_to=tmp_list_file,
@@ -1162,7 +1162,6 @@ class OtaUpdate(
     BankConstructorMixin,
     OtaMetadataWrapper,
     OtaStatusWrapper,
-    DownloaderMixin,
     OtaUpdateInterface,
 ):
     """
@@ -1447,7 +1446,7 @@ class OtaClient(OtaUpdate, OtaReboot, OtaRollback, ECUInfoUtil, OtaClientInterfa
         Download certificate file
         """
         url = urllib.parse.urljoin(self._url, cert_file)
-        return self._download(url)
+        return Downloader._download(url)
 
     # TODO: un-used function?
     def _verify_metadata_jwt(self, metadata: OtaMetaData):
