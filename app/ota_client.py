@@ -677,11 +677,9 @@ class _ProcessRegularFilesMixin:
 
             if Path("/boot") in rfile_inf.path.parents:
                 # /boot directory file
-                logger.debug(f"boot file: {rfile_inf.path}")
                 self._gen_boot_dir_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
             else:
                 # others
-                logger.debug(f"no boot file: {rfile_inf.path}")
                 self._gen_regular_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
         except Exception as e:
             logger.exception(f"worker[{os.getpid()}]: process regular file failed!")
@@ -715,7 +713,6 @@ class _ProcessRegularFilesMixin:
 
         if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
-            logger.debug(f"links: {regular_inf.nlink}")
             prev_inf.path.link_to(regular_inf.path)
         else:
             staging_rollback_dict = global_var_dict["staging-dict-_rollback_dict"]
@@ -730,7 +727,6 @@ class _ProcessRegularFilesMixin:
                 _copy_complete(regular_inf.path, rollback_file)
 
                 staging_rollback_dict[regular_inf.path] = regular_inf.path
-                logger.debug("file already exist! no copy or download!")
             else:
                 if regular_inf.path.is_file():
                     # backup for rollback
@@ -777,12 +773,10 @@ class _ProcessRegularFilesMixin:
         dest_path = target_dir.joinpath(regular_inf.path.relative_to("/"))
         if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
             # create hard link
-            logger.debug(f"links: {regular_inf.nlink}")
             src_path = target_dir.joinpath(prev_inf.path.relative_to("/"))
             src_path.link_to(dest_path)
         else:
             # no hard link
-            logger.debug(f"No hard links: {regular_inf.nlink}")
             current_file: Path = regular_inf.path
             if (
                 current_file.is_file()
@@ -790,7 +784,6 @@ class _ProcessRegularFilesMixin:
                 and _file_sha256(current_file) == regular_inf.sha256hash
             ):
                 # copy from current bank
-                logger.debug(f"copy from current: {current_file}")
                 _copy_complete(current_file, dest_path)
             else:
                 # use ota cache if available
@@ -885,34 +878,41 @@ class BankConstructorMixin(
         #
         # prepare next bank
         #
+        logger.debug(f"prepare next bank")
         if not self._prepare_next_bank(next_bank, target_dir):
             return False
         #
         # setup directories
         #
+        logger.debug(f"setup directories")
         if not self._setup_directories(target_dir):
             return False
         #
         # setup symbolic links
         #
+        logger.debug(f"setup symbolicklinks")
         if not self._setup_symboliclinks(target_dir):
             return False
         #
         # setup regular files
         #
+        logger.debug(f"setup regular files")
         if not self._setup_regular_files(target_dir):
             return False
         #
         # setup persistent file
         #
+        logger.debug(f"setup persistent files")
         if not self._setup_persistent_files(target_dir):
             return False
         #
         # setup fstab
         #
+        logger.debug(f"setup next bank fstab")
         if not self._setup_next_bank_fstab(self._fstab_file, target_dir):
             return False
 
+        logger.debug(f"finished construct next bank")
         return True
 
     def _prepare_next_bank(self, bank: Path, target_dir: Path):
@@ -1074,8 +1074,6 @@ class BankConstructorMixin(
             try:
                 for l in f.read().splitlines():
                     slinkf = SymbolicLinkInf(l)
-                    logger.debug(f"src: {slinkf.srcpath}")
-                    logger.debug(f"slink: {slinkf.slink}")
                     if Path("/boot") in slinkf.slink.parents == 0:
                         # /boot directory
                         try:
@@ -1091,7 +1089,7 @@ class BankConstructorMixin(
                                 follow_symlinks=False,
                             )
                         except Exception as e:
-                            logger.exception("symbolic link error!")
+                            logger.exception(f"symbolic link error! {symlinks_file}: {e}")
                             if dest_file != "":
                                 shutil.move(dest_file, slinkf.slink)
                             raise (OtaError("Cannot make symbolic link."))
@@ -1124,7 +1122,6 @@ class BankConstructorMixin(
 
         rfiles_list = []
         with open(regulars_file) as f:
-            logger.debug(f"target_dir: {target_dir}")
             rfiles_list = [RegularInf(l) for l in f.readlines()]
 
         # process all regular files here
@@ -1178,6 +1175,7 @@ class OtaUpdate(BankConstructorMixin, OtaMetadataWrapper, OtaStatusWrapper):
         """
         # -----------------------------------------------------------
         # set 'UPDATE' state
+        logger.debug(f"init update")
         self._ota_status.set_ota_status(OtaStatusString.UPDATE_STATE)
         logger.debug(ecu_update_info)
         self._url = ecu_update_info.url
@@ -1190,6 +1188,7 @@ class OtaUpdate(BankConstructorMixin, OtaMetadataWrapper, OtaStatusWrapper):
         #
         # download metadata
         #
+        logger.debug(f"download metadata")
         if not self._download_metadata(self._ota_metadata_file, metadata_jwt_url):
             # inform error
             self._inform_update_error("Can not get metadata!")
@@ -1203,6 +1202,7 @@ class OtaUpdate(BankConstructorMixin, OtaMetadataWrapper, OtaStatusWrapper):
         # self._ota_status.set_ota_status('METADATA')
 
         # construct next bank
+        logger.debug(f"construct next bank")
         next_bank = Path(self._get_next_bank())
         if not self._construct_next_bank(next_bank, self._mount_point):
             # inform error
@@ -1214,6 +1214,7 @@ class OtaUpdate(BankConstructorMixin, OtaMetadataWrapper, OtaStatusWrapper):
         #
         # -----------------------------------------------------------
         # set 'PREPARED' state
+        logger.debug(f"finished update, set ota_status")
         self._ota_status.set_ota_status(OtaStatusString.PREPARED_STATE)
         # unmount bank
         _unmount_bank(self._mount_point)
