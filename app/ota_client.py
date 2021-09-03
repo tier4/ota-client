@@ -1089,7 +1089,9 @@ class BankConstructorMixin(
                                 follow_symlinks=False,
                             )
                         except Exception as e:
-                            logger.exception(f"symbolic link error! {symlinks_file}: {e}")
+                            logger.exception(
+                                f"symbolic link error! {symlinks_file}: {e}"
+                            )
                             if dest_file != "":
                                 shutil.move(dest_file, slinkf.slink)
                             raise (OtaError("Cannot make symbolic link."))
