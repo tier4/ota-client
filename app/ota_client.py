@@ -489,7 +489,7 @@ class Downloader:
     )
     _download_file_with_verification = functools.partial(
         _download_util,
-        enable_verfiy=True,
+        enable_verify=True,
         enable_filesave=True,
         enable_tempfile=True,
         retry_count=_download_retry,
@@ -1383,8 +1383,8 @@ class OtaClient(OtaUpdate, OtaReboot, OtaRollback, ECUInfoUtil, OtaClientInterfa
         """
 
         # embeded class instances
-        self._ota_status = OtaStatus(cfg)
-        self._grub_ctl = GrubCtl(cfg)
+        self._ota_status = OtaStatus(cfg=cfg)
+        self._grub_ctl = GrubCtl(cfg=cfg)
         # metadata data
         self._metadata: OtaMetaData = None
 
