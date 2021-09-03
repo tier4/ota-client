@@ -10,7 +10,6 @@ import subprocess
 import urllib.parse
 import requests
 import yaml
-import copy
 import re
 import time
 from pathlib import Path
@@ -109,104 +108,6 @@ def _copytree_complete(src: Path, dst: Path) -> Path:
     if errors:
         raise Error(errors)
     return dst
-
-
-class ECUInfoUtil:
-
-    # place holder
-    _ecu_info: dict = None
-    _main_ecu: dict = None
-    _my_ecuid: dict = None
-    _update_ecuinfo_yaml_file: Path = None
-    _update_ecu_info: Path = None
-
-    @staticmethod
-    def _read_ecuid(ecuid_file: Path) -> str:
-        """
-        initial read ECU ID
-        """
-        logger.debug(f"ECU ID file: {ecuid_file}")
-        with open(ecuid_file, mode="r") as f:
-            ecuid = f.readline().replace("\n", "")
-            logger.debug(f"line: {ecuid}")
-        return ecuid
-
-    @staticmethod
-    def _read_ecu_info(ecu_info_yaml_file: Path):
-        """
-        Read ECU Information from yaml file.
-        """
-        with open(ecu_info_yaml_file, "r") as fyml:
-            logger.debug(f"open: {ecu_info_yaml_file}")
-            ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
-        return ecuinfo
-
-    @staticmethod
-    def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
-        """
-        save update ecuinfo.yaml
-        """
-        output_file = update_ecuinfo_yaml_file
-        logger.info(f"output_file: {output_file}")
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as ftmp:
-            tmp_file_name = ftmp.name
-            ftmp.write(yaml.dump(update_ecu_info))
-
-        shutil.move(tmp_file_name, output_file)
-        return True
-
-    def get_ecuinfo(self):
-        return self._ecu_info
-
-    def get_my_ecuid(self):
-        return self._my_ecuid
-
-    def get_ecuinfo(self):
-        return self._ecu_info
-
-    def is_main_ecu(self):
-        return self._main_ecu
-
-    def save_update_ecuinfo(self):
-        return self._save_update_ecuinfo(
-            self._update_ecuinfo_yaml_file, self._update_ecu_info
-        )
-
-    def set_update_ecuinfo(self, update_info):
-        """"""
-        logger.info("_update_ecu_info start")
-        ecuinfo = update_info.ecu_info
-        logger.debug(f"[ecu_info] {ecuinfo}")
-        ecu_found = False
-        if ecuinfo.ecu_id == self._update_ecu_info["main_ecu"]["ecu_id"]:
-            logger.info("ecu_id matched!")
-            self._update_ecu_info["main_ecu"]["ecu_name"] = ecuinfo.ecu_name
-            self._update_ecu_info["main_ecu"]["ecu_type"] = ecuinfo.ecu_type
-            self._update_ecu_info["main_ecu"]["version"] = ecuinfo.version
-            self._update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
-            ecu_found = True
-            logger.debug(f"__update_ecu_info: {self._update_ecu_info}")
-        else:
-            logger.debug("ecu_id not matched!")
-            if "sub_ecus" in self._update_ecu_info:
-                for i, subecuinfo in enumerate(self._update_ecu_info["sub_ecus"]):
-                    ecuinfo = subecuinfo.ecu_info
-                    if ecuinfo.ecu_id == subecuinfo["ecu_id"]:
-                        self._update_ecu_info["sub_ecus"][i][
-                            "ecu_name"
-                        ] = ecuinfo.ecu_name
-                        self._update_ecu_info["sub_ecus"][i][
-                            "ecu_type"
-                        ] = ecuinfo.ecu_type
-                        self._update_ecu_info["sub_ecus"][i][
-                            "version"
-                        ] = ecuinfo.version
-                        self._update_ecu_info["sub_ecus"][i][
-                            "independent"
-                        ] = ecuinfo.independent
-                        ecu_found = True
-        logger.info("_update_ecu_info end")
-        return ecu_found
 
 
 def _mount_bank(bank: Path, target_dir: Path):
@@ -312,15 +213,18 @@ def _header_str_to_dict(header_str):
 def _download_util(
     url: str,
     *,
+    # get options
     headers: dict = {},
+    timeout=10,
+    # flags
     enable_verify: bool = False,
-    sha256_hash: str = None,
     enable_filesave: bool = False,
     enable_tempfile: bool = False,
+    # configs
     tempfile_prefix: str = "",
     save_to: Path = None,
+    sha256_hash: str = None,
     retry_count=1,
-    timeout=10,
 ) -> Union[requests.Response, str]:
     """
     general download util function
@@ -364,6 +268,104 @@ def _download_util(
                     f.write(data)
 
     return r, hash_value
+
+
+class ECUInfoUtil:
+
+    # place holder
+    _ecu_info: dict = None
+    _main_ecu: dict = None
+    _my_ecuid: dict = None
+    _update_ecuinfo_yaml_file: Path = None
+    _update_ecu_info: Path = None
+
+    @staticmethod
+    def _read_ecuid(ecuid_file: Path) -> str:
+        """
+        initial read ECU ID
+        """
+        logger.debug(f"ECU ID file: {ecuid_file}")
+        with open(ecuid_file, mode="r") as f:
+            ecuid = f.readline().replace("\n", "")
+            logger.debug(f"line: {ecuid}")
+        return ecuid
+
+    @staticmethod
+    def _read_ecu_info(ecu_info_yaml_file: Path):
+        """
+        Read ECU Information from yaml file.
+        """
+        with open(ecu_info_yaml_file, "r") as fyml:
+            logger.debug(f"open: {ecu_info_yaml_file}")
+            ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
+        return ecuinfo
+
+    @staticmethod
+    def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
+        """
+        save update ecuinfo.yaml
+        """
+        output_file = update_ecuinfo_yaml_file
+        logger.info(f"output_file: {output_file}")
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as ftmp:
+            tmp_file_name = ftmp.name
+            ftmp.write(yaml.dump(update_ecu_info))
+
+        shutil.move(tmp_file_name, output_file)
+        return True
+
+    def get_ecuinfo(self):
+        return self._ecu_info
+
+    def get_my_ecuid(self):
+        return self._my_ecuid
+
+    def get_ecuinfo(self):
+        return self._ecu_info
+
+    def is_main_ecu(self):
+        return self._main_ecu
+
+    def save_update_ecuinfo(self):
+        return self._save_update_ecuinfo(
+            self._update_ecuinfo_yaml_file, self._update_ecu_info
+        )
+
+    def set_update_ecuinfo(self, update_info):
+        """"""
+        logger.info("_update_ecu_info start")
+        ecuinfo = update_info.ecu_info
+        logger.debug(f"[ecu_info] {ecuinfo}")
+        ecu_found = False
+        if ecuinfo.ecu_id == self._update_ecu_info["main_ecu"]["ecu_id"]:
+            logger.info("ecu_id matched!")
+            self._update_ecu_info["main_ecu"]["ecu_name"] = ecuinfo.ecu_name
+            self._update_ecu_info["main_ecu"]["ecu_type"] = ecuinfo.ecu_type
+            self._update_ecu_info["main_ecu"]["version"] = ecuinfo.version
+            self._update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
+            ecu_found = True
+            logger.debug(f"__update_ecu_info: {self._update_ecu_info}")
+        else:
+            logger.debug("ecu_id not matched!")
+            if "sub_ecus" in self._update_ecu_info:
+                for i, subecuinfo in enumerate(self._update_ecu_info["sub_ecus"]):
+                    ecuinfo = subecuinfo.ecu_info
+                    if ecuinfo.ecu_id == subecuinfo["ecu_id"]:
+                        self._update_ecu_info["sub_ecus"][i][
+                            "ecu_name"
+                        ] = ecuinfo.ecu_name
+                        self._update_ecu_info["sub_ecus"][i][
+                            "ecu_type"
+                        ] = ecuinfo.ecu_type
+                        self._update_ecu_info["sub_ecus"][i][
+                            "version"
+                        ] = ecuinfo.version
+                        self._update_ecu_info["sub_ecus"][i][
+                            "independent"
+                        ] = ecuinfo.independent
+                        ecu_found = True
+        logger.info("_update_ecu_info end")
+        return ecu_found
 
 
 class _BaseInf:
@@ -518,8 +520,8 @@ class OtaMetadataWrapper:
             metadata_file.write_text(response.text)
             self._metadata = OtaMetaData(self._metadata_jwt)
         except Exception as e:
-            self._metadata_jwt = ""
-            self._meta_data_file = ""
+            self._metadata_jwt = None
+            self._meta_data_file = None
             logger.exception("Error: OTA meta data download fail")
             return False
         return True
@@ -1383,6 +1385,8 @@ class OtaClient(OtaUpdate, OtaReboot, OtaRollback, ECUInfoUtil, OtaClientInterfa
         # embeded class instances
         self._ota_status = OtaStatus(cfg)
         self._grub_ctl = GrubCtl(cfg)
+        # metadata data
+        self._metadata: OtaMetaData = None
 
         if cfg is None:
             cfg = default_cfg
@@ -1390,46 +1394,45 @@ class OtaClient(OtaUpdate, OtaReboot, OtaRollback, ECUInfoUtil, OtaClientInterfa
         #
         # files
         #
-        self._ecuid_file = cfg.ECUID_FILE
-        self._ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
-        self._grub_conf_file = cfg.GRUB_CFG_FILE
-        self._fstab_file = cfg.FSTAB_FILE
-        self._ota_metadata_file = cfg.OTA_METADATA_FILE
+        self._ecuid_file: Path = cfg.ECUID_FILE
+        self._ecuinfo_yaml_file: Path = cfg.ECUINFO_YAML_FILE
+        self._grub_conf_file: Path = cfg.GRUB_CFG_FILE
+        self._fstab_file: Path = cfg.FSTAB_FILE
+        self._ota_metadata_file: Path = cfg.OTA_METADATA_FILE
+        self._update_ecuinfo_yaml_file: Path = self._ecuinfo_yaml_file.with_suffix(
+            self._ecuinfo_yaml_file.suffix + ".update"
+        )
 
         #
         # dirs
         #
-        self._ota_dir = cfg.OTA_DIR
-        self._mount_point = cfg.MOUNT_POINT
-        self._grub_dir = cfg.GRUB_DIR
-        self._rollback_dir = cfg.ROLLBACK_DIR
-        self._tmp_dir = cfg.TMP_DIR
+        self._ota_dir: Path = cfg.OTA_DIR
+        self._mount_point: Path = cfg.MOUNT_POINT
+        self._grub_dir: Path = cfg.GRUB_DIR
+        self._rollback_dir: Path = cfg.ROLLBACK_DIR
+        self._tmp_dir: Path = cfg.TMP_DIR
 
         # OTA
-        self.boot_status = boot_status
-        self._boot_vmlinuz = None
-        self._boot_initrd = None
+        self.boot_status: str = boot_status
+        self._boot_vmlinuz: str = None
+        self._boot_initrd: str = None
 
         # ECU information
-        self._main_ecu = True
-        self._my_ecuid = self._read_ecuid(self._ecuid_file)
-        self._ecu_info = self._read_ecu_info(self._ecuinfo_yaml_file)
-        self._update_ecuinfo_yaml_file = self._ecuinfo_yaml_file.with_suffix(
-            self._ecuinfo_yaml_file.suffix + ".update"
-        )
-        self._update_ecu_info = copy.deepcopy(self._ecu_info)
+        self._main_ecu: bool = True
+        self._my_ecuid: str = self._read_ecuid(self._ecuid_file)
+        self._ecu_info: dict = self._read_ecu_info(self._ecuinfo_yaml_file)
+        self._update_ecu_info: dict = self._ecu_info.copy()
         # remote
-        self._url = url
+        self._url: str = url
+        self._header_dict: dict = {}
         self._ota_cache = ota_cache
-        # metadata data
-        self._metadata = None
 
         if not self._mount_point.is_dir():
             self._mount_point.mkdir(parents=True, exist_ok=True)
 
         # rollback info
-        self._rollback_dict = {}
-        self.backup_files = {
+        self._rollback_dict: dict = {}
+        self.backup_files: dict = {
             "dirlist": "dirlist.txt",
             "symlinklist": "symlinklist.txt",
             "regularlist": "regularlist.txt",
@@ -1437,6 +1440,9 @@ class OtaClient(OtaUpdate, OtaReboot, OtaRollback, ECUInfoUtil, OtaClientInterfa
         }
 
     def _set_url(self, url):
+        """
+        set ota base url
+        """
         self._url = url
 
     # TODO: un-used function?
