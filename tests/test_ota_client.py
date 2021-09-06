@@ -1,10 +1,23 @@
 import os
-from pathlib import Path
-from tests.test_ota_metadata import DIRS_FNAME
+from _pytest import mark
 import pytest
 import subprocess
 
 from tests.ota_client_params import PRIVATE_PEM, POLICY_JSON, ECU_INFO
+
+
+@pytest.mark.parametrize(
+    "name, decapsuled",
+    [
+        ("'/A/B/C'", "/A/B/C"),
+        ("'/A/ファイル'", "/A/ファイル"),
+        ("'/A/'file name''", "/A/'file name'"),
+    ],
+)
+def test__decapsulate(name, decapsuled):
+    import ota_client
+
+    assert ota_client._decapsulate(name) == decapsuled
 
 
 def test__file_sha256():
@@ -18,193 +31,111 @@ def test__file_sha256():
 
 
 @pytest.mark.parametrize(
-    "regular_inf_entry, mode, uid, gid, nlink, hash, path",
+    "string, search, num, array, pos",
     [
-        (
-            "0644,0,0,1,1d0f3bebaa884e594ace543fb936a0db41c3092e59891427e9aa67126d3885c1,'/usr/share/i18n/charmaps/ISO_8859-1,GL.gz'",
-            int("0644", 8),
-            0,
-            0,
-            1,
-            "1d0f3bebaa884e594ace543fb936a0db41c3092e59891427e9aa67126d3885c1",
-            Path("/usr/share/i18n/charmaps/ISO_8859-1,GL.gz"),
-        ),
-        (
-            "0755,0,0,3,aea949a9f55c8655953bb921ceb4b7ba92a9d218bcacbc178005baf7ee1450d3,'/usr/bin/bzcat'",
-            int("0755", 8),
-            0,
-            0,
-            3,
-            "aea949a9f55c8655953bb921ceb4b7ba92a9d218bcacbc178005baf7ee1450d3",
-            Path("/usr/bin/bzcat"),
-        ),
+        ("0755,0,100,'/etc/ssl/certs'", ",", 1, ["0755"], 5),
+        ("0755,0,100,'/etc/ssl/certs'", ",", 2, ["0755", "0"], 7),
+        ("0755,0,100,'/etc/ssl/certs'", ",", 3, ["0755", "0", "100"], 11),
     ],
 )
-def test_RegularInf(regular_inf_entry, mode, uid, gid, nlink, hash, path):
-    from ota_client import RegularInf
+def test__get_setparated_strings(string, search, num, array, pos):
+    import ota_client
 
-    parsed = RegularInf(regular_inf_entry)
-
-    assert parsed.mode == mode
-    assert parsed.uid == uid
-    assert parsed.gid == gid
-    assert parsed.nlink == nlink
-    assert parsed.sha256hash == hash
-    assert parsed.path == path
+    arr, curr = ota_client._get_separated_strings(string, search, num)
+    assert arr == array
+    assert curr == pos
 
 
-@pytest.mark.parametrize(
-    "entry, mode, uid, gid, path",
-    [
-        (
-            "0755,0,0,'/usr/lib/python3/dist-packages/ansible/modules/network/layer3'",
-            int("0755", 8),
-            0,
-            0,
-            Path("/usr/lib/python3/dist-packages/ansible/modules/network/layer3"),
-        )
-    ],
-)
-def test_DirectoryInf(entry, mode, uid, gid, path):
-    from ota_client import DirectoryInf
-
-    parsed = DirectoryInf(entry)
-
-    assert parsed.mode == mode
-    assert parsed.uid == uid
-    assert parsed.gid == gid
-    assert parsed.path == path
-
-
-@pytest.mark.parametrize(
-    "entry, mode, uid, gid, link, target",
-    [
-        (
-            r"0777,0,0,'/usr/lib/gvfs/gvfsd','../../libexec/gvfsd'",
-            int("0777", 8),
-            0,
-            0,
-            Path(r"/usr/lib/gvfs/gvfsd"),
-            Path(r"../../libexec/gvfsd"),
-        ),
-        (
-            r"0777,0,0,'/var/lib/ieee-data/iab.csv','/usr/share/ieee-data/'\'','\''iab.csv'",
-            int("0777", 8),
-            0,
-            0,
-            Path(r"/var/lib/ieee-data/iab.csv"),
-            Path(r"/usr/share/ieee-data/','iab.csv"),
-        ),
-    ],
-)
-def test_SymbolicLinkInf(entry, mode, uid, gid, link, target):
-    from ota_client import SymbolicLinkInf
-
-    parsed = SymbolicLinkInf(entry)
-
-    assert parsed.mode == mode
-    assert parsed.uid == uid
-    assert parsed.gid == gid
-    assert parsed.slink == link
-    assert parsed.srcpath == target
-
-
-def _assert_own(entry: Path, uid, gid):
-    st = entry.lstat()
+def _assert_own(entry, uid, gid):
+    try:
+        entry.readlink()
+        return
+    except Exception:
+        pass
+    st = os.stat(entry)
     assert st.st_uid == uid
     assert st.st_gid == gid
 
 
-def test__copy_complete(tmp_path: Path):
+def test__copy_complete(tmpdir):
     import ota_client
 
-    src = tmp_path / "src"
-    src_A_B = tmp_path / "src/A/B/"
-    src_A_B.mkdir(parents=True)
+    src = tmpdir.mkdir("src")
+    src_A = src.mkdir("A")
+    src_A_B = src_A.mkdir("B")
+    src_A_B_a = src_A_B.join("a")
+    src_A_B_a.write("a")
 
-    src_A_B_a = src_A_B / "a"
-    src_A_B_a.write_text("a")
+    dst = tmpdir.join("dst")
 
     os.chown(src, 1234, 4321)
-    os.chown(src / "A", 2345, 5432)
-    os.chown(src / "A/B", 3456, 6543)
-    os.chown(src / "A/B/a", 4567, 7654)
+    os.chown(src_A, 2345, 5432)
+    os.chown(src_A_B, 3456, 6543)
+    os.chown(src_A_B_a, 4567, 7654)
 
-    dst = tmp_path / "dst"
-    dest_file = dst / "A/B/a"
+    dest_file = tmpdir.join("dst/A/B/a")
     ota_client._copy_complete(src_A_B_a, dest_file)
 
     """
     output = subprocess.check_output(["ls", "-lR", tmpdir.join("dst")])
     print(output.decode("utf-8"))
     """
-    assert (dst).is_dir()
-    assert (dst / "A").is_dir()
-    assert (dst / "A/B").is_dir()
-    assert (dst / "A/B/a").is_file()
+    assert tmpdir.join("dst").ensure_dir()
+    assert tmpdir.join("dst/A").ensure_dir()
+    assert tmpdir.join("dst/A/B").ensure_dir()
+    assert tmpdir.join("dst/A/B/c").ensure()
 
-    _assert_own(dst, 1234, 4321)
-    _assert_own(dst / "A", 2345, 5432)
-    _assert_own(dst / "A/B", 3456, 6543)
-    _assert_own(dst / "A/B/a", 4567, 7654)
+    _assert_own(tmpdir.join("dst"), 1234, 4321)
+    _assert_own(tmpdir.join("dst/A"), 2345, 5432)
+    _assert_own(tmpdir.join("dst/A/B"), 3456, 6543)
+    _assert_own(tmpdir.join("dst/A/B/a"), 4567, 7654)
 
 
-def test__copy_complete_symlink_doesnot_exist(tmp_path: Path):
+def test__copy_complete_symlink_doesnot_exist(tmpdir):
     import ota_client
 
-    src = tmp_path / "src"
-    src.mkdir()
+    src = tmpdir.mkdir("src")
+    src_a = src.join("a")
+    src_a.mksymlinkto("doesnotexist")  # src_a -> doesnotexist
 
-    src_a = src / "a"
-    src_a.symlink_to("doesnotexist")  # src_a -> doesnotexist
-
-    dst = tmp_path / "dst"  # dst shouldn't exist
+    dst = tmpdir.join("dst")
 
     os.chown(src, 1234, 4321)
     os.chown(src_a, 2345, 5432, follow_symlinks=False)
 
-    dst_a = dst / "a"
+    dst_a = tmpdir.join("dst/a")
     ota_client._copy_complete(src_a, dst_a)
 
     """
     output = subprocess.check_output(["ls", "-lR", tmpdir.join("dst")])
     print(output.decode("utf-8"))
     """
-    assert dst.is_dir()
-    assert os.readlink((dst / "a")) == "doesnotexist"
+    assert tmpdir.join("dst").ensure_dir()
+    assert tmpdir.join("dst/a").readlink() == "doesnotexist"
 
-    _assert_own(dst, 1234, 4321)
-    _assert_own(dst / "a", 2345, 5432)
+    _assert_own(tmpdir.join("dst"), 1234, 4321)
+    _assert_own(tmpdir.join("dst/a"), 2345, 5432)
 
 
-def test__copytree_complete(tmp_path: Path):
+def test__copytree_complete(tmpdir):
     import ota_client
 
-    src = tmp_path / "src"
-    src.mkdir()
+    src = tmpdir.mkdir("src")
+    src_A = src.mkdir("A")
+    src_a = src_A.join("a")
+    src_a.mksymlinkto("doesnotexist")  # src_a -> doesnotexist
 
-    src_A = src / "A"
-    src_A.mkdir()
+    src_A_B = src_A.mkdir("B")
+    src_A_b = src_A.join("b")
+    src_A_b.mksymlinkto("B")  # b -> B
 
-    src_A_a = src_A / "a"
-    src_A_a.symlink_to("doesnotexist")  # src_a -> doesnotexist
+    src_A_B_C = src_A_B.mkdir("C")
+    src_A_B_c = src_A_B.join("c")
+    src_A_B_c.write("c")
+    src_A_B_d = src_A_B.join("d")
+    src_A_B_d.mksymlinkto("c")  # d -> c
 
-    src_A_B = src_A / "B"
-    src_A_B.mkdir()
-
-    src_A_b = src_A / "b"
-    src_A_b.symlink_to("B")  # b -> B
-
-    src_A_B_C = src_A_B / "C"
-    src_A_B_C.mkdir()
-
-    src_A_B_c = src_A_B / "c"
-    src_A_B_c.write_text("c")
-
-    src_A_B_d = src_A_B / "d"
-    src_A_B_d.symlink_to("c")  # d -> c
-
-    dst = tmp_path / "dst"
+    dst = tmpdir.join("dst")
 
     os.chown(src, 1234, 4321)
     os.chown(src_A, 2345, 5432)
@@ -219,38 +150,38 @@ def test__copytree_complete(tmp_path: Path):
     print(output.decode("utf-8"))
     """
 
-    assert (tmp_path / "dst").is_dir()
-    assert (tmp_path / "dst/A").is_dir()
-    assert (tmp_path / "dst/A/a").is_symlink()
-    assert os.readlink((tmp_path / "dst/A/a")) == "doesnotexist"
-    assert (tmp_path / "dst/A/B").is_dir()
-    assert (tmp_path / "dst/A/b").is_symlink()  # "b" is symlink to "B" directory.
-    assert os.readlink(tmp_path / "dst/A/b") == "B"
-    assert (tmp_path / "dst/A/B/C").is_dir()
-    assert (tmp_path / "dst/A/B/c").is_file()
-    assert (tmp_path / "dst/A/B/d").is_symlink()
-    assert os.readlink(tmp_path / "dst/A/B/d") == "c"
+    assert tmpdir.join("dst").ensure_dir()
+    assert tmpdir.join("dst/A").ensure_dir()
+    assert tmpdir.join("dst/A/a").ensure()
+    assert tmpdir.join("dst/A/a").readlink() == "doesnotexist"
+    assert tmpdir.join("dst/A/B").ensure_dir()
+    assert tmpdir.join("dst/A/b").ensure_dir()  # "b" is symlink to "B" directory.
+    assert tmpdir.join("dst/A/b").readlink() == "B"
+    assert tmpdir.join("dst/A/B/C").ensure_dir()
+    assert tmpdir.join("dst/A/B/c").ensure()
+    assert tmpdir.join("dst/A/B/d").ensure()
+    assert tmpdir.join("dst/A/B/d").readlink() == "c"
 
-    _assert_own((tmp_path / "dst"), 1234, 4321)
-    _assert_own((tmp_path / "dst/A"), 2345, 5432)
-    _assert_own((tmp_path / "dst/A/B"), 3456, 6543)
-    _assert_own((tmp_path / "dst/A/B/C"), 4567, 7654)
-    _assert_own((tmp_path / "dst/A/B/c"), 5678, 8765)
+    _assert_own(tmpdir.join("dst"), 1234, 4321)
+    _assert_own(tmpdir.join("dst/A"), 2345, 5432)
+    _assert_own(tmpdir.join("dst/A/B"), 3456, 6543)
+    _assert_own(tmpdir.join("dst/A/B/C"), 4567, 7654)
+    _assert_own(tmpdir.join("dst/A/B/c"), 5678, 8765)
 
 
-def test_otaclient_read_ecuid(tmp_path: Path):
+def test_otaclient_read_ecuid(tmpdir):
     import ota_client
 
-    ecuid_path = tmp_path / "ecuid"
+    ecuid_path = tmpdir.join("ecuid")
     ecuid = """1\n"""
-    ecuid_path.write_text(ecuid)
+    ecuid_path.write(ecuid)
     assert ota_client._read_ecuid(ecuid_path) == "1"
 
 
-def test_otaclient_read_ecu_info(tmp_path: Path):
+def test_otaclient_read_ecu_info(tmpdir):
     import ota_client
 
-    ecuinfo_path = tmp_path / "ecuinfo.yaml"
+    ecuinfo_path = tmpdir.join("ecuinfo.yaml")
     ecuinfo = """\
 main_ecu:
   ecu_name: 'autoware_ecu' 
@@ -260,7 +191,7 @@ main_ecu:
   independent: True
   ip_addr: ''
 """
-    ecuinfo_path.write_text(ecuinfo)
+    ecuinfo_path.write(ecuinfo)
     rd_ecuinfo = ota_client._read_ecu_info(ecuinfo_path)
     assert rd_ecuinfo["main_ecu"]["ecu_name"] == "autoware_ecu"
     assert rd_ecuinfo["main_ecu"]["ecu_type"] == "autoware"
@@ -270,56 +201,46 @@ main_ecu:
     assert rd_ecuinfo["main_ecu"]["ip_addr"] == ""
 
 
-def test__cleanup_dir(tmp_path: Path):
+def test__cleanup_dir(tmpdir):
     import ota_client
 
-    clean_dir_path = tmp_path / "cleantest"
-    clean_dir_path.mkdir()
+    clean_dir_path = tmpdir.mkdir("cleantest")
+    cld_a = clean_dir_path.join("a")
+    cld_a.write("a")
+    cld_b = clean_dir_path.join("b")
+    cld_b.write("b")
+    cld_c = clean_dir_path.join("c")
+    cld_c.write("c")
+    cldA = clean_dir_path.mkdir("A")
+    cldA_d = cldA.join("d")
+    cldA_d.write("d")
+    cldB = clean_dir_path.mkdir("B")
+    cldB_d = cldA.join("e")
+    cldB_d.write("e")
+    cldC = clean_dir_path.mkdir("C")
+    cldC_f = cldA.join("f")
+    cldC_f.write("d")
 
-    cld_a = clean_dir_path / "a"
-    cld_a.write_text("a")
-    cld_b = clean_dir_path / "b"
-    cld_b.write_text("b")
-    cld_c = clean_dir_path / "c"
-    cld_c.write_text("c")
-    cldA = clean_dir_path / "A"
-    cldA.mkdir()
-
-    cldA_d = cldA / "d"
-    cldA_d.write_text("d")
-
-    cldB = clean_dir_path / "B"
-    cldB.mkdir()
-
-    cldB_d = cldA / "e"
-    cldB_d.write_text("e")
-
-    cldC = clean_dir_path / "C"
-    cldC.mkdir()
-
-    cldC_f = cldA / "f"
-    cldC_f.write_text("d")
-
-    assert clean_dir_path.is_dir()
-    assert cld_a.is_file()
-    assert cld_b.is_file()
-    assert cld_c.is_file()
-    assert cldA.is_dir()
-    assert cldB.is_dir()
-    assert cldC.is_dir()
+    assert clean_dir_path.ensure_dir()
+    assert cld_a.ensure()
+    assert cld_b.ensure()
+    assert cld_c.ensure()
+    assert cldA.ensure_dir()
+    assert cldB.ensure_dir()
+    assert cldC.ensure_dir()
 
     ota_client._cleanup_dir(clean_dir_path)
 
-    assert clean_dir_path.is_dir()
-    assert not cld_a.is_file()
-    assert not cld_b.is_file()
-    assert not cld_a.is_file()
-    assert not cldA.is_dir()
-    assert not cldB.is_dir()
-    assert not cldC.is_dir()
+    assert os.path.exists(str(clean_dir_path))
+    assert not os.path.isfile(str(cld_a))
+    assert not os.path.isfile(str(cld_b))
+    assert not os.path.isfile(str(cld_a))
+    assert not os.path.exists(str(cldA))
+    assert not os.path.exists(str(cldB))
+    assert not os.path.exists(str(cldC))
 
 
-def test__gen_directories(tmp_path: Path):
+def test__gen_directories(tmpdir):
     import ota_client
 
     DIR_LIST_DATA = """\
@@ -331,22 +252,17 @@ def test__gen_directories(tmp_path: Path):
 0755,0,0,'/C/E/F'
 """
 
-    src = tmp_path / "src"
-    src.mkdir()
-
-    dirs_file = src / "dirs.txt"
-    dirs_file.write_text(DIR_LIST_DATA)
-
-    dst = tmp_path / "dst"
-    dst.mkdir()
-
-    ota_client._gen_directories(dirs_file, dst)
-    assert (dst / "A").is_dir()
-    assert (dst / "B").is_dir()
-    assert (dst / "C").is_dir()
-    assert (dst / "C/D").is_dir()
-    assert (dst / "C/E").is_dir()
-    assert (dst / "C/E/F").is_dir()
+    src = tmpdir.mkdir("src")
+    dirs_file = src.join("dirs.txt")
+    dirs_file.write(DIR_LIST_DATA)
+    dst = tmpdir.mkdir("dst")
+    ota_client._gen_directories(str(dirs_file), str(dst))
+    assert os.path.isdir(str(dst) + "/A")
+    assert os.path.isdir(str(dst) + "/B")
+    assert os.path.isdir(str(dst) + "/C")
+    assert os.path.isdir(str(dst) + "/C/D")
+    assert os.path.isdir(str(dst) + "/C/E")
+    assert os.path.isdir(str(dst) + "/C/E/F")
 
 
 @pytest.mark.parametrize(
@@ -361,85 +277,69 @@ def test__gen_directories(tmp_path: Path):
         ("/C/D", "/C/D/a", "symlink"),
     ],
 )
-def test__copy_persistent(tmp_path: Path, persistent, result, type):
+def test__copy_persistent(tmpdir, persistent, result, type):
     import ota_client
 
-    src = tmp_path / "src"
-    dst = tmp_path / "dst"
+    src = tmpdir.mkdir("src")
+    dst = tmpdir.mkdir("dst")
+    src_A = src.mkdir("A")
+    src_B = src.mkdir("B")
+    src_B_a = src_B.join("a")
+    src_B_a.write("a")
+    src_C = src.mkdir("C")
+    src_C_D = src_C.mkdir("D")
+    src_C_D_E = src_C_D.mkdir("E")
+    src_C_D_E_a = src_C_D_E.join("a")
+    src_C_D_E_a.write("a")
+    src_C_D_a = src_C_D.join("a")
+    src_C_D_a.mksymlinkto("E/a")
 
-    src_A = src / "A"
-    src_B = src / "B"
-    src_A.mkdir(parents=True)
-    src_B.mkdir(parents=True)
-
-    src_B_a = src_B / "a"
-    src_B_a.write_text("a")
-
-    src_C = src / "C"
-    src_C_D = src_C / "D"
-    src_C_D_E = src_C_D / "E"
-    src_C_D_E.mkdir(parents=True)
-
-    src_C_D_E_a = src_C_D_E / "a"
-    src_C_D_E_a.write_text("a")
-    src_C_D_a = src_C_D / "a"
-    src_C_D_a.symlink_to("E/a")
-
-    src_path = src / Path(persistent).relative_to("/")
-    ota_client._copy_persistent(src_path, dst)
-    dst_path: Path = dst / src.relative_to("/") / Path(result).relative_to("/")
+    src_path = src.join(persistent)
+    ota_client._copy_persistent(str(src_path), str(dst))
+    dst_path = dst.join(src).join(result)
     print(f"src: {src_path} dst: {dst_path}")
     if type == "dir":
-        assert dst_path.is_dir()
+        assert os.path.isdir(str(dst_path))
     elif type == "file":
-        assert dst_path.is_file()
+        assert os.path.isfile(str(dst_path))
     if type == "symlink":
-        assert dst_path.is_symlink()
+        assert os.path.islink(str(dst_path))
 
 
-def test__gen_persistent_files(tmp_path: Path):
+def test__gen_persistent_files(tmpdir):
     import ota_client
 
-    src = tmp_path / "src"
-    dst = tmp_path / "dst"
-    src.mkdir()
-    dst.mkdir()
-
-    src_A = src / "A"
-    src_B = src / "B"
-    src_A.mkdir()
-    src_B.mkdir()
-
-    src_B_a = src_B / "a"
-    src_B_a.write_text("a")
-
-    src_C = src / "C"
-    src_C.mkdir()
-    src_C_D = src_C / "D"
-    src_C_D_E = src_C_D / "E"
-    src_C_D_E.mkdir(parents=True)
-    src_C_D_E_a = src_C_D_E / "a"
-    src_C_D_E_a.write_text("a")
-    src_C_D_a = src_C_D / "a"
-    src_C_D_a.symlink_to("E/a")
+    src = tmpdir.mkdir("src")
+    dst = tmpdir.mkdir("dst")
+    src_A = src.mkdir("A")
+    src_B = src.mkdir("B")
+    src_B_a = src_B.join("a")
+    src_B_a.write("a")
+    src_C = src.mkdir("C")
+    src_C_D = src_C.mkdir("D")
+    src_C_D_E = src_C_D.mkdir("E")
+    src_C_D_E_a = src_C_D_E.join("a")
+    src_C_D_E_a.write("a")
+    src_C_D_a = src_C_D.join("a")
+    src_C_D_a.mksymlinkto("E/a")
 
     PERSISTENT_DATA = f"'{str(src)}/A'\n'{str(src)}/B'\n'{str(src)}/C/D'\n"
-    persistent_file = tmp_path.joinpath("persistent.txt")
-    persistent_file.write_text(PERSISTENT_DATA)
+    persistent_file = tmpdir.join("persistent.txt")
+    persistent_file.write(PERSISTENT_DATA)
 
-    ota_client._gen_persistent_files(persistent_file, dst)
+    ota_client._gen_persistent_files(str(persistent_file), str(dst))
 
-    assert (dst / src / "A").is_dir()
-    assert (dst / src / "B").is_dir()
-    assert (dst / src_B_a).is_file()
-    assert (dst / src_C).is_dir()
-    assert (dst / src_C_D).is_dir()
-    assert (dst / src_C_D_E).is_dir()
-    assert (dst / src_C_D_E_a).is_file()
-    assert (dst / src_C_D_a).is_symlink()
+    assert os.path.isdir(str(dst) + str(src) + "/A")
+    assert os.path.isdir(str(dst) + str(src) + "/B")
+    assert os.path.isfile(str(dst) + str(src_B_a))
+    assert os.path.isdir(str(dst) + str(src_C))
+    assert os.path.isdir(str(dst) + str(src_C_D))
+    assert os.path.isdir(str(dst) + str(src_C_D_E))
+    assert os.path.isfile(str(dst) + str(src_C_D_E_a))
+    assert os.path.islink(str(dst) + str(src_C_D_a))
 
 
-def test__header_str_to_dict(tmp_path: Path):
+def test__header_str_to_dict(tmp_path):
     import ota_client
     from OpenSSL import crypto
     import base64
@@ -487,7 +387,7 @@ def test__header_str_to_dict(tmp_path: Path):
     )
 
 
-def test__save_update_ecuinfo(tmp_path: Path):
+def test__save_update_ecuinfo(tmp_path):
     import ota_client
     import yaml
 
@@ -522,7 +422,7 @@ def test__save_update_ecuinfo(tmp_path: Path):
     }
 
     ota_client._save_update_ecuinfo(ecuinfo_yaml_path, ecu_info)
-    assert ecuinfo_yaml_path.is_file()
+    assert os.path.isfile(ecuinfo_yaml_path)
 
     with open(ecuinfo_yaml_path, "r") as f:
         rd_ecuinfo = yaml.load(f, Loader=yaml.SafeLoader)
