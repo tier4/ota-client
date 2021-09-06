@@ -1,78 +1,197 @@
 #!/usr/bin/env python3
-
-import os
+from abc import ABC, abstractmethod
+from pathlib import Path
 import shutil
 
-import ota_status
-import grub_control
+from ota_status import OtaStatus
+from grub_control import GrubCtl
+from constants import OtaBootStatusString, OtaStatusString
+from constants import OtaBootStageAlias as StageAlias
+from exceptions import OtaBootError
+import configs as cfg
 
 from logging import getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(INFO)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
-class OtaBoot:
+class OtaBootInterface(ABC):
+    """
+    OtaBoot interface for implementing OtaBoot
+    """
+
+    # stage 1: check
+    check_passed, check_failed = True, False
+    # stage 2: finalize
+    finalize_succeeded, finalize_failed = True, False
+
+    # methods needed for boot checking and finalizing
+    @abstractmethod
+    def _confirm_banka(self) -> bool:
+        pass
+
+    @abstractmethod
+    def _confirm_bankb(self) -> bool:
+        pass
+
+    @abstractmethod
+    def _finalize_update(self) -> bool:
+        pass
+
+    @abstractmethod
+    def _finalize_rollback(self) -> bool:
+        pass
+
+    @abstractmethod
+    def boot(self):
+        """
+        main function of OtaBoot
+        """
+        pass
+
+    return_value = {
+        finalize_succeeded: {
+            OtaStatusString.SWITCHA_STATE: (
+                OtaStatusString.NORMAL_STATE,
+                OtaBootStatusString.SWITCH_BOOT,
+            ),
+            OtaStatusString.SWITCHB_STATE: (
+                OtaStatusString.NORMAL_STATE,
+                OtaBootStatusString.SWITCH_BOOT,
+            ),
+            OtaStatusString.ROLLBACKA_STATE: (
+                OtaStatusString.NORMAL_STATE,
+                OtaBootStatusString.ROLLBACK_BOOT,
+            ),
+            OtaStatusString.ROLLBACKB_STATE: (
+                OtaStatusString.NORMAL_STATE,
+                OtaBootStatusString.ROLLBACK_BOOT,
+            ),
+        },
+        finalize_failed: {
+            OtaStatusString.SWITCHA_STATE: (
+                OtaStatusString.UPDATE_FAIL_STATE,
+                OtaBootStatusString.SWITCH_BOOT_FAIL,
+            ),
+            OtaStatusString.SWITCHB_STATE: (
+                OtaStatusString.UPDATE_FAIL_STATE,
+                OtaBootStatusString.SWITCH_BOOT_FAIL,
+            ),
+            OtaStatusString.ROLLBACKA_STATE: (
+                OtaStatusString.ROLLBACK_FAIL_STATE,
+                OtaBootStatusString.ROLLBACK_BOOT_FAIL,
+            ),
+            OtaStatusString.ROLLBACKB_STATE: (
+                OtaStatusString.ROLLBACK_FAIL_STATE,
+                OtaBootStatusString.ROLLBACK_BOOT_FAIL,
+            ),
+        },
+        StageAlias.BYPASS_FINALIZATION_CHECK_PASSED: {},
+        StageAlias.BYPASS_FINALIZATION_CHECK_FAILED: {
+            OtaStatusString.SWITCHA_STATE: (
+                OtaStatusString.UPDATE_FAIL_STATE,
+                OtaBootStatusString.SWITCH_BOOT_FAIL,
+            ),
+            OtaStatusString.SWITCHB_STATE: (
+                OtaStatusString.UPDATE_FAIL_STATE,
+                OtaBootStatusString.SWITCH_BOOT_FAIL,
+            ),
+            OtaStatusString.ROLLBACKA_STATE: (
+                OtaStatusString.ROLLBACK_FAIL_STATE,
+                OtaBootStatusString.ROLLBACK_BOOT_FAIL,
+            ),
+            OtaStatusString.ROLLBACKB_STATE: (
+                OtaStatusString.ROLLBACK_FAIL_STATE,
+                OtaBootStatusString.ROLLBACK_BOOT_FAIL,
+            ),
+        },
+        StageAlias.BYPASS_CHECK: {
+            OtaStatusString.NORMAL_STATE: (
+                OtaStatusString.NORMAL_STATE,
+                OtaBootStatusString.NORMAL_BOOT,
+            ),
+            OtaStatusString.UPDATE_STATE: (
+                OtaStatusString.UPDATE_FAIL_STATE,
+                OtaBootStatusString.UPDATE_INCOMPLETE,
+            ),
+            OtaStatusString.PREPARED_STATE: (
+                OtaStatusString.UPDATE_FAIL_STATE,
+                OtaBootStatusString.UPDATE_INCOMPLETE,
+            ),
+            OtaStatusString.ROLLBACK_STATE: (
+                OtaStatusString.ROLLBACK_FAIL_STATE,
+                OtaBootStatusString.ROLLBACK_INCOMPLETE,
+            ),
+            OtaStatusString.UPDATE_FAIL_STATE: (
+                OtaStatusString.NORMAL_STATE,
+                OtaBootStatusString.NORMAL_BOOT,
+            ),
+        },
+    }
+
+    def __init__(self):
+        """
+        dynamically bind methods when the instance is being created.
+        """
+        # step 1: check
+        self.check = {
+            OtaStatusString.SWITCHA_STATE: self._confirm_banka,
+            OtaStatusString.SWITCHB_STATE: self._confirm_bankb,
+            OtaStatusString.ROLLBACKA_STATE: self._confirm_banka,
+            OtaStatusString.ROLLBACKB_STATE: self._confirm_bankb,
+        }
+
+        # step 2: finalize
+        self.finalize = {
+            self.check_passed: {
+                OtaStatusString.SWITCHA_STATE: self._finalize_update,
+                OtaStatusString.SWITCHB_STATE: self._finalize_update,
+                OtaStatusString.ROLLBACKA_STATE: self._finalize_rollback,
+                OtaStatusString.ROLLBACKB_STATE: self._finalize_rollback,
+            },
+            self.check_failed: {},
+        }
+
+
+class OtaBoot(OtaBootInterface):
     """
     OTA Startup class
     """
 
-    # boot status
-    NORMAL_BOOT = "NORMAL_BOOT"
-    SWITCH_BOOT = "SWITCH_BOOT"
-    SWITCH_BOOT_FAIL = "SWITCH_BOOT_FAIL"
-    ROLLBACK_BOOT = "ROLLBACK_BOOT"
-    ROLLBACK_BOOT_FAIL = "ROLLBACK_BOOT_FAIL"
-    UPDATE_INCOMPLETE = "UPDATE_INCOMPLETE"
-    ROLLBACK_INCOMPLETE = "ROLLBACK_INCOMPLETE"
+    _grub_config_file = cfg.GRUB_CFG_FILE
+    _ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
 
-    def __init__(
-        self,
-        ota_status_file="/boot/ota/ota_status",
-        default_grub_file="/etc/default/grub",
-        grub_config_file="/boot/grub/grub.cfg",
-        custom_config_file="/boot/grub/custom.cfg",
-        bank_info_file="/boot/ota/bankinfo.yaml",
-        fstab_file="/etc/fstab",
-        ecuinfo_yaml_file="/boot/ota/ecuinfo.yaml",
-        ota_rollback_file="/boot/ota/ota_rollback_count",
-    ):
+    def __init__(self):
         """
         Initialize
         """
-        self._grub_cfg_file = grub_config_file
-        self.__ecuinfo_yaml_file = ecuinfo_yaml_file
-        self._ota_status = ota_status.OtaStatus(
-            ota_status_file=ota_status_file, ota_rollback_file=ota_rollback_file
-        )
-        self._grub_ctl = grub_control.GrubCtl(
-            default_grub_file=default_grub_file,
-            grub_config_file=grub_config_file,
-            custom_config_file=custom_config_file,
-            bank_info_file=bank_info_file,
-            fstab_file=fstab_file,
-        )
+        super().__init__()  # methods binding
+        self._ota_status = OtaStatus()
+        self._grub_ctl = GrubCtl()
 
     def _confirm_banka(self):
         """
         confirm the current bank is A
         """
-        current_bank = self._grub_ctl._bank_info.get_current_bank()
-        return self._grub_ctl._bank_info.is_banka(current_bank)
+        current_bank = self._grub_ctl.get_current_bank()
+        return self._grub_ctl.is_banka(current_bank)
 
     def _confirm_bankb(self):
         """
         confirm the current bank is B
         """
-        current_bank = self._grub_ctl._bank_info.get_current_bank()
-        return self._grub_ctl._bank_info.is_bankb(current_bank)
+        current_bank = self._grub_ctl.get_current_bank()
+        return self._grub_ctl.is_bankb(current_bank)
 
     def _update_finalize_ecuinfo_file(self):
         """"""
-        src_file = self.__ecuinfo_yaml_file + ".update"
-        dest_file = self.__ecuinfo_yaml_file
-        if os.path.isfile(src_file):
-            if os.path.exists(dest_file):
+        src_file: Path = self._ecuinfo_yaml_file.with_suffix(
+            self._ecuinfo_yaml_file.suffix + ".update"
+        )
+        dest_file: Path = self._ecuinfo_yaml_file
+        if src_file.is_file():
+            if dest_file.exists():
                 # To do : copy for rollback
                 pass
             logger.debug(f"file move: {src_file} to {dest_file}")
@@ -82,134 +201,63 @@ class OtaBoot:
             return False
         return True
 
+    def _finalize_update(self) -> bool:
+        try:
+            logger.debug("regenerate grub.cfg")
+            logger.debug("delete custum.cfg")
+            self._update_finalize_ecuinfo_file()
+            self._grub_ctl.re_generate_grub_config()
+            self._grub_ctl.delete_custom_cfg_file()
+            self._ota_status.inc_rollback_count()
+        except Exception as e:
+            logger.debug(f"finalize update failed! {e}")
+            raise e
+
+        return True
+
+    def _finalize_rollback(self) -> bool:
+        try:
+            logger.debug("delete custom.cfg")
+            self._grub_ctl.delete_custom_cfg_file()
+        except Exception as e:
+            logger.debug(f"finalize rollback failed! {e}")
+
+        return True
+
     def boot(self):
-        status = self._ota_status.get_ota_status()
+        status: str = self._ota_status.get_ota_status()
         logger.debug(f"Status: {status}")
-        result_boot, result_state = self._boot(status)
+        res: tuple[OtaStatusString, OtaBootStatusString]
+
+        try:
+            # step1: check
+            if status in self.check:
+                check_res: bool = self.check[status]()
+                # step2: finalize
+                if status in self.finalize[check_res]:
+                    finalize_res: bool = self.finalize[check_res][status]()
+                    res = self.return_value[finalize_res].get(status)
+                # no finalization
+                else:
+                    if check_res:
+                        res = self.return_value[
+                            StageAlias.BYPASS_FINALIZATION_CHECK_PASSED
+                        ].get(status)
+                    else:
+                        res = self.return_value[
+                            StageAlias.BYPASS_FINALIZATION_CHECK_FAILED
+                        ].get(status)
+            # no check required
+            else:
+                res = self.return_value[StageAlias.BYPASS_CHECK].get(status)
+
+            if res is None:
+                raise OtaBootError(f"unexpected boot result.")
+        except Exception as e:
+            logger.error(f"otaboot failed: {e}")
+            raise OtaBootError(e)
+
+        logger.debug(f"otaboot result: {res}")
+        result_state, result_boot = res
         self._ota_status.set_ota_status(result_state)
         return result_boot
-
-    def _finalize_update(self):
-        logger.debug("regenerate grub.cfg")
-        logger.debug("delete custum.cfg")
-        self._update_finalize_ecuinfo_file()
-        self._grub_ctl.re_generate_grub_config()
-        self._grub_ctl.delete_custom_cfg_file()
-        self._ota_status.inc_rollback_count()
-
-    def _finalize_rollback(self):
-        logger.debug("delete custom.cfg")
-        self._grub_ctl.delete_custom_cfg_file()
-
-    def _boot(self, status):
-        """
-        OTA boot
-        """
-        from ota_status import OtaStatus
-
-        status_checker_key = "status_checker"
-        success_key = "success"
-        failure_key = "failure"
-        state_key = "state"
-        boot_key = "boot"
-        finalize_key = "finalize"
-
-        state_table = {
-            OtaStatus.NORMAL_STATE: {
-                success_key: {
-                    state_key: OtaStatus.NORMAL_STATE,
-                    boot_key: OtaBoot.NORMAL_BOOT,
-                },
-            },
-            OtaStatus.SWITCHA_STATE: {
-                status_checker_key: self._confirm_banka,
-                success_key: {
-                    state_key: OtaStatus.NORMAL_STATE,
-                    boot_key: OtaBoot.SWITCH_BOOT,
-                    finalize_key: self._finalize_update,
-                },
-                failure_key: {
-                    state_key: OtaStatus.UPDATE_FAIL_STATE,
-                    boot_key: OtaBoot.SWITCH_BOOT_FAIL,
-                },
-            },
-            OtaStatus.SWITCHB_STATE: {
-                status_checker_key: self._confirm_bankb,
-                success_key: {
-                    state_key: OtaStatus.NORMAL_STATE,
-                    boot_key: OtaBoot.SWITCH_BOOT,
-                    finalize_key: self._finalize_update,
-                },
-                failure_key: {
-                    state_key: OtaStatus.UPDATE_FAIL_STATE,
-                    boot_key: OtaBoot.SWITCH_BOOT_FAIL,
-                },
-            },
-            OtaStatus.ROLLBACKA_STATE: {
-                status_checker_key: self._confirm_banka,
-                success_key: {
-                    state_key: OtaStatus.NORMAL_STATE,
-                    boot_key: OtaBoot.ROLLBACK_BOOT,
-                    finalize_key: self._finalize_rollback,
-                },
-                failure_key: {
-                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
-                    boot_key: OtaBoot.ROLLBACK_BOOT_FAIL,
-                },
-            },
-            OtaStatus.ROLLBACKB_STATE: {
-                status_checker_key: self._confirm_bankb,
-                success_key: {
-                    state_key: OtaStatus.NORMAL_STATE,
-                    boot_key: OtaBoot.ROLLBACK_BOOT,
-                    finalize_key: self._finalize_rollback,
-                },
-                failure_key: {
-                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
-                    boot_key: OtaBoot.ROLLBACK_BOOT_FAIL,
-                },
-            },
-            OtaStatus.UPDATE_STATE: {
-                success_key: {
-                    state_key: OtaStatus.UPDATE_FAIL_STATE,
-                    boot_key: OtaBoot.UPDATE_INCOMPLETE,
-                },
-            },
-            OtaStatus.PREPARED_STATE: {
-                success_key: {
-                    state_key: OtaStatus.UPDATE_FAIL_STATE,
-                    boot_key: OtaBoot.UPDATE_INCOMPLETE,
-                },
-            },
-            OtaStatus.ROLLBACK_STATE: {
-                success_key: {
-                    state_key: OtaStatus.ROLLBACK_FAIL_STATE,
-                    boot_key: OtaBoot.ROLLBACK_INCOMPLETE,
-                },
-            },
-            OtaStatus.UPDATE_FAIL_STATE: {
-                success_key: {
-                    state_key: OtaStatus.NORMAL_STATE,
-                    boot_key: OtaBoot.NORMAL_BOOT,
-                },
-            },
-        }
-
-        if (
-            state_table[status].get(status_checker_key) is None
-            or state_table[status][status_checker_key]()
-        ):
-            # check OK
-            checker_result_key = success_key
-        else:
-            # check NG
-            checker_result_key = failure_key
-
-        if state_table[status][checker_result_key].get(finalize_key) is not None:
-            # Do finalize update/rollback
-            state_table[status][checker_result_key][finalize_key]()
-
-        return (
-            state_table[status][checker_result_key][boot_key],  # boot status
-            state_table[status][checker_result_key][state_key],  # ecu status
-        )
