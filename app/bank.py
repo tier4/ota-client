@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
 import tempfile
-import os
-import shlex
 import shutil
+import shlex
 import subprocess
 import yaml
 import re
+from copy import deepcopy
 
+import configs as cfg
 from logging import getLogger, INFO, DEBUG
 
 logger = getLogger(__name__)
-logger.setLevel(INFO)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, INFO))
 
 
 def _blkid_command(device=None):
@@ -54,18 +56,18 @@ def _get_current_devfile_by_fstab(fstab_file):
                 continue
             if match.group(3) == "/":
                 root_uuid = match.group(2)
-                root_devfile = os.path.realpath(f"/dev/disk/by-uuid/{match.group(2)}")
+                root_devfile = Path(f"/dev/disk/by-uuid/{match.group(2)}").resolve()
                 logger.debug(f"root_uuid: {root_uuid}, root_devfile: {root_devfile}")
             elif match.group(3) == "/boot":
                 boot_uuid = match.group(2)
-                boot_devfile = os.path.realpath(f"/dev/disk/by-uuid/{match.group(2)}")
+                boot_devfile = Path(f"/dev/disk/by-uuid/{match.group(2)}").resolve()
                 logger.debug(f"boot_uuid: {boot_uuid}, boot_devfile: {boot_devfile}")
     # NOTE: if all root_devfile, root_uuid, boot_devfile and boot_uuid are not set,
     # the following line raises exception.
     return root_devfile, root_uuid, boot_devfile, boot_uuid
 
 
-def _gen_bankinfo_file(bank_info_file, fstab_file):
+def _gen_bankinfo_file(bank_info_file: Path, fstab_file: Path):
     """
     generate the bank information file
     """
@@ -92,23 +94,19 @@ def _gen_bankinfo_file(bank_info_file, fstab_file):
         logger.info(f"root: {root_devfile} boot: {boot_devfile} stby: {stby_devfile}")
         return False
     else:
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            tmp_file = ftmp.name
-            with open(ftmp.name, "w") as f:
-                f.write("banka: " + root_devfile + "\n")
-                f.write("bankb: " + stby_devfile + "\n")
-                logger.debug(f"banka: {root_devfile}")
-                logger.debug(f"bankb: {stby_devfile}")
-                f.flush()
-        os.sync()
-        dir_name = os.path.dirname(bank_info_file)
-        os.makedirs(dir_name, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
+            tmp_file = f.name
+            f.write("banka: " + str(root_devfile) + "\n")
+            f.write("bankb: " + str(stby_devfile) + "\n")
+            logger.debug(f"banka: {root_devfile}")
+            logger.debug(f"bankb: {stby_devfile}")
+
+        bank_info_file.parent.mkdir(exist_ok=True)
         shutil.move(tmp_file, bank_info_file)
-        os.sync()
     return True
 
 
-def _get_bank_info(ota_config_file):
+def _get_bank_info(ota_config_file: Path):
     """
     get bank information
     """
@@ -126,40 +124,86 @@ def _get_bank_info(ota_config_file):
     return banka, bankb
 
 
-class BankInfo:
+class _BaseBankInfo:
+    _bank_info_file: Path = cfg.BANK_INFO_FILE
+    _fstab_file: Path = cfg.FSTAB_FILE
+
+    def __init__(self):
+        if not self._bank_info_file.is_file():
+            _gen_bankinfo_file(self._bank_info_file, self._fstab_file)
+        self.bank_a, self.bank_b = _get_bank_info(self._bank_info_file)
+        self.bank_a_uuid = _get_uuid_from_blkid(self.bank_a)
+        self.bank_b_uuid = _get_uuid_from_blkid(self.bank_b)
+
+    def get_banka(self):
+        """
+        Get bank A
+        """
+        return self.bank_a
+
+    def get_banka_uuid(self):
+        """
+        Get bank A UUID
+        """
+        return self.bank_a_uuid
+
+    def is_banka(self, bank):
+        """
+        Is bank A
+        """
+        return bank == self.bank_a
+
+    def is_banka_uuid(self, bank_uuid):
+        """
+        Is bank A UUID
+        """
+        return bank_uuid == self.bank_a_uuid
+
+    def get_bankb(self):
+        """
+        Get bank B
+        """
+        return self.bank_b
+
+    def get_bankb_uuid(self):
+        """
+        Get bank B UUID
+        """
+        return self.bank_b_uuid
+
+    def is_bankb(self, bank):
+        """
+        Is bank B
+        """
+        return bank == self.bank_b
+
+    def is_bankb_uuid(self, bank_uuid):
+        """
+        Is bank B UUID
+        """
+        return bank_uuid == self.bank_b_uuid
+
+
+class BankInfo(_BaseBankInfo):
     """
     OTA Bank device info class
     """
 
-    def __init__(
-        self, bank_info_file="/boot/ota/bankinfo.yaml", fstab_file="/etc/fstab"
-    ):
-        """
-        Initialize
-        """
-        #
-        self._bank_info_file = bank_info_file
-        self._fstab_file = fstab_file
-        # bank A bank B info
-        if not os.path.exists(self._bank_info_file):
-            _gen_bankinfo_file(self._bank_info_file, self._fstab_file)
-        self._banka, self._bankb = _get_bank_info(bank_info_file)
-        self._banka_uuid = _get_uuid_from_blkid(self._banka)
-        self._bankb_uuid = _get_uuid_from_blkid(self._bankb)
-        # current bank info
-        self._current_bank = None
-        self._current_bank_uuid_str = None
-        # next bank info
-        self._next_bank = None
-        self._next_bank_uuid_str = None
-        self._read_fail = False
-        res = self._setup_current_next_root_dev(fstab_file)
+    def __init__(self, *, fstab_file: str = None, bank_info_file: str = None):
+        # init current bank status
+        if fstab_file:
+            self._fstab_file = Path(fstab_file)
+        if bank_info_file:
+            self._bank_info_file = Path(bank_info_file)
 
-    def _setup_current_next_root_dev(self, fstab_file):
+        super().__init__()
+        self._setup_current_next_root_dev()
+
+    def _setup_current_next_root_dev(self):
         """
         setup the current/next root device from '/etc/fstab'
         """
-        with open(fstab_file, "r") as f:
+        with open(self._fstab_file, "r") as f:
             lines = f.readlines()
 
         for l in lines:
@@ -172,127 +216,58 @@ class BankInfo:
                 logger.debug(f"root found: {fstab_list[1]}")
                 if fstab_list[0].find("UUID=") == 0:
                     # UUID type definition
-                    self._current_bank_uuid_str = fstab_list[0]
-                    if self._current_bank_uuid_str.find(self._banka_uuid) >= 0:
+                    _current_bank_uuid_str = fstab_list[0]
+                    if _current_bank_uuid_str.find(self.bank_a_uuid) >= 0:
                         # current bank is A
-                        self._current_bank = self._banka
-                        self._next_bank = self._bankb
-                        self._next_bank_uuid_str = "UUID=" + self._bankb_uuid
-                    elif self._current_bank_uuid_str.find(self._bankb_uuid) >= 0:
+                        _current_bank = self.bank_a
+                        _next_bank = self.bank_b
+                        _next_bank_uuid_str = "UUID=" + self.bank_b_uuid
+                    elif _current_bank_uuid_str.find(self.bank_b_uuid) >= 0:
                         # current bank is B
-                        self._current_bank = self._bankb
-                        self._next_bank = self._banka
-                        self._next_bank_uuid_str = "UUID=" + self._banka_uuid
+                        _current_bank = self.bank_b
+                        _next_bank = self.bank_a
+                        _next_bank_uuid_str = "UUID=" + self.bank_a_uuid
                     else:
                         # current bank is another bank
-                        self._read_fail = True
                         logger.error("current bank is not banka or bankb!")
+                        raise Exception("failed to parse fstab file.")
                 elif fstab_list[0].find("/dev/disk/by-uuid/") == 0:
                     # by-uuid device file
-                    self._current_bank_uuid_str = fstab_list[0]
-                    if self._current_bank_uuid_str.find(self._banka_uuid) >= 0:
+                    _current_bank_uuid_str = fstab_list[0]
+                    if _current_bank_uuid_str.find(self.bank_a_uuid) >= 0:
                         # current bank is A
-                        self._current_bank = self._banka
-                        self._next_bank = self._bankb
-                        self._next_bank_uuid_str = (
-                            "/dev/disk/by-uuid/" + self._bankb_uuid
-                        )
-                    elif self._current_bank_uuid_str.find(self._bankb_uuid) >= 0:
+                        _current_bank = self.bank_a
+                        _next_bank = self.bank_b
+                        _next_bank_uuid_str = "/dev/disk/by-uuid/" + self.bank_b_uuid
+                    elif _current_bank_uuid_str.find(self.bank_b_uuid) >= 0:
                         # current bank is B
-                        self._current_bank = self._bankb
-                        self._next_bank = self._banka
-                        self._next_bank_uuid_str = (
-                            "/dev/disk/by-uuid/" + self._banka_uuid
-                        )
+                        _current_bank = self.bank_b
+                        _next_bank = self.bank_a
+                        _next_bank_uuid_str = "/dev/disk/by-uuid/" + self.bank_a_uuid
                     else:
-                        self._read_fail = True
                         logger.error("current bank is not banka or bankb!")
+                        raise Exception("failed to parse fstab file.")
                 else:
                     # device file name
-                    self._current_bank = fstab_list[0]
-                    if self._current_bank == self._banka:
-                        self._current_bank_uuid_str = "UUID=" + self._banka_uuid
-                        self._next_bank = self._bankb
-                        self._next_bank_uuid_str = "UUID" + self._bankb_uuid
-                    elif self._current_bank == self._bankb:
-                        self._current_bank_uuid_str = "UUID=" + self._bankb_uuid
-                        self._next_bank = self._banka
-                        self._next_bank_uuid_str = "UUID=" + self._banka_uuid
+                    _current_bank = fstab_list[0]
+                    if _current_bank == self.bank_a:
+                        _current_bank_uuid_str = "UUID=" + self.bank_a_uuid
+                        _next_bank = self.bank_b
+                        _next_bank_uuid_str = "UUID" + self.bank_b_uuid
+                    elif _current_bank == self.bank_b:
+                        _current_bank_uuid_str = "UUID=" + self.bank_b_uuid
+                        _next_bank = self.bank_a
+                        _next_bank_uuid_str = "UUID=" + self.bank_a_uuid
                     else:
-                        self._read_fail = True
                         logger.error("current bank is not banka or bankb!")
-                return fstab_list[0]
+                        raise Exception("failed to parse fstab file.")
 
-        logger.info("root not found!")
-        return ""
-
-    def get_banka(self):
-        """
-        Get bank A
-        """
-        return self._banka
-
-    def get_banka_uuid(self):
-        """
-        Get bank A UUID
-        """
-        return self._banka_uuid
-
-    def get_banka_uuid(self):
-        """
-        Get bank A UUID
-        """
-        return self._banka_uuid
-
-    def is_banka(self, bank):
-        """
-        Is bank A
-        """
-        if bank == self._banka:
-            return True
-        return False
-
-    def is_banka_uuid(self, bank_uuid):
-        """
-        Is bank A UUID
-        """
-        if bank_uuid == self._banka_uuid:
-            return True
-        return False
-
-    def get_bankb(self):
-        """
-        Get bank B
-        """
-        return self._bankb
-
-    def get_bankb_uuid(self):
-        """
-        Get bank B UUID
-        """
-        return self._bankb_uuid
-
-    def get_bankb_uuid(self):
-        """
-        Get bank B UUID
-        """
-        return self._bankb_uuid
-
-    def is_bankb(self, bank):
-        """
-        Is bank B
-        """
-        if bank == self._bankb:
-            return True
-        return False
-
-    def is_bankb_uuid(self, bank_uuid):
-        """
-        Is bank B UUID
-        """
-        if bank_uuid == self._bankb_uuid:
-            return True
-        return False
+        (
+            self._current_bank,
+            self._current_bank_uuid_str,
+            self._next_bank,
+            self._next_bank_uuid_str,
+        ) = (_current_bank, _current_bank_uuid_str, _next_bank, _next_bank_uuid_str)
 
     def get_current_bank(self):
         """
@@ -305,9 +280,9 @@ class BankInfo:
         Get current bank UUID
         """
         if self.is_banka(self._current_bank):
-            return self._banka_uuid
+            return self.bank_a_uuid
         elif self.is_bankb(self._current_bank):
-            return self._bankb_uuid
+            return self.bank_b_uuid
         return ""
 
     def get_current_bank_uuid_str(self):
@@ -333,9 +308,9 @@ class BankInfo:
         Get next bank UUID
         """
         if self.is_banka(self._next_bank):
-            return self._banka_uuid
+            return self.bank_a_uuid
         elif self.is_bankb(self._next_bank):
-            return self._bankb_uuid
+            return self.bank_b_uuid
         return ""
 
     def get_next_bank_uuid_str(self):
@@ -345,34 +320,31 @@ class BankInfo:
         logger.info(f"next_bank_uuid: {self._next_bank_uuid_str}")
         return self._next_bank_uuid_str
 
+    def export(self):
+        return deepcopy(self)
+
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--bankinfo", help="bank info file path name", default="/boot/ota/bankinfo.yaml"
-    )
-    parser.add_argument("--fstab", help="fstab file path name", default="/etc/fstab")
+    parser = argparse.ArgumentParser("Parse fstab file and bankinfo file.")
+    parser.add_argument("--bankinfo", help="bank info file path name")
+    parser.add_argument("--fstab", help="fstab file path name")
 
     args = parser.parse_args()
 
-    bank_info = BankInfo(bank_info_file=args.bankinfo, fstab_file=args.fstab)
-
-    root_dev, root_uuid, boot_dev, boot_uuid = _get_current_devfile_by_fstab(
-        "/etc/fstab"
-    )
+    root_dev, root_uuid, boot_dev, boot_uuid = _get_current_devfile_by_fstab(args.fstab)
     print("root dev: ", root_dev)
     print("root uuid: ", root_uuid)
     print("boot dev: ", boot_dev)
     print("boot uuid: ", boot_uuid)
 
-    print("bank a: ", bank_info._banka)
-    print("bank a uuid:", bank_info._banka_uuid)
+    bank_info = BankInfo(fstab_file=args.fstab, bank_info_file=args.bankinfo)
+    print("bank a: ", bank_info.bank_a)
+    print("bank a uuid:", bank_info.bank_a_uuid)
 
-    print("bank b: ", bank_info._bankb)
-    print("bank b uuid: ", bank_info._bankb_uuid)
+    print("bank b: ", bank_info.bank_b)
+    print("bank b uuid: ", bank_info.bank_b_uuid)
 
     print("current bank: ", bank_info._current_bank)
     print("current bank uuid: ", bank_info._current_bank_uuid_str)
