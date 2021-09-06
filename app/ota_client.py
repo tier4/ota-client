@@ -1145,7 +1145,7 @@ class OtaClient:
         # set 'UPDATE' state
         self._ota_status.set_ota_status(OtaStatusString.UPDATE_STATE)
         logger.debug(ecu_update_info)
-        self.__url = ecu_update_info.url
+        self.__url = ecu_update_info.url + "/"
         metadata = ecu_update_info.metadata
         metadata_jwt_url = urllib.parse.urljoin(self.__url, metadata)
         self.__header_dict = _header_str_to_dict(ecu_update_info.header)
