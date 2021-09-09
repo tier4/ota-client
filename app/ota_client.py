@@ -1180,7 +1180,7 @@ class OtaUpdate(BankConstructorMixin, OtaMetadataWrapper, OtaStatusWrapper):
         logger.debug(f"init update")
         self._ota_status.set_ota_status(OtaStatusString.UPDATE_STATE)
         logger.debug(ecu_update_info)
-        self._url = ecu_update_info.url
+        self.__url = ecu_update_info.url + "/"
         metadata = ecu_update_info.metadata
         metadata_jwt_url = urllib.parse.urljoin(self._url, metadata)
         self._header_dict = _header_str_to_dict(ecu_update_info.header)
