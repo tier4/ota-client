@@ -2,6 +2,8 @@ import os
 import re
 import subprocess
 import shlex
+import tempfile
+import shutil
 
 
 class OtaPartition:
@@ -81,7 +83,7 @@ class OtaPartition:
         ).lstrip("/dev")
         return self._standby_root_device_cache
 
-    def update_boot_partition(boot_device):
+    def update_boot_partition(self, boot_device):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             link = os.path.join(d, "templink")
             # create link file to link /boot/ota-partition.{boot_device}
@@ -89,8 +91,10 @@ class OtaPartition:
             # move link created to /boot/ota-partition
             os.rename(link, OtaPartition.BOOT_OTA_PARTITION_FILE)
 
-    def update_fstab_root_partition(device, src_fstab, dst_fstab):
-        fstab = open(self._fstab_file).readlines()
+    def update_fstab_root_partition(
+        self, standby_device, src_fstab_file, dst_fstab_file
+    ):
+        fstab = open(src_fstab_file).readlines()
 
         updated_fstab = []
         for line in fstab:
@@ -113,8 +117,7 @@ class OtaPartition:
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             temp_name = f.name
             f.writelines(updated_fstab)
-            shutil.copy(self._fstab_file, f"{self._fstab_file}.old")
-            shutil.move(temp_name, self._fstab_file)
+            shutil.move(temp_name, dst_fstab_file)
 
     """ private from here """
 

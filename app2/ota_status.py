@@ -62,6 +62,7 @@ class OtaStatusControl:
 
     def leave_updating(self, mounted_path):
         # TODO: umount mounted_path
+        active_boot = self._ota_partition.get_active_boot_device()
         standby_boot = self._ota_partition.get_standby_boot_device()
         self._ota_partition.update_fstab_root_partition(
             standby_boot,
@@ -69,7 +70,7 @@ class OtaStatusControl:
             Path(mounted_path) / Path(self._fstab_file).relative_to("/"),
         )
         self._ota_partition.update_boot_partition(standby_boot)
-        self._grub_control.create_custom_cfg_and_reboot()
+        self._grub_control.create_custom_cfg_and_reboot(active_boot, standby_boot)
 
     def enter_rollbacking(self):
         if self.ota_status not in [

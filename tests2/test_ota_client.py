@@ -5,40 +5,19 @@ def test_ota_client(mocker, tmp_path):
     from ota_client import OtaClient
     import ota_partition
     import ota_status
-
-    def mock__get_root_device_file(dummy1):
-        return "/dev/sdx3"
-
-    def mock__get_boot_device_file(dummy1):
-        return "/dev/sdx2"
-
-    def mock__get_parent_device_file(dummy1, dummy2):
-        return "/dev/sdx"
-
-    def mock__get_standby_device_file(dummy1, dummy2, dummy3, dummy4):
-        return "/dev/sdx4"
+    import grub_control
 
     mocker.patch.object(
-        ota_partition.OtaPartition, "_get_root_device_file", mock__get_root_device_file
+        ota_partition.OtaPartition, "_get_root_device_file", return_value="/dev/sdx3"
     )
     mocker.patch.object(
-        ota_partition.OtaPartition, "_get_boot_device_file", mock__get_boot_device_file
+        ota_partition.OtaPartition, "_get_boot_device_file", return_value="/dev/sdx2"
     )
     mocker.patch.object(
-        ota_partition.OtaPartition,
-        "_get_parent_device_file",
-        mock__get_parent_device_file,
+        ota_partition.OtaPartition, "_get_parent_device_file", return_value="/dev/sdx"
     )
     mocker.patch.object(
-        ota_partition.OtaPartition,
-        "_get_standby_device_file",
-        mock__get_standby_device_file,
-    )
-
-    mocker.patch.object(
-        ota_partition.OtaPartition,
-        "_get_standby_device_file",
-        mock__get_standby_device_file,
+        ota_partition.OtaPartition, "_get_standby_device_file", return_value="/dev/sdx4"
     )
 
     mocker.patch.object(
@@ -64,5 +43,17 @@ def test_ota_client(mocker, tmp_path):
     standby_dir.mkdir()
     mocker.patch.object(ota_status.OtaStatusControl, "_mount_cmd", return_value=0)
 
+    mocker.patch.object(grub_control.GrubControl, "reboot", return_value=0)
+
+    def mock__get_uuid(dummy1, device):
+        if device == "sdx3":
+            return "01234567-0123-0123-0123-0123456789ab"
+        if device == "sdx4":
+            return "76543210-3210-3210-3210-ba9876543210"
+
+    mocker.patch.object(grub_control.GrubControl, "_get_uuid", mock__get_uuid)
+
+    mocker.patch.object(grub_control.GrubControl, "reboot", return_value=0)
+
     ota_client = OtaClient()
-    ota_client.update("123.x", "http://localhost:8080", "")
+    ota_client.update("123.x", "http://localhost:8080/20210817050734-1", "")
