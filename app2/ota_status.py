@@ -1,6 +1,10 @@
 from enum import Enum, unique
 from ota_partition import OtaPartition
 from grub_control import GrubControl
+from pathlib import Path
+import subprocess
+import shlex
+import shutil
 
 
 @unique
@@ -28,7 +32,7 @@ class OtaStatusControl:
         return self._ota_status
 
     def enter_updating(self, version, mount_path):
-        if self.ota_status not in [
+        if self._ota_status not in [
             OtaStatus.INITIALIZED,
             OtaStatus.SUCCESS,
             OtaStatus.FAILURE,
@@ -148,7 +152,7 @@ class OtaStatusControl:
         # and move to path
         pass
 
-    def _mount_cmd(device_file, mount_point):
+    def _mount_cmd(self, device_file, mount_point):
         try:
             cmd_mount = f"mount {device_file} {mount_point}"
             return subprocess.check_output(shlex.split(cmd_mount))

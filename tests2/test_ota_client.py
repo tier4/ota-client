@@ -4,6 +4,7 @@ import pytest
 def test_ota_client(mocker, tmp_path):
     from ota_client import OtaClient
     import ota_partition
+    import ota_status
 
     def mock__get_root_device_file(dummy1):
         return "/dev/sdx3"
@@ -55,4 +56,13 @@ def test_ota_client(mocker, tmp_path):
     sdx4.mkdir()
     ota_partition.symlink_to("ota-partition.sdx3")
 
+    # mount
+    mocker.patch.object(OtaClient, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+    mount_dir = tmp_path / "mnt"
+    mount_dir.mkdir()
+    standby_dir = mount_dir / "standby"
+    standby_dir.mkdir()
+    mocker.patch.object(ota_status.OtaStatusControl, "_mount_cmd", return_value=0)
+
     ota_client = OtaClient()
+    ota_client.update("123.x", "http://localhost:8080", "")

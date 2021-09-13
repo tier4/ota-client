@@ -1,20 +1,31 @@
+import tempfile
+from pathlib import Path
+import requests
+from hashlib import sha256
+import shutil
+import urllib.parse
+
 from ota_status import OtaStatusControl
+from ota_metadata import OtaMetaData
 
 
 class OtaClient:
+    MOUNT_POINT = "/mnt/standby"
+
     def __init__(self):
         self._ota_status = OtaStatusControl()
-        self._mount_porint = "/mnt/standby"
+        self._mount_point = OtaClient.MOUNT_POINT
 
     def update(self, version, url, cookies):
         self._ota_status.enter_updating(version, self._mount_point)
-        header = _cookies_to_header(cookies)
+        header = self._cookies_to_header(cookies)
         # process metadata.jwt
-        metadata = self._process_metadata(url, cookies)
+        url = f"{url}/"
+        metadata = self._process_metadata(url, header)
         # process directory file
         # process symlink file
         # process regular file
-        self._ota_status.leave_updating()
+        self._ota_status.leave_updating(self._mount_point)
         # -> generate custom.cfg, grub-reboot and reboot internally
 
     def rollback(self):
@@ -40,7 +51,16 @@ class OtaClient:
 
     """ private from here """
 
-    def _download(url, header, dst, retry=5):
+    def _cookies_to_header(self, cookies):
+        """"""
+        header = {}
+        for l in cookies.split(","):
+            kl = l.split(":")
+            if len(kl) == 2:
+                header[kl[0]] = kl[1]
+        return header
+
+    def _download(self, url, header, dst, retry=5):
         header = header
         header["Accept-encording"] = "gzip"
         response = requests.get(url, headers=header, timeout=10)
@@ -53,48 +73,48 @@ class OtaClient:
             total_length = response.headers.get("content-length")
             if total_length is None:
                 m.update(response.content)
-                target_file.write(response.content)
+                f.write(response.content)
             else:
                 dl = 0
                 total_length = int(total_length)
                 for data in response.iter_content(chunk_size=4096):
                     dl += len(data)
                     m.update(data)
-                    target_file.write(data)
+                    f.write(data)
         shutil.move(temp_name, dst)
         return response, m.hexdigest()
 
-    def _process_metadata(url, header):
+    def _process_metadata(self, url, header):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
-            file_name = pathlib.Path(d.name) / "metadata.jwt"
-            _download(url, header, file_name)
-            return OtaMetaData(file_name)
+            file_name = Path(d) / "metadata.jwt"
+            self._download(urllib.parse.urljoin(url, "metadata.jwt"), header, file_name)
+            return OtaMetaData(open(file_name, "r").read())
 
-    def _process_directory(url, header, list_file, standby_path):
+    def _process_directory(self, url, header, list_file, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
-            file_name = pathlib.Path(d.name) / list_file
-            _download(url, header, file_name)
-            _create_directories(file_name, standby_path)
+            file_name = Path(d.name) / list_file
+            self._download(url, header, file_name)
+            self._create_directories(file_name, standby_path)
 
-    def _process_symlink(url, header, list_file, standby_path):
+    def _process_symlink(self, url, header, list_file, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
-            file_name = pathlib.Path(d.name) / list_file
-            _download(url, header, file_name)
-            _create_symbolic_links(file_name, standby_path)
+            file_name = Path(d) / list_file
+            self._download(url, header, file_name)
+            self._create_symbolic_links(file_name, standby_path)
 
-    def _process_regular(url, header, list_file):
+    def _process_regular(self, url, header, list_file):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
-            file_name = pathlib.Path(d.name) / list_file
-            _download(url, header, file_name)
-            _create_regular_files(file_name, standby_path)
+            file_name = Path(d) / list_file
+            self._download(url, header, file_name)
+            self._create_regular_files(file_name, standby_path)
 
-    def _create_directories(list_file, standby_path):
+    def _create_directories(self, list_file, standby_path):
         pass
 
-    def _create_symbolic_links(list_file, standby_path):
+    def _create_symbolic_links(self, list_file, standby_path):
         pass
 
-    def _create_regular_files(list_file, standby_path):
+    def _create_regular_files(self, list_file, standby_path):
         pass
 
 
