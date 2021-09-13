@@ -2,6 +2,8 @@ import re
 import platform
 import subprocess
 import shlex
+import tempfile
+import shutil
 
 
 class GrubCfgParser:
@@ -60,15 +62,18 @@ class GrubCfgParser:
 
 
 class GrubControl:
+    GRUB_CFG_FILE = "/boot/grub/grub.cfg"
+    CUSTOM_CFG_FILE = "/boot/grub/custom.cfg"
+
     def __init__(self):
-        self._grub_cfg_file = "/boot/grub/grub.cfg"
-        self._custom_cfg_file = "/boot/grub/custom.cfg"
+        self._grub_cfg_file = GrubControl.GRUB_CFG_FILE
+        self._custom_cfg_file = GrubControl.CUSTOM_CFG_FILE
 
     def create_custom_cfg_and_reboot(self, active_device, standby_device):
         # custom.cfg
         booted_menu_entry = self._get_booted_menu_entry(active_device)
         # count custom.cfg menuentry number
-        custom_cfg = self._update_menu_entry(booted_menu_entry, standby_device)
+        custom_cfg = self._update_menu_entry(booted_menu_entry["entry"], standby_device)
         # store custom.cfg
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             temp_name = f.name
@@ -128,7 +133,7 @@ class GrubControl:
         # count grub menu entry number
         grub_cfg = open(self._grub_cfg_file).read()
         menus = GrubCfgParser(grub_cfg).parse()
-        _grub_reboot_cmd(len(menus))
+        self._grub_reboot_cmd(len(menus))
 
     def _get_uuid(self, device):
         cmd = f"lsblk -ino UUID /dev/{device}"
