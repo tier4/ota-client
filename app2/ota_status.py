@@ -1,4 +1,6 @@
 from enum import Enum, unique
+from ota_partition import OtaPartition
+from grub_control import GrubControl
 
 
 @unique
@@ -95,11 +97,11 @@ class OtaStatusControl:
         active_status_path = f"/boot/ota-partition.{active_boot}/status"
         standby_status_path = f"/boot/ota-partition.{standby_boot}/status"
 
-        active_status = self._get_ota_status_from_file(active_status_path)
-        standby_status = self._get_ota_status_from_file(standby_status_path)
+        active_status = self._load_ota_status(active_status_path)
+        standby_status = self._load_ota_status(standby_status_path)
         if (
-            active_status == OtaStatus.INIITALIZD
-            and standby_status == OtaStatus.INIITALIZD
+            active_status == OtaStatus.INITIALIZED
+            and standby_status == OtaStatus.INITIALIZED
         ):
             return OtaStatus.INITIALIZED
         if standby_status == OtaStatus.UPDATING:

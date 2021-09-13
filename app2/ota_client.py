@@ -1,3 +1,6 @@
+from ota_status import OtaStatusControl
+
+
 class OtaClient:
     def __init__(self):
         self._ota_status = OtaStatusControl()
@@ -77,13 +80,13 @@ class OtaClient:
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = pathlib.Path(d.name) / list_file
             _download(url, header, file_name)
-            _create_symbolic_links(file_name, standby_path):
+            _create_symbolic_links(file_name, standby_path)
 
     def _process_regular(url, header, list_file):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = pathlib.Path(d.name) / list_file
             _download(url, header, file_name)
-            _create_regular_files(file_name, standby_path):
+            _create_regular_files(file_name, standby_path)
 
     def _create_directories(list_file, standby_path):
         pass
@@ -95,3 +98,5 @@ class OtaClient:
         pass
 
 
+if __name__ == "__main__":
+    ota_client = OtaClient()

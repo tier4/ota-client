@@ -1,9 +1,18 @@
-class OtaPrtition:
+import os
+import re
+import subprocess
+import shlex
+
+
+class OtaPartition:
     """
     NOTE:
     device means: sda3
     device_file means: /dev/sda3
     """
+
+    OTA_PARTITION_FILE = "ota-partition"
+    BOOT_OTA_PARTITION_FILE = f"/boot/{OTA_PARTITION_FILE}"
 
     def __init__(self):
         self._active_boot_device_cache = None
@@ -12,61 +21,65 @@ class OtaPrtition:
         self._standby_root_device_cache = None
 
     def get_active_boot_device(self):
-        if self._active_boot_device:  # return cache if available
-            return self._active_boot_device
+        if self._active_boot_device_cache:  # return cache if available
+            return self._active_boot_device_cache
         # read link
         try:
-            link = os.readlink("/boot/ota-partition")
+            link = os.readlink(OtaPartition.BOOT_OTA_PARTITION_FILE)
         except FileNotFoundError:
             # TODO: backward compatibility
             return None
-        m = re.match(r"/boot/ota-partition.(.*)", link)
-        return m.group(1)
+        m = re.match(r"ota-partition.(.*)", link)
+        self._active_boot_device_cache = m.group(1)
+        return self._active_boot_device_cache
 
     def get_standby_boot_device(self):
-        if self._standby_boot_device:  # return cache if available
-            return self._standby_boot_device
+        if self._standby_boot_device_cache:  # return cache if available
+            return self._standby_boot_device_cache
         active_root_device = self.get_active_root_device()
         standby_root_device = self.get_standby_root_device()
 
         active_boot_device = self.get_active_boot_device()
         if active_boot_device == active_root_device:
-            return standby_root_device
-        if active_boot_device == standby_root_device:
-            return active_root_device
-        raise ValueError(
-            f"illegal active_boot_device={active_boot_device}, "
-            f"active_boot_device={active_root_device}, "
-            f"standby_root_device={standby_root_device}"
-        )
+            standby_boot_device = standby_root_device
+        elif active_boot_device == standby_root_device:
+            standby_boot_device = active_root_device
+        else:
+            raise ValueError(
+                f"illegal active_boot_device={active_boot_device}, "
+                f"active_boot_device={active_root_device}, "
+                f"standby_root_device={standby_root_device}"
+            )
+        self._standby_boot_device_cache = standby_boot_device
+        return self._standby_boot_device_cache
 
-    def get_active_root_device():
-        if self._active_root_device:  # return cache if available
-            return self._active_root_device
+    def get_active_root_device(self):
+        if self._active_root_device_cache:  # return cache if available
+            return self._active_root_device_cache
 
-        self._active_root_device = _get_root_device().lstrip("/dev")
-        return self._active_root_device
+        self._active_root_device_cache = self._get_root_device_file().lstrip("/dev")
+        return self._active_root_device_cache
 
-    def get_standby_root_device():
-        if self._standby_root_device:  # return cache if available
-            return self._standby_root_device
+    def get_standby_root_device(self):
+        if self._standby_root_device_cache:  # return cache if available
+            return self._standby_root_device_cache
 
         # find root device
-        root_device_file = _get_root_device_file()
+        root_device_file = self._get_root_device_file()
 
         # find boot device
-        boot_device_file = _get_boot_device_file()
+        boot_device_file = self._get_boot_device_file()
 
         # find parent device from root device
-        parent_device_file = _get_parent_device_file(root_device_file)
+        parent_device_file = self._get_parent_device_file(root_device_file)
 
         # find standby device file from root and boot device file
-        self._standby_root_device = _get_standby_device_file(
+        self._standby_root_device_cache = self._get_standby_device_file(
             parent_device_file,
             root_device_file,
             boot_device_file,
         ).lstrip("/dev")
-        return self._standby_root_device
+        return self._standby_root_device_cache
 
     def update_boot_partition(boot_device):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -74,7 +87,7 @@ class OtaPrtition:
             # create link file to link /boot/ota-partition.{boot_device}
             os.symlink(f"ota-partition.{boot_device}", link)
             # move link created to /boot/ota-partition
-            os.rename(link, "/boot/ota-partition")
+            os.rename(link, OtaPartition.BOOT_OTA_PARTITION_FILE)
 
     def update_fstab_root_partition(device, src_fstab, dst_fstab):
         fstab = open(self._fstab_file).readlines()
@@ -105,22 +118,22 @@ class OtaPrtition:
 
     """ private from here """
 
-    def _findmnt_cmd(mount_point):
-        cmd = "findmnt -n -o SOURCE {mount_point}"
+    def _findmnt_cmd(self, mount_point):
+        cmd = f"findmnt -n -o SOURCE {mount_point}"
         return subprocess.check_output(shlex.split(cmd))
 
-    def _get_root_device_file():
-        return _findmnt_cmd("/").decode().strip()
+    def _get_root_device_file(self):
+        return self._findmnt_cmd("/").decode().strip()
 
-    def _get_boot_device_file():
-        return _findmnt_cmd("/boot").decode().strip()
+    def _get_boot_device_file(self):
+        return self._findmnt_cmd("/boot").decode().strip()
 
-    def _get_parent_device_file(child_device_file):
+    def _get_parent_device_file(self, child_device_file):
         cmd = f"lsblk -ipno PKNAME {device_file}"
         return subprocess.check_output(shlex.split(cmd))
 
     def _get_standby_device_file(
-        parent_device_file, root_device_file, boot_device_file
+        self, parent_device_file, root_device_file, boot_device_file
     ):
         # list children device file with parent
         cmd = f"lsblk -Pp -o NAME,FSTYPE {parent_device_file}"
