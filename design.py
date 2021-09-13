@@ -11,6 +11,7 @@ terminology:
     EcuInfo, EcuId (NG: Ecuinfo, ecuinfo, Ecuid, ecuid)
 backup file name:
     {original}.old
+    file name: xxx_file
 """
 
 """ main.py """
@@ -213,6 +214,7 @@ class OtaStatusControl:
         self._ota_partition = OtaPartition()
         self._grub_control = GrubControl()
         self._ota_status = self._get_initial_ota_status()
+        self._fstab_file = "/etc/fstab"
 
     def get_boot_standby_path(self):
         standby_boot = self._ota_partition.get_standby_boot_device()
@@ -232,16 +234,32 @@ class OtaStatusControl:
         standby_boot = self._ota_partition.get_standby_boot_device()
         standby_status_path = f"/boot/ota-partition.{standby_boot}/status"
         standby_version_path = f"/boot/ota-partition.{standby_boot}/version"
-        self._store_ota_version(standby_version_path, version)
         self._store_ota_status(standby_status_path, OtaStatus.UPDATING.name)
+        self._store_ota_version(standby_version_path, version)
         self._ota_status = OtaStatus.UPDATING
-        # TODO: mount standby partition
-        # TODO: cleanup mounted partition
+        standby_boot_files_remove = [
+            f
+            for f in Path(f"/boot/ota-partition.{standby_boot}").glob("*")
+            if f.name != "status" and f.name != "version"
+        ]
+
+        standby_root = self._ota_partition.get_standby_root_device()
+        self._mount_cmd(f"/dev/{standby_root}", mount_path)
+        shutil.rmtree(mount_path)
+        for f in standby_boot_files_remove:
+            if f.is_dir():
+                shutil.rmtree(str(f))
+            else:
+                f.unlink()
 
     def leave_updating(self, mounted_path):
         # TODO: umount mounted_path
         standby_boot = self._ota_partition.get_standby_boot_device()
-        self._ota_partition.update_fstab_root_partition(standby_boot)
+        self._ota_partition.update_fstab_root_partition(
+            standby_boot,
+            Path(self._fstab_file),
+            Path(mounted_path) / Path(self._fstab_file).relative_to("/"),
+        )
         self._ota_partition.update_boot_partition(standby_boot)
         self._grub_control.create_custom_cfg_and_reboot()
 
@@ -326,20 +344,45 @@ class OtaStatusControl:
         # and move to path
         pass
 
+    def _mount_cmd(device_file, mount_point):
+        try:
+            cmd_mount = f"mount {device_file} {mount_point}"
+            return subprocess.check_output(shlex.split(cmd_mount))
+        except subprocess.CalledProcessError:
+            # try again after umount
+            cmd_umount = f"umount {mount_point}"
+            subprocess.check_output(shlex.split(cmd_umount))
+            return subprocess.check_output(shlex.split(cmd_mount))
+
+    def _umount_cmd(mount_point):
+        cmd_umount = f"umount {mount_point}"
+        return subprocess.check_output(shlex.split(cmd_umount))
+
 
 """ GrubControl """
 
 
 class GrubControl:
-    @staticmethod
-    def create_custom_cfg_and_reboot():
-        # custom.cfg
-        # count custom.cfg menuentry number
-        # grub-reboot
-        # reboot
-        pass
+    def __init__(self):
+        self._grub_cfg_file = "/boot/grub/grub.cfg"
+        self._custom_cfg_file = "/boot/grub/custom.cfg"
 
-    @staticmethod
+    def create_custom_cfg_and_reboot(active_device, standby_device):
+        # custom.cfg
+        booted_menu_entry = self._get_booted_menu_entry(active_device)
+        # count custom.cfg menuentry number
+        custom_cfg = self._update_menu_entry(booted_menu_entry, standby_device)
+        # store custom.cfg
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
+            temp_name = f.name
+            f.write(custom_cfg)
+            shutil.move(temp_name, self._custom_cfg_file)
+
+        # grub-reboot
+        self._grub_reboot()
+        # reboot
+        self.reboot()
+
     def update_grub_cfg():
         # update /etc/default/grub w/ GRUB_DISABLE_SUBMENU
         # grub-mkconfig temporally
@@ -347,10 +390,33 @@ class GrubControl:
         # grub-mkconfig w/ the number counted
         pass
 
-    @staticmethod
     def reboot():
-        # reboot
-        pass
+        cmd = f"reboot"
+        return subprocess.check_output(shlex.split(cmd))
+
+    """ private from here """
+
+    def _get_booted_menu_entry(active_device):
+        # find menuentry from current grub.cfg w/ kernel_release and (UUID or device).
+        grub_cfg = open(self._grub_cfg_file).read()
+        menus = GrubCfgParser(grub_cfg).parse()
+        return find_linux_entry(menus, active_device)
+
+    def _update_menu_entry(menu_entry, standby_device):
+        # TODO:
+        # replace linux and (UUID or device)
+        # replace initrd and (UUID or device)
+        return menu_entry
+
+    def _grub_reboot_cmd(num):
+        cmd = f"grub-reboot {num}"
+        return subprocess.check_output(shlex.split(cmd))
+
+    def _grub_reboot():
+        # count grub menu entry number
+        grub_cfg = open(self._grub_cfg_file).read()
+        menus = GrubCfgParser(grub_cfg).parse()
+        _grub_reboot_cmd(len(menus))
 
 
 """ OtaPartition """
@@ -368,7 +434,6 @@ class OtaPrtition:
         self._standby_boot_device_cache = None
         self._active_root_device_cache = None
         self._standby_root_device_cache = None
-        self._fstab_file = "/etc/fstab"
 
     def get_active_boot_device(self):
         if self._active_boot_device:  # return cache if available
@@ -435,17 +500,16 @@ class OtaPrtition:
             # move link created to /boot/ota-partition
             os.rename(link, "/boot/ota-partition")
 
-    def update_fstab_root_partition(device):
-        # retrieve uuid from the partion
-        # retrieve device file from the partion
-        updated_fstab = []
+    def update_fstab_root_partition(device, src_fstab, dst_fstab):
         fstab = open(self._fstab_file).readlines()
+
+        updated_fstab = []
         for line in fstab:
-            if line.startswith("#")
+            if line.startswith("#"):
                 updated_fstab.append(line)
                 continue
             line_split = line.split()
-            if line_split[1]  == "/":
+            if line_split[1] == "/":
                 # TODO
                 # replace UUID=... or device file
                 # if line_split[0].find("UUID="):
