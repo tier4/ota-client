@@ -70,9 +70,9 @@ class GrubControl:
         self._custom_cfg_file = GrubControl.CUSTOM_CFG_FILE
 
     def create_custom_cfg_and_reboot(self, active_device, standby_device):
-        # custom.cfg
+        # pick up booted menuentry to create custom.cfg
         booted_menu_entry = self._get_booted_menu_entry(active_device)
-        # count custom.cfg menuentry number
+        # modify booted menuentry for custom.cfg
         custom_cfg = self._update_menu_entry(booted_menu_entry["entry"], standby_device)
         # store custom.cfg
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
@@ -86,6 +86,7 @@ class GrubControl:
         self.reboot()
 
     def update_grub_cfg():
+        # TODO:
         # update /etc/default/grub w/ GRUB_DISABLE_SUBMENU
         # grub-mkconfig temporally
         # count menuentry number
@@ -98,7 +99,7 @@ class GrubControl:
 
     """ private from here """
 
-    def find_linux_entry(self, menus, uuid, device, kernel_release):
+    def _find_linux_entry(self, menus, uuid, device, kernel_release):
         for menu in menus:
             if type(menu) is dict:
                 if menu["linux"].find(kernel_release) >= 0 and (
@@ -106,7 +107,7 @@ class GrubControl:
                 ):
                     return menu
             elif type(menu) is list:
-                ret = find_linux_entry(menu, uuid, device, kernel_release)
+                ret = self._find_linux_entry(menu, uuid, device, kernel_release)
                 if ret is not None:
                     return ret
         return None

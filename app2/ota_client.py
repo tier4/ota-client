@@ -90,28 +90,33 @@ class OtaClient:
         self._mount_point = OtaClient.MOUNT_POINT
 
     def update(self, version, url_base, cookies):
+        """
+        cookies = {
+            "CloudFront-Policy": "eyJTdGF0ZW1lbnQ...",
+            "CloudFront-Signature": "o4ojzMrJwtSIg~izsy...",
+            "CloudFront-Key-Pair-Id": "K2...",
+        }
+        """
         self._ota_status.enter_updating(version, self._mount_point)
-
-        header = self._cookies_to_header(cookies)
 
         # process metadata.jwt
         url = f"{url_base}/"
-        metadata = self._process_metadata(url, header)
+        metadata = self._process_metadata(url, cookies)
 
         # process directory file
         self._process_directory(
-            url, header, metadata.get_directories_info(), self._mount_point
+            url, cookies, metadata.get_directories_info(), self._mount_point
         )
 
         # process symlink file
         self._process_symlink(
-            url, header, metadata.get_symboliclinks_info(), self._mount_point
+            url, cookies, metadata.get_symboliclinks_info(), self._mount_point
         )
 
         # process regular file
         self._process_regular(
             url,
-            header,
+            cookies,
             metadata.get_regulars_info(),
             metadata.get_rootfsdir_info()["file"],
             self._mount_point,
@@ -143,21 +148,11 @@ class OtaClient:
 
     """ private from here """
 
-    def _cookies_to_header(self, cookies):
-        """"""
-        header = {}
-        for l in cookies.split(","):
-            kl = l.split(":")
-            if len(kl) == 2:
-                header[kl[0]] = kl[1]
-        return header
-
-    def _download(self, url, header, dst, digest, retry=5):
+    def _download(self, url, cookies, dst, digest, retry=5):
         def _requests_get():
-            headers = header
+            headers = {}
             headers["Accept-encording"] = "gzip"
-            # TODO: `cookies=` can be used instead of `headers=`
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, cookies=cookies, timeout=10)
             # For 50x, especially 503, wait a few seconds and try again.
             if response.status_code / 100 == 5:
                 time.sleep(10)
@@ -194,35 +189,35 @@ class OtaClient:
             raise ValueError(f"hash error: act={calc_digest}, exp={digest}")
         shutil.move(temp_name, dst)
 
-    def _process_metadata(self, url_base, header):
+    def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
             url = urllib.parse.urljoin(url_base, "metadata.jwt")
-            self._download(url, header, file_name, None)
+            self._download(url, cookies, file_name, None)
             # TODO: verify metadata
             return OtaMetaData(open(file_name, "r").read())
 
-    def _process_directory(self, url_base, header, list_info, standby_path):
+    def _process_directory(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
-            self._download(url, header, file_name, list_info["hash"])
+            self._download(url, cookies, file_name, list_info["hash"])
             self._create_directories(file_name, standby_path)
 
-    def _process_symlink(self, url_base, header, list_info, standby_path):
+    def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
-            self._download(url, header, file_name, list_info["hash"])
+            self._download(url, cookies, file_name, list_info["hash"])
             self._create_symbolic_links(file_name, standby_path)
 
-    def _process_regular(self, url_base, header, list_info, rootfsdir, standby_path):
+    def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
-            self._download(url, header, file_name, list_info["hash"])
+            self._download(url, cookies, file_name, list_info["hash"])
             url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
-            self._create_regular_files(url_rootfsdir, header, file_name, standby_path)
+            self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
 
     def _create_directories(self, list_file, standby_path):
         with open(list_file) as f:
@@ -247,13 +242,13 @@ class OtaClient:
                     follow_symlinks=False,
                 )
 
-    def _create_regular_files(self, url_base, header, list_file, standby_path):
+    def _create_regular_files(self, url_base, cookies, list_file, standby_path):
         with open(list_file) as f:
             for l in f.read().splitlines():
                 reginf = RegularInf(l)
-                self._create_regular_file(url_base, header, reginf, standby_path)
+                self._create_regular_file(url_base, cookies, reginf, standby_path)
 
-    def _create_regular_file(self, url_base, header, reginf, standby_path):
+    def _create_regular_file(self, url_base, cookies, reginf, standby_path):
         url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
         dst = standby_path / reginf.path.relative_to("/")
         # TODO:
@@ -261,6 +256,6 @@ class OtaClient:
         # 2. /boot file handling
         # 3. parallel download
         # 4. support hardlink
-        self._download(url, header, dst, reginf.sha256hash)
+        self._download(url, cookies, dst, reginf.sha256hash)
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)

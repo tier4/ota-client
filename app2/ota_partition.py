@@ -134,7 +134,7 @@ class OtaPartition:
         return self._findmnt_cmd("/boot").decode().strip()
 
     def _get_parent_device_file(self, child_device_file):
-        cmd = f"lsblk -ipno PKNAME {device_file}"
+        cmd = f"lsblk -ipn -o PKNAME {device_file}"
         return subprocess.check_output(shlex.split(cmd))
 
     def _get_standby_device_file(
