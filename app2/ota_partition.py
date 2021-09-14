@@ -29,8 +29,10 @@ class OtaPartition:
         try:
             link = os.readlink(self._boot_dir / self._boot_ota_partition_file)
         except FileNotFoundError:
-            # TODO: backward compatibility
-            return None
+            # TODO:
+            # backward compatibility
+            # create boot ota-partition here?
+            raise
         m = re.match(rf"{str(self._boot_ota_partition_file)}.(.*)", link)
         self._active_boot_device_cache = m.group(1)
         return self._active_boot_device_cache
@@ -86,9 +88,9 @@ class OtaPartition:
     def update_boot_partition(self, boot_device):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             link = os.path.join(d, "templink")
-            # create link file to link /boot/ota-partition.{boot_device}
+            # create temporary link file to link `ota-partition.{boot_device}`.
             os.symlink(f"{str(self._boot_ota_partition_file)}.{boot_device}", link)
-            # move link created to /boot/ota-partition
+            # move created link to /boot/ota-partition
             os.rename(link, self._boot_dir / self._boot_ota_partition_file)
 
     def update_fstab_root_partition(

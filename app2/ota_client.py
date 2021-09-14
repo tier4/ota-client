@@ -89,13 +89,13 @@ class OtaClient:
         self._ota_status = OtaStatusControl()
         self._mount_point = OtaClient.MOUNT_POINT
 
-    def update(self, version, url, cookies):
+    def update(self, version, url_base, cookies):
         self._ota_status.enter_updating(version, self._mount_point)
 
         header = self._cookies_to_header(cookies)
 
         # process metadata.jwt
-        url = f"{url}/"
+        url = f"{url_base}/"
         metadata = self._process_metadata(url, header)
 
         # process directory file
@@ -110,7 +110,11 @@ class OtaClient:
 
         # process regular file
         self._process_regular(
-            url, header, metadata.get_regulars_info(), self._mount_point
+            url,
+            header,
+            metadata.get_regulars_info(),
+            metadata.get_rootfsdir_info()["file"],
+            self._mount_point,
         )
 
         self._ota_status.leave_updating(self._mount_point)
@@ -154,7 +158,8 @@ class OtaClient:
             headers["Accept-encording"] = "gzip"
             # TODO: `cookies=` can be used instead of `headers=`
             response = requests.get(url, headers=headers, timeout=10)
-            if response.status_code == 503:
+            # For 50x, especially 503, wait a few seconds and try again.
+            if response.status_code / 100 == 5:
                 time.sleep(10)
             response.raise_for_status()
             return response
@@ -189,35 +194,35 @@ class OtaClient:
             raise ValueError(f"hash error: act={calc_digest}, exp={digest}")
         shutil.move(temp_name, dst)
 
-    def _process_metadata(self, url, header):
+    def _process_metadata(self, url_base, header):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
-            self._download(
-                urllib.parse.urljoin(url, "metadata.jwt"), header, file_name, None
-            )
+            url = urllib.parse.urljoin(url_base, "metadata.jwt")
+            self._download(url, header, file_name, None)
             # TODO: verify metadata
             return OtaMetaData(open(file_name, "r").read())
 
-    def _process_directory(self, url, header, list_info, standby_path):
+    def _process_directory(self, url_base, header, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            file_url = urllib.parse.urljoin(url, list_info["file"])
-            self._download(file_url, header, file_name, list_info["hash"])
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            self._download(url, header, file_name, list_info["hash"])
             self._create_directories(file_name, standby_path)
 
-    def _process_symlink(self, url, header, list_info, standby_path):
+    def _process_symlink(self, url_base, header, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            file_url = urllib.parse.urljoin(url, list_info["file"])
-            self._download(file_url, header, file_name, list_info["hash"])
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            self._download(url, header, file_name, list_info["hash"])
             self._create_symbolic_links(file_name, standby_path)
 
-    def _process_regular(self, url, header, list_info, standby_path):
+    def _process_regular(self, url_base, header, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            file_url = urllib.parse.urljoin(url, list_info["file"])
-            self._download(file_url, header, file_name, list_info["hash"])
-            self._create_regular_files(file_name, standby_path)
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            self._download(url, header, file_name, list_info["hash"])
+            url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
+            self._create_regular_files(url_rootfsdir, header, file_name, standby_path)
 
     def _create_directories(self, list_file, standby_path):
         with open(list_file) as f:
@@ -242,9 +247,20 @@ class OtaClient:
                     follow_symlinks=False,
                 )
 
-    def _create_regular_files(self, list_file, standby_path):
-        pass
+    def _create_regular_files(self, url_base, header, list_file, standby_path):
+        with open(list_file) as f:
+            for l in f.read().splitlines():
+                reginf = RegularInf(l)
+                self._create_regular_file(url_base, header, reginf, standby_path)
 
-
-if __name__ == "__main__":
-    ota_client = OtaClient()
+    def _create_regular_file(self, url_base, header, reginf, standby_path):
+        url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
+        dst = standby_path / reginf.path.relative_to("/")
+        # TODO:
+        # 1. copy file form active bank if hash is the same
+        # 2. /boot file handling
+        # 3. parallel download
+        # 4. support hardlink
+        self._download(url, header, dst, reginf.sha256hash)
+        os.chown(dst, reginf.uid, reginf.gid)
+        os.chmod(dst, reginf.mode)
