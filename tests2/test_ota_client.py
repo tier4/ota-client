@@ -26,12 +26,6 @@ def test_ota_client(mocker, tmp_path):
         OtaPartition, "_get_standby_device_file", return_value="/dev/sdx4"
     )
 
-    mocker.patch.object(
-        OtaPartition,
-        "BOOT_OTA_PARTITION_FILE",
-        tmp_path / "boot" / "ota-partition",
-    )
-
     boot_dir = tmp_path / "boot"
     boot_dir.mkdir(exist_ok=True)
     ota_partition = boot_dir / "ota-partition"
@@ -50,6 +44,7 @@ def test_ota_client(mocker, tmp_path):
 
     # patch OtaStatusControl
     mocker.patch.object(OtaStatusControl, "_mount_cmd", return_value=0)
+    mocker.patch.object(OtaStatusControl, "BOOT_DIR", tmp_path / "boot")
 
     # patch GrubControl
     def mock__get_uuid(dummy1, device):

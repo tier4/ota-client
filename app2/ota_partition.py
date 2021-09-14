@@ -4,6 +4,7 @@ import subprocess
 import shlex
 import tempfile
 import shutil
+from pathlib import Path
 
 
 class OtaPartition:
@@ -13,25 +14,24 @@ class OtaPartition:
     device_file means: /dev/sda3
     """
 
-    OTA_PARTITION_FILE = "ota-partition"
-    BOOT_OTA_PARTITION_FILE = f"/boot/{OTA_PARTITION_FILE}"
-
-    def __init__(self):
+    def __init__(self, boot_dir: Path, boot_ota_partition_file: Path):
         self._active_boot_device_cache = None
         self._standby_boot_device_cache = None
         self._active_root_device_cache = None
         self._standby_root_device_cache = None
+        self._boot_dir = boot_dir
+        self._boot_ota_partition_file = boot_ota_partition_file
 
     def get_active_boot_device(self):
         if self._active_boot_device_cache:  # return cache if available
             return self._active_boot_device_cache
         # read link
         try:
-            link = os.readlink(OtaPartition.BOOT_OTA_PARTITION_FILE)
+            link = os.readlink(self._boot_dir / self._boot_ota_partition_file)
         except FileNotFoundError:
             # TODO: backward compatibility
             return None
-        m = re.match(r"ota-partition.(.*)", link)
+        m = re.match(rf"{str(self._boot_ota_partition_file)}.(.*)", link)
         self._active_boot_device_cache = m.group(1)
         return self._active_boot_device_cache
 
@@ -87,9 +87,9 @@ class OtaPartition:
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             link = os.path.join(d, "templink")
             # create link file to link /boot/ota-partition.{boot_device}
-            os.symlink(f"ota-partition.{boot_device}", link)
+            os.symlink(f"{str(self._boot_ota_partition_file)}.{boot_device}", link)
             # move link created to /boot/ota-partition
-            os.rename(link, OtaPartition.BOOT_OTA_PARTITION_FILE)
+            os.rename(link, self._boot_dir / self._boot_ota_partition_file)
 
     def update_fstab_root_partition(
         self, standby_device, src_fstab_file, dst_fstab_file

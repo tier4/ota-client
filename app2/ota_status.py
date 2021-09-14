@@ -18,8 +18,13 @@ class OtaStatus(Enum):
 
 
 class OtaStatusControl:
+    BOOT_DIR = Path("/boot")
+    BOOT_OTA_PARTITION_FILE = Path("ota-partition")
+
     def __init__(self):
-        self._ota_partition = OtaPartition()
+        self._ota_partition = OtaPartition(
+            OtaStatusControl.BOOT_DIR, OtaStatusControl.BOOT_OTA_PARTITION_FILE
+        )
         self._grub_control = GrubControl()
         self._ota_status = self._get_initial_ota_status()
         self._fstab_file = "/etc/fstab"

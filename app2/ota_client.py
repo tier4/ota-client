@@ -6,6 +6,7 @@ import shutil
 import urllib.parse
 import re
 import os
+import time
 
 from ota_status import OtaStatusControl
 from ota_metadata import OtaMetaData
@@ -90,16 +91,28 @@ class OtaClient:
 
     def update(self, version, url, cookies):
         self._ota_status.enter_updating(version, self._mount_point)
+
         header = self._cookies_to_header(cookies)
+
         # process metadata.jwt
         url = f"{url}/"
         metadata = self._process_metadata(url, header)
+
         # process directory file
         self._process_directory(
             url, header, metadata.get_directories_info(), self._mount_point
         )
+
         # process symlink file
+        self._process_symlink(
+            url, header, metadata.get_symboliclinks_info(), self._mount_point
+        )
+
         # process regular file
+        self._process_regular(
+            url, header, metadata.get_regulars_info(), self._mount_point
+        )
+
         self._ota_status.leave_updating(self._mount_point)
         # -> generate custom.cfg, grub-reboot and reboot internally
 
@@ -135,12 +148,26 @@ class OtaClient:
                 header[kl[0]] = kl[1]
         return header
 
-    def _download(self, url, header, dst, retry=5):
-        header = header
-        header["Accept-encording"] = "gzip"
-        response = requests.get(url, headers=header, timeout=10)
-        if response.status_code != 200:
-            return response, ""
+    def _download(self, url, header, dst, digest, retry=5):
+        def _requests_get():
+            headers = header
+            headers["Accept-encording"] = "gzip"
+            # TODO: `cookies=` can be used instead of `headers=`
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code == 503:
+                time.sleep(10)
+            response.raise_for_status()
+            return response
+
+        count = 0
+        while True:
+            try:
+                response = _requests_get()
+                break
+            except Exception as e:
+                count += 1
+                if count == retry:
+                    raise
 
         with tempfile.NamedTemporaryFile("wb", delete=False, prefix=__name__) as f:
             temp_name = f.name
@@ -156,13 +183,18 @@ class OtaClient:
                     dl += len(data)
                     m.update(data)
                     f.write(data)
+
+        calc_digest = m.hexdigest()
+        if digest and digest != calc_digest:
+            raise ValueError(f"hash error: act={calc_digest}, exp={digest}")
         shutil.move(temp_name, dst)
-        return response, m.hexdigest()
 
     def _process_metadata(self, url, header):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
-            self._download(urllib.parse.urljoin(url, "metadata.jwt"), header, file_name)
+            self._download(
+                urllib.parse.urljoin(url, "metadata.jwt"), header, file_name, None
+            )
             # TODO: verify metadata
             return OtaMetaData(open(file_name, "r").read())
 
@@ -170,21 +202,21 @@ class OtaClient:
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             file_url = urllib.parse.urljoin(url, list_info["file"])
-            self._download(file_url, header, file_name)
+            self._download(file_url, header, file_name, list_info["hash"])
             self._create_directories(file_name, standby_path)
 
     def _process_symlink(self, url, header, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             file_url = urllib.parse.urljoin(url, list_info["file"])
-            self._download(file_url, header, file_name)
+            self._download(file_url, header, file_name, list_info["hash"])
             self._create_symbolic_links(file_name, standby_path)
 
-    def _process_regular(self, url, header, list_info):
+    def _process_regular(self, url, header, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             file_url = urllib.parse.urljoin(url, list_info["file"])
-            self._download(file_url, header, file_name)
+            self._download(file_url, header, file_name, list_info["hash"])
             self._create_regular_files(file_name, standby_path)
 
     def _create_directories(self, list_file, standby_path):
@@ -197,7 +229,18 @@ class OtaClient:
                 os.chmod(target_path, dirinf.mode)
 
     def _create_symbolic_links(self, list_file, standby_path):
-        pass
+        with open(list_file) as f:
+            for l in f.read().splitlines():
+                # NOTE: symbolic link in /boot directory is not supported. We don't use it.
+                slinkf = SymbolicLinkInf(l)
+                slink = standby_path.joinpath(slinkf.slink.relative_to("/"))
+                slink.symlink_to(slinkf.srcpath)
+                os.chown(
+                    slink,
+                    slinkf.uid,
+                    slinkf.gid,
+                    follow_symlinks=False,
+                )
 
     def _create_regular_files(self, list_file, standby_path):
         pass
