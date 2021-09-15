@@ -34,7 +34,7 @@ class OtaStatusControl:
         return self._ota_status
 
     def get_standby_boot_partition_path(self):
-        return self._ota_status.get_standby_boot_partition_path()
+        return self._ota_partition.get_standby_boot_partition_path()
 
     def enter_updating(self, version, mount_path):
         # check status
@@ -63,7 +63,7 @@ class OtaStatusControl:
         )
         (
             vmlinuz_file,
-            initr_img_file,
+            initrd_img_file,
         ) = self._ota_partition.create_standby_boot_kernel_files()
         self._grub_control.create_custom_cfg_and_reboot(
             active_root_device, standby_root_device, vmlinuz_file, initrd_img_file

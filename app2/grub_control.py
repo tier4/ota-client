@@ -1,5 +1,4 @@
 import re
-import platform
 import subprocess
 import shlex
 import tempfile
@@ -111,7 +110,7 @@ class GrubControl:
                 ):
                     return menu
             elif type(menu) is list:
-                ret = self._find_entry(menu, uuid, device, vmlinuz)
+                ret = self._find_menuentry(menu, uuid, device, vmlinuz)
                 if ret is not None:
                     return ret
         return None
@@ -125,21 +124,22 @@ class GrubControl:
         menus = GrubCfgParser(grub_cfg).parse()
 
         # booted vmlinuz and initrd.img
-        m = re.match(r"BOOT_IMAGE=(.*)\sroot=UUID=(.*)\s", self._get_cmdline)
+        cmdline = self._get_cmdline()
+        m = re.match(r"BOOT_IMAGE=/(.*)\s*root=UUID=(.*)\s", cmdline)
         vmlinuz = m.group(1)
         uuid = m.group(2)
-        return self.find_menuentry(menus, uuid, device, vmlinuz)["entry"]
+        return self._find_menuentry(menus, uuid, device, vmlinuz)["entry"]
 
-    def _update_menuentry(self, menuentry, standby_device, vmlinuz, inird_img):
+    def _update_menuentry(self, menuentry, standby_device, vmlinuz, initrd_img):
         uuid = self._get_uuid(standby_device)
         # NOTE: Only UUID sepcifier is supported.
         replaced = re.sub(
-            r"(*.\slinux\s/).*(\s*root=UUID=)[a-f\d-]*(\s.*)",
+            r"(.*\slinux\s*/).*(\sroot=UUID=)[a-f\d-]*(\s.*)",
             rf"\1{vmlinuz}\2{uuid}\3",
             menuentry,
         )
         replaced = re.sub(
-            r"(*.\sinitrd\s/).*(\s.*)",
+            r"(.*\sinitrd\s*/).*(\s.*)",
             rf"\1{initrd_img}\2",
             replaced,
         )

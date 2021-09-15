@@ -262,10 +262,13 @@ class OtaClient:
 
     def _create_regular_file(self, url_base, cookies, reginf, standby_path):
         url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
-        dst = standby_path / reginf.path.relative_to("/")
+        if str(reginf.path).startswith("/boot"):
+            boot_standby_path = self._ota_status.get_standby_boot_partition_path()
+            dst = boot_standby_path / reginf.path.name
+        else:
+            dst = standby_path / reginf.path.relative_to("/")
         # TODO:
         # 1. copy file form active bank if hash is the same
-        # 2. /boot file handling
         # 3. parallel download
         # 4. support hardlink
         self._download(url, cookies, dst, reginf.sha256hash)

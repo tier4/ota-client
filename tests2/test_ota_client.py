@@ -75,6 +75,9 @@ def test_ota_client(mocker, tmp_path):
             return "76543210-3210-3210-3210-ba9876543210"
 
     mocker.patch.object(GrubControl, "_get_uuid", mock__get_uuid)
+    cmdline = "BOOT_IMAGE=/vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro maybe-ubiquity"
+
+    mocker.patch.object(GrubControl, "_get_cmdline", return_value=cmdline)
     mocker.patch.object(GrubControl, "reboot", return_value=0)
     _grub_reboot_mock = mocker.patch.object(
         GrubControl, "_grub_reboot_cmd", return_value=0
@@ -91,14 +94,13 @@ def test_ota_client(mocker, tmp_path):
     grub_dir.mkdir()
     grub_cfg = grub_dir / "grub.cfg"
     grub_cfg.write_text(grub_cfg_wo_submenu)
-    mocker.patch("grub_control.platform.release", return_value="5.4.0-73-generic")
 
     # test start
     ota_client = OtaClient()
     ota_client.update("123.x", "http://localhost:8080", "")
 
-    # make sure boot ota-partition is switched to sdx4
-    assert os.readlink(tmp_path / "boot" / "ota-partition") == "ota-partition.sdx4"
+    # make sure boot ota-partition is NOT switched
+    assert os.readlink(tmp_path / "boot" / "ota-partition") == "ota-partition.sdx3"
 
     # custom.cfg is created
     assert (tmp_path / "boot" / "grub" / "custom.cfg").is_file()

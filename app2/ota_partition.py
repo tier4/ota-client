@@ -206,7 +206,7 @@ class OtaPartitionFile(OtaPartition):
         if len(initrd_img_list) != 1:
             raise ValueError(f"unintended initrd.img list={initrd_img_list}")
         # create symbolic link initrd.img-ota -> initrd.img-* under /boot/ota-partition.{standby}
-        (path / "initrd.img-ota").symlink_to(initrd_img[0].name)
+        (path / "initrd.img-ota").symlink_to(initrd_img_list[0].name)
 
         vmlinuz_file = "vmlinuz-ota.standby"
         initrd_img_file = "initrd.img-ota.standby"
