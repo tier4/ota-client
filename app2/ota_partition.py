@@ -115,24 +115,24 @@ class OtaPartition:
 
     def _findmnt_cmd(self, mount_point):
         cmd = f"findmnt -n -o SOURCE {mount_point}"
-        return subprocess.check_output(shlex.split(cmd))
+        return subprocess.check_output(shlex.split(cmd)).decode().strip()
 
     def _get_root_device_file(self):
-        return self._findmnt_cmd("/").decode().strip()
+        return self._findmnt_cmd("/")
 
     def _get_boot_device_file(self):
-        return self._findmnt_cmd("/boot").decode().strip()
+        return self._findmnt_cmd("/boot")
 
     def _get_parent_device_file(self, child_device_file):
         cmd = f"lsblk -ipn -o PKNAME {device_file}"
-        return subprocess.check_output(shlex.split(cmd))
+        return subprocess.check_output(shlex.split(cmd)).decode().strip()
 
     def _get_standby_device_file(
         self, parent_device_file, root_device_file, boot_device_file
     ):
         # list children device file from parent device
         cmd = f"lsblk -Pp -o NAME,FSTYPE {parent_device_file}"
-        output = subprocess.check_output(shlex.split(cmd))
+        output = subprocess.check_output(shlex.split(cmd)).decode().strip()
         # FSTYPE="ext4" and
         # not (parent_device_file, root_device_file and boot_device_file)
         for blk in output.decode().split("\n"):

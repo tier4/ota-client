@@ -134,13 +134,13 @@ class GrubControl:
         uuid = self._get_uuid(standby_device)
         # NOTE: Only UUID sepcifier is supported.
         replaced = re.sub(
-            r"(.*\slinux\s*/).*(\sroot=UUID=)[a-f\d-]*(\s.*)",
-            rf"\1{vmlinuz}\2{uuid}\3",
+            r"(.*\slinux\s+/).*(\sroot=UUID=)\S*(\s.*)",
+            rf"\g<1>{vmlinuz}\g<2>{uuid}\g<3>",  # NOTE: use \g<1> instead of \1
             menuentry,
         )
         replaced = re.sub(
-            r"(.*\sinitrd\s*/).*(\s.*)",
-            rf"\1{initrd_img}\2",
+            r"(.*\sinitrd\s+/)\S*(\s.*)",
+            rf"\g<1>{initrd_img}\g<2>",
             replaced,
         )
         return replaced
@@ -156,8 +156,8 @@ class GrubControl:
         self._grub_reboot_cmd(len(menus))
 
     def _get_uuid(self, device):
-        cmd = f"lsblk -ino UUID /dev/{device}"
-        return subprocess.check_output(shlex.split(cmd))
+        cmd = f"lsblk -in -o UUID /dev/{device}"
+        return subprocess.check_output(shlex.split(cmd)).decode().strip()
 
     def _get_cmdline(self):
         return open("/proc/cmdline").read()
