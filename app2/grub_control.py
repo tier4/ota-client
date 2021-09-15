@@ -4,6 +4,7 @@ import subprocess
 import shlex
 import tempfile
 import shutil
+from pathlib import Path
 
 
 class GrubCfgParser:
@@ -62,23 +63,26 @@ class GrubCfgParser:
 
 
 class GrubControl:
-    GRUB_CFG_FILE = "/boot/grub/grub.cfg"
-    CUSTOM_CFG_FILE = "/boot/grub/custom.cfg"
+    GRUB_CFG_FILE = Path("/boot/grub/grub.cfg")
+    CUSTOM_CFG_FILE = Path("/boot/grub/custom.cfg")
 
     def __init__(self):
         self._grub_cfg_file = GrubControl.GRUB_CFG_FILE
         self._custom_cfg_file = GrubControl.CUSTOM_CFG_FILE
 
-    def create_custom_cfg_and_reboot(self, active_device, standby_device):
+    def create_custom_cfg_and_reboot(
+        self, active_device, standby_device, vmlinuz_file, initrd_img_file
+    ):
         # pick up booted menuentry to create custom.cfg
-        booted_menu_entry = self._get_booted_menu_entry(active_device)
+        booted_menuentry = self._get_booted_menuentry(active_device)
         # modify booted menuentry for custom.cfg
-        custom_cfg = self._update_menu_entry(booted_menu_entry["entry"], standby_device)
+        custom_cfg = self._update_menuentry(
+            booted_menuentry, standby_device, vmlinuz_file, initrd_img_file
+        )
         # store custom.cfg
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
-            temp_name = f.name
             f.write(custom_cfg)
-            shutil.move(temp_name, self._custom_cfg_file)
+            shutil.move(f.name, self._custom_cfg_file)
 
         # grub-reboot
         self._grub_reboot()
@@ -99,32 +103,47 @@ class GrubControl:
 
     """ private from here """
 
-    def _find_linux_entry(self, menus, uuid, device, kernel_release):
+    def _find_menuentry(self, menus, uuid, device, vmlinuz):
         for menu in menus:
             if type(menu) is dict:
-                if menu["linux"].find(kernel_release) >= 0 and (
+                if menu["linux"].find(vmlinuz) >= 0 and (
                     menu["linux"].find(uuid) >= 0 or menu["linux"].find(device) >= 0
                 ):
                     return menu
             elif type(menu) is list:
-                ret = self._find_linux_entry(menu, uuid, device, kernel_release)
+                ret = self._find_entry(menu, uuid, device, vmlinuz)
                 if ret is not None:
                     return ret
         return None
 
-    def _get_booted_menu_entry(self, active_device):
-        # find menuentry from current grub.cfg w/ kernel_release and (UUID or device).
+    def _get_booted_menuentry(self, device):
+        """
+        find grub.cfg menuentry from active device or uuid and BOOT_IMAGE specified by /proc/cmdline
+        """
+        # grub.cfg
         grub_cfg = open(self._grub_cfg_file).read()
         menus = GrubCfgParser(grub_cfg).parse()
-        kernel_release = platform.release()  # same as `uname -r`
-        active_uuid = self._get_uuid(active_device)
-        return self.find_linux_entry(menus, active_uuid, active_device, kernel_release)
 
-    def _update_menu_entry(self, menu_entry, standby_device):
-        # TODO:
-        # replace linux and (UUID or device)
-        # replace initrd and (UUID or device)
-        return menu_entry
+        # booted vmlinuz and initrd.img
+        m = re.match(r"BOOT_IMAGE=(.*)\sroot=UUID=(.*)\s", self._get_cmdline)
+        vmlinuz = m.group(1)
+        uuid = m.group(2)
+        return self.find_menuentry(menus, uuid, device, vmlinuz)["entry"]
+
+    def _update_menuentry(self, menuentry, standby_device, vmlinuz, inird_img):
+        uuid = self._get_uuid(standby_device)
+        # NOTE: Only UUID sepcifier is supported.
+        replaced = re.sub(
+            r"(*.\slinux\s/).*(\s*root=UUID=)[a-f\d-]*(\s.*)",
+            rf"\1{vmlinuz}\2{uuid}\3",
+            menuentry,
+        )
+        replaced = re.sub(
+            r"(*.\sinitrd\s/).*(\s.*)",
+            rf"\1{initrd_img}\2",
+            replaced,
+        )
+        return replaced
 
     def _grub_reboot_cmd(self, num):
         cmd = f"grub-reboot {num}"
@@ -139,3 +158,6 @@ class GrubControl:
     def _get_uuid(self, device):
         cmd = f"lsblk -ino UUID /dev/{device}"
         return subprocess.check_output(shlex.split(cmd))
+
+    def _get_cmdline(self):
+        return open("/proc/cmdline").read()

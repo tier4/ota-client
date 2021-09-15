@@ -1,5 +1,5 @@
 from enum import Enum, unique
-from ota_partition import OtaPartition
+from ota_partition import OtaPartitionFile
 from grub_control import GrubControl
 from pathlib import Path
 import subprocess
@@ -20,23 +20,24 @@ class OtaStatus(Enum):
 class OtaStatusControl:
     BOOT_DIR = Path("/boot")
     BOOT_OTA_PARTITION_FILE = Path("ota-partition")
+    FSTAB_FILE = Path("/etc/fstab")
 
     def __init__(self):
-        self._ota_partition = OtaPartition(
+        self._fstab_file = OtaStatusControl.FSTAB_FILE
+        self._ota_partition = OtaPartitionFile(
             OtaStatusControl.BOOT_DIR, OtaStatusControl.BOOT_OTA_PARTITION_FILE
         )
         self._grub_control = GrubControl()
-        self._ota_status = self._get_initial_ota_status()
-        self._fstab_file = "/etc/fstab"
-
-    def get_boot_standby_path(self):
-        standby_boot = self._ota_partition.get_standby_boot_device()
-        return f"/boot/ota-partition.{standby_boot}/"
+        self._ota_status = self._initialize_ota_status()
 
     def get_ota_status(self):
         return self._ota_status
 
+    def get_standby_boot_partition_path(self):
+        return self._ota_status.get_standby_boot_partition_path()
+
     def enter_updating(self, version, mount_path):
+        # check status
         if self._ota_status not in [
             OtaStatus.INITIALIZED,
             OtaStatus.SUCCESS,
@@ -44,45 +45,38 @@ class OtaStatusControl:
             OtaStatus.ROLLBACK_FAILURE,
         ]:
             raise ValueError(f"status={self.status} is illegal for update")
-        standby_boot = self._ota_partition.get_standby_boot_device()
-        standby_status_path = f"/boot/ota-partition.{standby_boot}/status"
-        standby_version_path = f"/boot/ota-partition.{standby_boot}/version"
-        self._store_ota_status(standby_status_path, OtaStatus.UPDATING.name)
-        self._store_ota_version(standby_version_path, version)
-        self._ota_status = OtaStatus.UPDATING
-        standby_boot_files_remove = [
-            f
-            for f in Path(f"/boot/ota-partition.{standby_boot}").glob("*")
-            if f.name != "status" and f.name != "version"
-        ]
+
+        self._ota_partition.store_standby_ota_status(OtaStatus.UPDATING.name)
+        self._ota_partition.store_standby_ota_version(version)
+        self._ota_partition.cleanup_standby_boot_partition()
 
         standby_root = self._ota_partition.get_standby_root_device()
         self._mount_cmd(f"/dev/{standby_root}", mount_path)
         shutil.rmtree(mount_path)
-        for f in standby_boot_files_remove:
-            if f.is_dir():
-                shutil.rmtree(str(f))
-            else:
-                f.unlink()
 
-    def leave_updating(self, mounted_path):
-        # TODO: umount mounted_path
-        active_boot = self._ota_partition.get_active_boot_device()
-        standby_boot = self._ota_partition.get_standby_boot_device()
-        self._ota_partition.update_fstab_root_partition(
-            standby_boot,
-            Path(self._fstab_file),
-            Path(mounted_path) / Path(self._fstab_file).relative_to("/"),
+    def leave_updating(self, mounted_path: Path):
+        active_root_device = self._ota_partition.get_active_root_device()
+        standby_root_device = self._ota_partition.get_standby_boot_device()
+        self._ota_partition.update_fstab_standby_root_partition(
+            self._fstab_file,
+            mounted_path / self._fstab_file.relative_to("/"),
         )
-        self._ota_partition.update_boot_partition(standby_boot)
-        self._grub_control.create_custom_cfg_and_reboot(active_boot, standby_boot)
+        (
+            vmlinuz_file,
+            initr_img_file,
+        ) = self._ota_partition.create_standby_boot_kernel_files()
+        self._grub_control.create_custom_cfg_and_reboot(
+            active_root_device, standby_root_device, vmlinuz_file, initrd_img_file
+        )
 
     def enter_rollbacking(self):
+        # check status
         if self.ota_status not in [
             OtaStatus.SUCCESS,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
             raise ValueError(f"status={self.status} is illegal for rollback")
+
         standby_boot = self._ota_partition.get_standby_boot_device()
         standby_status_path = f"/boot/ota-partition.{standby_boot}/status"
         self._store_ota_status(standby_status_path, OtaStatus.ROLLBACKING.name)
@@ -91,10 +85,11 @@ class OtaStatusControl:
     def leave_rollbacking(self):
         standby_boot = self._ota_partition.get_standby_boot_device()
         self._ota_partition.update_fstab_root_partition(standby_boot)
-        self._ota_partition.update_boot_partition(standby_boot)
         self._grub_control.create_custom_cfg_and_reboot()
 
-    def _get_initial_ota_status(self):
+    """ private functions from here """
+
+    def _initialize_ota_status(self):
         active_boot = self._ota_partition.get_active_boot_device()
         standby_boot = self._ota_partition.get_standby_boot_device()
         active_root = self._ota_partition.get_active_root_device()

@@ -83,7 +83,7 @@ class PersistentInf(_BaseInf):
 
 
 class OtaClient:
-    MOUNT_POINT = "/mnt/standby"
+    MOUNT_POINT = Path("/mnt/standby")
 
     def __init__(self):
         self._ota_status = OtaStatusControl()
@@ -97,6 +97,7 @@ class OtaClient:
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
+        # enter update
         self._ota_status.enter_updating(version, self._mount_point)
 
         # process metadata.jwt
@@ -122,13 +123,17 @@ class OtaClient:
             self._mount_point,
         )
 
+        # process persistent file
+        # TODO:
+
+        # leave update
         self._ota_status.leave_updating(self._mount_point)
-        # -> generate custom.cfg, grub-reboot and reboot internally
 
     def rollback(self):
+        # enter rollback
         self._ota_status.enter_rollbacking()
+        # leave rollback
         self._ota_status.leave_rollbacking()
-        # -> generate custom.cfg, grub-reboot and reboot internally
 
     def status(self):
         return {
@@ -146,7 +151,7 @@ class OtaClient:
             },
         }
 
-    """ private from here """
+    """ private functions from here """
 
     def _download(self, url, cookies, dst, digest, retry=5):
         def _requests_get():
@@ -219,6 +224,13 @@ class OtaClient:
             url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
 
+    def _process_persistent(self, url_base, cookies, list_info, standby_path):
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / list_info["file"]
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            self._download(url, cookies, file_name, list_info["hash"])
+            self._copy_presistent_files(standby_path)
+
     def _create_directories(self, list_file, standby_path):
         with open(list_file) as f:
             for l in f.read().splitlines():
@@ -259,3 +271,7 @@ class OtaClient:
         self._download(url, cookies, dst, reginf.sha256hash)
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
+
+    def _copy_persistent_files(self, standby_path):
+        # TODO
+        pass
