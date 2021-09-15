@@ -30,6 +30,36 @@ menuentry 'Ubuntu, with Linux 5.4.0-73-generic' --class ubuntu --class gnu-linux
 	initrd	/initrd.img-ota.standby
 }"""
 
+FSTAB_DEV_DISK_BY_UUID = """\
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/sda3 during curtin installation
+/dev/disk/by-uuid/01234567-0123-0123-0123-0123456789ab / ext4 defaults 0 0
+# /boot was on /dev/sda2 during curtin installation
+/dev/disk/by-uuid/cc59073d-9e5b-41e1-b724-576259341132 /boot ext4 defaults 0 0
+/swap.img	none	swap	sw	0	0
+"""
+
+FSTAB_DEV_DISK_BY_UUID_STANDBY = """\
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/sda3 during curtin installation
+/dev/disk/by-uuid/01234567-0123-0123-0123-0123456789ab / ext4 defaults 0 0
+# /boot was on /dev/sda2 during curtin installation
+/dev/disk/by-uuid/cc59073d-9e5b-41e1-b724-576259341132 /boot ext4 defaults 0 0
+/swap.img	none	swap	sw	0	0
+"""
+
 
 def test_ota_client(mocker, tmp_path):
     from ota_client import OtaClient
@@ -79,7 +109,7 @@ def test_ota_client(mocker, tmp_path):
     cmdline = "BOOT_IMAGE=/vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro maybe-ubiquity"
 
     mocker.patch.object(GrubControl, "_get_cmdline", return_value=cmdline)
-    mocker.patch.object(GrubControl, "reboot", return_value=0)
+    reboot_mock = mocker.patch.object(GrubControl, "reboot", return_value=0)
     _grub_reboot_mock = mocker.patch.object(
         GrubControl, "_grub_reboot_cmd", return_value=0
     )
@@ -96,12 +126,35 @@ def test_ota_client(mocker, tmp_path):
     grub_cfg = grub_dir / "grub.cfg"
     grub_cfg.write_text(grub_cfg_wo_submenu)
 
+    mocker.patch.object(GrubControl, "FSTAB_FILE", tmp_path / "etc" / "fstab")
+    etc_dir = tmp_path / "etc"
+    etc_dir.mkdir()
+    fstab = etc_dir / "fstab"
+    fstab.write_text(FSTAB_DEV_DISK_BY_UUID)
+
     # test start
     ota_client = OtaClient()
     ota_client.update("123.x", "http://localhost:8080", "")
 
     # make sure boot ota-partition is NOT switched
     assert os.readlink(tmp_path / "boot" / "ota-partition") == "ota-partition.sdx3"
+    assert (
+        os.readlink(tmp_path / "boot" / "vmlinuz-ota.standby")
+        == "ota-partition.sdx4/vmlinuz-ota"
+    )
+    assert (
+        os.readlink(tmp_path / "boot" / "initrd.img-ota.standby")
+        == "ota-partition.sdx4/initrd.img-ota"
+    )
+
+    assert (
+        os.readlink(tmp_path / "boot" / "ota-partition.sdx4" / "vmlinuz-ota")
+        == "vmlinuz-5.8.0-53-generic"  # FIXME
+    )
+    assert (
+        os.readlink(tmp_path / "boot" / "ota-partition.sdx4" / "initrd.img-ota")
+        == "initrd.img-5.8.0-53-generic"  # FIXME
+    )
 
     # custom.cfg is created
     assert (tmp_path / "boot" / "grub" / "custom.cfg").is_file()
@@ -109,3 +162,10 @@ def test_ota_client(mocker, tmp_path):
 
     # number of menuentry in grub_cfg_wo_submenu is 9
     _grub_reboot_mock.assert_called_once_with(9)
+    reboot_mock.assert_called_once()
+
+    # fstab
+    assert (
+        open(tmp_path / "mnt" / "standby" / "etc" / "fstab").read()
+        == FSTAB_DEV_DISK_BY_UUID_STANDBY
+    )

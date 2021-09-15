@@ -20,10 +20,8 @@ class OtaStatus(Enum):
 class OtaStatusControl:
     BOOT_DIR = Path("/boot")
     BOOT_OTA_PARTITION_FILE = Path("ota-partition")
-    FSTAB_FILE = Path("/etc/fstab")
 
     def __init__(self):
-        self._fstab_file = OtaStatusControl.FSTAB_FILE
         self._ota_partition = OtaPartitionFile(
             OtaStatusControl.BOOT_DIR, OtaStatusControl.BOOT_OTA_PARTITION_FILE
         )
@@ -57,9 +55,8 @@ class OtaStatusControl:
     def leave_updating(self, mounted_path: Path):
         active_root_device = self._ota_partition.get_active_root_device()
         standby_root_device = self._ota_partition.get_standby_boot_device()
-        self._ota_partition.update_fstab_standby_root_partition(
-            self._fstab_file,
-            mounted_path / self._fstab_file.relative_to("/"),
+        self._grub_control.update_fstab(
+            mounted_path, active_root_device, standby_root_device
         )
         (
             vmlinuz_file,
@@ -84,7 +81,6 @@ class OtaStatusControl:
 
     def leave_rollbacking(self):
         standby_boot = self._ota_partition.get_standby_boot_device()
-        self._ota_partition.update_fstab_root_partition(standby_boot)
         self._grub_control.create_custom_cfg_and_reboot()
 
     """ private functions from here """
@@ -131,13 +127,6 @@ class OtaStatusControl:
         except FileNotFoundError as e:
             return OtaStatus.INITIALIZED
 
-    def _store_ota_status(self, path, ota_status):
-        # TODO:
-        # create temp file
-        # and write ota_status to it
-        # and move to path
-        pass
-
     def _load_ota_version(self, path):
         try:
             with open(path) as f:
@@ -145,13 +134,6 @@ class OtaStatusControl:
                 return version
         except FileNotFoundError as e:
             return ""
-
-    def _store_ota_version(self, path, version):
-        # TODO:
-        # create temp file
-        # and write ota_status to it
-        # and move to path
-        pass
 
     def _mount_cmd(self, device_file, mount_point):
         try:
@@ -163,6 +145,6 @@ class OtaStatusControl:
             subprocess.check_output(shlex.split(cmd_umount))
             return subprocess.check_output(shlex.split(cmd_mount))
 
-    def _umount_cmd(mount_point):
+    def _umount_cmd(self, mount_point):
         cmd_umount = f"umount {mount_point}"
         return subprocess.check_output(shlex.split(cmd_umount))

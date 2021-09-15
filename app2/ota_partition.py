@@ -216,32 +216,6 @@ class OtaPartitionFile(OtaPartition):
         (self._boot_dir / initrd_img_file).symlink_to(standby_path / "initrd.img-ota")
         return vmlinuz_file, initrd_img_file
 
-    def update_fstab_standby_root_partition(self, src_fstab_file, dst_fstab_file):
-        fstab = open(src_fstab_file).readlines()
-
-        updated_fstab = []
-        for line in fstab:
-            if line.startswith("#"):
-                updated_fstab.append(line)
-                continue
-            line_split = line.split()
-            if line_split[1] == "/":
-                # TODO
-                # replace UUID=... or device file
-                # if line_split[0].find("UUID="):
-                #     line.replace()
-                # elif line_split[0].find(device):
-                #     line.replace()
-                # ...
-                pass
-            else:
-                updated_fstab.append(line)
-
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
-            temp_name = f.name
-            f.writelines(updated_fstab)
-            shutil.move(temp_name, dst_fstab_file)
-
     """ private functions from here """
 
     def _store_string(self, path, string):
