@@ -112,5 +112,5 @@ class OtaStatusControl:
         return subprocess.check_output(shlex.split(cmd_umount))
 
     def _clean_cmd(self, mount_point):
-        cmd_rm = f"rm -rf {mount_point}/"
+        cmd_rm = f"rm -rf {mount_point}/*"
         return subprocess.check_output(shlex.split(cmd_rm))
