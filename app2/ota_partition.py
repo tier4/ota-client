@@ -5,6 +5,7 @@ import shlex
 import tempfile
 import shutil
 from pathlib import Path
+from grub_control import GrubControl
 
 
 class OtaPartition:
@@ -14,11 +15,14 @@ class OtaPartition:
     device_file means: /dev/sda3
     """
 
-    def __init__(self, boot_dir: Path, boot_ota_partition_file: Path):
+    BOOT_DIR = Path("/boot")
+    BOOT_OTA_PARTITION_FILE = Path("ota-partition")
+
+    def __init__(self):
         self._active_root_device_cache = None
         self._standby_root_device_cache = None
-        self._boot_dir = boot_dir
-        self._boot_ota_partition_file = boot_ota_partition_file
+        self._boot_dir = OtaPartition.BOOT_DIR
+        self._boot_ota_partition_file = OtaPartition.BOOT_OTA_PARTITION_FILE
 
     def get_active_boot_device(self):
         """
@@ -93,24 +97,6 @@ class OtaPartition:
         ).lstrip("/dev")
         return self._standby_root_device_cache
 
-    """ utility functions """
-
-    def store_active_ota_status(self, status):
-        standby_boot = self.get_standby_boot_device()
-        pass
-
-    def update_boot_partition(self, boot_device):
-        """
-        updates /boot/ota-partition symbolink to /boot/ota-partition.{boot_device}
-        e.g. /boot/ota-partition -> /boot/ota-partition.{boot_device}
-        """
-        with tempfile.TemporaryDirectory(prefix=__name__) as d:
-            link = os.path.join(d, "templink")
-            # create temporary link file to link `ota-partition.{boot_device}`.
-            os.symlink(f"{str(self._boot_ota_partition_file)}.{boot_device}", link)
-            # move created link to /boot/ota-partition
-            os.rename(link, self._boot_dir / self._boot_ota_partition_file)
-
     """ private from here """
 
     def _findmnt_cmd(self, mount_point):
@@ -148,8 +134,9 @@ class OtaPartition:
 
 
 class OtaPartitionFile(OtaPartition):
-    def __init__(self, boot_dir: Path, boot_ota_partition_file: Path):
-        super().__init__(boot_dir, boot_ota_partition_file)
+    def __init__(self):
+        super().__init__()
+        self._grub_control = GrubControl()
 
     def get_standby_boot_partition_path(self):
         device = self.get_standby_boot_device()
@@ -201,7 +188,29 @@ class OtaPartitionFile(OtaPartition):
             else:
                 f.unlink()
 
-    def create_standby_boot_kernel_files(self):
+    def mount_standby_root_partition_and_clean(self, mount_path: Path):
+        standby_root = self.get_standby_root_device()
+        mount_path.mkdir(exist_ok=True)
+        self._mount_and_clean(f"/dev/{standby_root}", mount_path)
+
+    def update_fstab(self, mount_path: Path):
+        active_root_device = self.get_active_root_device()
+        standby_root_device = self.get_standby_boot_device()
+        self._grub_control.update_fstab(
+            mount_path, active_root_device, standby_root_device
+        )
+
+    def create_custom_cfg_and_reboot(self):
+        active_root_device = self.get_active_root_device()
+        standby_root_device = self.get_standby_boot_device()
+        vmlinuz_file, initrd_img_file = self._create_standby_boot_kernel_files()
+        self._grub_control.create_custom_cfg_and_reboot(
+            active_root_device, standby_root_device, vmlinuz_file, initrd_img_file
+        )
+
+    """ private functions from here """
+
+    def _create_standby_boot_kernel_files(self):
         device = self.get_standby_boot_device()
         standby_path = self._boot_ota_partition_file.with_suffix(f".{device}")
         path = self._boot_dir / standby_path
@@ -232,8 +241,6 @@ class OtaPartitionFile(OtaPartition):
         (self._boot_dir / initrd_img_file).symlink_to(standby_path / "initrd.img-ota")
         return vmlinuz_file, initrd_img_file
 
-    """ private functions from here """
-
     def _store_string(self, path, string):
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             temp_name = f.name
@@ -247,3 +254,70 @@ class OtaPartitionFile(OtaPartition):
                 return f.read()
         except FileNotFoundError as e:
             return ""
+
+    def _initialize_boot_partition(self):
+        """
+        NOTE:
+        In this function, get_active_boot_device and get_standby_boot_device
+        can not be used since boot partitions are not created yet.
+        """
+        boot_ota_partition = self._boot_dir / self._boot_ota_partition_file
+
+        # create active boot partition
+        device = self.get_active_root_device()
+        active_boot_path = boot_ota_partition.with_suffix(f".{device}")
+        active_boot_path.mkdir()
+
+        # create standby boot partition
+        device = self.get_standby_root_device()
+        standby_boot_path = boot_ota_partition.with_suffix(f".{device}")
+        standby_boot_path.mkdir()
+
+        # copy regular file of vmlinuz-{version} initrd.img-{version}
+        # config-{version} System.map-{version} to active_boot_path.
+        # version is retrieved from /proc/cmdline.
+        vmlinuz, _ = self._grub_control.get_booted_vmlinuz_and_uuid()
+
+        # create symlink vmlinuz-ota -> vmlinuz-{version} under
+        # /boot/ota-partition.{active}
+        # create symlink initrd.img-ota -> initrd.img-{version} under
+        # /boot/ota-partition.{active}
+
+        # change /etc/default/grub as follows:
+        # GRUB_TIMEOUT_STYLE=menu
+        # GRUB_TIMEOUT=10
+        # GRUB_DISABLE_SUBMENU=y
+
+        # create temporary grub.cfg with grub-mkconfig
+
+        # find a number of vmlinuz-ota entry from temporary grub.cfg
+
+        # change /etc/default/grub as follows:
+        # GRUB_DEFAULT={number}
+
+        # update /boot/grub.cfg with grub-mkconfig
+
+        # copy regular file of vmlinuz-{version} initrd.img-{version}
+        # config-{version} System.map-{version} to active_boot_path.
+
+    def _mount_and_clean(self, device_file, mount_point):
+        try:
+            self._mount_cmd(device_file, mount_point)
+            self._clean_cmd(mount_point)
+        except subprocess.CalledProcessError:
+            # try again after umount
+            self._umount_cmd(mount_point)
+            self._mount_cmd(device_file, mount_point)
+            self._clean_cmd(mount_point)
+
+    def _mount_cmd(self, device_file, mount_point):
+        cmd_mount = f"mount {device_file} {mount_point}"
+        return subprocess.check_output(shlex.split(cmd_mount))
+
+    def _umount_cmd(self, mount_point):
+        cmd_umount = f"umount {mount_point}"
+        return subprocess.check_output(shlex.split(cmd_umount))
+
+    def _clean_cmd(self, mount_point):
+        cmd_rm = f"rm -rf {mount_point}/*"
+        return subprocess.check_output(cmd_rm, shell=True)  # to use `*`

@@ -118,6 +118,13 @@ class GrubControl:
         with open(mount_point / "etc" / "fstab", "w") as f:
             f.write(replaced)
 
+    def get_booted_vmlinuz_and_uuid(self):
+        cmdline = self._get_cmdline()
+        m = re.match(r"BOOT_IMAGE=/(\S*)\s*root=UUID=(\S*)", cmdline)
+        vmlinuz = m.group(1)
+        uuid = m.group(2)
+        return vmlinuz, uuid
+
     """ private from here """
 
     def _find_menuentry(self, menus, uuid, device, vmlinuz):
@@ -142,10 +149,7 @@ class GrubControl:
         menus = GrubCfgParser(grub_cfg).parse()
 
         # booted vmlinuz and initrd.img
-        cmdline = self._get_cmdline()
-        m = re.match(r"BOOT_IMAGE=/(\S*)\s*root=UUID=(\S*)", cmdline)
-        vmlinuz = m.group(1)
-        uuid = m.group(2)
+        vmlinuz, uuid = self.get_booted_vmlinuz_and_uuid()
         menuentry = self._find_menuentry(menus, uuid, device, vmlinuz)
         return menuentry["entry"]
 
