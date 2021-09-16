@@ -50,8 +50,7 @@ class OtaStatusControl:
 
         standby_root = self._ota_partition.get_standby_root_device()
         mount_path.mkdir(exist_ok=True)
-        self._mount_cmd(f"/dev/{standby_root}", mount_path)
-        shutil.rmtree(mount_path)
+        self._mount_and_clean(f"/dev/{standby_root}", mount_path)
 
     def leave_updating(self, mounted_path: Path):
         active_root_device = self._ota_partition.get_active_root_device()
@@ -94,16 +93,24 @@ class OtaStatusControl:
         )
         return ota_status
 
-    def _mount_cmd(self, device_file, mount_point):
-        try:
+    def _mount_and_clean(self, device_file, mount_point):
+        def _mount(device_file, mount_point):
             cmd_mount = f"mount {device_file} {mount_point}"
             return subprocess.check_output(shlex.split(cmd_mount))
+
+        def _umount(mount_point):
+            cmd_umount = f"umount {mount_point}"
+            return subprocess.check_output(shlex.split(cmd_umount))
+
+        def clean(mount_point):
+            cmd_rm = f"rm -rf {mount_point}/"
+            return subprocess.check_output(shlex.split(cmd_umount))
+
+        try:
+            mount(device_file, mount_point)
+            clean(mount_point)
         except subprocess.CalledProcessError:
             # try again after umount
-            cmd_umount = f"umount {mount_point}"
-            subprocess.check_output(shlex.split(cmd_umount))
-            return subprocess.check_output(shlex.split(cmd_mount))
-
-    def _umount_cmd(self, mount_point):
-        cmd_umount = f"umount {mount_point}"
-        return subprocess.check_output(shlex.split(cmd_umount))
+            umount(mount_point)
+            mount(device_file, mount_point)
+            clean(mount_point)
