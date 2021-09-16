@@ -278,3 +278,8 @@ class OtaClient:
     def _copy_persistent_files(self, standby_path):
         # TODO
         pass
+
+
+if __name__ == "__main__":
+    ota_client = OtaClient()
+    ota_client.update("123.x", "http://localhost:8080", "")
