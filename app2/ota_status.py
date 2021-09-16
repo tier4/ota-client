@@ -87,54 +87,12 @@ class OtaStatusControl:
     """ private functions from here """
 
     def _initialize_ota_status(self):
-        active_boot = self._ota_partition.get_active_boot_device()
-        standby_boot = self._ota_partition.get_standby_boot_device()
-        active_root = self._ota_partition.get_active_root_device()
-        standby_root = self._ota_partition.get_standby_root_device()
-
-        if active_boot != active_root:
-            self._ota_partition.update_boot_partition(active_root)
-            self._grub_control.reboot()
-
-        active_status_path = f"/boot/ota-partition.{active_boot}/status"
-        standby_status_path = f"/boot/ota-partition.{standby_boot}/status"
-
-        active_status = self._load_ota_status(active_status_path)
-        standby_status = self._load_ota_status(standby_status_path)
-        if (
-            active_status == OtaStatus.INITIALIZED
-            and standby_status == OtaStatus.INITIALIZED
-        ):
-            return OtaStatus.INITIALIZED
-        if standby_status == OtaStatus.UPDATING:
-            # standby status is updating w/o switching partition and (re)booted.
-            return OtaStatus.FAILURE
-        if standby_status == OtaStatus.ROLLBACKING:
-            # standby status is rollbacking w/o switching partition and (re)booted.
-            return OtaStatus.ROLLBACK_FAILURE
-        if active_status == OtaStatus.UPDATING:
-            self._grub_control.update_grub_cfg()
-            self._store_ota_status(OtaStatus.SUCCESS.name)
-            return OtaStatus.SUCCESS
-        return OtaStatus[active_status]
-
-    def _load_ota_status(self, path):
-        try:
-            with open(path) as f:
-                status = f.read().strip()  # if it contains whitespace
-                if status in [s.name for s in OtaStatus]:
-                    return OtaStatus[status]
-                raise ValueError(f"{path}: status={status} is illegal")
-        except FileNotFoundError as e:
-            return OtaStatus.INITIALIZED
-
-    def _load_ota_version(self, path):
-        try:
-            with open(path) as f:
-                version = f.read().strip()  # if it contains whitespace
-                return version
-        except FileNotFoundError as e:
-            return ""
+        # TODO:
+        status_string = self._ota_partition.load_ota_status()
+        ota_status = (
+            OtaStatus.INITIALIZED if status_string == "" else OtaStatus[status_string]
+        )
+        return ota_status
 
     def _mount_cmd(self, device_file, mount_point):
         try:

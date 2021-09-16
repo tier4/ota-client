@@ -158,7 +158,9 @@ class OtaPartitionFile(OtaPartition):
 
     def store_active_ota_status(self, status):
         """
-        NOTE: In most cases of saving a status to active ota status, the status is a `success`.
+        NOTE:
+        In most cases of saving a status to active ota status, the status is a
+        `success`.
         """
         device = self.get_active_boot_device()
         path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
@@ -173,6 +175,16 @@ class OtaPartitionFile(OtaPartition):
         device = self.get_standby_boot_device()
         path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
         self._store_string(path / "version", version)
+
+    def load_ota_status(self):
+        device = self.get_standby_boot_device()
+        path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
+        return self._load_string(path / "status")
+
+    def load_ota_version(self):
+        device = self.get_standby_boot_device()
+        path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
+        return self._load_string(path / "version")
 
     def cleanup_standby_boot_partition(self):
         """
@@ -222,3 +234,10 @@ class OtaPartitionFile(OtaPartition):
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             f.write(string)
             shutil.move(f.name, path)
+
+    def _load_string(self, path):
+        try:
+            with open(path) as f:
+                return f.read()
+        except FileNotFoundError as e:
+            return ""
