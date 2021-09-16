@@ -113,4 +113,4 @@ class OtaStatusControl:
 
     def _clean_cmd(self, mount_point):
         cmd_rm = f"rm -rf {mount_point}/*"
-        return subprocess.check_output(shlex.split(cmd_rm))
+        return subprocess.check_output(cmd_rm, shell=True)  # to use `*`

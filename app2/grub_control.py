@@ -141,16 +141,17 @@ class GrubControl:
 
         # booted vmlinuz and initrd.img
         cmdline = self._get_cmdline()
-        m = re.match(r"BOOT_IMAGE=/(.*)\s*root=UUID=(.*)\s", cmdline)
+        m = re.match(r"BOOT_IMAGE=/(\S*)\s*root=UUID=(\S*)", cmdline)
         vmlinuz = m.group(1)
         uuid = m.group(2)
-        return self._find_menuentry(menus, uuid, device, vmlinuz)["entry"]
+        menuentry = self._find_menuentry(menus, uuid, device, vmlinuz)
+        return menuentry["entry"]
 
     def _update_menuentry(self, menuentry, standby_device, vmlinuz, initrd_img):
         uuid = self._get_uuid(standby_device)
         # NOTE: Only UUID sepcifier is supported.
         replaced = re.sub(
-            r"(.*\slinux\s+/).*(\sroot=UUID=)\S*(\s.*)",
+            r"(.*\slinux\s+/)\S*(\s+root=UUID=)\S*(\s.*)",
             rf"\g<1>{vmlinuz}\g<2>{uuid}\g<3>",  # NOTE: use \g<1> instead of \1
             menuentry,
         )

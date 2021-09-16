@@ -211,6 +211,7 @@ class OtaPartitionFile(OtaPartition):
         if len(vmlinuz_list) != 1:
             raise ValueError(f"unintended vmlinuz list={vmlinuz_list}")
         # create symbolic link vmlinuz-ota -> vmlinuz-* under /boot/ota-partition.{standby}
+        # NOTE: standby boot partition is cleaned-up when updating
         (path / "vmlinuz-ota").symlink_to(vmlinuz_list[0].name)
 
         # find initrd.img-* under /boot/ota-partition.{standby}
@@ -218,13 +219,16 @@ class OtaPartitionFile(OtaPartition):
         if len(initrd_img_list) != 1:
             raise ValueError(f"unintended initrd.img list={initrd_img_list}")
         # create symbolic link initrd.img-ota -> initrd.img-* under /boot/ota-partition.{standby}
+        # NOTE: standby boot partition is cleaned-up when updating
         (path / "initrd.img-ota").symlink_to(initrd_img_list[0].name)
 
         vmlinuz_file = "vmlinuz-ota.standby"
         initrd_img_file = "initrd.img-ota.standby"
         # create symbolic link vmlinuz-ota.standby -> ota-partition.{standby}/vmlinuz-ota under /boot
+        (self._boot_dir / vmlinuz_file).unlink(missing_ok=True)
         (self._boot_dir / vmlinuz_file).symlink_to(standby_path / "vmlinuz-ota")
         # create symbolic link initrd.img-ota.standby -> ota-partition.{standby}/initrd.img-ota under /boot
+        (self._boot_dir / initrd_img_file).unlink(missing_ok=True)
         (self._boot_dir / initrd_img_file).symlink_to(standby_path / "initrd.img-ota")
         return vmlinuz_file, initrd_img_file
 
