@@ -34,7 +34,7 @@ class OtaStatusControl:
     def get_standby_boot_partition_path(self):
         return self._ota_partition.get_standby_boot_partition_path()
 
-    def enter_updating(self, version, mount_path):
+    def enter_updating(self, version, mount_path: Path):
         # check status
         if self._ota_status not in [
             OtaStatus.INITIALIZED,
@@ -49,6 +49,7 @@ class OtaStatusControl:
         self._ota_partition.cleanup_standby_boot_partition()
 
         standby_root = self._ota_partition.get_standby_root_device()
+        mount_path.mkdir(exist_ok=True)
         self._mount_cmd(f"/dev/{standby_root}", mount_path)
         shutil.rmtree(mount_path)
 
