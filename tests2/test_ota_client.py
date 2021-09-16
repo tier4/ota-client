@@ -54,7 +54,7 @@ FSTAB_DEV_DISK_BY_UUID_STANDBY = """\
 #
 # <file system> <mount point>   <type>  <options>       <dump>  <pass>
 # / was on /dev/sda3 during curtin installation
-/dev/disk/by-uuid/01234567-0123-0123-0123-0123456789ab / ext4 defaults 0 0
+/dev/disk/by-uuid/76543210-3210-3210-3210-ba9876543210 / ext4 defaults 0 0
 # /boot was on /dev/sda2 during curtin installation
 /dev/disk/by-uuid/cc59073d-9e5b-41e1-b724-576259341132 /boot ext4 defaults 0 0
 /swap.img	none	swap	sw	0	0
@@ -96,7 +96,7 @@ def test_ota_client(mocker, tmp_path):
 
     # patch OtaStatusControl
     mocker.patch.object(OtaStatusControl, "_mount_cmd", return_value=0)
-    mocker.patch.object(OtaStatusControl, "BOOT_DIR", tmp_path / "boot")
+    mocker.patch.object(OtaStatusControl, "BOOT_DIR", boot_dir)
 
     # patch GrubControl
     def mock__get_uuid(dummy1, device):
@@ -113,14 +113,10 @@ def test_ota_client(mocker, tmp_path):
     _grub_reboot_mock = mocker.patch.object(
         GrubControl, "_grub_reboot_cmd", return_value=0
     )
+    mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
     mocker.patch.object(
-        GrubControl, "GRUB_CFG_FILE", tmp_path / "boot" / "grub" / "grub.cfg"
+        GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
     )
-    mocker.patch.object(
-        GrubControl, "CUSTOM_CFG_FILE", tmp_path / "boot" / "grub" / "custom.cfg"
-    )
-    boot_dir = tmp_path / "boot"
-    boot_dir.mkdir(exist_ok=True)
     grub_dir = boot_dir / "grub"
     grub_dir.mkdir()
     grub_cfg = grub_dir / "grub.cfg"
@@ -137,28 +133,30 @@ def test_ota_client(mocker, tmp_path):
     ota_client.update("123.x", "http://localhost:8080", "")
 
     # make sure boot ota-partition is NOT switched
-    assert os.readlink(tmp_path / "boot" / "ota-partition") == "ota-partition.sdx3"
+    assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"
     assert (
-        os.readlink(tmp_path / "boot" / "vmlinuz-ota.standby")
+        os.readlink(boot_dir / "vmlinuz-ota.standby")
         == "ota-partition.sdx4/vmlinuz-ota"
     )
     assert (
-        os.readlink(tmp_path / "boot" / "initrd.img-ota.standby")
+        os.readlink(boot_dir / "initrd.img-ota.standby")
         == "ota-partition.sdx4/initrd.img-ota"
     )
 
     assert (
-        os.readlink(tmp_path / "boot" / "ota-partition.sdx4" / "vmlinuz-ota")
+        os.readlink(boot_dir / "ota-partition.sdx4" / "vmlinuz-ota")
         == "vmlinuz-5.8.0-53-generic"  # FIXME
     )
     assert (
-        os.readlink(tmp_path / "boot" / "ota-partition.sdx4" / "initrd.img-ota")
+        os.readlink(boot_dir / "ota-partition.sdx4" / "initrd.img-ota")
         == "initrd.img-5.8.0-53-generic"  # FIXME
     )
+    assert open(boot_dir / "ota-partition.sdx4" / "status").read() == "UPDATING"
+    assert open(tmp_path / "boot" / "ota-partition.sdx4" / "version").read() == "123.x"
 
     # custom.cfg is created
-    assert (tmp_path / "boot" / "grub" / "custom.cfg").is_file()
-    assert open(tmp_path / "boot" / "grub" / "custom.cfg").read() == custom_cfg
+    assert (boot_dir / "grub" / "custom.cfg").is_file()
+    assert open(boot_dir / "grub" / "custom.cfg").read() == custom_cfg
 
     # number of menuentry in grub_cfg_wo_submenu is 9
     _grub_reboot_mock.assert_called_once_with(9)

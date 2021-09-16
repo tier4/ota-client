@@ -103,32 +103,18 @@ class GrubControl:
         return subprocess.check_output(shlex.split(cmd))
 
     def update_fstab(self, mount_point, active_device, standby_device):
+        """
+        NOTE:
+        fstab operation might not be a part of grub, but uuid operation is only
+        done in this class, so this function is implemented in this class.
+        """
         active_uuid = self._get_uuid(active_device)
         standby_uuid = self._get_uuid(standby_device)
-        lines = open(self._fstab_file).readlines()
+        fstab = open(self._fstab_file).read()
+        replaced = fstab.replace(active_uuid, standby_uuid)
 
-        updated_fstab = []
-        for line in lines:
-            if line.startswith("#"):
-                updated_fstab.append(line)
-                continue
-            line_split = line.split()
-            if line_split[1] == "/":
-                # TODO
-                # replace UUID=... or device file
-                # if line_split[0].find("UUID="):
-                #     line.replace()
-                # elif line_split[0].find(device):
-                #     line.replace()
-                # ...
-                pass
-            else:
-                updated_fstab.append(line)
-
-        # NOTE: For pytest, `self._fstab_file.relative_to("/")` should not be used
-        # since FSTAB_FILE is mocked and mount_point is also mocked.
         with open(mount_point / "etc" / "fstab", "w") as f:
-            f.writelines(updated_fstab)
+            f.write(replaced)
 
     """ private from here """
 
