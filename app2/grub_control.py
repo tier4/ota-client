@@ -82,8 +82,10 @@ class GrubControl:
         )
         # store custom.cfg
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
+            temp_name = f.name
             f.write(custom_cfg)
-            shutil.move(f.name, self._custom_cfg_file)
+        # should not be called within the NamedTemporaryFile context
+        shutil.move(temp_name, self._custom_cfg_file)
 
         # grub-reboot
         self._grub_reboot()
@@ -98,7 +100,7 @@ class GrubControl:
         # grub-mkconfig w/ the number counted
         pass
 
-    def reboot():
+    def reboot(self):
         cmd = f"reboot"
         return subprocess.check_output(shlex.split(cmd))
 

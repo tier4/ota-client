@@ -236,8 +236,10 @@ class OtaPartitionFile(OtaPartition):
 
     def _store_string(self, path, string):
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
+            temp_name = f.name
             f.write(string)
-            shutil.move(f.name, path)
+        # should not be called within the NamedTemporaryFile context
+        shutil.move(temp_name, path)
 
     def _load_string(self, path):
         try:
