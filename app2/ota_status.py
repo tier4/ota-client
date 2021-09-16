@@ -94,23 +94,23 @@ class OtaStatusControl:
         return ota_status
 
     def _mount_and_clean(self, device_file, mount_point):
-        def _mount(device_file, mount_point):
-            cmd_mount = f"mount {device_file} {mount_point}"
-            return subprocess.check_output(shlex.split(cmd_mount))
-
-        def _umount(mount_point):
-            cmd_umount = f"umount {mount_point}"
-            return subprocess.check_output(shlex.split(cmd_umount))
-
-        def clean(mount_point):
-            cmd_rm = f"rm -rf {mount_point}/"
-            return subprocess.check_output(shlex.split(cmd_umount))
-
         try:
-            mount(device_file, mount_point)
-            clean(mount_point)
+            self._mount_cmd(device_file, mount_point)
+            self._clean_cmd(mount_point)
         except subprocess.CalledProcessError:
             # try again after umount
-            umount(mount_point)
-            mount(device_file, mount_point)
-            clean(mount_point)
+            self._umount_cmd(mount_point)
+            self._mount_cmd(device_file, mount_point)
+            self._clean_cmd(mount_point)
+
+    def _mount_cmd(self, device_file, mount_point):
+        cmd_mount = f"mount {device_file} {mount_point}"
+        return subprocess.check_output(shlex.split(cmd_mount))
+
+    def _umount_cmd(self, mount_point):
+        cmd_umount = f"umount {mount_point}"
+        return subprocess.check_output(shlex.split(cmd_umount))
+
+    def _clean_cmd(self, mount_point):
+        cmd_rm = f"rm -rf {mount_point}/"
+        return subprocess.check_output(shlex.split(cmd_rm))
