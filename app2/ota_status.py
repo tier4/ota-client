@@ -1,9 +1,10 @@
 from enum import Enum, unique
-from ota_partition import OtaPartitionFile
 from pathlib import Path
 import subprocess
 import shlex
 import shutil
+
+from ota_partition import OtaPartitionFile
 
 
 @unique
@@ -72,5 +73,17 @@ class OtaStatusControl:
         if status_string == "":
             self._ota_partition.store_standby_ota_status(OtaStatus.INITIALIZED.name)
             return OtaStatus.INITIALIZED
+        if status_string == OtaStatus.UPDATING.name:
+            active_boot_device = self._ota_partition.get_active_boot_device()
+            active_root_device = self._ota_partition.get_active_root_device()
+            if active_boot_device == active_root_device:
+                self._ota_partition.store_active_ota_status(OtaStatus.SUCCESS.name)
+                self._ota_partition.update_grub_cfg()
+                # switch should be called last.
+                self._ota_partition.switch_boot_partition_from_active_to_standby()
+                return OtaStatus.SUCCESS
+            else:
+                self._ota_partition.store_standby_ota_status(OtaStatus.FAILURE.name)
+                return OtaStatus.FAILURE
         else:
             return OtaStatus[status_string]

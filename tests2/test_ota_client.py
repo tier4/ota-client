@@ -100,7 +100,7 @@ GRUB_CMDLINE_LINUX=""
 def test_ota_client_update(mocker, tmp_path):
     from ota_client import OtaClient
     from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl
+    from ota_status import OtaStatusControl, OtaStatus
     from grub_control import GrubControl
     import grub_control
 
@@ -115,8 +115,9 @@ def test_ota_client_update(mocker, tmp_path):
             /etc/fstab
             /mnt/standby/
     /dev/sdx
-    /dev/sdx3 (UUID: 01234567-0123-0123-0123-0123456789ab)
-    /dev/sdx4 (UUID: 76543210-3210-3210-3210-ba9876543210)
+    /dev/sdx2 /boot
+    /dev/sdx3 / (UUID: 01234567-0123-0123-0123-0123456789ab)
+    /dev/sdx4 (unmounted) (UUID: 76543210-3210-3210-3210-ba9876543210)
     """
     # directory setup
     boot_dir = tmp_path / "boot"
@@ -222,12 +223,13 @@ def test_ota_client_update(mocker, tmp_path):
         open(tmp_path / "mnt" / "standby" / "etc" / "fstab").read()
         == FSTAB_DEV_DISK_BY_UUID_STANDBY
     )
+    assert ota_client._ota_status.get_ota_status() == OtaStatus.UPDATING
 
 
 def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     from ota_client import OtaClient
     from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl
+    from ota_status import OtaStatusControl, OtaStatus
     from grub_control import GrubControl
     import grub_control
 
@@ -239,8 +241,9 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
             /etc/fstab
             /mnt/standby/
     /dev/sdx
-    /dev/sdx3 (UUID: 01234567-0123-0123-0123-0123456789ab)
-    /dev/sdx4 (UUID: 76543210-3210-3210-3210-ba9876543210)
+    /dev/sdx2 /boot
+    /dev/sdx3 / (UUID: 01234567-0123-0123-0123-0123456789ab)
+    /dev/sdx4 (unmounted) (UUID: 76543210-3210-3210-3210-ba9876543210)
     """
 
     kernel_version = "5.4.0-73-generic"
@@ -362,3 +365,114 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
         open(tmp_path / "mnt" / "standby" / "etc" / "fstab").read()
         == FSTAB_DEV_DISK_BY_UUID_STANDBY
     )
+    assert ota_client._ota_status.get_ota_status() == OtaStatus.UPDATING
+
+
+def test_ota_client_update_post_process(mocker, tmp_path):
+    from ota_client import OtaClient
+    from ota_partition import OtaPartition, OtaPartitionFile
+    from ota_status import OtaStatusControl, OtaStatus
+    from grub_control import GrubControl
+    import grub_control
+
+    """
+    tmp_path/boot
+            /boot/grub/
+            /boot/grub/grub.cfg
+            /boot/grub/custom.cfg
+            /etc/fstab
+            /mnt/standby/
+    /dev/sdx
+    /dev/sdx2 /boot
+    /dev/sdx3 / (UUID: 01234567-0123-0123-0123-0123456789ab)
+    /dev/sdx4 (unmounted) (UUID: 76543210-3210-3210-3210-ba9876543210)
+    """
+
+    # directory setup
+    boot_dir = tmp_path / "boot"
+    boot_dir.mkdir()
+    ota_partition = boot_dir / "ota-partition"
+    sdx3 = boot_dir / "ota-partition.sdx3"
+    sdx4 = boot_dir / "ota-partition.sdx4"
+    sdx3.mkdir()
+    sdx4.mkdir()
+    ota_partition.symlink_to("ota-partition.sdx3")
+    (sdx4 / "status").write_text("UPDATING")
+
+    mount_dir = tmp_path / "mnt"
+    mount_dir.mkdir()
+
+    grub_dir = boot_dir / "grub"
+    grub_dir.mkdir()
+    grub_cfg = grub_dir / "grub.cfg"
+    grub_cfg.write_text(grub_cfg_wo_submenu)
+
+    etc_dir = tmp_path / "etc"
+    etc_dir.mkdir()
+    fstab = etc_dir / "fstab"
+    fstab.write_text(FSTAB_DEV_DISK_BY_UUID)
+    default_dir = etc_dir / "default"
+    default_dir.mkdir()
+    default_grub = default_dir / "grub"
+    default_grub.write_text(DEFAULT_GRUB)
+
+    # patch OtaPartition
+    mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
+    mocker.patch.object(OtaPartition, "_get_root_device_file", return_value="/dev/sdx3")
+    mocker.patch.object(OtaPartition, "_get_boot_device_file", return_value="/dev/sdx2")
+    mocker.patch.object(
+        OtaPartition, "_get_parent_device_file", return_value="/dev/sdx"
+    )
+    mocker.patch.object(
+        OtaPartition, "_get_standby_device_file", return_value="/dev/sdx4"
+    )
+
+    # patch OtaPartitionFile
+    mocker.patch.object(OtaPartitionFile, "_mount_cmd", return_value=0)
+
+    # patch OtaClient
+    mocker.patch.object(OtaClient, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+
+    # patch GrubControl
+    def mock__get_uuid(dummy1, device):
+        if device == "sdx3":
+            return "01234567-0123-0123-0123-0123456789ab"
+        if device == "sdx4":
+            return "76543210-3210-3210-3210-ba9876543210"
+
+    mocker.patch.object(GrubControl, "_get_uuid", mock__get_uuid)
+    cmdline = "BOOT_IMAGE=/vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro maybe-ubiquity"
+
+    mocker.patch.object(GrubControl, "_get_cmdline", return_value=cmdline)
+    reboot_mock = mocker.patch.object(GrubControl, "reboot", return_value=0)
+    _grub_reboot_mock = mocker.patch.object(
+        GrubControl, "_grub_reboot_cmd", return_value=0
+    )
+    mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
+    mocker.patch.object(
+        GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
+    )
+    mocker.patch.object(GrubControl, "FSTAB_FILE", tmp_path / "etc" / "fstab")
+    mocker.patch.object(GrubControl, "DEFAULT_GRUB_FILE", etc_dir / "default" / "grub")
+    # NOTE:
+    # basically patch to _count_menuentry is not required if
+    # mock__grub_mkconfig_cmd is more sophisticated.
+    mocker.patch.object(GrubControl, "_count_menuentry", return_value=1)
+
+    def mock__grub_mkconfig_cmd(dummy1, outfile):
+        # TODO: depend on the outfile, grub.cfg with vmlinuz-ota entry should be output.
+        outfile.write_text(grub_cfg_wo_submenu)
+
+    mocker.patch.object(GrubControl, "_grub_mkconfig_cmd", mock__grub_mkconfig_cmd)
+
+    # test start
+    ota_client = OtaClient()
+
+    # make sure boot ota-partition is switched
+    assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx4"
+
+    assert open(boot_dir / "ota-partition.sdx3" / "status").read() == "SUCCESS"
+    assert ota_client._ota_status.get_ota_status() == OtaStatus.SUCCESS
+
+    # assert /etc/default/grub is updated
+    # assert /boot/grub/grub.cfg is updated
