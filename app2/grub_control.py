@@ -65,11 +65,13 @@ class GrubControl:
     GRUB_CFG_FILE = Path("/boot/grub/grub.cfg")
     CUSTOM_CFG_FILE = Path("/boot/grub/custom.cfg")
     FSTAB_FILE = Path("/etc/fstab")
+    DEFAULT_GRUB_FILE = Path("/etc/default/grub")
 
     def __init__(self):
         self._grub_cfg_file = GrubControl.GRUB_CFG_FILE
         self._custom_cfg_file = GrubControl.CUSTOM_CFG_FILE
         self._fstab_file = GrubControl.FSTAB_FILE
+        self._default_grub_file = GrubControl.DEFAULT_GRUB_FILE
 
     def create_custom_cfg_and_reboot(
         self, active_device, standby_device, vmlinuz_file, initrd_img_file
@@ -92,13 +94,45 @@ class GrubControl:
         # reboot
         self.reboot()
 
-    def update_grub_cfg():
-        # TODO:
-        # update /etc/default/grub w/ GRUB_DISABLE_SUBMENU
-        # grub-mkconfig temporally
-        # count menuentry number
-        # grub-mkconfig w/ the number counted
-        pass
+    def update_grub_cfg(self, device, default_vmlinuz):
+        """
+        This function updates /etc/default/grub and and /boot/grub/grub.cfg to
+        boot from device with default_vmlinuz kernel.
+        """
+        # 1. update /etc/default/grub with:
+        #    GRUB_TIMEOUT_STYLE=menu
+        #    GRUB_TIMEOUT=10
+        #    GRUB_DISABLE_SUBMENU=y
+        pattenrs = {
+            "GRUB_TIMEOUT_STYLE=": "menu",
+            "GRUB_TIMEOUT=": "10",
+            "GRUB_DISABLE_SUBMENU=": "y",
+        }
+        self.update_default_grub(patterns)
+
+        # 2. create temporary grub.cfg with grub-mkconfig
+        with tempfile.NamedTemporaryFile("w+", prefix=__name__) as f:
+            self._grub_mkconfig_cmd(f.name)
+
+            # 3. count a number of default_vmlinuz entry from temporary grub.cfg
+            f.seek(0)
+            menus = GrubCfgParser(f.read()).parse()
+            uuid = self._get_uuid(device)
+            number = self._count_menuentry(menus, uuid, device, default_vmlinuz)
+            if number < 0:
+                raise ValueError(
+                    f"menuentry not found: UUID={uuid}, vmlinuz={default_vmlinuz}"
+                )
+
+        # 4. update /etc/default/grub with:
+        #    GRUB_DEFAULT={number}
+        pattenrs = {
+            "GRUB_DEFAULT=": str(number),
+        }
+        self.update_default_grub(patterns)
+
+        # 5. update /boot/grub/grub.cfg with grub-mkconfig
+        self._grub_mkconfig_cmd(self._grub_cfg_file)
 
     def reboot(self):
         cmd = f"reboot"
@@ -140,6 +174,17 @@ class GrubControl:
                     return ret
         return None
 
+    def _count_menuentry(self, menus, uuid, device, vmlinuz):
+        for i, menu in enumerate(menus):
+            if type(menu) is dict:
+                if menu["linux"].find(vmlinuz) >= 0 and (
+                    menu["linux"].find(uuid) >= 0 or menu["linux"].find(device) >= 0
+                ):
+                    return i
+            else:
+                raise ValueError("GRUB_DISABLE_SUBMENU=y should be set")
+        return -1
+
     def _get_booted_menuentry(self, device):
         """
         find grub.cfg menuentry from active device or uuid and BOOT_IMAGE specified by /proc/cmdline
@@ -168,6 +213,29 @@ class GrubControl:
         )
         return replaced
 
+    def _update_default_grub(self, patterns):
+        lines = open(self.default_grub).readlines()
+        patterns_found = {}
+        updated = []
+        for line in lines:
+            found = False
+            for k, v in patterns.items():
+                m = re.match(rf"{k}.*", line)
+                if m:
+                    found = True
+                    updated.append(f"{k}{v}\n")
+                    patterns_found[k] = v
+                    break
+            if not found:
+                updated.append(line)
+
+        deltas = dict(patterns.items() - pattern_found.items())
+        for k, v in deltas.items():
+            updated.append(f"{k}{v}\n")
+
+        with open(self.default_grub, "w") as f:
+            f.writelines(updated)
+
     def _grub_reboot_cmd(self, num):
         cmd = f"grub-reboot {num}"
         return subprocess.check_output(shlex.split(cmd))
@@ -184,3 +252,7 @@ class GrubControl:
 
     def _get_cmdline(self):
         return open("/proc/cmdline").read()
+
+    def _grub_mkconfig_cmd(self, outfile):
+        cmd = f"grub-mkconfig -o {outfile}"
+        return subprocess.check_output(shlex.split(cmd)).decode().strip()

@@ -264,41 +264,54 @@ class OtaPartitionFile(OtaPartition):
         boot_ota_partition = self._boot_dir / self._boot_ota_partition_file
 
         # create active boot partition
-        device = self.get_active_root_device()
-        active_boot_path = boot_ota_partition.with_suffix(f".{device}")
+        active_device = self.get_active_root_device()
+        active_boot_path = boot_ota_partition.with_suffix(f".{active_device}")
         active_boot_path.mkdir()
 
         # create standby boot partition
-        device = self.get_standby_root_device()
-        standby_boot_path = boot_ota_partition.with_suffix(f".{device}")
+        standby_device = self.get_standby_root_device()
+        standby_boot_path = boot_ota_partition.with_suffix(f".{standby_device}")
         standby_boot_path.mkdir()
 
         # copy regular file of vmlinuz-{version} initrd.img-{version}
         # config-{version} System.map-{version} to active_boot_path.
         # version is retrieved from /proc/cmdline.
+        def _check_is_regular(path):
+            if not path.is_file() or path.is_symlink():
+                raise ValueError(f"unintended file type: path={path}")
+
         vmlinuz, _ = self._grub_control.get_booted_vmlinuz_and_uuid()
+        m = re.match(r"vmlinuz-(.*)", vmlinuz)
+        version = m.group(1)
+        kernel_files = ["vmlinuz-", "initrd.img-", "config-", "System.map-"]
+        for kernel_file in kernel_files:
+            path = self._boot_dir / f"{kernel_file}{version}"
+            _check_is_regular(path)
+            shutil.copy2(path, active_boot_path)
 
         # create symlink vmlinuz-ota -> vmlinuz-{version} under
         # /boot/ota-partition.{active}
+        (active_boot_path / "vmlinuz-ota").symlink_to(f"vmlinuz-{version}")
+
         # create symlink initrd.img-ota -> initrd.img-{version} under
         # /boot/ota-partition.{active}
+        (active_boot_path / "initrd.img-ota").symlink_to(f"initrd.img-{version}")
 
-        # change /etc/default/grub as follows:
-        # GRUB_TIMEOUT_STYLE=menu
-        # GRUB_TIMEOUT=10
-        # GRUB_DISABLE_SUBMENU=y
+        # create symlink ota-partition -> ota-partition.{active} under /boot
+        (self._boot_dir / "ota-partition").symlink_to(
+            self._boot_ota_partition_file.with_suffix(f".{active_device}")
+        )
+        # create symlink vmlinuz-ota -> ota-partition/vmlinuz-ota under /boot
+        (self._boot_dir / "vmlinuz-ota").symlink_to(
+            self._boot_ota_partition_file / "vmlinuz-ota"
+        )
+        # create symlink initrd.img-ota -> ota-partition/initrd.img-ota under /boot
+        (self._boot_dir / "initrd.img-ota").symlink_to(
+            self._boot_ota_partition_file / "initrd.img-ota"
+        )
 
-        # create temporary grub.cfg with grub-mkconfig
-
-        # find a number of vmlinuz-ota entry from temporary grub.cfg
-
-        # change /etc/default/grub as follows:
-        # GRUB_DEFAULT={number}
-
-        # update /boot/grub.cfg with grub-mkconfig
-
-        # copy regular file of vmlinuz-{version} initrd.img-{version}
-        # config-{version} System.map-{version} to active_boot_path.
+        # update grub.cfg
+        self._grub_control.update_grub_cfg(active_device, "vmlinuz-ota")
 
     def _mount_and_clean(self, device_file, mount_point):
         try:
