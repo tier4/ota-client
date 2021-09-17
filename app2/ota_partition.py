@@ -141,27 +141,15 @@ class OtaPartitionFile(OtaPartition):
 
     def switch_boot_partition_from_active_to_standby(self):
         standby_device = self.get_standby_boot_device()
-        print(standby_device)
         # to update the link atomically, move is used.
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             temp_file = Path(d) / self._boot_ota_partition_file
             temp_file.symlink_to(
                 self._boot_ota_partition_file.with_suffix(f".{standby_device}")
             )
-            print("*" * 100)
-            print(temp_file, self._boot_dir)
-            print(os.readlink(temp_file))
-            print(f"is_file {temp_file.is_file()}, is_symlink {temp_file.is_symlink()}")
-            print(f"is_dir {self._boot_dir.is_dir()}")
-            print(
-                f"is_symlink {(self._boot_dir / self._boot_ota_partition_file).is_symlink()}"
-            )
-            print(self._boot_dir / self._boot_ota_partition_file)
-            print(os.readlink(self._boot_dir / self._boot_ota_partition_file))
             self._move_atomic(
                 str(temp_file), str(self._boot_dir / self._boot_ota_partition_file)
             )
-            print(os.readlink(self._boot_dir / self._boot_ota_partition_file))
 
     def store_active_ota_status(self, status):
         """
@@ -276,7 +264,7 @@ class OtaPartitionFile(OtaPartition):
     def _load_string(self, path):
         try:
             with open(path) as f:
-                return f.read()
+                return f.read().strip()
         except FileNotFoundError as e:
             return ""
 
