@@ -418,13 +418,13 @@ def test_ota_client_update_post_process(mocker, tmp_path):
 
     # patch OtaPartition
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
-    mocker.patch.object(OtaPartition, "_get_root_device_file", return_value="/dev/sdx3")
+    mocker.patch.object(OtaPartition, "_get_root_device_file", return_value="/dev/sdx4")
     mocker.patch.object(OtaPartition, "_get_boot_device_file", return_value="/dev/sdx2")
     mocker.patch.object(
         OtaPartition, "_get_parent_device_file", return_value="/dev/sdx"
     )
     mocker.patch.object(
-        OtaPartition, "_get_standby_device_file", return_value="/dev/sdx4"
+        OtaPartition, "_get_standby_device_file", return_value="/dev/sdx3"
     )
 
     # patch OtaPartitionFile

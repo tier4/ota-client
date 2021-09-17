@@ -271,13 +271,18 @@ class OtaPartitionFile(OtaPartition):
     def _initialize_boot_partition(self):
         """
         NOTE:
-        In this function, get_active_boot_device and get_standby_boot_device
-        can not be used since boot partitions are not created yet.
+        get_active_boot_device and get_standby_boot_device may not be used
+        since boot partitions are not created yet in some case.
         """
         boot_ota_partition = self._boot_dir / self._boot_ota_partition_file
 
-        active_device = self.get_active_root_device()
-        standby_device = self.get_standby_root_device()
+        try:
+            active_device = self.get_active_boot_device()
+            standby_device = self.get_standby_boot_device()
+        except FileNotFoundError:
+            active_device = self.get_active_root_device()
+            standby_device = self.get_standby_root_device()
+
         active_boot_path = boot_ota_partition.with_suffix(f".{active_device}")
         standby_boot_path = boot_ota_partition.with_suffix(f".{standby_device}")
 
