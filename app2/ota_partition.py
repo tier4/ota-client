@@ -137,6 +137,7 @@ class OtaPartitionFile(OtaPartition):
     def __init__(self):
         super().__init__()
         self._grub_control = GrubControl()
+        self._initialize_boot_partition()
 
     def get_standby_boot_partition_path(self):
         device = self.get_standby_boot_device()
@@ -263,15 +264,20 @@ class OtaPartitionFile(OtaPartition):
         """
         boot_ota_partition = self._boot_dir / self._boot_ota_partition_file
 
-        # create active boot partition
         active_device = self.get_active_root_device()
+        standby_device = self.get_standby_root_device()
         active_boot_path = boot_ota_partition.with_suffix(f".{active_device}")
-        active_boot_path.mkdir()
+        standby_boot_path = boot_ota_partition.with_suffix(f".{standby_device}")
+
+        if standby_boot_path.is_dir() and (standby_boot_path / "status").is_file():
+            # already initialized
+            return
+
+        # create active boot partition
+        active_boot_path.mkdir(exist_ok=True)
 
         # create standby boot partition
-        standby_device = self.get_standby_root_device()
-        standby_boot_path = boot_ota_partition.with_suffix(f".{standby_device}")
-        standby_boot_path.mkdir()
+        standby_boot_path.mkdir(exist_ok=True)
 
         # copy regular file of vmlinuz-{version} initrd.img-{version}
         # config-{version} System.map-{version} to active_boot_path.
@@ -283,7 +289,7 @@ class OtaPartitionFile(OtaPartition):
         vmlinuz, _ = self._grub_control.get_booted_vmlinuz_and_uuid()
         m = re.match(r"vmlinuz-(.*)", vmlinuz)
         version = m.group(1)
-        kernel_files = ["vmlinuz-", "initrd.img-", "config-", "System.map-"]
+        kernel_files = ("vmlinuz-", "initrd.img-", "config-", "System.map-")
         for kernel_file in kernel_files:
             path = self._boot_dir / f"{kernel_file}{version}"
             _check_is_regular(path)
@@ -291,27 +297,37 @@ class OtaPartitionFile(OtaPartition):
 
         # create symlink vmlinuz-ota -> vmlinuz-{version} under
         # /boot/ota-partition.{active}
+        (active_boot_path / "vmlinuz-ota").unlink(missing_ok=True)
         (active_boot_path / "vmlinuz-ota").symlink_to(f"vmlinuz-{version}")
 
         # create symlink initrd.img-ota -> initrd.img-{version} under
         # /boot/ota-partition.{active}
+        (active_boot_path / "initrd.img-ota").unlink(missing_ok=True)
         (active_boot_path / "initrd.img-ota").symlink_to(f"initrd.img-{version}")
 
         # create symlink ota-partition -> ota-partition.{active} under /boot
+        (self._boot_dir / "ota-partition").unlink(missing_ok=True)
         (self._boot_dir / "ota-partition").symlink_to(
             self._boot_ota_partition_file.with_suffix(f".{active_device}")
         )
         # create symlink vmlinuz-ota -> ota-partition/vmlinuz-ota under /boot
+        (self._boot_dir / "vmlinuz-ota").unlink(missing_ok=True)
         (self._boot_dir / "vmlinuz-ota").symlink_to(
             self._boot_ota_partition_file / "vmlinuz-ota"
         )
         # create symlink initrd.img-ota -> ota-partition/initrd.img-ota under /boot
+        (self._boot_dir / "initrd.img-ota").unlink(missing_ok=True)
         (self._boot_dir / "initrd.img-ota").symlink_to(
             self._boot_ota_partition_file / "initrd.img-ota"
         )
 
         # update grub.cfg
         self._grub_control.update_grub_cfg(active_device, "vmlinuz-ota")
+
+        # rm kernel_files
+        # for kernel_file in kernel_files:
+        #    path = self._boot_dir / f"{kernel_file}{version}"
+        #    path.unlink()
 
     def _mount_and_clean(self, device_file, mount_point):
         try:

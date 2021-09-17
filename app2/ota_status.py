@@ -68,9 +68,9 @@ class OtaStatusControl:
     """ private functions from here """
 
     def _initialize_ota_status(self):
-        # TODO:
         status_string = self._ota_partition.load_ota_status()
-        ota_status = (
-            OtaStatus.INITIALIZED if status_string == "" else OtaStatus[status_string]
-        )
-        return ota_status
+        if status_string == "":
+            self._ota_partition.store_standby_ota_status(OtaStatus.INITIALIZED.name)
+            return OtaStatus.INITIALIZED
+        else:
+            return OtaStatus[status_string]

@@ -60,6 +60,42 @@ FSTAB_DEV_DISK_BY_UUID_STANDBY = """\
 /swap.img	none	swap	sw	0	0
 """
 
+DEFAULT_GRUB = """\
+# If you change this file, run 'update-grub' afterwards to update
+# /boot/grub/grub.cfg.
+# For full documentation of the options in this file, see:
+#   info -f grub -n 'Simple configuration'
+
+GRUB_DEFAULT=0
+GRUB_TIMEOUT_STYLE=hidden
+GRUB_TIMEOUT=10
+GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+GRUB_CMDLINE_LINUX=""
+
+# Uncomment to enable BadRAM filtering, modify to suit your needs
+# This works with Linux (no patch required) and with any kernel that obtains
+# the memory map information from GRUB (GNU Mach, kernel of FreeBSD ...)
+#GRUB_BADRAM="0x01234567,0xfefefefe,0x89abcdef,0xefefefef"
+
+# Uncomment to disable graphical terminal (grub-pc only)
+#GRUB_TERMINAL=console
+
+# The resolution used on graphical terminal
+# note that you can use only modes which your graphic card supports via VBE
+# you can see them in real GRUB with the command `vbeinfo'
+#GRUB_GFXMODE=640x480
+
+# Uncomment if you don't want GRUB to pass "root=UUID=xxx" parameter to Linux
+#GRUB_DISABLE_LINUX_UUID=true
+
+# Uncomment to disable generation of recovery mode menu entries
+#GRUB_DISABLE_RECOVERY="true"
+
+# Uncomment to get a beep at grub start
+#GRUB_INIT_TUNE="480 440 1"\
+"""
+
 
 def test_ota_client_update(mocker, tmp_path):
     from ota_client import OtaClient
@@ -91,6 +127,7 @@ def test_ota_client_update(mocker, tmp_path):
     sdx3.mkdir()
     sdx4.mkdir()
     ota_partition.symlink_to("ota-partition.sdx3")
+    (sdx4 / "status").write_text("INITIALIZED")
 
     mount_dir = tmp_path / "mnt"
     mount_dir.mkdir()
@@ -100,11 +137,12 @@ def test_ota_client_update(mocker, tmp_path):
     grub_cfg = grub_dir / "grub.cfg"
     grub_cfg.write_text(grub_cfg_wo_submenu)
 
-    mocker.patch.object(GrubControl, "FSTAB_FILE", tmp_path / "etc" / "fstab")
     etc_dir = tmp_path / "etc"
     etc_dir.mkdir()
     fstab = etc_dir / "fstab"
     fstab.write_text(FSTAB_DEV_DISK_BY_UUID)
+    default_dir = etc_dir / "default"
+    default_dir.mkdir()
 
     # patch OtaPartition
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
@@ -142,6 +180,8 @@ def test_ota_client_update(mocker, tmp_path):
     mocker.patch.object(
         GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
     )
+    mocker.patch.object(GrubControl, "FSTAB_FILE", tmp_path / "etc" / "fstab")
+    mocker.patch.object(GrubControl, "DEFAULT_GRUB_FILE", etc_dir / "default" / "grub")
 
     # test start
     ota_client = OtaClient()
@@ -184,9 +224,9 @@ def test_ota_client_update(mocker, tmp_path):
     )
 
 
-def test_ota_client_update_with_boot_dir_setup(mocker, tmp_path):
+def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     from ota_client import OtaClient
-    from ota_partition import OtaPartition
+    from ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatusControl
     from grub_control import GrubControl
     import grub_control
@@ -202,9 +242,20 @@ def test_ota_client_update_with_boot_dir_setup(mocker, tmp_path):
     /dev/sdx3 (UUID: 01234567-0123-0123-0123-0123456789ab)
     /dev/sdx4 (UUID: 76543210-3210-3210-3210-ba9876543210)
     """
+
+    kernel_version = "5.4.0-73-generic"
+    vmlinuz_file = f"vmlinuz-{kernel_version}"
+    initrd_img_file = f"initrd.img-{kernel_version}"
+    config_file = f"config-{kernel_version}"
+    system_map_file = f"System.map-{kernel_version}"
+
     # directory setup
     boot_dir = tmp_path / "boot"
     boot_dir.mkdir()
+    (boot_dir / vmlinuz_file).write_text(vmlinuz_file)
+    (boot_dir / initrd_img_file).write_text(initrd_img_file)
+    (boot_dir / config_file).write_text(config_file)
+    (boot_dir / system_map_file).write_text(system_map_file)
 
     mount_dir = tmp_path / "mnt"
     mount_dir.mkdir()
@@ -214,11 +265,14 @@ def test_ota_client_update_with_boot_dir_setup(mocker, tmp_path):
     grub_cfg = grub_dir / "grub.cfg"
     grub_cfg.write_text(grub_cfg_wo_submenu)
 
-    mocker.patch.object(GrubControl, "FSTAB_FILE", tmp_path / "etc" / "fstab")
     etc_dir = tmp_path / "etc"
     etc_dir.mkdir()
     fstab = etc_dir / "fstab"
     fstab.write_text(FSTAB_DEV_DISK_BY_UUID)
+    default_dir = etc_dir / "default"
+    default_dir.mkdir()
+    default_grub = default_dir / "grub"
+    default_grub.write_text(DEFAULT_GRUB)
 
     # patch OtaPartition
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
@@ -256,6 +310,18 @@ def test_ota_client_update_with_boot_dir_setup(mocker, tmp_path):
     mocker.patch.object(
         GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
     )
+    mocker.patch.object(GrubControl, "FSTAB_FILE", tmp_path / "etc" / "fstab")
+    mocker.patch.object(GrubControl, "DEFAULT_GRUB_FILE", etc_dir / "default" / "grub")
+    # NOTE:
+    # basically patch to _count_menuentry is not required if
+    # mock__grub_mkconfig_cmd is more sophisticated.
+    mocker.patch.object(GrubControl, "_count_menuentry", return_value=1)
+
+    def mock__grub_mkconfig_cmd(dummy1, outfile):
+        # TODO: depend on the outfile, grub.cfg with vmlinuz-ota entry should be output.
+        outfile.write_text(grub_cfg_wo_submenu)
+
+    mocker.patch.object(GrubControl, "_grub_mkconfig_cmd", mock__grub_mkconfig_cmd)
 
     # test start
     ota_client = OtaClient()

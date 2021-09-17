@@ -103,33 +103,33 @@ class GrubControl:
         #    GRUB_TIMEOUT_STYLE=menu
         #    GRUB_TIMEOUT=10
         #    GRUB_DISABLE_SUBMENU=y
-        pattenrs = {
+        patterns = {
             "GRUB_TIMEOUT_STYLE=": "menu",
             "GRUB_TIMEOUT=": "10",
             "GRUB_DISABLE_SUBMENU=": "y",
         }
-        self.update_default_grub(patterns)
+        self._update_default_grub(patterns)
 
         # 2. create temporary grub.cfg with grub-mkconfig
-        with tempfile.NamedTemporaryFile("w+", prefix=__name__) as f:
-            self._grub_mkconfig_cmd(f.name)
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / "grub.cfg"
+            self._grub_mkconfig_cmd(file_name)
 
             # 3. count a number of default_vmlinuz entry from temporary grub.cfg
-            f.seek(0)
-            menus = GrubCfgParser(f.read()).parse()
+            menus = GrubCfgParser(open(file_name).read()).parse()
             uuid = self._get_uuid(device)
             number = self._count_menuentry(menus, uuid, device, default_vmlinuz)
             if number < 0:
                 raise ValueError(
-                    f"menuentry not found: UUID={uuid}, vmlinuz={default_vmlinuz}"
+                    f"menuentry not found: UUID={uuid}, vmlinuz={default_vmlinuz}, menus={menus}"
                 )
 
         # 4. update /etc/default/grub with:
         #    GRUB_DEFAULT={number}
-        pattenrs = {
+        patterns = {
             "GRUB_DEFAULT=": str(number),
         }
-        self.update_default_grub(patterns)
+        self._update_default_grub(patterns)
 
         # 5. update /boot/grub/grub.cfg with grub-mkconfig
         self._grub_mkconfig_cmd(self._grub_cfg_file)
@@ -214,7 +214,7 @@ class GrubControl:
         return replaced
 
     def _update_default_grub(self, patterns):
-        lines = open(self.default_grub).readlines()
+        lines = open(self._default_grub_file).readlines()
         patterns_found = {}
         updated = []
         for line in lines:
@@ -229,11 +229,11 @@ class GrubControl:
             if not found:
                 updated.append(line)
 
-        deltas = dict(patterns.items() - pattern_found.items())
+        deltas = dict(patterns.items() - patterns_found.items())
         for k, v in deltas.items():
             updated.append(f"{k}{v}\n")
 
-        with open(self.default_grub, "w") as f:
+        with open(self._default_grub_file, "w") as f:
             f.writelines(updated)
 
     def _grub_reboot_cmd(self, num):
