@@ -74,10 +74,10 @@ class GrubControl:
         self._default_grub_file = GrubControl.DEFAULT_GRUB_FILE
 
     def create_custom_cfg_and_reboot(
-        self, active_device, standby_device, vmlinuz_file, initrd_img_file
+        self, standby_device, vmlinuz_file, initrd_img_file
     ):
         # pick up booted menuentry to create custom.cfg
-        booted_menuentry = self._get_booted_menuentry(active_device)
+        booted_menuentry = self._get_booted_menuentry()
         # modify booted menuentry for custom.cfg
         custom_cfg = self._update_menuentry(
             booted_menuentry, standby_device, vmlinuz_file, initrd_img_file
@@ -118,7 +118,7 @@ class GrubControl:
             # 3. count a number of default_vmlinuz entry from temporary grub.cfg
             menus = GrubCfgParser(open(file_name).read()).parse()
             uuid = self._get_uuid(device)
-            number = self._count_menuentry(menus, uuid, device, default_vmlinuz)
+            number = self._count_menuentry(menus, uuid, default_vmlinuz)
             if number < 0:
                 raise ValueError(
                     f"menuentry not found: UUID={uuid}, vmlinuz={default_vmlinuz}, menus={menus}"
@@ -161,12 +161,14 @@ class GrubControl:
 
     """ private from here """
 
-    def _find_menuentry(self, menus, uuid, device, vmlinuz):
+    def _find_menuentry(self, menus, uuid, vmlinuz):
+        # NOTE: Only UUID sepcifier is supported.
         for menu in menus:
+            print(vmlinuz, uuid)
+            print(menu["linux"])
             if type(menu) is dict:
-                if menu["linux"].find(vmlinuz) >= 0 and (
-                    menu["linux"].find(uuid) >= 0 or menu["linux"].find(device) >= 0
-                ):
+                m = re.match(r"\s*linux\s+/(\S*)\s+root=UUID=(\S+)\s*", menu["linux"])
+                if m and m.group(1) == vmlinuz and m.group(2) == uuid:
                     return menu
             elif type(menu) is list:
                 ret = self._find_menuentry(menu, uuid, device, vmlinuz)
@@ -174,20 +176,20 @@ class GrubControl:
                     return ret
         return None
 
-    def _count_menuentry(self, menus, uuid, device, vmlinuz):
+    def _count_menuentry(self, menus, uuid, vmlinuz):
+        # NOTE: Only UUID sepcifier is supported.
         for i, menu in enumerate(menus):
             if type(menu) is dict:
-                if menu["linux"].find(vmlinuz) >= 0 and (
-                    menu["linux"].find(uuid) >= 0 or menu["linux"].find(device) >= 0
-                ):
+                m = re.match(r"\s*linux\s+/(\S*)\s+root=UUID=(\S+)\s*", menu["linux"])
+                if m and m.group(1) == vmlinuz and m.group(2) == uuid:
                     return i
             else:
                 raise ValueError("GRUB_DISABLE_SUBMENU=y should be set")
         return -1
 
-    def _get_booted_menuentry(self, device):
+    def _get_booted_menuentry(self):
         """
-        find grub.cfg menuentry from active device or uuid and BOOT_IMAGE specified by /proc/cmdline
+        find grub.cfg menuentry from uuid and BOOT_IMAGE specified by /proc/cmdline
         """
         # grub.cfg
         grub_cfg = open(self._grub_cfg_file).read()
@@ -195,7 +197,7 @@ class GrubControl:
 
         # booted vmlinuz and initrd.img
         vmlinuz, uuid = self.get_booted_vmlinuz_and_uuid()
-        menuentry = self._find_menuentry(menus, uuid, device, vmlinuz)
+        menuentry = self._find_menuentry(menus, uuid, vmlinuz)
         return menuentry["entry"]
 
     def _update_menuentry(self, menuentry, standby_device, vmlinuz, initrd_img):

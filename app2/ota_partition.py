@@ -210,11 +210,10 @@ class OtaPartitionFile(OtaPartition):
         )
 
     def create_custom_cfg_and_reboot(self):
-        active_root_device = self.get_active_root_device()
         standby_root_device = self.get_standby_boot_device()
         vmlinuz_file, initrd_img_file = self._create_standby_boot_kernel_files()
         self._grub_control.create_custom_cfg_and_reboot(
-            active_root_device, standby_root_device, vmlinuz_file, initrd_img_file
+            standby_root_device, vmlinuz_file, initrd_img_file
         )
 
     def update_grub_cfg(self):
