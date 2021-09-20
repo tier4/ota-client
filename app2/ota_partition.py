@@ -139,6 +139,11 @@ class OtaPartitionFile(OtaPartition):
         path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
         return path
 
+    def is_switching_boot_partition_from_active_to_standby(self):
+        standby_boot_device = self.get_standby_boot_device()
+        active_root_device = self.get_active_root_device()
+        return standby_boot_device == active_root_device
+
     def switch_boot_partition_from_active_to_standby(self):
         standby_device = self.get_standby_boot_device()
         # to update the link atomically, move is used.
