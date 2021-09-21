@@ -234,6 +234,17 @@ class GrubCtl:
         return True
 
     def gen_next_bank_fstab(self, dest: Path):
+        dest_fstab_dict = {}
+        dest_fstab_dict_updated = {}
+        for l in open(dest).readlines():
+            if l[0] == "#":
+                continue
+            fstab_list = l.split()
+            if fstab_list[1] in ["/", "/boot", "/boot/efi"]:
+                # ignore
+                continue
+            dest_fstab_dict[l[1]] = l
+        logging.info(f"dest_fstab_dict: {dest_fstab_dict}")
 
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as fout:
             tmp_file = fout.name
@@ -266,8 +277,16 @@ class GrubCtl:
                         else:
                             raise Exception("root device mismatch in fstab.")
                         fout.write(lnext)
+                    elif fstab_list[1] in dest_fstab_dict.keys():
+                        dest_fstab_dict_updated[fstab_list[1]] = l
+                        fout.write(dest_fstab_dict[fstab_list[1]])
                     else:
                         fout.write(l)
+        # delta
+        deltas = dict(dest_fstab_dict.items() - dest_fstab_dict_updated.items())
+        logging.info(f"fstab delta: {deltas}")
+        for v in deltas.values():
+            fout.write(v)
 
         # replace to new fstab file
         if dest.is_file():
