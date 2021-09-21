@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import re
 import os
+import stat
 import platform
 import shlex
 import shutil
@@ -287,9 +288,11 @@ class GrubCtl:
                 fout.write(v)
 
         # replace to new fstab file
+        st = os.stat(dest, follow_symlinks=False)
         if dest.is_file():
             shutil.move(dest, dest.with_suffix(dest.suffix + ".old"))
         shutil.move(tmp_file, dest)
+        os.chown(dest, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
 
         return True
 
