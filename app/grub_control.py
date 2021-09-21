@@ -293,6 +293,7 @@ class GrubCtl:
             shutil.move(dest, dest.with_suffix(dest.suffix + ".old"))
         shutil.move(tmp_file, dest)
         os.chown(dest, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
+        os.chmod(dest, st[stat.ST_MODE])
 
         return True
 
