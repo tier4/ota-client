@@ -174,8 +174,7 @@ class OtaClient:
                 if count == retry:
                     raise
 
-        with tempfile.NamedTemporaryFile("wb", delete=False, prefix=__name__) as f:
-            temp_name = f.name
+        with open(dst, "wb") as f:
             m = sha256()
             total_length = response.headers.get("content-length")
             if total_length is None:
@@ -192,7 +191,6 @@ class OtaClient:
         calc_digest = m.hexdigest()
         if digest and digest != calc_digest:
             raise ValueError(f"hash error: act={calc_digest}, exp={digest}")
-        shutil.move(temp_name, dst)
 
     def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
