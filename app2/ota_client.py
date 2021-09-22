@@ -258,7 +258,9 @@ class OtaClient:
         reginf_list = [RegularInf(l) for l in lines]
         with Manager() as manager:
             hardlink_dict = manager.dict()
-            error_queue = manager.queue()
+            error_queue = manager.Queue()
+            # NOTE: manager.Value doesn't work properly.
+            processed_list = manager.list()
 
             def error_callback(e):
                 error_queue.put(e)
@@ -270,11 +272,17 @@ class OtaClient:
                     standby_path,
                     reginf_list,
                     hardlink_dict,
+                    processed_list,
                     pool.apply_async,
                     error_callback,
                 )
                 pool.close()
-                pool.join()
+                while len(processed_list) < len(reginf_list):
+                    if not error_queue.empty():
+                        error = error_queue.get()
+                        pool.terminate()
+                        raise error
+                    time.sleep(2)
 
     def _create_regular_files_with_async(
         self,
@@ -283,23 +291,45 @@ class OtaClient:
         standby_path,
         reginf_list,
         hardlink_dict,
+        processed_list,
         async_call,
         error_callback,
     ):
         for reginf in reginf_list:
-            if reginf.nlink >= 2 and hardlink_dict.get(reginf.sha256hash):
-                self._create_regular_file(
-                    url_base, cookies, reginf, standby_path, hardlink_dict
-                )
+            if reginf.nlink >= 2 and hardlink_dict.get(reginf.sha256hash) is None:
+                try:
+                    self._create_regular_file(
+                        url_base,
+                        cookies,
+                        reginf,
+                        standby_path,
+                        hardlink_dict,
+                        processed_list,
+                    )
+                except Exception as e:
+                    error_callback(e)
             else:
                 async_call(
                     self._create_regular_file,
-                    (url_base, cookies, reginf, standby_path, hardlink_dict),
+                    (
+                        url_base,
+                        cookies,
+                        reginf,
+                        standby_path,
+                        hardlink_dict,
+                        processed_list,
+                    ),
                     error_callback=error_callback,
                 )
 
     def _create_regular_file(
-        self, url_base, cookies, reginf, standby_path, hardlink_dict
+        self,
+        url_base,
+        cookies,
+        reginf,
+        standby_path,
+        hardlink_dict,
+        processed_list,
     ):
         url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
         if str(reginf.path).startswith("/boot"):
@@ -324,6 +354,8 @@ class OtaClient:
 
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
+
+        processed_list.append(True)
 
     def _copy_persistent_files(self, standby_path):
         # TODO
