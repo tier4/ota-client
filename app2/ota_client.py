@@ -10,9 +10,14 @@ import time
 from multiprocessing import Pool, Manager
 import subprocess
 import shlex
+from logging import getLogger
 
 from ota_status import OtaStatusControl
 from ota_metadata import OtaMetaData
+import configs as cfg
+
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
 def file_sha256(filename) -> str:
@@ -91,7 +96,7 @@ class PersistentInf(_BaseInf):
 
 
 class OtaClient:
-    MOUNT_POINT = Path("/mnt/standby")
+    MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
 
     def __init__(self):
         self._ota_status = OtaStatusControl()

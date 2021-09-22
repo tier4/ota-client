@@ -5,8 +5,13 @@ import shlex
 import tempfile
 import shutil
 from pathlib import Path
+from logging import getLogger
 
 from grub_control import GrubControl
+import configs as cfg
+
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
 class OtaPartition:
@@ -16,8 +21,8 @@ class OtaPartition:
     device_file means: /dev/sda3
     """
 
-    BOOT_DIR = Path("/boot")
-    BOOT_OTA_PARTITION_FILE = Path("ota-partition")
+    BOOT_DIR = cfg.BOOT_DIR  # Path("/boot")
+    BOOT_OTA_PARTITION_FILE = cfg.BOOT_OTA_PARTITION_FILE  # Path("ota-partition")
 
     def __init__(self):
         self._active_root_device_cache = None

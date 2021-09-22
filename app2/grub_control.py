@@ -4,6 +4,12 @@ import shlex
 import tempfile
 import shutil
 from pathlib import Path
+from logging import getLogger
+
+import configs as cfg
+
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
 class GrubCfgParser:
@@ -62,10 +68,10 @@ class GrubCfgParser:
 
 
 class GrubControl:
-    GRUB_CFG_FILE = Path("/boot/grub/grub.cfg")
-    CUSTOM_CFG_FILE = Path("/boot/grub/custom.cfg")
-    FSTAB_FILE = Path("/etc/fstab")
-    DEFAULT_GRUB_FILE = Path("/etc/default/grub")
+    GRUB_CFG_FILE = cfg.GRUB_CFG_FILE  # Path("/boot/grub/grub.cfg")
+    CUSTOM_CFG_FILE = cfg.CUSTOM_CFG_FILE  # Path("/boot/grub/custom.cfg")
+    FSTAB_FILE = cfg.FSTAB_FILE  # Path("/etc/fstab")
+    DEFAULT_GRUB_FILE = cfg.DEFAULT_GRUB_FILE  # Path("/etc/default/grub")
 
     def __init__(self):
         self._grub_cfg_file = GrubControl.GRUB_CFG_FILE

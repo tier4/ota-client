@@ -16,7 +16,7 @@ services:
       context: .
       dockerfile: ./docker/client/Dockerfile
     image: ota-client
-    command: python3 -m pytest tests2 --cov=app2
+    command: python3 -m pytest tests2 --cov=app2 -s
     container_name: ota-client
     volumes:
       - .:/ota-client

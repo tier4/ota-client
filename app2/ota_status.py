@@ -3,8 +3,13 @@ from pathlib import Path
 import subprocess
 import shlex
 import shutil
+from logging import getLogger
 
 from ota_partition import OtaPartitionFile
+import configs as cfg
+
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
 @unique

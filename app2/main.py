@@ -1,5 +1,11 @@
+from logging import getLogger
+
 import ota_client_stub
 import ota_client_service
+import configs as cfg
+
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 if __name__ == "__main__":
     ota_client_stub = OtaClientStub()
