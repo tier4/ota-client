@@ -288,7 +288,7 @@ class OtaClient:
 
         if reginf.nlink >= 2:
             # save hardlink path
-            hardlink_dict.setdefault(reginf.sha256hash, reginf.path)
+            hardlink_dict.setdefault(reginf.sha256hash, dst)
 
         # TODO:
         # 3. parallel download
