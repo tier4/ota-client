@@ -167,6 +167,7 @@ class OtaClient:
         def _requests_get():
             headers = {}
             headers["Accept-encording"] = "gzip"
+            # TODO: cookies=cookies is not tested yet.
             response = requests.get(url, headers=headers, cookies=cookies, timeout=10)
             # For 50x, especially 503, wait a few seconds and try again.
             if response.status_code / 100 == 5:
