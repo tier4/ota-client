@@ -259,14 +259,19 @@ class OtaClient:
         with Manager() as manager:
             hardlink_dict = manager.dict()
             with Pool() as pool:
-                self._create_regular_files_with_pool(
-                    url_base, cookies, standby_path, reginf_list, hardlink_dict, pool
+                self._create_regular_files_with_async(
+                    url_base,
+                    cookies,
+                    standby_path,
+                    reginf_list,
+                    hardlink_dict,
+                    pool.apply_async,
                 )
                 pool.close()
                 pool.join()
 
     def _create_regular_files_with_pool(
-        self, url_base, cookies, standby_path, reginf_list, hardlink_dict, pool
+        self, url_base, cookies, standby_path, reginf_list, hardlink_dict, async_call
     ):
         for reginf in reginf_list:
             if reginf.nlink >= 2 and hardlink_dict.get(reginf.sha256hash):
@@ -274,7 +279,7 @@ class OtaClient:
                     url_base, cookies, reginf, standby_path, hardlink_dict
                 )
             else:
-                pool.apply_async(
+                async_call(
                     self._create_regular_file,
                     (url_base, cookies, reginf, standby_path, hardlink_dict),
                 )
