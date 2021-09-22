@@ -8,6 +8,8 @@ import re
 import os
 import time
 from multiprocessing import Pool, Manager
+import subprocess
+import shlex
 
 from ota_status import OtaStatusControl
 from ota_metadata import OtaMetaData
@@ -363,8 +365,16 @@ class OtaClient:
         lines = open(list_file).read().splitlines()
         for l in lines:
             perinf = PersistentInf(l)
-            print(perinf.path)
-            # slink = standby_path.joinpath(slinkf.slink.relative_to("/"))
+            if (
+                perinf.path.is_file()
+                or perinf.path.is_dir()
+                or perinf.path.is_symlink()
+            ):  # NOTE: not equivalent to perinf.path.exists()
+                self._cp_cmd(perinf.path, standby_path)
+
+    def _cp_cmd(self, src, standby_path):
+        cmd = f"cp --parents -d -r -p {src} {standby_path}"
+        return subprocess.check_output(shlex.split(cmd)).decode().strip()
 
 
 if __name__ == "__main__":
