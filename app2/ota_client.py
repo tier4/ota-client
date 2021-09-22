@@ -130,7 +130,9 @@ class OtaClient:
         )
 
         # process persistent file
-        # TODO:
+        self._process_persistent(
+            url, cookies, metadata.get_persistent_info(), self._mount_point
+        )
 
         # leave update
         self._ota_status.leave_updating(self._mount_point)
@@ -233,7 +235,7 @@ class OtaClient:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
             self._download(url, cookies, file_name, list_info["hash"])
-            self._copy_presistent_files(standby_path)
+            self._copy_persistent_files(file_name, standby_path)
 
     def _create_directories(self, list_file, standby_path):
         lines = open(list_file).read().splitlines()
@@ -357,9 +359,12 @@ class OtaClient:
 
         processed_list.append(True)
 
-    def _copy_persistent_files(self, standby_path):
-        # TODO
-        pass
+    def _copy_persistent_files(self, list_file, standby_path):
+        lines = open(list_file).read().splitlines()
+        for l in lines:
+            perinf = PersistentInf(l)
+            print(perinf.path)
+            # slink = standby_path.joinpath(slinkf.slink.relative_to("/"))
 
 
 if __name__ == "__main__":
