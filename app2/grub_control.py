@@ -146,11 +146,35 @@ class GrubControl:
         """
         active_uuid = self._get_uuid(active_device)
         standby_uuid = self._get_uuid(standby_device)
-        fstab = open(self._fstab_file).read()
-        replaced = fstab.replace(active_uuid, standby_uuid)
+
+        fstab_active = open(self._fstab_file).readlines()  # active partition fstab
+
+        # standby partition fstab (to be merged)
+        fstab_standby = open(mount_point / "etc" / "fstab").readlines()
+
+        fstab_standby_dict = {}
+        for line in fstab_standby:
+            if not line.startswith("#") and not line.startswith("\n"):
+                path = line.split()[1]
+                fstab_standby_dict[path] = line
+
+        # merge entries
+        merged = []
+        for line in fstab_active:
+            if line.startswith("#") or line.startswith("\n"):
+                merged.append(line)
+            else:
+                path = line.split()[1]
+                if path in fstab_standby_dict.keys():
+                    merged.append(fstab_standby_dict[path])
+                    del fstab_standby_dict[path]
+                else:
+                    merged.append(line.replace(active_uuid, standby_uuid))
+        for v in fstab_standby_dict.values():
+            merged.append(v)
 
         with open(mount_point / "etc" / "fstab", "w") as f:
-            f.write(replaced)
+            f.writelines(merged)
 
     def get_booted_vmlinuz_and_uuid(self):
         cmdline = self._get_cmdline()
