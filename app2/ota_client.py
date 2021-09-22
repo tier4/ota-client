@@ -258,6 +258,11 @@ class OtaClient:
         reginf_list = [RegularInf(l) for l in lines]
         with Manager() as manager:
             hardlink_dict = manager.dict()
+            error_queue = manager.queue()
+
+            def error_callback(e):
+                error_queue.put(e)
+
             with Pool() as pool:
                 self._create_regular_files_with_async(
                     url_base,
@@ -266,12 +271,20 @@ class OtaClient:
                     reginf_list,
                     hardlink_dict,
                     pool.apply_async,
+                    error_callback,
                 )
                 pool.close()
                 pool.join()
 
-    def _create_regular_files_with_pool(
-        self, url_base, cookies, standby_path, reginf_list, hardlink_dict, async_call
+    def _create_regular_files_with_async(
+        self,
+        url_base,
+        cookies,
+        standby_path,
+        reginf_list,
+        hardlink_dict,
+        async_call,
+        error_callback,
     ):
         for reginf in reginf_list:
             if reginf.nlink >= 2 and hardlink_dict.get(reginf.sha256hash):
@@ -282,6 +295,7 @@ class OtaClient:
                 async_call(
                     self._create_regular_file,
                     (url_base, cookies, reginf, standby_path, hardlink_dict),
+                    error_callback=error_callback,
                 )
 
     def _create_regular_file(
