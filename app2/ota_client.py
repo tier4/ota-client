@@ -7,6 +7,7 @@ import urllib.parse
 import re
 import os
 import time
+from multiprocessing import Pool, Manager
 
 from ota_status import OtaStatusControl
 from ota_metadata import OtaMetaData
@@ -235,35 +236,47 @@ class OtaClient:
             self._copy_presistent_files(standby_path)
 
     def _create_directories(self, list_file, standby_path):
-        with open(list_file) as f:
-            for l in f.read().splitlines():
-                dirinf = DirectoryInf(l)
-                target_path = standby_path.joinpath(dirinf.path.relative_to("/"))
-                target_path.mkdir(mode=dirinf.mode, parents=True, exist_ok=True)
-                os.chown(target_path, dirinf.uid, dirinf.gid)
-                os.chmod(target_path, dirinf.mode)
+        lines = open(list_file).read().splitlines()
+        for l in lines:
+            dirinf = DirectoryInf(l)
+            target_path = standby_path.joinpath(dirinf.path.relative_to("/"))
+            target_path.mkdir(mode=dirinf.mode, parents=True, exist_ok=True)
+            os.chown(target_path, dirinf.uid, dirinf.gid)
+            os.chmod(target_path, dirinf.mode)
 
     def _create_symbolic_links(self, list_file, standby_path):
-        with open(list_file) as f:
-            for l in f.read().splitlines():
-                # NOTE: symbolic link in /boot directory is not supported. We don't use it.
-                slinkf = SymbolicLinkInf(l)
-                slink = standby_path.joinpath(slinkf.slink.relative_to("/"))
-                slink.symlink_to(slinkf.srcpath)
-                os.chown(
-                    slink,
-                    slinkf.uid,
-                    slinkf.gid,
-                    follow_symlinks=False,
-                )
+        lines = open(list_file).read().splitlines()
+        for l in lines:
+            # NOTE: symbolic link in /boot directory is not supported. We don't use it.
+            slinkf = SymbolicLinkInf(l)
+            slink = standby_path.joinpath(slinkf.slink.relative_to("/"))
+            slink.symlink_to(slinkf.srcpath)
+            os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
 
     def _create_regular_files(self, url_base, cookies, list_file, standby_path):
-        with open(list_file) as f:
-            hardlink_dict = {}
-            for l in f.read().splitlines():
-                reginf = RegularInf(l)
+        lines = open(list_file).read().splitlines()
+        reginf_list = [RegularInf(l) for l in lines]
+        with Manager() as manager:
+            hardlink_dict = manager.dict()
+            with Pool() as pool:
+                self._create_regular_files_with_pool(
+                    url_base, cookies, standby_path, reginf_list, hardlink_dict, pool
+                )
+                pool.close()
+                pool.join()
+
+    def _create_regular_files_with_pool(
+        self, url_base, cookies, standby_path, reginf_list, hardlink_dict, pool
+    ):
+        for reginf in reginf_list:
+            if reginf.nlink >= 2 and hardlink_dict.get(reginf.sha256hash):
                 self._create_regular_file(
                     url_base, cookies, reginf, standby_path, hardlink_dict
+                )
+            else:
+                pool.apply_async(
+                    self._create_regular_file,
+                    (url_base, cookies, reginf, standby_path, hardlink_dict),
                 )
 
     def _create_regular_file(
@@ -290,8 +303,6 @@ class OtaClient:
             # save hardlink path
             hardlink_dict.setdefault(reginf.sha256hash, dst)
 
-        # TODO:
-        # 3. parallel download
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
 
