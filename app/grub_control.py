@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import re
 import os
+import stat
 import platform
 import shlex
 import shutil
@@ -234,6 +235,16 @@ class GrubCtl:
         return True
 
     def gen_next_bank_fstab(self, dest: Path):
+        dest_fstab_dict = {}
+        for l in open(dest).readlines():
+            if l[0] == "#" or l == "\n":
+                continue
+            fstab_list = l.split()
+            if fstab_list[1] in ["/", "/boot", "/boot/efi"]:
+                # ignore
+                continue
+            dest_fstab_dict[fstab_list[1]] = l
+        logger.info(f"dest_fstab_dict: {dest_fstab_dict}")
 
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as fout:
             tmp_file = fout.name
@@ -266,13 +277,23 @@ class GrubCtl:
                         else:
                             raise Exception("root device mismatch in fstab.")
                         fout.write(lnext)
+                    elif fstab_list[1] in dest_fstab_dict.keys():
+                        fout.write(dest_fstab_dict[fstab_list[1]])
+                        del dest_fstab_dict[fstab_list[1]]
                     else:
                         fout.write(l)
+            # rest of dest_fstab_dict
+            logger.info(f"rest of fstab: {dest_fstab_dict}")
+            for v in dest_fstab_dict.values():
+                fout.write(v)
 
         # replace to new fstab file
+        st = os.stat(dest, follow_symlinks=False)
         if dest.is_file():
             shutil.move(dest, dest.with_suffix(dest.suffix + ".old"))
         shutil.move(tmp_file, dest)
+        os.chown(dest, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
+        os.chmod(dest, st[stat.ST_MODE])
 
         return True
 
