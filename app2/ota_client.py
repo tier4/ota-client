@@ -12,6 +12,11 @@ from ota_status import OtaStatusControl
 from ota_metadata import OtaMetaData
 
 
+def file_sha256(filename) -> str:
+    with open(filename, "rb") as f:
+        return sha256(f.read()).hexdigest()
+
+
 class _BaseInf:
     _base_pattern = re.compile(
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
@@ -254,22 +259,39 @@ class OtaClient:
 
     def _create_regular_files(self, url_base, cookies, list_file, standby_path):
         with open(list_file) as f:
+            hardlink_dict = {}
             for l in f.read().splitlines():
                 reginf = RegularInf(l)
-                self._create_regular_file(url_base, cookies, reginf, standby_path)
+                self._create_regular_file(
+                    url_base, cookies, reginf, standby_path, hardlink_dict
+                )
 
-    def _create_regular_file(self, url_base, cookies, reginf, standby_path):
+    def _create_regular_file(
+        self, url_base, cookies, reginf, standby_path, hardlink_dict
+    ):
         url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
         if str(reginf.path).startswith("/boot"):
             boot_standby_path = self._ota_status.get_standby_boot_partition_path()
             dst = boot_standby_path / reginf.path.name
         else:
             dst = standby_path / reginf.path.relative_to("/")
+
+        hardlink_path = hardlink_dict.get(reginf.sha256hash)
+        if hardlink_path:
+            # link file
+            hardlink_path.link_to(dst)
+        elif reginf.path.is_file() and file_sha256(reginf.path) == reginf.sha256hash:
+            # copy file form active bank if hash is the same
+            shutil.copy(reginf.path, dst)
+        else:
+            self._download(url, cookies, dst, reginf.sha256hash)
+
+        if reginf.nlink >= 2:
+            # save hardlink path
+            hardlink_dict.setdefault(reginf.sha256hash, reginf.path)
+
         # TODO:
-        # 1. copy file form active bank if hash is the same
         # 3. parallel download
-        # 4. support hardlink
-        self._download(url, cookies, dst, reginf.sha256hash)
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
 
