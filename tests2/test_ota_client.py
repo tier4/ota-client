@@ -1,34 +1,12 @@
 import os
 import pytest
+from pathlib import Path
 
-from tests2.grub_cfg_params import (
-    grub_cfg_params,
-    grub_cfg_custom_cfg_params,
-    grub_cfg_wo_submenu,
-    UUID_A,
-    UUID_B,
-)
+test_dir = Path(__file__).parent
 
-custom_cfg = """\
-menuentry 'Ubuntu, with Linux 5.4.0-73-generic' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.4.0-73-generic-advanced-01234567-0123-0123-0123-0123456789ab' {
-	recordfail
-	load_video
-	gfxmode $linux_gfx_mode
-	insmod gzio
-	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
-	insmod part_gpt
-	insmod ext2
-	set root='hd0,gpt2'
-	if [ x$feature_platform_search_hint = xy ]; then
-	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,gpt2 --hint-efi=hd0,gpt2 --hint-baremetal=ahci0,gpt2  ad35fc7d-d90f-4a98-84ae-fd65aff1f535
-	else
-	  search --no-floppy --fs-uuid --set=root ad35fc7d-d90f-4a98-84ae-fd65aff1f535
-	fi
-	echo	'Loading Linux 5.4.0-73-generic ...'
-	linux	/vmlinuz-ota.standby root=UUID=76543210-3210-3210-3210-ba9876543210 ro  quiet splash $vt_handoff
-	echo	'Loading initial ramdisk ...'
-	initrd	/initrd.img-ota.standby
-}"""
+grub_cfg_wo_submenu = open(test_dir / "grub.cfg.wo_submenu").read()
+custom_cfg = open(test_dir / "custom.cfg").read()
+
 
 FSTAB_DEV_DISK_BY_UUID = """\
 # /etc/fstab: static file system information.

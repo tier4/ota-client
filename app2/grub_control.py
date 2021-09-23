@@ -194,8 +194,6 @@ class GrubControl:
     def _find_menuentry(self, menus, uuid, vmlinuz):
         # NOTE: Only UUID sepcifier is supported.
         for menu in menus:
-            print(vmlinuz, uuid)
-            print(menu["linux"])
             if type(menu) is dict:
                 m = re.match(r"\s*linux\s+/(\S*)\s+root=UUID=(\S+)\s*", menu["linux"])
                 if m and m.group(1) == vmlinuz and m.group(2) == uuid:
@@ -228,7 +226,7 @@ class GrubControl:
         # booted vmlinuz and initrd.img
         vmlinuz, uuid = self.get_booted_vmlinuz_and_uuid()
         menuentry = self._find_menuentry(menus, uuid, vmlinuz)
-        return menuentry["entry"]
+        return f"{menuentry['entry']}\n"  # append newline
 
     def _update_menuentry(self, menuentry, standby_device, vmlinuz, initrd_img):
         uuid = self._get_uuid(standby_device)
