@@ -1,8 +1,8 @@
 from logging import getLogger
 
-import ota_client
-import ota_client_call
-import ecu_info
+from ota_client import OtaClient
+from ota_client_call import OtaClientCall
+from ecu_info import EcuInfo
 import configs as cfg
 
 logger = getLogger(__name__)
@@ -21,17 +21,22 @@ class OtaClientStub:
         # secondary ecus
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request, secondary)
+            entry = OtaClientStub._find_request(request.update_request_ecu, secondary)
             if entry:
                 r = self._ota_client_call.update(request, secondary["ip_addr"])
                 response.append(r)
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        entry = OtaClientStub._find_request(request, ecu_id)
+        entry = OtaClientStub._find_request(request.update_request_ecu, ecu_id)
         if entry:
-            r = self._ota_client.update(entry.version, entry.url, entry.signed_cookies)
-            response.append(r)
+            ret = 0  # FIXME
+            try:
+                self._ota_client.update(entry.version, entry.url, entry.cookies)
+            except:
+                ret = 1  # FIXME
+            finally:
+                response.append({"ecu_id": entry.ecu_id, "result": ret})
 
         return response
 
@@ -41,14 +46,14 @@ class OtaClientStub:
         # secondary ecus
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request, secondary)
+            entry = OtaClientStub._find_request(request.rollback_request_ecu, secondary)
             if entry:
                 r = self._ota_client_call.rollback(request, secondary["ip_addr"])
                 response.append(r)
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        entry = OtaClientStub._find_request(request, ecu_id)
+        entry = OtaClientStub._find_request(request.rollback_request_ecu, ecu_id)
         if entry:
             r = self._ota_client.rollback()
             response.append(r)
@@ -72,5 +77,5 @@ class OtaClientStub:
     def _find_request(update_request, ecu_id):
         for request in update_request:
             if request.ecu_id == ecu_id:
-                return ecu_id
+                return request
         return None

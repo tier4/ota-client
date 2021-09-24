@@ -30,6 +30,15 @@ service OtaClientService {
 }
 
 //
+// Common
+//
+enum Result {
+  OK = 0;
+  ERROR_OTA_STATUS = 1;
+  ERROR_UNKNOWN = 255;
+}
+
+//
 // Update
 //
 
@@ -38,17 +47,11 @@ message UpdateRequestEcu {
   string ecu_id = 1;
   string version = 2;
   string url = 3;
-  string cookies = 4;
+  string cookies = 4; // json
 }
 
 message UpdateRequest {
   repeated UpdateRequestEcu update_request_ecu = 1;
-}
-// Common
-enum Result {
-  OK = 0;
-  ERROR_OTA_STATUS = 1;
-  ERROR_UNKNOWN = 255;
 }
 
 // Response
