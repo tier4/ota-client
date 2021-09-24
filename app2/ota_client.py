@@ -110,6 +110,7 @@ class OtaClient:
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
+        logger.info(f"version={version}, url_base={url_base}, cookies={cookies}")
         # enter update
         self._ota_status.enter_updating(version, self._mount_point)
 

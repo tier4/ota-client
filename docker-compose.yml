@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: ./docker/server/Dockerfile
     image: ota-server
-    command: python3 -m http.server 8080
+    command: python3 -m http.server 8080 -d /
     container_name: ota-server
     ports:
       - 8080:8080
@@ -16,7 +16,7 @@ services:
       context: .
       dockerfile: ./docker/client/Dockerfile
     image: ota-client
-    command: python3 -m pytest tests2 --cov=app2
+    command: python3 -m pytest tests2 --cov=app2 --log-cli-level=INFO
     container_name: ota-client
     volumes:
       - .:/ota-client
