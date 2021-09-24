@@ -3,3 +3,4 @@ pytest-mock==3.6.1
 pytest-cov==2.12.1
 pytest-custom-exit-code==0.3.0
 black==21.6b0
+grpcio-tools==1.40.0
