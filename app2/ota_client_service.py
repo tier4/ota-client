@@ -21,21 +21,27 @@ class OtaClientServiceV2(grpc_v2.OtaClientServiceServicer):
         results = self._stub.update(request)
         response = v2.UpdateResponse()
         for result in results:
-            response_ecu = response.update_response_ecu.add()
-            response_ecu.ecu_id = result["ecu_id"]
-            response_ecu.result = result["result"]
+            res_ecu = response.ecu.add()
+            res_ecu.ecu_id = result["ecu_id"]
+            res_ecu.result = result["result"]
         return response
 
     def Rollback(self, request, context):
-        result = self._stub.rollback(request)
+        results = self._stub.rollback(request)
         response = v2.RollbackResponse()
-        response.result = result
+        for result in results:
+            res_ecu = response.ecu.add()
+            res_ecu.ecu_id = result["ecu_id"]
+            res_ecu.result = result["result"]
         return response
 
     def Status(self, request, context):
-        result = self._stub.status(request)
+        results = self._stub.status(request)
         response = v2.StatusResponse()
-        response.result = result
+        for result in results:
+            res_ecu = response.ecu.add()
+            res_ecu.ecu_id = result["ecu_id"]
+            res_ecu.result = result["result"]
         return response
 
     def service_start(self, port):
@@ -47,3 +53,6 @@ class OtaClientServiceV2(grpc_v2.OtaClientServiceServicer):
 
     def service_wait_for_termination(self):
         self._server.wait_for_termination()
+
+    def service_stop(self):
+        self._server.stop(None)

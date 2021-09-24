@@ -3,7 +3,8 @@ import pytest
 import grpc
 
 
-def test_ota_client_service_update(mocker):
+@pytest.fixture
+def start_service_with_ota_client_mock(mocker):
     from ota_client_service import OtaClientServiceV2
     from ota_client_stub import OtaClientStub
     from ota_client import OtaClient
@@ -17,16 +18,64 @@ def test_ota_client_service_update(mocker):
     ota_client_service = OtaClientServiceV2(ota_client_stub)
     ota_client_service.service_start("localhost:50051")
 
+    yield ota_client_mock
+
+    ota_client_service.service_stop()
+
+
+def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
+    import otaclient_v2_pb2 as v2
+    import otaclient_v2_pb2_grpc as v2_grpc
+
+    ota_client_mock = start_service_with_ota_client_mock
+
     with grpc.insecure_channel("localhost:50051") as channel:
         request = v2.UpdateRequest()
-        request_ecu = request.update_request_ecu.add()
-        request_ecu.ecu_id = "autoware"
-        request_ecu.version = "1.2.3.a"
-        request_ecu.url = "https://foo.bar.com/ota-data"
-        request_ecu.cookies = '{"test": "my data"}'
-        stub = v2_grpc.OtaClientServiceStub(channel)
-        results = stub.Update(request)
+        req_ecu = request.ecu.add()
+        req_ecu.ecu_id = "autoware"
+        req_ecu.version = "1.2.3.a"
+        req_ecu.url = "https://foo.bar.com/ota-data"
+        req_ecu.cookies = '{"test": "my data"}'
+        service = v2_grpc.OtaClientServiceStub(channel)
+        response = service.Update(request)
+
+        resopnse_exp = v2.UpdateResponse()
+        res_ecu = resopnse_exp.ecu.add()
+        res_ecu.ecu_id = "autoware"
+        res_ecu.result = v2.Result.OK
+        # TODO:
+        # assert results
 
     ota_client_mock.update.assert_called_once_with(
         "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}'
     )
+
+
+def test_ota_client_service_rollback(mocker, start_service_with_ota_client_mock):
+    import otaclient_v2_pb2 as v2
+    import otaclient_v2_pb2_grpc as v2_grpc
+
+    ota_client_mock = start_service_with_ota_client_mock
+
+    with grpc.insecure_channel("localhost:50051") as channel:
+        request = v2.RollbackRequest()
+        ecu = request.ecu.add()
+        ecu.ecu_id = "autoware"
+        service = v2_grpc.OtaClientServiceStub(channel)
+        results = service.Rollback(request)
+
+    ota_client_mock.rollback.assert_called_once()
+
+
+def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
+    import otaclient_v2_pb2 as v2
+    import otaclient_v2_pb2_grpc as v2_grpc
+
+    ota_client_mock = start_service_with_ota_client_mock
+
+    with grpc.insecure_channel("localhost:50051") as channel:
+        request = v2.StatusRequest()
+        service = v2_grpc.OtaClientServiceStub(channel)
+        results = service.Status(request)
+
+    ota_client_mock.status.assert_called_once()

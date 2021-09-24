@@ -21,14 +21,14 @@ class OtaClientStub:
         # secondary ecus
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request.update_request_ecu, secondary)
+            entry = OtaClientStub._find_request(request.ecu, secondary)
             if entry:
                 r = self._ota_client_call.update(request, secondary["ip_addr"])
                 response.append(r)
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        entry = OtaClientStub._find_request(request.update_request_ecu, ecu_id)
+        entry = OtaClientStub._find_request(request.ecu, ecu_id)
         if entry:
             ret = 0  # FIXME
             try:
@@ -46,17 +46,23 @@ class OtaClientStub:
         # secondary ecus
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request.rollback_request_ecu, secondary)
+            entry = OtaClientStub._find_request(request.ecu, secondary)
             if entry:
                 r = self._ota_client_call.rollback(request, secondary["ip_addr"])
                 response.append(r)
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        entry = OtaClientStub._find_request(request.rollback_request_ecu, ecu_id)
+        entry = OtaClientStub._find_request(request.ecu, ecu_id)
         if entry:
-            r = self._ota_client.rollback()
-            response.append(r)
+            ret = 0  # FIXME
+            try:
+                self._ota_client.rollback()
+            except:
+                ret = 1  # FIXME
+            finally:
+                response.append({"ecu_id": entry.ecu_id, "result": ret})
+
         return response
 
     def status(self, request):
@@ -69,8 +75,15 @@ class OtaClientStub:
             response.append(r)
 
         # my ecu
-        r = self._ota_client.status()
-        response.append(r)
+        ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
+        ret = 0  # FIXME
+        try:
+            self._ota_client.status()
+        except:
+            ret = 1  # FIXME
+        finally:
+            response.append({"ecu_id": ecu_id, "result": ret})
+
         return response
 
     @staticmethod

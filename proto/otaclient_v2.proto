@@ -51,7 +51,7 @@ message UpdateRequestEcu {
 }
 
 message UpdateRequest {
-  repeated UpdateRequestEcu update_request_ecu = 1;
+  repeated UpdateRequestEcu ecu = 1;
 }
 
 // Response
@@ -61,7 +61,7 @@ message UpdateResponseEcu {
 }
 
 message UpdateResponse {
-  repeated UpdateResponseEcu update_response_ecu = 1;
+  repeated UpdateResponseEcu ecu = 1;
 }
 
 //
@@ -71,13 +71,10 @@ message UpdateResponse {
 // Request
 message RollbackRequestEcu {
   string ecu_id = 1;
-  string version = 2;
-  string url = 3;
-  string cookies = 4;
 }
 
 message RollbackRequest {
-  repeated RollbackRequestEcu rollback_request_ecu = 1;
+  repeated RollbackRequestEcu ecu = 1;
 }
 
 // Response
@@ -87,33 +84,58 @@ message RollbackResponseEcu {
 }
 
 message RollbackResponse {
-  repeated RollbackResponseEcu rollback_response_ecu = 1;
+  repeated RollbackResponseEcu ecu = 1;
 }
 
 //
 // Status
 //
-
 // Request
-message StatusRequestEcu {
-  string ecu_id = 1;
-  string version = 2;
-  string url = 3;
-  string cookies = 4;
-}
-
 message StatusRequest {
-  repeated StatusRequestEcu status_request_ecu = 1;
 }
 
 // Response
+enum StatusOta {
+    INITIALIZED = 0;
+    SUCCESS = 1;
+    FAILURE = 2;
+    UPDATING = 3;
+    ROLLBACKING = 4;
+    ROLLBACK_FAILURE = 5;
+}
+
+enum StatusFailure {
+    RECOVERABLE = 0;
+    UNRECOVERABLE = 1;
+}
+
+enum StatusProgressPhase {
+    METADATA = 0;
+    DIRECTORY = 1;
+    SYMLINK = 2;
+    REGULAR = 3;
+    PERSISTENT = 4;
+    REBOOT = 5;
+}
+
+message StatusProgress {
+    StatusProgressPhase phase = 1;
+    uint32 total_number_of_regular_files = 2;
+    uint32 number_of_regular_files_processed = 3;
+}
+
 message StatusResponseEcu {
   string ecu_id = 1;
   Result result = 2;
+  StatusOta status = 3;
+  StatusFailure failure = 4;
+  string failure_reason = 5;
+  string version = 6;
+  StatusProgress progress = 7;
 }
 
 message StatusResponse {
-  repeated StatusResponseEcu status_response_ecu = 1;
+  repeated StatusResponseEcu ecu = 1;
 }
 
 
