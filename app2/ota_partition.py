@@ -219,9 +219,9 @@ class OtaPartitionFile(OtaPartition):
             mount_path, active_root_device, standby_root_device
         )
 
-    def create_custom_cfg_and_reboot(self):
+    def create_custom_cfg_and_reboot(self, rollback=False):
         standby_root_device = self.get_standby_boot_device()
-        vmlinuz_file, initrd_img_file = self._create_standby_boot_kernel_files()
+        vmlinuz_file, initrd_img_file = self._create_standby_boot_kernel_files(rollback)
         self._grub_control.create_custom_cfg_and_reboot(
             standby_root_device, vmlinuz_file, initrd_img_file
         )
@@ -232,26 +232,38 @@ class OtaPartitionFile(OtaPartition):
 
     """ private functions from here """
 
-    def _create_standby_boot_kernel_files(self):
+    def _create_standby_boot_kernel_files(self, rollback=False):
         device = self.get_standby_boot_device()
         standby_path = self._boot_ota_partition_file.with_suffix(f".{device}")
         path = self._boot_dir / standby_path
 
-        # find vmlinuz-* under /boot/ota-partition.{standby}
-        vmlinuz_list = list(path.glob("vmlinuz-*"))
-        if len(vmlinuz_list) != 1:
-            raise ValueError(f"unintended vmlinuz list={vmlinuz_list}")
-        # create symbolic link vmlinuz-ota -> vmlinuz-* under /boot/ota-partition.{standby}
-        # NOTE: standby boot partition is cleaned-up when updating
-        (path / "vmlinuz-ota").symlink_to(vmlinuz_list[0].name)
+        if rollback:
+            # read vmlinuz-ota link
+            link = os.readlink(path / "vmlinuz-ota")
+            link_path = Path(path / link)
+            if not link_path.is_file() or link_path.is_symlink():
+                raise ValueError(f"unintended vmlinuz-ota link {link_path}")
+            # read intrd.img-ota link
+            link = os.readlink(path / "initrd.img-ota")
+            link_path = Path(path / link)
+            if not link_path.is_file() or link_path.is_symlink():
+                raise ValueError(f"unintended initrd.img-ota link {link_path}")
+        else:
+            # find vmlinuz-* under /boot/ota-partition.{standby}
+            vmlinuz_list = list(path.glob("vmlinuz-*"))
+            if len(vmlinuz_list) != 1:
+                raise ValueError(f"unintended vmlinuz list={vmlinuz_list}")
+            # create symbolic link vmlinuz-ota -> vmlinuz-* under /boot/ota-partition.{standby}
+            # NOTE: standby boot partition is cleaned-up when updating
+            (path / "vmlinuz-ota").symlink_to(vmlinuz_list[0].name)
 
-        # find initrd.img-* under /boot/ota-partition.{standby}
-        initrd_img_list = list(path.glob("initrd.img-*"))
-        if len(initrd_img_list) != 1:
-            raise ValueError(f"unintended initrd.img list={initrd_img_list}")
-        # create symbolic link initrd.img-ota -> initrd.img-* under /boot/ota-partition.{standby}
-        # NOTE: standby boot partition is cleaned-up when updating
-        (path / "initrd.img-ota").symlink_to(initrd_img_list[0].name)
+            # find initrd.img-* under /boot/ota-partition.{standby}
+            initrd_img_list = list(path.glob("initrd.img-*"))
+            if len(initrd_img_list) != 1:
+                raise ValueError(f"unintended initrd.img list={initrd_img_list}")
+            # create symbolic link initrd.img-ota -> initrd.img-* under /boot/ota-partition.{standby}
+            # NOTE: standby boot partition is cleaned-up when updating
+            (path / "initrd.img-ota").symlink_to(initrd_img_list[0].name)
 
         vmlinuz_file = "vmlinuz-ota.standby"
         initrd_img_file = "initrd.img-ota.standby"

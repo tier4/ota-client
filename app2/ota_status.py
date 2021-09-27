@@ -55,9 +55,8 @@ class OtaStatusControl:
         self._ota_partition.create_custom_cfg_and_reboot()
 
     def enter_rollbacking(self):
-        # FIXME: not implemented yet
         # check status
-        if self.ota_status not in [
+        if self._ota_status not in [
             OtaStatus.SUCCESS,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
@@ -68,8 +67,7 @@ class OtaStatusControl:
         self._ota_partition.store_standby_ota_status(OtaStatus.ROLLBACKING.name)
 
     def leave_rollbacking(self):
-        # FIXME: not implemented yet
-        self._grub_control.create_custom_cfg_and_reboot()
+        self._ota_partition.create_custom_cfg_and_reboot(rollback=True)
 
     """ private functions from here """
 
@@ -78,7 +76,7 @@ class OtaStatusControl:
         if status_string == "":
             self._ota_partition.store_standby_ota_status(OtaStatus.INITIALIZED.name)
             return OtaStatus.INITIALIZED
-        if status_string == OtaStatus.UPDATING.name:
+        if status_string in [OtaStatus.UPDATING.name, OtaStatus.ROLLBACKING.name]:
             if self._ota_partition.is_switching_boot_partition_from_active_to_standby():
                 self._ota_partition.store_active_ota_status(OtaStatus.SUCCESS.name)
                 self._ota_partition.update_grub_cfg()
