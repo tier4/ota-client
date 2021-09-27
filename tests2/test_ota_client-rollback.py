@@ -272,5 +272,6 @@ def test_ota_client_rollback_post_process(mocker, tmp_path):
     assert open(boot_dir / "ota-partition.sdx3" / "status").read() == "SUCCESS"
     assert ota_client._ota_status.get_ota_status() == OtaStatus.SUCCESS
 
+    # TODO:
     # assert /etc/default/grub is updated
     # assert /boot/grub/grub.cfg is updated
