@@ -10,6 +10,7 @@ import time
 from multiprocessing import Pool, Manager
 import subprocess
 import shlex
+from enum import Enum, unique
 from logging import getLogger
 
 from ota_status import OtaStatusControl
@@ -96,14 +97,69 @@ class PersistentInf(_BaseInf):
         self.path = Path(self.de_escape(info[1:-1]))
 
 
+@unique
+class OtaClientResult(Enum):
+    OK = 0
+    RECOVERABLE = 1
+    UNRECOVERABLE = 2
+
+
 class OtaClient:
     MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
 
     def __init__(self):
         self._ota_status = OtaStatusControl()
         self._mount_point = OtaClient.MOUNT_POINT
+        self._failure_type = OtaClientResult.OK
+        self._failure_reason = ""
 
     def update(self, version, url_base, cookies):
+        try:
+            self._update(version, url_base, cookies)
+            return OtaClientResult.OK
+        except OtaErrorRecoverable as e:
+            logger.exception(e)
+            self._failure_type = OtaClientResult.RECOVERABLE
+            self._failure_reason = str(e)
+            return OtaClientResult.RECOVERABLE
+        except (OtaErrorUnrecoverable, Exception) as e:
+            logger.exception(e)
+            self._failure_type = OtaClientResult.UNRECOVERABLE
+            self._failure_reason = str(e)
+            return OtaClientResult.UNRECOVERABLE
+
+    def rollback(self):
+        try:
+            self._rollback()
+            return OtaClientResult.OK
+        except OtaErrorRecoverable as e:
+            logger.exception(e)
+            self._failure_type = OtaClientResult.RECOVERABLE
+            self._failure_reason = str(e)
+            return OtaClientResult.RECOVERABLE
+        except (OtaErrorUnrecoverable, Exception) as e:
+            logger.exception(e)
+            self._failure_type = OtaClientResult.UNRECOVERABLE
+            self._failure_reason = str(e)
+            return OtaClientResult.UNRECOVERABLE
+
+    def status(self):
+        try:
+            self._status(version, url_base, cookies)
+            return OtaClientResult.OK
+        except OtaErrorRecoverable as e:
+            logger.exception(e)
+            self._failure_type = OtaClientResult.RECOVERABLE
+            self._failure_reason = str(e)
+        except (OtaErrorUnrecoverable, Exception) as e:
+            logger.exception(e)
+            self._failure_type = OtaClientResult.UNRECOVERABLE
+            self._failure_reason = str(e)
+            return OtaClientResult.UNRECOVERABLE
+
+    """ private functions from here """
+
+    def _update(self, version, url_base, cookies):
         """
         cookies = {
             "CloudFront-Policy": "eyJTdGF0ZW1lbnQ...",
@@ -146,13 +202,13 @@ class OtaClient:
         # leave update
         self._ota_status.leave_updating(self._mount_point)
 
-    def rollback(self):
+    def _rollback(self):
         # enter rollback
         self._ota_status.enter_rollbacking()
         # leave rollback
         self._ota_status.leave_rollbacking()
 
-    def status(self):
+    def _status(self):
         return {
             "status": self._ota_status.get_status(),
             "failure_type": self._ota_status.get_failure_type(),
@@ -167,8 +223,6 @@ class OtaClient:
                 "phase": "",
             },
         }
-
-    """ private functions from here """
 
     def _download(self, url, cookies, dst, digest, retry=5):
         def _requests_get():

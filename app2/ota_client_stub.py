@@ -1,6 +1,6 @@
 from logging import getLogger
 
-from ota_client import OtaClient
+from ota_client import OtaClient, OtaClientResult
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
 import configs as cfg
@@ -30,13 +30,8 @@ class OtaClientStub:
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
         entry = OtaClientStub._find_request(request.ecu, ecu_id)
         if entry:
-            ret = 0  # FIXME
-            try:
-                self._ota_client.update(entry.version, entry.url, entry.cookies)
-            except:
-                ret = 1  # FIXME
-            finally:
-                response.append({"ecu_id": entry.ecu_id, "result": ret})
+            result = self._ota_client.update(entry.version, entry.url, entry.cookies)
+            response.append({"ecu_id": entry.ecu_id, "result": result.value})
 
         return response
 
@@ -55,13 +50,8 @@ class OtaClientStub:
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
         entry = OtaClientStub._find_request(request.ecu, ecu_id)
         if entry:
-            ret = 0  # FIXME
-            try:
-                self._ota_client.rollback()
-            except:
-                ret = 1  # FIXME
-            finally:
-                response.append({"ecu_id": entry.ecu_id, "result": ret})
+            result = self._ota_client.rollback()
+            response.append({"ecu_id": entry.ecu_id, "result": result.value})
 
         return response
 
@@ -76,13 +66,8 @@ class OtaClientStub:
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        ret = 0  # FIXME
-        try:
-            self._ota_client.status()
-        except:
-            ret = 1  # FIXME
-        finally:
-            response.append({"ecu_id": ecu_id, "result": ret})
+        result = self._ota_client.status()
+        response.append({"ecu_id": ecu_id, "result": result.value})
 
         return response
 
