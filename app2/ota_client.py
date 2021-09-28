@@ -14,6 +14,7 @@ from logging import getLogger
 
 from ota_status import OtaStatusControl
 from ota_metadata import OtaMetaData
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
 
 logger = getLogger(__name__)
@@ -188,7 +189,9 @@ class OtaClient:
             except Exception as e:
                 count += 1
                 if count == retry:
-                    raise
+                    logger.exception(e)
+                    # TODO: timeout or status_code information
+                    raise OtaErrorRecoverable("requests error")
 
         with open(dst, "wb") as f:
             m = sha256()
@@ -206,7 +209,7 @@ class OtaClient:
 
         calc_digest = m.hexdigest()
         if digest and digest != calc_digest:
-            raise ValueError(f"hash error: act={calc_digest}, exp={digest}")
+            raise OtaErrorRecoverable(f"hash error: act={calc_digest}, exp={digest}")
 
     def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
