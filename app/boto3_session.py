@@ -82,7 +82,7 @@ class Boto3Session:
         logger.info(f"url: {url}, headers: {headers}")
         try:
             response = requests.get(
-                url, cert=(self._cert, self._private_key), headers=headers
+                url, verify=self._ca_cert, cert=(self._cert, self._private_key), headers=headers
             )
             response.raise_for_status()
         except requests.exceptions.RequestException:
