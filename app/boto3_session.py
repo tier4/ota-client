@@ -5,14 +5,16 @@ import botocore.session
 import boto3
 import re
 import logging
+import datetime
+from pytz import utc
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class Boto3Session:
-    def __init__(self, config: str, credential_provider_endpoint: str, role_alias: str):
-        cfg = Boto3Session.parse_config(config)
+    def __init__(self, greengrass_config: str, credential_provider_endpoint: str, role_alias: str):
+        cfg = Boto3Session.parse_config(greengrass_config)
 
         self._ca_cert = cfg.get("ca_cert")
         self._cert = cfg.get("cert")
@@ -60,11 +62,11 @@ class Boto3Session:
         }
 
     # session is automatically refreshed
-    def get_session(self):
-        # https://github.com/boto/botocore/blob/f1d41183e0fad31301ad7331a8962e3af6359a22/botocore/credentials.py#L368
+    def get_session(self, session_duration: "sec" = ""):
+        # ref: https://github.com/boto/botocore/blob/f1d41183e0fad31301ad7331a8962e3af6359a22/botocore/credentials.py#L368
         session_credentials = botocore.credentials.RefreshableCredentials.create_from_metadata(
-            metadata=self._refresh_credentials(),
-            refresh_using=self._refresh_credentials,
+            metadata=self._refresh(session_duration),
+            refresh_using=self._refresh,
             method="sts-assume-role",
         )
         session = botocore.session.get_session()
@@ -73,8 +75,8 @@ class Boto3Session:
 
         return boto3.Session(botocore_session=session)
 
-    def _refresh_credentials(self) -> dict:
-        # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sts.html
+    def _refresh(self, session_duration: "sec" = "") -> dict:
+        # ref: https://docs.aws.amazon.com/ja_jp/iot/latest/developerguide/authorizing-direct-aws.html
         url = f"https://{self._credential_provider_endpoint}/role-aliases/{self._role_alias}/credentials"
         headers = {"x-amzn-iot-thingname": self._thing_name}
         logger.info(f"url: {url}, headers: {headers}")
@@ -93,10 +95,18 @@ class Boto3Session:
             logger.exception(f"invalid response: resp={response.text}")
             raise
 
+        expiry_time = body.get("credentials", {}).get("expiration")
+        if session_duration != "":
+            now = datetime.datetime.now(tz=utc)
+            new_expiry_time = now + datetime.timedelta(seconds=float(session_duration))
+            expiry_time = new_expiry_time.isoformat(timespec="seconds")
+
+        logger.info(f"session is refreshed: expiry_time: {expiry_time}")
+
         credentials = {
             "access_key": body.get("credentials", {}).get("accessKeyId"),
             "secret_key": body.get("credentials", {}).get("secretAccessKey"),
             "token": body.get("credentials", {}).get("sessionToken"),
-            "expiry_time": body.get("credentials", {}).get("expiration"),
+            "expiry_time": expiry_time,
         }
         return credentials

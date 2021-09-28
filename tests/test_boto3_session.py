@@ -19,7 +19,7 @@ class TestBoto3Session:
         requests.raise_for_status = mocker.MagicMock()
 
         session = Boto3Session("./testdata/greengrass/config.json", "https://example.com", "example_role_alias")
-        got_credential = session._refresh_credentials()
+        got_credential = session._refresh()
         want_credential = {
             "access_key": "123",
             "secret_key": "abc",
