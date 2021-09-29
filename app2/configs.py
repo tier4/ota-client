@@ -35,5 +35,6 @@ GRUB_CFG_FILE = GRUB_DIR / "grub.cfg"
 CUSTOM_CFG_FILE = GRUB_DIR / "custom.cfg"
 FSTAB_FILE = ETC_DIR / "fstab"
 DEFAULT_GRUB_FILE = ETC_DIR / "default/grub"
+ECU_INFO_FILE = BOOT_DIR / "ota" / "ecu_info.yaml"
 
 BOOT_OTA_PARTITION_FILE = Path("ota-partition")

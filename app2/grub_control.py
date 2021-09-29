@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from logging import getLogger
 
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
 
 logger = getLogger(__name__)
@@ -126,7 +127,7 @@ class GrubControl:
             uuid = self._get_uuid(device)
             number = self._count_menuentry(menus, uuid, default_vmlinuz)
             if number < 0:
-                raise ValueError(
+                raise OtaErrorUnrecoverable(
                     f"menuentry not found: UUID={uuid}, vmlinuz={default_vmlinuz}, menus={menus}"
                 )
 
@@ -212,7 +213,7 @@ class GrubControl:
                 if m and m.group(1) == vmlinuz and m.group(2) == uuid:
                     return i
             else:
-                raise ValueError("GRUB_DISABLE_SUBMENU=y should be set")
+                raise OtaErrorUnrecoverable("GRUB_DISABLE_SUBMENU=y should be set")
         return -1
 
     def _get_booted_menuentry(self):

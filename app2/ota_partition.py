@@ -8,6 +8,7 @@ from pathlib import Path
 from logging import getLogger
 
 from grub_control import GrubControl
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
 
 logger = getLogger(__name__)
@@ -58,7 +59,7 @@ class OtaPartition:
         elif active_boot_device == standby_root_device:
             return active_root_device
 
-        raise ValueError(
+        raise OtaErrorUnrecoverable(
             f"illegal active_boot_device={active_boot_device}, "
             f"active_boot_device={active_root_device}, "
             f"standby_root_device={standby_root_device}"
@@ -130,7 +131,7 @@ class OtaPartition:
                 and m.group(2) == "ext4"
             ):
                 return m.group(1)
-        raise ValueError(f"lsblk output={output} is illegal")
+        raise OtaErrorUnrecoverable(f"lsblk output={output} is illegal")
 
 
 class OtaPartitionFile(OtaPartition):
@@ -242,17 +243,19 @@ class OtaPartitionFile(OtaPartition):
             link = os.readlink(path / "vmlinuz-ota")
             link_path = Path(path / link)
             if not link_path.is_file() or link_path.is_symlink():
-                raise ValueError(f"unintended vmlinuz-ota link {link_path}")
+                raise OtaErrorUnrecoverable(f"unintended vmlinuz-ota link {link_path}")
             # read intrd.img-ota link
             link = os.readlink(path / "initrd.img-ota")
             link_path = Path(path / link)
             if not link_path.is_file() or link_path.is_symlink():
-                raise ValueError(f"unintended initrd.img-ota link {link_path}")
+                raise OtaErrorUnrecoverable(
+                    f"unintended initrd.img-ota link {link_path}"
+                )
         else:
             # find vmlinuz-* under /boot/ota-partition.{standby}
             vmlinuz_list = list(path.glob("vmlinuz-*"))
             if len(vmlinuz_list) != 1:
-                raise ValueError(f"unintended vmlinuz list={vmlinuz_list}")
+                raise OtaErrorUnrecoverable(f"unintended vmlinuz list={vmlinuz_list}")
             # create symbolic link vmlinuz-ota -> vmlinuz-* under /boot/ota-partition.{standby}
             # NOTE: standby boot partition is cleaned-up when updating
             (path / "vmlinuz-ota").symlink_to(vmlinuz_list[0].name)
@@ -260,7 +263,9 @@ class OtaPartitionFile(OtaPartition):
             # find initrd.img-* under /boot/ota-partition.{standby}
             initrd_img_list = list(path.glob("initrd.img-*"))
             if len(initrd_img_list) != 1:
-                raise ValueError(f"unintended initrd.img list={initrd_img_list}")
+                raise OtaErrorUnrecoverable(
+                    f"unintended initrd.img list={initrd_img_list}"
+                )
             # create symbolic link initrd.img-ota -> initrd.img-* under /boot/ota-partition.{standby}
             # NOTE: standby boot partition is cleaned-up when updating
             (path / "initrd.img-ota").symlink_to(initrd_img_list[0].name)
@@ -322,7 +327,7 @@ class OtaPartitionFile(OtaPartition):
         # version is retrieved from /proc/cmdline.
         def _check_is_regular(path):
             if not path.is_file() or path.is_symlink():
-                raise ValueError(f"unintended file type: path={path}")
+                raise OtaErrorUnrecoverable(f"unintended file type: path={path}")
 
         vmlinuz, _ = self._grub_control.get_booted_vmlinuz_and_uuid()
         m = re.match(r"vmlinuz-(.*)", vmlinuz)
