@@ -16,10 +16,11 @@ services:
       context: .
       dockerfile: ./docker/client/Dockerfile
     image: ota-client
-    command: python3 -m pytest tests2 --cov=app2 --log-cli-level=INFO
+    command: |
+      bash -c "cp -av /ota-client-origin/* /ota-client && python3 -m pytest tests2 --cov=app2 --log-cli-level=INFO"
     container_name: ota-client
     volumes:
-      - .:/ota-client
+      - .:/ota-client-origin:ro
     depends_on:
       - server
 
