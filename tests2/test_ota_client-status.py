@@ -48,6 +48,9 @@ def test_ota_client_status(mocker, tmp_path):
 
     # test start
     ota_client = OtaClient()
+    ota_client._total_regular_files = 99
+    ota_client._regular_files_processed = 1
+
     result, ota_status = ota_client.status()
     assert result == OtaClientResult.OK
     assert ota_status == {
@@ -55,12 +58,9 @@ def test_ota_client_status(mocker, tmp_path):
         "failure_type": "OK",
         "failure_reason": "",
         "version": "1.2.3",
-        "update_progress": {  # TODO
-            "phase": "",
-            "total_regular_files": 0,
-            "regular_files_processed": 0,
-        },
-        "rollback_progress": {  # TODO
-            "phase": "",
+        "update_progress": {
+            "phase": "INITIAL",
+            "total_regular_files": 99,
+            "regular_files_processed": 1,
         },
     }

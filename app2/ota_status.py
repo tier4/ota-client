@@ -31,6 +31,10 @@ class OtaStatusControl:
     def get_ota_status(self):
         return self._ota_status
 
+    def set_ota_status(self, ota_status):
+        self._ota_status = ota_status
+        self._ota_partition.store_standby_ota_status(ota_status.name)
+
     def get_version(self):
         return self._ota_partition.load_ota_version()
 
