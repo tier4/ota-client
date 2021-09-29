@@ -15,7 +15,7 @@ from enum import Enum, unique
 from logging import getLogger
 
 from ota_status import OtaStatusControl, OtaStatus
-from ota_metadata import OtaMetaData
+from ota_metadata import OtaMetadata
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
 
@@ -321,7 +321,7 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, "metadata.jwt")
             OtaClient._download(url, cookies, file_name, None)
             # TODO: verify metadata
-            return OtaMetaData(open(file_name, "r").read())
+            return OtaMetadata(open(file_name, "r").read())
 
     def _process_directory(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
