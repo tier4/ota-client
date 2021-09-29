@@ -298,13 +298,14 @@ class OtaClient:
 
                         pool.apply_async(
                             _create_regfile_func,
-                            reginf, prev_reginf, event=event, first_copy=first_copy,
+                            (reginf, prev_reginf), 
+                            {"event": event, "first_copy": first_copy},
                             error_callback=error_callback,
                         )
                     else:
                         pool.apply_async(
                             _create_regfile_func,
-                            reginf,
+                            (reginf,),
                             error_callback=error_callback,
                         )
                 
@@ -319,14 +320,16 @@ class OtaClient:
     def _create_regular_file(
         self,
         reginf: RegularInf,
-        prev_reginf: RegularInf,
+        prev_reginf: RegularInf=None,
         *,
+        # required options
         url_base: str,
         cookies: dict,
         standby_path: Path,
         processed_list,
+        # for hardlink file
         first_copy=True,
-        event,
+        event=None,
     ):
         ishardlink = reginf.nlink >= 2
 
