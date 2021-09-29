@@ -6,6 +6,7 @@ import shutil
 from logging import getLogger
 
 from ota_partition import OtaPartitionFile
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
 
 logger = getLogger(__name__)
@@ -30,6 +31,13 @@ class OtaStatusControl:
     def get_ota_status(self):
         return self._ota_status
 
+    def set_ota_status(self, ota_status):
+        self._ota_status = ota_status
+        self._ota_partition.store_standby_ota_status(ota_status.name)
+
+    def get_version(self):
+        return self._ota_partition.load_ota_version()
+
     def get_standby_boot_partition_path(self):
         return self._ota_partition.get_standby_boot_partition_path()
 
@@ -41,7 +49,7 @@ class OtaStatusControl:
             OtaStatus.FAILURE,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
-            raise ValueError(f"status={self.status} is illegal for update")
+            raise OtaErrorRecoverable(f"status={self.status} is illegal for update")
 
         self._ota_status = OtaStatus.UPDATING
 
@@ -60,7 +68,7 @@ class OtaStatusControl:
             OtaStatus.SUCCESS,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
-            raise ValueError(f"status={self.status} is illegal for rollback")
+            raise OtaErrorRecoverable(f"status={self.status} is illegal for rollback")
 
         self._ota_status = OtaStatus.ROLLBACKING
 

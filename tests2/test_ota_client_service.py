@@ -42,8 +42,10 @@ def start_service_with_ota_client_mock(mocker):
 def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
     import otaclient_v2_pb2 as v2
     import otaclient_v2_pb2_grpc as v2_grpc
+    from ota_client import OtaClientResult
 
     ota_client_mock = start_service_with_ota_client_mock
+    ota_client_mock.update.return_value = OtaClientResult.OK
 
     with grpc.insecure_channel("localhost:50051") as channel:
         request = v2.UpdateRequest()
@@ -70,8 +72,10 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
 def test_ota_client_service_rollback(mocker, start_service_with_ota_client_mock):
     import otaclient_v2_pb2 as v2
     import otaclient_v2_pb2_grpc as v2_grpc
+    from ota_client import OtaClientResult
 
     ota_client_mock = start_service_with_ota_client_mock
+    ota_client_mock.rollback.return_value = OtaClientResult.OK
 
     with grpc.insecure_channel("localhost:50051") as channel:
         request = v2.RollbackRequest()
@@ -86,8 +90,10 @@ def test_ota_client_service_rollback(mocker, start_service_with_ota_client_mock)
 def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
     import otaclient_v2_pb2 as v2
     import otaclient_v2_pb2_grpc as v2_grpc
+    from ota_client import OtaClientResult
 
     ota_client_mock = start_service_with_ota_client_mock
+    ota_client_mock.status.return_value = OtaClientResult.OK
 
     with grpc.insecure_channel("localhost:50051") as channel:
         request = v2.StatusRequest()
