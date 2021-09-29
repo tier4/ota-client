@@ -8,8 +8,8 @@ import logging
 import datetime
 from pytz import utc
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class Boto3Session:
