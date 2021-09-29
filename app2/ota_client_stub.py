@@ -1,6 +1,6 @@
 from logging import getLogger
 
-from ota_client import OtaClient, OtaClientResult
+from ota_client import OtaClient, OtaClientFailureType
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
 import configs as cfg
@@ -66,8 +66,8 @@ class OtaClientStub:
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        result = self._ota_client.status()
-        response.append({"ecu_id": ecu_id, "result": result.value})
+        result, status = self._ota_client.status()
+        response.append({"ecu_id": ecu_id, "result": result.value, "status": status})
 
         return response
 
