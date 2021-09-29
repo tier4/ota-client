@@ -6,8 +6,8 @@ from boto3_session import Boto3Session
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-sh = logging.StreamHandler()
-logger.addHandler(sh)
+_sh = logging.StreamHandler()
+logger.addHandler(_sh)
 
 
 class BaseLogger:
@@ -98,7 +98,7 @@ class BaseLogger:
 
 
 class Logger:
-    def __init__(self, name: str, level: str = logging.INFO):
+    def __init__(self, name: str, level=logging.INFO):
         base_logger = BaseLogger.get_instance().get_logger()
         self._logger = logging.getLogger(f"{base_logger.name}.{name}")
         self._logger.setLevel(level)
