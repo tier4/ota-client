@@ -116,48 +116,48 @@ class OtaClient:
     def update(self, version, url_base, cookies):
         try:
             self._update(version, url_base, cookies)
-            return OtaClientResult.OK
+            return self._result_ok()
         except OtaErrorRecoverable as e:
-            logger.exception(e)
-            self._failure_type = OtaClientResult.RECOVERABLE
-            self._failure_reason = str(e)
-            return OtaClientResult.RECOVERABLE
+            return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
-            logger.exception(e)
-            self._failure_type = OtaClientResult.UNRECOVERABLE
-            self._failure_reason = str(e)
-            return OtaClientResult.UNRECOVERABLE
+            return self._result_unrecoverable(e)
 
     def rollback(self):
         try:
             self._rollback()
-            return OtaClientResult.OK
+            return self._result_ok()
         except OtaErrorRecoverable as e:
-            logger.exception(e)
-            self._failure_type = OtaClientResult.RECOVERABLE
-            self._failure_reason = str(e)
-            return OtaClientResult.RECOVERABLE
+            return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
-            logger.exception(e)
-            self._failure_type = OtaClientResult.UNRECOVERABLE
-            self._failure_reason = str(e)
-            return OtaClientResult.UNRECOVERABLE
+            return self._result_unrecoverable(e)
 
     def status(self):
         try:
-            self._status(version, url_base, cookies)
-            return OtaClientResult.OK
+            status = self._status()
+            return self._result_ok(), status
         except OtaErrorRecoverable as e:
-            logger.exception(e)
-            self._failure_type = OtaClientResult.RECOVERABLE
-            self._failure_reason = str(e)
+            return self._result_recoverable(e), None
         except (OtaErrorUnrecoverable, Exception) as e:
-            logger.exception(e)
-            self._failure_type = OtaClientResult.UNRECOVERABLE
-            self._failure_reason = str(e)
-            return OtaClientResult.UNRECOVERABLE
+            return self._result_unrecoverable(e), None
 
     """ private functions from here """
+
+    def _result_ok(self):
+        self._failure_type = OtaClientResult.OK.name
+        self._failure_reason = ""
+        return OtaClientResult.OK
+
+    def _result_recoverable(self, e):
+        logger.exception(e)
+        self._failure_type = OtaClientResult.RECOVERABLE.name
+        self._failure_reason = str(e)
+        return OtaClientResult.RECOVERABLE
+
+    def _result_unrecoverable(self, e):
+        logger.exception(e)
+        self._failure_type = OtaClientResult.UNRECOVERABLE.name
+        self._failure_reason = str(e)
+        return OtaClientResult.UNRECOVERABLE
 
     def _update(self, version, url_base, cookies):
         """
@@ -210,10 +210,10 @@ class OtaClient:
 
     def _status(self):
         return {
-            "status": self._ota_status.get_status(),
-            "failure_type": self._ota_status.get_failure_type(),
-            "failure_reason": self._ota_status.get_failure_reason(),
-            "version": self._ota_status._get_version(),
+            "status": self._ota_status.get_ota_status().name,
+            "failure_type": self._failure_type.name,
+            "failure_reason": self._failure_reason,
+            "version": self._ota_status.get_version(),
             "update_progress": {  # TODO
                 "phase": "",
                 "total_regular_files": 0,

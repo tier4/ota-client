@@ -163,7 +163,9 @@ def test_ota_client_update(mocker, tmp_path):
     )
     # test start
     ota_client = OtaClient()
-    ota_client.update("123.x", "http://ota-server:8080/ota-server", "")
+    ota_client.update(
+        "123.x", "http://ota-server:8080/ota-server", {"test": "my-cookie"}
+    )
 
     # make sure boot ota-partition is NOT switched
     assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"
@@ -305,7 +307,9 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
 
     # test start
     ota_client = OtaClient()
-    ota_client.update("123.x", "http://ota-server:8080/ota-server", "")
+    ota_client.update(
+        "123.x", "http://ota-server:8080/ota-server", {"test": "my-cookie"}
+    )
 
     # make sure boot ota-partition is NOT switched
     assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"

@@ -31,6 +31,9 @@ class OtaStatusControl:
     def get_ota_status(self):
         return self._ota_status
 
+    def get_version(self):
+        return self._ota_partition.load_ota_version()
+
     def get_standby_boot_partition_path(self):
         return self._ota_partition.get_standby_boot_partition_path()
 
