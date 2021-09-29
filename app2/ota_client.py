@@ -28,8 +28,10 @@ def file_sha256(filename: Path) -> str:
     with open(filename, "rb") as f:
         return sha256(f.read()).hexdigest()
 
+
 def verify_file(filename: Path, filehash: str) -> bool:
     return file_sha256(filename) == filehash
+
 
 class _BaseInf:
     _base_pattern = re.compile(
@@ -376,7 +378,7 @@ class OtaClient:
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         lines = open(list_file).read().splitlines()
         reginf_list = [RegularInf(l) for l in lines]
-        self._total_regular_files = len(reginf_list) # via setter
+        self._total_regular_files = len(reginf_list)  # via setter
 
         with Manager() as manager:
             error_queue = manager.Queue()
@@ -388,26 +390,27 @@ class OtaClient:
 
             boot_standby_path = self._ota_status.get_standby_boot_partition_path()
             _create_regfile_func = partial(
-                self._create_regular_file, 
-                url_base=url_base, 
-                cookies=cookies, 
-                standby_path=standby_path, 
+                self._create_regular_file,
+                url_base=url_base,
+                cookies=cookies,
+                standby_path=standby_path,
                 processed_list=processed_list,
-                boot_standby_path=boot_standby_path
-                )
+                boot_standby_path=boot_standby_path,
+            )
 
             with Pool() as pool:
-                hardlink_dict = dict() # sha256hash[tuple[reginf, event]]
+                hardlink_dict = dict()  # sha256hash[tuple[reginf, event]]
 
                 for reginf in reginf_list:
                     if reginf.nlink >= 2:
                         first_copy = not reginf.sha256hash in hardlink_dict
                         prev_reginf, event = hardlink_dict.setdefault(
-                            reginf.sha256hash, (reginf, manager.Event()))
+                            reginf.sha256hash, (reginf, manager.Event())
+                        )
 
                         pool.apply_async(
                             _create_regfile_func,
-                            (reginf, prev_reginf), 
+                            (reginf, prev_reginf),
                             {"event": event, "first_copy": first_copy},
                             error_callback=error_callback,
                         )
@@ -417,14 +420,14 @@ class OtaClient:
                             (reginf,),
                             error_callback=error_callback,
                         )
-                
+
                 pool.close()
                 while len(processed_list) < len(reginf_list):
                     if not error_queue.empty():
                         error = error_queue.get()
                         pool.terminate()
                         raise error
-                    time.sleep(2) # set pulling interval to 2 seconds
+                    time.sleep(2)  # set pulling interval to 2 seconds
 
     # NOTE:
     # _create_regular_file should be static to be used from pool.apply_async,
@@ -432,7 +435,7 @@ class OtaClient:
     @staticmethod
     def _create_regular_file(
         reginf: RegularInf,
-        prev_reginf: RegularInf=None,
+        prev_reginf: RegularInf = None,
         *,
         # required options
         url_base: str,
@@ -455,12 +458,12 @@ class OtaClient:
             # wait until the first copy is ready
             event.wait()
             prev_reginf.path.link_to(dst)
-        else: # normal file or first copy of hardlink file
+        else:  # normal file or first copy of hardlink file
             if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
                 # copy file from active bank if hash is the same
                 shutil.copy(reginf.path, dst)
             else:
-                url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))     
+                url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
                 OtaClient._download(url, cookies, dst, reginf.sha256hash)
 
         os.chown(dst, reginf.uid, reginf.gid)
@@ -468,7 +471,7 @@ class OtaClient:
 
         processed_list.append(True)
         if ishardlink and first_copy:
-            event.set() # first copy of hardlink file is ready
+            event.set()  # first copy of hardlink file is ready
 
     def _copy_persistent_files(self, list_file, standby_path):
         lines = open(list_file).read().splitlines()
