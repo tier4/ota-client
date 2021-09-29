@@ -62,7 +62,7 @@ class Boto3Session:
         }
 
     # session is automatically refreshed
-    def get_session(self, session_duration: "sec" = ""):
+    def get_session(self, session_duration: int = 0):
         # ref: https://github.com/boto/botocore/blob/f1d41183e0fad31301ad7331a8962e3af6359a22/botocore/credentials.py#L368
         session_credentials = botocore.credentials.RefreshableCredentials.create_from_metadata(
             metadata=self._refresh(session_duration),
@@ -75,7 +75,7 @@ class Boto3Session:
 
         return boto3.Session(botocore_session=session)
 
-    def _refresh(self, session_duration: "sec" = "") -> dict:
+    def _refresh(self, session_duration: int = 0) -> dict:
         # ref: https://docs.aws.amazon.com/ja_jp/iot/latest/developerguide/authorizing-direct-aws.html
         url = f"https://{self._credential_provider_endpoint}/role-aliases/{self._role_alias}/credentials"
         headers = {"x-amzn-iot-thingname": self._thing_name}
@@ -96,7 +96,7 @@ class Boto3Session:
             raise
 
         expiry_time = body.get("credentials", {}).get("expiration")
-        if session_duration != "":
+        if session_duration > 0:
             now = datetime.datetime.now(tz=utc)
             new_expiry_time = now + datetime.timedelta(seconds=float(session_duration))
             expiry_time = new_expiry_time.isoformat(timespec="seconds")
