@@ -105,33 +105,39 @@ enum StatusOta {
 }
 
 enum StatusFailure {
-    RECOVERABLE = 0;
-    UNRECOVERABLE = 1;
+    NO_FAILURE = 0;
+    RECOVERABLE = 1;
+    UNRECOVERABLE = 2;
 }
 
 enum StatusProgressPhase {
-    METADATA = 0;
-    DIRECTORY = 1;
-    SYMLINK = 2;
-    REGULAR = 3;
-    PERSISTENT = 4;
-    REBOOT = 5;
+    INITIAL = 0;
+    METADATA = 1;
+    DIRECTORY = 2;
+    SYMLINK = 3;
+    REGULAR = 4;
+    PERSISTENT = 5;
+    POST_PROCESSING = 6;
 }
 
 message StatusProgress {
     StatusProgressPhase phase = 1;
-    uint32 total_number_of_regular_files = 2;
-    uint32 number_of_regular_files_processed = 3;
+    uint32 total_regular_files = 2;
+    uint32 regular_files_processed = 3;
+}
+
+message Status {
+  StatusOta status = 1;
+  StatusFailure failure = 2;
+  string failure_reason = 3;
+  string version = 4;
+  StatusProgress progress = 5;
 }
 
 message StatusResponseEcu {
   string ecu_id = 1;
   Result result = 2;
-  StatusOta status = 3;
-  StatusFailure failure = 4;
-  string failure_reason = 5;
-  string version = 6;
-  StatusProgress progress = 7;
+  Status status = 3;
 }
 
 message StatusResponse {
