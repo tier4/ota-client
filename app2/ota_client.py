@@ -104,8 +104,8 @@ class PersistentInf(_BaseInf):
 
 
 @unique
-class OtaClientResult(Enum):
-    OK = 0
+class OtaClientFailureType(Enum):
+    NO_FAILURE = 0
     RECOVERABLE = 1
     UNRECOVERABLE = 2
 
@@ -129,7 +129,7 @@ class OtaClient:
         self._mount_point = OtaClient.MOUNT_POINT
 
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
-        self._failure_type = OtaClientResult.OK
+        self._failure_type = OtaClientFailureType.NO_FAILURE
         self._failure_reason = ""
         self._update_phase = OtaClientUpdatePhase.INITIAL
         self._update_total_regular_files = 0
@@ -169,21 +169,21 @@ class OtaClient:
     """ private functions from here """
 
     def _result_ok(self):
-        self._failure_type = OtaClientResult.OK.name
+        self._failure_type = OtaClientFailureType.NO_FAILURE
         self._failure_reason = ""
-        return OtaClientResult.OK
+        return OtaClientFailureType.NO_FAILURE
 
     def _result_recoverable(self, e):
         logger.exception(e)
-        self._failure_type = OtaClientResult.RECOVERABLE.name
+        self._failure_type = OtaClientFailureType.RECOVERABLE
         self._failure_reason = str(e)
-        return OtaClientResult.RECOVERABLE
+        return OtaClientFailureType.RECOVERABLE
 
     def _result_unrecoverable(self, e):
         logger.exception(e)
-        self._failure_type = OtaClientResult.UNRECOVERABLE.name
+        self._failure_type = OtaClientFailureType.UNRECOVERABLE
         self._failure_reason = str(e)
-        return OtaClientResult.UNRECOVERABLE
+        return OtaClientFailureType.UNRECOVERABLE
 
     def _update(self, version, url_base, cookies):
         """
