@@ -423,6 +423,7 @@ class OtaClient:
 
                 pool.close()
                 while len(processed_list) < len(reginf_list):
+                    self._regular_files_processed = len(processed_list)  # via setter
                     if not error_queue.empty():
                         error = error_queue.get()
                         pool.terminate()
