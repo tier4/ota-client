@@ -403,7 +403,6 @@ class OtaClient:
 
                 for reginf in reginf_list:
                     if reginf.nlink >= 2:
-                        first_copy = not reginf.sha256hash in hardlink_dict
                         prev_reginf, event = hardlink_dict.setdefault(
                             reginf.sha256hash, (reginf, manager.Event())
                         )
@@ -411,7 +410,7 @@ class OtaClient:
                         pool.apply_async(
                             _create_regfile_func,
                             (reginf, prev_reginf),
-                            {"event": event, "first_copy": first_copy},
+                            {"hardlink_event": event},
                             error_callback=error_callback,
                         )
                     else:
@@ -445,19 +444,19 @@ class OtaClient:
         processed_list,
         boot_standby_path: Path,
         # for hardlink file
-        first_copy=True,
-        event=None,
+        hardlink_event=None,
     ):
         ishardlink = reginf.nlink >= 2
+        hardlink_first_copy = prev_reginf is not None and prev_reginf.path == reginf.path
 
         if str(reginf.path).startswith("/boot"):
             dst = boot_standby_path / reginf.path.name
         else:
             dst = standby_path / reginf.path.relative_to("/")
 
-        if ishardlink and not first_copy:
+        if ishardlink and not hardlink_first_copy:
             # wait until the first copy is ready
-            event.wait()
+            hardlink_event.wait()
             prev_reginf.path.link_to(dst)
         else:  # normal file or first copy of hardlink file
             if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
@@ -471,8 +470,8 @@ class OtaClient:
         os.chmod(dst, reginf.mode)
 
         processed_list.append(True)
-        if ishardlink and first_copy:
-            event.set()  # first copy of hardlink file is ready
+        if ishardlink and hardlink_first_copy:
+            hardlink_event.set()  # first copy of hardlink file is ready
 
     def _copy_persistent_files(self, list_file, standby_path):
         lines = open(list_file).read().splitlines()
