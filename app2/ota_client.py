@@ -376,6 +376,8 @@ class OtaClient:
             os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
+        reginf_list_raw_lines = open(list_file).read().splitlines()
+        self._total_regular_files = len(reginf_list_raw_lines)
 
         with Manager() as manager:
             error_queue = manager.Queue()
@@ -397,15 +399,11 @@ class OtaClient:
             )
 
             with Pool() as pool:
-                total_regular_files = 0
                 hardlink_dict = dict()  # sha256hash[tuple[reginf, event]]
 
                 # imap_unordered return a lazy itorator without blocking
-                # so we cannot use len() over it
-                reginf_list = pool.imap_unordered(RegularInf, open(list_file).read().splitlines())
+                reginf_list = pool.imap_unordered(RegularInf, reginf_list_raw_lines)
                 for reginf in reginf_list:
-                    total_regular_files += 1
-
                     if reginf.nlink >= 2:
                         prev_reginf, event = hardlink_dict.setdefault(
                             reginf.sha256hash, (reginf, manager.Event())
@@ -428,10 +426,9 @@ class OtaClient:
                             (reginf,),
                             error_callback=error_callback,
                         )
-                self._total_regular_files = total_regular_files
 
                 pool.close()
-                while len(processed_list) < total_regular_files:
+                while len(processed_list) < len(reginf_list_raw_lines):
                     self._regular_files_processed = len(processed_list)  # via setter
                     if not error_queue.empty():
                         error = error_queue.get()
