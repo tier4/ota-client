@@ -39,27 +39,27 @@ class _BaseLogger:
         # not pass log records to root logger
         self._logger.propagate = False
 
-        # set stream handler
-        self._set_stream_log_handler()
-
-        # set cloudwatch log handler
-        self._set_cloudwatch_log_handler(boto3_session_duration)
-
-        _BaseLogger._instance = self
-        logger.info("base logger is created")
-
-    def _set_stream_log_handler(self):
         # log is formatted as follows:
         # [2021-09-29 17:42:50,607][INFO]-logger.py:108,hello,world
         formatter = logging.Formatter(
             fmt="[%(asctime)s][%(levelname)s]-%(filename)s:%(lineno)d,%(message)s",
         )
 
+        # set stream handler
+        self._set_stream_log_handler(formatter)
+
+        # set cloudwatch log handler
+        self._set_cloudwatch_log_handler(formatter, boto3_session_duration)
+
+        _BaseLogger._instance = self
+        logger.info("base logger is created")
+
+    def _set_stream_log_handler(self, formatter: logging.Formatter):
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)
         self._logger.addHandler(handler)
 
-    def _set_cloudwatch_log_handler(self, boto3_session_duration: int):
+    def _set_cloudwatch_log_handler(self, formatter: logging.Formatter, boto3_session_duration: int):
         try:
             config = _BaseLogger._get_config()
             session = Boto3Session(greengrass_config=config["AWS_GREENGRASS_CONFIG"],
@@ -74,16 +74,6 @@ class _BaseLogger:
                 create_log_group=True,
                 create_log_stream=True,
             )
-            json_format = json.dumps({
-                "time": "%(asctime)s",
-                "level": "%(levelname)s",
-                "filename": "%(filename)s",
-                "lineno": "%(lineno)d",
-                "message": "%(message)s",
-            })
-            # log is formatted as follows:
-            # {"time": "2021-09-30 10:08:58,133", "level": "WARNING", "filename": "logger.py", "lineno": "128", "message": "hello,world"}
-            formatter = logging.Formatter(fmt=json_format)
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
         except:
