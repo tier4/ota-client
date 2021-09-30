@@ -5,6 +5,9 @@ from hashlib import sha256
 import base64
 import json
 from OpenSSL import crypto
+from pathlib import Path
+import glob
+import re
 from logging import getLogger
 
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
@@ -21,6 +24,19 @@ class OtaMetadata:
     OTA Metadata Class
     """
 
+    """
+    The root and intermediate certificates exist under certs_dir.
+    When A.root.pem, A.intermediate.pem, B.root.pem, and B.intermediate.pem
+    exist, the groups of A* and the groups of B* are handled as a chained
+    certificate.
+    verify function verifies specified certificate with them.
+    Certificates file name format should be: '.*\..*.pem'
+    NOTE:
+    If there is no root or intermediate certificate, certification verification
+    is not performed.
+    """
+    CERTS_DIR = Path("certs")
+
     def __init__(self, ota_metadata_jwt):
         """
         OTA metadata parser
@@ -30,11 +46,16 @@ class OtaMetadata:
         """
         self.__metadata_jwt = ota_metadata_jwt
         self.__metadata_dict = self._parse_metadata(ota_metadata_jwt)
+        self._certs_dir = OtaMetadata.CERTS_DIR
 
-    def verify(self, certificate_pem):
+    def verify(self, certificate):
         """"""
+        # verify certificate itself before hand.
+        self._verify_certificate(certificate)
+
+        # verify metadata.jwt
         try:
-            certificate = crypto.load_certificate(crypto.FILETYPE_PEM, certificate_pem)
+            certificate = crypto.load_certificate(crypto.FILETYPE_PEM, certificate)
             logger.debug(f"certificate: {certificate}")
             verify_data = self._get_header_payload().encode()
             logger.debug(f"verify data: {verify_data}")
@@ -151,3 +172,36 @@ class OtaMetadata:
         """
         jwt_list = self.__metadata_jwt.split(".")
         return jwt_list[0] + "." + jwt_list[1]
+
+    def _verify_certificate(self, certificate):
+        certs = [cert.name for cert in list(self._certs_dir.glob("*.*.pem"))]
+        if len(certs) == 0:
+            logger.warn("there is no root or intermediate certificate")
+            return
+        # e.g. certs == [A.1.pem, A.2.pem, B.1.pem, B.2.pem]
+        prefixes = set()
+        for cert in certs:
+            m = re.match(r"(.*)\..*.pem", cert)
+            prefixes.add(m.group(1))
+        logger.info(f"certs prefixes {prefixes}")
+
+        def _load_certificates(store, certs):
+            for cert in certs:
+                logger.info(f"cert {cert}")
+                c = crypto.load_certificate(crypto.FILETYPE_PEM, open(cert).read())
+                store.add_cert(c)
+
+        for prefix in prefixes:
+            store = crypto.X509Store()
+            _load_certificates(store, self._certs_dir.glob(f"{prefix}.*.pem"))
+            try:
+                cert_to_verify = crypto.load_certificate(
+                    crypto.FILETYPE_PEM, certificate
+                )
+                store_ctx = crypto.X509StoreContext(store, cert_to_verify)
+                store_ctx.verify_certificate()
+                return
+            except crypto.X509StoreContextError as e:
+                logger.warning(e)
+
+        raise OtaErrorRecoverable(f"certificate {certificate} could not be verified")

@@ -91,6 +91,61 @@ def test_ota_metadata_exception(generate_jwt):
     from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 
     metadata = OtaMetadata(generate_jwt)
-    # sing.key is invalid pem
     with pytest.raises(OtaErrorRecoverable):
+        # sing.key is invalid pem
         metadata.verify(open(test_dir / "keys" / "sign.key").read())
+
+
+def test_ota_metadata_with_verify_certificate(mocker, generate_jwt, tmp_path):
+    from ota_metadata import OtaMetadata
+
+    certs_dir = tmp_path / "certs"
+    certs_dir.mkdir()
+    cert_a_1 = certs_dir / "a.1.pem"
+    cert_a_2 = certs_dir / "a.2.pem"
+    cert_b_1 = certs_dir / "b.1.pem"
+    cert_b_2 = certs_dir / "b.2.pem"
+
+    # a.1.pem and a.2.pem is illegal
+    cert_a_1.write_bytes(open(test_dir / "keys" / "sign.pem", "rb").read())
+    cert_a_2.write_bytes(open(test_dir / "keys" / "sign.pem", "rb").read())
+    # b.1.pem and b.2.pem isillegal
+    cert_b_1.write_bytes(open(test_dir / "keys" / "root.pem", "rb").read())
+    cert_b_2.write_bytes(open(test_dir / "keys" / "interm.pem", "rb").read())
+
+    mocker.patch.object(OtaMetadata, "CERTS_DIR", certs_dir)
+
+    metadata = OtaMetadata(generate_jwt)
+    assert metadata.get_directories_info() == DIR_INFO
+    assert metadata.get_symboliclinks_info() == SYMLINK_INFO
+    assert metadata.get_regulars_info() == REGULAR_INFO
+    assert metadata.get_persistent_info() == PERSISTENT_INFO
+    assert metadata.get_rootfsdir_info() == ROOTFS_DIR_INFO
+    assert metadata.get_certificate_info() == CERTIFICATE_INFO
+    metadata.verify(open(test_dir / "keys" / "sign.pem").read())
+
+
+def test_ota_metadata_with_verify_certificate_exception(mocker, generate_jwt, tmp_path):
+    from ota_metadata import OtaMetadata
+    from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+
+    certs_dir = tmp_path / "certs"
+    certs_dir.mkdir()
+    cert_a_1 = certs_dir / "a.1.pem"
+    cert_a_2 = certs_dir / "a.2.pem"
+
+    # a.1.pem and a.2.pem is illegal
+    cert_a_1.write_bytes(open(test_dir / "keys" / "sign.pem", "rb").read())
+    cert_a_2.write_bytes(open(test_dir / "keys" / "sign.pem", "rb").read())
+
+    mocker.patch.object(OtaMetadata, "CERTS_DIR", certs_dir)
+
+    metadata = OtaMetadata(generate_jwt)
+    assert metadata.get_directories_info() == DIR_INFO
+    assert metadata.get_symboliclinks_info() == SYMLINK_INFO
+    assert metadata.get_regulars_info() == REGULAR_INFO
+    assert metadata.get_persistent_info() == PERSISTENT_INFO
+    assert metadata.get_rootfsdir_info() == ROOTFS_DIR_INFO
+    assert metadata.get_certificate_info() == CERTIFICATE_INFO
+    with pytest.raises(OtaErrorRecoverable):
+        metadata.verify(open(test_dir / "keys" / "sign.pem").read())
