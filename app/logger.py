@@ -11,7 +11,7 @@ _sh = logging.StreamHandler()
 logger.addHandler(_sh)
 
 
-class BaseLogger:
+class _BaseLogger:
     """
     Create a logger to log in CloudWatchLog and stream.
 
@@ -25,17 +25,19 @@ class BaseLogger:
 
     @staticmethod
     def get_instance():
-        if BaseLogger._instance is None:
-            BaseLogger()
+        if _BaseLogger._instance is None:
+            return _BaseLogger()
         else:
-            return BaseLogger._instance
+            return _BaseLogger._instance
 
-    def __init__(self, name: str = "_base_", level: str = logging.INFO, boto3_session_duration: int = 0):
-        if BaseLogger._instance is not None:
+    def __init__(self, name: str = "_base_", level=logging.INFO, boto3_session_duration: int = 0):
+        if _BaseLogger._instance is not None:
             raise Exception("BaseLogger is singleton")
 
         self._logger = logging.getLogger(name)
         self._logger.setLevel(level)
+        # not pass log records to root logger
+        self._logger.propagate = False
 
         # set stream handler
         self._set_stream_log_handler()
@@ -43,7 +45,7 @@ class BaseLogger:
         # set cloudwatch log handler
         self._set_cloudwatch_log_handler(boto3_session_duration)
 
-        BaseLogger._instance = self
+        _BaseLogger._instance = self
         logger.info("base logger is created")
 
     def _set_stream_log_handler(self):
@@ -59,7 +61,7 @@ class BaseLogger:
 
     def _set_cloudwatch_log_handler(self, boto3_session_duration: int):
         try:
-            config = BaseLogger._get_config()
+            config = _BaseLogger._get_config()
             session = Boto3Session(greengrass_config=config["AWS_GREENGRASS_CONFIG"],
                                    credential_provider_endpoint=config["AWS_CREDENTIAL_PROVIDER_ENDPOINT"],
                                    role_alias=config["AWS_ROLE_ALIAS"])
@@ -115,7 +117,7 @@ class BaseLogger:
 
 class Logger:
     def __init__(self, name: str, level=logging.INFO):
-        base_logger = BaseLogger.get_instance().get_logger()
+        base_logger = _BaseLogger.get_instance().get_logger()
         self._logger = logging.getLogger(f"{base_logger.name}.{name}")
         self._logger.setLevel(level)
 
@@ -127,7 +129,6 @@ if __name__ == "__main__":
     """
     examples
     """
-    BaseLogger("example.service")
 
     log1 = Logger("foo").get_logger()
     log1.debug("hello,world")
