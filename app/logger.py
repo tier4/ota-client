@@ -2,6 +2,7 @@ import datetime
 import os
 import watchtower
 import logging
+import json
 from boto3_session import Boto3Session
 
 logger = logging.getLogger(__name__)
@@ -33,43 +34,58 @@ class BaseLogger:
         if BaseLogger._instance is not None:
             raise Exception("BaseLogger is singleton")
 
-        BaseLogger._instance = self
-
         self._logger = logging.getLogger(name)
         self._logger.setLevel(level)
 
+        # set stream handler
+        self._set_stream_log_handler()
+
+        # set cloudwatch log handler
+        self._set_cloudwatch_log_handler(boto3_session_duration)
+
+        BaseLogger._instance = self
+        logger.info("base logger is created")
+
+    def _set_stream_log_handler(self):
         # log is formatted as follows:
         # [2021-09-29 17:42:50,607][INFO]-logger.py:108,hello,world
         formatter = logging.Formatter(
             fmt="[%(asctime)s][%(levelname)s]-%(filename)s:%(lineno)d,%(message)s",
         )
 
-        # set stream handler
-        sh = logging.StreamHandler()
-        sh.setFormatter(formatter)
-        self._logger.addHandler(sh)
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        self._logger.addHandler(handler)
 
-        # set cloudwatch log handler
+    def _set_cloudwatch_log_handler(self, boto3_session_duration: int):
         try:
             config = BaseLogger._get_config()
             session = Boto3Session(greengrass_config=config["AWS_GREENGRASS_CONFIG"],
                                    credential_provider_endpoint=config["AWS_CREDENTIAL_PROVIDER_ENDPOINT"],
                                    role_alias=config["AWS_ROLE_ALIAS"])
             boto3_session = session.get_session(session_duration=boto3_session_duration)
-            stream_name = self._gen_log_stream_name(config["AWS_GREENGRASS_CONFIG"])
-            ch = watchtower.CloudWatchLogHandler(
+            stream_name = self._get_stream_name(config["AWS_GREENGRASS_CONFIG"])
+            handler = watchtower.CloudWatchLogHandler(
                 boto3_session=boto3_session,
                 log_group=config["AWS_CLOUDWATCH_LOG_GROUP"],
                 stream_name=stream_name,
                 create_log_group=True,
                 create_log_stream=True,
             )
-            ch.setFormatter(formatter)
-            self._logger.addHandler(ch)
+            json_format = json.dumps({
+                "time": "%(asctime)s",
+                "level": "%(levelname)s",
+                "filename": "%(filename)s",
+                "lineno": "%(lineno)d",
+                "message": "%(message)s",
+            })
+            # log is formatted as follows:
+            # {"time": "2021-09-30 10:08:58,133", "level": "WARNING", "filename": "logger.py", "lineno": "128", "message": "hello,world"}
+            formatter = logging.Formatter(fmt=json_format)
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
         except:
             logger.exception("failed to setup cloudwatch log handler")
-
-        logger.info("base logger is created")
 
     @staticmethod
     def _get_config() -> dict:
@@ -87,11 +103,11 @@ class BaseLogger:
         return config
 
     @staticmethod
-    def _gen_log_stream_name(boto3_config: str):
+    def _get_stream_name(boto3_config: str):
         config = Boto3Session.parse_config(boto3_config)
         thing_name = config.get("thing_name", "unknown")
-        today = datetime.datetime.utcnow().strftime("%Y/%m/%d")
-        return f"{today}/{thing_name}"
+        fmt = "{strftime:%Y/%m/%d}"
+        return f"{fmt}/{thing_name}"
 
     def get_logger(self) -> logging.Logger:
         return self._logger
