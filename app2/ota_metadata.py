@@ -35,7 +35,7 @@ class OtaMetadata:
     If there is no root or intermediate certificate, certification verification
     is not performed.
     """
-    CERTS_DIR = Path("certs")
+    CERTS_DIR = Path(__file__).parent / "certs"
 
     def __init__(self, ota_metadata_jwt):
         """
@@ -48,18 +48,17 @@ class OtaMetadata:
         self.__metadata_dict = self._parse_metadata(ota_metadata_jwt)
         self._certs_dir = OtaMetadata.CERTS_DIR
 
-    def verify(self, certificate):
+    def verify(self, certificate: str):
         """"""
         # verify certificate itself before hand.
         self._verify_certificate(certificate)
 
         # verify metadata.jwt
         try:
-            certificate = crypto.load_certificate(crypto.FILETYPE_PEM, certificate)
-            logger.debug(f"certificate: {certificate}")
+            cert = crypto.load_certificate(crypto.FILETYPE_PEM, certificate)
             verify_data = self._get_header_payload().encode()
             logger.debug(f"verify data: {verify_data}")
-            crypto.verify(certificate, self._signature, verify_data, "sha256")
+            crypto.verify(cert, self._signature, verify_data, "sha256")
         except Exception as e:
             raise OtaErrorRecoverable(e)
 
@@ -173,10 +172,10 @@ class OtaMetadata:
         jwt_list = self.__metadata_jwt.split(".")
         return jwt_list[0] + "." + jwt_list[1]
 
-    def _verify_certificate(self, certificate):
+    def _verify_certificate(self, certificate: str):
         certs = [cert.name for cert in list(self._certs_dir.glob("*.*.pem"))]
         if len(certs) == 0:
-            logger.warn("there is no root or intermediate certificate")
+            logger.warning("there is no root or intermediate certificate")
             return
         # e.g. certs == [A.1.pem, A.2.pem, B.1.pem, B.2.pem]
         prefixes = set()
@@ -198,10 +197,15 @@ class OtaMetadata:
                 cert_to_verify = crypto.load_certificate(
                     crypto.FILETYPE_PEM, certificate
                 )
+            except crypto.Error as e:
+                raise OtaErrorRecoverable(f"invalid certificate {certificate}")
+
+            try:
                 store_ctx = crypto.X509StoreContext(store, cert_to_verify)
                 store_ctx.verify_certificate()
+                logger.info("certificate verify: OK")
                 return
             except crypto.X509StoreContextError as e:
-                logger.warning(e)
+                logger.warning(f"NOTE: This warning can be ignored {e}")
 
         raise OtaErrorRecoverable(f"certificate {certificate} could not be verified")

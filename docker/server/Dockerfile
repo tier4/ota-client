@@ -22,10 +22,11 @@ RUN git clone https://github.com/tier4/ota-metadata && \
     
 # create ota-baseimage
 RUN python3 ota-metadata/metadata/ota_metadata/metadata_gen.py --target-dir data --ignore-file ota-metadata/metadata/ignore.txt
-RUN ./ota-metadata/metadata/key-gen.sh
+COPY tests2/keys/sign.key sign.key
+COPY tests2/keys/sign.pem sign.pem
 RUN python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
-        --sign-key privatekey.pem \
-        --cert-file certificate.pem \
+        --sign-key sign.key \
+        --cert-file sign.pem \
         --persistent-file ota-metadata/metadata/persistents.txt \
         --rootfs-directory data && \
     cp ota-metadata/metadata/persistents.txt .
