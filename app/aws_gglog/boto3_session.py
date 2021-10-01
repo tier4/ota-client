@@ -10,6 +10,8 @@ from pytz import utc
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+_sh = logging.StreamHandler()
+logger.addHandler(_sh)
 
 
 class Boto3Session:
