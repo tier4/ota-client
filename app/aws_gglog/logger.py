@@ -28,9 +28,9 @@ class _BaseLogger:
     @staticmethod
     def get_instance():
         if _BaseLogger._instance is None:
-            return _BaseLogger()
-        else:
-            return _BaseLogger._instance
+            _BaseLogger._instance = _BaseLogger()
+
+        return _BaseLogger._instance
 
     def __init__(
         self, name: str = "_base_", level=logging.INFO, boto3_session_duration: int = 0
@@ -55,7 +55,6 @@ class _BaseLogger:
         # set cloudwatch log handler
         self._set_cloudwatch_log_handler(formatter, boto3_session_duration)
 
-        _BaseLogger._instance = self
         logger.info("base logger is created")
 
     def _set_stream_log_handler(self, formatter: logging.Formatter):

@@ -1,4 +1,5 @@
 import os
+import pytest
 
 
 class Test_BaseLogger:
@@ -24,3 +25,20 @@ class Test_BaseLogger:
 
         config = _BaseLogger._get_config()
         assert config == {key: key.lower() for key in keys}
+
+    def test_get_instance(self, mocker):
+        from aws_gglog.logger import _BaseLogger
+
+        _BaseLogger._set_cloudwatch_log_handler = mocker.MagicMock()
+        assert _BaseLogger.get_instance() == _BaseLogger.get_instance()
+
+    def test_singleton(self, mocker):
+        from aws_gglog.logger import _BaseLogger
+
+        _BaseLogger._set_cloudwatch_log_handler = mocker.MagicMock()
+
+        with pytest.raises(Exception) as e:
+            _BaseLogger.get_instance()
+            _BaseLogger()
+
+        assert str(e.value) == "BaseLogger is singleton"
