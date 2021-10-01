@@ -1,7 +1,10 @@
 import os
 import watchtower
 import logging
-from aws_gglog.boto3_session import Boto3Session
+import sys
+
+sys.path.append(os.path.dirname(__file__))
+from boto3_session import Boto3Session
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
