@@ -173,7 +173,7 @@ class OtaMetadata:
         return jwt_list[0] + "." + jwt_list[1]
 
     def _verify_certificate(self, certificate: str):
-        certs = [cert.name for cert in list(self._certs_dir.glob("*.*.pem"))]
+        certs = [cert.name for cert in sorted(list(self._certs_dir.glob("*.*.pem")))]
         if len(certs) == 0:
             logger.warning("there is no root or intermediate certificate")
             return
@@ -190,7 +190,7 @@ class OtaMetadata:
                 c = crypto.load_certificate(crypto.FILETYPE_PEM, open(cert).read())
                 store.add_cert(c)
 
-        for prefix in prefixes:
+        for prefix in sorted(prefixes):  # use sorted to fix the order of verification
             store = crypto.X509Store()
             _load_certificates(store, self._certs_dir.glob(f"{prefix}.*.pem"))
             try:
