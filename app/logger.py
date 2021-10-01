@@ -21,6 +21,7 @@ class _BaseLogger:
       AWS_ROLE_ALIAS: role alias name
       AWS_CLOUDWATCH_LOG_GROUP: log group name in CloudWatchLog
     """
+
     _instance = None
 
     @staticmethod
@@ -30,7 +31,9 @@ class _BaseLogger:
         else:
             return _BaseLogger._instance
 
-    def __init__(self, name: str = "_base_", level=logging.INFO, boto3_session_duration: int = 0):
+    def __init__(
+        self, name: str = "_base_", level=logging.INFO, boto3_session_duration: int = 0
+    ):
         if _BaseLogger._instance is not None:
             raise Exception("BaseLogger is singleton")
 
@@ -59,12 +62,16 @@ class _BaseLogger:
         handler.setFormatter(formatter)
         self._logger.addHandler(handler)
 
-    def _set_cloudwatch_log_handler(self, formatter: logging.Formatter, boto3_session_duration: int):
+    def _set_cloudwatch_log_handler(
+        self, formatter: logging.Formatter, boto3_session_duration: int
+    ):
         try:
             config = _BaseLogger._get_config()
-            session = Boto3Session(greengrass_config=config["AWS_GREENGRASS_CONFIG"],
-                                   credential_provider_endpoint=config["AWS_CREDENTIAL_PROVIDER_ENDPOINT"],
-                                   role_alias=config["AWS_ROLE_ALIAS"])
+            session = Boto3Session(
+                greengrass_config=config["AWS_GREENGRASS_CONFIG"],
+                credential_provider_endpoint=config["AWS_CREDENTIAL_PROVIDER_ENDPOINT"],
+                role_alias=config["AWS_ROLE_ALIAS"],
+            )
             boto3_session = session.get_session(session_duration=boto3_session_duration)
             stream_name = self._get_stream_name(config["AWS_GREENGRASS_CONFIG"])
             handler = watchtower.CloudWatchLogHandler(
@@ -81,11 +88,12 @@ class _BaseLogger:
 
     @staticmethod
     def _get_config() -> dict:
-        keys = ("AWS_GREENGRASS_CONFIG",
-                "AWS_CREDENTIAL_PROVIDER_ENDPOINT",
-                "AWS_ROLE_ALIAS",
-                "AWS_CLOUDWATCH_LOG_GROUP",
-                )
+        keys = (
+            "AWS_GREENGRASS_CONFIG",
+            "AWS_CREDENTIAL_PROVIDER_ENDPOINT",
+            "AWS_ROLE_ALIAS",
+            "AWS_CLOUDWATCH_LOG_GROUP",
+        )
         config = {}
         for key in keys:
             config[key] = os.environ.get(key)

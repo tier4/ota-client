@@ -13,7 +13,9 @@ logger.setLevel(logging.INFO)
 
 
 class Boto3Session:
-    def __init__(self, greengrass_config: str, credential_provider_endpoint: str, role_alias: str):
+    def __init__(
+        self, greengrass_config: str, credential_provider_endpoint: str, role_alias: str
+    ):
         cfg = Boto3Session.parse_config(greengrass_config)
 
         self._ca_cert = cfg.get("ca_cert")
@@ -38,8 +40,18 @@ class Boto3Session:
             raise
 
         ca_path = cfg.get("crypto", {}).get("caPath")
-        private_key_path = cfg.get("crypto", {}).get("principals", {}).get("IoTCertificate", {}).get("privateKeyPath")
-        certificate_path = cfg.get("crypto", {}).get("principals", {}).get("IoTCertificate", {}).get("certificatePath")
+        private_key_path = (
+            cfg.get("crypto", {})
+            .get("principals", {})
+            .get("IoTCertificate", {})
+            .get("privateKeyPath")
+        )
+        certificate_path = (
+            cfg.get("crypto", {})
+            .get("principals", {})
+            .get("IoTCertificate", {})
+            .get("certificatePath")
+        )
         thing_arn = cfg.get("coreThing", {}).get("thingArn")
 
         strs = thing_arn.split(":", 6)
@@ -64,10 +76,12 @@ class Boto3Session:
     # session is automatically refreshed
     def get_session(self, session_duration: int = 0):
         # ref: https://github.com/boto/botocore/blob/f1d41183e0fad31301ad7331a8962e3af6359a22/botocore/credentials.py#L368
-        session_credentials = botocore.credentials.RefreshableCredentials.create_from_metadata(
-            metadata=self._refresh(session_duration),
-            refresh_using=self._refresh,
-            method="sts-assume-role",
+        session_credentials = (
+            botocore.credentials.RefreshableCredentials.create_from_metadata(
+                metadata=self._refresh(session_duration),
+                refresh_using=self._refresh,
+                method="sts-assume-role",
+            )
         )
         session = botocore.session.get_session()
         session._credentials = session_credentials
@@ -82,7 +96,10 @@ class Boto3Session:
         logger.info(f"url: {url}, headers: {headers}")
         try:
             response = requests.get(
-                url, verify=self._ca_cert, cert=(self._cert, self._private_key), headers=headers
+                url,
+                verify=self._ca_cert,
+                cert=(self._cert, self._private_key),
+                headers=headers,
             )
             response.raise_for_status()
         except requests.exceptions.RequestException:
