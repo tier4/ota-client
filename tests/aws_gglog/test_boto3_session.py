@@ -3,7 +3,7 @@ import os
 
 class TestBoto3Session:
     def test_parse_config(self, shared_datadir):
-        from boto3_session import Boto3Session
+        from aws_gglog.boto3_session import Boto3Session
 
         config = Boto3Session.parse_config(
             os.path.join(shared_datadir, "greengrass/config.json")
@@ -16,7 +16,7 @@ class TestBoto3Session:
 
     def test__refresh_credentials(self, mocker, shared_datadir):
         import requests
-        from boto3_session import Boto3Session
+        from aws_gglog.boto3_session import Boto3Session
 
         resp_mock = mocker.MagicMock()
         resp_mock.text = '{"credentials":{"accessKeyId":"123","secretAccessKey":"abc","sessionToken":"ABC","expiration":"2021-10-01T09:18:06Z"}}'

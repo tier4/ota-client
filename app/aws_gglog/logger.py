@@ -1,9 +1,7 @@
-import datetime
 import os
 import watchtower
 import logging
-import json
-from boto3_session import Boto3Session
+from aws_gglog.boto3_session import Boto3Session
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
