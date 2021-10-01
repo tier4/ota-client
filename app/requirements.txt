@@ -1,5 +1,6 @@
 pyOpenSSL==20.0.1
 jwt==1.2.0
+cryptography==3.4.8
 grpcio==1.37.0
 protobuf==3.15.8
 PyYAML==5.4.1
