@@ -13,6 +13,7 @@ from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial
 from enum import Enum, unique
+from concurrent.futures import ThreadPoolExecutor
 from logging import getLogger
 
 from ota_status import OtaStatusControl, OtaStatus
@@ -135,9 +136,11 @@ class OtaClient:
         self._update_total_regular_files = 0
         self._update_regular_files_processed = 0
 
-    def update(self, version, url_base, cookies):
+        self._executor = ThreadPoolExecutor(max_workers=1)
+
+    def update(self, version, url_base, cookies, blocking=True):
         try:
-            self._update(version, url_base, cookies)
+            self._update(version, url_base, cookies, blocking)
             return self._result_ok()
         except OtaErrorRecoverable as e:
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
@@ -185,7 +188,14 @@ class OtaClient:
         self._failure_reason = str(e)
         return OtaClientFailureType.UNRECOVERABLE
 
-    def _update(self, version, url_base, cookies):
+    def _update(self, version, url_base, cookies, blocking=True):
+        self._update_pre(version, url_base, cookies)
+        if blocking:
+            self._update_post(version, url_base, cookies)
+        else:
+            self._executor.submit(self._update_post, version, url_base, cookies)
+
+    def _update_pre(self, version, url_base, cookies):
         """
         e.g.
         cookies = {
@@ -202,6 +212,7 @@ class OtaClient:
         # enter update
         self._ota_status.enter_updating(version, self._mount_point)
 
+    def _update_post(self, version, url_base, cookies):
         # process metadata.jwt
         self._update_phase = OtaClientUpdatePhase.METADATA
         url = f"{url_base}/"
@@ -444,6 +455,7 @@ class OtaClient:
                         pool.terminate()
                         raise error
                     time.sleep(2)  # set pulling interval to 2 seconds
+                self._regular_files_processed = len(processed_list)  # via setter
 
     # NOTE:
     # _create_regular_file should be static to be used from pool.apply_async,

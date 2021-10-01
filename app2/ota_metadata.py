@@ -30,7 +30,7 @@ class OtaMetadata:
     exist, the groups of A* and the groups of B* are handled as a chained
     certificate.
     verify function verifies specified certificate with them.
-    Certificates file name format should be: '.*\..*.pem'
+    Certificates file name format should be: '.*\\..*.pem'
     NOTE:
     If there is no root or intermediate certificate, certification verification
     is not performed.
