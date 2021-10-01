@@ -193,7 +193,18 @@ class OtaClient:
         if blocking:
             self._update_post(version, url_base, cookies)
         else:
-            self._executor.submit(self._update_post, version, url_base, cookies)
+
+            def _wrapper(*args):
+                try:
+                    self._update_post(*args)
+                except OtaErrorRecoverable as e:
+                    self._ota_status.set_ota_status(OtaStatus.FAILURE)
+                    return self._result_recoverable(e)
+                except (OtaErrorUnrecoverable, Exception) as e:
+                    self._ota_status.set_ota_status(OtaStatus.FAILURE)
+                    return self._result_unrecoverable(e)
+
+            self._executor.submit(_wrapper, version, url_base, cookies)
 
     def _update_pre(self, version, url_base, cookies):
         """
