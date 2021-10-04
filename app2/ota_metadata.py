@@ -173,39 +173,26 @@ class OtaMetadata:
         return jwt_list[0] + "." + jwt_list[1]
 
     def _verify_certificate(self, certificate: str):
-        certs = [cert.name for cert in sorted(list(self._certs_dir.glob("*.*.pem")))]
-        if len(certs) == 0:
-            logger.warning("there is no root or intermediate certificate")
-            return
-        # e.g. certs == [A.1.pem, A.2.pem, B.1.pem, B.2.pem]
-        prefixes = set()
-        for cert in certs:
-            m = re.match(r"(.*)\..*.pem", cert)
-            prefixes.add(m.group(1))
-        logger.info(f"certs prefixes {prefixes}")
+        ca_set_prefix = set()
+        for cert in self._certs_dir.glob(f"*.*.pem"):
+            m = re.match(r"(.*)\..*.pem", cert.name)
+            ca_set_prefix.add(m.group(1))
 
-        def _load_certificates(store, certs):
-            for cert in certs:
-                logger.info(f"cert {cert}")
-                c = crypto.load_certificate(crypto.FILETYPE_PEM, open(cert).read())
-                store.add_cert(c)
+        load_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
+        for ca_prefix in ca_set_prefix:
+            certs_list = [self._certs_dir/c.name for c in self._certs_dir.glob(f"{ca_prefix}.*.pem")]
 
-        for prefix in sorted(prefixes):  # use sorted to fix the order of verification
             store = crypto.X509Store()
-            _load_certificates(store, self._certs_dir.glob(f"{prefix}.*.pem"))
-            try:
-                cert_to_verify = crypto.load_certificate(
-                    crypto.FILETYPE_PEM, certificate
-                )
-            except crypto.Error as e:
-                raise OtaErrorRecoverable(f"invalid certificate {certificate}")
+            for c in certs_list:
+                store.add_cert(load_pem(open(c).read()))
 
+            cert_loaded = load_pem(open(certificate).read())
             try:
-                store_ctx = crypto.X509StoreContext(store, cert_to_verify)
+                store_ctx = crypto.X509StoreContext(store, cert_loaded)
                 store_ctx.verify_certificate()
-                logger.info("certificate verify: OK")
+                logger.info(f"verfication succeeded against: {ca_prefix}")
                 return
             except crypto.X509StoreContextError as e:
-                logger.warning(f"NOTE: This warning can be ignored {e}")
+                logger.debug(f"verify against {ca_prefix} failed: {e}")
 
         raise OtaErrorRecoverable(f"certificate {certificate} could not be verified")
