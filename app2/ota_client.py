@@ -16,7 +16,7 @@ from enum import Enum, unique
 from logging import getLogger
 
 from ota_status import OtaStatusControl, OtaStatus
-from ota_metadata import OtaMetaData
+from ota_metadata import OtaMetadata
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
 
@@ -320,13 +320,22 @@ class OtaClient:
         if digest and digest != calc_digest:
             raise OtaErrorRecoverable(f"hash error: act={calc_digest}, exp={digest}")
 
+    def _verify_metadata(self, url_base, cookies, list_info, metadata):
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / list_info["file"]
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            metadata.verify(open(file_name).read())
+
     def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
             url = urllib.parse.urljoin(url_base, "metadata.jwt")
             OtaClient._download(url, cookies, file_name, None)
-            # TODO: verify metadata
-            return OtaMetaData(open(file_name, "r").read())
+            metadata = OtaMetadata(open(file_name, "r").read())
+            certificate_info = metadata.get_certificate_info()
+            self._verify_metadata(url_base, cookies, certificate_info, metadata)
+            return metadata
 
     def _process_directory(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -454,7 +463,9 @@ class OtaClient:
         hardlink_event=None,
     ):
         ishardlink = reginf.nlink >= 2
-        hardlink_first_copy = prev_reginf is not None and prev_reginf.path == reginf.path
+        hardlink_first_copy = (
+            prev_reginf is not None and prev_reginf.path == reginf.path
+        )
 
         if str(reginf.path).startswith("/boot"):
             dst = boot_standby_path / reginf.path.name
