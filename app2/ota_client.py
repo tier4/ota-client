@@ -138,7 +138,7 @@ class OtaClient:
 
         self._executor = ThreadPoolExecutor(max_workers=1)
 
-    def update(self, version, url_base, cookies, blocking=True):
+    def update(self, version, url_base, cookies, blocking=False):
         try:
             self._update(version, url_base, cookies, blocking)
             return self._result_ok()
