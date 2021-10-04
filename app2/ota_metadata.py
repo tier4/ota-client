@@ -8,6 +8,7 @@ from OpenSSL import crypto
 from pathlib import Path
 import glob
 import re
+from functools import partial
 from logging import getLogger
 
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
@@ -174,21 +175,35 @@ class OtaMetadata:
 
     def _verify_certificate(self, certificate: str):
         ca_set_prefix = set()
+        # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
         for cert in self._certs_dir.glob(f"*.*.pem"):
             m = re.match(r"(.*)\..*.pem", cert.name)
             ca_set_prefix.add(m.group(1))
+        if len(ca_set_prefix) == 0:
+            logger.warning("there is no root or intermediate certificate")
+            return
+        logger.info(f"certs prefixes {ca_set_prefix}")
 
         load_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
-        for ca_prefix in ca_set_prefix:
-            certs_list = [self._certs_dir/c.name for c in self._certs_dir.glob(f"{ca_prefix}.*.pem")]
+
+        try:
+            cert_to_verify = load_pem(certificate)
+        except crypto.Error as e:
+            raise OtaErrorRecoverable(f"invalid certificate {certificate}")
+
+        for ca_prefix in sorted(ca_set_prefix):
+            certs_list = [
+                self._certs_dir / c.name
+                for c in self._certs_dir.glob(f"{ca_prefix}.*.pem")
+            ]
 
             store = crypto.X509Store()
             for c in certs_list:
+                logger.info(f"cert {c}")
                 store.add_cert(load_pem(open(c).read()))
 
-            cert_loaded = load_pem(open(certificate).read())
             try:
-                store_ctx = crypto.X509StoreContext(store, cert_loaded)
+                store_ctx = crypto.X509StoreContext(store, cert_to_verify)
                 store_ctx.verify_certificate()
                 logger.info(f"verfication succeeded against: {ca_prefix}")
                 return
