@@ -238,6 +238,7 @@ def test_ota_client_update_non_blocking(mocker, tmp_path):
     sdx4.mkdir()
     ota_partition.symlink_to("ota-partition.sdx3")
     (sdx4 / "status").write_text("INITIALIZED")
+    (sdx3 / "version").write_text("a.b.c")
 
     mount_dir = tmp_path / "mnt"
     mount_dir.mkdir()
@@ -307,8 +308,7 @@ def test_ota_client_update_non_blocking(mocker, tmp_path):
         assert status["status"] == "UPDATING"
         assert status["failure_type"] == "NO_FAILURE"
         assert status["failure_reason"] == ""
-        # FIXME. current version should be returned.
-        assert status["version"] == "123.x"
+        assert status["version"] == "a.b.c"
         progress = status["update_progress"]
         time.sleep(2)  # sleep before phase check
         if progress["phase"] == "POST_PROCESSING":

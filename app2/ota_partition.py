@@ -189,7 +189,7 @@ class OtaPartitionFile(OtaPartition):
         return self._load_string(path / "status")
 
     def load_ota_version(self):
-        device = self.get_standby_boot_device()
+        device = self.get_active_boot_device()
         path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
         return self._load_string(path / "version")
 

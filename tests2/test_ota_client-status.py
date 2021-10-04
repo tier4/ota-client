@@ -31,7 +31,7 @@ def test_ota_client_status(mocker, tmp_path):
     sdx4.mkdir()
     ota_partition.symlink_to("ota-partition.sdx3")
     (sdx4 / "status").write_text("SUCCESS")
-    (sdx4 / "version").write_text("1.2.3")
+    (sdx3 / "version").write_text("1.2.3")
 
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
