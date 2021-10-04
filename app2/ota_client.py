@@ -498,7 +498,7 @@ class OtaClient:
         if ishardlink and not hardlink_first_copy:
             # wait until the first copy is ready
             hardlink_event.wait()
-            prev_reginf.path.link_to(dst)
+            (standby_path / prev_reginf.path.relative_to("/")).link_to(dst)
         else:  # normal file or first copy of hardlink file
             if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
                 # copy file from active bank if hash is the same
