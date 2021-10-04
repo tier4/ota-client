@@ -59,7 +59,7 @@ class Boto3Session:
         strs = thing_arn.split(":", 6)
         if len(strs) != 6:
             logger.error(f"invalid thing arn: thing_arn={thing_arn}")
-            return {}
+            raise Exception(f"invalid thing arn: thing_arn={thing_arn}")
 
         region = strs[3]
         thing_name = strs[5]
