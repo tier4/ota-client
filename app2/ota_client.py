@@ -160,14 +160,15 @@ class OtaClient:
             self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_unrecoverable(e)
 
+    # NOTE: status should not update any internal status
     def status(self):
         try:
             status = self._status()
-            return self._result_ok(), status
+            return OtaClientFailureType.NO_FAILURE, status
         except OtaErrorRecoverable as e:
-            return self._result_recoverable(e), None
+            return OtaClientFailureType.RECOVERABLE, None
         except (OtaErrorUnrecoverable, Exception) as e:
-            return self._result_unrecoverable(e), None
+            return OtaClientFailureType.UNRECOVERABLE, None
 
     """ private functions from here """
 
@@ -197,6 +198,7 @@ class OtaClient:
             def _wrapper(*args):
                 try:
                     self._update_post(*args)
+                    return self._result_ok()
                 except OtaErrorRecoverable as e:
                     self._ota_status.set_ota_status(OtaStatus.FAILURE)
                     return self._result_recoverable(e)
