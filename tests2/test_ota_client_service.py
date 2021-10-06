@@ -60,7 +60,7 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
         response_exp = v2.UpdateResponse()
         res_ecu = response_exp.ecu.add()
         res_ecu.ecu_id = "autoware"
-        res_ecu.result = v2.Result.OK
+        res_ecu.result = v2.FailureType.NO_FAILURE
         assert response == response_exp
 
     ota_client_mock.update.assert_called_once_with(
@@ -86,7 +86,7 @@ def test_ota_client_service_rollback(mocker, start_service_with_ota_client_mock)
         response_exp = v2.RollbackResponse()
         res_ecu = response_exp.ecu.add()
         res_ecu.ecu_id = "autoware"
-        res_ecu.result = v2.Result.OK
+        res_ecu.result = v2.FailureType.NO_FAILURE
         assert response == response_exp
 
     ota_client_mock.rollback.assert_called_once()
@@ -120,10 +120,10 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
         response_exp = v2.StatusResponse()
         res_ecu = response_exp.ecu.add()
         res_ecu.ecu_id = "autoware"
-        res_ecu.result = v2.Result.OK
+        res_ecu.result = v2.FailureType.NO_FAILURE
 
         res_ecu.status.status = v2.StatusOta.SUCCESS
-        res_ecu.status.failure = v2.StatusFailure.NO_FAILURE
+        res_ecu.status.failure = v2.FailureType.NO_FAILURE
         res_ecu.status.failure_reason = ""
         res_ecu.status.version = "1.2.3"
         res_ecu.status.progress.phase = v2.StatusProgressPhase.REGULAR
