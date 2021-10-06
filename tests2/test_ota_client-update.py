@@ -1,6 +1,7 @@
 import os
 import pytest
 import time
+import json
 from pathlib import Path
 
 test_dir = Path(__file__).parent
@@ -167,7 +168,7 @@ def test_ota_client_update(mocker, tmp_path):
     ota_client.update(
         "123.x",
         "http://ota-server:8080/ota-server",
-        {"test": "my-cookie"},
+        json.dumps({"test": "my-cookie"}),
         blocking=True,
     )
 
@@ -301,7 +302,7 @@ def test_ota_client_update_non_blocking(mocker, tmp_path):
     ota_client.update(
         "123.x",
         "http://ota-server:8080/ota-server",
-        {"test": "my-cookie"},
+        json.dumps({"test": "my-cookie"}),
         blocking=False,
     )
 
@@ -460,7 +461,7 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     ota_client.update(
         "123.x",
         "http://ota-server:8080/ota-server",
-        {"test": "my-cookie"},
+        json.dumps({"test": "my-cookie"}),
         blocking=True,
     )
 

@@ -1,6 +1,7 @@
 import os
 import pytest
 import grpc
+import json
 
 
 @pytest.fixture
@@ -53,7 +54,7 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
         req_ecu.ecu_id = "autoware"
         req_ecu.version = "1.2.3.a"
         req_ecu.url = "https://foo.bar.com/ota-data"
-        req_ecu.cookies = '{"test": "my data"}'
+        req_ecu.cookies = json.dumps({"test": "my data"})
         service = v2_grpc.OtaClientServiceStub(channel)
         response = service.Update(request)
 

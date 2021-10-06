@@ -7,6 +7,7 @@ import os
 import time
 import subprocess
 import shlex
+import json
 from hashlib import sha256
 from pathlib import Path
 from multiprocessing import Pool, Manager
@@ -138,9 +139,9 @@ class OtaClient:
 
         self._executor = ThreadPoolExecutor(max_workers=1)
 
-    def update(self, version, url_base, cookies, blocking=False):
+    def update(self, version, url_base, cookies: str, blocking=False):
         try:
-            self._update(version, url_base, cookies, blocking)
+            self._update(version, url_base, json.loads(cookies), blocking)
             return self._result_ok()
         except OtaErrorRecoverable as e:
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
