@@ -36,7 +36,7 @@ class OtaMetadata:
     If there is no root or intermediate certificate, certification verification
     is not performed.
     """
-    CERTS_DIR = Path(__file__).parent / "certs"
+    CERTS_DIR = Path(__file__).parent.parent / "certs"
 
     def __init__(self, ota_metadata_jwt):
         """
