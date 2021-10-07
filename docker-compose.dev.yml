@@ -7,10 +7,3 @@ services:
       && cp -av /ota-client/tests2/keys/root.pem /ota-client/certs/1.root.pem
       && cp -av /ota-client/tests2/keys/interm.pem /ota-client/certs/1.interm.pem
       && bash"
-    container_name: ota-client
-    volumes:
-      - ./app2:/ota-client/app2:ro
-      - ./tests2:/ota-client/tests2:ro
-    depends_on:
-      - server
-
