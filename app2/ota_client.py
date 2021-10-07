@@ -13,6 +13,7 @@ from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial
 from enum import Enum, unique
+from concurrent.futures import ThreadPoolExecutor
 from logging import getLogger
 
 from ota_status import OtaStatusControl, OtaStatus
@@ -135,9 +136,11 @@ class OtaClient:
         self._update_total_regular_files = 0
         self._update_regular_files_processed = 0
 
-    def update(self, version, url_base, cookies):
+        self._executor = ThreadPoolExecutor(max_workers=1)
+
+    def update(self, version, url_base, cookies, blocking=False):
         try:
-            self._update(version, url_base, cookies)
+            self._update(version, url_base, cookies, blocking)
             return self._result_ok()
         except OtaErrorRecoverable as e:
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
@@ -157,14 +160,15 @@ class OtaClient:
             self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_unrecoverable(e)
 
+    # NOTE: status should not update any internal status
     def status(self):
         try:
             status = self._status()
-            return self._result_ok(), status
+            return OtaClientFailureType.NO_FAILURE, status
         except OtaErrorRecoverable as e:
-            return self._result_recoverable(e), None
+            return OtaClientFailureType.RECOVERABLE, None
         except (OtaErrorUnrecoverable, Exception) as e:
-            return self._result_unrecoverable(e), None
+            return OtaClientFailureType.UNRECOVERABLE, None
 
     """ private functions from here """
 
@@ -185,7 +189,26 @@ class OtaClient:
         self._failure_reason = str(e)
         return OtaClientFailureType.UNRECOVERABLE
 
-    def _update(self, version, url_base, cookies):
+    def _update(self, version, url_base, cookies, blocking=True):
+        self._update_pre(version, url_base, cookies)
+        if blocking:
+            self._update_post(version, url_base, cookies)
+        else:
+
+            def _wrapper(*args):
+                try:
+                    self._update_post(*args)
+                    return self._result_ok()
+                except OtaErrorRecoverable as e:
+                    self._ota_status.set_ota_status(OtaStatus.FAILURE)
+                    return self._result_recoverable(e)
+                except (OtaErrorUnrecoverable, Exception) as e:
+                    self._ota_status.set_ota_status(OtaStatus.FAILURE)
+                    return self._result_unrecoverable(e)
+
+            self._executor.submit(_wrapper, version, url_base, cookies)
+
+    def _update_pre(self, version, url_base, cookies):
         """
         e.g.
         cookies = {
@@ -202,6 +225,7 @@ class OtaClient:
         # enter update
         self._ota_status.enter_updating(version, self._mount_point)
 
+    def _update_post(self, version, url_base, cookies):
         # process metadata.jwt
         self._update_phase = OtaClientUpdatePhase.METADATA
         url = f"{url_base}/"
@@ -444,6 +468,7 @@ class OtaClient:
                         pool.terminate()
                         raise error
                     time.sleep(2)  # set pulling interval to 2 seconds
+                self._regular_files_processed = len(processed_list)  # via setter
 
     # NOTE:
     # _create_regular_file should be static to be used from pool.apply_async,
@@ -475,7 +500,7 @@ class OtaClient:
         if ishardlink and not hardlink_first_copy:
             # wait until the first copy is ready
             hardlink_event.wait()
-            prev_reginf.path.link_to(dst)
+            (standby_path / prev_reginf.path.relative_to("/")).link_to(dst)
         else:  # normal file or first copy of hardlink file
             if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
                 # copy file from active bank if hash is the same
