@@ -139,9 +139,13 @@ class OtaClient:
 
         self._executor = ThreadPoolExecutor(max_workers=1)
 
-    def update(self, version, url_base, cookies: str, blocking=False):
+    def update(self, version, url_base, cookies_json: str, blocking=False):
         try:
-            self._update(version, url_base, json.loads(cookies), blocking)
+            try:
+                cookies = json.loads(cookies_json)
+            except Exception as e:
+                raise OtaErrorRecoverable(e)
+            self._update(version, url_base, cookies, blocking)
             return self._result_ok()
         except OtaErrorRecoverable as e:
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
