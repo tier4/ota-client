@@ -20,40 +20,40 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=b'\242\002\003OTA',
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n\x12otaclient_v2.proto\x12\x0bOtaClientV2\"Q\n\x10UpdateRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\t\x12\x0b\n\x03url\x18\x03 \x01(\t\x12\x0f\n\x07\x63ookies\x18\x04 \x01(\t\";\n\rUpdateRequest\x12*\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1d.OtaClientV2.UpdateRequestEcu\"H\n\x11UpdateResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12#\n\x06result\x18\x02 \x01(\x0e\x32\x13.OtaClientV2.Result\"=\n\x0eUpdateResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.UpdateResponseEcu\"$\n\x12RollbackRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\"?\n\x0fRollbackRequest\x12,\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1f.OtaClientV2.RollbackRequestEcu\"J\n\x13RollbackResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12#\n\x06result\x18\x02 \x01(\x0e\x32\x13.OtaClientV2.Result\"A\n\x10RollbackResponse\x12-\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32 .OtaClientV2.RollbackResponseEcu\"\x0f\n\rStatusRequest\"\x7f\n\x0eStatusProgress\x12/\n\x05phase\x18\x01 \x01(\x0e\x32 .OtaClientV2.StatusProgressPhase\x12\x1b\n\x13total_regular_files\x18\x02 \x01(\r\x12\x1f\n\x17regular_files_processed\x18\x03 \x01(\r\"\xb5\x01\n\x06Status\x12&\n\x06status\x18\x01 \x01(\x0e\x32\x16.OtaClientV2.StatusOta\x12+\n\x07\x66\x61ilure\x18\x02 \x01(\x0e\x32\x1a.OtaClientV2.StatusFailure\x12\x16\n\x0e\x66\x61ilure_reason\x18\x03 \x01(\t\x12\x0f\n\x07version\x18\x04 \x01(\t\x12-\n\x08progress\x18\x05 \x01(\x0b\x32\x1b.OtaClientV2.StatusProgress\"m\n\x11StatusResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12#\n\x06result\x18\x02 \x01(\x0e\x32\x13.OtaClientV2.Result\x12#\n\x06status\x18\x03 \x01(\x0b\x32\x13.OtaClientV2.Status\"=\n\x0eStatusResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.StatusResponseEcu*:\n\x06Result\x12\x06\n\x02OK\x10\x00\x12\x14\n\x10\x45RROR_OTA_STATUS\x10\x01\x12\x12\n\rERROR_UNKNOWN\x10\xff\x01*k\n\tStatusOta\x12\x0f\n\x0bINITIALIZED\x10\x00\x12\x0b\n\x07SUCCESS\x10\x01\x12\x0b\n\x07\x46\x41ILURE\x10\x02\x12\x0c\n\x08UPDATING\x10\x03\x12\x0f\n\x0bROLLBACKING\x10\x04\x12\x14\n\x10ROLLBACK_FAILURE\x10\x05*C\n\rStatusFailure\x12\x0e\n\nNO_FAILURE\x10\x00\x12\x0f\n\x0bRECOVERABLE\x10\x01\x12\x11\n\rUNRECOVERABLE\x10\x02*~\n\x13StatusProgressPhase\x12\x0b\n\x07INITIAL\x10\x00\x12\x0c\n\x08METADATA\x10\x01\x12\r\n\tDIRECTORY\x10\x02\x12\x0b\n\x07SYMLINK\x10\x03\x12\x0b\n\x07REGULAR\x10\x04\x12\x0e\n\nPERSISTENT\x10\x05\x12\x13\n\x0fPOST_PROCESSING\x10\x06\x32\xe7\x01\n\x10OtaClientService\x12\x43\n\x06Update\x12\x1a.OtaClientV2.UpdateRequest\x1a\x1b.OtaClientV2.UpdateResponse\"\x00\x12I\n\x08Rollback\x12\x1c.OtaClientV2.RollbackRequest\x1a\x1d.OtaClientV2.RollbackResponse\"\x00\x12\x43\n\x06Status\x12\x1a.OtaClientV2.StatusRequest\x1a\x1b.OtaClientV2.StatusResponse\"\x00\x42\x06\xa2\x02\x03OTAb\x06proto3'
+  serialized_pb=b'\n\x12otaclient_v2.proto\x12\x0bOtaClientV2\"Q\n\x10UpdateRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\t\x12\x0b\n\x03url\x18\x03 \x01(\t\x12\x0f\n\x07\x63ookies\x18\x04 \x01(\t\";\n\rUpdateRequest\x12*\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1d.OtaClientV2.UpdateRequestEcu\"M\n\x11UpdateResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"=\n\x0eUpdateResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.UpdateResponseEcu\"$\n\x12RollbackRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\"?\n\x0fRollbackRequest\x12,\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1f.OtaClientV2.RollbackRequestEcu\"O\n\x13RollbackResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"A\n\x10RollbackResponse\x12-\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32 .OtaClientV2.RollbackResponseEcu\"\x0f\n\rStatusRequest\"\x7f\n\x0eStatusProgress\x12/\n\x05phase\x18\x01 \x01(\x0e\x32 .OtaClientV2.StatusProgressPhase\x12\x1b\n\x13total_regular_files\x18\x02 \x01(\r\x12\x1f\n\x17regular_files_processed\x18\x03 \x01(\r\"\xb3\x01\n\x06Status\x12&\n\x06status\x18\x01 \x01(\x0e\x32\x16.OtaClientV2.StatusOta\x12)\n\x07\x66\x61ilure\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12\x16\n\x0e\x66\x61ilure_reason\x18\x03 \x01(\t\x12\x0f\n\x07version\x18\x04 \x01(\t\x12-\n\x08progress\x18\x05 \x01(\x0b\x32\x1b.OtaClientV2.StatusProgress\"r\n\x11StatusResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12#\n\x06status\x18\x03 \x01(\x0b\x32\x13.OtaClientV2.Status\"=\n\x0eStatusResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.StatusResponseEcu*A\n\x0b\x46\x61ilureType\x12\x0e\n\nNO_FAILURE\x10\x00\x12\x0f\n\x0bRECOVERABLE\x10\x01\x12\x11\n\rUNRECOVERABLE\x10\x02*k\n\tStatusOta\x12\x0f\n\x0bINITIALIZED\x10\x00\x12\x0b\n\x07SUCCESS\x10\x01\x12\x0b\n\x07\x46\x41ILURE\x10\x02\x12\x0c\n\x08UPDATING\x10\x03\x12\x0f\n\x0bROLLBACKING\x10\x04\x12\x14\n\x10ROLLBACK_FAILURE\x10\x05*~\n\x13StatusProgressPhase\x12\x0b\n\x07INITIAL\x10\x00\x12\x0c\n\x08METADATA\x10\x01\x12\r\n\tDIRECTORY\x10\x02\x12\x0b\n\x07SYMLINK\x10\x03\x12\x0b\n\x07REGULAR\x10\x04\x12\x0e\n\nPERSISTENT\x10\x05\x12\x13\n\x0fPOST_PROCESSING\x10\x06\x32\xe7\x01\n\x10OtaClientService\x12\x43\n\x06Update\x12\x1a.OtaClientV2.UpdateRequest\x1a\x1b.OtaClientV2.UpdateResponse\"\x00\x12I\n\x08Rollback\x12\x1c.OtaClientV2.RollbackRequest\x1a\x1d.OtaClientV2.RollbackResponse\"\x00\x12\x43\n\x06Status\x12\x1a.OtaClientV2.StatusRequest\x1a\x1b.OtaClientV2.StatusResponse\"\x00\x42\x06\xa2\x02\x03OTAb\x06proto3'
 )
 
-_RESULT = _descriptor.EnumDescriptor(
-  name='Result',
-  full_name='OtaClientV2.Result',
+_FAILURETYPE = _descriptor.EnumDescriptor(
+  name='FailureType',
+  full_name='OtaClientV2.FailureType',
   filename=None,
   file=DESCRIPTOR,
   create_key=_descriptor._internal_create_key,
   values=[
     _descriptor.EnumValueDescriptor(
-      name='OK', index=0, number=0,
+      name='NO_FAILURE', index=0, number=0,
       serialized_options=None,
       type=None,
       create_key=_descriptor._internal_create_key),
     _descriptor.EnumValueDescriptor(
-      name='ERROR_OTA_STATUS', index=1, number=1,
+      name='RECOVERABLE', index=1, number=1,
       serialized_options=None,
       type=None,
       create_key=_descriptor._internal_create_key),
     _descriptor.EnumValueDescriptor(
-      name='ERROR_UNKNOWN', index=2, number=255,
+      name='UNRECOVERABLE', index=2, number=2,
       serialized_options=None,
       type=None,
       create_key=_descriptor._internal_create_key),
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1066,
-  serialized_end=1124,
+  serialized_start=1079,
+  serialized_end=1144,
 )
-_sym_db.RegisterEnumDescriptor(_RESULT)
+_sym_db.RegisterEnumDescriptor(_FAILURETYPE)
 
-Result = enum_type_wrapper.EnumTypeWrapper(_RESULT)
+FailureType = enum_type_wrapper.EnumTypeWrapper(_FAILURETYPE)
 _STATUSOTA = _descriptor.EnumDescriptor(
   name='StatusOta',
   full_name='OtaClientV2.StatusOta',
@@ -94,43 +94,12 @@ _STATUSOTA = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1126,
-  serialized_end=1233,
+  serialized_start=1146,
+  serialized_end=1253,
 )
 _sym_db.RegisterEnumDescriptor(_STATUSOTA)
 
 StatusOta = enum_type_wrapper.EnumTypeWrapper(_STATUSOTA)
-_STATUSFAILURE = _descriptor.EnumDescriptor(
-  name='StatusFailure',
-  full_name='OtaClientV2.StatusFailure',
-  filename=None,
-  file=DESCRIPTOR,
-  create_key=_descriptor._internal_create_key,
-  values=[
-    _descriptor.EnumValueDescriptor(
-      name='NO_FAILURE', index=0, number=0,
-      serialized_options=None,
-      type=None,
-      create_key=_descriptor._internal_create_key),
-    _descriptor.EnumValueDescriptor(
-      name='RECOVERABLE', index=1, number=1,
-      serialized_options=None,
-      type=None,
-      create_key=_descriptor._internal_create_key),
-    _descriptor.EnumValueDescriptor(
-      name='UNRECOVERABLE', index=2, number=2,
-      serialized_options=None,
-      type=None,
-      create_key=_descriptor._internal_create_key),
-  ],
-  containing_type=None,
-  serialized_options=None,
-  serialized_start=1235,
-  serialized_end=1302,
-)
-_sym_db.RegisterEnumDescriptor(_STATUSFAILURE)
-
-StatusFailure = enum_type_wrapper.EnumTypeWrapper(_STATUSFAILURE)
 _STATUSPROGRESSPHASE = _descriptor.EnumDescriptor(
   name='StatusProgressPhase',
   full_name='OtaClientV2.StatusProgressPhase',
@@ -176,24 +145,21 @@ _STATUSPROGRESSPHASE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1304,
-  serialized_end=1430,
+  serialized_start=1255,
+  serialized_end=1381,
 )
 _sym_db.RegisterEnumDescriptor(_STATUSPROGRESSPHASE)
 
 StatusProgressPhase = enum_type_wrapper.EnumTypeWrapper(_STATUSPROGRESSPHASE)
-OK = 0
-ERROR_OTA_STATUS = 1
-ERROR_UNKNOWN = 255
+NO_FAILURE = 0
+RECOVERABLE = 1
+UNRECOVERABLE = 2
 INITIALIZED = 0
 SUCCESS = 1
 FAILURE = 2
 UPDATING = 3
 ROLLBACKING = 4
 ROLLBACK_FAILURE = 5
-NO_FAILURE = 0
-RECOVERABLE = 1
-UNRECOVERABLE = 2
 INITIAL = 0
 METADATA = 1
 DIRECTORY = 2
@@ -324,7 +290,7 @@ _UPDATERESPONSEECU = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=179,
-  serialized_end=251,
+  serialized_end=256,
 )
 
 
@@ -355,8 +321,8 @@ _UPDATERESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=253,
-  serialized_end=314,
+  serialized_start=258,
+  serialized_end=319,
 )
 
 
@@ -387,8 +353,8 @@ _ROLLBACKREQUESTECU = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=316,
-  serialized_end=352,
+  serialized_start=321,
+  serialized_end=357,
 )
 
 
@@ -419,8 +385,8 @@ _ROLLBACKREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=354,
-  serialized_end=417,
+  serialized_start=359,
+  serialized_end=422,
 )
 
 
@@ -458,8 +424,8 @@ _ROLLBACKRESPONSEECU = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=419,
-  serialized_end=493,
+  serialized_start=424,
+  serialized_end=503,
 )
 
 
@@ -490,8 +456,8 @@ _ROLLBACKRESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=495,
-  serialized_end=560,
+  serialized_start=505,
+  serialized_end=570,
 )
 
 
@@ -515,8 +481,8 @@ _STATUSREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=562,
-  serialized_end=577,
+  serialized_start=572,
+  serialized_end=587,
 )
 
 
@@ -561,8 +527,8 @@ _STATUSPROGRESS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=579,
-  serialized_end=706,
+  serialized_start=589,
+  serialized_end=716,
 )
 
 
@@ -621,8 +587,8 @@ _STATUS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=709,
-  serialized_end=890,
+  serialized_start=719,
+  serialized_end=898,
 )
 
 
@@ -667,8 +633,8 @@ _STATUSRESPONSEECU = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=892,
-  serialized_end=1001,
+  serialized_start=900,
+  serialized_end=1014,
 )
 
 
@@ -699,21 +665,21 @@ _STATUSRESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1003,
-  serialized_end=1064,
+  serialized_start=1016,
+  serialized_end=1077,
 )
 
 _UPDATEREQUEST.fields_by_name['ecu'].message_type = _UPDATEREQUESTECU
-_UPDATERESPONSEECU.fields_by_name['result'].enum_type = _RESULT
+_UPDATERESPONSEECU.fields_by_name['result'].enum_type = _FAILURETYPE
 _UPDATERESPONSE.fields_by_name['ecu'].message_type = _UPDATERESPONSEECU
 _ROLLBACKREQUEST.fields_by_name['ecu'].message_type = _ROLLBACKREQUESTECU
-_ROLLBACKRESPONSEECU.fields_by_name['result'].enum_type = _RESULT
+_ROLLBACKRESPONSEECU.fields_by_name['result'].enum_type = _FAILURETYPE
 _ROLLBACKRESPONSE.fields_by_name['ecu'].message_type = _ROLLBACKRESPONSEECU
 _STATUSPROGRESS.fields_by_name['phase'].enum_type = _STATUSPROGRESSPHASE
 _STATUS.fields_by_name['status'].enum_type = _STATUSOTA
-_STATUS.fields_by_name['failure'].enum_type = _STATUSFAILURE
+_STATUS.fields_by_name['failure'].enum_type = _FAILURETYPE
 _STATUS.fields_by_name['progress'].message_type = _STATUSPROGRESS
-_STATUSRESPONSEECU.fields_by_name['result'].enum_type = _RESULT
+_STATUSRESPONSEECU.fields_by_name['result'].enum_type = _FAILURETYPE
 _STATUSRESPONSEECU.fields_by_name['status'].message_type = _STATUS
 _STATUSRESPONSE.fields_by_name['ecu'].message_type = _STATUSRESPONSEECU
 DESCRIPTOR.message_types_by_name['UpdateRequestEcu'] = _UPDATEREQUESTECU
@@ -729,9 +695,8 @@ DESCRIPTOR.message_types_by_name['StatusProgress'] = _STATUSPROGRESS
 DESCRIPTOR.message_types_by_name['Status'] = _STATUS
 DESCRIPTOR.message_types_by_name['StatusResponseEcu'] = _STATUSRESPONSEECU
 DESCRIPTOR.message_types_by_name['StatusResponse'] = _STATUSRESPONSE
-DESCRIPTOR.enum_types_by_name['Result'] = _RESULT
+DESCRIPTOR.enum_types_by_name['FailureType'] = _FAILURETYPE
 DESCRIPTOR.enum_types_by_name['StatusOta'] = _STATUSOTA
-DESCRIPTOR.enum_types_by_name['StatusFailure'] = _STATUSFAILURE
 DESCRIPTOR.enum_types_by_name['StatusProgressPhase'] = _STATUSPROGRESSPHASE
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
@@ -836,8 +801,8 @@ _OTACLIENTSERVICE = _descriptor.ServiceDescriptor(
   index=0,
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_start=1433,
-  serialized_end=1664,
+  serialized_start=1384,
+  serialized_end=1615,
   methods=[
   _descriptor.MethodDescriptor(
     name='Update',

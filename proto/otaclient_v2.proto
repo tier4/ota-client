@@ -32,10 +32,10 @@ service OtaClientService {
 //
 // Common
 //
-enum Result {
-  OK = 0;
-  ERROR_OTA_STATUS = 1;
-  ERROR_UNKNOWN = 255;
+enum FailureType {
+    NO_FAILURE = 0;
+    RECOVERABLE = 1;
+    UNRECOVERABLE = 2;
 }
 
 //
@@ -57,7 +57,7 @@ message UpdateRequest {
 // Response
 message UpdateResponseEcu {
   string ecu_id = 1;
-  Result result = 2;
+  FailureType result = 2;
 }
 
 message UpdateResponse {
@@ -80,7 +80,7 @@ message RollbackRequest {
 // Response
 message RollbackResponseEcu {
   string ecu_id = 1;
-  Result result = 2;
+  FailureType result = 2;
 }
 
 message RollbackResponse {
@@ -96,39 +96,33 @@ message StatusRequest {
 
 // Response
 enum StatusOta {
-    INITIALIZED = 0;
-    SUCCESS = 1;
-    FAILURE = 2;
-    UPDATING = 3;
-    ROLLBACKING = 4;
-    ROLLBACK_FAILURE = 5;
-}
-
-enum StatusFailure {
-    NO_FAILURE = 0;
-    RECOVERABLE = 1;
-    UNRECOVERABLE = 2;
+  INITIALIZED = 0;
+  SUCCESS = 1;
+  FAILURE = 2;
+  UPDATING = 3;
+  ROLLBACKING = 4;
+  ROLLBACK_FAILURE = 5;
 }
 
 enum StatusProgressPhase {
-    INITIAL = 0;
-    METADATA = 1;
-    DIRECTORY = 2;
-    SYMLINK = 3;
-    REGULAR = 4;
-    PERSISTENT = 5;
-    POST_PROCESSING = 6;
+  INITIAL = 0;
+  METADATA = 1;
+  DIRECTORY = 2;
+  SYMLINK = 3;
+  REGULAR = 4;
+  PERSISTENT = 5;
+  POST_PROCESSING = 6;
 }
 
 message StatusProgress {
-    StatusProgressPhase phase = 1;
-    uint32 total_regular_files = 2;
-    uint32 regular_files_processed = 3;
+  StatusProgressPhase phase = 1;
+  uint32 total_regular_files = 2;
+  uint32 regular_files_processed = 3;
 }
 
 message Status {
   StatusOta status = 1;
-  StatusFailure failure = 2;
+  FailureType failure = 2;
   string failure_reason = 3;
   string version = 4;
   StatusProgress progress = 5;
@@ -136,12 +130,10 @@ message Status {
 
 message StatusResponseEcu {
   string ecu_id = 1;
-  Result result = 2;
+  FailureType result = 2;
   Status status = 3;
 }
 
 message StatusResponse {
   repeated StatusResponseEcu ecu = 1;
 }
-
-

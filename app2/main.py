@@ -1,6 +1,6 @@
 from logging import getLogger
 
-import ota_client_stub
+from ota_client_stub import OtaClientStub
 from ota_client_service import (
     OtaClientServiceV2,
     OtaClientService,

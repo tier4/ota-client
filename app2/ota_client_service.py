@@ -42,18 +42,6 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         results = self._stub.status(request)
         response = v2.StatusResponse()
 
-        def set_status(ecu, status: dict):
-            ecu.status.status = v2.StatusOta.Value(status["status"])
-            ecu.status.failure = v2.StatusFailure.Value(status["failure_type"])
-            ecu.status.failure_reason = status["failure_reason"]
-            ecu.status.version = status["version"]
-            progress = status["update_progress"]
-            ecu.status.progress.phase = v2.StatusProgressPhase.Value(progress["phase"])
-            ecu.status.progress.total_regular_files = progress["total_regular_files"]
-            ecu.status.progress.regular_files_processed = progress[
-                "regular_files_processed"
-            ]
-
         for result in results:
             res_ecu = response.ecu.add()
             res_ecu.ecu_id = result["ecu_id"]
@@ -63,7 +51,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
                 # ecu.status
                 es = res_ecu.status
                 es.status = v2.StatusOta.Value(status["status"])
-                es.failure = v2.StatusFailure.Value(status["failure_type"])
+                es.failure = v2.FailureType.Value(status["failure_type"])
                 es.failure_reason = status["failure_reason"]
                 es.version = status["version"]
 
