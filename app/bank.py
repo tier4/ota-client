@@ -10,10 +10,11 @@ import re
 from copy import deepcopy
 
 import configs as cfg
-from logging import getLogger, INFO, DEBUG
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, INFO))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 def _blkid_command(device=None):

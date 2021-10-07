@@ -7,11 +7,11 @@ import json
 from OpenSSL import crypto
 
 import configs as cfg
+import log_util
 
-from logging import getLogger, INFO, DEBUG
-
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class OtaMetaData:
