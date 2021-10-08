@@ -54,19 +54,19 @@ def create_files(tmp_path):
     C = B / "C"
     C.mkdir()
 
-    os.chown(src, 10, 20, follow_symlinks=False)
-    os.chown(a, 30, 40, follow_symlinks=False)
-    os.chown(to_a, 50, 60, follow_symlinks=False)
-    os.chown(to_broken_a, 70, 80, follow_symlinks=False)
-    os.chown(A, 90, 100, follow_symlinks=False)
-    os.chown(b, 110, 120, follow_symlinks=False)
-    os.chown(to_b, 130, 140, follow_symlinks=False)
-    os.chown(to_broken_b, 150, 160, follow_symlinks=False)
-    os.chown(B, 170, 180, follow_symlinks=False)
-    os.chown(c, 190, 200, follow_symlinks=False)
-    os.chown(to_c, 210, 220, follow_symlinks=False)
-    os.chown(to_broken_c, 230, 240, follow_symlinks=False)
-    os.chown(C, 250, 260, follow_symlinks=False)
+    os.chown(src, 0, 1, follow_symlinks=False)
+    os.chown(a, 2, 3, follow_symlinks=False)
+    os.chown(to_a, 4, 5, follow_symlinks=False)
+    os.chown(to_broken_a, 6, 7, follow_symlinks=False)
+    os.chown(A, 8, 9, follow_symlinks=False)
+    os.chown(b, 10, 13, follow_symlinks=False)
+    os.chown(to_b, 33, 34, follow_symlinks=False)
+    os.chown(to_broken_b, 38, 39, follow_symlinks=False)
+    os.chown(B, 41, 65534, follow_symlinks=False)
+    os.chown(c, 100, 102, follow_symlinks=False)
+    os.chown(to_c, 12345678, 87654321, follow_symlinks=False)  # id can't be converted
+    os.chown(to_broken_c, 104, 104, follow_symlinks=False)
+    os.chown(C, 105, 105, follow_symlinks=False)
 
     os.chmod(src, 0o111)
     os.chmod(a, 0o112)
@@ -107,8 +107,171 @@ def assert_uid_gid_mode(path, uid, gid, mode):
     assert stat.S_IMODE(st[stat.ST_MODE]) == mode
 
 
-def test_copy_parents_copy_parents_src_dir(mocker, tmp_path):
-    from copy_parents import copy_parents
+def create_passwd_group_files(tmp_path):
+    src_passwd = """\
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+sync:x:4:65534:sync:/bin:/bin/sync
+games:x:5:60:games:/usr/games:/usr/sbin/nologin
+man:x:6:12:man:/var/cache/man:/usr/sbin/nologin
+lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin
+mail:x:8:8:mail:/var/mail:/usr/sbin/nologin
+news:x:9:9:news:/var/spool/news:/usr/sbin/nologin
+uucp:x:10:10:uucp:/var/spool/uucp:/usr/sbin/nologin
+proxy:x:13:13:proxy:/bin:/usr/sbin/nologin
+www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
+backup:x:34:34:backup:/var/backups:/usr/sbin/nologin
+list:x:38:38:Mailing List Manager:/var/list:/usr/sbin/nologin
+irc:x:39:39:ircd:/var/run/ircd:/usr/sbin/nologin
+gnats:x:41:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+systemd-network:x:100:102:systemd Network Management,,,:/run/systemd:/usr/sbin/nologin
+systemd-resolve:x:101:103:systemd Resolver,,,:/run/systemd:/usr/sbin/nologin
+systemd-timesync:x:102:104:systemd Time Synchronization,,,:/run/systemd:/usr/sbin/nologin
+messagebus:x:103:106::/nonexistent:/usr/sbin/nologin
+syslog:x:104:110::/home/syslog:/usr/sbin/nologin
+_apt:x:105:65534::/nonexistent:/usr/sbin/nologin
+"""
+
+    # dst_passwd uid is converted with f"1{src_passwd gid}"
+    dst_passwd = """\
+root:x:10:0:root:/root:/bin/bash
+daemon:x:11:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:12:2:bin:/bin:/usr/sbin/nologin
+sys:x:13:3:sys:/dev:/usr/sbin/nologin
+sync:x:14:65534:sync:/bin:/bin/sync
+games:x:15:60:games:/usr/games:/usr/sbin/nologin
+man:x:16:12:man:/var/cache/man:/usr/sbin/nologin
+lp:x:17:7:lp:/var/spool/lpd:/usr/sbin/nologin
+mail:x:18:8:mail:/var/mail:/usr/sbin/nologin
+news:x:19:9:news:/var/spool/news:/usr/sbin/nologin
+uucp:x:110:10:uucp:/var/spool/uucp:/usr/sbin/nologin
+proxy:x:113:13:proxy:/bin:/usr/sbin/nologin
+www-data:x:133:33:www-data:/var/www:/usr/sbin/nologin
+backup:x:134:34:backup:/var/backups:/usr/sbin/nologin
+list:x:138:38:Mailing List Manager:/var/list:/usr/sbin/nologin
+irc:x:139:39:ircd:/var/run/ircd:/usr/sbin/nologin
+gnats:x:141:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin
+nobody:x:165534:65534:nobody:/nonexistent:/usr/sbin/nologin
+systemd-network:x:1100:102:systemd Network Management,,,:/run/systemd:/usr/sbin/nologin
+systemd-resolve:x:1101:103:systemd Resolver,,,:/run/systemd:/usr/sbin/nologin
+systemd-timesync:x:1102:104:systemd Time Synchronization,,,:/run/systemd:/usr/sbin/nologin
+messagebus:x:1103:106::/nonexistent:/usr/sbin/nologin
+syslog:x:1104:110::/home/syslog:/usr/sbin/nologin
+_apt:x:1105:65534::/nonexistent:/usr/sbin/nologin
+"""
+
+    src_group = """\
+root:x:0:
+daemon:x:1:
+bin:x:2:
+sys:x:3:
+adm:x:4:syslog
+tty:x:5:syslog
+disk:x:6:
+lp:x:7:
+mail:x:8:
+news:x:9:
+uucp:x:10:
+man:x:12:
+proxy:x:13:
+kmem:x:15:
+dialout:x:20:
+fax:x:21:
+voice:x:22:
+cdrom:x:24:
+floppy:x:25:
+tape:x:26:
+sudo:x:27:
+audio:x:29:pulse
+dip:x:30:
+www-data:x:33:
+backup:x:34:
+operator:x:37:
+list:x:38:
+irc:x:39:
+src:x:40:
+gnats:x:41:
+shadow:x:42:
+utmp:x:43:
+video:x:44:
+sasl:x:45:
+plugdev:x:46:
+staff:x:50:
+games:x:60:
+users:x:100:
+nogroup:x:65534:
+systemd-journal:x:101:
+systemd-network:x:102:
+systemd-resolve:x:103:
+systemd-timesync:x:104:
+crontab:x:105:
+"""
+
+    # dst_group gid is converted with f"2{src_group gid}"
+    dst_group = """\
+root:x:20:
+daemon:x:21:
+bin:x:22:
+sys:x:23:
+adm:x:24:syslog
+tty:x:25:syslog
+disk:x:26:
+lp:x:27:
+mail:x:28:
+news:x:29:
+uucp:x:210:
+man:x:212:
+proxy:x:213:
+kmem:x:215:
+dialout:x:220:
+fax:x:221:
+voice:x:222:
+cdrom:x:224:
+floppy:x:225:
+tape:x:226:
+sudo:x:227:
+audio:x:229:pulse
+dip:x:230:
+www-data:x:233:
+backup:x:234:
+operator:x:237:
+list:x:238:
+irc:x:239:
+src:x:240:
+gnats:x:241:
+shadow:x:242:
+utmp:x:243:
+video:x:244:
+sasl:x:245:
+plugdev:x:246:
+staff:x:250:
+games:x:260:
+users:x:2100:
+nogroup:x:265534:
+systemd-journal:x:2101:
+systemd-network:x:2102:
+systemd-resolve:x:2103:
+systemd-timesync:x:2104:
+crontab:x:2105:
+"""
+    src_passwd_file = tmp_path / "etc" / "src_passwd"
+    dst_passwd_file = tmp_path / "etc" / "dst_passwd"
+    src_group_file = tmp_path / "etc" / "src_group"
+    dst_group_file = tmp_path / "etc" / "dst_group"
+    (tmp_path / "etc").mkdir()
+
+    src_passwd_file.write_text(src_passwd)
+    dst_passwd_file.write_text(dst_passwd)
+    src_group_file.write_text(src_group)
+    dst_group_file.write_text(dst_group)
+    return src_passwd_file, dst_passwd_file, src_group_file, dst_group_file
+
+
+def test_copy_parents_src_dir(mocker, tmp_path):
+    from copy_parents import CopyParents
 
     (
         dst,
@@ -127,37 +290,47 @@ def test_copy_parents_copy_parents_src_dir(mocker, tmp_path):
         C,
     ) = create_files(tmp_path)
 
-    copy_parents(B, dst)
+    (
+        src_passwd_file,
+        dst_passwd_file,
+        src_group_file,
+        dst_group_file,
+    ) = create_passwd_group_files(tmp_path)
+
+    CopyParents(
+        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
+    ).copy_parents(B, dst)
 
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
     assert not (dst / A.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / A.relative_to("/"), 90, 100, 0o115)
+    assert_uid_gid_mode(dst / A.relative_to("/"), 18, 29, 0o115)
 
     # src/A/B/
     assert (dst / B.relative_to("/")).is_dir()
     assert not (dst / B.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / B.relative_to("/"), 170, 180, 0o122)
+    assert_uid_gid_mode(dst / B.relative_to("/"), 141, 265534, 0o122)
 
     # src/A/B/c
     assert (dst / c.relative_to("/")).is_file()
     assert not (dst / c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / c.relative_to("/"), 190, 200, 0o123)
+    assert_uid_gid_mode(dst / c.relative_to("/"), 1100, 2102, 0o123)
 
     # src/A/B/to_c
     assert (dst / to_c.relative_to("/")).is_file()
     assert (dst / to_c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / to_c.relative_to("/"), 210, 220, 0o777)
+    # uid, gid can't be converted so original uid, gid is used.
+    assert_uid_gid_mode(dst / to_c.relative_to("/"), 12345678, 87654321, 0o777)
 
     # src/A/B/to_broken_c
     assert not (dst / to_broken_c.relative_to("/")).is_file()
     assert (dst / to_broken_c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / to_broken_c.relative_to("/"), 230, 240, 0o777)
+    assert_uid_gid_mode(dst / to_broken_c.relative_to("/"), 1104, 2104, 0o777)
 
     # src/A/B/C/
     assert (dst / C.relative_to("/")).is_dir()
     assert not (dst / C.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / C.relative_to("/"), 250, 260, 0o126)
+    assert_uid_gid_mode(dst / C.relative_to("/"), 1105, 2105, 0o126)
 
     # followings should not exist
     # src/a
@@ -180,8 +353,8 @@ def test_copy_parents_copy_parents_src_dir(mocker, tmp_path):
     assert not (dst / to_broken_b.relative_to("/")).is_symlink()
 
 
-def test_copy_parents_copy_parents_src_file(mocker, tmp_path):
-    from copy_parents import copy_parents
+def test_copy_parents_src_file(mocker, tmp_path):
+    from copy_parents import CopyParents
 
     (
         dst,
@@ -200,17 +373,26 @@ def test_copy_parents_copy_parents_src_file(mocker, tmp_path):
         C,
     ) = create_files(tmp_path)
 
-    copy_parents(to_b, dst)
+    (
+        src_passwd_file,
+        dst_passwd_file,
+        src_group_file,
+        dst_group_file,
+    ) = create_passwd_group_files(tmp_path)
+
+    CopyParents(
+        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
+    ).copy_parents(to_b, dst)
 
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
     assert not (dst / A.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / A.relative_to("/"), 90, 100, 0o115)
+    assert_uid_gid_mode(dst / A.relative_to("/"), 8, 9, 0o115)
 
     # src/A/to_b (src/A/b is not copied, so to_b.is_file() is False)
     assert not (dst / to_b.relative_to("/")).is_file()
     assert (dst / to_b.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / to_b.relative_to("/"), 130, 140, 0o777)
+    assert_uid_gid_mode(dst / to_b.relative_to("/"), 33, 34, 0o777)
 
     # followings should not exist
     # src/a
@@ -245,8 +427,8 @@ def test_copy_parents_copy_parents_src_file(mocker, tmp_path):
     assert not (dst / C.relative_to("/")).is_symlink()
 
 
-def test_copy_parents_copy_parents_B_exists(mocker, tmp_path):
-    from copy_parents import copy_parents
+def test_copy_parents_B_exists(mocker, tmp_path):
+    from copy_parents import CopyParents
 
     (
         dst,
@@ -277,7 +459,16 @@ def test_copy_parents_copy_parents_B_exists(mocker, tmp_path):
     os.chmod(dst_B, 0o654)
     st = os.stat(dst_A, follow_symlinks=False)
 
-    copy_parents(C, dst)
+    (
+        src_passwd_file,
+        dst_passwd_file,
+        src_group_file,
+        dst_group_file,
+    ) = create_passwd_group_files(tmp_path)
+
+    CopyParents(
+        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
+    ).copy_parents(C, dst)
 
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
@@ -292,7 +483,7 @@ def test_copy_parents_copy_parents_B_exists(mocker, tmp_path):
     # src/A/B/C/
     assert (dst / C.relative_to("/")).is_dir()
     assert not (dst / C.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / C.relative_to("/"), 250, 260, 0o126)
+    assert_uid_gid_mode(dst / C.relative_to("/"), 105, 105, 0o126)
 
     # followings should not exist
     # src/a
