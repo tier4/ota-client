@@ -6,13 +6,12 @@ import os
 import shutil
 
 import configs as cfg
-from constants import OtaStatusString
-from logging import getLogger, INFO
-
 import constants
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class OtaStatus:

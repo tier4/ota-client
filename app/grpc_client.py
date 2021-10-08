@@ -6,23 +6,17 @@
 
 from __future__ import print_function
 import logging
-
 import argparse
-
 import json
 import base64
 from OpenSSL import crypto
-
-
 import grpc
 
 import configs as cfg
 import otaclient_pb2
 import otaclient_pb2_grpc
 
-from logging import getLogger, INFO, DEBUG
-
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 

@@ -12,13 +12,12 @@ import shutil
 import subprocess
 
 from bank import BankInfo
-from exceptions import GrubCtrolError
 import configs as cfg
+import log_util
 
-from logging import debug, getLogger, INFO, DEBUG
-
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 def _make_grub_configuration_file(opt_file: str):

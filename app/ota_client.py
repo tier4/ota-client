@@ -27,11 +27,11 @@ from constants import OtaStatusString
 from grub_control import GrubCtl
 from ota_metadata import OtaMetaData
 from exceptions import Error, OtaError
+import log_util
 
-from logging import getLogger, INFO, DEBUG
-
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 def _file_sha256(filename) -> str:
