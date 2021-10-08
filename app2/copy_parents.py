@@ -1,3 +1,5 @@
+import os
+import stat
 import shutil
 from pathlib import Path
 from logging import getLogger
@@ -6,6 +8,14 @@ import configs as cfg
 
 logger = getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+
+
+def _copy_stat(src, dst):
+    st = os.stat(src, follow_symlinks=False)
+    os.chown(dst, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
+    if not dst.is_symlink():  # symlink always 777
+        logger.info(f"{src} mode {st[stat.ST_MODE]}")
+        os.chmod(dst, st[stat.ST_MODE])
 
 
 def _copy_preserve(src: Path, dst_dir: Path):
@@ -21,12 +31,13 @@ def _copy_preserve(src: Path, dst_dir: Path):
         if dst_path.is_dir():  # dst_path exists as a directory
             return  # keep it untouched
         logger.info(f"creating directory {dst_path}")
-        dst_path.mkdir()  # FIXME mode/owner
+        dst_path.mkdir()
+        _copy_stat(src, dst_path)
     # src is plain file or symlink
     elif src.is_file() or src.is_symlink():  # includes broken symlink
         logger.info(f"copying file {dst_dir / src.name}")
-        shutil.copy2(src, dst_dir, follow_symlinks=False)
-        # FIXME mode/owner
+        shutil.copy2(src, dst_path, follow_symlinks=False)
+        _copy_stat(src, dst_path)
     else:
         raise OtaErrorUnrecoverable(f"{src} unintended file type")
 
