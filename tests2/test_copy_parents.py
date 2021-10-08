@@ -3,8 +3,8 @@ import pytest
 from pathlib import Path
 
 
-def test_ota_client_cp_parents_perserve_src_is_dir(mocker, tmp_path):
-    import ota_client
+def test_copy_parents_copy_parents_src_dir(mocker, tmp_path):
+    from copy_parents import copy_parents
 
     dst = tmp_path / "dst"
     dst.mkdir()
@@ -54,7 +54,7 @@ def test_ota_client_cp_parents_perserve_src_is_dir(mocker, tmp_path):
     C = B / "C"
     C.mkdir()
 
-    ota_client.cp_parents(B, dst)
+    copy_parents(B, dst)
 
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
@@ -101,8 +101,8 @@ def test_ota_client_cp_parents_perserve_src_is_dir(mocker, tmp_path):
     assert not (dst / to_broken_b.relative_to("/")).is_symlink()
 
 
-def test_ota_client_cp_parents_perserve_src_is_file(mocker, tmp_path):
-    import ota_client
+def test_copy_parents_copy_parents_src_file(mocker, tmp_path):
+    from copy_parents import copy_parents
 
     dst = tmp_path / "dst"
     dst.mkdir()
@@ -152,7 +152,7 @@ def test_ota_client_cp_parents_perserve_src_is_file(mocker, tmp_path):
     C = B / "C"
     C.mkdir()
 
-    ota_client.cp_parents(to_b, dst)
+    copy_parents(to_b, dst)
 
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
