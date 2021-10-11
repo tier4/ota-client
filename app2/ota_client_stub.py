@@ -1,9 +1,13 @@
-from logging import getLogger
+import asyncio
+from typing import Awaitable
 
+import configs as cfg
 from ota_client import OtaClient, OtaClientFailureType
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
-import configs as cfg
+
+from logging import getLogger
+
 
 logger = getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
@@ -15,25 +19,32 @@ class OtaClientStub:
         self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall("50051")
 
-    def update(self, request):
-        response = []
-
+    async def _async_update(self, request):
         # secondary ecus
-        secondary_ecus = self._ecu_info.get_secondary_ecus()
+        tasks, secondary_ecus = [], self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
             entry = OtaClientStub._find_request(request.ecu, secondary)
             if entry:
-                r = self._ota_client_call.update(request, secondary["ip_addr"])
-                response.append(r)
+                tasks.append(self._ota_client_call.update(request, secondary["ip_addr"]))
+
+        # dispatch sub-ecu updates async
+        sub_ecu_update_aws: Awaitable = asyncio.gather(*tasks)
 
         # my ecu
+        # start main ecu update process (blocking)
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
         entry = OtaClientStub._find_request(request.ecu, ecu_id)
         if entry:
             result = self._ota_client.update(entry.version, entry.url, entry.cookies)
-            response.append({"ecu_id": entry.ecu_id, "result": result.value})
+            main_ecu_update_result = {"ecu_id": entry.ecu_id, "result": result.value}
+
+        response: list = await sub_ecu_update_aws
+        response.append(main_ecu_update_result)
 
         return response
+
+    def update(self, request):
+        asyncio.run(self._async_update(request))
 
     def rollback(self, request):
         response = []
