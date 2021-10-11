@@ -2,6 +2,7 @@ from concurrent import futures
 from logging import getLogger
 
 import grpc
+import asyncio
 import otaclient_v2_pb2 as v2
 import otaclient_v2_pb2_grpc as v2_grpc
 import configs as cfg
@@ -17,7 +18,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
     def Update(self, request, context):
         # TODO: conver grpc request to dict
-        results = self._stub.update(request)
+        results = asyncio.run(self._stub.update(request))
         response = v2.UpdateResponse()
         for result in results:
             res_ecu = response.ecu.add()

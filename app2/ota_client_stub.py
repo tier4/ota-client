@@ -19,7 +19,7 @@ class OtaClientStub:
         self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall("50051")
 
-    async def _async_update(self, request):
+    async def update(self, request):
         # secondary ecus
         tasks, secondary_ecus = [], self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
@@ -54,9 +54,6 @@ class OtaClientStub:
         response.append(main_ecu_update_result)
 
         return response
-
-    def update(self, request):
-        asyncio.run(self._async_update(request))
 
     def rollback(self, request):
         response = []
