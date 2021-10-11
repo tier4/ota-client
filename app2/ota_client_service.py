@@ -2,8 +2,6 @@ from concurrent import futures
 from logging import getLogger
 
 import grpc
-import otaclient_pb2 as v1  # to keep backward compatibility
-import otaclient_pb2_grpc as v1_grpc  # to keep backward compatibility
 import otaclient_v2_pb2 as v2
 import otaclient_v2_pb2_grpc as v2_grpc
 import configs as cfg
