@@ -23,9 +23,11 @@ class OtaClientStub:
         # secondary ecus
         tasks, secondary_ecus = [], self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request.ecu, secondary)
-            if entry:
-                tasks.append(self._ota_client_call.update(request, secondary["ip_addr"]))
+            if OtaClientStub._find_request(request.ecu, secondary):
+                tasks.append(asyncio.create_task(
+                    self._ota_client_call.update(request, secondary["ip_addr"]),
+                    name = secondary, # register the task name with sub_ecu id
+                    ))
 
         # dispatch sub-ecu updates async
         sub_ecu_update_aws: Awaitable = asyncio.gather(*tasks)
@@ -38,7 +40,17 @@ class OtaClientStub:
             result = self._ota_client.update(entry.version, entry.url, entry.cookies)
             main_ecu_update_result = {"ecu_id": entry.ecu_id, "result": result.value}
 
-        response: list = await sub_ecu_update_aws
+        # wait for all sub ecu update for 20 minutes
+        # TODO: hard-coded sub ecu update timeout
+        response = []
+        done, pending = await asyncio.wait(sub_ecu_update_aws, timeout=1200)
+        for t in pending:
+            # TODO: handle update timeout: right now just report it as recoverable failure
+            ecu_id = t.get_name()
+            response.append({"ecu_id": ecu_id, "result": OtaClientFailureType.RECOVERABLE})
+            logger.error(f"sub ecu {ecu_id} update timeout!")
+
+        response.append([t.result() for t in done])
         response.append(main_ecu_update_result)
 
         return response
