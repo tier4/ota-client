@@ -27,16 +27,13 @@ jobs:
       - name: Setup ota server
         run: |
           docker-compose -f docker-compose.yml -f docker-compose.dev.yml run -p 8080:8080 -d --rm server
-          sudo mkdir -p /ota-client/certs
-          sudo cp -av ./tests/keys/root.pem /ota-client/certs/1.root.pem
-          sudo cp -av ./tests/keys/interm.pem /ota-client/certs/1.interm.pem
           sudo bash -c 'echo "127.0.0.1 ota-server" >> /etc/hosts'
       - name: Execute pytest with coverage trace
         run: |
           set -o pipefail
-          mkdir -p /ota-client/certs
-          cp -av ./tests/keys/root.pem /ota-client/certs/1.root.pem
-          cp -av ./tests/keys/interm.pem /ota-client/certs/1.interm.pem
+          mkdir -p ./certs
+          cp -av ./tests/keys/root.pem ./certs/1.root.pem
+          cp -av ./tests/keys/interm.pem ./certs/1.interm.pem
           sudo $pythonLocation/bin/python -m pytest --cov-report term-missing --cov=app ./tests --log-cli-level=INFO | tee pytest-coverage.txt
       - name: Teardown ota server
         run: |
