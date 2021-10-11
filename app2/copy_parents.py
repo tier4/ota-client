@@ -11,7 +11,7 @@ logger = getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
-class CopyParents:
+class CopyTree:
     def __init__(
         self,
         src_passwd_file: Path,
@@ -24,7 +24,7 @@ class CopyParents:
         self._dst_passwd = self._name_to_id_dict(dst_passwd_file)
         self._dst_group = self._name_to_id_dict(dst_group_file)
 
-    def copy_parents(self, src: Path, dst_dir: Path):
+    def copy_with_parents(self, src: Path, dst_dir: Path):
         dst_path = dst_dir
         if not dst_path.is_dir() or dst_path.is_symlink():
             raise OtaErrorUnrecoverable(f"{dst_path} should be plain directory")
