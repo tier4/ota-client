@@ -93,9 +93,10 @@ class CopyTree:
             self._copy_stat(src, dst_path)
         # src is plain file or symlink
         elif src.is_file() or src.is_symlink():  # includes broken symlink
-            if src.is_symlink() and (dst_path.is_symlink() or dst_path.is_file()):
+            if dst_path.is_symlink() or dst_path.is_file():
                 # When source is symlink, shutil.copy2 fails to overwrite destination file.
-                # To avoid this, remove destination file beforehand.
+                # When destination is symlink, shutil.copy2 copy src file under destination.
+                # To avoid these cases, remove destination file beforehand.
                 dst_path.unlink()
             if dst_path.is_dir():
                 raise OtaErrorRecoverable(f"{dst_path} exists as a directory")
