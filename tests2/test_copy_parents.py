@@ -270,8 +270,8 @@ crontab:x:2105:
     return src_passwd_file, dst_passwd_file, src_group_file, dst_group_file
 
 
-def test_copy_parents_src_dir(mocker, tmp_path):
-    from copy_parents import CopyParents
+def test_copy_tree_src_dir(mocker, tmp_path):
+    from copy_tree import CopyTree
 
     (
         dst,
@@ -297,9 +297,9 @@ def test_copy_parents_src_dir(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    CopyParents(
+    CopyTree(
         src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_parents(B, dst)
+    ).copy_with_parents(B, dst)
 
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
@@ -353,8 +353,8 @@ def test_copy_parents_src_dir(mocker, tmp_path):
     assert not (dst / to_broken_b.relative_to("/")).is_symlink()
 
 
-def test_copy_parents_src_file(mocker, tmp_path):
-    from copy_parents import CopyParents
+def test_copy_tree_src_file(mocker, tmp_path):
+    from copy_tree import CopyTree
 
     (
         dst,
@@ -380,9 +380,9 @@ def test_copy_parents_src_file(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    CopyParents(
+    CopyTree(
         src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_parents(to_b, dst)
+    ).copy_with_parents(to_b, dst)
 
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
@@ -427,8 +427,8 @@ def test_copy_parents_src_file(mocker, tmp_path):
     assert not (dst / C.relative_to("/")).is_symlink()
 
 
-def test_copy_parents_B_exists(mocker, tmp_path):
-    from copy_parents import CopyParents
+def test_copy_tree_B_exists(mocker, tmp_path):
+    from copy_tree import CopyTree
 
     (
         dst,
@@ -466,9 +466,9 @@ def test_copy_parents_B_exists(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    CopyParents(
+    CopyTree(
         src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_parents(C, dst)
+    ).copy_with_parents(C, dst)
 
     # src/A
     assert (dst / A.relative_to("/")).is_dir()

@@ -20,7 +20,7 @@ from logging import getLogger
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
-from copy_parents import CopyParents
+from copy_tree import CopyTree
 import configs as cfg
 
 logger = getLogger(__name__)
@@ -527,7 +527,7 @@ class OtaClient:
             hardlink_event.set()  # first copy of hardlink file is ready
 
     def _copy_persistent_files(self, list_file, standby_path):
-        copy_parents = CopyParents(
+        copy_tree = CopyTree(
             src_passwd_file=self._passwd_file,
             src_group_file=self._group_file,
             dst_passwd_file=standby_path / self._passwd_file.relative_to("/"),
@@ -541,7 +541,7 @@ class OtaClient:
                 or perinf.path.is_dir()
                 or perinf.path.is_symlink()
             ):  # NOTE: not equivalent to perinf.path.exists()
-                copy_parents.copy_parents(perinf.path, standby_path)
+                copy_tree.copy_with_parents(perinf.path, standby_path)
 
 
 if __name__ == "__main__":
