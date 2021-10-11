@@ -1,48 +1,130 @@
+import os
 import pytest
+import grpc
+import json
 
 
-@pytest.mark.parametrize(
-    "ecu_status, result_ecu_status_pb2",
-    [
-        ("NORMAL", 0),  # NORMAL
-        ("UPDATE", 1),  # UPDATING
-        ("PREPARED", 2),  # DOWNLOADED
-        ("SWITCHA", 4),  # REBOOT
-        ("SWITCHB", 4),  # REBOOT
-        ("ROLLBACK", 3),  # ROLLBACK
-        ("ROLLBACKA", 4),  # REBOOT
-        ("ROLLBACKB", 4),  # REBOOT
-        ("UPDATE_FAIL", 5),  # UPDATE ERROR
-        ("ROLLBACK_FAIL", 6),  # ROLLBACK ERROR
-        ("", 7),  # UNKNOWN
-    ],
-)
-def test_OtaClientService__conv_ecu_status(ecu_status, result_ecu_status_pb2):
-    import ota_client_service
+@pytest.fixture
+def start_service_with_ota_client_mock(mocker):
+    from ota_client_service import (
+        OtaClientServiceV2,
+        service_start,
+        service_stop,
+    )
+    from ota_client_stub import OtaClientStub
+    from ota_client import OtaClient
+    import otaclient_v2_pb2 as v2
+    import otaclient_v2_pb2_grpc as v2_grpc
 
-    assert (
-        ota_client_service.OtaClientService._conv_ecu_status(ecu_status)
-        == result_ecu_status_pb2
+    ota_client_mock = mocker.Mock(spec=OtaClient)
+    mocker.patch("ota_client_stub.OtaClient", return_value=ota_client_mock)
+
+    ota_client_stub = OtaClientStub()
+
+    ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
+
+    server = service_start(
+        "localhost:50051",
+        [
+            {"grpc": v2_grpc, "instance": ota_client_service_v2},
+        ],
+    )
+
+    yield ota_client_mock
+
+    service_stop(server)
+
+
+def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
+    import otaclient_v2_pb2 as v2
+    import otaclient_v2_pb2_grpc as v2_grpc
+    from ota_client import OtaClientFailureType
+
+    ota_client_mock = start_service_with_ota_client_mock
+    ota_client_mock.update.return_value = OtaClientFailureType.NO_FAILURE
+
+    with grpc.insecure_channel("localhost:50051") as channel:
+        request = v2.UpdateRequest()
+        req_ecu = request.ecu.add()
+        req_ecu.ecu_id = "autoware"
+        req_ecu.version = "1.2.3.a"
+        req_ecu.url = "https://foo.bar.com/ota-data"
+        req_ecu.cookies = json.dumps({"test": "my data"})
+        service = v2_grpc.OtaClientServiceStub(channel)
+        response = service.Update(request)
+
+        response_exp = v2.UpdateResponse()
+        res_ecu = response_exp.ecu.add()
+        res_ecu.ecu_id = "autoware"
+        res_ecu.result = v2.FailureType.NO_FAILURE
+        assert response == response_exp
+
+    ota_client_mock.update.assert_called_once_with(
+        "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}'
     )
 
 
-@pytest.mark.parametrize(
-    "boot_status, result_boot_status_pb2",
-    [
-        ("NORMAL_BOOT", 0),  # NORMAL_BOOT
-        ("SWITCH_BOOT", 1),  # SWITCH_BOOT
-        ("SWITCH_BOOT_FAIL", 3),  # SWITCH_BOOT_FAIL
-        ("ROLLBACK_BOOT", 2),  # ROLLBACK_BOOT
-        ("ROLLBACK_BOOT_FAIL", 4),  # ROLLBACK_BOOT_FAIL
-        ("UPDATE_INCOMPLETE", 5),  # UPDATE_INCOMPLETE
-        ("ROLLBACK_INCOMPLETE", 6),  # ROLLBACK_INCOMPLETE
-        ("", 7),  # UNKNOWN
-    ],
-)
-def test_OtaClientService__conv_ecu_boot_status(boot_status, result_boot_status_pb2):
-    import ota_client_service
+def test_ota_client_service_rollback(mocker, start_service_with_ota_client_mock):
+    import otaclient_v2_pb2 as v2
+    import otaclient_v2_pb2_grpc as v2_grpc
+    from ota_client import OtaClientFailureType
 
-    assert (
-        ota_client_service.OtaClientService._conv_ecu_boot_status(boot_status)
-        == result_boot_status_pb2
-    )
+    ota_client_mock = start_service_with_ota_client_mock
+    ota_client_mock.rollback.return_value = OtaClientFailureType.NO_FAILURE
+
+    with grpc.insecure_channel("localhost:50051") as channel:
+        request = v2.RollbackRequest()
+        ecu = request.ecu.add()
+        ecu.ecu_id = "autoware"
+        service = v2_grpc.OtaClientServiceStub(channel)
+        response = service.Rollback(request)
+
+        response_exp = v2.RollbackResponse()
+        res_ecu = response_exp.ecu.add()
+        res_ecu.ecu_id = "autoware"
+        res_ecu.result = v2.FailureType.NO_FAILURE
+        assert response == response_exp
+
+    ota_client_mock.rollback.assert_called_once()
+
+
+def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
+    import otaclient_v2_pb2 as v2
+    import otaclient_v2_pb2_grpc as v2_grpc
+    from ota_client import OtaClientFailureType
+
+    ota_client_mock = start_service_with_ota_client_mock
+    status = {
+        "status": "SUCCESS",
+        "failure_type": "NO_FAILURE",
+        "failure_reason": "",
+        "version": "1.2.3",
+        "update_progress": {
+            "phase": "REGULAR",
+            "total_regular_files": 99,
+            "regular_files_processed": 10,
+        },
+    }
+
+    ota_client_mock.status.return_value = OtaClientFailureType.NO_FAILURE, status
+
+    with grpc.insecure_channel("localhost:50051") as channel:
+        request = v2.StatusRequest()
+        service = v2_grpc.OtaClientServiceStub(channel)
+        response = service.Status(request)
+
+        response_exp = v2.StatusResponse()
+        res_ecu = response_exp.ecu.add()
+        res_ecu.ecu_id = "autoware"
+        res_ecu.result = v2.FailureType.NO_FAILURE
+
+        res_ecu.status.status = v2.StatusOta.SUCCESS
+        res_ecu.status.failure = v2.FailureType.NO_FAILURE
+        res_ecu.status.failure_reason = ""
+        res_ecu.status.version = "1.2.3"
+        res_ecu.status.progress.phase = v2.StatusProgressPhase.REGULAR
+        res_ecu.status.progress.total_regular_files = 99
+        res_ecu.status.progress.regular_files_processed = 10
+        assert response == response_exp
+
+    ota_client_mock.status.assert_called_once()

@@ -19,13 +19,13 @@ services:
     command: >
       bash -c
       "mkdir -p /ota-client/certs
-      && cp -av /ota-client/tests2/keys/root.pem /ota-client/certs/1.root.pem
-      && cp -av /ota-client/tests2/keys/interm.pem /ota-client/certs/1.interm.pem
-      && python3 -m pytest tests2 --cov=app2 --log-cli-level=INFO"
+      && cp -av /ota-client/tests/keys/root.pem /ota-client/certs/1.root.pem
+      && cp -av /ota-client/tests/keys/interm.pem /ota-client/certs/1.interm.pem
+      && python3 -m pytest tests --cov=app --log-cli-level=INFO"
     container_name: ota-client
     volumes:
-      - ./app2:/ota-client/app2:ro
-      - ./tests2:/ota-client/tests2:ro
+      - ./app:/ota-client/app:ro
+      - ./tests:/ota-client/tests:ro
     depends_on:
       - server
 

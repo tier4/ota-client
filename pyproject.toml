@@ -2,8 +2,8 @@
 exclude = '''(
   app/otaclient_pb2.py |
   app/otaclient_pb2_grpc.py |
-  app2/otaclient_pb2.py |
-  app2/otaclient_pb2_grpc.py |
-  app2/otaclient_v2_pb2.py |
-  app2/otaclient_v2_pb2_grpc.py
+  app/otaclient_pb2.py |
+  app/otaclient_pb2_grpc.py |
+  app/otaclient_v2_pb2.py |
+  app/otaclient_v2_pb2_grpc.py
 )'''

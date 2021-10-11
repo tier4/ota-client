@@ -1,127 +1,98 @@
-#!/usr/bin/env python3
-
+from enum import Enum, unique
 from pathlib import Path
-import tempfile
-import os
+import subprocess
+import shlex
 import shutil
+from logging import getLogger
 
+from ota_partition import OtaPartitionFile
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
-import constants
-import log_util
 
-logger = log_util.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
-class OtaStatus:
-    """
-    OTA status class
-    """
+@unique
+class OtaStatus(Enum):
+    INITIALIZED = 0
+    SUCCESS = 1
+    FAILURE = 2
+    UPDATING = 3
+    ROLLBACKING = 4
+    ROLLBACK_FAILURE = 5
 
-    _status_file = cfg.OTA_STATUS_FILE
-    _rollback_file = cfg.OTA_ROLLBACK_FILE
 
+class OtaStatusControl:
     def __init__(self):
-        self._status = self._initial_read_ota_status()
-        self._rollback_count = self._initial_read_rollback_count()
-
-    def set_ota_status(self, ota_status):
-        """
-        set ota status
-        """
-        try:
-            if self._status != ota_status:
-                with tempfile.NamedTemporaryFile(delete=False, prefix=__name__) as ftmp:
-                    logger.debug(f"tmp file: {ftmp.name}")
-                    with open(ftmp.name, mode="w") as f:
-                        f.writelines(ota_status)
-                    src = self._status_file
-                    dst = self._status_file.with_suffix(
-                        self._status_file.suffix + ".old"
-                    )
-                    logger.debug(f"copy src: {src} dst: {dst}")
-                    shutil.copyfile(src, dst)
-                    logger.debug("backuped!")
-                    shutil.move(ftmp.name, self._status_file)
-                    logger.debug("moved!")
-                self._status = ota_status
-                os.sync()
-        except:
-            logger.exception("OTA status set error!")
-            return False
-        return True
+        self._ota_partition = OtaPartitionFile()
+        self._ota_status = self._initialize_ota_status()
 
     def get_ota_status(self):
-        return self._status
+        return self._ota_status
 
-    def inc_rollback_count(self):
-        """"""
-        if self._rollback_count == 0:
-            self._rollback_count = 1
-        with open(self._rollback_file, mode="w") as f:
-            f.write(str(self._rollback_count))
-        os.sync()
+    def set_ota_status(self, ota_status):
+        self._ota_status = ota_status
+        self._ota_partition.store_standby_ota_status(ota_status.name)
 
-    def dec_rollback_count(self):
-        """"""
-        if self._rollback_count == 1:
-            self._rollback_count = 0
-        with open(self._rollback_file, mode="w") as f:
-            f.write(str(self._rollback_count))
-        os.sync()
+    def get_version(self):
+        return self._ota_partition.load_ota_version()
 
-    def get_rollback_count(self):
-        return self._rollback_count
+    def get_standby_boot_partition_path(self):
+        return self._ota_partition.get_standby_boot_partition_path()
 
-    def is_rollback_available(self):
-        return self._rollback_count > 0
+    def enter_updating(self, version, mount_path: Path):
+        # check status
+        if self._ota_status not in [
+            OtaStatus.INITIALIZED,
+            OtaStatus.SUCCESS,
+            OtaStatus.FAILURE,
+            OtaStatus.ROLLBACK_FAILURE,
+        ]:
+            raise OtaErrorRecoverable(f"status={self.status} is illegal for update")
 
-    @classmethod
-    def _initial_read_ota_status(cls):
-        """
-        initial read ota status
-        """
-        logger.debug(f"ota status file: {cls._status_file}")
-        try:
-            with open(cls._status_file, mode="r") as f:
-                status = f.readline().replace("\n", "")
-                logger.debug(f"line: {status}")
-        except Exception:
-            logger.warning(f"No OTA status file: {cls._status_file}")
-            status = cls._gen_ota_status_file(cls._status_file)
-        return status
+        self._ota_status = OtaStatus.UPDATING
 
-    @classmethod
-    def _initial_read_rollback_count(cls):
-        """"""
-        count_str = "0"
-        logger.debug(f"ota status file: {cls._rollback_file}")
-        try:
-            with open(cls._rollback_file, mode="r") as f:
-                count_str = f.readline().replace("\n", "")
-                logger.debug(f"rollback: {count_str}")
-        except Exception:
-            logger.debug(f"No rollback count file!: {cls._rollback_file}")
-            with open(cls._rollback_file, mode="w") as f:
-                f.write(count_str)
-            os.sync()
-        logger.debug(f"count_str: {count_str}")
-        return int(count_str)
+        self._ota_partition.store_standby_ota_status(OtaStatus.UPDATING.name)
+        self._ota_partition.store_standby_ota_version(version)
+        self._ota_partition.cleanup_standby_boot_partition()
+        self._ota_partition.mount_standby_root_partition_and_clean(mount_path)
 
-    @staticmethod
-    def _gen_ota_status_file(ota_status_file: Path):
-        """
-        generate OTA status file
-        """
-        status = constants.OtaStatusString.NORMAL_STATE
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
-            tmp_file = f.name
-            f.write(status)
+    def leave_updating(self, mounted_path: Path):
+        self._ota_partition.update_fstab(mounted_path)
+        self._ota_partition.create_custom_cfg_and_reboot()
 
-        dir_name: Path = ota_status_file.parent
-        dir_name.mkdir(exist_ok=True, parents=True)
-        shutil.move(tmp_file, ota_status_file)
-        logger.info(f"{ota_status_file}  generated.")
+    def enter_rollbacking(self):
+        # check status
+        if self._ota_status not in [
+            OtaStatus.SUCCESS,
+            OtaStatus.ROLLBACK_FAILURE,
+        ]:
+            raise OtaErrorRecoverable(f"status={self.status} is illegal for rollback")
 
-        return status
+        self._ota_status = OtaStatus.ROLLBACKING
+
+        self._ota_partition.store_standby_ota_status(OtaStatus.ROLLBACKING.name)
+
+    def leave_rollbacking(self):
+        self._ota_partition.create_custom_cfg_and_reboot(rollback=True)
+
+    """ private functions from here """
+
+    def _initialize_ota_status(self):
+        status_string = self._ota_partition.load_ota_status()
+        if status_string == "":
+            self._ota_partition.store_standby_ota_status(OtaStatus.INITIALIZED.name)
+            return OtaStatus.INITIALIZED
+        if status_string in [OtaStatus.UPDATING.name, OtaStatus.ROLLBACKING.name]:
+            if self._ota_partition.is_switching_boot_partition_from_active_to_standby():
+                self._ota_partition.store_active_ota_status(OtaStatus.SUCCESS.name)
+                self._ota_partition.update_grub_cfg()
+                # switch should be called last.
+                self._ota_partition.switch_boot_partition_from_active_to_standby()
+                return OtaStatus.SUCCESS
+            else:
+                self._ota_partition.store_standby_ota_status(OtaStatus.FAILURE.name)
+                return OtaStatus.FAILURE
+        else:
+            return OtaStatus[status_string]
