@@ -69,7 +69,7 @@ class CopyParents:
             dst_uid, dst_gid = self._convert_src_id_to_dst_id(
                 st[stat.ST_UID], st[stat.ST_GID]
             )
-        except KeyError:
+        except KeyError:  # In case src UID/GID not found, keep UID/GID as is.
             logger.warning(f"uid: {st[stat.ST_UID]}, gid: {st[stat.ST_GID]} not found")
             dst_uid, dst_gid = st[stat.ST_UID], st[stat.ST_GID]
         os.chown(dst, dst_uid, dst_gid, follow_symlinks=False)
