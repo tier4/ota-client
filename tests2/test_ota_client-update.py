@@ -657,8 +657,10 @@ def test_ota_client__copy_persistent_files(mocker, tmp_path):
     passwd_file = mount_dir / "etc" / "passwd"
     group_file = mount_dir / "etc" / "group"
     (mount_dir / "etc").mkdir()
-    shutil.copy("/etc/passwd", passwd_file)  # copy /etc/passwd to /mnt/etc/passwd
-    shutil.copy("/etc/group", group_file)  # copy /etc/group to /mnt/etc/group
+    # copy /etc/passwd to mount_dir / "etc/passwd"
+    shutil.copy("/etc/passwd", passwd_file)
+    # copy /etc/group to mount_dir / "etc/group"
+    shutil.copy("/etc/group", group_file)
 
     etc_dir = tmp_path / "etc"
     etc_dir.mkdir()
