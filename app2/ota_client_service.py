@@ -64,55 +64,6 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         return response
 
 
-# DEPRECATED
-class OtaClientService(v1_grpc.OtaClientServiceServicer):
-    def __init__(self, ota_client_stub):
-        self._stub = ota_client_stub
-        self._server = None
-
-    def OtaUpdate(self, request, context):
-        # TODO: convert v1 request to v2 request
-        results = self._stub.update(request)
-        response = v1.OtaUpdateReply()
-        # TODO: convert v2 result to v1 response
-        """
-        for result in results:
-            res_ecu = response.ecu.add()
-            res_ecu.ecu_id = result["ecu_id"]
-            res_ecu.result = result["result"]
-        """
-        return response
-
-    def OtaRollback(self, request, context):
-        return OtaRollbackReply()
-
-    def EcuStatus(self, request, context):
-        # TODO: convert v1 request to v2 request
-        results = self._stub.status(request)
-        response = v1.EcuStatusReply()
-        # TODO: convert v2 result to v1 response
-        """
-        for result in results:
-            res_ecu = response.ecu.add()
-            res_ecu.ecu_id = result["ecu_id"]
-            res_ecu.result = result["result"]
-        """
-        return response
-
-    def EcuVersion(self, request, context):
-        # TODO: convert v1 request to v2 request
-        results = self._stub.status(request)
-        response = v1.EcuVersionReply()
-        # TODO: convert v2 result to v1 response
-        """
-        for result in results:
-            res_ecu = response.ecu.add()
-            res_ecu.ecu_id = result["ecu_id"]
-            res_ecu.result = result["result"]
-        """
-        return response
-
-
 def service_start(port, service_list):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))
     for service in service_list:
