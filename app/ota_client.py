@@ -1,247 +1,39 @@
-#!/usr/bin/env python3
-
-import sys
 import tempfile
-import os
-import stat
-import shlex
-import shutil
-import subprocess
-import urllib.parse
 import requests
-import yaml
-import logging
-import copy
+import shutil
+import urllib.parse
 import re
+import os
 import time
-from pathlib import Path
-from typing import List
-from multiprocessing import Pool, Manager
+import subprocess
+import shlex
+import json
 from hashlib import sha256
+from pathlib import Path
+from multiprocessing import Pool, Manager
+from threading import Lock
+from functools import partial
+from enum import Enum, unique
+from concurrent.futures import ThreadPoolExecutor
+from logging import getLogger
 
-
+from ota_status import OtaStatusControl, OtaStatus
+from ota_metadata import OtaMetadata
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from copy_tree import CopyTree
 import configs as cfg
-import constants
-from ota_status import OtaStatus
-from constants import OtaStatusString
-from grub_control import GrubCtl
-from ota_metadata import OtaMetaData
-from exceptions import Error, OtaError
-import log_util
 
-logger = log_util.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
-def _file_sha256(filename) -> str:
+def file_sha256(filename: Path) -> str:
     with open(filename, "rb") as f:
         return sha256(f.read()).hexdigest()
 
 
-def _copy_complete(src_file: Path, dst_file: Path):
-    """
-    copy file complete
-    """
-    src_dir = src_file.parent
-    dst_dir = dst_file.parent
-    _copydirs_complete(src_dir, dst_dir)
-    shutil.copy2(src_file, dst_file, follow_symlinks=False)
-    # copy owner and group
-    st = os.stat(src_file, follow_symlinks=False)
-    os.chown(dst_file, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
-
-
-def _copydirs_complete(src: Path, dst: Path):
-    """
-    copy directory path complete
-    """
-    if dst.is_dir():
-        # directory exist
-        return True
-    # check parent directory
-    src_parent_dir = src.parent
-    dst_parent_dir = dst.parent
-    if dst_parent_dir.is_dir() or _copydirs_complete(src_parent_dir, dst_parent_dir):
-        # parent exist, make directory
-        logger.debug(f"mkdir: {dst}")
-        dst.mkdir()
-        shutil.copystat(src, dst, follow_symlinks=False)
-        st = os.stat(src, follow_symlinks=False)
-        os.chown(dst, st[stat.ST_UID], st[stat.ST_GID])
-        return True
-    return False
-
-
-def _copytree_complete(src: Path, dst: Path) -> Path:
-    """
-    directory complete copy from src directory to dst directory.
-    dst directory should not exist.
-    """
-    # make directory on the destination
-    _copydirs_complete(src, dst)
-    # get directory entories
-    with os.scandir(src) as itr:
-        entries = list(itr)
-    errors = []
-    # copy entries
-    for srcentry in entries:
-        srcname = src.joinpath(srcentry.name)
-        dstname = dst.joinpath(srcentry.name)
-        try:
-            if srcentry.is_symlink():
-                linksrc = Path(os.readlink(srcname))
-                dstname.symlink_to(linksrc)
-                st = os.stat(srcname, follow_symlinks=False)
-                os.chown(
-                    dstname, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False
-                )
-            elif srcentry.is_dir():
-                _copytree_complete(srcname, dstname)
-            else:
-                _copy_complete(srcname, dstname)
-        except Error as e:
-            errors.extend(e.args[0])
-        except OSError as why:
-            errors.append((srcname, dstname, str(why)))
-    if errors:
-        raise Error(errors)
-    return dst
-
-
-def _read_ecuid(ecuid_file: Path) -> str:
-    """
-    initial read ECU ID
-    """
-    logger.debug(f"ECU ID file: {ecuid_file}")
-    with open(ecuid_file, mode="r") as f:
-        ecuid = f.readline().replace("\n", "")
-        logger.debug(f"line: {ecuid}")
-    return ecuid
-
-
-def _read_ecu_info(ecu_info_yaml_file: Path):
-    """
-    Read ECU Information from yaml file.
-    """
-    with open(ecu_info_yaml_file, "r") as fyml:
-        logger.debug(f"open: {ecu_info_yaml_file}")
-        ecuinfo = yaml.load(fyml, Loader=yaml.SafeLoader)
-    return ecuinfo
-
-
-def _mount_bank(bank: Path, target_dir: Path):
-    """
-    mount next bank
-    """
-    command_line = f"mount {bank} {target_dir}"
-    logger.debug(f"commandline: {command_line}")
-    subprocess.check_output(shlex.split(command_line))
-
-
-def _unmount_bank(target_dir: Path):
-    """
-    unmount bank
-    """
-    if target_dir.is_mount():
-        command_line = f"umount {target_dir}"
-        logger.debug(f"commandline: {command_line}")
-        subprocess.check_output(shlex.split(command_line))
-
-
-def _cleanup_dir(target_dir: Path):
-    """
-    cleanup next bank
-    """
-    logger.debug(f"cleanup directory: {target_dir}")
-    command_line = f"rm -rf {str(target_dir)}/*"
-    logger.debug(f"commandline: {command_line}")
-    proc = subprocess.call(command_line, shell=True)
-    if proc != 0:
-        raise Exception(f"{command_line} : return {proc}")
-
-
-def _gen_directories(dirlist_file: Path, target_dir: Path):
-    """
-    generate directories on another bank
-    """
-    with open(dirlist_file) as f:
-        for l in f.read().splitlines():
-            dirinf = DirectoryInf(l)
-            logger.debug(f"dir inf: {dirinf.path}")
-            target_path = target_dir.joinpath(dirinf.path.relative_to("/"))
-            logger.debug(f"target path: {target_path}")
-            target_path.mkdir(mode=dirinf.mode, parents=True, exist_ok=True)
-            os.chown(target_path, dirinf.uid, dirinf.gid)
-            os.chmod(target_path, dirinf.mode)
-    return True
-
-
-def _copy_persistent(src_path: Path, target_dir: Path):
-    """
-    copy persistent dir/file
-    """
-    if src_path.root == "/":
-        dest_path = target_dir.joinpath(src_path.relative_to("/"))
-    else:
-        dest_path = target_dir.joinpath(src_path)
-
-    if src_path.exists():
-        if src_path.is_dir():
-            if dest_path.exists():
-                logger.debug(f"rmtree: {dest_path}")
-                shutil.rmtree(dest_path)
-            logger.debug(f"persistent dir copy: {src_path} -> {dest_path}")
-            _copytree_complete(src_path, dest_path)
-        else:
-            # target path points to a file
-            logger.debug(f"persistent file copy: {src_path} -> {dest_path}")
-            if dest_path.exists():
-                logger.info(f"rm file: {dest_path}")
-                dest_path.unlink(missing_ok=True)
-            _copy_complete(src_path, dest_path)
-    else:
-        logger.warning(f"persistent file not exist: {src_path}")
-
-
-def _gen_persistent_files(list_file: Path, target_dir: Path):
-    """
-    generate persistent files
-    """
-    with open(list_file, mode="r") as f:
-        for l in f.read().splitlines():
-            persistent_info = PersistentInf(l)
-            src_path = persistent_info.path
-            if Path("/boot") in src_path.parents:
-                # /boot directory
-                logger.info(f"do nothing for boot dir file: {src_path}")
-            else:
-                # others
-                _copy_persistent(src_path, target_dir)
-
-
-def _header_str_to_dict(header_str):
-    """"""
-    header_dict = {}
-    for l in header_str.split(","):
-        kl = l.split(":")
-        if len(kl) == 2:
-            header_dict[kl[0]] = kl[1]
-    return header_dict
-
-
-def _save_update_ecuinfo(update_ecuinfo_yaml_file: Path, update_ecu_info: Path):
-    """
-    save update ecuinfo.yaml
-    """
-    output_file = update_ecuinfo_yaml_file
-    logger.info(f"output_file: {output_file}")
-    with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as ftmp:
-        tmp_file_name = ftmp.name
-        ftmp.write(yaml.dump(update_ecu_info))
-
-    shutil.move(tmp_file_name, output_file)
-    return True
+def verify_file(filename: Path, filehash: str) -> bool:
+    return file_sha256(filename) == filehash
 
 
 class _BaseInf:
@@ -314,986 +106,444 @@ class PersistentInf(_BaseInf):
         self.path = Path(self.de_escape(info[1:-1]))
 
 
-class OtaCache:
-    def __init__(self, directory=cfg.OTA_CACHE_DIR):
-        self._directory = Path(directory)
-        directory.mkdir(exist_ok=True)
+@unique
+class OtaClientFailureType(Enum):
+    NO_FAILURE = 0
+    RECOVERABLE = 1
+    UNRECOVERABLE = 2
 
-    def save(self, name):
-        dst: Path = self._directory / name
-        dst.parent.mkdir(exist_ok=True)
-        _copy_complete(name, dst)
 
-    def restore(self, name, target_hash):
-        src: Path = self._directory / name
-        if src.is_file() and _file_sha256(src) == target_hash:
-            _copy_complete(src, name)
-            return True
-        return False
+@unique
+class OtaClientUpdatePhase(Enum):
+    INITIAL = 0
+    METADATA = 1
+    DIRECTORY = 2
+    SYMLINK = 3
+    REGULAR = 4
+    PERSISTENT = 5
+    POST_PROCESSING = 6
 
 
 class OtaClient:
-    """
-    OTA Client class
-    """
+    MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
+    PASSWD_FILE = cfg.PASSWD_FILE  # Path("/etc/passwd")
+    GROUP_FILE = cfg.GROUP_FILE  # Path("/etc/group")
 
-    #
-    # files
-    #
-    ecuid_file = cfg.ECUID_FILE
-    ecuinfo_yaml_file = cfg.ECUINFO_YAML_FILE
-    _grub_conf_file = cfg.GRUB_CFG_FILE
-    _fstab_file = cfg.FSTAB_FILE
+    def __init__(self):
+        self._ota_status = OtaStatusControl()
+        self._mount_point = OtaClient.MOUNT_POINT
+        self._passwd_file = OtaClient.PASSWD_FILE
+        self._group_file = OtaClient.GROUP_FILE
 
-    #
-    # dirs
-    #
-    _ota_dir = cfg.OTA_DIR
-    _mount_point = cfg.MOUNT_POINT
-    _grub_dir = cfg.GRUB_DIR
-    _rollback_dir = cfg.ROLLBACK_DIR
+        self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
+        self._failure_type = OtaClientFailureType.NO_FAILURE
+        self._failure_reason = ""
+        self._update_phase = OtaClientUpdatePhase.INITIAL
+        self._update_total_regular_files = 0
+        self._update_regular_files_processed = 0
 
-    def __init__(
-        self,
-        boot_status=constants.OtaBootStatusString.NORMAL_BOOT,
-        url="",
-        ota_cache=None,
-    ):
-        """
-        OTA Client initialize
-        """
-        self.__main_ecu = True
-        # OTA
-        self.boot_status = boot_status
-        self._ota_status = OtaStatus()
-        self._grub_ctl = GrubCtl()
-        self._boot_vmlinuz = None
-        self._boot_initrd = None
-        # ECU information
-        self.__my_ecuid = _read_ecuid(self.ecuid_file)
-        self.__ecuinfo_yaml_file = self.ecuinfo_yaml_file
-        self.__ecu_info = _read_ecu_info(self.ecuinfo_yaml_file)
-        self.__update_ecuinfo_yaml_file = self.__ecuinfo_yaml_file.with_suffix(
-            self.__ecuinfo_yaml_file.suffix + ".update"
-        )
-        self.__update_ecu_info = copy.deepcopy(self.__ecu_info)
-        # remote
-        self.__url = url
-        self.__header_dict = {}
-        self.__download_retry = 5
-        self._ota_cache = ota_cache
-        # metadata data
-        self._metadata = None
+        self._executor = ThreadPoolExecutor(max_workers=1)
 
-        if not self._mount_point.is_dir():
-            self._mount_point.mkdir(parents=True, exist_ok=True)
-
-        # rollback info
-        self._rollback_dict = {}
-        self.backup_files = {
-            "dirlist": "dirlist.txt",
-            "symlinklist": "symlinklist.txt",
-            "regularlist": "regularlist.txt",
-            "persistentlist": "persistentlist.txt",
-        }
-
-    def is_main_ecu(self):
-        return self.__main_ecu
-
-    def get_my_ecuid(self):
-        return self.__my_ecuid
-
-    def get_ecuinfo(self):
-        """"""
-        return self.__ecu_info
-
-    def get_boot_status(self):
-        return self.boot_status
-
-    def get_ota_status(self):
-        return self._ota_status.get_ota_status()
-
-    def _set_url(self, url):
-        self.__url = url
-
-    def _get_metadata_url(self):
-        """
-        get metadata URL
-        """
-        return urllib.parse.urljoin(self.__url, "metadata.jwt")
-
-    def _download_raw(self, url, target_file):
-        """"""
-        header = self.__header_dict  # self.__cookie
-        header["Accept-encording"] = "gzip"
-        response = requests.get(url, headers=header, timeout=10)
-        if response.status_code != 200:
-            logger.error(f"status_code={response.status_code}, url={url}")
-            return response, ""
-
-        m = sha256()
-        total_length = response.headers.get("content-length")
-        if total_length is None:
-            m.update(response.content)
-            target_file.write(response.content)
-        else:
-            dl = 0
-            total_length = int(total_length)
-            for data in response.iter_content(chunk_size=4096):
-                dl += len(data)
-                m.update(data)
-                target_file.write(data)
-                # TODO: not sure what these codes are for
-                # NOTE: CRITICAL:50, ERROR:40, WARNING:30, INFO:20, DEBUG:10
-                if logging.root.level <= logging.DEBUG:
-                    done = int(50 * dl / total_length)
-                    sys.stdout.write("\r[%s%s]" % ("=" * done, " " * (50 - done)))
-                    sys.stdout.flush()
-        return response, m.hexdigest()
-
-    def _download(self, url):
-        """"""
-        header = self.__header_dict  # self.__cookie
-        header["Accept-encording"] = "gzip"
-        response = requests.get(url, headers=header)
-        response.encoding = response.apparent_encoding
-        logger.debug(f"encording: {response.encoding}")
-        # logger.info(response.text)
-        return response
-
-    def _download_raw_file(self, url, dest_file: Path, target_hash=""):
-        """
-        download file
-        """
-        logger.debug(f"DL File: {dest_file}")
-        digest = ""
-        time_stamp = str(time.time())
+    def update(self, version, url_base, cookies_json: str, blocking=False):
         try:
-            with tempfile.NamedTemporaryFile(
-                "wb", delete=False, prefix=__name__ + time_stamp
-            ) as ftmp:
-                tmp_file_name = ftmp.name
-                # download
-                response, digest = self._download_raw(url, ftmp)
-                if response.status_code != 200:
-                    logger.error(f"status_code={response.status_code}, url={url}")
-                    return False
-
-            # file move
-            shutil.move(tmp_file_name, dest_file)
-        except Exception as e:
-            logger.exception(f"File download error!: {e}")
-            return False
-        # check sha256 hash
-        if target_hash != "" and digest != target_hash:
-            logger.error(f"hash missmatch: {dest_file}")
-            logger.error(f"  dl hash: {digest}")
-            logger.error(f"  hash: {target_hash}")
-            return False
-        return True
-
-    def _download_raw_file_with_retry(self, url, dest_file: Path, target_hash=""):
-        """"""
-        for i in range(self.__download_retry):
-            if self._download_raw_file(url, dest_file, target_hash):
-                logger.debug(f"retry count: {i}")
-                return True
-        return False
-
-    def _download_metadata_jwt(self, metadata_url):
-        """
-        Download metadata.jwt
-        """
-        # url = self._get_metadata_url()
-        return self._download(metadata_url)
-
-    def _download_metadata_jwt_file(self, dest_file: Path):
-        """
-        Download metadata.jwt file(for debagging)
-        """
-        try:
-            # download metadata.jwt
-            metadata_url = self._get_metadata_url()
-            dest_path = cfg.TMP_DIR.joinpath(dest_file)
-            logger.debug(f"url: {metadata_url}")
-            logger.debug(f"metadata dest path: {dest_path}")
-            if not self._download_raw_file_with_retry(metadata_url, dest_path):
-                return False
-        except Exception as e:
-            logger.exception("metadata error!:")
-            return False
-        return True
-
-    def _download_metadata(self, metadata_file: Path, metadata_url):
-        """
-        Download OTA metadata
-        """
-        try:
-            # dounload and write meta data.
-            # url = self._get_metadata_url()
-            logger.debug(f"metadata url: {metadata_url}")
-            response = self._download(metadata_url)
-            logger.debug(f"response: {response.status_code}")
-            if response.status_code == 200:
-                self._metadata_jwt = response.text
-                metadata_file.write_text(response.text)
-                self._metadata = OtaMetaData(self._metadata_jwt)
-            else:
-                self._metadata_jwt = ""
-        except Exception as e:
-            self._meta_data_file = ""
-            logger.exception("Error: OTA meta data download fail.:")
-            return False
-        return True
-
-    def _download_certificate(self, cert_file):
-        """
-        Download certificate file
-        """
-        url = urllib.parse.urljoin(self.__url, cert_file)
-        return self._download(url)
-
-    def _verify_metadata_jwt(self, metadata: OtaMetaData):
-        """
-        verify metadata.jwt
-        """
-        cert = metadata.get_certificate_info()
-        response = self._download_certificate(cert["file"])
-        if response.status_code == 200:
-            pem = response.text
-            hash = cert["hash"]
-            if sha256(pem.encode()).hexdigest() != hash:
-                logger.error("certificate hash missmatch:")
-                logger.error(f"    dl hash: {sha256(pem).hexdigest()}")
-                logger.error(f"    hash: {hash}")
-                return False
-            return metadata.verify(pem)
-        else:
-            logger.error(f"response error: {response.status_code}")
-            return False
-
-    def _cleanup_rollback_dir(self):
-        """
-        clean up rollback directory
-        """
-        if self._rollback_dir.is_dir():
-            logger.info(f"removedir: {self._rollback_dir}")
-            shutil.rmtree(self._rollback_dir)
-        logger.debug(f"makedir: {self._rollback_dir}")
-        self._rollback_dir.mkdir(exist_ok=True)
-
-    def _prepare_next_bank(self, bank: Path, target_dir: Path):
-        """
-        prepare next boot bank
-            mount & clean up
-        """
-        try:
-            # unmount
-            _unmount_bank(target_dir)
-            # mount
-            _mount_bank(bank, target_dir)
-            # cleanup
-            _cleanup_dir(target_dir)
-            # clean rollback dir
-            self._cleanup_rollback_dir()
-        except:
-            logger.exception("Standby bank preoparing error!")
-            _unmount_bank(target_dir)
-            return False
-        return True
-
-    def _download_list_file(self, url, list_file: Path, hash=""):
-        """
-        Download list file(debug)
-        """
-        dirs_url = urllib.parse.urljoin(url, list_file)
-        dest_path = cfg.TMP_DIR.joinpath(list_file)
-        return self._download_raw_file_with_retry(dirs_url, dest_path, hash)
-
-    def _setup_directories(self, target_dir: Path):
-        """
-        generate directories on another bank
-        """
-        # get directories metadata
-        dirs = self._metadata.get_directories_info()
-        dirs_url = urllib.parse.urljoin(self.__url, dirs["file"])
-        tmp_list_file = cfg.TMP_DIR.joinpath(dirs["file"])
-        if self._download_raw_file_with_retry(dirs_url, tmp_list_file, dirs["hash"]):
-            # generate directories
-            if _gen_directories(tmp_list_file, target_dir):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir / self.backup_files["dirlist"]
-                shutil.move(tmp_list_file, dest_file)
-                return True
-        return False
-
-    def _gen_symbolic_links(self, symlinks_file: Path, target_dir: Path):
-        """
-        generate symbolic_links on another bank
-        """
-        res = True
-        with open(symlinks_file, mode="r") as f:
             try:
-                for l in f.read().splitlines():
-                    slinkf = SymbolicLinkInf(l)
-                    logger.debug(f"src: {slinkf.srcpath}")
-                    logger.debug(f"slink: {slinkf.slink}")
-                    if Path("/boot") in slinkf.slink.parents == 0:
-                        # /boot directory
-                        try:
-                            dest_file = ""
-                            if slinkf.slink.is_symlink():
-                                dest_dir = self._rollback_dir
-                                shutil.move(slinkf.slink, dest_dir)
-                            slinkf.slink.symlink_to(slinkf.srcpath)
-                            os.chown(
-                                slinkf.slink,
-                                slinkf.uid,
-                                slinkf.gid,
-                                follow_symlinks=False,
-                            )
-                        except Exception as e:
-                            logger.exception("symbolic link error!")
-                            if dest_file != "":
-                                shutil.move(dest_file, slinkf.slink)
-                            raise (OtaError("Cannot make symbolic link."))
-                    else:
-                        # others
-                        slink = target_dir.joinpath(slinkf.slink.relative_to("/"))
-                        slink.symlink_to(slinkf.srcpath)
-                        os.chown(
-                            slink,
-                            slinkf.uid,
-                            slinkf.gid,
-                            follow_symlinks=False,
-                        )
+                cookies = json.loads(cookies_json)
             except Exception as e:
-                logger.exception("symboliclink error:")
-                res = False
-        return res
+                raise OtaErrorRecoverable(e)
+            self._update(version, url_base, cookies, blocking)
+            return self._result_ok()
+        except OtaErrorRecoverable as e:
+            self._ota_status.set_ota_status(OtaStatus.FAILURE)
+            return self._result_recoverable(e)
+        except (OtaErrorUnrecoverable, Exception) as e:
+            self._ota_status.set_ota_status(OtaStatus.FAILURE)
+            return self._result_unrecoverable(e)
 
-    def _setup_symboliclinks(self, target_dir: Path):
-        """
-        generate symboliclinks on another bank
-        """
-        # get symboliclink metadata
-        symlinks = self._metadata.get_symboliclinks_info()
-        symlinks_url = urllib.parse.urljoin(self.__url, symlinks["file"])
-        tmp_list_file = cfg.TMP_DIR.joinpath(symlinks["file"])
-        if self._download_raw_file_with_retry(
-            symlinks_url, tmp_list_file, symlinks["hash"]
-        ):
-            # generate symboliclinks
-            if self._gen_symbolic_links(tmp_list_file, target_dir):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir.joinpath(
-                    self.backup_files["symlinklist"]
-                )
-                shutil.move(tmp_list_file, dest_file)
-                return True
-        return False
-
-    def _download_regular_file(
-        self, rootfs_dir: str, target_path: Path, regular_file: Path, hash256
-    ):
-        """
-        Download regular file
-        """
-        # download new file
-        regular_url = urllib.parse.urljoin(
-            self.__url,
-            urllib.parse.quote(
-                str(Path(rootfs_dir).joinpath(regular_file.relative_to("/")))
-            ),
-        )
-        logger.debug(f"download file: {regular_url}")
-        return self._download_raw_file_with_retry(regular_url, target_path, hash256)
-
-    def _gen_boot_dir_file(
-        self,
-        rootfs_dir: str,
-        target_dir: Path,
-        regular_inf: RegularInf,
-        prev_inf: RegularInf,
-    ):
-        """
-        generate /boot directory file
-        """
-        staging_kernel_files = global_var_dict["staging-_kernel_files"]
-        # starts with `/boot/vmlinuz-`.
-        match = re.match(r"^/boot/(vmlinuz-.*)", str(regular_inf.path))
-        if match is not None:
-            staging_kernel_files["vmlinuz"] = match.group(1)
-
-        # starts with `/boot/initrd.img-`, but doesnot end with `.old-dkms`.
-        match = re.match(
-            r"^(?!.*\.old-dkms$)/boot/(initrd\.img-.*)", str(regular_inf.path)
-        )
-        if match is not None:
-            staging_kernel_files["initrd"] = match.group(1)
-
-        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
-            # create hard link
-            logger.debug(f"links: {regular_inf.nlink}")
-            prev_inf.path.link_to(regular_inf.path)
-        else:
-            staging_rollback_dict = global_var_dict["staging-dict-_rollback_dict"]
-            # no hard link
-            if (
-                regular_inf.path.is_file()
-                and not regular_inf.path.is_symlink()
-                and _file_sha256(regular_inf.path) == regular_inf.sha256hash
-            ):
-                # nothing to do
-                rollback_file = self._rollback_dir.joinpath(regular_inf.path.name)
-                _copy_complete(regular_inf.path, rollback_file)
-
-                staging_rollback_dict[regular_inf.path] = regular_inf.path
-                logger.debug("file already exist! no copy or download!")
-            else:
-                if regular_inf.path.is_file():
-                    # backup for rollback
-                    rollback_file = self._rollback_dir.joinpath(regular_inf.path.name)
-                    _copy_complete(regular_inf.path, rollback_file)
-                    staging_rollback_dict[regular_inf.path] = rollback_file
-                else:
-                    staging_rollback_dict[regular_inf.path] = ""
-                # download new file
-                if self._download_regular_file(
-                    rootfs_dir,
-                    regular_inf.path,
-                    regular_inf.path,
-                    regular_inf.sha256hash,
-                ):
-                    logger.debug(f"Download: {regular_inf.path}")
-                    logger.debug(f"file hash: {regular_inf.sha256hash}")
-                else:
-                    raise OtaError("Filedown load error! {regular_inf}")
-                logger.debug(f"regular_file: {regular_inf.path}")
-                os.chown(regular_inf.path, regular_inf.uid, regular_inf.gid)
-                os.chmod(regular_inf.path, regular_inf.mode)
-
-    def _gen_regular_file(
-        self,
-        rootfs_dir: str,
-        target_dir: Path,
-        regular_inf: RegularInf,
-        prev_inf: RegularInf,
-    ):
-        """
-        generate regular file
-        """
-        dest_path = target_dir.joinpath(regular_inf.path.relative_to("/"))
-        if prev_inf and prev_inf.sha256hash == regular_inf.sha256hash:
-            # create hard link
-            logger.debug(f"links: {regular_inf.nlink}")
-            src_path = target_dir.joinpath(prev_inf.path.relative_to("/"))
-            src_path.link_to(dest_path)
-        else:
-            # no hard link
-            logger.debug(f"No hard links: {regular_inf.nlink}")
-            current_file: Path = regular_inf.path
-            if (
-                current_file.is_file()
-                and not current_file.is_symlink()
-                and _file_sha256(current_file) == regular_inf.sha256hash
-            ):
-                # copy from current bank
-                logger.debug(f"copy from current: {current_file}")
-                _copy_complete(current_file, dest_path)
-            else:
-                # use ota cache if available
-                if self._ota_cache is not None and self._ota_cache.restore(
-                    dest_path, regular_inf.sha256hash
-                ):
-                    # TODO: NOT IMPLEMENTED
-                    pass
-                # download new file
-                elif self._download_regular_file(
-                    rootfs_dir, dest_path, regular_inf.path, regular_inf.sha256hash
-                ):
-                    if self._ota_cache is not None:
-                        self._ota_cache.save(dest_path)
-                    logger.debug(f"Download: {regular_inf.path}")
-                    logger.debug(f"file hash: {regular_inf.sha256hash}")
-                else:
-                    raise OtaError("File download error! {regular_inf}")
-            logger.debug(f"regular_file: {dest_path}")
-            logger.debug(f"permissoin: {regular_inf.mode}")
-            os.chown(dest_path, regular_inf.uid, regular_inf.gid)
-            os.chmod(dest_path, regular_inf.mode)
-
-    def _gen_regular_files(
-        self, rootfs_dir: str, regulars_file: RegularInf, target_dir: Path
-    ):
-        """
-        generate regular files
-        """
-        self._boot_vmlinuz = None  # clear
-        self._boot_initrd = None  # clear
-
-        cwd = os.getcwd()
-        os.chdir(target_dir)
-
-        rfiles_list = []
-        with open(regulars_file) as f:
-            logger.debug(f"target_dir: {target_dir}")
-            rfiles_list = [RegularInf(l) for l in f.readlines()]
-
-        # process all regular files here
+    def rollback(self):
         try:
-            self._process_regular_files(rootfs_dir, rfiles_list, target_dir)
-        except:
-            logger.exception(f"gen regular files error!")
-            return False
-        finally:
-            os.chdir(cwd)
+            self._rollback()
+            return self._result_ok()
+        except OtaErrorRecoverable as e:
+            self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
+            return self._result_recoverable(e)
+        except (OtaErrorUnrecoverable, Exception) as e:
+            self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
+            return self._result_unrecoverable(e)
 
-        return True
-
-    def _process_regular_files_pool_init(self, gvar_dict: dict, awc: list):
-        """
-        Used by _process_regular_files
-        Init the worker pool with shared variables
-
-        DO NOT call this method from other functions
-        except for _process_regular_files
-        """
-        global global_var_dict, await_counter
-        global_var_dict = gvar_dict
-        await_counter = awc
-
-    def _process_regular_files_exit(self, gvar_dict: dict):
-        """
-        Used by _process_regular_files
-        Update corresponding class attributes
-
-        DO NOT call this method from other functions
-        except for _process_regular_files
-        """
-        setattr(self, "_rollback_dict", dict(gvar_dict["staging-dict-_rollback_dict"]))
-        setattr(self, "_boot_vmlinuz", gvar_dict["staging-_kernel_files"]["vmlinuz"])
-        setattr(self, "_boot_initrd", gvar_dict["staging-_kernel_files"]["initrd"])
-
-    def _process_regular_files(
-        self, rootfs_dir: str, rfiles_list: List[RegularInf], target_dir: Path
-    ):
-        with Manager() as manager:
-            ecb_queue = manager.Queue()
-            # variables passed to child processes
-            # variable naming pattern: <prefix>-<type>-<var_name>
-            # prefix tmp: for temporary use
-            # prefix staging: used to update corresponding class attribute
-            gvar_dict = {
-                "tmp-dict-hardlink_reg": manager.dict(),
-                "staging-dict-_rollback_dict": manager.dict(),
-                "staging-_kernel_files": manager.dict(),
-            }
-            await_c = manager.list()
-
-            # default to one worker per CPU core
-            with Pool(
-                initializer=self._process_regular_files_pool_init,
-                initargs=(gvar_dict, await_c),
-            ) as pool:
-
-                # error_callback for workers
-                #   signal the main process to terminate the pool
-                def ecb(e):
-                    ecb_queue.put(e)
-
-                for rfile_inf in rfiles_list:
-                    if (
-                        rfile_inf.nlink >= 2
-                        and rfile_inf.sha256hash
-                        not in gvar_dict["tmp-dict-hardlink_reg"]
-                    ):
-                        # block the flow until the first copy of hardlinked file is ready
-                        try:
-                            pool.apply(
-                                self._process_regular_file,
-                                (rootfs_dir, target_dir, rfile_inf),
-                            )
-                        except Exception as e:
-                            ecb(e)
-                            break
-                    else:
-                        try:
-                            pool.apply_async(
-                                self._process_regular_file,
-                                (rootfs_dir, target_dir, rfile_inf),
-                                error_callback=ecb,
-                            )
-                        except:
-                            # the only exception will be catched is ValueError
-                            # caused by calling pool.apply_async when the pool terminated
-                            pass
-
-                # stop accepting new tasks
-                pool.close()
-                # wait for all tasks to complete
-                # not apply timeout currently
-                while len(await_c) < len(rfiles_list):
-                    # if one of the subprocess raise error,
-                    # terminate the whole pool
-                    if not ecb_queue.empty():
-                        pool.terminate()
-
-                        logger.error(
-                            f"process regular files failed. All sub processess terminated."
-                        )
-                        logger.error(f"last exception: {ecb_queue.get()}")
-                        raise OtaError(f"process regular files failed!")
-
-            # everything is ALLRIGHT!
-            # update corresponding class attribute
-            self._process_regular_files_exit(gvar_dict)
-
-    def _process_regular_file(
-        self, rootfs_dir: str, target_dir: Path, rfile_inf: RegularInf
-    ):
-        """
-        main entry for paralleling processing regular files
-        """
+    # NOTE: status should not update any internal status
+    def status(self):
         try:
-            prev_inf: RegularInf = None
-            # hardlinked file
-            if rfile_inf.nlink >= 2:
-                prev_inf = global_var_dict["tmp-dict-hardlink_reg"].setdefault(
-                    rfile_inf.sha256hash, rfile_inf
-                )
-                # if the upcoming rfile entry is the first copy of hardlinked file
-                # then the prev_inf should be None
-                if prev_inf.path == rfile_inf.path:
-                    prev_inf = None
+            status = self._status()
+            return OtaClientFailureType.NO_FAILURE, status
+        except OtaErrorRecoverable as e:
+            return OtaClientFailureType.RECOVERABLE, None
+        except (OtaErrorUnrecoverable, Exception) as e:
+            return OtaClientFailureType.UNRECOVERABLE, None
 
-            if Path("/boot") in rfile_inf.path.parents:
-                # /boot directory file
-                logger.debug(f"boot file: {rfile_inf.path}")
-                self._gen_boot_dir_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
-            else:
-                # others
-                logger.debug(f"no boot file: {rfile_inf.path}")
-                self._gen_regular_file(rootfs_dir, target_dir, rfile_inf, prev_inf)
-        except Exception as e:
-            logger.exception(f"worker[{os.getpid()}]: process regular file failed!")
-            raise e
+    """ private functions from here """
 
-        # if job finished successfully
-        await_counter.append(True)
+    def _result_ok(self):
+        self._failure_type = OtaClientFailureType.NO_FAILURE
+        self._failure_reason = ""
+        return OtaClientFailureType.NO_FAILURE
 
-    def _setup_regular_files(self, target_dir: Path):
-        """
-        update files copy to another bank
-        """
-        rootfsdir_info = self._metadata.get_rootfsdir_info()
-        # get regular metadata
-        regularslist = self._metadata.get_regulars_info()
-        regularslist_url = urllib.parse.urljoin(self.__url, regularslist["file"])
-        tmp_list_file = cfg.TMP_DIR.joinpath(regularslist["file"])
-        if self._download_raw_file_with_retry(
-            regularslist_url, tmp_list_file, regularslist["hash"]
-        ):
-            if self._gen_regular_files(
-                rootfsdir_info["file"], tmp_list_file, target_dir
-            ):
-                # move list file to rollback dir
-                dest_file = self._rollback_dir.joinpath(
-                    self.backup_files["regularlist"]
-                )
-                shutil.move(tmp_list_file, dest_file)
-                return True
-            if self._boot_vmlinuz is None or self._boot_initrd is None:
-                logger.warning(
-                    "vmlinuz or initrd is not set. This condition will be treated as an error in the future."
-                )
-        return False
+    def _result_recoverable(self, e):
+        logger.exception(e)
+        self._failure_type = OtaClientFailureType.RECOVERABLE
+        self._failure_reason = str(e)
+        return OtaClientFailureType.RECOVERABLE
 
-    def _setup_persistent_files(self, target_dir: Path):
-        """
-        setup persistent files
-        """
-        # get persistent metadata
-        persistent = self._metadata.get_persistent_info()
-        persistent_url = urllib.parse.urljoin(self.__url, persistent["file"])
-        tmp_list_file = cfg.TMP_DIR.joinpath(persistent["file"])
-        if not self._download_raw_file_with_retry(
-            persistent_url, tmp_list_file, persistent["hash"]
-        ):
-            logger.error(f"persistent file download error: {persistent_url}")
-            return False
+    def _result_unrecoverable(self, e):
+        logger.exception(e)
+        self._failure_type = OtaClientFailureType.UNRECOVERABLE
+        self._failure_reason = str(e)
+        return OtaClientFailureType.UNRECOVERABLE
+
+    def _update(self, version, url_base, cookies, blocking=True):
+        self._update_pre(version, url_base, cookies)
+        if blocking:
+            self._update_post(version, url_base, cookies)
         else:
-            logger.info(f"persistent file download success: {persistent_url}")
 
-        # generate persistent files, copying from current bank.
-        _gen_persistent_files(tmp_list_file, target_dir)
-        # move list file to rollback dir
-        dest_file = self._rollback_dir.joinpath(self.backup_files["persistentlist"])
-        shutil.move(tmp_list_file, dest_file)
-        return True
+            def _wrapper(*args):
+                try:
+                    self._update_post(*args)
+                    return self._result_ok()
+                except OtaErrorRecoverable as e:
+                    self._ota_status.set_ota_status(OtaStatus.FAILURE)
+                    return self._result_recoverable(e)
+                except (OtaErrorUnrecoverable, Exception) as e:
+                    self._ota_status.set_ota_status(OtaStatus.FAILURE)
+                    return self._result_unrecoverable(e)
 
-    def _setup_next_bank_fstab(self, fstab_file: Path, target_dir: Path):
+            self._executor.submit(_wrapper, version, url_base, cookies)
+
+    def _update_pre(self, version, url_base, cookies):
         """
-        setup next bank to fstab
+        e.g.
+        cookies = {
+            "CloudFront-Policy": "eyJTdGF0ZW1lbnQ...",
+            "CloudFront-Signature": "o4ojzMrJwtSIg~izsy...",
+            "CloudFront-Key-Pair-Id": "K2...",
+        }
         """
-        if not fstab_file.is_file():
-            logger.error(f"file not exist: {fstab_file}")
-            return False
+        self._update_phase = OtaClientUpdatePhase.INITIAL
+        self._total_regular_files = 0
+        self._regular_files_processed = 0
 
-        dest_fstab_file = target_dir.joinpath(fstab_file.relative_to("/"))
+        logger.info(f"version={version}, url_base={url_base}, cookies={cookies}")
+        # enter update
+        self._ota_status.enter_updating(version, self._mount_point)
 
-        return self._grub_ctl.gen_next_bank_fstab(dest_fstab_file)
+    def _update_post(self, version, url_base, cookies):
+        # process metadata.jwt
+        self._update_phase = OtaClientUpdatePhase.METADATA
+        url = f"{url_base}/"
+        metadata = self._process_metadata(url, cookies)
 
-    def _construct_next_bank(self, next_bank: Path, target_dir: Path):
-        """
-        next bank construction
-        """
-        #
-        # prepare next bank
-        #
-        if not self._prepare_next_bank(next_bank, target_dir):
-            return False
-        #
-        # setup directories
-        #
-        if not self._setup_directories(target_dir):
-            return False
-        #
-        # setup symbolic links
-        #
-        if not self._setup_symboliclinks(target_dir):
-            return False
-        #
-        # setup regular files
-        #
-        if not self._setup_regular_files(target_dir):
-            return False
-        #
-        # setup persistent file
-        #
-        if not self._setup_persistent_files(target_dir):
-            return False
-        #
-        # setup fstab
-        #
-        if not self._setup_next_bank_fstab(self._fstab_file, target_dir):
-            return False
-
-        return True
-
-    # TODO: move this function to grub_control?
-    def _get_switch_status_for_reboot(self, next_bank: Path):
-        """
-        get switch status for reboot
-        """
-        if self._grub_ctl.is_banka(next_bank):
-            return OtaStatusString.SWITCHA_STATE
-        elif self._grub_ctl.is_bankb(next_bank):
-            return OtaStatusString.SWITCHB_STATE
-        raise Exception("Bank is not A/B bank!")
-
-    def _inform_update_error(self, error):
-        """
-        inform update error
-        """
-        logger.error(f"Update error!: {str(error)}")
-        # TODO : implement
-
-        return
-
-    def set_update_ecuinfo(self, update_info):
-        """"""
-        logger.info("_update_ecu_info start")
-        ecuinfo = update_info.ecu_info
-        logger.debug(f"[ecu_info] {ecuinfo}")
-        ecu_found = False
-        if ecuinfo.ecu_id == self.__update_ecu_info["main_ecu"]["ecu_id"]:
-            logger.info("ecu_id matched!")
-            self.__update_ecu_info["main_ecu"]["ecu_name"] = ecuinfo.ecu_name
-            self.__update_ecu_info["main_ecu"]["ecu_type"] = ecuinfo.ecu_type
-            self.__update_ecu_info["main_ecu"]["version"] = ecuinfo.version
-            self.__update_ecu_info["main_ecu"]["independent"] = ecuinfo.independent
-            ecu_found = True
-            logger.debug(f"__update_ecu_info: {self.__update_ecu_info}")
-        else:
-            logger.debug("ecu_id not matched!")
-            if "sub_ecus" in self.__update_ecu_info:
-                for i, subecuinfo in enumerate(self.__update_ecu_info["sub_ecus"]):
-                    ecuinfo = subecuinfo.ecu_info
-                    if ecuinfo.ecu_id == subecuinfo["ecu_id"]:
-                        self.__update_ecu_info["sub_ecus"][i][
-                            "ecu_name"
-                        ] = ecuinfo.ecu_name
-                        self.__update_ecu_info["sub_ecus"][i][
-                            "ecu_type"
-                        ] = ecuinfo.ecu_type
-                        self.__update_ecu_info["sub_ecus"][i][
-                            "version"
-                        ] = ecuinfo.version
-                        self.__update_ecu_info["sub_ecus"][i][
-                            "independent"
-                        ] = ecuinfo.independent
-                        ecu_found = True
-        logger.info("_update_ecu_info end")
-        return ecu_found
-
-    def update(self, ecu_update_info):
-        """
-        OTA update execution
-        """
-        # -----------------------------------------------------------
-        # set 'UPDATE' state
-        self._ota_status.set_ota_status(OtaStatusString.UPDATE_STATE)
-        logger.debug(ecu_update_info)
-        self.__url = ecu_update_info.url + "/"
-        metadata = ecu_update_info.metadata
-        metadata_jwt_url = urllib.parse.urljoin(self.__url, metadata)
-        self.__header_dict = _header_str_to_dict(ecu_update_info.header)
-        logger.debug(f"[metadata_jwt] {metadata_jwt_url}")
-        logger.debug(f"[header] {self.__header_dict}")
-
-        #
-        # download metadata
-        #
-        if not self._download_metadata(cfg.OTA_METADATA_FILE, metadata_jwt_url):
-            # inform error
-            self._inform_update_error("Can not get metadata!")
-            # set 'NORMAL' state
-            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
-            return False
-
-        #
-        # -----------------------------------------------------------
-        # set 'METADATA' state
-        # self._ota_status.set_ota_status('METADATA')
-
-        next_bank = Path(self._grub_ctl.get_next_bank())
-        if not self._construct_next_bank(next_bank, self._mount_point):
-            # inform error
-            self._inform_update_error("Can not construct update bank!")
-            # set 'NORMAL' state
-            self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
-            _unmount_bank(self._mount_point)
-            return False
-        #
-        # -----------------------------------------------------------
-        # set 'PREPARED' state
-        self._ota_status.set_ota_status(OtaStatusString.PREPARED_STATE)
-        # unmount bank
-        _unmount_bank(self._mount_point)
-        return True
-
-    def reboot(self):
-        """
-        Reboot
-        """
-        if self.get_ota_status() == OtaStatusString.PREPARED_STATE:
-            # switch reboot
-            if not self._grub_ctl.prepare_grub_switching_reboot(
-                self._boot_vmlinuz, self._boot_initrd
-            ):
-                # inform error
-                self._inform_update_error("Switching bank failed!")
-                # set 'NORMAL' state
-                self._ota_status.set_ota_status(OtaStatusString.NORMAL_STATE)
-                _unmount_bank(self._mount_point)
-                return False
-            #
-            # -----------------------------------------------------------
-            # set 'SWITCHA/SWITCHB' state
-            next_bank = self._grub_ctl.get_next_bank()
-            next_state = self._get_switch_status_for_reboot(next_bank)
-            self._ota_status.set_ota_status(next_state)
-        #
-        # reboot
-        #
-        self._grub_ctl.reboot()
-        return True
-
-    def save_update_ecuinfo(self):
-        return _save_update_ecuinfo(
-            self.__update_ecuinfo_yaml_file, self.__update_ecu_info
+        # process directory file
+        self._update_phase = OtaClientUpdatePhase.DIRECTORY
+        self._process_directory(
+            url, cookies, metadata.get_directories_info(), self._mount_point
         )
+
+        # process symlink file
+        self._update_phase = OtaClientUpdatePhase.SYMLINK
+        self._process_symlink(
+            url, cookies, metadata.get_symboliclinks_info(), self._mount_point
+        )
+
+        # process regular file
+        self._update_phase = OtaClientUpdatePhase.REGULAR
+        self._process_regular(
+            url,
+            cookies,
+            metadata.get_regulars_info(),
+            metadata.get_rootfsdir_info()["file"],
+            self._mount_point,
+        )
+
+        # process persistent file
+        self._update_phase = OtaClientUpdatePhase.PERSISTENT
+        self._process_persistent(
+            url, cookies, metadata.get_persistent_info(), self._mount_point
+        )
+
+        # leave update
+        self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
+        self._ota_status.leave_updating(self._mount_point)
 
     def _rollback(self):
-        """
-        Rollback
-        """
+        # enter rollback
+        self._ota_status.enter_rollbacking()
+        # leave rollback
+        self._ota_status.leave_rollbacking()
 
-        if self._ota_status.is_rollback_available() and self._rollback_dir.is_dir():
-            #
-            # OTA status
-            #
-            self._ota_status.dec_rollback_count()
-            self._ota_status.set_ota_status(OtaStatusString.ROLLBACK_STATE)
-            #
-            # rollback /boot symlinks
-            #
+    def _status(self):
+        return {
+            "status": self._ota_status.get_ota_status().name,
+            "failure_type": self._failure_type.name,
+            "failure_reason": self._failure_reason,
+            "version": self._ota_status.get_version(),
+            "update_progress": {
+                "phase": self._update_phase.name,
+                "total_regular_files": self._total_regular_files,
+                "regular_files_processed": self._regular_files_processed,
+            },
+        }
 
-            # TODO: what is self._symlinklist_dir???
-            # symlink_list_file = self._rollback_dir.joinpath(self._symlinklist_dir)
-            # with open(symlink_list_file, "r") as f:
-            #     for l in f.readlines():
-            #         symlinkinf = SymbolicLinkInf(l)
-            #         if os.path.dirname(symlinkinf.slink) == "/boot":
-            #             rollback_link = os.path.join(
-            #                 self._rollback_dir, os.path.basename(symlinkinf.slink)
-            #             )
-            #             if os.path.exists(rollback_link):
-            #                 # if os.path.islink(symlinkinf.slink):
-            #                 #    os.remove(symlinkinf.slink)
-            #                 shutil.move(rollback_link, symlinkinf.slink)
+    @property
+    def _total_regular_files(self):
+        with self._lock:
+            return self._update_total_regular_files
 
-            #
-            # rollback /boot regulars
-            #
-            regular_list_file = self._rollback_dir.joinpath(
-                self.backup_files["regularlist"]
+    @property
+    def _regular_files_processed(self):
+        with self._lock:
+            return self._update_regular_files_processed
+
+    @_total_regular_files.setter
+    def _total_regular_files(self, num):
+        with self._lock:
+            self._update_total_regular_files = num
+
+    @_regular_files_processed.setter
+    def _regular_files_processed(self, num):
+        with self._lock:
+            self._update_regular_files_processed = num
+
+    @staticmethod
+    def _download(url, cookies, dst, digest, retry=5):
+        def _requests_get():
+            headers = {}
+            headers["Accept-encording"] = "gzip"
+            response = requests.get(url, headers=headers, cookies=cookies, timeout=10)
+            # For 50x, especially 503, wait a few seconds and try again.
+            if response.status_code // 100 == 5:
+                time.sleep(10)
+            response.raise_for_status()
+            return response
+
+        count = 0
+        while True:
+            try:
+                response = _requests_get()
+                break
+            except Exception as e:
+                count += 1
+                if count == retry:
+                    logger.exception(e)
+                    # TODO: timeout or status_code information
+                    raise OtaErrorRecoverable("requests error")
+
+        with open(dst, "wb") as f:
+            m = sha256()
+            total_length = response.headers.get("content-length")
+            if total_length is None:
+                m.update(response.content)
+                f.write(response.content)
+            else:
+                dl = 0
+                total_length = int(total_length)
+                for data in response.iter_content(chunk_size=4096):
+                    dl += len(data)
+                    m.update(data)
+                    f.write(data)
+
+        calc_digest = m.hexdigest()
+        if digest and digest != calc_digest:
+            raise OtaErrorRecoverable(f"hash error: act={calc_digest}, exp={digest}")
+
+    def _verify_metadata(self, url_base, cookies, list_info, metadata):
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / list_info["file"]
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            metadata.verify(open(file_name).read())
+
+    def _process_metadata(self, url_base, cookies):
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / "metadata.jwt"
+            url = urllib.parse.urljoin(url_base, "metadata.jwt")
+            OtaClient._download(url, cookies, file_name, None)
+            metadata = OtaMetadata(open(file_name, "r").read())
+            certificate_info = metadata.get_certificate_info()
+            self._verify_metadata(url_base, cookies, certificate_info, metadata)
+            return metadata
+
+    def _process_directory(self, url_base, cookies, list_info, standby_path):
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / list_info["file"]
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            self._create_directories(file_name, standby_path)
+
+    def _process_symlink(self, url_base, cookies, list_info, standby_path):
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / list_info["file"]
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            self._create_symbolic_links(file_name, standby_path)
+
+    def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / list_info["file"]
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
+            self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
+
+    def _process_persistent(self, url_base, cookies, list_info, standby_path):
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / list_info["file"]
+            url = urllib.parse.urljoin(url_base, list_info["file"])
+            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            self._copy_persistent_files(file_name, standby_path)
+
+    def _create_directories(self, list_file, standby_path):
+        lines = open(list_file).read().splitlines()
+        for l in lines:
+            dirinf = DirectoryInf(l)
+            target_path = standby_path.joinpath(dirinf.path.relative_to("/"))
+            target_path.mkdir(mode=dirinf.mode, parents=True, exist_ok=True)
+            os.chown(target_path, dirinf.uid, dirinf.gid)
+            os.chmod(target_path, dirinf.mode)
+
+    def _create_symbolic_links(self, list_file, standby_path):
+        lines = open(list_file).read().splitlines()
+        for l in lines:
+            # NOTE: symbolic link in /boot directory is not supported. We don't use it.
+            slinkf = SymbolicLinkInf(l)
+            slink = standby_path.joinpath(slinkf.slink.relative_to("/"))
+            slink.symlink_to(slinkf.srcpath)
+            os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
+
+    def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
+        reginf_list_raw_lines = open(list_file).read().splitlines()
+        self._total_regular_files = len(reginf_list_raw_lines)
+
+        with Manager() as manager:
+            error_queue = manager.Queue()
+            # NOTE: manager.Value doesn't work properly.
+            processed_list = manager.list()
+
+            def error_callback(e):
+                error_queue.put(e)
+
+            boot_standby_path = self._ota_status.get_standby_boot_partition_path()
+            # bind the required options before we use this method
+            _create_regfile_func = partial(
+                self._create_regular_file,
+                url_base=url_base,
+                cookies=cookies,
+                standby_path=standby_path,
+                processed_list=processed_list,
+                boot_standby_path=boot_standby_path,
             )
 
-            with open(regular_list_file, "r") as f:
-                for l in f.readlines():
-                    reginf = RegularInf(l)
-                    # if reginf.path.find('/boot/') == 0:
-                    if Path("/boot") in reginf.path.parents:
-                        rollback_file = self._rollback_dir.joinpath(reginf.path.name)
+            with Pool() as pool:
+                hardlink_dict = dict()  # sha256hash[tuple[reginf, event]]
 
-                        if rollback_file.exists():
-                            # rollback file exist, restore file
-                            shutil.move(rollback_file, reginf.path)
-                        else:
-                            # remove file
-                            os.remove(reginf.path)
-            #
-            # rollback grub file
-            #
-            grub_file = self._rollback_dir.joinpath(self._grub_conf_file)
-            if grub_file.exists():
-                dest_file = self._grub_dir.joinpath(self._grub_conf_file)
-                dest_file.unlink(missing_ok=True)
-                shutil.move(grub_file, dest_file)
-            #
-            # rollback dir backup
-            #
-            rollback_backup = self._rollback_dir.with_suffix(
-                self._rollback_dir.suffix + ".back"
-            )
-            if rollback_backup.exists():
-                shutil.rmtree(rollback_backup)
-            os.move(self._rollback_dir, rollback_backup)
-            #
-            # OTA status
-            #
-            # set 'SWITCHA/SWITCHB' state
-            next_state = self._get_switch_status_for_reboot(
-                self._grub_ctl.get_next_bank()
-            )
-            self._ota_status.set_ota_status(next_state)
-            #
-            # reboot
-            #
-            self._grub_ctl.reboot()
+                # imap_unordered return a lazy itorator without blocking
+                reginf_list = pool.imap_unordered(RegularInf, reginf_list_raw_lines)
+                for reginf in reginf_list:
+                    if reginf.nlink >= 2:
+                        prev_reginf, event = hardlink_dict.setdefault(
+                            reginf.sha256hash, (reginf, manager.Event())
+                        )
+
+                        # multiprocessing.apply_async
+                        # input args:
+                        #   func, args: list, kwargs: dict, *, callback, error_callback
+                        # output:
+                        #   async_result
+                        pool.apply_async(
+                            _create_regfile_func,
+                            (reginf, prev_reginf),
+                            {"hardlink_event": event},
+                            error_callback=error_callback,
+                        )
+                    else:
+                        pool.apply_async(
+                            _create_regfile_func,
+                            (reginf,),
+                            error_callback=error_callback,
+                        )
+
+                pool.close()
+                while len(processed_list) < len(reginf_list_raw_lines):
+                    self._regular_files_processed = len(processed_list)  # via setter
+                    if not error_queue.empty():
+                        error = error_queue.get()
+                        pool.terminate()
+                        raise error
+                    time.sleep(2)  # set pulling interval to 2 seconds
+                self._regular_files_processed = len(processed_list)  # via setter
+
+    # NOTE:
+    # _create_regular_file should be static to be used from pool.apply_async,
+    # since self._lock can't be pickled.
+    @staticmethod
+    def _create_regular_file(
+        reginf: RegularInf,
+        prev_reginf: RegularInf = None,
+        *,
+        # required options
+        url_base: str,
+        cookies: dict,
+        standby_path: Path,
+        processed_list,
+        boot_standby_path: Path,
+        # for hardlink file
+        hardlink_event=None,
+    ):
+        ishardlink = reginf.nlink >= 2
+        hardlink_first_copy = (
+            prev_reginf is not None and prev_reginf.path == reginf.path
+        )
+
+        if str(reginf.path).startswith("/boot"):
+            dst = boot_standby_path / reginf.path.name
         else:
-            logger.error("No available rollback.")
-            return False
-        return True
+            dst = standby_path / reginf.path.relative_to("/")
+
+        if ishardlink and not hardlink_first_copy:
+            # wait until the first copy is ready
+            hardlink_event.wait()
+            (standby_path / prev_reginf.path.relative_to("/")).link_to(dst)
+        else:  # normal file or first copy of hardlink file
+            if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
+                # copy file from active bank if hash is the same
+                shutil.copy(reginf.path, dst)
+            else:
+                url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
+                OtaClient._download(url, cookies, dst, reginf.sha256hash)
+
+        os.chown(dst, reginf.uid, reginf.gid)
+        os.chmod(dst, reginf.mode)
+
+        processed_list.append(True)
+        if ishardlink and hardlink_first_copy:
+            hardlink_event.set()  # first copy of hardlink file is ready
+
+    def _copy_persistent_files(self, list_file, standby_path):
+        copy_tree = CopyTree(
+            src_passwd_file=self._passwd_file,
+            src_group_file=self._group_file,
+            dst_passwd_file=standby_path / self._passwd_file.relative_to("/"),
+            dst_group_file=standby_path / self._group_file.relative_to("/"),
+        )
+        lines = open(list_file).read().splitlines()
+        for l in lines:
+            perinf = PersistentInf(l)
+            if (
+                perinf.path.is_file()
+                or perinf.path.is_dir()
+                or perinf.path.is_symlink()
+            ):  # NOTE: not equivalent to perinf.path.exists()
+                copy_tree.copy_with_parents(perinf.path, standby_path)
+
+
+if __name__ == "__main__":
+    ota_client = OtaClient()
+    ota_client.update("123.x", "http://localhost:8080", "")

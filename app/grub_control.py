@@ -1,47 +1,16 @@
-#!/usr/bin/env python3
-
-from io import TextIOWrapper
-from pathlib import Path
-import tempfile
 import re
-import os
-import stat
-import platform
-import shlex
-import shutil
 import subprocess
+import shlex
+import tempfile
+import shutil
+from pathlib import Path
+from logging import getLogger
 
-from bank import BankInfo
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
-import log_util
 
-logger = log_util.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
-
-
-def _make_grub_configuration_file(opt_file: str):
-    """
-    make the "grub.cfg" file
-    """
-    command_line = "grub-mkconfig"
-    output_file = Path(opt_file)
-
-    try:
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
-            tmp_file = f.name
-            subprocess.check_call(shlex.split(command_line), stdout=f)
-
-        # move temp to grub.cfg
-        if output_file.is_file():
-            shutil.move(
-                output_file, output_file.with_suffix(output_file.suffix + ".old")
-            )
-        shutil.move(tmp_file, output_file)
-    except:
-        logger.exception("failed genetrating grub.cfg")
-        return False
-    return True
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
 class GrubCfgParser:
@@ -99,461 +68,222 @@ class GrubCfgParser:
                 return menus, pos
 
 
-class GrubCtl:
-    """
-    OTA GRUB control class
-    """
-
-    _grub_cfg_file = cfg.GRUB_CFG_FILE
-    _custom_cfg_file = cfg.CUSTOM_CONFIG_FILE
-    _default_grub_file = cfg.GRUB_DEFAUT_FILE
+class GrubControl:
+    GRUB_CFG_FILE = cfg.GRUB_CFG_FILE  # Path("/boot/grub/grub.cfg")
+    CUSTOM_CFG_FILE = cfg.CUSTOM_CFG_FILE  # Path("/boot/grub/custom.cfg")
+    FSTAB_FILE = cfg.FSTAB_FILE  # Path("/etc/fstab")
+    DEFAULT_GRUB_FILE = cfg.DEFAULT_GRUB_FILE  # Path("/etc/default/grub")
 
     def __init__(self):
-        """"""
-        self._bank_info = BankInfo()
+        self._grub_cfg_file = GrubControl.GRUB_CFG_FILE
+        self._custom_cfg_file = GrubControl.CUSTOM_CFG_FILE
+        self._fstab_file = GrubControl.FSTAB_FILE
+        self._default_grub_file = GrubControl.DEFAULT_GRUB_FILE
 
-    # wrappers around bank_info methods
-    def get_bank_info(self):
-        return self._bank_info.export()
-
-    def get_next_bank(self):
-        return self._bank_info.get_next_bank()
-
-    def get_next_bank_uuid(self):
-        return self._bank_info.get_next_bank_uuid()
-
-    def get_current_bank(self):
-        return self._bank_info.get_current_bank()
-
-    def get_current_bank_uuid(self):
-        return self._bank_info.get_current_bank_uuid()
-
-    def is_banka(self, bank):
-        return self._bank_info.is_banka(bank)
-
-    def is_bankb(self, bank):
-        return self._bank_info.is_bankb(bank)
-
-    def _replace_linux(self, line, vmlinuz):
-        # get bank info
-        current_bank = self.get_current_bank()
-        current_bank_uuid = self.get_current_bank_uuid()
-        next_bank = self.get_next_bank()
-        next_bank_uuid = self.get_next_bank_uuid()
-
-        match = re.match(r"(\s*linux\s+)(\S*)(\s+root=)(\S*)(.*)", line)
-        if match is None:
-            return None
-        logger.debug(f"ORG: {line}")
-        while True:
-            boot_device = match.group(4)
-            # 1. UUID with current_bank_uuid
-            if boot_device.find(f"UUID={current_bank_uuid}") >= 0:
-                boot_device = boot_device.replace(current_bank_uuid, next_bank_uuid)
-                break
-
-            # 2. UUID with next_bank_uuid
-            if boot_device.find(f"UUID={next_bank_uuid}") >= 0:
-                logger.debug("No replace!")
-                break
-
-            # 3. device name with current_bank
-            if boot_device.find(current_bank) >= 0:
-                boot_device = boot_device.replace(current_bank, next_bank)
-                logger.debug(f"RPL: {boot_device}")
-                logger.debug(f"current: {current_bank}")
-                logger.debug(f"next: {next_bank}")
-                break
-
-            # 4. device name with next_bank
-            if boot_device.find(next_bank) >= 0:
-                logger.debug("No replace!")
-                break
-
-            # 5. error
-            raise Exception(f"root partition missmatch! {line}")
-
-        label = match.group(1)
-        image = match.group(2) if vmlinuz is None else f"/{os.path.basename(vmlinuz)}"
-        root = match.group(3)
-        params = match.group(5)
-        return f"{label}{image}{root}{boot_device}{params}\n"
-
-    def _replace_initrd(self, line, initrd):
-        match = re.match(r"(\s*initrd\s+)(\S*)(.*)", line)
-        if match is None:
-            return None
-        label = match.group(1)
-        image = match.group(2) if initrd is None else f"/{os.path.basename(initrd)}"
-        params = match.group(3)
-        return f"{label}{image}{params}\n"
-
-    def change_to_next_bank(self, cfg_file: str, vmlinuz, initrd):
-        """
-        change the custum configuration menu root partition device
-        """
-        config_file = Path(cfg_file)
-        if not config_file.is_file():
-            logger.warning(f"File not exist: {config_file}")
-            return False
-        logger.debug("geberate temp file!")
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f, open(
-            config_file, mode="r"
-        ) as fcustom:
-            tmp_file_name = f.name
-            logger.debug(f"custum config file open: {config_file}")
-            # read lines from custum config file
-            lines = fcustom.readlines()
-            for l in lines:
-                try:
-                    # `linux`
-                    line = self._replace_linux(l, vmlinuz)
-                    if line is not None:
-                        f.write(line)
-                        continue
-
-                    # `initrd`
-                    line = self._replace_initrd(l, initrd)
-                    if line is not None:
-                        f.write(line)
-                        continue
-
-                    f.write(l)
-                except Exception as e:
-                    logger.exception("_replace_linux")
-                    return False
-
-        if config_file.is_file():
-            # backup
-            shutil.copy(
-                config_file, config_file.with_suffix(config_file.suffix + ".old")
-            )
-        # mv tmp file to custom config file
-        shutil.move(tmp_file_name, config_file)
-
-        return True
-
-    def gen_next_bank_fstab(self, dest: Path):
-        dest_fstab_dict = {}
-        for l in open(dest).readlines():
-            if l[0] == "#" or l == "\n":
-                continue
-            fstab_list = l.split()
-            if fstab_list[1] in ["/", "/boot", "/boot/efi"]:
-                # ignore
-                continue
-            dest_fstab_dict[fstab_list[1]] = l
-        logger.info(f"dest_fstab_dict: {dest_fstab_dict}")
-
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as fout:
-            tmp_file = fout.name
-            with open(self._bank_info._fstab_file, "r") as f:
-                lines = f.readlines()
-                for l in lines:
-                    if l[0] == "#":
-                        fout.write(l)
-                        continue
-                    fstab_list = l.split()
-                    if fstab_list[1] == "/":
-                        lnext = ""
-                        current_bank = self.get_current_bank()
-                        next_bank = self.get_next_bank()
-                        current_bank_uuid = self.get_current_bank_uuid()
-                        next_bank_uuid = self.get_next_bank_uuid()
-                        if fstab_list[0].find(current_bank) >= 0:
-                            # devf found
-                            lnext = l.replace(current_bank, next_bank)
-                        elif fstab_list[0].find(current_bank_uuid) >= 0:
-                            # uuid found
-                            lnext = l.replace(current_bank_uuid, next_bank_uuid)
-                        elif (
-                            fstab_list[0].find(current_bank) >= 0
-                            or fstab_list[0].find(next_bank_uuid) >= 0
-                        ):
-                            # next bank found
-                            logger.debug("Already set to next bank!")
-                            lnext = l
-                        else:
-                            raise Exception("root device mismatch in fstab.")
-                        fout.write(lnext)
-                    elif fstab_list[1] in dest_fstab_dict.keys():
-                        fout.write(dest_fstab_dict[fstab_list[1]])
-                        del dest_fstab_dict[fstab_list[1]]
-                    else:
-                        fout.write(l)
-            # rest of dest_fstab_dict
-            logger.info(f"rest of fstab: {dest_fstab_dict}")
-            for v in dest_fstab_dict.values():
-                fout.write(v)
-
-        # replace to new fstab file
-        st = os.stat(dest, follow_symlinks=False)
-        if dest.is_file():
-            shutil.move(dest, dest.with_suffix(dest.suffix + ".old"))
-        shutil.move(tmp_file, dest)
-        os.chown(dest, st[stat.ST_UID], st[stat.ST_GID], follow_symlinks=False)
-        os.chmod(dest, st[stat.ST_MODE])
-
-        return True
-
-    def make_grub_custom_configuration_file(
-        self, input_file: Path, output_file: Path, vmlinuz, initrd
+    def create_custom_cfg_and_reboot(
+        self, standby_device, vmlinuz_file, initrd_img_file
     ):
+        # pick up booted menuentry to create custom.cfg
+        booted_menuentry = self._get_booted_menuentry()
+        # modify booted menuentry for custom.cfg
+        custom_cfg = self._update_menuentry(
+            booted_menuentry, standby_device, vmlinuz_file, initrd_img_file
+        )
+        # store custom.cfg
+        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
+            temp_name = f.name
+            f.write(custom_cfg)
+        # should not be called within the NamedTemporaryFile context
+        shutil.move(temp_name, self._custom_cfg_file)
+
+        # grub-reboot
+        self._grub_reboot()
+        # reboot
+        self.reboot()
+
+    def update_grub_cfg(self, device, default_vmlinuz):
         """
-        generate the custom configuration file for the another bank boot.
+        This function updates /etc/default/grub and and /boot/grub/grub.cfg to
+        boot from device with default_vmlinuz kernel.
         """
-        # input_file = self._grub_cfg_file
-        logger.debug(f"input_file: {str(input_file)}")
-        logger.debug(f"output_file: {str(output_file)}")
+        # 1. update /etc/default/grub with:
+        #    GRUB_TIMEOUT_STYLE=menu
+        #    GRUB_TIMEOUT=10
+        #    GRUB_DISABLE_SUBMENU=y
+        patterns = {
+            "GRUB_TIMEOUT_STYLE=": "menu",
+            "GRUB_TIMEOUT=": "10",
+            "GRUB_DISABLE_SUBMENU=": "y",
+        }
+        self._update_default_grub(patterns)
 
-        linux_root_re = r"linux.+root="
-        root_device_uuid_str = "root=UUID=" + self.get_current_bank_uuid()
-        root_device_str = "root=" + self.get_current_bank()
-        logger.debug(f"current root uuid: {root_device_uuid_str}")
-        logger.debug(f"current bank: {root_device_str}")
+        # 2. create temporary grub.cfg with grub-mkconfig
+        with tempfile.TemporaryDirectory(prefix=__name__) as d:
+            file_name = Path(d) / "grub.cfg"
+            self._grub_mkconfig_cmd(file_name)
 
-        def find_linux_entry(menus, uuid, device, kernel_release):
-            for menu in menus:
-                if type(menu) is dict:
-                    if menu["linux"].find(kernel_release) >= 0 and (
-                        menu["linux"].find(uuid) >= 0 or menu["linux"].find(device) >= 0
-                    ):
-                        return menu
-                elif type(menu) is list:
-                    ret = find_linux_entry(menu, uuid, device, kernel_release)
-                    if ret is not None:
-                        return ret
-            return None
-
-        with open(input_file, mode="r") as fin:
-            kernel_release = platform.release()  # same as `uname -r`
-            parser = GrubCfgParser(fin.read())
-            menus = parser.parse()
-            menu_entry = find_linux_entry(
-                menus, root_device_uuid_str, root_device_str, kernel_release
-            )
-
-        if menu_entry is None:
-            logger.error("No menu entry found!")
-            return False
-
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as fout:
-            tmp_file = fout.name
-            fout.write(menu_entry["entry"])
-
-        try:
-            # change root partition
-            self.change_to_next_bank(tmp_file, vmlinuz, initrd)
-        except Exception as e:
-            logger.exception("Change next bank error:")
-            return False
-
-        if output_file.is_file():
-            # backup
-            shutil.copy(
-                output_file, output_file.with_suffix(output_file.suffix + ".old")
-            )
-        # mv tmp file to custom config file
-        shutil.move(tmp_file, output_file)
-        return True
-
-    @staticmethod
-    def _replace_or_append(infile: TextIOWrapper, outfile: TextIOWrapper, replace_list):
-        """
-        replaces infile with replace_list and outputs to outfile.
-        if replace entry is not found in infile, the entry is appended.
-        """
-        lines = infile.readlines()
-        index_found = [False for i in replace_list]
-
-        """ replace """
-        for l in lines:
-
-            def match_string(line, replace_list):
-                for index, replace in enumerate(replace_list):
-                    match = re.match(f"^({replace['search']})", l)
-                    if match is not None:
-                        return index
-                return None
-
-            i = match_string(l, replace_list)
-            if i is not None:
-                outfile.write(
-                    f"{replace_list[i]['search']}{replace_list[i]['replace']}\n"
+            # 3. count a number of default_vmlinuz entry from temporary grub.cfg
+            menus = GrubCfgParser(open(file_name).read()).parse()
+            uuid = self._get_uuid(device)
+            number = self._count_menuentry(menus, uuid, default_vmlinuz)
+            if number < 0:
+                raise OtaErrorUnrecoverable(
+                    f"menuentry not found: UUID={uuid}, vmlinuz={default_vmlinuz}, menus={menus}"
                 )
-                index_found[i] = True
+
+        # 4. update /etc/default/grub with:
+        #    GRUB_DEFAULT={number}
+        patterns = {
+            "GRUB_DEFAULT=": str(number),
+        }
+        self._update_default_grub(patterns)
+
+        # 5. update /boot/grub/grub.cfg with grub-mkconfig
+        self._grub_mkconfig_cmd(self._grub_cfg_file)
+
+    def reboot(self):
+        cmd = f"reboot"
+        return subprocess.check_output(shlex.split(cmd))
+
+    def update_fstab(self, mount_point, active_device, standby_device):
+        """
+        NOTE:
+        fstab operation might not be a part of grub, but uuid operation is only
+        done in this class, so this function is implemented in this class.
+        """
+        active_uuid = self._get_uuid(active_device)
+        standby_uuid = self._get_uuid(standby_device)
+
+        fstab_active = open(self._fstab_file).readlines()  # active partition fstab
+
+        # standby partition fstab (to be merged)
+        fstab_standby = open(mount_point / "etc" / "fstab").readlines()
+
+        fstab_standby_dict = {}
+        for line in fstab_standby:
+            if not line.startswith("#") and not line.startswith("\n"):
+                path = line.split()[1]
+                fstab_standby_dict[path] = line
+
+        # merge entries
+        merged = []
+        for line in fstab_active:
+            if line.startswith("#") or line.startswith("\n"):
+                merged.append(line)
             else:
-                outfile.write(l)
+                path = line.split()[1]
+                if path in fstab_standby_dict.keys():
+                    merged.append(fstab_standby_dict[path])
+                    del fstab_standby_dict[path]
+                else:
+                    merged.append(line.replace(active_uuid, standby_uuid))
+        for v in fstab_standby_dict.values():
+            merged.append(v)
 
-        """ append """
-        for i in range(len(index_found)):
-            if index_found[i] == False:
-                outfile.write(
-                    f"{replace_list[i]['search']}{replace_list[i]['replace']}\n"
-                )
+        with open(mount_point / "etc" / "fstab", "w") as f:
+            f.writelines(merged)
 
-    def _grub_configuration(self, style_str="menu", timeout=10, default=None):
-        """
-        Grub configuration setup:
-            GRUB_TIMEOUT_STYLE=menu
-            GRUB_TIMEOUT=10
-            GRUB_DISABLE_SUBMENU=y
-        """
-        replace_list = [
-            {"search": "GRUB_TIMEOUT_STYLE=", "replace": style_str},
-            {"search": "GRUB_TIMEOUT=", "replace": str(timeout)},
-            {"search": "GRUB_DISABLE_SUBMENU=", "replace": "y"},
-        ]
-        if default is not None:
-            replace_list.append({"search": "GRUB_DEFAULT=", "replace": str(default)})
-
-        with tempfile.NamedTemporaryFile(
-            "w", delete=False, prefix=__name__
-        ) as ftmp, open(self._default_grub_file, mode="r") as fgrub:
-            temp_file = ftmp.name
-            GrubCtl._replace_or_append(fgrub, ftmp, replace_list)
-
-            # move temp to grub
-            if self._default_grub_file.is_file():
-                shutil.move(
-                    self._default_grub_file,
-                    self._default_grub_file.with_suffix(
-                        self._default_grub_file.suffix + ".old"
-                    ),
-                )
-            shutil.move(temp_file, self._default_grub_file)
-        return True
-
-    def _find_custom_cfg_entry_from_grub_cfg(self):
-        """
-        find grub menu entry number which contains custom.cfg entry.
-        NOTE: submenu is not supported, so before calling this function, add
-              GRUB_DISABLE_SUBMENU=y to the /etc/default/grub.
-        """
-        with open(self._custom_cfg_file) as f:
-            custom_cfg = f.read()
-        m = re.search(r"\s+linux\s+(\S*)\s+root=(.*?)\s+", custom_cfg)
+    def get_booted_vmlinuz_and_uuid(self):
+        cmdline = self._get_cmdline()
+        m = re.match(r"BOOT_IMAGE=/(\S*)\s*root=UUID=(\S*)", cmdline)
         vmlinuz = m.group(1)
-        boot_device = m.group(2)
+        uuid = m.group(2)
+        return vmlinuz, uuid
 
-        with tempfile.NamedTemporaryFile(delete=False) as ftmp:
-            _make_grub_configuration_file(ftmp.name)
-            with open(ftmp.name) as f:
-                parser = GrubCfgParser(f.read())
-                menus = parser.parse()
-                for i, menu in enumerate(menus):
-                    m = re.search(
-                        rf".*{os.path.basename(vmlinuz)}\s+root={boot_device}",
-                        menu["linux"],
-                    )
-                    if m is not None:
+    """ private from here """
 
-                        logger.info(
-                            f"found {vmlinuz} and {boot_device} at grub menu entry #{i}"
-                        )
-                        return i
-        logger.error(f"{vmlinuz} or {boot_device} was not found in the grub menu entry")
+    def _find_menuentry(self, menus, uuid, vmlinuz):
+        # NOTE: Only UUID sepcifier is supported.
+        for menu in menus:
+            if type(menu) is dict:
+                m = re.match(r"\s*linux\s+/(\S*)\s+root=UUID=(\S+)\s*", menu["linux"])
+                if m and m.group(1) == vmlinuz and m.group(2) == uuid:
+                    return menu
+            elif type(menu) is list:
+                ret = self._find_menuentry(menu, uuid, device, vmlinuz)
+                if ret is not None:
+                    return ret
+        return None
+
+    def _count_menuentry(self, menus, uuid, vmlinuz):
+        # NOTE: Only UUID sepcifier is supported.
+        for i, menu in enumerate(menus):
+            if type(menu) is dict:
+                m = re.match(r"\s*linux\s+/(\S*)\s+root=UUID=(\S+)\s*", menu["linux"])
+                if m and m.group(1) == vmlinuz and m.group(2) == uuid:
+                    return i
+            else:
+                raise OtaErrorUnrecoverable("GRUB_DISABLE_SUBMENU=y should be set")
         return -1
 
-    def re_generate_grub_config(self):
+    def _get_booted_menuentry(self):
         """
-        regenarate the grub config file
+        find grub.cfg menuentry from uuid and BOOT_IMAGE specified by /proc/cmdline
         """
-        # change the grub genaration configuration
-        self._grub_configuration()
+        # grub.cfg
+        grub_cfg = open(self._grub_cfg_file).read()
+        menus = GrubCfgParser(grub_cfg).parse()
 
-        grub_default = self._find_custom_cfg_entry_from_grub_cfg()
-        if grub_default < 0:
-            raise Exception("custom.cfg entry was not found in grub.cfg")
+        # booted vmlinuz and initrd.img
+        vmlinuz, uuid = self.get_booted_vmlinuz_and_uuid()
+        menuentry = self._find_menuentry(menus, uuid, vmlinuz)
+        return f"{menuentry['entry']}\n"  # append newline
 
-        # create default/grub again with GRUB_DEFAULT
-        self._grub_configuration(default=grub_default)
-
-        # make the grub configuration file
-        res = _make_grub_configuration_file(str(self._grub_cfg_file))
-        return res
-
-    def set_next_boot_entry(self, menuentry_no):
-        """
-        set next boot grub menue entry to custom config menu
-        """
-        command_line = "grub-reboot " + str(menuentry_no)
-        try:
-            logger.debug(f"Do: subproxess.check_call({command_line})")
-            res = subprocess.check_call(shlex.split(command_line))
-        except:
-            logger.exception("grub-setreboot error!")
-            return False
-        return True
-
-    def set_next_bank_boot(self):
-        """
-        set next boot grub menue entry to custom config menu
-        """
-        # set next boot menuentry to custum menuentry
-        menus = GrubCfgParser(open(self._grub_cfg_file).read()).parse()
-        res = self.set_next_boot_entry(len(menus))
-        return res
-
-    def delete_custom_cfg_file(self):
-        """
-        move custom.cfg file to custom.cfg.bak
-        """
-        shutil.move(
-            self._custom_cfg_file,
-            self._custom_cfg_file.with_suffix(self._custom_cfg_file.suffix + ".bak"),
+    def _update_menuentry(self, menuentry, standby_device, vmlinuz, initrd_img):
+        uuid = self._get_uuid(standby_device)
+        # NOTE: Only UUID sepcifier is supported.
+        replaced = re.sub(
+            r"(.*\slinux\s+/)\S*(\s+root=UUID=)\S*(\s.*)",
+            rf"\g<1>{vmlinuz}\g<2>{uuid}\g<3>",  # NOTE: use \g<1> instead of \1
+            menuentry,
         )
-
-    @staticmethod
-    def reboot():
-        """
-        reboot
-        """
-        command_line = "reboot"
-        try:
-            res = subprocess.check_call(shlex.split(command_line))
-        except:
-            logger.exception("reboot error!")
-            return False
-        return True
-
-    def prepare_grub_switching_reboot(self, vmlinuz, initrd):
-        """
-        prepare for GRUB control reboot for switching to another bank
-        """
-        # make custum.cfg file
-        res = self.make_grub_custom_configuration_file(
-            self._grub_cfg_file, self._custom_cfg_file, vmlinuz, initrd
+        replaced = re.sub(
+            r"(.*\sinitrd\s+/)\S*(\s.*)",
+            rf"\g<1>{initrd_img}\g<2>",
+            replaced,
         )
+        return replaced
 
-        if res:
-            # set next boot menu
-            res = self.set_next_bank_boot()
-        else:
-            return False
-        return res
+    def _update_default_grub(self, patterns):
+        lines = open(self._default_grub_file).readlines()
+        patterns_found = {}
+        updated = []
+        for line in lines:
+            found = False
+            for k, v in patterns.items():
+                m = re.match(rf"{k}.*", line)
+                if m:
+                    found = True
+                    updated.append(f"{k}{v}\n")
+                    patterns_found[k] = v
+                    break
+            if not found:
+                updated.append(line)
 
-    def grub_rollback_prepare(self):
-        """
-        GRUB data backup for rollback
+        deltas = dict(patterns.items() - patterns_found.items())
+        for k, v in deltas.items():
+            updated.append(f"{k}{v}\n")
 
-        """
-        # copy for rollback
-        if self._grub_cfg_file.is_file():
-            shutil.copy2(
-                self._grub_cfg_file,
-                self._grub_cfg_file.with_suffix(
-                    self._grub_cfg_file.suffix + ".rollback"
-                ),
-            )
-        else:
-            logger.error("grub configuratiuion file not exist!")
-            return False
-        return True
+        with open(self._default_grub_file, "w") as f:
+            f.writelines(updated)
 
-    def grub_rollback_reboot(self):
-        """
-        GRUB rollback reboot
-        """
-        # ToDo: implement
-        return True
+    def _grub_reboot_cmd(self, num):
+        cmd = f"grub-reboot {num}"
+        return subprocess.check_output(shlex.split(cmd))
+
+    def _grub_reboot(self):
+        # count grub menu entry number
+        grub_cfg = open(self._grub_cfg_file).read()
+        menus = GrubCfgParser(grub_cfg).parse()
+        self._grub_reboot_cmd(len(menus))
+
+    def _get_uuid(self, device):
+        cmd = f"lsblk -in -o UUID /dev/{device}"
+        return subprocess.check_output(shlex.split(cmd)).decode().strip()
+
+    def _get_cmdline(self):
+        return open("/proc/cmdline").read()
+
+    def _grub_mkconfig_cmd(self, outfile):
+        cmd = f"grub-mkconfig -o {outfile}"
+        return subprocess.check_output(shlex.split(cmd)).decode().strip()

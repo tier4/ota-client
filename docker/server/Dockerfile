@@ -22,8 +22,8 @@ RUN git clone https://github.com/tier4/ota-metadata && \
     
 # create ota-baseimage
 RUN python3 ota-metadata/metadata/ota_metadata/metadata_gen.py --target-dir data --ignore-file ota-metadata/metadata/ignore.txt
-COPY tests2/keys/sign.key sign.key
-COPY tests2/keys/sign.pem sign.pem
+COPY tests/keys/sign.key sign.key
+COPY tests/keys/sign.pem sign.pem
 RUN python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
         --sign-key sign.key \
         --cert-file sign.pem \

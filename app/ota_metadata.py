@@ -5,19 +5,38 @@ from hashlib import sha256
 import base64
 import json
 from OpenSSL import crypto
+from pathlib import Path
+import glob
+import re
+from functools import partial
+from logging import getLogger
 
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import configs as cfg
-import log_util
 
-logger = log_util.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+from logging import getLogger, INFO, DEBUG
+
+logger = getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 
-class OtaMetaData:
+class OtaMetadata:
     """
     OTA Metadata Class
     """
+
+    """
+    The root and intermediate certificates exist under certs_dir.
+    When A.root.pem, A.intermediate.pem, B.root.pem, and B.intermediate.pem
+    exist, the groups of A* and the groups of B* are handled as a chained
+    certificate.
+    verify function verifies specified certificate with them.
+    Certificates file name format should be: '.*\\..*.pem'
+    NOTE:
+    If there is no root or intermediate certificate, certification verification
+    is not performed.
+    """
+    CERTS_DIR = Path(__file__).parent.parent / "certs"
 
     def __init__(self, ota_metadata_jwt):
         """
@@ -28,23 +47,67 @@ class OtaMetaData:
         """
         self.__metadata_jwt = ota_metadata_jwt
         self.__metadata_dict = self._parse_metadata(ota_metadata_jwt)
+        self._certs_dir = OtaMetadata.CERTS_DIR
 
-    @staticmethod
-    def _file_sha256(filename):
-        with open(filename, "rb") as f:
-            digest = sha256(f.read()).hexdigest()
-            return digest
+    def verify(self, certificate: str):
+        """"""
+        # verify certificate itself before hand.
+        self._verify_certificate(certificate)
 
-    @staticmethod
-    def _is_regular(path):
-        return os.path.isfile(path) and not os.path.islink(path)
+        # verify metadata.jwt
+        try:
+            cert = crypto.load_certificate(crypto.FILETYPE_PEM, certificate)
+            verify_data = self._get_header_payload().encode()
+            logger.debug(f"verify data: {verify_data}")
+            crypto.verify(cert, self._signature, verify_data, "sha256")
+        except Exception as e:
+            raise OtaErrorRecoverable(e)
 
-    @staticmethod
-    def _path_stat(base, path):
-        return os.lstat(os.path.join(base, path))
+    def get_directories_info(self):
+        """
+        return
+            directory file info list: { "file": file name, "hash": file hash }
+        """
+        return self.__metadata_dict["directory"]
 
-    @staticmethod
-    def _jwt_decode(jwt):
+    def get_symboliclinks_info(self):
+        """
+        return
+            symboliclink file info: { "file": file name, "hash": file hash }
+        """
+        return self.__metadata_dict["symboliclink"]
+
+    def get_regulars_info(self):
+        """
+        return
+            regular file info: { "file": file name, "hash": file hash }
+        """
+        return self.__metadata_dict["regular"]
+
+    def get_persistent_info(self):
+        """
+        return
+            persistent file info: { "file": file name, "hash": file hash }
+        """
+        return self.__metadata_dict["persistent"]
+
+    def get_rootfsdir_info(self):
+        """
+        return
+            rootfs_directory info: {"file": dir name }
+        """
+        return self.__metadata_dict["rootfs_directory"]
+
+    def get_certificate_info(self):
+        """
+        return
+            certificate file info: { "file": file name, "hash": file hash }
+        """
+        return self.__metadata_dict["certificate"]
+
+    """ private functions from here """
+
+    def _jwt_decode(self, jwt):
         """
         JWT decode
             return payload.json
@@ -55,35 +118,10 @@ class OtaMetaData:
         logger.debug(f"JWT header: {header_json}")
         payload_json = base64.urlsafe_b64decode(jwt_list[1]).decode()
         logger.debug(f"JWT payload: {payload_json}")
-        logger.debug(f"JWT signature raw: {jwt_list[2]}")
         signature = base64.urlsafe_b64decode(jwt_list[2])
         logger.debug(f"JWT signature: {signature}")
 
         return header_json, payload_json, signature
-
-    @staticmethod
-    def _jwt_verify(metadata_jwt, pub_key):
-        """
-        verify metadata.jwt
-        """
-        # ToDO: verify implementation
-        return True
-
-    @staticmethod
-    def _get_public_key(pem_file):
-        """
-        get public key from downloaded certificate.pem file
-        """
-        with open(pem_file, "rb") as f:
-            # byte conversion
-            buffer = f.read()
-            # read certificate
-            pemCert = crypto.load_certificate(crypto.FILETYPE_PEM, buffer)
-            # get public key
-            public_key = crypto.dump_publickey(
-                crypto.FILETYPE_PEM, pemCert.get_pubkey()
-            )
-        return public_key
 
     def _parse_payload(self, payload_json):
         """
@@ -128,70 +166,48 @@ class OtaMetaData:
         # parse metadata.jwt payload
         return self._parse_payload(self._payload_json)
 
-    def verify(self, certificate_pem):
-        """"""
-        try:
-            certificate = crypto.load_certificate(crypto.FILETYPE_PEM, certificate_pem)
-            logger.debug(f"certificate: {certificate}")
-            verify_data = self.get_header_payload().encode()
-            logger.debug(f"verify data: {verify_data}")
-            crypto.verify(certificate, self._signature, verify_data, "sha256")
-            return True
-        except Exception as e:
-            logger.exception("Verify error:")
-            return False
-
-    def get_signature(self):
-        """
-        Get signature
-        """
-        return self._signature
-
-    def get_header_payload(self):
+    def _get_header_payload(self):
         """
         Get Header and Payload urlsafe base64 string
         """
         jwt_list = self.__metadata_jwt.split(".")
         return jwt_list[0] + "." + jwt_list[1]
 
-    def get_directories_info(self):
-        """
-        return
-            directory file info list: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["directory"]
+    def _verify_certificate(self, certificate: str):
+        ca_set_prefix = set()
+        # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
+        for cert in self._certs_dir.glob(f"*.*.pem"):
+            m = re.match(r"(.*)\..*.pem", cert.name)
+            ca_set_prefix.add(m.group(1))
+        if len(ca_set_prefix) == 0:
+            logger.warning("there is no root or intermediate certificate")
+            return
+        logger.info(f"certs prefixes {ca_set_prefix}")
 
-    def get_symboliclinks_info(self):
-        """
-        return
-            symboliclink file info: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["symboliclink"]
+        load_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
 
-    def get_regulars_info(self):
-        """
-        return
-            regular file info: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["regular"]
+        try:
+            cert_to_verify = load_pem(certificate)
+        except crypto.Error as e:
+            raise OtaErrorRecoverable(f"invalid certificate {certificate}")
 
-    def get_persistent_info(self):
-        """
-        return
-            persistent file info: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["persistent"]
+        for ca_prefix in sorted(ca_set_prefix):
+            certs_list = [
+                self._certs_dir / c.name
+                for c in self._certs_dir.glob(f"{ca_prefix}.*.pem")
+            ]
 
-    def get_rootfsdir_info(self):
-        """
-        return
-            rootfs_directory info: {"file": dir name }
-        """
-        return self.__metadata_dict["rootfs_directory"]
+            store = crypto.X509Store()
+            for c in certs_list:
+                logger.info(f"cert {c}")
+                store.add_cert(load_pem(open(c).read()))
 
-    def get_certificate_info(self):
-        """
-        return
-            certificate file info: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["certificate"]
+            try:
+                store_ctx = crypto.X509StoreContext(store, cert_to_verify)
+                store_ctx.verify_certificate()
+                logger.info(f"verfication succeeded against: {ca_prefix}")
+                return
+            except crypto.X509StoreContextError as e:
+                logger.debug(f"verify against {ca_prefix} failed: {e}")
+
+        raise OtaErrorRecoverable(f"certificate {certificate} could not be verified")
