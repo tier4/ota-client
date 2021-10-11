@@ -23,10 +23,6 @@ class CopyParents:
         self._src_group = self._id_to_name_dict(src_group_file)
         self._dst_passwd = self._name_to_id_dict(dst_passwd_file)
         self._dst_group = self._name_to_id_dict(dst_group_file)
-        print(self._src_passwd)
-        print(self._src_group)
-        print(self._dst_passwd)
-        print(self._dst_group)
 
     def copy_parents(self, src: Path, dst_dir: Path):
         dst_path = dst_dir
@@ -59,11 +55,12 @@ class CopyParents:
     # src_uid -> src_name -> dst_name -> dst_uid
     # src_gid -> src_name -> dst_name -> dst_gid
     def _convert_src_id_to_dst_id(self, src_uid, src_gid):
-        print(f"src_uid {src_uid}, src_gid {src_gid}")
+        logger.info(f"src_uid: {src_uid}, src_gid: {src_gid}")
         user = self._src_passwd[str(src_uid)]
         uid = self._dst_passwd[user]
         group = self._src_group[str(src_gid)]
         gid = self._dst_group[group]
+        logger.info(f"dst_uid: {uid}, dst_gid: {gid}")
         return int(uid), int(gid)
 
     def _copy_stat(self, src, dst):

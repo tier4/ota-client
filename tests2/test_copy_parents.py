@@ -387,12 +387,12 @@ def test_copy_parents_src_file(mocker, tmp_path):
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
     assert not (dst / A.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / A.relative_to("/"), 8, 9, 0o115)
+    assert_uid_gid_mode(dst / A.relative_to("/"), 18, 29, 0o115)
 
     # src/A/to_b (src/A/b is not copied, so to_b.is_file() is False)
     assert not (dst / to_b.relative_to("/")).is_file()
     assert (dst / to_b.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / to_b.relative_to("/"), 33, 34, 0o777)
+    assert_uid_gid_mode(dst / to_b.relative_to("/"), 133, 234, 0o777)
 
     # followings should not exist
     # src/a
@@ -473,17 +473,19 @@ def test_copy_parents_B_exists(mocker, tmp_path):
     # src/A
     assert (dst / A.relative_to("/")).is_dir()
     assert not (dst / A.relative_to("/")).is_symlink()
+    # 'A' is created by this function before hand
     assert_uid_gid_mode(dst / A.relative_to("/"), 0, 1, 0o765)
 
     # src/A/B
     assert (dst / B.relative_to("/")).is_dir()
     assert not (dst / B.relative_to("/")).is_symlink()
+    # 'B' is created by this function before hand
     assert_uid_gid_mode(dst / B.relative_to("/"), 1, 2, 0o654)
 
     # src/A/B/C/
     assert (dst / C.relative_to("/")).is_dir()
     assert not (dst / C.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / C.relative_to("/"), 105, 105, 0o126)
+    assert_uid_gid_mode(dst / C.relative_to("/"), 1105, 2105, 0o126)
 
     # followings should not exist
     # src/a

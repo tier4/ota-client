@@ -20,7 +20,7 @@ from logging import getLogger
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
-from copy_parents import copy_parents
+from copy_parents import CopyParents
 import configs as cfg
 
 logger = getLogger(__name__)
@@ -126,10 +126,14 @@ class OtaClientUpdatePhase(Enum):
 
 class OtaClient:
     MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
+    PASSWD_FILE = cfg.PASSWD_FILE  # Path("/etc/passwd")
+    GROUP_FILE = cfg.GROUP_FILE  # Path("/etc/group")
 
     def __init__(self):
         self._ota_status = OtaStatusControl()
         self._mount_point = OtaClient.MOUNT_POINT
+        self._passwd_file = OtaClient.PASSWD_FILE
+        self._group_file = OtaClient.GROUP_FILE
 
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
@@ -523,6 +527,12 @@ class OtaClient:
             hardlink_event.set()  # first copy of hardlink file is ready
 
     def _copy_persistent_files(self, list_file, standby_path):
+        copy_parents = CopyParents(
+            src_passwd_file=self._passwd_file,
+            src_group_file=self._group_file,
+            dst_passwd_file=standby_path / self._passwd_file.relative_to("/"),
+            dst_group_file=standby_path / self._group_file.relative_to("/"),
+        )
         lines = open(list_file).read().splitlines()
         for l in lines:
             perinf = PersistentInf(l)
@@ -531,11 +541,7 @@ class OtaClient:
                 or perinf.path.is_dir()
                 or perinf.path.is_symlink()
             ):  # NOTE: not equivalent to perinf.path.exists()
-                self._cp_cmd(perinf.path, standby_path)
-
-    def _cp_cmd(self, src, standby_path):
-        cmd = f"cp --parents -d -r -p {src} {standby_path}"
-        return subprocess.check_output(shlex.split(cmd)).decode().strip()
+                copy_parents.copy_parents(perinf.path, standby_path)
 
 
 if __name__ == "__main__":
