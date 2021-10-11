@@ -544,12 +544,10 @@ def test_copy_tree_with_symlink_overwrite(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    CopyTree(
-        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_with_parents(to_a, dst)
-    CopyTree(
-        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_with_parents(to_broken_a, dst)
+    c = CopyTree(src_passwd_file, src_group_file, dst_passwd_file, dst_group_file)
+
+    c.copy_with_parents(to_a, dst)
+    c.copy_with_parents(to_broken_a, dst)
 
     # followings should exist
     # src/to_a
@@ -558,12 +556,8 @@ def test_copy_tree_with_symlink_overwrite(mocker, tmp_path):
     assert (dst / to_broken_a.relative_to("/")).is_symlink()
 
     # overwrite symlinks
-    CopyTree(
-        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_with_parents(to_a, dst)
-    CopyTree(
-        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_with_parents(to_broken_a, dst)
+    c.copy_with_parents(to_a, dst)
+    c.copy_with_parents(to_broken_a, dst)
 
     # followings should exist
     # src/to_a
