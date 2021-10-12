@@ -4,6 +4,6 @@ services:
     command: >
       bash -c
       "mkdir -p /ota-client/certs
-      && cp -av /ota-client/tests2/keys/root.pem /ota-client/certs/1.root.pem
-      && cp -av /ota-client/tests2/keys/interm.pem /ota-client/certs/1.interm.pem
+      && cp -av /ota-client/tests/keys/root.pem /ota-client/certs/1.root.pem
+      && cp -av /ota-client/tests/keys/interm.pem /ota-client/certs/1.interm.pem
       && bash"

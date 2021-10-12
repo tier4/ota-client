@@ -10,5 +10,5 @@ $ docker-compose up --abort-on-container-exit
 
 ```
 $ docker-compose -f docker-compose.yml -f docker-compose.dev.yml run --rm client
-# python3 -m pytest tests2 --cov=app2
+# python3 -m pytest tests --cov=app
 ```

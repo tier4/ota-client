@@ -515,3 +515,52 @@ def test_copy_tree_B_exists(mocker, tmp_path):
     # src/A/B/to_broken_c
     assert not (dst / to_broken_c.relative_to("/")).exists()
     assert not (dst / to_broken_c.relative_to("/")).is_symlink()
+
+
+def test_copy_tree_with_symlink_overwrite(mocker, tmp_path):
+    from copy_tree import CopyTree
+
+    (
+        dst,
+        src,
+        a,
+        to_a,
+        to_broken_a,
+        A,
+        b,
+        to_b,
+        to_broken_b,
+        B,
+        c,
+        to_c,
+        to_broken_c,
+        C,
+    ) = create_files(tmp_path)
+
+    (
+        src_passwd_file,
+        dst_passwd_file,
+        src_group_file,
+        dst_group_file,
+    ) = create_passwd_group_files(tmp_path)
+
+    c = CopyTree(src_passwd_file, src_group_file, dst_passwd_file, dst_group_file)
+
+    c.copy_with_parents(to_a, dst)
+    c.copy_with_parents(to_broken_a, dst)
+
+    # followings should exist
+    # src/to_a
+    assert (dst / to_a.relative_to("/")).is_symlink()
+    # src/to_broken_a
+    assert (dst / to_broken_a.relative_to("/")).is_symlink()
+
+    # overwrite symlinks
+    c.copy_with_parents(to_a, dst)
+    c.copy_with_parents(to_broken_a, dst)
+
+    # followings should exist
+    # src/to_a
+    assert (dst / to_a.relative_to("/")).is_symlink()
+    # src/to_broken_a
+    assert (dst / to_broken_a.relative_to("/")).is_symlink()

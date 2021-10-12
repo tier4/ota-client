@@ -1,195 +1,113 @@
 import os
 import pytest
-from pathlib import Path
-from pprint import pprint
 
-from tests.grub_cfg_params import (
-    grub_cfg_params,
-    grub_cfg_custom_cfg_params,
-    grub_cfg_wo_submenu,
-    UUID_A,
-    UUID_B,
-)
-
-
-@pytest.fixture
-def bankinfo_file(tmp_path: Path):
-    bank = """\
-banka: /dev/sda3
-bankb: /dev/sda4
+FSTAB_DEV_DISK_BY_UUID = """\
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/sda3 during curtin installation
+/dev/disk/by-uuid/01234567-0123-0123-0123-0123456789ab / ext4 defaults 0 0
+# /boot was on /dev/sda2 during curtin installation
+/dev/disk/by-uuid/cc59073d-9e5b-41e1-b724-576259341132 /boot ext4 defaults 0 0
+/swap.img	none	swap	sw	0	0
 """
-    bankinfo = tmp_path / "bankinfo.yaml"
-    bankinfo.write_text(bank)
-    return bankinfo
 
-
-@pytest.fixture
-def grub_file_default(tmp_path: Path):
-    grub = """\
-GRUB_DEFAULT=0
-GRUB_TIMEOUT_STYLE=hidden
-GRUB_TIMEOUT=0
-GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
-GRUB_CMDLINE_LINUX=""
+FSTAB_DEV_DISK_BY_UUID_W_LOG = """\
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/sda3 during curtin installation
+/dev/disk/by-uuid/01234567-0123-0123-0123-0123456789ab / ext4 defaults 0 0
+# /boot was on /dev/sda2 during curtin installation
+/dev/disk/by-uuid/cc59073d-9e5b-41e1-b724-576259341132 /boot ext4 defaults 0 0
+/swap.img	none	swap	sw	0	0
+LABEL=LOG /media/autoware/LOG ext4 nofail 0 0
 """
-    grub_file = tmp_path / "grub"
-    grub_file.write_text(grub)
-    return grub_file
 
-
-@pytest.fixture
-def custom_cfg_file(tmp_path: Path):
-    cfg = f"""
-menuentry 'GNU/Linux' {{
-        linux   /vmlinuz-5.4.0-74-generic root=UUID={UUID_A} ro  quiet splash $vt_handoff
-        initrd  /initrd.img-5.4.0-74-generic
-}}"""
-    custom_cfg = tmp_path / "custom.cfg"
-    custom_cfg.write_text(cfg)
-    return custom_cfg
-
-
-@pytest.fixture
-def grub_ctl_instance(tmp_path: Path, mocker, bankinfo_file, custom_cfg_file):
-    import bank
-    import grub_control
-
-    def mock_get_uuid_from_blkid(bank):
-        if bank == "/dev/sda3":
-            return UUID_A
-        if bank == "/dev/sda4":
-            return UUID_B
-
-    def mock_get_current_bank_uuid(_):
-        return UUID_A
-
-    def mock_get_next_bank_uuid(_):
-        return UUID_B
-
-    def mock_get_current_bank(_):
-        return "/dev/sda3"
-
-    def mock_get_next_bank(_):
-        return "/dev/sda4"
-
-    def mock_make_grub_configuration_file(output_file):
-        with open(output_file, mode="w") as f:
-            f.write(grub_cfg_wo_submenu)
-
-    mocker.patch.object(bank._BaseBankInfo, "_bank_info_file", bankinfo_file)
-    mocker.patch.object(grub_control.GrubCtl, "_custom_cfg_file", custom_cfg_file)
-
-    mocker.patch.object(bank, "_get_uuid_from_blkid", mock_get_uuid_from_blkid)
-    mocker.patch.object(
-        bank.BankInfo, "get_current_bank_uuid", mock_get_current_bank_uuid
-    )
-    mocker.patch.object(bank.BankInfo, "get_next_bank_uuid", mock_get_next_bank_uuid)
-    mocker.patch.object(bank.BankInfo, "get_current_bank", mock_get_current_bank)
-    mocker.patch.object(bank.BankInfo, "get_next_bank", mock_get_next_bank)
-    mocker.patch.object(
-        bank.BankInfo, "_setup_current_next_root_dev", return_value=True
-    )
-    mocker.patch.object(
-        grub_control, "_make_grub_configuration_file", mock_make_grub_configuration_file
-    )
-    grub_ctl = grub_control.GrubCtl()
-    return grub_ctl
-
-
-def test_grub_ctl_grub_configuration(
-    mocker, tmp_path: Path, grub_file_default: Path, grub_ctl_instance
-):
-    mocker.patch.object(grub_ctl_instance, "_default_grub_file", grub_file_default)
-    assert grub_ctl_instance._grub_configuration()
-
-    grub_exp = """\
-GRUB_DEFAULT=0
-GRUB_TIMEOUT_STYLE=menu
-GRUB_TIMEOUT=10
-GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
-GRUB_CMDLINE_LINUX=""
-GRUB_DISABLE_SUBMENU=y
+FSTAB_TO_BE_MERGED = """\
+# UNCONFIGURED FSTAB FOR BASE SYSTEM
+tmpfs /media/autoware/ROSBAG tmpfs rw,nosuid,nodev,noexec,nofail,size=10G,mode=1755 0 0
+LABEL=LOG /media/autoware/LOG ext4 nofail 0 0
 """
-    assert grub_file_default.read_text() == grub_exp
 
+FSTAB_MERGED = """\
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/sda3 during curtin installation
+/dev/disk/by-uuid/76543210-3210-3210-3210-ba9876543210 / ext4 defaults 0 0
+# /boot was on /dev/sda2 during curtin installation
+/dev/disk/by-uuid/cc59073d-9e5b-41e1-b724-576259341132 /boot ext4 defaults 0 0
+/swap.img	none	swap	sw	0	0
+tmpfs /media/autoware/ROSBAG tmpfs rw,nosuid,nodev,noexec,nofail,size=10G,mode=1755 0 0
+LABEL=LOG /media/autoware/LOG ext4 nofail 0 0
+"""
 
-grub_ctl_change_to_next_bank_params = [
-    (
-        None,
-        None,
-        f"""
-menuentry 'GNU/Linux' {{
-        linux   /vmlinuz-5.4.0-74-generic root=UUID={UUID_B} ro  quiet splash $vt_handoff
-        initrd  /initrd.img-5.4.0-74-generic
-}}""",
-    ),
-    (
-        "/boot/vmlinuz-1.2.3-45-generic",  # linux image
-        "/boot/initrd.img-1.2.3-45-generic",  # initrd image
-        f"""
-menuentry 'GNU/Linux' {{
-        linux   /vmlinuz-1.2.3-45-generic root=UUID={UUID_B} ro  quiet splash $vt_handoff
-        initrd  /initrd.img-1.2.3-45-generic
-}}""",
-    ),
-]
+FSTAB_MERGED_W_LOG = """\
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/sda3 during curtin installation
+/dev/disk/by-uuid/76543210-3210-3210-3210-ba9876543210 / ext4 defaults 0 0
+# /boot was on /dev/sda2 during curtin installation
+/dev/disk/by-uuid/cc59073d-9e5b-41e1-b724-576259341132 /boot ext4 defaults 0 0
+/swap.img	none	swap	sw	0	0
+LABEL=LOG /media/autoware/LOG ext4 nofail 0 0
+tmpfs /media/autoware/ROSBAG tmpfs rw,nosuid,nodev,noexec,nofail,size=10G,mode=1755 0 0
+"""
 
 
 @pytest.mark.parametrize(
-    "vmlinuz, initrd, expect",
-    grub_ctl_change_to_next_bank_params,
+    "fstab_active, fstab_standby, fstab_merged",
+    [
+        (FSTAB_DEV_DISK_BY_UUID, FSTAB_TO_BE_MERGED, FSTAB_MERGED),
+        (FSTAB_DEV_DISK_BY_UUID_W_LOG, FSTAB_TO_BE_MERGED, FSTAB_MERGED_W_LOG),
+    ],
 )
-def test_grub_ctl_change_to_next_bank(
-    grub_ctl_instance, custom_cfg_file: Path, vmlinuz, initrd, expect
+def test_grub_control_update_fstab(
+    mocker, tmp_path, fstab_active, fstab_standby, fstab_merged
 ):
-    grub_ctl_instance.change_to_next_bank(custom_cfg_file, vmlinuz, initrd)
+    from grub_control import GrubControl
 
-    assert custom_cfg_file.read_text() == expect
+    mount_dir = tmp_path / "mnt"
+    mount_dir.mkdir()
+    mount_etc_dir = mount_dir / "etc"
+    mount_etc_dir.mkdir()
+    mount_etc_fstab = mount_etc_dir / "fstab"
+    mount_etc_fstab.write_text(fstab_standby)
 
+    etc_dir = tmp_path / "etc"
+    etc_dir.mkdir()
+    fstab = etc_dir / "fstab"
+    fstab.write_text(fstab_active)
 
-def test_find_custom_cfg_entry_from_grub_cfg(grub_ctl_instance):
-    index = grub_ctl_instance._find_custom_cfg_entry_from_grub_cfg()
-    assert index == 0
+    # patch GrubControl
+    def mock__get_uuid(dummy1, device):
+        if device == "sdx3":
+            return "01234567-0123-0123-0123-0123456789ab"
+        if device == "sdx4":
+            return "76543210-3210-3210-3210-ba9876543210"
 
+    mocker.patch.object(GrubControl, "_get_uuid", mock__get_uuid)
+    mocker.patch.object(GrubControl, "FSTAB_FILE", tmp_path / "etc" / "fstab")
 
-@pytest.mark.parametrize(
-    "grub_cfg, expect", grub_cfg_params, ids=[p[0]["id"] for p in grub_cfg_params]
-)
-def test_grub_cfg_parser(grub_cfg, expect):
-    from grub_control import GrubCfgParser
+    grub_control = GrubControl()
+    grub_control.update_fstab(mount_dir, "sdx3", "sdx4")
 
-    parser = GrubCfgParser(grub_cfg["grub_cfg"])
-    assert parser.parse() == expect
-
-
-@pytest.mark.parametrize(
-    "grub_cfg, custom_cfg, vmlinuz, initrd",
-    grub_cfg_custom_cfg_params,
-    ids=[p[0]["id"] for p in grub_cfg_custom_cfg_params],
-)
-def test_make_grub_custom_configuration_file(
-    mocker,
-    grub_cfg: Path,
-    custom_cfg: Path,
-    vmlinuz,
-    initrd,
-    grub_ctl_instance,
-    tmp_path: Path,
-):
-    grub = tmp_path / "grub.cfg"
-    grub.write_text(grub_cfg["grub_cfg"])
-    custom = tmp_path / "custom.cfg"
-
-    mocker.patch("platform.release", return_value="5.4.0-73-generic")
-    # grub_ctl_instance has UUID_A as current_bank_uuid
-    # search "5.4.0-73-generic" and UUID_A(=0123...)
-    # and replace UUID with UUID_B(=7654...),
-    # vmlinuz-xxx with vmlinuz by param,
-    # initrd.img-xxx with initrd by param.
-    assert grub_ctl_instance.make_grub_custom_configuration_file(
-        grub, custom, vmlinuz, initrd
-    )
-    custom_out = custom.read_text()
-    assert custom_out == custom_cfg
+    assert open(mount_etc_fstab).read() == fstab_merged
