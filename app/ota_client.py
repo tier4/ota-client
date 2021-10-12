@@ -102,8 +102,6 @@ class PersistentInf(_BaseInf):
     """
 
     def __init__(self, info: str):
-        super().__init__(info)
-
         self.path = Path(self.de_escape(info[1:-1]))
 
 
