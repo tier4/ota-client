@@ -141,7 +141,9 @@ class OtaMetadata:
         if payload_dict["version"] == 1:
             keys_version = keys_version_1
         else:
-            keys_version = set()
+            raise OtaErrorRecoverable(
+                f"key version should be 1 but {payload_dict['version']} is set."
+            )
         for entry in payload:
             for key in keys_version:
                 if key in entry.keys():
