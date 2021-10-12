@@ -1,12 +1,12 @@
-from logging import getLogger
-
-from ota_client import OtaClient, OtaClientFailureType
+from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
 import configs as cfg
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class OtaClientStub:

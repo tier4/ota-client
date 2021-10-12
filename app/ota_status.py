@@ -1,16 +1,14 @@
 from enum import Enum, unique
 from pathlib import Path
-import subprocess
-import shlex
-import shutil
-from logging import getLogger
 
 from ota_partition import OtaPartitionFile
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from ota_error import OtaErrorRecoverable
 import configs as cfg
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 @unique

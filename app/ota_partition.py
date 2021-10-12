@@ -5,14 +5,15 @@ import shlex
 import tempfile
 import shutil
 from pathlib import Path
-from logging import getLogger
 
 from grub_control import GrubControl
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from ota_error import OtaErrorUnrecoverable
 import configs as cfg
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class OtaPartition:

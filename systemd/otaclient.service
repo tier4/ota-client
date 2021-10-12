@@ -5,7 +5,7 @@ Description=OTA Client
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/ota/client/app/ota_client_service.py
+ExecStart=/usr/bin/python3 /opt/ota/client/app/main.py
 Restart=always
 
 [Install]

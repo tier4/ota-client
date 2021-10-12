@@ -2,13 +2,14 @@ import os
 import stat
 import shutil
 from pathlib import Path
-from logging import getLogger
 
 import configs as cfg
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class CopyTree:
