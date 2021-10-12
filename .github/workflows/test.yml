@@ -37,7 +37,7 @@ jobs:
           sudo $pythonLocation/bin/python -m pytest --cov-report term-missing --cov=app ./tests --log-cli-level=INFO | tee pytest-coverage.txt
       - name: Teardown ota server
         run: |
-          docker-compose down
+          bash -c 'docker-compose down || true'
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
