@@ -5,7 +5,7 @@ on: [pull_request]
 jobs:
   pytest_with_coverage:
     runs-on: ubuntu-20.04
-    timeout-minutes: 3
+    timeout-minutes: 5
     strategy:
       matrix:
         python-version: [3.8]

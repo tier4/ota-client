@@ -201,7 +201,7 @@ class GrubControl:
                 if m and m.group(1) == vmlinuz and m.group(2) == uuid:
                     return menu
             elif type(menu) is list:
-                ret = self._find_menuentry(menu, uuid, device, vmlinuz)
+                ret = self._find_menuentry(menu, uuid, vmlinuz)
                 if ret is not None:
                     return ret
         return None

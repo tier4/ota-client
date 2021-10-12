@@ -47,7 +47,9 @@ class OtaStatusControl:
             OtaStatus.FAILURE,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
-            raise OtaErrorRecoverable(f"status={self.status} is illegal for update")
+            raise OtaErrorRecoverable(
+                f"status={self._ota_status} is illegal for update"
+            )
 
         self._ota_status = OtaStatus.UPDATING
 
@@ -66,7 +68,9 @@ class OtaStatusControl:
             OtaStatus.SUCCESS,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
-            raise OtaErrorRecoverable(f"status={self.status} is illegal for rollback")
+            raise OtaErrorRecoverable(
+                f"status={self._ota_status} is illegal for rollback"
+            )
 
         self._ota_status = OtaStatus.ROLLBACKING
 
