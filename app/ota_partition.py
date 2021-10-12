@@ -292,7 +292,7 @@ class OtaPartitionFile(OtaPartition):
         try:
             with open(path) as f:
                 return f.read().strip()
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             return ""
 
     def _initialize_boot_partition(self):

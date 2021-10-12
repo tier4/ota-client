@@ -102,6 +102,8 @@ class PersistentInf(_BaseInf):
     """
 
     def __init__(self, info: str):
+        super().__init__(info)
+
         self.path = Path(self.de_escape(info[1:-1]))
 
 
@@ -174,9 +176,9 @@ class OtaClient:
         try:
             status = self._status()
             return OtaClientFailureType.NO_FAILURE, status
-        except OtaErrorRecoverable as e:
+        except OtaErrorRecoverable:
             return OtaClientFailureType.RECOVERABLE, None
-        except (OtaErrorUnrecoverable, Exception) as e:
+        except (OtaErrorUnrecoverable, Exception):
             return OtaClientFailureType.UNRECOVERABLE, None
 
     """ private functions from here """
@@ -343,7 +345,6 @@ class OtaClient:
                 f.write(response.content)
             else:
                 dl = 0
-                total_length = int(total_length)
                 for data in response.iter_content(chunk_size=4096):
                     dl += len(data)
                     m.update(data)
