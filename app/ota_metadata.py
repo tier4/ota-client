@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 
-import os
-from hashlib import sha256
 import base64
 import json
 from OpenSSL import crypto
 from pathlib import Path
-import glob
 import re
 from functools import partial
-from logging import getLogger
-
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from ota_error import OtaErrorRecoverable
 import configs as cfg
+import log_util
 
-from logging import getLogger, INFO, DEBUG
-
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class OtaMetadata:
