@@ -175,7 +175,7 @@ class OtaMetadata:
     def _verify_certificate(self, certificate: str):
         ca_set_prefix = set()
         # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
-        for cert in self._certs_dir.glob(f"*.*.pem"):
+        for cert in self._certs_dir.glob("*.*.pem"):
             m = re.match(r"(.*)\..*.pem", cert.name)
             ca_set_prefix.add(m.group(1))
         if len(ca_set_prefix) == 0:
