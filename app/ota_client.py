@@ -147,6 +147,7 @@ class OtaClient:
         try:
             cookies = json.loads(cookies_json)
             self._update(version, url_base, cookies)
+            return self._result_ok()
         except JSONDecodeError as e: # if cookie is invalid
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
             return self._result_recoverable(e)
