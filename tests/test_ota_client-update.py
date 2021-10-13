@@ -81,18 +81,18 @@ GRUB_CMDLINE_LINUX=""
 def test_ota_client_update(mocker, tmp_path):
     from ota_client import OtaClient
     from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl, OtaStatus
+    from ota_status import OtaStatus
     from grub_control import GrubControl
-    import grub_control
 
     """
     tmp_path/boot
             /boot/grub/
-            /boot/grub/grub.cfg
+            /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
             /boot/grub/custom.cfg
             /boot/ota-partition
             /boot/ota-partition.sdx3
             /boot/ota-partition.sdx4
+            /boot/ota-partition.sdx4/status
             /etc/fstab
             /mnt/standby/
     /dev/sdx
@@ -117,6 +117,7 @@ def test_ota_client_update(mocker, tmp_path):
     grub_dir = boot_dir / "grub"
     grub_dir.mkdir()
     grub_cfg = grub_dir / "grub.cfg"
+    grub_cfg.symlink_to(Path("..") / "ota-partition" / "grub.cfg")
     grub_cfg.write_text(grub_cfg_wo_submenu)
 
     etc_dir = tmp_path / "etc"
@@ -193,7 +194,9 @@ def test_ota_client_update(mocker, tmp_path):
         == "initrd.img-5.8.0-53-generic"  # FIXME
     )
     assert open(boot_dir / "ota-partition.sdx4" / "status").read() == "UPDATING"
-    assert open(tmp_path / "boot" / "ota-partition.sdx4" / "version").read() == "123.x"
+    assert open(boot_dir / "ota-partition.sdx4" / "version").read() == "123.x"
+    # make sure grub.cfg is not created yet in standby boot partition
+    assert not (boot_dir / "ota-partition.sdx4" / "grub.cfg").is_file()
 
     # custom.cfg is created
     assert (boot_dir / "grub" / "custom.cfg").is_file()
@@ -214,14 +217,13 @@ def test_ota_client_update(mocker, tmp_path):
 def test_ota_client_update_non_blocking(mocker, tmp_path):
     from ota_client import OtaClient, OtaClientFailureType
     from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl, OtaStatus
+    from ota_status import OtaStatus
     from grub_control import GrubControl
-    import grub_control
 
     """
     tmp_path/boot
             /boot/grub/
-            /boot/grub/grub.cfg
+            /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
             /boot/grub/custom.cfg
             /boot/ota-partition
             /boot/ota-partition.sdx3
@@ -251,6 +253,7 @@ def test_ota_client_update_non_blocking(mocker, tmp_path):
     grub_dir = boot_dir / "grub"
     grub_dir.mkdir()
     grub_cfg = grub_dir / "grub.cfg"
+    grub_cfg.symlink_to(Path("..") / "ota-partition" / "grub.cfg")
     grub_cfg.write_text(grub_cfg_wo_submenu)
 
     etc_dir = tmp_path / "etc"
@@ -339,7 +342,9 @@ def test_ota_client_update_non_blocking(mocker, tmp_path):
         == "initrd.img-5.8.0-53-generic"  # FIXME
     )
     assert open(boot_dir / "ota-partition.sdx4" / "status").read() == "UPDATING"
-    assert open(tmp_path / "boot" / "ota-partition.sdx4" / "version").read() == "123.x"
+    assert open(boot_dir / "ota-partition.sdx4" / "version").read() == "123.x"
+    # make sure grub.cfg is not created yet in standby boot partition
+    assert not (boot_dir / "ota-partition.sdx4" / "grub.cfg").is_file()
 
     # custom.cfg is created
     assert (boot_dir / "grub" / "custom.cfg").is_file()
@@ -360,9 +365,8 @@ def test_ota_client_update_non_blocking(mocker, tmp_path):
 def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     from ota_client import OtaClient
     from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl, OtaStatus
+    from ota_status import OtaStatus
     from grub_control import GrubControl
-    import grub_control
 
     """
     tmp_path/boot
@@ -486,7 +490,17 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
         == "initrd.img-5.8.0-53-generic"  # FIXME
     )
     assert open(boot_dir / "ota-partition.sdx4" / "status").read() == "UPDATING"
-    assert open(tmp_path / "boot" / "ota-partition.sdx4" / "version").read() == "123.x"
+    assert open(boot_dir / "ota-partition.sdx4" / "version").read() == "123.x"
+    # make sure grub.cfg is not created yet in standby boot partition
+    assert not (boot_dir / "ota-partition.sdx4" / "grub.cfg").is_file()
+
+    # changed from regular file to symlink file
+    assert os.readlink(grub_cfg) == str(Path("..") / "ota-partition" / "grub.cfg")
+    # grub.cfg is generated under ota-partition
+    assert open(boot_dir / "ota-partition" / "grub.cfg").read() == grub_cfg_wo_submenu
+    assert (
+        open(boot_dir / "ota-partition.sdx3" / "grub.cfg").read() == grub_cfg_wo_submenu
+    )
 
     # custom.cfg is created
     assert (boot_dir / "grub" / "custom.cfg").is_file()
@@ -507,14 +521,13 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
 def test_ota_client_update_post_process(mocker, tmp_path):
     from ota_client import OtaClient
     from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl, OtaStatus
+    from ota_status import OtaStatus
     from grub_control import GrubControl
-    import grub_control
 
     """
     tmp_path/boot
             /boot/grub/
-            /boot/grub/grub.cfg
+            /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
             /boot/grub/custom.cfg
             /etc/fstab
             /mnt/standby/
@@ -541,6 +554,7 @@ def test_ota_client_update_post_process(mocker, tmp_path):
     grub_dir = boot_dir / "grub"
     grub_dir.mkdir()
     grub_cfg = grub_dir / "grub.cfg"
+    grub_cfg.symlink_to(Path("..") / "ota-partition" / "grub.cfg")
     grub_cfg.write_text(grub_cfg_wo_submenu)
 
     etc_dir = tmp_path / "etc"
@@ -610,6 +624,12 @@ def test_ota_client_update_post_process(mocker, tmp_path):
     assert open(boot_dir / "ota-partition.sdx3" / "status").read() == "SUCCESS"
     assert ota_client._ota_status.get_ota_status() == OtaStatus.SUCCESS
 
+    assert (  # NOTE: mock__grub_mkconfig_cmd returns grub_cfg_wo_submenu
+        open(boot_dir / "ota-partition.sdx4" / "grub.cfg").read() == grub_cfg_wo_submenu
+    )
+
+    _grub_reboot_mock.assert_not_called()
+    reboot_mock.assert_not_called()
     # TODO:
     # assert /etc/default/grub is updated
     # assert /boot/grub/grub.cfg is updated
@@ -627,9 +647,7 @@ PERSISTENTS_TXT = """\
 def test_ota_client__copy_persistent_files(mocker, tmp_path):
     from ota_client import OtaClient
     from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl, OtaStatus
     from grub_control import GrubControl
-    import grub_control
 
     """
     tmp_path/etc/fstab
