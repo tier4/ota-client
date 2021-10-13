@@ -230,7 +230,10 @@ class OtaPartitionFile(OtaPartition):
 
     def update_grub_cfg(self):
         active_device = self.get_active_root_device()
-        self._grub_control.update_grub_cfg(active_device, "vmlinuz-ota")
+        standby_boot_path = self.get_standby_boot_partition_path()
+        self._grub_control.update_grub_cfg(
+            active_device, "vmlinuz-ota", standby_boot_path / "grub.cfg"
+        )
 
     """ private functions from here """
 
@@ -365,8 +368,22 @@ class OtaPartitionFile(OtaPartition):
             self._boot_ota_partition_file / "initrd.img-ota"
         )
 
+        grub_cfg_file = self._grub_control._grub_cfg_file
+        if not grub_cfg_file.is_symlink():
+            ota_partition_dir = self._boot_dir / "ota-partition"
+            # copy grub.cfg under ota-partition
+            shutil.copy2(grub_cfg_file, ota_partition_dir)
+            with tempfile.TemporaryDirectory(prefix=__name__) as d:
+                # create temp symlink
+                temp_file = Path(d) / "temp_link"
+                temp_file.symlink_to(Path("..") / "ota-partition" / "grub.cfg")
+                # move temp symlink to grub.cfg
+                self._move_atomic(str(temp_file), str(grub_cfg_file))
+
         # update grub.cfg
-        self._grub_control.update_grub_cfg(active_device, "vmlinuz-ota")
+        self._grub_control.update_grub_cfg(
+            active_device, "vmlinuz-ota", standby_boot_path / "grub.cfg"
+        )
 
         # rm kernel_files
         # for kernel_file in kernel_files:
