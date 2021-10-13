@@ -1,11 +1,12 @@
 import yaml
-from logging import getLogger
 
 from ota_error import OtaErrorUnrecoverable
 import configs as cfg
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class EcuInfo:
@@ -29,7 +30,7 @@ class EcuInfo:
         try:
             with open(path) as f:
                 ecu_info = yaml.load(f, Loader=yaml.SafeLoader)
-        except Exception as e:
+        except Exception:
             return EcuInfo.DEFAULT_ECU_INFO
 
         format_version = ecu_info.get("format_version")

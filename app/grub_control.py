@@ -4,13 +4,14 @@ import shlex
 import tempfile
 import shutil
 from pathlib import Path
-from logging import getLogger
 
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from ota_error import OtaErrorUnrecoverable
 import configs as cfg
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class GrubCfgParser:
@@ -142,7 +143,7 @@ class GrubControl:
         self._grub_mkconfig_cmd(self._grub_cfg_file)
 
     def reboot(self):
-        cmd = f"reboot"
+        cmd = "reboot"
         return subprocess.check_output(shlex.split(cmd))
 
     def update_fstab(self, mount_point, active_device, standby_device):
@@ -200,7 +201,7 @@ class GrubControl:
                 if m and m.group(1) == vmlinuz and m.group(2) == uuid:
                     return menu
             elif type(menu) is list:
-                ret = self._find_menuentry(menu, uuid, device, vmlinuz)
+                ret = self._find_menuentry(menu, uuid, vmlinuz)
                 if ret is not None:
                     return ret
         return None

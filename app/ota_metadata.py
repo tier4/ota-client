@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 
-import os
-from hashlib import sha256
 import base64
 import json
 from OpenSSL import crypto
 from pathlib import Path
-import glob
 import re
 from functools import partial
-from logging import getLogger
-
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from ota_error import OtaErrorRecoverable
 import configs as cfg
+import log_util
 
-from logging import getLogger, INFO, DEBUG
-
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class OtaMetadata:
@@ -145,6 +140,10 @@ class OtaMetadata:
 
         if payload_dict["version"] == 1:
             keys_version = keys_version_1
+        else:
+            raise OtaErrorRecoverable(
+                f"key version should be 1 but {payload_dict['version']} is set."
+            )
         for entry in payload:
             for key in keys_version:
                 if key in entry.keys():
@@ -176,7 +175,7 @@ class OtaMetadata:
     def _verify_certificate(self, certificate: str):
         ca_set_prefix = set()
         # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
-        for cert in self._certs_dir.glob(f"*.*.pem"):
+        for cert in self._certs_dir.glob("*.*.pem"):
             m = re.match(r"(.*)\..*.pem", cert.name)
             ca_set_prefix.add(m.group(1))
         if len(ca_set_prefix) == 0:
@@ -188,7 +187,7 @@ class OtaMetadata:
 
         try:
             cert_to_verify = load_pem(certificate)
-        except crypto.Error as e:
+        except crypto.Error:
             raise OtaErrorRecoverable(f"invalid certificate {certificate}")
 
         for ca_prefix in sorted(ca_set_prefix):

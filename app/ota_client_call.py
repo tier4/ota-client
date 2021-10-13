@@ -2,14 +2,15 @@ from logging import getLogger
 from typing import Any
 
 import grpc
-import asyncio
 import otaclient_v2_pb2 as v2
 import otaclient_v2_pb2_grpc as v2_grpc
 
 import configs as cfg
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class OtaClientCall:

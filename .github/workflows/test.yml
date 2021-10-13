@@ -5,7 +5,7 @@ on: [pull_request]
 jobs:
   pytest_with_coverage:
     runs-on: ubuntu-20.04
-    timeout-minutes: 3
+    timeout-minutes: 5
     strategy:
       matrix:
         python-version: [3.8]
@@ -37,7 +37,7 @@ jobs:
           sudo $pythonLocation/bin/python -m pytest --cov-report term-missing --cov=app ./tests --log-cli-level=INFO | tee pytest-coverage.txt
       - name: Teardown ota server
         run: |
-          docker-compose down
+          bash -c 'docker-compose down || true'
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
@@ -61,3 +61,6 @@ jobs:
       - name: Lint codes without modification
         run: | 
           black . --check
+      - name: Lint codes for syntax check
+        run: |
+          pyflakes ./app

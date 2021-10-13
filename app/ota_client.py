@@ -5,8 +5,6 @@ import urllib.parse
 import re
 import os
 import time
-import subprocess
-import shlex
 import json
 from hashlib import sha256
 from pathlib import Path
@@ -16,16 +14,17 @@ from threading import Lock
 from functools import partial
 from enum import Enum, unique
 from concurrent.futures import ThreadPoolExecutor
-from logging import exception, getLogger
 
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 from copy_tree import CopyTree
 import configs as cfg
+import log_util
 
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 def file_sha256(filename: Path) -> str:
@@ -174,9 +173,9 @@ class OtaClient:
         try:
             status = self._status()
             return OtaClientFailureType.NO_FAILURE, status
-        except OtaErrorRecoverable as e:
+        except OtaErrorRecoverable:
             return OtaClientFailureType.RECOVERABLE, None
-        except (OtaErrorUnrecoverable, Exception) as e:
+        except (OtaErrorUnrecoverable, Exception):
             return OtaClientFailureType.UNRECOVERABLE, None
 
     """ private functions from here """
@@ -323,7 +322,6 @@ class OtaClient:
                 f.write(response.content)
             else:
                 dl = 0
-                total_length = int(total_length)
                 for data in response.iter_content(chunk_size=4096):
                     dl += len(data)
                     m.update(data)

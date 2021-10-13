@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from logging import DEBUG, INFO, WARNING, ERROR
+from logging import INFO
 
 #
 # configs

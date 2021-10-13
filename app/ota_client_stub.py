@@ -1,16 +1,16 @@
 import asyncio
-from typing import Awaitable
 
 import configs as cfg
 from ota_client import OtaClient, OtaClientFailureType
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
 
-from logging import getLogger
+import configs as cfg
+import log_util
 
-
-logger = getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class OtaClientStub:
@@ -30,7 +30,7 @@ class OtaClientStub:
                     ))
 
         # dispatch sub-ecu updates async
-        sub_ecu_update_aws: Awaitable = asyncio.gather(*tasks)
+        sub_ecu_update_aws = asyncio.gather(*tasks)
 
         # my ecu
         # start main ecu update process (blocking)
