@@ -13,11 +13,11 @@ mkdir data
 sudo tar xf ota-image.tar -C data
 git clone https://github.com/tier4/ota-metadata
 
-cp ../tests2/keys/sign.pem .
+cp ../tests/keys/sign.pem .
 cp ota-metadata/metadata/persistents.txt .
 
 sudo python3 ota-metadata/metadata/ota_metadata/metadata_gen.py --target-dir data --ignore-file ota-metadata/metadata/ignore.txt
-sudo python3 ota-metadata/metadata/ota_metadata/metadata_sign.py --sign-key ../tests2/keys/sign.key --cert-file sign.pem --persistent-file persistents.txt --rootfs-directory data
+sudo python3 ota-metadata/metadata/ota_metadata/metadata_sign.py --sign-key ../tests/keys/sign.key --cert-file sign.pem --persistent-file persistents.txt --rootfs-directory data
 
 sudo chown -R $(whoami) data
 )

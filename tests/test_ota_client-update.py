@@ -457,12 +457,29 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
 
     def mock__grub_mkconfig_cmd(dummy1, outfile):
         # TODO: depend on the outfile, grub.cfg with vmlinuz-ota entry should be output.
-        outfile.write_text(grub_cfg_wo_submenu)
+        salt = " "  # to make the data different from grub_cfg_wo_submenu
+        outfile.write_text(grub_cfg_wo_submenu + salt)
 
     mocker.patch.object(GrubControl, "_grub_mkconfig_cmd", mock__grub_mkconfig_cmd)
 
     # test start
     ota_client = OtaClient()
+
+    # make sure grub.cfg is not created yet in standby boot partition
+    assert not (boot_dir / "ota-partition.sdx4" / "grub.cfg").is_file()
+
+    # changed from regular file to symlink file
+    assert os.readlink(grub_cfg) == str(Path("..") / "ota-partition" / "grub.cfg")
+    # grub.cfg is generated under ota-partition
+    assert (
+        open(boot_dir / "ota-partition" / "grub.cfg").read()
+        == grub_cfg_wo_submenu + " "
+    )
+    assert (
+        open(boot_dir / "ota-partition.sdx3" / "grub.cfg").read()
+        == grub_cfg_wo_submenu + " "
+    )
+
     ota_client.update(
         "123.x",
         "http://ota-server:8080/ota-server",
@@ -491,16 +508,6 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     )
     assert open(boot_dir / "ota-partition.sdx4" / "status").read() == "UPDATING"
     assert open(boot_dir / "ota-partition.sdx4" / "version").read() == "123.x"
-    # make sure grub.cfg is not created yet in standby boot partition
-    assert not (boot_dir / "ota-partition.sdx4" / "grub.cfg").is_file()
-
-    # changed from regular file to symlink file
-    assert os.readlink(grub_cfg) == str(Path("..") / "ota-partition" / "grub.cfg")
-    # grub.cfg is generated under ota-partition
-    assert open(boot_dir / "ota-partition" / "grub.cfg").read() == grub_cfg_wo_submenu
-    assert (
-        open(boot_dir / "ota-partition.sdx3" / "grub.cfg").read() == grub_cfg_wo_submenu
-    )
 
     # custom.cfg is created
     assert (boot_dir / "grub" / "custom.cfg").is_file()
