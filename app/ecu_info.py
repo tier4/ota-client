@@ -30,7 +30,7 @@ class EcuInfo:
         try:
             with open(path) as f:
                 ecu_info = yaml.load(f, Loader=yaml.SafeLoader)
-        except Exception as e:
+        except Exception:
             return EcuInfo.DEFAULT_ECU_INFO
 
         format_version = ecu_info.get("format_version")

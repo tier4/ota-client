@@ -61,3 +61,6 @@ jobs:
       - name: Lint codes without modification
         run: | 
           black . --check
+      - name: Lint codes for syntax check
+        run: |
+          pyflakes ./app

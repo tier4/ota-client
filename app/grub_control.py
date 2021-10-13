@@ -143,7 +143,7 @@ class GrubControl:
         self._grub_mkconfig_cmd(self._grub_cfg_file)
 
     def reboot(self):
-        cmd = f"reboot"
+        cmd = "reboot"
         return subprocess.check_output(shlex.split(cmd))
 
     def update_fstab(self, mount_point, active_device, standby_device):
