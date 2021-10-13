@@ -382,7 +382,7 @@ class OtaPartitionFile(OtaPartition):
 
         # update grub.cfg
         self._grub_control.update_grub_cfg(
-            active_device, "vmlinuz-ota", standby_boot_path / "grub.cfg"
+            active_device, "vmlinuz-ota", active_boot_path / "grub.cfg"
         )
 
         # rm kernel_files
