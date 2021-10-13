@@ -90,7 +90,11 @@ class OtaStatusControl:
             if self._ota_partition.is_switching_boot_partition_from_active_to_standby():
                 self._ota_partition.store_active_ota_status(OtaStatus.SUCCESS.name)
                 self._ota_partition.update_grub_cfg()
-                # switch should be called last.
+                # FIXME:
+                # If a reboot occurs after returning above update_grub_cfg function, and
+                # before calling switch_boot_partition_from_active_to_standby below, the
+                # system will boot with an unintended combination of boot and root
+                # partition. We'd like to fix this issue in the future.
                 self._ota_partition.switch_boot_partition_from_active_to_standby()
                 return OtaStatus.SUCCESS
             else:
