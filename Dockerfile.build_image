@@ -2,7 +2,6 @@ FROM ubuntu:20.04
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 ARG KERNEL_VERSION="5.8.0-53-generic"
-# ARG KERNEL_VERSION="5.4.0-74-generic"
 
 RUN apt-get update && \
         apt-get install -y \
