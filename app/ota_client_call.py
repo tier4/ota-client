@@ -1,8 +1,4 @@
-from logging import getLogger
-from typing import Any
-
 import grpc
-import otaclient_v2_pb2 as v2
 import otaclient_v2_pb2_grpc as v2_grpc
 
 import configs as cfg
@@ -17,7 +13,7 @@ class OtaClientCall:
     def __init__(self, port):
         self._port = port
 
-    async def update(self, request, ip_addr, port=None) -> Any:
+    async def update(self, request, ip_addr, port=None):
         target_addr = f"{ip_addr}:{port if port else self._port}"
         async with grpc.aio.insecure_channel(target_addr) as channel:
             stub = v2_grpc.OtaClientServiceStub(channel)

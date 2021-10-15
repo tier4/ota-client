@@ -13,7 +13,6 @@ from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial
 from enum import Enum, unique
-from concurrent.futures import ThreadPoolExecutor
 
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata

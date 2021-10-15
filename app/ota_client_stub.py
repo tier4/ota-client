@@ -1,6 +1,4 @@
 import asyncio
-
-import configs as cfg
 from concurrent.futures import ThreadPoolExecutor
 from ota_client import OtaClient, OtaClientFailureType
 from ota_client_call import OtaClientCall
