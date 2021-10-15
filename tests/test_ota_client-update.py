@@ -77,6 +77,7 @@ GRUB_CMDLINE_LINUX=""
 #GRUB_INIT_TUNE="480 440 1"\
 """
 
+
 def test_ota_client_update(mocker, tmp_path):
     from ota_client import OtaClient, OtaClientFailureType
     from ota_partition import OtaPartition, OtaPartitionFile
@@ -167,9 +168,7 @@ def test_ota_client_update(mocker, tmp_path):
     # test start
     ota_client = OtaClient()
     ota_client.update(
-        "123.x",
-        "http://ota-server:8080/ota-server",
-        json.dumps({"test": "my-cookie"})
+        "123.x", "http://ota-server:8080/ota-server", json.dumps({"test": "my-cookie"})
     )
 
     while True:
@@ -343,9 +342,7 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     )
 
     ota_client.update(
-        "123.x",
-        "http://ota-server:8080/ota-server",
-        json.dumps({"test": "my-cookie"})
+        "123.x", "http://ota-server:8080/ota-server", json.dumps({"test": "my-cookie"})
     )
 
     # make sure boot ota-partition is NOT switched
