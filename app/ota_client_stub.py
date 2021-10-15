@@ -23,12 +23,13 @@ class OtaClientStub:
         # a dict to hold the future for each requests if needed
         self._future = dict()
 
-    def terminate(self):
+    def __del__(self):
         self._executor.shutdown()
 
     async def update(self, request):
         # secondary ecus
-        tasks, secondary_ecus = [], self._ecu_info.get_secondary_ecus()
+        tasks = []
+        secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
             if OtaClientStub._find_request(request.ecu, secondary):
                 tasks.append(

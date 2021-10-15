@@ -26,4 +26,3 @@ if __name__ == "__main__":
     )
 
     service_wait_for_termination(server)
-    ota_client_stub.terminate()
