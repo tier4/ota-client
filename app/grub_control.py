@@ -102,7 +102,8 @@ class GrubControl:
         # reboot
         self.reboot()
 
-    def update_grub_cfg(self, device, default_vmlinuz):
+    def update_grub_cfg(self, device, default_vmlinuz, grub_cfg_file):
+        logger.info(f"device={device}, grub_cfg_file={grub_cfg_file}")
         """
         This function updates /etc/default/grub and and /boot/grub/grub.cfg to
         boot from device with default_vmlinuz kernel.
@@ -140,7 +141,7 @@ class GrubControl:
         self._update_default_grub(patterns)
 
         # 5. update /boot/grub/grub.cfg with grub-mkconfig
-        self._grub_mkconfig_cmd(self._grub_cfg_file)
+        self._grub_mkconfig_cmd(grub_cfg_file)
 
     def reboot(self):
         cmd = "reboot"
