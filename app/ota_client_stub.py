@@ -1,8 +1,8 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
 
 import otaclient_v2_pb2
-from ota_client import OtaClient, OtaClientFailureType
+from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
 

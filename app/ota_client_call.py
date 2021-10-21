@@ -1,8 +1,5 @@
 import grpc
-import asyncio
-import json
 import otaclient_v2_pb2_grpc as v2_grpc
-import otaclient_v2_pb2
 
 import configs as cfg
 import log_util
