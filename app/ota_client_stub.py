@@ -1,5 +1,7 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+
+import otaclient_v2_pb2
 from ota_client import OtaClient, OtaClientFailureType
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
@@ -46,9 +48,10 @@ class OtaClientStub:
             self._executor.submit(
                 self._ota_client.update, entry.version, entry.url, entry.cookies
             )
+
             main_ecu_update_result = {
                 "ecu_id": entry.ecu_id,
-                "result": OtaClientFailureType.NO_FAILURE.value,
+                "result": otaclient_v2_pb2.NO_FAILURE,
             }
 
         # wait for all sub ecu acknowledge ota update requests
@@ -59,7 +62,7 @@ class OtaClientStub:
             for t in pending:
                 ecu_id = t.get_name()
                 response.append(
-                    {"ecu_id": ecu_id, "result": OtaClientFailureType.RECOVERABLE}
+                    {"ecu_id": ecu_id, "result": otaclient_v2_pb2.RECOVERABLE}
                 )
                 logger.error(
                     f"sub ecu {ecu_id} doesn't respond ota update request on time"

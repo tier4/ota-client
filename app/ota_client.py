@@ -14,6 +14,7 @@ from threading import Lock
 from functools import partial
 from enum import Enum, unique
 
+import otaclient_v2_pb2
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
@@ -142,7 +143,13 @@ class OtaClient:
         self._update_regular_files_processed = 0
 
     def update(self, version, url_base, cookies_json: str):
-        # TODO: handle another update call when an update is on-the-flight?
+        # check if there is an on-going update
+        try:
+            self._ota_status.check_status_for_ota()
+        except OtaErrorRecoverable:
+            # not setting ota_status
+            return otaclient_v2_pb2.RECOVERABLE
+
         try:
             cookies = json.loads(cookies_json)
             self._update(version, url_base, cookies)

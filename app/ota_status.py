@@ -39,7 +39,7 @@ class OtaStatusControl:
     def get_standby_boot_partition_path(self):
         return self._ota_partition.get_standby_boot_partition_path()
 
-    def enter_updating(self, version, mount_path: Path):
+    def check_status_for_ota(self):
         # check status
         if self._ota_status not in [
             OtaStatus.INITIALIZED,
@@ -50,6 +50,9 @@ class OtaStatusControl:
             raise OtaErrorRecoverable(
                 f"status={self._ota_status} is illegal for update"
             )
+
+    def enter_updating(self, version, mount_path: Path):
+        self.check_status_for_ota()
 
         self._ota_status = OtaStatus.UPDATING
 
