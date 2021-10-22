@@ -16,6 +16,9 @@ RUN gpasswd -a autoware sudo
 RUN echo 'autoware ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers.d/autoware
 
 COPY app /opt/ota/client/app
+COPY systemd/otaclient.service /etc/systemd/system
+RUN cd /etc/systemd/system/multi-user.target.wants && ln -s /etc/systemd/system/otaclient.service
+
 COPY app/requirements.txt /opt/ota/client/app/requirements.txt
 
 RUN python3 -m pip install -r /opt/ota/client/app/requirements.txt

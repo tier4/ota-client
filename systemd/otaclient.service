@@ -2,6 +2,8 @@
 
 [Unit]
 Description=OTA Client
+After=network-online.target nss-lookup.target
+Wants=network-online.target
 
 [Service]
 Type=simple
