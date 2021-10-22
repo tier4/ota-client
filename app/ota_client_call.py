@@ -10,23 +10,24 @@ logger = log_util.get_logger(
 
 
 class OtaClientCall:
-    def __init__(self, port):
+    def __init__(self, port=None):
         self._port = port
 
-    def update(self, request, ip_addr, port=None):
+    async def update(self, request, ip_addr, port=None):
         target_addr = f"{ip_addr}:{port if port else self._port}"
-        with grpc.insecure_channel(target_addr) as channel:
+        async with grpc.aio.insecure_channel(target_addr) as channel:
             stub = v2_grpc.OtaClientServiceStub(channel)
-            return stub.update(request)
+            response = await stub.Update(request)
+        return response
 
     def rollback(self, request, ip_addr, port=None):
         target_addr = f"{ip_addr}:{port if port else self._port}"
         with grpc.insecure_channel(target_addr) as channel:
             stub = v2_grpc.OtaClientServiceStub(channel)
-            return stub.rollback(request)
+            return stub.Rollback(request)
 
     def status(self, request, ip_addr, port=None):
         target_addr = f"{ip_addr}:{port if port else self._port}"
         with grpc.insecure_channel(target_addr) as channel:
             stub = v2_grpc.OtaClientServiceStub(channel)
-            return stub.status(request)
+            return stub.Status(request)

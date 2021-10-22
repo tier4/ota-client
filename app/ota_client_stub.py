@@ -1,6 +1,11 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+import otaclient_v2_pb2
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
+
 import configs as cfg
 import log_util
 
@@ -15,23 +20,57 @@ class OtaClientStub:
         self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall("50051")
 
-    def update(self, request):
-        response = []
+        # dispatch the requested operations to threadpool
+        self._executor = ThreadPoolExecutor()
+        # a dict to hold the future for each requests if needed
+        self._future = dict()
 
+    def __del__(self):
+        self._executor.shutdown()
+
+    async def update(self, request):
         # secondary ecus
+        tasks = []
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request.ecu, secondary)
-            if entry:
-                r = self._ota_client_call.update(request, secondary["ip_addr"])
-                response.append(r)
+            if OtaClientStub._find_request(request.ecu, secondary):
+                tasks.append(
+                    asyncio.create_task(
+                        self._ota_client_call.update(request, secondary["ip_addr"]),
+                        name=secondary,  # register the task name with sub_ecu id
+                    )
+                )
 
         # my ecu
-        ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        entry = OtaClientStub._find_request(request.ecu, ecu_id)
+        entry = OtaClientStub._find_request(request.ecu, self._ecu_info.get_ecu_id())
         if entry:
-            result = self._ota_client.update(entry.version, entry.url, entry.cookies)
-            response.append({"ecu_id": entry.ecu_id, "result": result.value})
+            # we only dispatch the request, so we don't process the returned future object
+            self._executor.submit(
+                self._ota_client.update, entry.version, entry.url, entry.cookies
+            )
+
+            main_ecu_update_result = {
+                "ecu_id": entry.ecu_id,
+                "result": otaclient_v2_pb2.NO_FAILURE,
+            }
+
+        # wait for all sub ecu acknowledge ota update requests
+        # TODO: hard coded timeout
+        response = []
+        if len(tasks):  # if we have sub ecu to update
+            done, pending = await asyncio.wait(tasks, timeout=10)
+            for t in pending:
+                ecu_id = t.get_name()
+                response.append(
+                    {"ecu_id": ecu_id, "result": otaclient_v2_pb2.RECOVERABLE}
+                )
+                logger.error(
+                    f"sub ecu {ecu_id} doesn't respond ota update request on time"
+                )
+
+            response.append([t.result() for t in done])
+
+        response.append(main_ecu_update_result)
 
         return response
 

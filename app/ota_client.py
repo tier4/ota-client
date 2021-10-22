@@ -8,11 +8,11 @@ import time
 import json
 from hashlib import sha256
 from pathlib import Path
+from json.decoder import JSONDecodeError
 from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial
 from enum import Enum, unique
-from concurrent.futures import ThreadPoolExecutor
 
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
@@ -141,17 +141,19 @@ class OtaClient:
         self._update_total_regular_files = 0
         self._update_regular_files_processed = 0
 
-        self._executor = ThreadPoolExecutor(max_workers=1)
-
-    def update(self, version, url_base, cookies_json: str, blocking=False):
+    def update(self, version, url_base, cookies_json: str):
+        # check if there is an on-going update
         try:
-            try:
-                cookies = json.loads(cookies_json)
-            except Exception as e:
-                raise OtaErrorRecoverable(e)
-            self._update(version, url_base, cookies, blocking)
+            self._ota_status.check_update_status()
+        except OtaErrorRecoverable:
+            # not setting ota_status
+            return OtaClientFailureType.RECOVERABLE
+
+        try:
+            cookies = json.loads(cookies_json)
+            self._update(version, url_base, cookies)
             return self._result_ok()
-        except OtaErrorRecoverable as e:
+        except (JSONDecodeError, OtaErrorRecoverable) as e:
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
@@ -159,6 +161,13 @@ class OtaClient:
             return self._result_unrecoverable(e)
 
     def rollback(self):
+        # check if there is an on-going rollback
+        try:
+            self._ota_status.check_rollback_status()
+        except OtaErrorRecoverable:
+            # not setting ota_status
+            return OtaClientFailureType.RECOVERABLE
+
         try:
             self._rollback()
             return self._result_ok()
@@ -198,26 +207,7 @@ class OtaClient:
         self._failure_reason = str(e)
         return OtaClientFailureType.UNRECOVERABLE
 
-    def _update(self, version, url_base, cookies, blocking=True):
-        self._update_pre(version, url_base, cookies)
-        if blocking:
-            self._update_post(version, url_base, cookies)
-        else:
-
-            def _wrapper(*args):
-                try:
-                    self._update_post(*args)
-                    return self._result_ok()
-                except OtaErrorRecoverable as e:
-                    self._ota_status.set_ota_status(OtaStatus.FAILURE)
-                    return self._result_recoverable(e)
-                except (OtaErrorUnrecoverable, Exception) as e:
-                    self._ota_status.set_ota_status(OtaStatus.FAILURE)
-                    return self._result_unrecoverable(e)
-
-            self._executor.submit(_wrapper, version, url_base, cookies)
-
-    def _update_pre(self, version, url_base, cookies):
+    def _update(self, version, url_base, cookies):
         """
         e.g.
         cookies = {
@@ -234,7 +224,6 @@ class OtaClient:
         # enter update
         self._ota_status.enter_updating(version, self._mount_point)
 
-    def _update_post(self, version, url_base, cookies):
         # process metadata.jwt
         self._update_phase = OtaClientUpdatePhase.METADATA
         url = f"{url_base}/"
