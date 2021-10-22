@@ -39,7 +39,7 @@ class OtaStatusControl:
     def get_standby_boot_partition_path(self):
         return self._ota_partition.get_standby_boot_partition_path()
 
-    def check_status_for_ota(self):
+    def check_update_status(self):
         # check status
         if self._ota_status not in [
             OtaStatus.INITIALIZED,
@@ -52,7 +52,7 @@ class OtaStatusControl:
             )
 
     def enter_updating(self, version, mount_path: Path):
-        self.check_status_for_ota()
+        self.check_update_status()
 
         self._ota_status = OtaStatus.UPDATING
 
@@ -65,7 +65,7 @@ class OtaStatusControl:
         self._ota_partition.update_fstab(mounted_path)
         self._ota_partition.create_custom_cfg_and_reboot()
 
-    def enter_rollbacking(self):
+    def check_rollback_status(self):
         # check status
         if self._ota_status not in [
             OtaStatus.SUCCESS,
@@ -74,6 +74,9 @@ class OtaStatusControl:
             raise OtaErrorRecoverable(
                 f"status={self._ota_status} is illegal for rollback"
             )
+
+    def enter_rollbacking(self):
+        self.check_rollback_status()
 
         self._ota_status = OtaStatus.ROLLBACKING
 
