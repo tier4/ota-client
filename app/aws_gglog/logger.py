@@ -25,18 +25,15 @@ class _BaseLogger:
 
     _instance = None
 
-    @staticmethod
-    def get_instance():
-        if _BaseLogger._instance is None:
-            _BaseLogger._instance = _BaseLogger()
-
-        return _BaseLogger._instance
-
     def __init__(
-        self, name: str = "_base_", level=logging.INFO, boto3_session_duration: int = 0
+        self,
+        name: str,
+        level,
+        fmt: str,
+        boto3_session_duration: int = 0,
     ):
-        if _BaseLogger._instance is not None:
-            raise Exception("BaseLogger is singleton")
+        if _BaseLogger._instance:
+            return _BaseLogger._instance
 
         self._logger = logging.getLogger(name)
         self._logger.setLevel(level)
@@ -45,9 +42,7 @@ class _BaseLogger:
 
         # log is formatted as follows:
         # [2021-09-29 17:42:50,607][INFO]-logger.py:108,hello,world
-        formatter = logging.Formatter(
-            fmt="[%(asctime)s][%(levelname)s]-%(filename)s:%(lineno)d,%(message)s",
-        )
+        formatter = logging.Formatter(fmt=fmt)
 
         # set stream handler
         self._set_stream_log_handler(formatter)
@@ -55,6 +50,7 @@ class _BaseLogger:
         # set cloudwatch log handler
         self._set_cloudwatch_log_handler(formatter, boto3_session_duration)
 
+        _BaseLogger._instance = self
         logger.info("base logger is created")
 
     def _set_stream_log_handler(self, formatter: logging.Formatter):
@@ -114,8 +110,8 @@ class _BaseLogger:
 
 
 class Logger:
-    def __init__(self, name: str, level=logging.INFO):
-        base_logger = _BaseLogger.get_instance().get_logger()
+    def __init__(self, name: str, level, fmt: str):
+        base_logger = _BaseLogger(name, level, fmt).get_logger()
         self._logger = logging.getLogger(f"{base_logger.name}.{name}")
         self._logger.setLevel(level)
 
