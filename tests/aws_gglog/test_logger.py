@@ -1,3 +1,4 @@
+import logging
 import os
 import pytest
 
@@ -65,7 +66,11 @@ class Test_BaseLogger:
         os.environ["AWS_CLOUDWATCH_LOG_GROUP"] = "foo/bar"
 
         _BaseLogger._instance = None
-        _BaseLogger()
+        base_logger = _BaseLogger()
+        base_logger.set_handlers(
+            logging.WARNING,
+            "[%(asctime)s][%(levelname)s]-%(filename)s:%(lineno)d,%(message)s",
+        )
 
         watchtower.CloudWatchLogHandler.assert_called_once_with(
             boto3_session="session",
