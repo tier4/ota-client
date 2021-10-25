@@ -18,6 +18,7 @@ LOG_LEVEL_TABLE = {
     "ota_partition": INFO,
     "ota_status": INFO,
 }
+LOG_FORMAT = "[%(asctime)s][%(levelname)s]-%(filename)s:%(lineno)d,%(message)s"
 
 #
 # dirs
