@@ -17,6 +17,7 @@ from enum import Enum, unique
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+import ota_partition
 from copy_tree import CopyTree
 import configs as cfg
 import log_util
@@ -122,14 +123,96 @@ class OtaClientUpdatePhase(Enum):
     PERSISTENT = 5
     POST_PROCESSING = 6
 
+class OtaStatusControlMixin:
 
-class OtaClient:
+    def __init__(self):
+        self._boot_control = ota_partition.GrubControlAdapter()
+        self._ota_status = self._initialize_ota_status()
+
+    def _initialize_ota_status(self):
+        status_string = self._boot_control.load_ota_status()
+        if status_string == "":
+            self._boot_control.store_standby_ota_status(OtaStatus.INITIALIZED.name)
+            return OtaStatus.INITIALIZED
+        if status_string in [OtaStatus.UPDATING.name, OtaStatus.ROLLBACKING.name]:
+            if self._boot_control.is_switching_boot_partition_from_active_to_standby():
+                self._boot_control.store_active_ota_status(OtaStatus.SUCCESS.name)
+                self._boot_control.update_grub_cfg()
+                # switch should be called last.
+                self._boot_control.switch_boot_partition_from_active_to_standby()
+                return OtaStatus.SUCCESS
+            else:
+                self._boot_control.store_standby_ota_status(OtaStatus.FAILURE.name)
+                return OtaStatus.FAILURE
+        else:
+            return OtaStatus[status_string]
+
+    def get_ota_status(self):
+        return self._ota_status
+    
+    def set_ota_status(self, ota_status: OtaClientUpdatePhase):
+        self._ota_status = ota_status
+        self._boot_control.store_standby_ota_status(ota_status.name)
+
+    def get_version(self):
+        return self._boot_control.load_ota_version()
+
+    def get_standby_boot_partition_path(self) -> Path:
+        return self._boot_control.get_standby_boot_partition_path()
+
+    def check_update_status(self):
+        # check status
+        if self._ota_status not in [
+            OtaStatus.INITIALIZED,
+            OtaStatus.SUCCESS,
+            OtaStatus.FAILURE,
+            OtaStatus.ROLLBACK_FAILURE,
+        ]:
+            raise OtaErrorRecoverable(
+                f"status={self._ota_status} is illegal for update"
+            )
+
+    def check_rollback_status(self):
+        # check status
+        if self._ota_status not in [
+            OtaStatus.SUCCESS,
+            OtaStatus.ROLLBACK_FAILURE,
+        ]:
+            raise OtaErrorRecoverable(
+                f"status={self._ota_status} is illegal for rollback"
+            )
+
+    def enter_update(self, version, mount_point):
+        self.check_update_status()
+        self._ota_status = OtaStatus.UPDATING
+
+        self._boot_control.store_env("status", OtaStatus.UPDATING.name)
+        self._boot_control.store_env("version", version)
+        self._boot_control.pre_update(mount_point)
+
+
+    def leave_update(self, mount_point):
+        self._boot_control.post_update(mount_point)
+
+    def enter_rollbacking(self):
+        self.check_rollback_status()
+        self._ota_status = OtaStatus.ROLLBACKING
+        self._boot_control.store_standby_ota_status(OtaStatus.ROLLBACKING.name)
+
+    def leave_rollbacking(self):
+        self._boot_control.create_custom_cfg_and_reboot(rollback=True)
+
+
+
+
+class OtaClient(OtaStatusControlMixin):
     MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
     PASSWD_FILE = cfg.PASSWD_FILE  # Path("/etc/passwd")
     GROUP_FILE = cfg.GROUP_FILE  # Path("/etc/group")
 
     def __init__(self):
-        self._ota_status = OtaStatusControl()
+        super().__init__()
+
         self._mount_point = OtaClient.MOUNT_POINT
         self._passwd_file = OtaClient.PASSWD_FILE
         self._group_file = OtaClient.GROUP_FILE
@@ -144,7 +227,7 @@ class OtaClient:
     def update(self, version, url_base, cookies_json: str):
         # check if there is an on-going update
         try:
-            self._ota_status.check_update_status()
+            self.check_update_status()
         except OtaErrorRecoverable:
             # not setting ota_status
             return OtaClientFailureType.RECOVERABLE
@@ -154,16 +237,16 @@ class OtaClient:
             self._update(version, url_base, cookies)
             return self._result_ok()
         except (JSONDecodeError, OtaErrorRecoverable) as e:
-            self._ota_status.set_ota_status(OtaStatus.FAILURE)
+            self.set_ota_status(OtaStatus.FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
-            self._ota_status.set_ota_status(OtaStatus.FAILURE)
+            self.set_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
 
     def rollback(self):
         # check if there is an on-going rollback
         try:
-            self._ota_status.check_rollback_status()
+            self.check_rollback_status()
         except OtaErrorRecoverable:
             # not setting ota_status
             return OtaClientFailureType.RECOVERABLE
@@ -172,10 +255,10 @@ class OtaClient:
             self._rollback()
             return self._result_ok()
         except OtaErrorRecoverable as e:
-            self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
+            self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
-            self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
+            self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_unrecoverable(e)
 
     # NOTE: status should not update any internal status
@@ -222,7 +305,7 @@ class OtaClient:
 
         logger.info(f"version={version}, url_base={url_base}, cookies={cookies}")
         # enter update
-        self._ota_status.enter_updating(version, self._mount_point)
+        self.enter_update(version, self._mount_point)
 
         # process metadata.jwt
         self._update_phase = OtaClientUpdatePhase.METADATA
@@ -259,20 +342,20 @@ class OtaClient:
 
         # leave update
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
-        self._ota_status.leave_updating(self._mount_point)
+        self.leave_update(self._mount_point)
 
     def _rollback(self):
         # enter rollback
-        self._ota_status.enter_rollbacking()
+        self.enter_rollbacking()
         # leave rollback
-        self._ota_status.leave_rollbacking()
+        self.leave_rollbacking()
 
     def _status(self):
         return {
-            "status": self._ota_status.get_ota_status().name,
+            "status": self.get_ota_status().name,
             "failure_type": self._failure_type.name,
             "failure_reason": self._failure_reason,
-            "version": self._ota_status.get_version(),
+            "version": self.get_version(),
             "update_progress": {
                 "phase": self._update_phase.name,
                 "total_regular_files": self._total_regular_files,
@@ -417,7 +500,7 @@ class OtaClient:
             def error_callback(e):
                 error_queue.put(e)
 
-            boot_standby_path = self._ota_status.get_standby_boot_partition_path()
+            boot_standby_path = self.get_standby_boot_partition_path()
             # bind the required options before we use this method
             _create_regfile_func = partial(
                 self._create_regular_file,
@@ -529,8 +612,3 @@ class OtaClient:
                 or perinf.path.is_symlink()
             ):  # NOTE: not equivalent to perinf.path.exists()
                 copy_tree.copy_with_parents(perinf.path, standby_path)
-
-
-if __name__ == "__main__":
-    ota_client = OtaClient()
-    ota_client.update("123.x", "http://localhost:8080", "")

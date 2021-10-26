@@ -5,6 +5,8 @@ import shlex
 import tempfile
 import shutil
 from pathlib import Path
+from typing import Any
+from app.boot_control import BootControlInterface
 
 from grub_control import GrubControl
 from ota_error import OtaErrorUnrecoverable
@@ -415,3 +417,36 @@ class OtaPartitionFile(OtaPartition):
     def _move_atomic(self, src, dst):
         cmd_mv = f"mv -T {src} {dst}"
         return subprocess.check_output(shlex.split(cmd_mv))
+
+class GrubControlAdapter(
+    OtaPartitionFile,
+    BootControlInterface):
+
+    def __init__(self):
+        super().__init__()
+
+    def reboot_switch_boot(self):
+        return super().reboot_switch_boot()
+
+    def reboot(self):
+        return super().reboot()
+
+    def pre_update(self, mount_point):
+        self.cleanup_standby_boot_partition()
+        self.mount_standby_root_partition_and_clean(mount_point)
+
+    def post_update(self, mount_point):
+        self.update_fstab(mount_point)
+        self.create_custom_cfg_and_reboot()
+
+    def pre_rollback(self):
+        return super().pre_rollback()
+
+    def post_rollback(self):
+        return super().post_rollback()
+
+    def store_env(self, type: str, value: Any):
+        if type == "status":
+            self.store_standby_ota_status(value)
+        elif type == "version":
+            self.store_standby_ota_version(value)
