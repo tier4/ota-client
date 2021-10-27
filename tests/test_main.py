@@ -22,7 +22,7 @@ def test_main(patch, mocker):
     main()
 
 
-def test_main_with_version(patch, mocker, tmp_path):
+def test_main_with_version(patch, mocker, tmp_path, caplog):
     from main import main
 
     version = tmp_path / "version.txt"
@@ -30,3 +30,7 @@ def test_main_with_version(patch, mocker, tmp_path):
     mocker.patch("main.VERSION_FILE", version)
 
     main()
+    assert len(caplog.records) == 2
+    assert (
+        caplog.records[1].msg == "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
+    )
