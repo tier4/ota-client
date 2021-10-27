@@ -1,3 +1,4 @@
+from pathlib import Path
 from ota_client_stub import OtaClientStub
 from ota_client_service import (
     OtaClientServiceV2,
@@ -13,8 +14,16 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+VERSION_FILE = Path(__file__).parent.parent / "version.txt"
 
-if __name__ == "__main__":
+
+def main():
+    logger.info("started")
+    version_file = VERSION_FILE
+    if version_file.is_file():
+        version = open(version_file).read()
+        logger.info(version)
+
     ota_client_stub = OtaClientStub()
     ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
 
@@ -26,3 +35,7 @@ if __name__ == "__main__":
     )
 
     service_wait_for_termination(server)
+
+
+if __name__ == "__main__":
+    main()
