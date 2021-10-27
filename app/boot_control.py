@@ -1,52 +1,23 @@
-from abc import ABC, abstractmethod
-from typing import Union
+from abc import ABC
 from pathlib import Path
 
-class OtaStatusControlInterface(ABC):
+class BootControlMixinInterface(ABC):
+    _boot_control = None
+    _ota_status = None
+    _mount_point = None
+    _passwd_file = None
+    _group_file = None
 
-    @abstractmethod
-    def store_env(self, key: str, value):
-        pass
-
-    @abstractmethod
-    def load_ota_version(self):
-        pass
-
-    # @abstractmethod
-    # def get_standby_boot_partition(self, type="path") -> Union[Path, str]:
-    #     pass
-
-    # @abstractmethod
-    # def get_active_boot_partition(self, type="path") -> Union[Path, str]:
-    #     pass
-
-class BootControlInterface(
-    OtaStatusControlInterface, 
-    ABC):
-
-    @abstractmethod
-    def reboot_switch_boot(self):
-        pass
-
-    @abstractmethod
-    def reboot(self):
-        pass
-
-    @abstractmethod
-    def pre_update(self, mount_point):
-        pass
-
-    @abstractmethod
-    def post_update(self, mount_point):
-        """
-        post_update finalizes the update process
-        """
-        pass
-
-    @abstractmethod
-    def pre_rollback(self):
-        pass
-
-    @abstractmethod
-    def post_rollback(self):
-        pass
+    def initialize_ota_status(self): pass
+    def write_standby_ota_status(self, status): pass
+    def write_initialized_ota_status(self): pass
+    def write_ota_status(self, status): pass
+    def load_ota_status(self): pass
+    def get_standby_boot_partition_path(self) -> Path: pass
+    def get_version(self): pass
+    def boot_ctrl_pre_update(self): pass
+    def boot_ctrl_post_update(self): pass
+    def boot_ctrl_pre_rollback(self): pass
+    def boot_ctrl_post_rollback(self): pass
+    def finalize_update(self): pass
+    finalize_rollback = finalize_update

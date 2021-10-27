@@ -6,6 +6,7 @@ import re
 import os
 import time
 import json
+from http import HTTPStatus
 from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
@@ -14,10 +15,11 @@ from threading import Lock
 from functools import partial
 from enum import Enum, unique
 
-from ota_status import OtaStatusControl, OtaStatus
+from boot_control import BootControlMixinInterface
+from main_ecu import MainECUAdapter
 from ota_metadata import OtaMetadata
+from ota_status import OtaStatus
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
-import ota_partition
 from copy_tree import CopyTree
 import configs as cfg
 import log_util
@@ -34,6 +36,46 @@ def file_sha256(filename: Path) -> str:
 
 def verify_file(filename: Path, filehash: str) -> bool:
     return file_sha256(filename) == filehash
+
+def _download(url, cookies, dst, digest, retry=5):
+    def _requests_get():
+        headers = {}
+        headers["Accept-encording"] = "gzip"
+        response = requests.get(url, headers=headers, cookies=cookies, timeout=10)
+        # For 50x, especially 503, wait a few seconds and try again.
+        if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
+            time.sleep(10)
+        response.raise_for_status()
+        return response
+
+    count = 0
+    while True:
+        try:
+            response = _requests_get()
+            break
+        except Exception as e:
+            count += 1
+            if count == retry:
+                logger.exception(e)
+                # TODO: timeout or status_code information
+                raise OtaErrorRecoverable("requests error")
+
+    with open(dst, "wb") as f:
+        m = sha256()
+        total_length = response.headers.get("content-length")
+        if total_length is None:
+            m.update(response.content)
+            f.write(response.content)
+        else:
+            dl = 0
+            for data in response.iter_content(chunk_size=4096):
+                dl += len(data)
+                m.update(data)
+                f.write(data)
+
+    calc_digest = m.hexdigest()
+    if digest and digest != calc_digest:
+        raise OtaErrorRecoverable(f"hash error: act={calc_digest}, exp={digest}")
 
 
 class _BaseInf:
@@ -124,41 +166,11 @@ class OtaClientUpdatePhase(Enum):
     POST_PROCESSING = 6
 
 class OtaStatusControlMixin:
-
-    def __init__(self):
-        self._boot_control = ota_partition.GrubControlAdapter()
-        self._ota_status = self._initialize_ota_status()
-
-    def _initialize_ota_status(self):
-        status_string = self._boot_control.load_ota_status()
-        if status_string == "":
-            self._boot_control.store_standby_ota_status(OtaStatus.INITIALIZED.name)
-            return OtaStatus.INITIALIZED
-        if status_string in [OtaStatus.UPDATING.name, OtaStatus.ROLLBACKING.name]:
-            if self._boot_control.is_switching_boot_partition_from_active_to_standby():
-                self._boot_control.store_active_ota_status(OtaStatus.SUCCESS.name)
-                self._boot_control.update_grub_cfg()
-                # switch should be called last.
-                self._boot_control.switch_boot_partition_from_active_to_standby()
-                return OtaStatus.SUCCESS
-            else:
-                self._boot_control.store_standby_ota_status(OtaStatus.FAILURE.name)
-                return OtaStatus.FAILURE
-        else:
-            return OtaStatus[status_string]
-
     def get_ota_status(self):
         return self._ota_status
     
     def set_ota_status(self, ota_status: OtaClientUpdatePhase):
         self._ota_status = ota_status
-        self._boot_control.store_standby_ota_status(ota_status.name)
-
-    def get_version(self):
-        return self._boot_control.load_ota_version()
-
-    def get_standby_boot_partition_path(self) -> Path:
-        return self._boot_control.get_standby_boot_partition_path()
 
     def check_update_status(self):
         # check status
@@ -182,41 +194,9 @@ class OtaStatusControlMixin:
                 f"status={self._ota_status} is illegal for rollback"
             )
 
-    def enter_update(self, version, mount_point):
-        self.check_update_status()
-        self._ota_status = OtaStatus.UPDATING
-
-        self._boot_control.store_env("status", OtaStatus.UPDATING.name)
-        self._boot_control.store_env("version", version)
-        self._boot_control.pre_update(mount_point)
-
-
-    def leave_update(self, mount_point):
-        self._boot_control.post_update(mount_point)
-
-    def enter_rollbacking(self):
-        self.check_rollback_status()
-        self._ota_status = OtaStatus.ROLLBACKING
-        self._boot_control.store_standby_ota_status(OtaStatus.ROLLBACKING.name)
-
-    def leave_rollbacking(self):
-        self._boot_control.create_custom_cfg_and_reboot(rollback=True)
-
-
-
-
-class OtaClient(OtaStatusControlMixin):
-    MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
-    PASSWD_FILE = cfg.PASSWD_FILE  # Path("/etc/passwd")
-    GROUP_FILE = cfg.GROUP_FILE  # Path("/etc/group")
+class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
     def __init__(self):
-        super().__init__()
-
-        self._mount_point = OtaClient.MOUNT_POINT
-        self._passwd_file = OtaClient.PASSWD_FILE
-        self._group_file = OtaClient.GROUP_FILE
-
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
         self._failure_reason = ""
@@ -383,59 +363,18 @@ class OtaClient(OtaStatusControlMixin):
         with self._lock:
             self._update_regular_files_processed = num
 
-    @staticmethod
-    def _download(url, cookies, dst, digest, retry=5):
-        def _requests_get():
-            headers = {}
-            headers["Accept-encording"] = "gzip"
-            response = requests.get(url, headers=headers, cookies=cookies, timeout=10)
-            # For 50x, especially 503, wait a few seconds and try again.
-            if response.status_code // 100 == 5:
-                time.sleep(10)
-            response.raise_for_status()
-            return response
-
-        count = 0
-        while True:
-            try:
-                response = _requests_get()
-                break
-            except Exception as e:
-                count += 1
-                if count == retry:
-                    logger.exception(e)
-                    # TODO: timeout or status_code information
-                    raise OtaErrorRecoverable("requests error")
-
-        with open(dst, "wb") as f:
-            m = sha256()
-            total_length = response.headers.get("content-length")
-            if total_length is None:
-                m.update(response.content)
-                f.write(response.content)
-            else:
-                dl = 0
-                for data in response.iter_content(chunk_size=4096):
-                    dl += len(data)
-                    m.update(data)
-                    f.write(data)
-
-        calc_digest = m.hexdigest()
-        if digest and digest != calc_digest:
-            raise OtaErrorRecoverable(f"hash error: act={calc_digest}, exp={digest}")
-
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
-            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            _download(url, cookies, file_name, list_info["hash"])
             metadata.verify(open(file_name).read())
 
     def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
             url = urllib.parse.urljoin(url_base, "metadata.jwt")
-            OtaClient._download(url, cookies, file_name, None)
+            _download(url, cookies, file_name, None)
             metadata = OtaMetadata(open(file_name, "r").read())
             certificate_info = metadata.get_certificate_info()
             self._verify_metadata(url_base, cookies, certificate_info, metadata)
@@ -445,21 +384,21 @@ class OtaClient(OtaStatusControlMixin):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
-            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            _download(url, cookies, file_name, list_info["hash"])
             self._create_directories(file_name, standby_path)
 
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
-            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            _download(url, cookies, file_name, list_info["hash"])
             self._create_symbolic_links(file_name, standby_path)
 
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
-            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            _download(url, cookies, file_name, list_info["hash"])
             url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
 
@@ -467,7 +406,7 @@ class OtaClient(OtaStatusControlMixin):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             url = urllib.parse.urljoin(url_base, list_info["file"])
-            OtaClient._download(url, cookies, file_name, list_info["hash"])
+            _download(url, cookies, file_name, list_info["hash"])
             self._copy_persistent_files(file_name, standby_path)
 
     def _create_directories(self, list_file, standby_path):
@@ -587,7 +526,7 @@ class OtaClient(OtaStatusControlMixin):
                 shutil.copy(reginf.path, dst)
             else:
                 url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
-                OtaClient._download(url, cookies, dst, reginf.sha256hash)
+                _download(url, cookies, dst, reginf.sha256hash)
 
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
@@ -612,3 +551,31 @@ class OtaClient(OtaStatusControlMixin):
                 or perinf.path.is_symlink()
             ):  # NOTE: not equivalent to perinf.path.exists()
                 copy_tree.copy_with_parents(perinf.path, standby_path)
+
+
+    def enter_update(self, version, mount_point):
+        self.check_update_status()
+        self.set_ota_status(OtaStatus.UPDATING)
+
+        self.boot_ctrl_pre_update(version, mount_point)
+
+
+    def leave_update(self, mount_point):
+        self.boot_ctrl_post_update(mount_point)
+
+    def enter_rollbacking(self):
+        self.check_rollback_status()
+        self.set_ota_status(OtaStatus.ROLLBACKING)
+        self.boot_ctrl_pre_rollback()
+
+    def leave_rollbacking(self):
+        self.boot_ctrl_post_rollback()
+
+def ota_client_instance(platform: str="main_ecu"):
+    if platform == "main_ecu":
+        class OtaClient(MainECUAdapter, _BaseOtaClient): pass
+    return OtaClient
+
+# TODO: platform specific, platform autodetect logics
+OtaClient = ota_client_instance()
+
