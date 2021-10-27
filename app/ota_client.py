@@ -37,6 +37,7 @@ def file_sha256(filename: Path) -> str:
 def verify_file(filename: Path, filehash: str) -> bool:
     return file_sha256(filename) == filehash
 
+
 def _download(url, cookies, dst, digest, retry=5):
     def _requests_get():
         headers = {}
@@ -165,10 +166,11 @@ class OtaClientUpdatePhase(Enum):
     PERSISTENT = 5
     POST_PROCESSING = 6
 
+
 class OtaStatusControlMixin:
     def get_ota_status(self):
         return self._ota_status
-    
+
     def set_ota_status(self, ota_status: OtaClientUpdatePhase):
         self._ota_status = ota_status
 
@@ -194,8 +196,8 @@ class OtaStatusControlMixin:
                 f"status={self._ota_status} is illegal for rollback"
             )
 
-class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
+class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
@@ -552,13 +554,11 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             ):  # NOTE: not equivalent to perinf.path.exists()
                 copy_tree.copy_with_parents(perinf.path, standby_path)
 
-
     def enter_update(self, version, mount_point):
         self.check_update_status()
         self.set_ota_status(OtaStatus.UPDATING)
 
         self.boot_ctrl_pre_update(version, mount_point)
-
 
     def leave_update(self, mount_point):
         self.boot_ctrl_post_update(mount_point)
@@ -571,11 +571,15 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def leave_rollbacking(self):
         self.boot_ctrl_post_rollback()
 
-def ota_client_instance(platform: str="main_ecu"):
+
+def ota_client_instance(platform: str = "main_ecu"):
     if platform == "main_ecu":
-        class OtaClient(MainECUAdapter, _BaseOtaClient): pass
+
+        class OtaClient(MainECUAdapter, _BaseOtaClient):
+            pass
+
     return OtaClient
+
 
 # TODO: platform specific, platform autodetect logics
 OtaClient = ota_client_instance()
-

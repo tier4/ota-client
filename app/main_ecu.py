@@ -67,7 +67,7 @@ class BootControlMixin(BootControlMixinInterface):
         else:
             self._boot_control.store_standby_ota_status(OtaStatus.FAILURE.name)
             return OtaStatus.FAILURE
-    
+
     finalize_rollback = finalize_update
 
     def store_env(self, type: str, value):
@@ -76,10 +76,12 @@ class BootControlMixin(BootControlMixinInterface):
         elif type == "version":
             self._boot_control.store_standby_ota_version(value)
 
+
 class MainECUAdapter(BootControlMixin):
     """
     load platform specific resources dynamically
     """
+
     # TODO: better way to pass configs
     def __init__(self):
         self._boot_control = ota_partition.OtaPartitionFile()

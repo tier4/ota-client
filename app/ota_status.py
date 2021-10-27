@@ -1,5 +1,6 @@
 from enum import Enum, unique
 
+
 @unique
 class OtaStatus(Enum):
     INITIALIZED = 0
