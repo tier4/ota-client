@@ -30,7 +30,7 @@ class BootControlMixinInterface(ABC):
     def get_version(self):
         pass
 
-    def boot_ctrl_pre_update(self):
+    def boot_ctrl_pre_update(self, version):
         pass
 
     def boot_ctrl_post_update(self):

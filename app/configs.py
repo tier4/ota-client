@@ -56,6 +56,7 @@ class MainECUConfig(_BaseConfig):
     """
     x86-64 platform, using grub
     """
+    PLATFORM = "main_ecu"
 
     def __init__(self):
         self.grub_dir = self.boot_dir / "grub"
@@ -76,6 +77,8 @@ class MainECUConfig(_BaseConfig):
 
 
 class SubECUConfig(_BaseConfig):
+    PLATFORM = "sub_ecu"
+    # TODO: config options for sub_ecu
     pass
 
 

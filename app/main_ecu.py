@@ -7,7 +7,8 @@ from boot_control import BootControlMixinInterface
 
 
 class BootControlMixin(BootControlMixinInterface):
-    _boot_control = None
+    _boot_control: ota_partition.OtaPartitionFile = None
+    _mount_point: Path = None
 
     def initialize_ota_status(self):
         status_string = self.load_ota_status()
@@ -40,15 +41,15 @@ class BootControlMixin(BootControlMixinInterface):
     def get_version(self):
         return self._boot_control.load_ota_version()
 
-    def boot_ctrl_pre_update(self, version, mount_point):
-        self.store_env("status", OtaStatus.UPDATING.name)
-        self.store_env("version", version)
+    def boot_ctrl_pre_update(self, version):
+        self.write_env("status", OtaStatus.UPDATING.name)
+        self.write_env("version", version)
 
         self._boot_control.cleanup_standby_boot_partition()
-        self._boot_control.mount_standby_root_partition_and_clean(mount_point)
+        self._boot_control.mount_standby_root_partition_and_clean(self._mount_point)
 
-    def boot_ctrl_post_update(self, mount_point):
-        self._boot_control.update_fstab(mount_point)
+    def boot_ctrl_post_update(self):
+        self._boot_control.update_fstab(self._mount_point)
         self._boot_control.create_custom_cfg_and_reboot()
 
     def boot_ctrl_pre_rollback(self):
@@ -70,7 +71,7 @@ class BootControlMixin(BootControlMixinInterface):
 
     finalize_rollback = finalize_update
 
-    def store_env(self, type: str, value):
+    def write_env(self, type: str, value):
         if type == "status":
             self._boot_control.store_standby_ota_status(value)
         elif type == "version":
@@ -82,7 +83,6 @@ class MainECUAdapter(BootControlMixin):
     load platform specific resources dynamically
     """
 
-    # TODO: better way to pass configs
     def __init__(self):
         self._boot_control = ota_partition.OtaPartitionFile()
         self._ota_status = self.initialize_ota_status()

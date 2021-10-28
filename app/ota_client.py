@@ -287,7 +287,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
         logger.info(f"version={version}, url_base={url_base}, cookies={cookies}")
         # enter update
-        self.enter_update(version, self._mount_point)
+        self.enter_update(version)
 
         # process metadata.jwt
         self._update_phase = OtaClientUpdatePhase.METADATA
@@ -324,7 +324,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
         # leave update
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
-        self.leave_update(self._mount_point)
+        self.leave_update()
 
     def _rollback(self):
         # enter rollback
@@ -554,14 +554,14 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             ):  # NOTE: not equivalent to perinf.path.exists()
                 copy_tree.copy_with_parents(perinf.path, standby_path)
 
-    def enter_update(self, version, mount_point):
+    def enter_update(self, version):
         self.check_update_status()
         self.set_ota_status(OtaStatus.UPDATING)
 
-        self.boot_ctrl_pre_update(version, mount_point)
+        self.boot_ctrl_pre_update(version)
 
-    def leave_update(self, mount_point):
-        self.boot_ctrl_post_update(mount_point)
+    def leave_update(self):
+        self.boot_ctrl_post_update()
 
     def enter_rollbacking(self):
         self.check_rollback_status()
@@ -572,14 +572,18 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         self.boot_ctrl_post_rollback()
 
 
-def ota_client_instance(platform: str = "main_ecu"):
+def ota_client_instance():
+    platform = cfg.PLATFORM
     if platform == "main_ecu":
 
         class OtaClient(MainECUAdapter, _BaseOtaClient):
             pass
 
+    elif platform == "sub_ecu":
+        # TODO: sub_ecu
+        pass
+
     return OtaClient
 
 
-# TODO: platform specific, platform autodetect logics
 OtaClient = ota_client_instance()
