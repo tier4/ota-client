@@ -79,7 +79,7 @@ GRUB_CMDLINE_LINUX=""
 
 
 def test_ota_client_update(mocker, tmp_path):
-    import ota_client 
+    import ota_client
     from ota_client import OtaClientFailureType
     from ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus

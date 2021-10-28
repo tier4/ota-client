@@ -4,6 +4,7 @@ from pathlib import Path
 
 from logging import INFO
 
+
 class _BaseConfig(ABC):
 
     # default settings(platform neutral)
@@ -50,6 +51,7 @@ class _BaseConfig(ABC):
         else:
             return self._properties_map[name]
 
+
 class MainECUConfig(_BaseConfig):
     """
     x86-64 platform, using grub
@@ -72,8 +74,10 @@ class MainECUConfig(_BaseConfig):
             }
         )
 
+
 class SubECUConfig(_BaseConfig):
     pass
+
 
 # helper function to detect platform
 def _detect_platform():
@@ -82,11 +86,13 @@ def _detect_platform():
     elif platform.machine() == "aarch64" or platform.processor == "aarch64":
         return "sub_ecu"
 
+
 def _create_config_object():
     platform = _detect_platform()
     if platform == "main_ecu":
         return MainECUConfig()
     elif platform == "sub_ecu":
         return SubECUConfig()
+
 
 Config = _create_config_object()
