@@ -18,9 +18,12 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         self._server = None
 
     def Update(self, request, context):
+        logger.info(f"{request=}")
         # TODO: conver grpc request to dict
         results = asyncio.run(self._stub.update(request))
+        logger.info(f"{results=}")
         response = v2.UpdateResponse()
+        logger.info(f"{response=}")
         for result in results:
             res_ecu = response.ecu.add()
             res_ecu.ecu_id = result["ecu_id"]
@@ -28,9 +31,12 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         return response
 
     def Rollback(self, request, context):
+        logger.info(f"{request=}")
         # TODO: conver grpc request to dict
         results = self._stub.rollback(request)
+        logger.info(f"{results=}")
         response = v2.RollbackResponse()
+        logger.info(f"{response=}")
         for result in results:
             res_ecu = response.ecu.add()
             res_ecu.ecu_id = result["ecu_id"]
