@@ -131,7 +131,6 @@ def test_ota_client_update(mocker, tmp_path):
 
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
-    # TODO: better way to mock configs
     mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
     mocker.patch.object(ota_client, "cfg", cfg)
 
