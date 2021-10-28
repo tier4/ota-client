@@ -6,8 +6,9 @@ test_dir = Path(__file__).parent
 
 
 def test_ota_client_status(mocker, tmp_path):
-    from ota_client import OtaClient, OtaClientFailureType
-    from ota_partition import OtaPartition, OtaPartitionFile
+    import ota_client
+    from ota_client import OtaClientFailureType
+    from ota_partition import OtaPartition
 
     """
     tmp_path/boot
@@ -47,11 +48,11 @@ def test_ota_client_status(mocker, tmp_path):
     )
 
     # test start
-    ota_client = OtaClient()
-    ota_client._total_regular_files = 99
-    ota_client._regular_files_processed = 1
+    ota_client_instance = ota_client.OtaClient()
+    ota_client_instance._total_regular_files = 99
+    ota_client_instance._regular_files_processed = 1
 
-    result, ota_status = ota_client.status()
+    result, ota_status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
     assert ota_status == {
         "status": "SUCCESS",
