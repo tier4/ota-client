@@ -83,7 +83,7 @@ def _detect_platform():
         return "sub_ecu"
 
 def _create_config_object():
-    platform = _detect_platform
+    platform = _detect_platform()
     if platform == "main_ecu":
         return MainECUConfig()
     elif platform == "sub_ecu":

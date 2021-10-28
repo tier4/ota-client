@@ -1,7 +1,7 @@
 import yaml
 
 from ota_error import OtaErrorUnrecoverable
-import configs as cfg
+from configs import Config as cfg
 import log_util
 
 logger = log_util.get_logger(

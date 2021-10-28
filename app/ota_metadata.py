@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from functools import partial
 from ota_error import OtaErrorRecoverable
-import configs as cfg
+from configs import Config as cfg
 import log_util
 
 logger = log_util.get_logger(

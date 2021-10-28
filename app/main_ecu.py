@@ -1,6 +1,6 @@
 # platform specific codes for main_ecu(host PC)
 import ota_partition
-import configs as cfg
+from configs import Config as cfg
 from pathlib import Path
 from ota_status import OtaStatus
 from boot_control import BootControlMixinInterface

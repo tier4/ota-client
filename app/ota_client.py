@@ -21,7 +21,7 @@ from ota_metadata import OtaMetadata
 from ota_status import OtaStatus
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 from copy_tree import CopyTree
-import configs as cfg
+from configs import Config as cfg
 import log_util
 
 logger = log_util.get_logger(

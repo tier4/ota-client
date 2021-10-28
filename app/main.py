@@ -6,7 +6,7 @@ from ota_client_service import (
 )
 import otaclient_v2_pb2_grpc as v2_grpc
 
-import configs as cfg
+from configs import Config as cfg
 import log_util
 
 logger = log_util.get_logger(

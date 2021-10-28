@@ -3,7 +3,7 @@ import stat
 import shutil
 from pathlib import Path
 
-import configs as cfg
+from configs import Config as cfg
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 import log_util
 
