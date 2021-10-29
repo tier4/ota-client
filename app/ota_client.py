@@ -333,17 +333,18 @@ class OtaClient:
                 requests.exceptions.ConnectionError,
             ) as e:
                 count += 1
-                last_error = f"requests timeout or connection error: {e},{url=}"
+                last_error = (
+                    f"requests timeout or connection error: {e},{url=} ({count})"
+                )
                 logger.warning(last_error)
             except RequestException as e:
                 count += 1
-                last_error = (
-                    f"requests error: status_code={e.response.status_code},{url=}"
-                )
+                status_code = e.response.status_code
+                last_error = f"requests error: {status_code=},{url=} ({count})"
                 logger.warning(last_error)
             except Exception as e:
                 count += 1
-                last_error = f"requests error unknown: {e},{url=}"
+                last_error = f"requests error unknown: {e},{url=}, ({count})"
                 logger.warning(last_error)
             finally:
                 if count == retry:
