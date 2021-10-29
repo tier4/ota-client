@@ -322,7 +322,7 @@ class OtaClient:
                 if count == retry:
                     logger.exception(e)
                     # TODO: timeout or status_code information
-                    raise OtaErrorRecoverable("requests error")
+                    raise OtaErrorRecoverable(f"requests error {url=}")
 
         with open(dst, "wb") as f:
             m = sha256()
@@ -503,7 +503,8 @@ class OtaClient:
                 # copy file from active bank if hash is the same
                 shutil.copy(reginf.path, dst)
             else:
-                url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
+                url_path = urllib.parse.quote(str(reginf.path.relative_to("/")))
+                url = urllib.parse.urljoin(url_base, url_path)
                 OtaClient._download(url, cookies, dst, reginf.sha256hash)
 
         os.chown(dst, reginf.uid, reginf.gid)

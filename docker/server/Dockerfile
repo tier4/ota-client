@@ -16,6 +16,9 @@ RUN wget http://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-bas
     tar zxf ubuntu-base-20.04.1-base-amd64.tar.gz -C data && \
     cp /boot/vmlinuz-${KERNEL_VERSION} /boot/initrd.img-${KERNEL_VERSION} /boot/config-${KERNEL_VERSION} /boot/System.map-${KERNEL_VERSION} data/boot
 
+# create file that needs url escaping
+RUN echo "url escaping is required" > data/a:b:c
+
 # prepare build environment
 RUN git clone https://github.com/tier4/ota-metadata && \
     python3 -m pip install -r ota-metadata/metadata/ota_metadata/requirements.txt
@@ -30,5 +33,3 @@ RUN python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
         --persistent-file ota-metadata/metadata/persistents.txt \
         --rootfs-directory data && \
     cp ota-metadata/metadata/persistents.txt .
-
-
