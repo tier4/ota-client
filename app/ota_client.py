@@ -529,7 +529,8 @@ class OtaClient:
                 # copy file from active bank if hash is the same
                 shutil.copy(reginf.path, dst)
             else:
-                url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
+                url_path = urllib.parse.quote(str(reginf.path.relative_to("/")))
+                url = urllib.parse.urljoin(url_base, url_path)
                 OtaClient._download(url, cookies, dst, reginf.sha256hash)
 
         os.chown(dst, reginf.uid, reginf.gid)
