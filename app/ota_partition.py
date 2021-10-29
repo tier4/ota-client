@@ -312,12 +312,15 @@ class OtaPartitionFile(OtaPartition):
         except FileNotFoundError:
             active_device = self.get_active_root_device()
             standby_device = self.get_standby_root_device()
+        logger.info(f"{active_device=},{standby_device=}")
 
         active_boot_path = boot_ota_partition.with_suffix(f".{active_device}")
         standby_boot_path = boot_ota_partition.with_suffix(f".{standby_device}")
+        logger.info(f"{active_boot_path=},{standby_boot_path=}")
 
         if standby_boot_path.is_dir() and (standby_boot_path / "status").is_file():
             # already initialized
+            logger.info("already initialized")
             return
 
         # create active boot partition
@@ -331,11 +334,14 @@ class OtaPartitionFile(OtaPartition):
         # version is retrieved from /proc/cmdline.
         def _check_is_regular(path):
             if not path.is_file() or path.is_symlink():
+                logger.error(f"unintended file type: path={path}")
                 raise OtaErrorUnrecoverable(f"unintended file type: path={path}")
 
         vmlinuz, _ = self._grub_control.get_booted_vmlinuz_and_uuid()
+        logger.info(f"{vmlinuz=}")
         m = re.match(r"vmlinuz-(.*)", vmlinuz)
         version = m.group(1)
+        logger.info(f"{version=}")
         kernel_files = ("vmlinuz-", "initrd.img-", "config-", "System.map-")
         for kernel_file in kernel_files:
             path = self._boot_dir / f"{kernel_file}{version}"
