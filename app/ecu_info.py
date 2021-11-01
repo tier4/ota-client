@@ -18,9 +18,8 @@ class EcuInfo:
 
     def __init__(self):
         ecu_info_file = EcuInfo.ECU_INFO_FILE
-        ecu_info = self._load_ecu_info(ecu_info_file)
-        logger.info(f"{ecu_info=}")
-        self._ecu_info = ecu_info
+        self._ecu_info = self._load_ecu_info(ecu_info_file)
+        logger.info(f"ecu_info={self._ecu_info}")
 
     def get_secondary_ecus(self):
         return self._ecu_info.get("secondaries", [])

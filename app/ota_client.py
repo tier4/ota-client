@@ -366,7 +366,9 @@ class OtaClient:
 
         calc_digest = m.hexdigest()
         if digest and digest != calc_digest:
-            raise OtaErrorRecoverable(f"hash error: act={calc_digest}, exp={digest}")
+            raise OtaErrorRecoverable(
+                f"hash error: act={calc_digest}, exp={digest}, {url=}"
+            )
 
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -374,6 +376,7 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, list_info["file"])
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             metadata.verify(open(file_name).read())
+            logger.info("done")
 
     def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -383,6 +386,7 @@ class OtaClient:
             metadata = OtaMetadata(open(file_name, "r").read())
             certificate_info = metadata.get_certificate_info()
             self._verify_metadata(url_base, cookies, certificate_info, metadata)
+            logger.info("done")
             return metadata
 
     def _process_directory(self, url_base, cookies, list_info, standby_path):
@@ -391,6 +395,7 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, list_info["file"])
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             self._create_directories(file_name, standby_path)
+            logger.info("done")
 
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -398,6 +403,7 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, list_info["file"])
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             self._create_symbolic_links(file_name, standby_path)
+            logger.info("done")
 
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -406,6 +412,7 @@ class OtaClient:
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
+            logger.info("done")
 
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -413,6 +420,7 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, list_info["file"])
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             self._copy_persistent_files(file_name, standby_path)
+            logger.info("done")
 
     def _create_directories(self, list_file, standby_path):
         lines = open(list_file).read().splitlines()

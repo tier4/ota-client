@@ -88,10 +88,12 @@ class GrubControl:
     ):
         # pick up booted menuentry to create custom.cfg
         booted_menuentry = self._get_booted_menuentry()
+        logger.info(f"{booted_menuentry=}")
         # modify booted menuentry for custom.cfg
         custom_cfg = self._update_menuentry(
             booted_menuentry, standby_device, vmlinuz_file, initrd_img_file
         )
+        logger.info(f"{custom_cfg=}")
         # store custom.cfg
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             temp_name = f.name
