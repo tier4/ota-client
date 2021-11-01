@@ -126,7 +126,7 @@ class OtaMetadata:
         """
         Parse payload json file
         """
-        keys_version_1 = {
+        keys_version = {
             "directory",
             "symboliclink",
             "regular",
@@ -142,15 +142,9 @@ class OtaMetadata:
             if entry.get("version")
         }
 
-        if payload_dict["version"] == 1:
-            keys_version = keys_version_1
-        else:
-            logger.error(
-                f"key version should be 1 but {payload_dict['version']} is set."
-            )
-            raise OtaErrorRecoverable(
-                f"key version should be 1 but {payload_dict['version']} is set."
-            )
+        if payload_dict["version"] != 1:
+            logger.warn(f"metadata version is {payload_dict['version']}.")
+
         for entry in payload:
             for key in keys_version:
                 if key in entry.keys():
