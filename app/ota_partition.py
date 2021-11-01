@@ -149,10 +149,12 @@ class OtaPartitionFile(OtaPartition):
     def is_switching_boot_partition_from_active_to_standby(self):
         standby_boot_device = self.get_standby_boot_device()
         active_root_device = self.get_active_root_device()
+        logger.info(f"{standby_boot_device=},{active_root_device=}")
         return standby_boot_device == active_root_device
 
     def switch_boot_partition_from_active_to_standby(self):
         standby_device = self.get_standby_boot_device()
+        logger.info(f"{standby_device=}")
         # to update the link atomically, move is used.
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             temp_file = Path(d) / self._boot_ota_partition_file
@@ -171,11 +173,13 @@ class OtaPartitionFile(OtaPartition):
         """
         device = self.get_active_boot_device()
         path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
+        logger.info(f"{device=},{path=},{status=}")
         self._store_string(path / "status", status)
 
     def store_standby_ota_status(self, status: str):
         device = self.get_standby_boot_device()
         path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
+        logger.info(f"{device=},{path=},{status=}")
         self._store_string(path / "status", status)
 
     def store_standby_ota_version(self, version: str):
@@ -217,6 +221,7 @@ class OtaPartitionFile(OtaPartition):
     def update_fstab(self, mount_path: Path):
         active_root_device = self.get_active_root_device()
         standby_root_device = self.get_standby_boot_device()
+        logger.info(f"{active_root_device=},{standby_root_device=}")
         self._grub_control.update_fstab(
             mount_path, active_root_device, standby_root_device
         )
@@ -224,6 +229,7 @@ class OtaPartitionFile(OtaPartition):
     def create_custom_cfg_and_reboot(self, rollback=False):
         standby_root_device = self.get_standby_boot_device()
         vmlinuz_file, initrd_img_file = self._create_standby_boot_kernel_files(rollback)
+        logger.info(f"{standby_root_device=},{vmlinuz_file=},{initrd_img_file=}")
         self._grub_control.create_custom_cfg_and_reboot(
             standby_root_device, vmlinuz_file, initrd_img_file
         )
@@ -231,6 +237,7 @@ class OtaPartitionFile(OtaPartition):
     def update_grub_cfg(self):
         active_device = self.get_active_root_device()
         standby_boot_path = self.get_standby_boot_partition_path()
+        logger.info(f"{active_device=},{standby_boot_path=}")
         self._grub_control.update_grub_cfg(
             active_device, "vmlinuz-ota", standby_boot_path / "grub.cfg"
         )
@@ -312,12 +319,15 @@ class OtaPartitionFile(OtaPartition):
         except FileNotFoundError:
             active_device = self.get_active_root_device()
             standby_device = self.get_standby_root_device()
+        logger.info(f"{active_device=},{standby_device=}")
 
         active_boot_path = boot_ota_partition.with_suffix(f".{active_device}")
         standby_boot_path = boot_ota_partition.with_suffix(f".{standby_device}")
+        logger.info(f"{active_boot_path=},{standby_boot_path=}")
 
         if standby_boot_path.is_dir() and (standby_boot_path / "status").is_file():
             # already initialized
+            logger.info("already initialized")
             return
 
         # create active boot partition
@@ -331,11 +341,14 @@ class OtaPartitionFile(OtaPartition):
         # version is retrieved from /proc/cmdline.
         def _check_is_regular(path):
             if not path.is_file() or path.is_symlink():
+                logger.error(f"unintended file type: path={path}")
                 raise OtaErrorUnrecoverable(f"unintended file type: path={path}")
 
         vmlinuz, _ = self._grub_control.get_booted_vmlinuz_and_uuid()
+        logger.info(f"{vmlinuz=}")
         m = re.match(r"vmlinuz-(.*)", vmlinuz)
         version = m.group(1)
+        logger.info(f"{version=}")
         kernel_files = ("vmlinuz-", "initrd.img-", "config-", "System.map-")
         for kernel_file in kernel_files:
             path = self._boot_dir / f"{kernel_file}{version}"

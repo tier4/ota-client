@@ -4,6 +4,7 @@ import base64
 import json
 from OpenSSL import crypto
 from pathlib import Path
+from pprint import pformat
 import re
 from functools import partial
 from ota_error import OtaErrorRecoverable
@@ -42,7 +43,9 @@ class OtaMetadata:
         """
         self.__metadata_jwt = ota_metadata_jwt
         self.__metadata_dict = self._parse_metadata(ota_metadata_jwt)
+        logger.info(f"metadata_dict={pformat(self.__metadata_dict)}")
         self._certs_dir = OtaMetadata.CERTS_DIR
+        logger.info(f"certs_dir={self._certs_dir}")
 
     def verify(self, certificate: str):
         """"""
@@ -56,6 +59,7 @@ class OtaMetadata:
             logger.debug(f"verify data: {verify_data}")
             crypto.verify(cert, self._signature, verify_data, "sha256")
         except Exception as e:
+            logger.exception("verify")
             raise OtaErrorRecoverable(e)
 
     def get_directories_info(self):
@@ -139,7 +143,7 @@ class OtaMetadata:
         }
 
         if payload_dict["version"] != 1:
-            logger.warn(f"metadata version is {payload_dict['version']}.")
+            logger.warning(f"metadata version is {payload_dict['version']}.")
 
         for entry in payload:
             for key in keys_version:
@@ -185,6 +189,7 @@ class OtaMetadata:
         try:
             cert_to_verify = load_pem(certificate)
         except crypto.Error:
+            logger.exception(f"invalid certificate {certificate}")
             raise OtaErrorRecoverable(f"invalid certificate {certificate}")
 
         for ca_prefix in sorted(ca_set_prefix):
@@ -204,6 +209,7 @@ class OtaMetadata:
                 logger.info(f"verfication succeeded against: {ca_prefix}")
                 return
             except crypto.X509StoreContextError as e:
-                logger.debug(f"verify against {ca_prefix} failed: {e}")
+                logger.info(f"verify against {ca_prefix} failed: {e}")
 
+        logger.error(f"certificate {certificate} could not be verified")
         raise OtaErrorRecoverable(f"certificate {certificate} could not be verified")

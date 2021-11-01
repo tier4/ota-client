@@ -13,6 +13,7 @@ from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial
 from enum import Enum, unique
+from requests.exceptions import RequestException
 
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
@@ -147,6 +148,7 @@ class OtaClient:
             self._ota_status.check_update_status()
         except OtaErrorRecoverable:
             # not setting ota_status
+            logger.exception("check_update_status")
             return OtaClientFailureType.RECOVERABLE
 
         try:
@@ -154,9 +156,11 @@ class OtaClient:
             self._update(version, url_base, cookies)
             return self._result_ok()
         except (JSONDecodeError, OtaErrorRecoverable) as e:
+            logger.exception("recoverable")
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
+            logger.exception("unrecoverable")
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
 
@@ -166,15 +170,18 @@ class OtaClient:
             self._ota_status.check_rollback_status()
         except OtaErrorRecoverable:
             # not setting ota_status
+            logger.exception("check_rollback_status")
             return OtaClientFailureType.RECOVERABLE
 
         try:
             self._rollback()
             return self._result_ok()
         except OtaErrorRecoverable as e:
+            logger.exception("recoverable")
             self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
+            logger.exception("unrecoverable")
             self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_unrecoverable(e)
 
@@ -184,8 +191,10 @@ class OtaClient:
             status = self._status()
             return OtaClientFailureType.NO_FAILURE, status
         except OtaErrorRecoverable:
+            logger.exception("recoverable")
             return OtaClientFailureType.RECOVERABLE, None
         except (OtaErrorUnrecoverable, Exception):
+            logger.exception("unrecoverable")
             return OtaClientFailureType.UNRECOVERABLE, None
 
     """ private functions from here """
@@ -208,6 +217,7 @@ class OtaClient:
         return OtaClientFailureType.UNRECOVERABLE
 
     def _update(self, version, url_base, cookies):
+        logger.info(f"{version=},{url_base=},{cookies=}")
         """
         e.g.
         cookies = {
@@ -314,15 +324,32 @@ class OtaClient:
 
         count = 0
         while True:
+            last_error = ""
             try:
                 response = _requests_get()
                 break
+            except (
+                requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError,
+            ) as e:
+                count += 1
+                last_error = (
+                    f"requests timeout or connection error: {e},{url=} ({count})"
+                )
+                logger.warning(last_error)
+            except RequestException as e:
+                count += 1
+                status_code = e.response.status_code
+                last_error = f"requests error: {status_code=},{url=} ({count})"
+                logger.warning(last_error)
             except Exception as e:
                 count += 1
+                last_error = f"requests error unknown: {e},{url=}, ({count})"
+                logger.warning(last_error)
+            finally:
                 if count == retry:
-                    logger.exception(e)
-                    # TODO: timeout or status_code information
-                    raise OtaErrorRecoverable(f"requests error {url=}")
+                    logger.error(last_error)
+                    raise OtaErrorRecoverable(last_error)
 
         with open(dst, "wb") as f:
             m = sha256()
@@ -339,7 +366,9 @@ class OtaClient:
 
         calc_digest = m.hexdigest()
         if digest and digest != calc_digest:
-            raise OtaErrorRecoverable(f"hash error: act={calc_digest}, exp={digest}")
+            raise OtaErrorRecoverable(
+                f"hash error: act={calc_digest}, exp={digest}, {url=}"
+            )
 
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -347,6 +376,7 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, list_info["file"])
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             metadata.verify(open(file_name).read())
+            logger.info("done")
 
     def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -356,6 +386,7 @@ class OtaClient:
             metadata = OtaMetadata(open(file_name, "r").read())
             certificate_info = metadata.get_certificate_info()
             self._verify_metadata(url_base, cookies, certificate_info, metadata)
+            logger.info("done")
             return metadata
 
     def _process_directory(self, url_base, cookies, list_info, standby_path):
@@ -364,6 +395,7 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, list_info["file"])
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             self._create_directories(file_name, standby_path)
+            logger.info("done")
 
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -371,6 +403,7 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, list_info["file"])
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             self._create_symbolic_links(file_name, standby_path)
+            logger.info("done")
 
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -379,6 +412,7 @@ class OtaClient:
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
+            logger.info("done")
 
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -386,11 +420,12 @@ class OtaClient:
             url = urllib.parse.urljoin(url_base, list_info["file"])
             OtaClient._download(url, cookies, file_name, list_info["hash"])
             self._copy_persistent_files(file_name, standby_path)
+            logger.info("done")
 
     def _create_directories(self, list_file, standby_path):
         lines = open(list_file).read().splitlines()
-        for l in lines:
-            dirinf = DirectoryInf(l)
+        for line in lines:
+            dirinf = DirectoryInf(line)
             target_path = standby_path.joinpath(dirinf.path.relative_to("/"))
             target_path.mkdir(mode=dirinf.mode, parents=True, exist_ok=True)
             os.chown(target_path, dirinf.uid, dirinf.gid)
@@ -398,9 +433,9 @@ class OtaClient:
 
     def _create_symbolic_links(self, list_file, standby_path):
         lines = open(list_file).read().splitlines()
-        for l in lines:
+        for line in lines:
             # NOTE: symbolic link in /boot directory is not supported. We don't use it.
-            slinkf = SymbolicLinkInf(l)
+            slinkf = SymbolicLinkInf(line)
             slink = standby_path.joinpath(slinkf.slink.relative_to("/"))
             slink.symlink_to(slinkf.srcpath)
             os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
@@ -431,7 +466,7 @@ class OtaClient:
             with Pool() as pool:
                 hardlink_dict = dict()  # sha256hash[tuple[reginf, event]]
 
-                # imap_unordered return a lazy itorator without blocking
+                # imap_unordered return a lazy iterator without blocking
                 reginf_list = pool.imap_unordered(RegularInf, reginf_list_raw_lines)
                 for reginf in reginf_list:
                     if reginf.nlink >= 2:
@@ -522,8 +557,8 @@ class OtaClient:
             dst_group_file=standby_path / self._group_file.relative_to("/"),
         )
         lines = open(list_file).read().splitlines()
-        for l in lines:
-            perinf = PersistentInf(l)
+        for line in lines:
+            perinf = PersistentInf(line)
             if (
                 perinf.path.is_file()
                 or perinf.path.is_dir()
@@ -534,4 +569,4 @@ class OtaClient:
 
 if __name__ == "__main__":
     ota_client = OtaClient()
-    ota_client.update("123.x", "http://localhost:8080", "")
+    ota_client.update("123.x", "http://localhost:8080", "{}")

@@ -25,11 +25,13 @@ class OtaStatusControl:
     def __init__(self):
         self._ota_partition = OtaPartitionFile()
         self._ota_status = self._initialize_ota_status()
+        logger.info(f"ota_status={self._ota_status}")
 
     def get_ota_status(self):
         return self._ota_status
 
     def set_ota_status(self, ota_status):
+        logger.info(f"{ota_status=}")
         self._ota_status = ota_status
         self._ota_partition.store_standby_ota_status(ota_status.name)
 
@@ -52,6 +54,7 @@ class OtaStatusControl:
             )
 
     def enter_updating(self, version, mount_path: Path):
+        logger.info(f"{version=},{mount_path=}")
         self.check_update_status()
 
         self._ota_status = OtaStatus.UPDATING
@@ -62,6 +65,7 @@ class OtaStatusControl:
         self._ota_partition.mount_standby_root_partition_and_clean(mount_path)
 
     def leave_updating(self, mounted_path: Path):
+        logger.info(f"{mounted_path=}")
         self._ota_partition.update_fstab(mounted_path)
         self._ota_partition.create_custom_cfg_and_reboot()
 
@@ -89,6 +93,7 @@ class OtaStatusControl:
 
     def _initialize_ota_status(self):
         status_string = self._ota_partition.load_ota_status()
+        logger.info(f"{status_string=}")
         if status_string == "":
             self._ota_partition.store_standby_ota_status(OtaStatus.INITIALIZED.name)
             return OtaStatus.INITIALIZED
