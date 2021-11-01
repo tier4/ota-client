@@ -3,6 +3,7 @@ import pytest
 import time
 import json
 import shutil
+import requests
 import requests_mock
 from pathlib import Path
 
@@ -224,7 +225,19 @@ def test_ota_client_update(mocker, tmp_path):
     assert ota_client._ota_status.get_ota_status() == OtaStatus.UPDATING
 
 
-def test_ota_client_update_regular_download_error(mocker, tmp_path):
+@pytest.mark.parametrize(
+    "error_injection, failure_reason_startswith",
+    [
+        ({"status_code": 403}, "requests error: status_code=403"),
+        (
+            {"exc": requests.exceptions.ConnectTimeout},
+            "requests timeout or connection error:",
+        ),
+    ],
+)
+def test_ota_client_update_regular_download_error(
+    mocker, tmp_path, error_injection, failure_reason_startswith
+):
     from ota_client import OtaClient, OtaClientFailureType
     from ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
@@ -313,11 +326,12 @@ def test_ota_client_update_regular_download_error(mocker, tmp_path):
     )
     # test start
     ota_client = OtaClient()
+
     with requests_mock.Mocker(real_http=True) as m:
         m.register_uri(
             "GET",
             "http://ota-server:8080/ota-server/data/usr/bin/kill",
-            status_code=403,
+            **error_injection,
         )
         ota_client.update(
             "123.x",
@@ -335,7 +349,7 @@ def test_ota_client_update_regular_download_error(mocker, tmp_path):
         )
         failure_reason = status["failure_reason"]
         assert failure_reason == "" or failure_reason.startswith(
-            "requests error: status_code=403"
+            failure_reason_startswith
         )
         assert status["version"] == "a.b.c"
         time.sleep(2)  # sleep before phase check
