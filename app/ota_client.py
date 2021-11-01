@@ -570,7 +570,3 @@ class OtaClient:
 if __name__ == "__main__":
     ota_client = OtaClient()
     ota_client.update("123.x", "http://localhost:8080", "{}")
-    while True:
-        result, status = ota_client.status()
-        print(result, status)
-        time.sleep(2)
