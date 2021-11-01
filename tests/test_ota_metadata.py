@@ -27,19 +27,6 @@ PAYLOAD = """\
 ]\
 """
 
-# illegal
-PAYLOAD_V2 = """\
-[\
-{"version": 2}, \
-{"directory": "dirs.txt", "hash": "43afbd19eab7c9e27f402a3332c38d072a69c7932fb35c32c1fc7069695235f1"}, \
-{"symboliclink": "symlinks.txt", "hash": "6643bf896d3ac3bd4034d742fae0d7eb82bd384062492235404114aeb34efd7d"}, \
-{"regular": "regulars.txt", "hash": "a390f92fe49b8402a2bb9f0b594e9de70f70dc6bf429031ac4d0b21365251600"}, \
-{"persistent": "persistents.txt", "hash": "3195ded730474d0181257204ba0fd79766721ab62ace395f20decd44983cb2d3"}, \
-{"rootfs_directory": "data"}, \
-{"certificate": "ota-intermediate.pem", "hash": "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c62ed2"}\
-]\
-"""
-
 DIR_FNAME = "dirs.txt"
 DIR_HASH = "43afbd19eab7c9e27f402a3332c38d072a69c7932fb35c32c1fc7069695235f1"
 DIR_INFO = {"file": DIR_FNAME, "hash": DIR_HASH}
@@ -107,19 +94,6 @@ def test_ota_metadata_exception(generate_jwt):
     with pytest.raises(OtaErrorRecoverable):
         # sing.key is invalid pem
         metadata.verify(open(test_dir / "keys" / "sign.key").read())
-
-
-def test_ota_metadata_exception_version_is_not_1():
-    from ota_metadata import OtaMetadata
-    from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
-
-    with pytest.raises(OtaErrorRecoverable):
-        sign_key_file = test_dir / "keys" / "sign.key"
-
-        header = urlsafe_b64encode(HEADER)
-        payload = urlsafe_b64encode(PAYLOAD_V2)
-        signature = sign(sign_key_file, f"{header}.{payload}")
-        _ = OtaMetadata(f"{header}.{payload}.{signature}")
 
 
 def test_ota_metadata_with_verify_certificate(mocker, generate_jwt, tmp_path):
