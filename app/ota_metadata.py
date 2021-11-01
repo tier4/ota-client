@@ -143,7 +143,7 @@ class OtaMetadata:
         }
 
         if payload_dict["version"] != 1:
-            logger.warn(f"metadata version is {payload_dict['version']}.")
+            logger.warning(f"metadata version is {payload_dict['version']}.")
 
         for entry in payload:
             for key in keys_version:
