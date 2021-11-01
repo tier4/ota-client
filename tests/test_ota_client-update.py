@@ -316,7 +316,7 @@ def test_ota_client_update_regular_download_error(mocker, tmp_path):
     with requests_mock.Mocker(real_http=True) as m:
         m.register_uri(
             "GET",
-            "http://ota-server:8080/ota-server/data/usr/bin/mountpoint",
+            "http://ota-server:8080/ota-server/data/usr/bin/kill",
             status_code=403,
         )
         ota_client.update(
