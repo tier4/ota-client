@@ -439,6 +439,10 @@ class OtaClient:
         with Manager() as manager:
             error_queue = manager.Queue()
             # NOTE: manager.Value doesn't work properly.
+            # "size": file size
+            # "elapsed": elapsed time in second
+            # "op": "copy" or "download"
+            # "errors": number of errors that occurred when downloading.
             processed_list = manager.list()
 
             def error_callback(e):
