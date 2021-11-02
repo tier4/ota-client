@@ -368,10 +368,9 @@ def test_ota_client_update_regular_download_error(
     # make sure grub.cfg is not created yet in standby boot partition
     assert not (boot_dir / "ota-partition.sdx4" / "grub.cfg").is_file()
 
-    # custom.cfg is created
+    # custom.cfg is not created
     assert not (boot_dir / "grub" / "custom.cfg").exists()
 
-    # number of menuentry in grub_cfg_wo_submenu is 9
     _grub_reboot_mock.assert_not_called()
     reboot_mock.assert_not_called()
 
