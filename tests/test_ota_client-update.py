@@ -173,17 +173,33 @@ def test_ota_client_update(mocker, tmp_path):
         "123.x", "http://ota-server:8080/ota-server", json.dumps({"test": "my-cookie"})
     )
 
-    while True:
-        result, status = ota_client.status()
-        assert result == OtaClientFailureType.NO_FAILURE
-        assert status["status"] == "UPDATING"
-        assert status["failure_type"] == "NO_FAILURE"
-        assert status["failure_reason"] == ""
-        assert status["version"] == "a.b.c"
-        progress = status["update_progress"]
-        time.sleep(2)  # sleep before phase check
-        if progress["phase"] == "POST_PROCESSING":
-            break
+    result, status = ota_client.status()
+    assert result == OtaClientFailureType.NO_FAILURE
+    assert status["status"] == "UPDATING"
+    assert status["failure_type"] == "NO_FAILURE"
+    assert status["failure_reason"] == ""
+    assert status["version"] == "a.b.c"
+    progress = status["update_progress"]
+    assert progress["phase"] == "POST_PROCESSING"
+    # NOTE: numbers are depends on ota-image and client file
+    assert progress["total_regular_files"] == 2499
+    assert progress["regular_files_processed"] == 2499
+    assert progress["files_processed_copy"] == 1858
+    assert progress["files_processed_link"] == 4
+    assert progress["files_processed_download"] == 637
+    assert progress["file_size_processed_copy"] == 32067160
+    assert progress["file_size_processed_link"] == 3555002
+    assert progress["file_size_processed_download"] == 73086429
+    # 108708591 is: find data/ -type f | xargs ls -l | awk '{total += $5}; END {print total}'
+    assert (
+        progress["file_size_processed_copy"]
+        + progress["file_size_processed_link"]
+        + progress["file_size_processed_download"]
+        == 108708591
+    )
+    assert type(progress["elapsed_time_copy"]) == float
+    assert type(progress["elapsed_time_link"]) == float
+    assert type(progress["elapsed_time_download"]) == float
 
     # make sure boot ota-partition is NOT switched
     assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"
@@ -339,22 +355,14 @@ def test_ota_client_update_regular_download_error(
             json.dumps({"test": "my-cookie"}),
         )
 
-    while True:
-        result, status = ota_client.status()
-        assert result == OtaClientFailureType.NO_FAILURE
-        assert status["status"] == "UPDATING" or status["status"] == "FAILURE"
-        assert (
-            status["failure_type"] == "NO_FAILURE"
-            or status["failure_type"] == "RECOVERABLE"
-        )
-        failure_reason = status["failure_reason"]
-        assert failure_reason == "" or failure_reason.startswith(
-            failure_reason_startswith
-        )
-        assert status["version"] == "a.b.c"
-        time.sleep(2)  # sleep before phase check
-        if status["failure_type"] == "RECOVERABLE":
-            break
+    result, status = ota_client.status()
+    assert result == OtaClientFailureType.NO_FAILURE
+    assert status["status"] == "FAILURE"
+    assert status["failure_type"] == "RECOVERABLE"
+    failure_reason = status["failure_reason"]
+    assert failure_reason.startswith(failure_reason_startswith)
+    assert status["version"] == "a.b.c"
+    assert status["failure_type"] == "RECOVERABLE"
 
     # make sure boot ota-partition is NOT switched
     assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"

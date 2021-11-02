@@ -144,9 +144,9 @@ class OtaClientStatistics(object):
         self.total_files = 0
         self.files_processed = 0
 
-        self.fils_processed_copy = 0
-        self.fils_processed_link = 0
-        self.fils_processed_download = 0
+        self.files_processed_copy = 0
+        self.files_processed_link = 0
+        self.files_processed_download = 0
 
         self.file_size_processed_copy = 0
         self.file_size_processed_link = 0
@@ -322,6 +322,15 @@ class OtaClient:
                 "phase": self._update_phase.name,
                 "total_regular_files": self._statistics.total_files,
                 "regular_files_processed": self._statistics.files_processed,
+                "files_processed_copy": self._statistics.files_processed_copy,
+                "files_processed_link": self._statistics.files_processed_link,
+                "files_processed_download": self._statistics.files_processed_download,
+                "file_size_processed_copy": self._statistics.file_size_processed_copy,
+                "file_size_processed_link": self._statistics.file_size_processed_link,
+                "file_size_processed_download": self._statistics.file_size_processed_download,
+                "elapsed_time_copy": self._statistics.elapsed_time_copy,
+                "elapsed_time_link": self._statistics.elapsed_time_link,
+                "elapsed_time_download": self._statistics.elapsed_time_download,
             },
         }
 
