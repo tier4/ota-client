@@ -48,8 +48,8 @@ def test_ota_client_status(mocker, tmp_path):
 
     # test start
     ota_client = OtaClient()
-    ota_client._total_regular_files = 99
-    ota_client._regular_files_processed = 1
+    ota_client._statistics.total_files = 99
+    ota_client._statistics.files_processed = 1
 
     result, ota_status = ota_client.status()
     assert result == OtaClientFailureType.NO_FAILURE
