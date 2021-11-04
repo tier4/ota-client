@@ -127,18 +127,8 @@ class OtaClientUpdatePhase(Enum):
 
 
 class OtaClientStatistics(object):
-    _lock = Lock()
-
     def __init__(self):
         self.clear()
-
-    def __getattribute__(self, name):
-        with OtaClientStatistics._lock:
-            return object.__getattribute__(self, name)
-
-    def __setattr__(self, name, val):
-        with OtaClientStatistics._lock:
-            return object.__setattr__(self, name, val)
 
     def clear(self):
         self.total_files = 0
