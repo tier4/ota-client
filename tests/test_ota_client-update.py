@@ -185,7 +185,9 @@ def test_ota_client_update(mocker, tmp_path):
     # total file size processed is:
     # find data/ -type f | xargs ls -l | awk '{total += $5}; END {print total}'
     TOTAL_FILES = 2499
-    TOTAL_FILE_SIZE = 108700000  # approximate
+    # NOTE: There is difference between github actins and local environment, so
+    # approximate value is used.
+    TOTAL_FILE_SIZE_APPROX = 108700000
     assert progress["total_regular_files"] == TOTAL_FILES
     assert progress["regular_files_processed"] == progress["total_regular_files"]
     assert (
@@ -198,7 +200,7 @@ def test_ota_client_update(mocker, tmp_path):
         progress["file_size_processed_copy"]
         + progress["file_size_processed_link"]
         + progress["file_size_processed_download"]
-    ) // 100000 == TOTAL_FILE_SIZE // 100000
+    ) // 100000 == TOTAL_FILE_SIZE_APPROX // 100000
     assert type(progress["elapsed_time_copy"]) == float
     assert type(progress["elapsed_time_link"]) == float
     assert type(progress["elapsed_time_download"]) == float
