@@ -182,21 +182,23 @@ def test_ota_client_update(mocker, tmp_path):
     progress = status["update_progress"]
     assert progress["phase"] == "POST_PROCESSING"
     # NOTE: numbers are depends on ota-image
-    assert progress["total_regular_files"] == 2499
-    assert progress["regular_files_processed"] == 2499
+    # total file size processed is:
+    # find data/ -type f | xargs ls -l | awk '{total += $5}; END {print total}'
+    TOTAL_FILES = 2499
+    TOTAL_FILE_SIZE = 108708591
+    assert progress["total_regular_files"] == TOTAL_FILES
+    assert progress["regular_files_processed"] == progress["total_regular_files"]
     assert (
         progress["files_processed_copy"]
         + progress["files_processed_link"]
         + progress["files_processed_download"]
         == progress["total_regular_files"]
     )
-    # total file size processed is:
-    # find data/ -type f | xargs ls -l | awk '{total += $5}; END {print total}'
     assert (
         progress["file_size_processed_copy"]
         + progress["file_size_processed_link"]
         + progress["file_size_processed_download"]
-        == 108708591
+        == TOTAL_FILE_SIZE
     )
     assert type(progress["elapsed_time_copy"]) == float
     assert type(progress["elapsed_time_link"]) == float
