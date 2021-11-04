@@ -14,7 +14,7 @@ from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial, reduce
 from collections import Counter
-from enum import Enum, unique, auto
+from enum import Enum, unique
 from requests.exceptions import RequestException
 
 from ota_status import OtaStatusControl, OtaStatus
