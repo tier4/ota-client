@@ -66,6 +66,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
             op.elapsed_time_copy = ip["elapsed_time_copy"]
             op.elapsed_time_link = ip["elapsed_time_link"]
             op.elapsed_time_download = ip["elapsed_time_download"]
+            op.errors_download = ip["errors_download"]
 
         for result in results:
             res_ecu = response.ecu.add()

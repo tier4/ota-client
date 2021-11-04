@@ -321,6 +321,7 @@ class OtaClient:
                 "elapsed_time_copy": self._statistics.elapsed_time_copy,
                 "elapsed_time_link": self._statistics.elapsed_time_link,
                 "elapsed_time_download": self._statistics.elapsed_time_download,
+                "errors_download": self._statistics.errors_download,
             },
         }
 
@@ -463,7 +464,7 @@ class OtaClient:
             _list = []
             for i in processed_list:
                 if i["op"] == op:
-                    i.pop("op")
+                    i.pop("op")  # remove 'op' element
                     _list.append(i)
             setattr(st, files_processed, len(_list))
 
@@ -471,6 +472,7 @@ class OtaClient:
             _total = reduce(operator.add, map(Counter, _list))
             setattr(st, file_size_processed, _total.get("size", 0))
             setattr(st, elapsed_time, _total.get("elapsed", 0))
+            st.errors_download = _total.get("errors", 0)
 
         set_st(
             "copy",

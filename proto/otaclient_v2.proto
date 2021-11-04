@@ -127,6 +127,7 @@ message StatusProgress {
   float elapsed_time_copy = 10;
   float elapsed_time_link = 11;
   float elapsed_time_download = 12;
+  uint32 errors_download = 13;
 }
 
 message Status {

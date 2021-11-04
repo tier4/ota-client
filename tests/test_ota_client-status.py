@@ -59,6 +59,7 @@ def test_ota_client_status(mocker, tmp_path):
     ota_client._statistics.elapsed_time_copy = 1.01
     ota_client._statistics.elapsed_time_link = 2.02
     ota_client._statistics.elapsed_time_download = 3.03
+    ota_client._statistics.errors_download = 10
 
     result, ota_status = ota_client.status()
     assert result == OtaClientFailureType.NO_FAILURE
@@ -80,5 +81,6 @@ def test_ota_client_status(mocker, tmp_path):
             "elapsed_time_copy": 1.01,
             "elapsed_time_link": 2.02,
             "elapsed_time_download": 3.03,
+            "errors_download": 10,
         },
     }

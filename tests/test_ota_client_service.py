@@ -112,6 +112,7 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
             "elapsed_time_copy": 1.23,
             "elapsed_time_link": 0.12,
             "elapsed_time_download": 9.87,
+            "errors_download": 10,
         },
     }
 
@@ -144,6 +145,7 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
         res_ecu.status.progress.elapsed_time_copy = 1.23
         res_ecu.status.progress.elapsed_time_link = 0.12
         res_ecu.status.progress.elapsed_time_download = 9.87
+        res_ecu.status.progress.errors_download = 10
 
         assert response == response_exp
 
