@@ -462,7 +462,7 @@ class OtaClient:
 
         def set_st(op, files_processed, file_size_processed, elapsed_time):
             _list = []
-            for i in processed_list:
+            for i in processed_list[: st.files_processed]:
                 if i["op"] == op:
                     i.pop("op")  # remove 'op' element
                     _list.append(i)
@@ -472,7 +472,8 @@ class OtaClient:
             _total = reduce(operator.add, map(Counter, _list))
             setattr(st, file_size_processed, _total.get("size", 0))
             setattr(st, elapsed_time, _total.get("elapsed", 0))
-            st.errors_download = _total.get("errors", 0)
+            if op == "download":
+                st.errors_download = _total.get("errors", 0)
 
         set_st(
             "copy",
