@@ -201,9 +201,9 @@ def test_ota_client_update(mocker, tmp_path):
         + progress["file_size_processed_link"]
         + progress["file_size_processed_download"]
     ) // 100000 == TOTAL_FILE_SIZE_APPROX // 100000
-    assert type(progress["elapsed_time_copy"]) == float
-    assert type(progress["elapsed_time_link"]) == float
-    assert type(progress["elapsed_time_download"]) == float
+    assert type(progress["elapsed_time_copy"]) == int  # in milliseconds
+    assert type(progress["elapsed_time_link"]) == int  # in milliseconds
+    assert type(progress["elapsed_time_download"]) == int  # in milliseconds
 
     # make sure boot ota-partition is NOT switched
     assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"

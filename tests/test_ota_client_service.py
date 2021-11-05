@@ -109,9 +109,9 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
             "file_size_processed_copy": 1000,
             "file_size_processed_link": 100,
             "file_size_processed_download": 1000,
-            "elapsed_time_copy": 1.23,
-            "elapsed_time_link": 0.12,
-            "elapsed_time_download": 9.87,
+            "elapsed_time_copy": 1230,
+            "elapsed_time_link": 120,
+            "elapsed_time_download": 9870,
             "errors_download": 10,
         },
     }
@@ -142,9 +142,10 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
         res_ecu.status.progress.file_size_processed_copy = 1000
         res_ecu.status.progress.file_size_processed_link = 100
         res_ecu.status.progress.file_size_processed_download = 1000
-        res_ecu.status.progress.elapsed_time_copy = 1.23
-        res_ecu.status.progress.elapsed_time_link = 0.12
-        res_ecu.status.progress.elapsed_time_download = 9.87
+
+        res_ecu.status.progress.elapsed_time_copy.FromMilliseconds(1230)
+        res_ecu.status.progress.elapsed_time_link.FromMilliseconds(120)
+        res_ecu.status.progress.elapsed_time_download.FromMilliseconds(9870)
         res_ecu.status.progress.errors_download = 10
 
         assert response == response_exp

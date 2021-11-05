@@ -63,9 +63,9 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
             op.file_size_processed_copy = ip["file_size_processed_copy"]
             op.file_size_processed_link = ip["file_size_processed_link"]
             op.file_size_processed_download = ip["file_size_processed_download"]
-            op.elapsed_time_copy = ip["elapsed_time_copy"]
-            op.elapsed_time_link = ip["elapsed_time_link"]
-            op.elapsed_time_download = ip["elapsed_time_download"]
+            op.elapsed_time_copy.FromMilliseconds(ip["elapsed_time_copy"])
+            op.elapsed_time_link.FromMilliseconds(ip["elapsed_time_link"])
+            op.elapsed_time_download.FromMilliseconds(ip["elapsed_time_download"])
             op.errors_download = ip["errors_download"]
 
         for result in results:

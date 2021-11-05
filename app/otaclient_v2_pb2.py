@@ -12,6 +12,7 @@ from google.protobuf import symbol_database as _symbol_database
 _sym_db = _symbol_database.Default()
 
 
+from google.protobuf import duration_pb2 as google_dot_protobuf_dot_duration__pb2
 
 
 DESCRIPTOR = _descriptor.FileDescriptor(
@@ -20,8 +21,9 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=b'\242\002\003OTA',
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n\x12otaclient_v2.proto\x12\x0bOtaClientV2\"Q\n\x10UpdateRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\t\x12\x0b\n\x03url\x18\x03 \x01(\t\x12\x0f\n\x07\x63ookies\x18\x04 \x01(\t\";\n\rUpdateRequest\x12*\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1d.OtaClientV2.UpdateRequestEcu\"M\n\x11UpdateResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"=\n\x0eUpdateResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.UpdateResponseEcu\"$\n\x12RollbackRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\"?\n\x0fRollbackRequest\x12,\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1f.OtaClientV2.RollbackRequestEcu\"O\n\x13RollbackResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"A\n\x10RollbackResponse\x12-\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32 .OtaClientV2.RollbackResponseEcu\"\x0f\n\rStatusRequest\"\xb5\x03\n\x0eStatusProgress\x12/\n\x05phase\x18\x01 \x01(\x0e\x32 .OtaClientV2.StatusProgressPhase\x12\x1b\n\x13total_regular_files\x18\x02 \x01(\r\x12\x1f\n\x17regular_files_processed\x18\x03 \x01(\r\x12\x1c\n\x14\x66iles_processed_copy\x18\x04 \x01(\r\x12\x1c\n\x14\x66iles_processed_link\x18\x05 \x01(\r\x12 \n\x18\x66iles_processed_download\x18\x06 \x01(\r\x12 \n\x18\x66ile_size_processed_copy\x18\x07 \x01(\r\x12 \n\x18\x66ile_size_processed_link\x18\x08 \x01(\r\x12$\n\x1c\x66ile_size_processed_download\x18\t \x01(\r\x12\x19\n\x11\x65lapsed_time_copy\x18\n \x01(\x02\x12\x19\n\x11\x65lapsed_time_link\x18\x0b \x01(\x02\x12\x1d\n\x15\x65lapsed_time_download\x18\x0c \x01(\x02\x12\x17\n\x0f\x65rrors_download\x18\r \x01(\r\"\xb3\x01\n\x06Status\x12&\n\x06status\x18\x01 \x01(\x0e\x32\x16.OtaClientV2.StatusOta\x12)\n\x07\x66\x61ilure\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12\x16\n\x0e\x66\x61ilure_reason\x18\x03 \x01(\t\x12\x0f\n\x07version\x18\x04 \x01(\t\x12-\n\x08progress\x18\x05 \x01(\x0b\x32\x1b.OtaClientV2.StatusProgress\"r\n\x11StatusResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12#\n\x06status\x18\x03 \x01(\x0b\x32\x13.OtaClientV2.Status\"=\n\x0eStatusResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.StatusResponseEcu*A\n\x0b\x46\x61ilureType\x12\x0e\n\nNO_FAILURE\x10\x00\x12\x0f\n\x0bRECOVERABLE\x10\x01\x12\x11\n\rUNRECOVERABLE\x10\x02*k\n\tStatusOta\x12\x0f\n\x0bINITIALIZED\x10\x00\x12\x0b\n\x07SUCCESS\x10\x01\x12\x0b\n\x07\x46\x41ILURE\x10\x02\x12\x0c\n\x08UPDATING\x10\x03\x12\x0f\n\x0bROLLBACKING\x10\x04\x12\x14\n\x10ROLLBACK_FAILURE\x10\x05*~\n\x13StatusProgressPhase\x12\x0b\n\x07INITIAL\x10\x00\x12\x0c\n\x08METADATA\x10\x01\x12\r\n\tDIRECTORY\x10\x02\x12\x0b\n\x07SYMLINK\x10\x03\x12\x0b\n\x07REGULAR\x10\x04\x12\x0e\n\nPERSISTENT\x10\x05\x12\x13\n\x0fPOST_PROCESSING\x10\x06\x32\xe7\x01\n\x10OtaClientService\x12\x43\n\x06Update\x12\x1a.OtaClientV2.UpdateRequest\x1a\x1b.OtaClientV2.UpdateResponse\"\x00\x12I\n\x08Rollback\x12\x1c.OtaClientV2.RollbackRequest\x1a\x1d.OtaClientV2.RollbackResponse\"\x00\x12\x43\n\x06Status\x12\x1a.OtaClientV2.StatusRequest\x1a\x1b.OtaClientV2.StatusResponse\"\x00\x42\x06\xa2\x02\x03OTAb\x06proto3'
-)
+  serialized_pb=b'\n\x12otaclient_v2.proto\x12\x0bOtaClientV2\x1a\x1egoogle/protobuf/duration.proto\"Q\n\x10UpdateRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\t\x12\x0b\n\x03url\x18\x03 \x01(\t\x12\x0f\n\x07\x63ookies\x18\x04 \x01(\t\";\n\rUpdateRequest\x12*\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1d.OtaClientV2.UpdateRequestEcu\"M\n\x11UpdateResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"=\n\x0eUpdateResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.UpdateResponseEcu\"$\n\x12RollbackRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\"?\n\x0fRollbackRequest\x12,\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1f.OtaClientV2.RollbackRequestEcu\"O\n\x13RollbackResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"A\n\x10RollbackResponse\x12-\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32 .OtaClientV2.RollbackResponseEcu\"\x0f\n\rStatusRequest\"\x86\x04\n\x0eStatusProgress\x12/\n\x05phase\x18\x01 \x01(\x0e\x32 .OtaClientV2.StatusProgressPhase\x12\x1b\n\x13total_regular_files\x18\x02 \x01(\r\x12\x1f\n\x17regular_files_processed\x18\x03 \x01(\r\x12\x1c\n\x14\x66iles_processed_copy\x18\x04 \x01(\r\x12\x1c\n\x14\x66iles_processed_link\x18\x05 \x01(\r\x12 \n\x18\x66iles_processed_download\x18\x06 \x01(\r\x12 \n\x18\x66ile_size_processed_copy\x18\x07 \x01(\r\x12 \n\x18\x66ile_size_processed_link\x18\x08 \x01(\r\x12$\n\x1c\x66ile_size_processed_download\x18\t \x01(\r\x12\x34\n\x11\x65lapsed_time_copy\x18\n \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x34\n\x11\x65lapsed_time_link\x18\x0b \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x38\n\x15\x65lapsed_time_download\x18\x0c \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x17\n\x0f\x65rrors_download\x18\r \x01(\r\"\xb3\x01\n\x06Status\x12&\n\x06status\x18\x01 \x01(\x0e\x32\x16.OtaClientV2.StatusOta\x12)\n\x07\x66\x61ilure\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12\x16\n\x0e\x66\x61ilure_reason\x18\x03 \x01(\t\x12\x0f\n\x07version\x18\x04 \x01(\t\x12-\n\x08progress\x18\x05 \x01(\x0b\x32\x1b.OtaClientV2.StatusProgress\"r\n\x11StatusResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12#\n\x06status\x18\x03 \x01(\x0b\x32\x13.OtaClientV2.Status\"=\n\x0eStatusResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.StatusResponseEcu*A\n\x0b\x46\x61ilureType\x12\x0e\n\nNO_FAILURE\x10\x00\x12\x0f\n\x0bRECOVERABLE\x10\x01\x12\x11\n\rUNRECOVERABLE\x10\x02*k\n\tStatusOta\x12\x0f\n\x0bINITIALIZED\x10\x00\x12\x0b\n\x07SUCCESS\x10\x01\x12\x0b\n\x07\x46\x41ILURE\x10\x02\x12\x0c\n\x08UPDATING\x10\x03\x12\x0f\n\x0bROLLBACKING\x10\x04\x12\x14\n\x10ROLLBACK_FAILURE\x10\x05*~\n\x13StatusProgressPhase\x12\x0b\n\x07INITIAL\x10\x00\x12\x0c\n\x08METADATA\x10\x01\x12\r\n\tDIRECTORY\x10\x02\x12\x0b\n\x07SYMLINK\x10\x03\x12\x0b\n\x07REGULAR\x10\x04\x12\x0e\n\nPERSISTENT\x10\x05\x12\x13\n\x0fPOST_PROCESSING\x10\x06\x32\xe7\x01\n\x10OtaClientService\x12\x43\n\x06Update\x12\x1a.OtaClientV2.UpdateRequest\x1a\x1b.OtaClientV2.UpdateResponse\"\x00\x12I\n\x08Rollback\x12\x1c.OtaClientV2.RollbackRequest\x1a\x1d.OtaClientV2.RollbackResponse\"\x00\x12\x43\n\x06Status\x12\x1a.OtaClientV2.StatusRequest\x1a\x1b.OtaClientV2.StatusResponse\"\x00\x42\x06\xa2\x02\x03OTAb\x06proto3'
+  ,
+  dependencies=[google_dot_protobuf_dot_duration__pb2.DESCRIPTOR,])
 
 _FAILURETYPE = _descriptor.EnumDescriptor(
   name='FailureType',
@@ -48,8 +50,8 @@ _FAILURETYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1390,
-  serialized_end=1455,
+  serialized_start=1503,
+  serialized_end=1568,
 )
 _sym_db.RegisterEnumDescriptor(_FAILURETYPE)
 
@@ -94,8 +96,8 @@ _STATUSOTA = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1457,
-  serialized_end=1564,
+  serialized_start=1570,
+  serialized_end=1677,
 )
 _sym_db.RegisterEnumDescriptor(_STATUSOTA)
 
@@ -145,8 +147,8 @@ _STATUSPROGRESSPHASE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1566,
-  serialized_end=1692,
+  serialized_start=1679,
+  serialized_end=1805,
 )
 _sym_db.RegisterEnumDescriptor(_STATUSPROGRESSPHASE)
 
@@ -218,8 +220,8 @@ _UPDATEREQUESTECU = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=35,
-  serialized_end=116,
+  serialized_start=67,
+  serialized_end=148,
 )
 
 
@@ -250,8 +252,8 @@ _UPDATEREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=118,
-  serialized_end=177,
+  serialized_start=150,
+  serialized_end=209,
 )
 
 
@@ -289,8 +291,8 @@ _UPDATERESPONSEECU = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=179,
-  serialized_end=256,
+  serialized_start=211,
+  serialized_end=288,
 )
 
 
@@ -321,8 +323,8 @@ _UPDATERESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=258,
-  serialized_end=319,
+  serialized_start=290,
+  serialized_end=351,
 )
 
 
@@ -353,8 +355,8 @@ _ROLLBACKREQUESTECU = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=321,
-  serialized_end=357,
+  serialized_start=353,
+  serialized_end=389,
 )
 
 
@@ -385,8 +387,8 @@ _ROLLBACKREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=359,
-  serialized_end=422,
+  serialized_start=391,
+  serialized_end=454,
 )
 
 
@@ -424,8 +426,8 @@ _ROLLBACKRESPONSEECU = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=424,
-  serialized_end=503,
+  serialized_start=456,
+  serialized_end=535,
 )
 
 
@@ -456,8 +458,8 @@ _ROLLBACKRESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=505,
-  serialized_end=570,
+  serialized_start=537,
+  serialized_end=602,
 )
 
 
@@ -481,8 +483,8 @@ _STATUSREQUEST = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=572,
-  serialized_end=587,
+  serialized_start=604,
+  serialized_end=619,
 )
 
 
@@ -559,22 +561,22 @@ _STATUSPROGRESS = _descriptor.Descriptor(
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
       name='elapsed_time_copy', full_name='OtaClientV2.StatusProgress.elapsed_time_copy', index=9,
-      number=10, type=2, cpp_type=6, label=1,
-      has_default_value=False, default_value=float(0),
+      number=10, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
       name='elapsed_time_link', full_name='OtaClientV2.StatusProgress.elapsed_time_link', index=10,
-      number=11, type=2, cpp_type=6, label=1,
-      has_default_value=False, default_value=float(0),
+      number=11, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
       name='elapsed_time_download', full_name='OtaClientV2.StatusProgress.elapsed_time_download', index=11,
-      number=12, type=2, cpp_type=6, label=1,
-      has_default_value=False, default_value=float(0),
+      number=12, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
@@ -597,8 +599,8 @@ _STATUSPROGRESS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=590,
-  serialized_end=1027,
+  serialized_start=622,
+  serialized_end=1140,
 )
 
 
@@ -657,8 +659,8 @@ _STATUS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1030,
-  serialized_end=1209,
+  serialized_start=1143,
+  serialized_end=1322,
 )
 
 
@@ -703,8 +705,8 @@ _STATUSRESPONSEECU = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1211,
-  serialized_end=1325,
+  serialized_start=1324,
+  serialized_end=1438,
 )
 
 
@@ -735,8 +737,8 @@ _STATUSRESPONSE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1327,
-  serialized_end=1388,
+  serialized_start=1440,
+  serialized_end=1501,
 )
 
 _UPDATEREQUEST.fields_by_name['ecu'].message_type = _UPDATEREQUESTECU
@@ -746,6 +748,9 @@ _ROLLBACKREQUEST.fields_by_name['ecu'].message_type = _ROLLBACKREQUESTECU
 _ROLLBACKRESPONSEECU.fields_by_name['result'].enum_type = _FAILURETYPE
 _ROLLBACKRESPONSE.fields_by_name['ecu'].message_type = _ROLLBACKRESPONSEECU
 _STATUSPROGRESS.fields_by_name['phase'].enum_type = _STATUSPROGRESSPHASE
+_STATUSPROGRESS.fields_by_name['elapsed_time_copy'].message_type = google_dot_protobuf_dot_duration__pb2._DURATION
+_STATUSPROGRESS.fields_by_name['elapsed_time_link'].message_type = google_dot_protobuf_dot_duration__pb2._DURATION
+_STATUSPROGRESS.fields_by_name['elapsed_time_download'].message_type = google_dot_protobuf_dot_duration__pb2._DURATION
 _STATUS.fields_by_name['status'].enum_type = _STATUSOTA
 _STATUS.fields_by_name['failure'].enum_type = _FAILURETYPE
 _STATUS.fields_by_name['progress'].message_type = _STATUSPROGRESS
@@ -871,8 +876,8 @@ _OTACLIENTSERVICE = _descriptor.ServiceDescriptor(
   index=0,
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_start=1695,
-  serialized_end=1926,
+  serialized_start=1808,
+  serialized_end=2039,
   methods=[
   _descriptor.MethodDescriptor(
     name='Update',

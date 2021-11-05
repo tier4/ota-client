@@ -142,9 +142,9 @@ class OtaClientStatistics(object):
         self.file_size_processed_link = 0
         self.file_size_processed_download = 0
 
-        self.elapsed_time_copy = 0
-        self.elapsed_time_link = 0
-        self.elapsed_time_download = 0
+        self.elapsed_time_copy = 0  # in milliseconds
+        self.elapsed_time_link = 0  # in milliseconds
+        self.elapsed_time_download = 0  # in milliseconds
 
         self.errors_download = 0
 
@@ -471,7 +471,8 @@ class OtaClient:
             _list = _list if _list else [{}]  # add {} if empty
             _total = reduce(operator.add, map(Counter, _list))
             setattr(st, file_size_processed, _total.get("size", 0))
-            setattr(st, elapsed_time, _total.get("elapsed", 0))
+            # convert from seconds to milli seconds as int
+            setattr(st, elapsed_time, int(_total.get("elapsed", 0) * 1000))
             if op == "download":
                 st.errors_download = _total.get("errors", 0)
 

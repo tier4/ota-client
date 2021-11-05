@@ -14,6 +14,8 @@
 
 syntax = "proto3";
 
+import "google/protobuf/duration.proto";
+
 //option java_multiple_files = true;
 //option java_package = "io.common.ota.client";
 //option java_outer_classname = "OtaClientProto";
@@ -124,9 +126,9 @@ message StatusProgress {
   uint32 file_size_processed_copy = 7;
   uint32 file_size_processed_link = 8;
   uint32 file_size_processed_download = 9;
-  float elapsed_time_copy = 10;
-  float elapsed_time_link = 11;
-  float elapsed_time_download = 12;
+  google.protobuf.Duration elapsed_time_copy = 10;
+  google.protobuf.Duration elapsed_time_link = 11;
+  google.protobuf.Duration elapsed_time_download = 12;
   uint32 errors_download = 13;
 }
 
