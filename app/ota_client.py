@@ -6,12 +6,14 @@ import re
 import os
 import time
 import json
+import operator
 from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
 from multiprocessing import Pool, Manager
 from threading import Lock
-from functools import partial
+from functools import partial, reduce
+from collections import Counter
 from enum import Enum, unique
 from requests.exceptions import RequestException
 
@@ -124,6 +126,29 @@ class OtaClientUpdatePhase(Enum):
     POST_PROCESSING = 6
 
 
+class OtaClientStatistics(object):
+    def __init__(self):
+        self.clear()
+
+    def clear(self):
+        self.total_files = 0
+        self.files_processed = 0
+
+        self.files_processed_copy = 0
+        self.files_processed_link = 0
+        self.files_processed_download = 0
+
+        self.file_size_processed_copy = 0
+        self.file_size_processed_link = 0
+        self.file_size_processed_download = 0
+
+        self.elapsed_time_copy = 0  # in milliseconds
+        self.elapsed_time_link = 0  # in milliseconds
+        self.elapsed_time_download = 0  # in milliseconds
+
+        self.errors_download = 0
+
+
 class OtaClient:
     MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
     PASSWD_FILE = cfg.PASSWD_FILE  # Path("/etc/passwd")
@@ -139,8 +164,9 @@ class OtaClient:
         self._failure_type = OtaClientFailureType.NO_FAILURE
         self._failure_reason = ""
         self._update_phase = OtaClientUpdatePhase.INITIAL
-        self._update_total_regular_files = 0
-        self._update_regular_files_processed = 0
+
+        # statistics
+        self._statistics = OtaClientStatistics()
 
     def update(self, version, url_base, cookies_json: str):
         # check if there is an on-going update
@@ -227,8 +253,7 @@ class OtaClient:
         }
         """
         self._update_phase = OtaClientUpdatePhase.INITIAL
-        self._total_regular_files = 0
-        self._regular_files_processed = 0
+        self._statistics.clear()
 
         logger.info(f"version={version}, url_base={url_base}, cookies={cookies}")
         # enter update
@@ -285,30 +310,20 @@ class OtaClient:
             "version": self._ota_status.get_version(),
             "update_progress": {
                 "phase": self._update_phase.name,
-                "total_regular_files": self._total_regular_files,
-                "regular_files_processed": self._regular_files_processed,
+                "total_regular_files": self._statistics.total_files,
+                "regular_files_processed": self._statistics.files_processed,
+                "files_processed_copy": self._statistics.files_processed_copy,
+                "files_processed_link": self._statistics.files_processed_link,
+                "files_processed_download": self._statistics.files_processed_download,
+                "file_size_processed_copy": self._statistics.file_size_processed_copy,
+                "file_size_processed_link": self._statistics.file_size_processed_link,
+                "file_size_processed_download": self._statistics.file_size_processed_download,
+                "elapsed_time_copy": self._statistics.elapsed_time_copy,
+                "elapsed_time_link": self._statistics.elapsed_time_link,
+                "elapsed_time_download": self._statistics.elapsed_time_download,
+                "errors_download": self._statistics.errors_download,
             },
         }
-
-    @property
-    def _total_regular_files(self):
-        with self._lock:
-            return self._update_total_regular_files
-
-    @property
-    def _regular_files_processed(self):
-        with self._lock:
-            return self._update_regular_files_processed
-
-    @_total_regular_files.setter
-    def _total_regular_files(self, num):
-        with self._lock:
-            self._update_total_regular_files = num
-
-    @_regular_files_processed.setter
-    def _regular_files_processed(self, num):
-        with self._lock:
-            self._update_regular_files_processed = num
 
     @staticmethod
     def _download(url, cookies, dst, digest, retry=5):
@@ -369,6 +384,7 @@ class OtaClient:
             raise OtaErrorRecoverable(
                 f"hash error: act={calc_digest}, exp={digest}, {url=}"
             )
+        return count
 
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -440,13 +456,59 @@ class OtaClient:
             slink.symlink_to(slinkf.srcpath)
             os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
 
+    def _set_statistics(self, processed_list):
+        st = self._statistics
+        st.files_processed = len(processed_list)
+
+        def set_st(op, files_processed, file_size_processed, elapsed_time):
+            _list = []
+            for i in processed_list[: st.files_processed]:
+                if i["op"] == op:
+                    i.pop("op")  # remove 'op' element
+                    _list.append(i)
+            setattr(st, files_processed, len(_list))
+
+            _list = _list if _list else [{}]  # add {} if empty
+            _total = reduce(operator.add, map(Counter, _list))
+            setattr(st, file_size_processed, _total.get("size", 0))
+            # convert from seconds to milli seconds as int
+            setattr(st, elapsed_time, int(_total.get("elapsed", 0) * 1000))
+            if op == "download":
+                st.errors_download = _total.get("errors", 0)
+
+        set_st(
+            "copy",
+            "files_processed_copy",
+            "file_size_processed_copy",
+            "elapsed_time_copy",
+        )
+        set_st(
+            "link",
+            "files_processed_link",
+            "file_size_processed_link",
+            "elapsed_time_link",
+        )
+        set_st(
+            "download",
+            "files_processed_download",
+            "file_size_processed_download",
+            "elapsed_time_download",
+        )
+
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         reginf_list_raw_lines = open(list_file).read().splitlines()
-        self._total_regular_files = len(reginf_list_raw_lines)
+        self._statistics.total_files = len(reginf_list_raw_lines)
 
         with Manager() as manager:
             error_queue = manager.Queue()
             # NOTE: manager.Value doesn't work properly.
+            """
+            processed_list have dictionaries as follows:
+            {"size": int}  # file size
+            {"elapsed": int}  # elapsed time in seconds
+            {"op": str}  # operation. "copy", "link" or "download"
+            {"errors": int}  # number of errors that occurred when downloading.
+            """
             processed_list = manager.list()
 
             def error_callback(e):
@@ -494,13 +556,14 @@ class OtaClient:
 
                 pool.close()
                 while len(processed_list) < len(reginf_list_raw_lines):
-                    self._regular_files_processed = len(processed_list)  # via setter
+                    self._set_statistics(processed_list)
+
                     if not error_queue.empty():
                         error = error_queue.get()
                         pool.terminate()
                         raise error
                     time.sleep(2)  # set pulling interval to 2 seconds
-                self._regular_files_processed = len(processed_list)  # via setter
+                self._set_statistics(processed_list)
 
     # NOTE:
     # _create_regular_file should be static to be used from pool.apply_async,
@@ -519,6 +582,8 @@ class OtaClient:
         # for hardlink file
         hardlink_event=None,
     ):
+        processed = {}
+        begin_time = time.time()
         ishardlink = reginf.nlink >= 2
         hardlink_first_copy = (
             prev_reginf is not None and prev_reginf.path == reginf.path
@@ -533,19 +598,29 @@ class OtaClient:
             # wait until the first copy is ready
             hardlink_event.wait()
             (standby_path / prev_reginf.path.relative_to("/")).link_to(dst)
+            processed["op"] = "link"
+            processed["errors"] = 0
         else:  # normal file or first copy of hardlink file
             if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
                 # copy file from active bank if hash is the same
                 shutil.copy(reginf.path, dst)
+                processed["op"] = "copy"
+                processed["errors"] = 0
             else:
                 url_path = urllib.parse.quote(str(reginf.path.relative_to("/")))
                 url = urllib.parse.urljoin(url_base, url_path)
-                OtaClient._download(url, cookies, dst, reginf.sha256hash)
+                errors = OtaClient._download(url, cookies, dst, reginf.sha256hash)
+                processed["op"] = "download"
+                processed["errors"] = errors
+        processed["size"] = dst.stat().st_size
 
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
 
-        processed_list.append(True)
+        end_time = time.time()
+        processed["elapsed"] = end_time - begin_time
+
+        processed_list.append(processed)
         if ishardlink and hardlink_first_copy:
             hardlink_event.set()  # first copy of hardlink file is ready
 

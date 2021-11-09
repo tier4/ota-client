@@ -48,6 +48,26 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         results = self._stub.status(request)
         response = v2.StatusResponse()
 
+        def set_progress(in_progress, out_progress):
+            ip = in_progress
+            op = out_progress
+
+            # ecu.status.progress
+            op.phase = v2.StatusProgressPhase.Value(ip["phase"])
+            op.total_regular_files = ip["total_regular_files"]
+            op.regular_files_processed = ip["regular_files_processed"]
+            #
+            op.files_processed_copy = ip["files_processed_copy"]
+            op.files_processed_link = ip["files_processed_link"]
+            op.files_processed_download = ip["files_processed_download"]
+            op.file_size_processed_copy = ip["file_size_processed_copy"]
+            op.file_size_processed_link = ip["file_size_processed_link"]
+            op.file_size_processed_download = ip["file_size_processed_download"]
+            op.elapsed_time_copy.FromMilliseconds(ip["elapsed_time_copy"])
+            op.elapsed_time_link.FromMilliseconds(ip["elapsed_time_link"])
+            op.elapsed_time_download.FromMilliseconds(ip["elapsed_time_download"])
+            op.errors_download = ip["errors_download"]
+
         for result in results:
             res_ecu = response.ecu.add()
             res_ecu.ecu_id = result["ecu_id"]
@@ -60,13 +80,8 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
                 es.failure = v2.FailureType.Value(status["failure_type"])
                 es.failure_reason = status["failure_reason"]
                 es.version = status["version"]
+                set_progress(status["update_progress"], es.progress)
 
-                # ecu.status.progress
-                esp = es.progress
-                progress = status["update_progress"]
-                esp.phase = v2.StatusProgressPhase.Value(progress["phase"])
-                esp.total_regular_files = progress["total_regular_files"]
-                esp.regular_files_processed = progress["regular_files_processed"]
         return response
 
 
