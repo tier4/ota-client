@@ -79,7 +79,14 @@ class MainECUConfig(_BaseConfig):
 class SubECUConfig(_BaseConfig):
     PLATFORM = "sub_ecu"
     # TODO: config options for sub_ecu
-    pass
+
+    def __init__(self):
+        self.extlinux_file = self.boot_dir / "extlinux/extlinux.conf"
+
+        self._properties_map.update({
+            "EXLINUX_FILE": self.extlinux_file,
+            "OTA_STATUS_DIR": self.boot_dir / "ota-status"
+        })
 
 
 # helper function to detect platform
