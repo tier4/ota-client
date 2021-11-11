@@ -30,8 +30,15 @@ logger = log_util.get_logger(
 
 
 def file_sha256(filename: Path) -> str:
+    ONE_MB = 1048576
     with open(filename, "rb") as f:
-        return sha256(f.read()).hexdigest()
+        m = sha256()
+        while True:
+            d = f.read(ONE_MB)
+            if d == b"":
+                break
+            m.update(d)
+        return m.hexdigest()
 
 
 def verify_file(filename: Path, filehash: str) -> bool:
@@ -331,9 +338,6 @@ class OtaClient:
             headers = {}
             headers["Accept-encording"] = "gzip"
             response = requests.get(url, headers=headers, cookies=cookies, timeout=10)
-            # For 50x, especially 503, wait a few seconds and try again.
-            if response.status_code // 100 == 5:
-                time.sleep(10)
             response.raise_for_status()
             return response
 
@@ -357,10 +361,12 @@ class OtaClient:
                 status_code = e.response.status_code
                 last_error = f"requests error: {status_code=},{url=} ({count})"
                 logger.warning(last_error)
+                time.sleep(10)  # especially 503, wait a few seconds and try again.
             except Exception as e:
                 count += 1
                 last_error = f"requests error unknown: {e},{url=}, ({count})"
                 logger.warning(last_error)
+                time.sleep(10)
             finally:
                 if count == retry:
                     logger.error(last_error)
