@@ -405,7 +405,7 @@ class CBootControlMixin(BootControlMixinInterface):
     def write_standby_ota_version(self, version: str):
         _write_file(self._standby_ota_version_file, version)
         
-    def write_current_ota_status(self, status: OtaStatus):
+    def write_ota_status(self, status: OtaStatus):
         _write_file(self._ota_status_file, status.name)
 
     def write_initialized_ota_status(self):
@@ -435,12 +435,12 @@ class CBootControlMixin(BootControlMixinInterface):
         
     def finalize_update(self) -> OtaStatus:
         if not self._is_switching_boot():
-            self.write_current_ota_status(OtaStatus.FAILURE)
+            self.write_ota_status(OtaStatus.FAILURE)
             # set active slot back to the previous slot
             self._boot_control.switch_boot_standby()
             return OtaStatus.FAILURE
         else:
             # set the current slot(switched slot) as boot successful
             self._boot_control.mark_current_slot_boot_successful()
-            self.write_current_ota_status(OtaStatus.SUCCESS)
+            self.write_ota_status(OtaStatus.SUCCESS)
             return OtaStatus.SUCCESS

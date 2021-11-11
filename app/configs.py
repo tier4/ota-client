@@ -77,6 +77,10 @@ class MainECUConfig(_BaseConfig):
 
 
 class SubECUConfig(_BaseConfig):
+    """
+    NOTE: only for tegraid:0x19, jetson xavier platform
+    """
+
     PLATFORM = "sub_ecu"
     # TODO: config options for sub_ecu
 
@@ -85,7 +89,11 @@ class SubECUConfig(_BaseConfig):
 
         self._properties_map.update({
             "EXLINUX_FILE": self.extlinux_file,
-            "OTA_STATUS_DIR": self.boot_dir / "ota-status"
+            "OTA_STATUS_DIR": self.boot_dir / "ota-status",
+            "LINUX": self.boot_dir / "Image",
+            "INITRD": self.boot_dir / "initrd",
+            "FDT": self.boot_dir / "tegra194-rqx-580.dtb",
+            "EXTRA_CMDLINE": "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0"
         })
 
 
