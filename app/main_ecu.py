@@ -25,12 +25,15 @@ class BootControlMixin(BootControlMixinInterface):
     def write_standby_ota_status(self, status):
         self._boot_control.store_standby_ota_status(status)
 
+    def write_standby_ota_version(self, version):
+        self._boot_control.store_standby_ota_version(version)
+
     def write_initialized_ota_status(self):
         self.write_standby_ota_status(OtaStatus.INITIALIZED.name)
         return OtaStatus.INITIALIZED
 
-    def write_ota_status(self, status):
-        self._boot_control.store_standby_ota_status(status)
+    def write_ota_status(self, status: OtaStatus):
+        self._boot_control.store_active_ota_status(status.name)
 
     def load_ota_status(self):
         return self._boot_control.load_ota_status()
@@ -42,8 +45,8 @@ class BootControlMixin(BootControlMixinInterface):
         return self._boot_control.load_ota_version()
 
     def boot_ctrl_pre_update(self, version):
-        self.write_env("status", OtaStatus.UPDATING.name)
-        self.write_env("version", version)
+        self.write_standby_ota_status(OtaStatus.UPDATING)
+        self.write_standby_ota_version(version)
 
         self._boot_control.cleanup_standby_boot_partition()
         self._boot_control.mount_standby_root_partition_and_clean(self._mount_point)
@@ -53,29 +56,23 @@ class BootControlMixin(BootControlMixinInterface):
         self._boot_control.create_custom_cfg_and_reboot()
 
     def boot_ctrl_pre_rollback(self):
-        self._boot_control.store_standby_ota_status(OtaStatus.ROLLBACKING.name)
+        self._boot_control.store_standby_ota_status(OtaStatus.ROLLBACKING)
 
     def boot_ctrl_post_rollback(self):
         self._boot_control.create_custom_cfg_and_reboot(rollback=True)
 
     def finalize_update(self) -> OtaStatus:
         if self._boot_control.is_switching_boot_partition_from_active_to_standby():
-            self._boot_control.store_active_ota_status(OtaStatus.SUCCESS.name)
+            self.write_ota_status(OtaStatus.SUCCESS)
             self._boot_control.update_grub_cfg()
             # switch should be called last.
             self._boot_control.switch_boot_partition_from_active_to_standby()
             return OtaStatus.SUCCESS
         else:
-            self._boot_control.store_standby_ota_status(OtaStatus.FAILURE.name)
+            self.write_standby_ota_status(OtaStatus.FAILURE)
             return OtaStatus.FAILURE
 
     finalize_rollback = finalize_update
-
-    def write_env(self, type: str, value):
-        if type == "status":
-            self._boot_control.store_standby_ota_status(value)
-        elif type == "version":
-            self._boot_control.store_standby_ota_version(value)
 
 
 class MainECUAdapter(BootControlMixin):
