@@ -279,7 +279,7 @@ class CBootControl:
 
     ###### nvbootctrl ######
     @classmethod
-    def set_current_slot_successful(cls):
+    def mark_current_slot_boot_successful(cls):
         slot = nvbootctrlWrapper.get_current_slot()
         nvbootctrlWrapper.mark_boot_successful(slot)
 
@@ -292,19 +292,20 @@ class CBootControl:
     def switch_boot_standby(cls):
         dev = nvbootctrlWrapper.get_stanby_slot()
         nvbootctrlWrapper.set_active_boot_slot(dev)
+    
+    @classmethod
+    def is_current_slot_bootable(cls) -> bool:
+        slot = nvbootctrlWrapper.get_current_slot()
+        return nvbootctrlWrapper.is_slot_bootable(slot)
 
     @classmethod
-    def is_() -> bool:
-        pass
-    
+    def is_current_slot_marked_successful(cls) -> bool:
+        slot = nvbootctrlWrapper.get_current_slot()
+        return nvbootctrlWrapper.is_slot_marked_successful(slot)
+
     @classmethod
     def reboot(cls):
         subprocess.check_call(shlex.split("reboot"))
-
-    def is_switching_boot(self) -> bool:
-        # evidence 1: nvbootctrl status
-        # evidence 2: ota_status
-        pass
 
 def _read_file(path: Path) -> str:
     try:
@@ -320,16 +321,16 @@ class CBootControlMixin(BootControlMixinInterface):
     def __init__(self):
         self._boot_control = CBootControl()
         self._mount_point: Path = cfg.MOUNT_POINT
-        self._mount_standby()
         
+        # TODO: hardcoded status file name
+        # current slot
         self._ota_status_dir: Path = cfg.OTA_STATUS_DIR
         self._ota_status_dir.mkdir(parents=True, exist_ok=True)
-        self._standby_ota_status_dir: Path = self._mount_point / cfg.OTA_STATUS_DIR.relative_to(Path("/"))
-        self._standby_ota_status_dir.mkdir(parents=True, exist_ok=True)
-
-        # TODO: hardcoded status file name
         self._ota_status_file = self._ota_status_dir / "status"
         self._ota_version_file = self._ota_status_dir / "version"
+
+        # standby slot
+        self._standby_ota_status_dir: Path = self._mount_point / cfg.OTA_STATUS_DIR.relative_to(Path("/"))
         self._standby_ota_status_file = self._standby_ota_status_dir / "status"
         self._standby_ota_version_file = self._standby_ota_status_dir / "version"
 
@@ -348,6 +349,20 @@ class CBootControlMixin(BootControlMixinInterface):
             subprocess.check_call(_cmd)
         except subprocess.CalledProcessError as e:
             raise e
+
+    def _is_switching_boot(self) -> bool:
+
+        # evidence 1: nvbootctrl status
+        # the newly updated slot should not be marked as successful on the first reboot
+        _nvboot_res = \
+            not self._boot_control.is_current_slot_marked_successful()
+        
+        # evidence 2: ota_status
+        # the newly updated slot should have ota-status as updating or rollback
+        _ota_status_res = self.load_ota_status() in \
+            [OtaStatus.UPDATING.name, OtaStatus.ROLLBACKING.name]
+
+        return not _nvboot_res and _ota_status_res
 
     def load_ota_status(self) -> str:
         return _read_file(self._ota_status_file)
@@ -370,6 +385,9 @@ class CBootControlMixin(BootControlMixinInterface):
     def write_standby_ota_version(self, version: str):
         _write_file(self._standby_ota_version_file, version)
         
+    def write_current_ota_status(self, status: OtaStatus):
+        _write_file(self._ota_status_file, status.name)
+
     def write_initialized_ota_status(self):
         self.write_standby_ota_status(OtaStatus.INITIALIZED)
         return OtaStatus.INITIALIZED
@@ -394,9 +412,15 @@ class CBootControlMixin(BootControlMixinInterface):
         self._boot_control.switch_boot_standby()
         self._boot_control.reboot()
         
-    def finalize_update(self):
-        # TODO: combining the ota-client status
-        # if the check is passed
-
-        # set the current slot(switched slot) as boot successful
-        self._boot_control.set_current_slot_successful()
+    def finalize_update(self) -> OtaStatus:
+        if not self._is_switching_boot():
+            self.write_current_ota_status(OtaStatus.FAILURE)
+            # TODO: should I switch back to original slot?
+            # set active slot back to the previous slot
+            self._boot_control.switch_boot_standby()
+            return OtaStatus.FAILURE
+        else:
+            # set the current slot(switched slot) as boot successful
+            self._boot_control.mark_current_slot_boot_successful()
+            self.write_current_ota_status(OtaStatus.SUCCESS)
+            return OtaStatus.SUCCESS
