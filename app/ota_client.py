@@ -337,9 +337,7 @@ class OtaClient:
         def _requests_get():
             headers = {}
             headers["Accept-encording"] = "gzip"
-            response = requests.get(
-                url, headers=headers, cookies=cookies, timeout=10, stream=True
-            )
+            response = requests.get(url, headers=headers, cookies=cookies, timeout=10)
             response.raise_for_status()
             return response
 
