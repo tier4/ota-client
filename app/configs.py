@@ -43,6 +43,8 @@ class _BaseConfig(ABC):
         "PASSWD_FILE": passwd_file,
         "GROUP_FILE": group_file,
         "BOOT_OTA_PARTITION_FILE": ota_partition_folder,
+        "OTA_STATUS_FNAME": "status",
+        "OTA_VERSION_FNAME": "version",
     }
 
     def __getattr__(self, name: str):
