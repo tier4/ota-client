@@ -3,11 +3,12 @@ from pathlib import Path
 
 
 class BootControlMixinInterface(ABC):
+    """
+    platform neutral boot control interface
+    """
     _boot_control = None
     _ota_status = None
     _mount_point = None
-    _passwd_file = None
-    _group_file = None
 
     def initialize_ota_status(self):
         pass

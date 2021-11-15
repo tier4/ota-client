@@ -407,17 +407,16 @@ class CBootControlMixin(BootControlMixinInterface):
         self._boot_control = CBootControl()
         self._mount_point: Path = cfg.MOUNT_POINT
         
-        # TODO: hardcoded status file name
         # current slot
         self._ota_status_dir: Path = cfg.OTA_STATUS_DIR
         self._ota_status_dir.mkdir(exist_ok=True)
-        self._ota_status_file = self._ota_status_dir / "status"
-        self._ota_version_file = self._ota_status_dir / "version"
+        self._ota_status_file = self._ota_status_dir / cfg.OTA_STATUS_FNAME
+        self._ota_version_file = self._ota_status_dir / cfg.OTA_VERSION_FNAME
 
         # standby slot
         self._standby_ota_status_dir: Path = self._mount_point / cfg.OTA_STATUS_DIR.relative_to(Path("/"))
-        self._standby_ota_status_file = self._standby_ota_status_dir / "status"
-        self._standby_ota_version_file = self._standby_ota_status_dir / "version"
+        self._standby_ota_status_file = self._standby_ota_status_dir / cfg.OTA_STATUS_FNAME
+        self._standby_ota_version_file = self._standby_ota_status_dir / cfg.OTA_VERSION_FNAME
         self._standby_extlinux_cfg = self._mount_point / cfg.EXLINUX_FILE.relative_to('/')
 
     def _mount_standby(self):

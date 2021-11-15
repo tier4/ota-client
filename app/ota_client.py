@@ -14,12 +14,12 @@ from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial
 from enum import Enum, unique
-from extlinux_control import CBootControl
+from extlinux_control import CBootControlMixin
 
 from boot_control import BootControlMixinInterface
-from main_ecu import MainECUAdapter
+from grub_control import GrubControlMixin
 from ota_metadata import OtaMetadata
-from ota_status import OtaStatus
+from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 from copy_tree import CopyTree
 from configs import Config as cfg
@@ -166,39 +166,6 @@ class OtaClientUpdatePhase(Enum):
     REGULAR = 4
     PERSISTENT = 5
     POST_PROCESSING = 6
-
-
-class OtaStatusControlMixin:
-    _ota_status = None # initialized by boot_control
-
-    def get_ota_status(self):
-        return self._ota_status
-
-    def set_ota_status(self, ota_status: OtaClientUpdatePhase):
-        self._ota_status = ota_status
-
-    def check_update_status(self):
-        # check status
-        if self._ota_status not in [
-            OtaStatus.INITIALIZED,
-            OtaStatus.SUCCESS,
-            OtaStatus.FAILURE,
-            OtaStatus.ROLLBACK_FAILURE,
-        ]:
-            raise OtaErrorRecoverable(
-                f"status={self._ota_status} is illegal for update"
-            )
-
-    def check_rollback_status(self):
-        # check status
-        if self._ota_status not in [
-            OtaStatus.SUCCESS,
-            OtaStatus.ROLLBACK_FAILURE,
-        ]:
-            raise OtaErrorRecoverable(
-                f"status={self._ota_status} is illegal for rollback"
-            )
-
 
 class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def __init__(self):
@@ -585,13 +552,19 @@ def ota_client_instance():
     platform = cfg.PLATFORM
     if platform == "grub":
 
-        class OtaClient(MainECUAdapter, _BaseOtaClient):
-            pass
+        class OtaClient(GrubControlMixin, _BaseOtaClient):
+            
+            def __init__(self):
+                super().__init__()
+                super(GrubControlMixin, self).__init__()
 
     elif platform == "cboot":
         
-        class OtaClient(CBootControl, _BaseOtaClient):
-            pass
+        class OtaClient(CBootControlMixin, _BaseOtaClient):
+            
+            def __init__(self):
+                super().__init__()
+                super(CBootControlMixin, self).__init__()
 
     return OtaClient
 
