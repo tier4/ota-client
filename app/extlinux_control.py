@@ -171,7 +171,7 @@ class ExtlinuxCfgFile:
     }
 
     def __init__(self):
-        self._entry = dict()
+        self._entry = dict() # [name]entry
 
     def set_default_entry(self, label: str):
         self._heading["DEFAULT"] = label
@@ -251,6 +251,25 @@ class ExtlinuxCfgFile:
                 in_entry = True
                 entry_name, entry = l.strip().split(" ")[-1], dict()
 
+    def get_entry(self, name: str) -> dict:
+        """
+        return the copy of specific entry
+        """
+        return self._entry.get(name, default=dict()).copy()
+    
+    def get_default_entry(self) -> dict:
+        name = self._heading.get("DEFAULT")
+        if name in self._entry:
+            return self._entry.get(name, default=dict()).copy()
+
+    def edit_entry(self, name: str, key: str, value: str):
+        """
+        edit specific entry
+        """
+        if name not in self._entry:
+            return
+        self._entry[name][key] = value
+
     def dump_cfg(self) -> str:
         """
         dump_cfg dumps the extlinux config file to a string
@@ -310,45 +329,47 @@ class CBootControl:
         _rootfs = f"root={self._standby_partuuid} rw rootwait rootfstype=ext4"
         return f"{_cboot} {_rootfs} {self._cmdline_extra}"
 
-    def load_linux(self, path: Path):
+    def gen_extlinux_cfg(self, f: Path=None) -> str:
         """
-        overide the default linux image path
-        """
-        if path.is_file():
-            self._linux = str(path)
-    
-    def load_initrd(self, path: Path):
-        if path.is_file():
-            self._initrd = str(path)
-
-    def load_fdt(self, path: Path):
-        if path.is_file():
-            self._fdt = str(path)
-
-    def gen_extlinux_cfg(self) -> str:
-        """
-        create extlinux config for standby slot
+        create extlinux config for standby slot based on imported cfg
         """
         cfg = ExtlinuxCfgFile()
-        cfg.load_entry(
-            label="primary",
-            menu_lable="primary kernel",
-            linux=self._linux,
-            initrd=self._initrd,
-            fdt=self._fdt,
-            append=self._gen_cmdline(),
-        )
+        if f:
+            cfg.load_extlinux_cfg_file(f)
+            # get the default entry from ExtLInuxCfg
+            default_entry = cfg.get_default_entry()
+            cmd_append = ' '.join([
+                default_entry.get("APPEND", default=""),
+                self._gen_cmdline()])
+            # edit default entry
+            cfg.edit_entry(default_entry, "APPEND", cmd_append)
+        else:
+            cfg.load_entry(
+                label="primary",
+                menu_lable="primary kernel",
+                linux=self._linux,
+                initrd=self._initrd,
+                fdt=self._fdt,
+                append=self._gen_cmdline(),
+            )
         return cfg.dump_cfg()
 
-    def write_extlinux_cfg(self, target: Path):
+    def write_extlinux_cfg(self, target: Path, src: Path=None):
         """
         should only be used to generate extlinux conf for standby slot
         DO NOT TOUCH THE CURRENT SLOT'S EXTLINUX FILE!
 
         write new extlinux conf file to target
         """
+        if src.is_file():
+            # load template extlinux_cfg from external
+            cfg_text = self.gen_extlinux_cfg(src)
+        else:
+            # generate extlinux from default settings
+            cfg_text = self.gen_extlinux_cfg()
+
         with open(target, "w") as f:
-            f.write(self.gen_extlinux_cfg)
+            f.write(cfg_text)
 
     ###### nvbootctrl ######
     @classmethod
@@ -487,7 +508,8 @@ class CBootControlMixin(BootControlMixinInterface):
         self.write_standby_ota_version(version)
 
     def boot_ctrl_post_update(self):
-        self._boot_control.write_extlinux_cfg(self._standby_extlinux_cfg)
+        self._boot_control.write_extlinux_cfg(
+            target=self._standby_extlinux_cfg, src=self._standby_extlinux_cfg)
         self._boot_control.switch_boot_standby()
         self._boot_control.reboot()
         
