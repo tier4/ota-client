@@ -1,5 +1,5 @@
 import io
-from logging import log
+from logging import fatal, log
 import re
 from pathlib import Path
 import shlex
@@ -179,19 +179,77 @@ class ExtlinuxCfgFile:
     def load_entry(
         self,
         label: str,
-        menu_lable: str,
-        fdt: str,
+        entry: dict=None,
+        menu_lable: str="",
+        fdt: str="",
         linux: str="/boot/Image",
         initrd: str="/boot/initrd",
         append: str="",
     ):
-        entry = dict()
-        entry["MENU LABEL"] = menu_lable
-        entry["LINUX"] = linux
-        entry["INITRD"] = initrd
-        entry["FDT"] = fdt
-        entry["APPEND"] = append
-        self._entry[label] = entry
+        if entry:
+            self._entry[label] = entry
+        else:
+            entry = dict()
+            entry["MENU LABEL"] = menu_lable
+            entry["LINUX"] = linux
+            entry["INITRD"] = initrd
+            entry["FDT"] = fdt
+            entry["APPEND"] = append
+            self._entry[label] = entry
+
+    def load_extlinux_cfg_file(self, f: Path):
+        """
+        load entries from external extlinux conf file
+        """
+        if not f.is_file():
+            return
+
+        # search for entries
+        in_entry = False
+        entry_name, entry = "", dict()
+        
+        for l in f.read_text().split('\n'):
+            if l.strip().find("#") != -1:
+                continue
+
+            # top-level options
+            if l.find("TIMEOUT") == 0:
+                self._heading["TIMEOUT"] = l.strip().split(" ")[-1]
+            elif l.find("DEFAULT") == 0:
+                self._heading["DEFAULT"] = l.strip().replace("DEFAULT", "")
+            elif l.find("MENU TITLE") == 0:
+                self._heading["MENU TITLE"] = l.strip().replace("MENU TITLE", "")
+            
+            # entry
+            if in_entry:
+                if l.find("\t") != 0 or l.find(" ") != 0:
+                    # we encount the end of an entry
+                    in_entry = False
+                    # save the previous entry
+                    self.load_entry(label=entry_name, entry=entry)
+                    # options that we don't know and are also not comments
+                    if l:
+                        entry[l.strip()] = "" 
+                elif l.strip().find("LABEL") == 0:
+                    # follow by another new entry
+                    # save the previous entry
+                    self.load_entry(label=entry_name, entry=entry)
+                    # load new entry
+                    entry_name, entry = l.strip().split(" ")[-1], dict()
+                # load entry's contents
+                elif l.find("LINUX") != -1:
+                    entry["LINUX"] = l.strip().split(" ")[-1]
+                elif l.find("INITRD") != -1:
+                    entry["INITRD"] = l.strip().split(" ")[-1]
+                elif l.find("FDT") != -1:
+                    entry["FDT"] = l.strip().split(" ")[-1]
+                elif l.find("APPEND") != -1:
+                    entry["APPEND"] = l.strip().replace("APPEND", "")
+                elif l.find("MENU LABEL") != -1:
+                    entry["MENU LABEL"] = l.replace("MENU LABEL", "")                  
+            elif l.strip().find("LABEL") == 0:
+                in_entry = True
+                entry_name, entry = l.strip().split(" ")[-1], dict()
 
     def dump_cfg(self) -> str:
         """
