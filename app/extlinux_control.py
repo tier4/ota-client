@@ -16,17 +16,19 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+
 def _read_file(path: Path) -> str:
     try:
         return path.read_text().strip()
     except:
         return ""
 
+
 def _write_file(path: Path, input: str):
     path.write_text(input)
 
-class helperFuncsWrapper:
 
+class helperFuncsWrapper:
     @classmethod
     def _findfs(cls, key: str, value: str) -> str:
         """
@@ -40,7 +42,6 @@ class helperFuncsWrapper:
         except subprocess.CalledProcessError:
             return ""
 
-
     @classmethod
     def _blkid(cls, args: str) -> str:
         _args = shlex.split(f"blkid {args}")
@@ -53,11 +54,12 @@ class helperFuncsWrapper:
     def get_partuuid_by_dev(cls, dev: str) -> str:
         args = f"{dev} -s PARTUUID"
         res = cls._blkid(args)
-        return res.split(':')[-1].strip(' "')
+        return res.split(":")[-1].strip(' "')
 
     @classmethod
     def get_dev_by_partlabel(cls, partlabel: str) -> str:
         return cls._findfs("PARTLABEL", partlabel)
+
 
 class nvbootctrlWrapper:
     """
@@ -65,11 +67,12 @@ class nvbootctrlWrapper:
     slot suffix: "", "_b"
     rootfs default label prefix: APP
     """
+
     _prefix = "APP"
-    _active_standby_flip = { "0": "1", "1": "0"}
+    _active_standby_flip = {"0": "1", "1": "0"}
 
     @classmethod
-    def _nvbootctrl(cls, arg: str) -> str: 
+    def _nvbootctrl(cls, arg: str) -> str:
         # NOTE: target is always set to rootfs
         _cmd = shlex.split(f"nvbootctrl -t rootfs {arg}")
         try:
@@ -83,7 +86,7 @@ class nvbootctrlWrapper:
     @classmethod
     def get_current_slot(cls) -> str:
         return cls._nvbootctrl("get-current-slot")
-    
+
     @classmethod
     def get_stanby_slot(cls) -> str:
         return cls._active_standby_flip(cls.get_current_slot)
@@ -111,7 +114,7 @@ class nvbootctrlWrapper:
             return True
         except subprocess.CalledProcessError:
             return False
-    
+
     @classmethod
     def is_slot_marked_successful(cls, slot: str) -> bool:
         try:
@@ -126,8 +129,10 @@ class nvbootctrlWrapper:
         """
         check the givin dev is root dev or not
         """
-        pa = re.compile(r'\broot=(?P<rdev>[\w/]*)\b')
-        rootdev = pa.match(subprocess.check_output(shlex.split("cat /proc/cmdline"))).group("rdev")
+        pa = re.compile(r"\broot=(?P<rdev>[\w/]*)\b")
+        rootdev = pa.match(
+            subprocess.check_output(shlex.split("cat /proc/cmdline"))
+        ).group("rdev")
         return Path(rootdev).resolve(strict=True) == Path(dev).resolve(strict=True)
 
     @classmethod
@@ -147,10 +152,12 @@ class nvbootctrlWrapper:
         dev = helperFuncsWrapper.get_dev_by_partlabel(f"APP{suffix}")
 
         if cls._check_is_rootdev(dev):
-            msg = f"rootfs mismatch, expect {dev} as standby slot dev, but it is rootdev"
+            msg = (
+                f"rootfs mismatch, expect {dev} as standby slot dev, but it is rootdev"
+            )
             logger.error(msg)
             raise OtaErrorUnrecoverable(msg)
-        
+
         return dev
 
     @classmethod
@@ -163,15 +170,12 @@ class nvbootctrlWrapper:
         dev = cls.get_current_slot_dev()
         return helperFuncsWrapper.get_partuuid_by_dev(dev)
 
+
 class ExtlinuxCfgFile:
-    _heading = {
-        "TIMEOUT": 30,
-        "DEFAULT": "primary",
-        "MENU TITLE": "L4T boot options"
-    }
+    _heading = {"TIMEOUT": 30, "DEFAULT": "primary", "MENU TITLE": "L4T boot options"}
 
     def __init__(self):
-        self._entry = dict() # [name]entry
+        self._entry = dict()  # [name]entry
 
     def set_default_entry(self, label: str):
         self._heading["DEFAULT"] = label
@@ -179,12 +183,12 @@ class ExtlinuxCfgFile:
     def load_entry(
         self,
         label: str,
-        entry: dict=None,
-        menu_lable: str="",
-        fdt: str="",
-        linux: str="/boot/Image",
-        initrd: str="/boot/initrd",
-        append: str="",
+        entry: dict = None,
+        menu_lable: str = "",
+        fdt: str = "",
+        linux: str = "/boot/Image",
+        initrd: str = "/boot/initrd",
+        append: str = "",
     ):
         if entry:
             self._entry[label] = entry
@@ -207,8 +211,8 @@ class ExtlinuxCfgFile:
         # search for entries
         in_entry = False
         entry_name, entry = "", dict()
-        
-        for l in f.read_text().split('\n'):
+
+        for l in f.read_text().split("\n"):
             if l.strip().find("#") != -1:
                 continue
 
@@ -219,7 +223,7 @@ class ExtlinuxCfgFile:
                 self._heading["DEFAULT"] = l.strip().replace("DEFAULT", "")
             elif l.find("MENU TITLE") == 0:
                 self._heading["MENU TITLE"] = l.strip().replace("MENU TITLE", "")
-            
+
             # entry
             if in_entry:
                 if l.find("\t") != 0 or l.find(" ") != 0:
@@ -229,7 +233,7 @@ class ExtlinuxCfgFile:
                     self.load_entry(label=entry_name, entry=entry)
                     # options that we don't know and are also not comments
                     if l:
-                        entry[l.strip()] = "" 
+                        entry[l.strip()] = ""
                 elif l.strip().find("LABEL") == 0:
                     # follow by another new entry
                     # save the previous entry
@@ -246,7 +250,7 @@ class ExtlinuxCfgFile:
                 elif l.find("APPEND") != -1:
                     entry["APPEND"] = l.strip().replace("APPEND", "")
                 elif l.find("MENU LABEL") != -1:
-                    entry["MENU LABEL"] = l.replace("MENU LABEL", "")                  
+                    entry["MENU LABEL"] = l.replace("MENU LABEL", "")
             elif l.strip().find("LABEL") == 0:
                 in_entry = True
                 entry_name, entry = l.strip().split(" ")[-1], dict()
@@ -256,7 +260,7 @@ class ExtlinuxCfgFile:
         return the copy of specific entry
         """
         return self._entry.get(name, default=dict()).copy()
-    
+
     def get_default_entry(self) -> dict:
         name = self._heading.get("DEFAULT")
         if name in self._entry:
@@ -291,6 +295,7 @@ class ExtlinuxCfgFile:
 
         return buff.getvalue()
 
+
 class CBootControl:
 
     _linux = cfg.LINUX
@@ -299,9 +304,11 @@ class CBootControl:
     _cmdline_extra = cfg.EXTRA_CMDLINE
 
     def __init__(self):
-        (self._standby_slot, 
-        self._standby_dev, 
-        self._standby_partuuid) = self._get_slot_info()
+        (
+            self._standby_slot,
+            self._standby_dev,
+            self._standby_partuuid,
+        ) = self._get_slot_info()
 
     def _get_slot_info(self) -> Tuple[str, str, str]:
         """
@@ -325,11 +332,11 @@ class CBootControl:
 
     ###### extlinux control ######
     def _gen_cmdline(self) -> str:
-        _cboot = '${cbootargs} quiet '
+        _cboot = "${cbootargs} quiet "
         _rootfs = f"root={self._standby_partuuid} rw rootwait rootfstype=ext4"
         return f"{_cboot} {_rootfs} {self._cmdline_extra}"
 
-    def gen_extlinux_cfg(self, f: Path=None) -> str:
+    def gen_extlinux_cfg(self, f: Path = None) -> str:
         """
         create extlinux config for standby slot based on imported cfg
         """
@@ -338,9 +345,9 @@ class CBootControl:
             cfg.load_extlinux_cfg_file(f)
             # get the default entry from ExtLInuxCfg
             default_entry = cfg.get_default_entry()
-            cmd_append = ' '.join([
-                default_entry.get("APPEND", default=""),
-                self._gen_cmdline()])
+            cmd_append = " ".join(
+                [default_entry.get("APPEND", default=""), self._gen_cmdline()]
+            )
             # edit default entry
             cfg.edit_entry(default_entry, "APPEND", cmd_append)
         else:
@@ -354,7 +361,7 @@ class CBootControl:
             )
         return cfg.dump_cfg()
 
-    def write_extlinux_cfg(self, target: Path, src: Path=None):
+    def write_extlinux_cfg(self, target: Path, src: Path = None):
         """
         should only be used to generate extlinux conf for standby slot
         DO NOT TOUCH THE CURRENT SLOT'S EXTLINUX FILE!
@@ -386,7 +393,7 @@ class CBootControl:
     def switch_boot_standby(cls):
         dev = nvbootctrlWrapper.get_stanby_slot()
         nvbootctrlWrapper.set_active_boot_slot(dev)
-    
+
     @classmethod
     def is_current_slot_bootable(cls) -> bool:
         slot = nvbootctrlWrapper.get_current_slot()
@@ -401,12 +408,12 @@ class CBootControl:
     def reboot(cls):
         subprocess.check_call(shlex.split("reboot"))
 
-class CBootControlMixin(BootControlMixinInterface):
 
+class CBootControlMixin(BootControlMixinInterface):
     def __init__(self):
         self._boot_control = CBootControl()
         self._mount_point: Path = cfg.MOUNT_POINT
-        
+
         # current slot
         self._ota_status_dir: Path = cfg.OTA_STATUS_DIR
         self._ota_status_dir.mkdir(exist_ok=True)
@@ -414,10 +421,18 @@ class CBootControlMixin(BootControlMixinInterface):
         self._ota_version_file = self._ota_status_dir / cfg.OTA_VERSION_FNAME
 
         # standby slot
-        self._standby_ota_status_dir: Path = self._mount_point / cfg.OTA_STATUS_DIR.relative_to(Path("/"))
-        self._standby_ota_status_file = self._standby_ota_status_dir / cfg.OTA_STATUS_FNAME
-        self._standby_ota_version_file = self._standby_ota_status_dir / cfg.OTA_VERSION_FNAME
-        self._standby_extlinux_cfg = self._mount_point / cfg.EXLINUX_FILE.relative_to('/')
+        self._standby_ota_status_dir: Path = (
+            self._mount_point / cfg.OTA_STATUS_DIR.relative_to(Path("/"))
+        )
+        self._standby_ota_status_file = (
+            self._standby_ota_status_dir / cfg.OTA_STATUS_FNAME
+        )
+        self._standby_ota_version_file = (
+            self._standby_ota_status_dir / cfg.OTA_VERSION_FNAME
+        )
+        self._standby_extlinux_cfg = self._mount_point / cfg.EXLINUX_FILE.relative_to(
+            "/"
+        )
 
     def _mount_standby(self):
         standby_dev = self._boot_control.get_standby_dev()
@@ -452,13 +467,14 @@ class CBootControlMixin(BootControlMixinInterface):
     def _is_switching_boot(self) -> bool:
         # evidence 1: nvbootctrl status
         # the newly updated slot should not be marked as successful on the first reboot
-        _nvboot_res = \
-            not self._boot_control.is_current_slot_marked_successful()
-        
+        _nvboot_res = not self._boot_control.is_current_slot_marked_successful()
+
         # evidence 2: ota_status
         # the newly updated/rollbacked slot should have ota-status as updating/rollback
-        _ota_status_res = self.load_ota_status() in \
-            [OtaStatus.UPDATING.name, OtaStatus.ROLLBACKING.name]
+        _ota_status_res = self.load_ota_status() in [
+            OtaStatus.UPDATING.name,
+            OtaStatus.ROLLBACKING.name,
+        ]
 
         return _nvboot_res and _ota_status_res
 
@@ -482,7 +498,7 @@ class CBootControlMixin(BootControlMixinInterface):
 
     def write_standby_ota_version(self, version: str):
         _write_file(self._standby_ota_version_file, version)
-        
+
     def write_ota_status(self, status: OtaStatus):
         _write_file(self._ota_status_file, status.name)
 
@@ -508,10 +524,11 @@ class CBootControlMixin(BootControlMixinInterface):
 
     def boot_ctrl_post_update(self):
         self._boot_control.write_extlinux_cfg(
-            target=self._standby_extlinux_cfg, src=self._standby_extlinux_cfg)
+            target=self._standby_extlinux_cfg, src=self._standby_extlinux_cfg
+        )
         self._boot_control.switch_boot_standby()
         self._boot_control.reboot()
-        
+
     def finalize_update(self) -> OtaStatus:
         if self._is_switching_boot():
             # set the current slot(switched slot) as boot successful

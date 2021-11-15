@@ -294,10 +294,8 @@ class GrubControl:
         return subprocess.check_output(shlex.split(cmd)).decode().strip()
 
 
-
 ######## bootcontrol adapter for grub_control ########
 class GrubControlMixin(BootControlMixinInterface):
-
     def __init__(self):
         self._boot_control = ota_partition.OtaPartitionFile()
         self._ota_status = self.initialize_ota_status()

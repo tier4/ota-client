@@ -167,6 +167,7 @@ class OtaClientUpdatePhase(Enum):
     PERSISTENT = 5
     POST_PROCESSING = 6
 
+
 class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
@@ -553,15 +554,13 @@ def ota_client_instance():
     if platform == "grub":
 
         class OtaClient(GrubControlMixin, _BaseOtaClient):
-            
             def __init__(self):
                 super().__init__()
                 super(GrubControlMixin, self).__init__()
 
     elif platform == "cboot":
-        
+
         class OtaClient(CBootControlMixin, _BaseOtaClient):
-            
             def __init__(self):
                 super().__init__()
                 super(CBootControlMixin, self).__init__()

@@ -6,6 +6,7 @@ class BootControlMixinInterface(ABC):
     """
     platform neutral boot control interface
     """
+
     _boot_control = None
     _ota_status = None
     _mount_point = None

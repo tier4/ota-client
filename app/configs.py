@@ -58,6 +58,7 @@ class MainECUConfig(_BaseConfig):
     """
     x86-64 platform, using grub
     """
+
     PLATFORM = "main_ecu"
 
     def __init__(self):
@@ -89,14 +90,16 @@ class SubECUConfig(_BaseConfig):
     def __init__(self):
         self.extlinux_file = self.boot_dir / "extlinux/extlinux.conf"
 
-        self._properties_map.update({
-            "EXLINUX_FILE": self.extlinux_file,
-            "OTA_STATUS_DIR": self.boot_dir / "ota-status",
-            "LINUX": self.boot_dir / "Image",
-            "INITRD": self.boot_dir / "initrd",
-            "FDT": self.boot_dir / "tegra194-rqx-580.dtb",
-            "EXTRA_CMDLINE": "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0"
-        })
+        self._properties_map.update(
+            {
+                "EXLINUX_FILE": self.extlinux_file,
+                "OTA_STATUS_DIR": self.boot_dir / "ota-status",
+                "LINUX": self.boot_dir / "Image",
+                "INITRD": self.boot_dir / "initrd",
+                "FDT": self.boot_dir / "tegra194-rqx-580.dtb",
+                "EXTRA_CMDLINE": "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0",
+            }
+        )
 
 
 # helper function to detect platform

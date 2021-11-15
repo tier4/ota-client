@@ -11,8 +11,9 @@ class OtaStatus(Enum):
     ROLLBACKING = 4
     ROLLBACK_FAILURE = 5
 
+
 class OtaStatusControlMixin:
-    _ota_status = None # initialized by boot_control
+    _ota_status = None  # initialized by boot_control
 
     def get_ota_status(self):
         return self._ota_status
