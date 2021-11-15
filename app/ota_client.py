@@ -16,6 +16,7 @@ from functools import partial, reduce
 from collections import Counter
 from enum import Enum, unique
 from requests.exceptions import RequestException
+from retrying import retry
 
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
@@ -333,66 +334,70 @@ class OtaClient:
         }
 
     @staticmethod
-    def _download(url, cookies, dst, digest, retry=5):
+    def _download(url, cookies, dst, digest):
+        error_count = 0
+        last_error = ""
+
+        def retry_if_possible(e):
+            nonlocal error_count
+            nonlocal last_error
+            error_count += 1
+            do_retry = True
+            if isinstance(e, requests.exceptions.Timeout):
+                last_error = f"requests timeout: {e},{url=} ({error_count})"
+            elif isinstance(e, requests.exceptions.ConnectionError):
+                last_error = f"requests connection error: {e},{url=} ({error_count})"
+            elif isinstance(e, requests.exceptions.ChunkedEncodingError):
+                last_error = f"requests ChunkedEncodingError: {url=} ({error_count})"
+            elif isinstance(e, RequestException):
+                status_code = getattr(e.response, "status_code", None)
+                last_error = f"requests error: {status_code=},{url=} ({error_count})"
+                if isinstance(status_code, int) and status_code // 100 == 4:
+                    do_retry = False
+            else:
+                last_error = f"requests error unknown: {e},{url=}, ({error_count})"
+            logger.warning(last_error)
+            return do_retry
+
+        @retry(
+            stop_max_attempt_number=5,
+            retry_on_exception=retry_if_possible,
+            wait_exponential_multiplier=1_000,
+            wait_exponential_max=10_000,
+        )
         def _requests_get():
+            CHUNK_SIZE = 4096
             headers = {}
             headers["Accept-encording"] = "gzip"
             response = requests.get(
                 url, headers=headers, cookies=cookies, timeout=10, stream=True
             )
             response.raise_for_status()
-            return response
 
-        count = 0
-        while True:
-            last_error = ""
-            try:
-                response = _requests_get()
-                break
-            except (
-                requests.exceptions.ReadTimeout,
-                requests.exceptions.ConnectionError,
-            ) as e:
-                count += 1
-                last_error = (
-                    f"requests timeout or connection error: {e},{url=} ({count})"
-                )
-                logger.warning(last_error)
-            except RequestException as e:
-                count += 1
-                status_code = e.response.status_code
-                last_error = f"requests error: {status_code=},{url=} ({count})"
-                logger.warning(last_error)
-                time.sleep(10)  # especially 503, wait a few seconds and try again.
-            except Exception as e:
-                count += 1
-                last_error = f"requests error unknown: {e},{url=}, ({count})"
-                logger.warning(last_error)
-                time.sleep(10)
-            finally:
-                if count == retry:
-                    logger.error(last_error)
-                    raise OtaErrorRecoverable(last_error)
+            with open(dst, "wb") as f:
+                m = sha256()
+                total_length = response.headers.get("content-length")
+                if total_length is None:
+                    m.update(response.content)
+                    f.write(response.content)
+                else:
+                    for data in response.iter_content(chunk_size=CHUNK_SIZE):
+                        m.update(data)
+                        f.write(data)
+            return m.hexdigest()
 
-        with open(dst, "wb") as f:
-            m = sha256()
-            total_length = response.headers.get("content-length")
-            if total_length is None:
-                m.update(response.content)
-                f.write(response.content)
-            else:
-                dl = 0
-                for data in response.iter_content(chunk_size=4096):
-                    dl += len(data)
-                    m.update(data)
-                    f.write(data)
+        try:
+            calc_digest = _requests_get()
+        except Exception:
+            logger.exception("requests_get")
+            raise OtaErrorRecoverable(last_error)
 
-        calc_digest = m.hexdigest()
         if digest and digest != calc_digest:
             raise OtaErrorRecoverable(
                 f"hash error: act={calc_digest}, exp={digest}, {url=}"
             )
-        return count
+
+        return error_count
 
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
