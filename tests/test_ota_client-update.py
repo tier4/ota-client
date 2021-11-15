@@ -251,7 +251,15 @@ def test_ota_client_update(mocker, tmp_path):
         ({"status_code": 403}, "requests error: status_code=403"),
         (
             {"exc": requests.exceptions.ConnectTimeout},
-            "requests timeout or connection error:",
+            "requests timeout:",
+        ),
+        (
+            {"exc": requests.exceptions.ReadTimeout},
+            "requests timeout:",
+        ),
+        (
+            {"exc": requests.exceptions.ChunkedEncodingError},
+            "requests ChunkedEncodingError:",
         ),
     ],
 )
