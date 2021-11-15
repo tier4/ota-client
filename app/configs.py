@@ -100,16 +100,16 @@ class SubECUConfig(_BaseConfig):
 # helper function to detect platform
 def _detect_platform():
     if platform.machine() == "x86_64" or platform.processor == "x86_64":
-        return "main_ecu"
+        return "grub"
     elif platform.machine() == "aarch64" or platform.processor == "aarch64":
-        return "sub_ecu"
+        return "cboot"
 
 
 def _create_config_object():
     platform = _detect_platform()
-    if platform == "main_ecu":
+    if platform == "grub":
         return MainECUConfig()
-    elif platform == "sub_ecu":
+    elif platform == "cboot":
         return SubECUConfig()
 
 

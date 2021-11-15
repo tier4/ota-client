@@ -14,6 +14,7 @@ from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial
 from enum import Enum, unique
+from extlinux_control import CBootControl
 
 from boot_control import BootControlMixinInterface
 from main_ecu import MainECUAdapter
@@ -168,6 +169,8 @@ class OtaClientUpdatePhase(Enum):
 
 
 class OtaStatusControlMixin:
+    _ota_status = None # initialized by boot_control
+
     def get_ota_status(self):
         return self._ota_status
 
@@ -220,9 +223,11 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             return self._result_ok()
         except (JSONDecodeError, OtaErrorRecoverable) as e:
             self.set_ota_status(OtaStatus.FAILURE)
+            self.write_standby_ota_status(OtaStatus.FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
             self.set_ota_status(OtaStatus.FAILURE)
+            self.write_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
 
     def rollback(self):
@@ -238,9 +243,11 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             return self._result_ok()
         except OtaErrorRecoverable as e:
             self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
+            self.write_standby_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
             self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
+            self.write_standby_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_unrecoverable(e)
 
     # NOTE: status should not update any internal status
@@ -557,6 +564,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def enter_update(self, version):
         self.check_update_status()
         self.set_ota_status(OtaStatus.UPDATING)
+        self.write_standby_ota_status(OtaStatus.UPDATING)
 
         self.boot_ctrl_pre_update(version)
 
@@ -566,6 +574,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def enter_rollbacking(self):
         self.check_rollback_status()
         self.set_ota_status(OtaStatus.ROLLBACKING)
+        self.write_standby_ota_status(OtaStatus.ROLLBACKING)
         self.boot_ctrl_pre_rollback()
 
     def leave_rollbacking(self):
@@ -574,14 +583,15 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
 def ota_client_instance():
     platform = cfg.PLATFORM
-    if platform == "main_ecu":
+    if platform == "grub":
 
         class OtaClient(MainECUAdapter, _BaseOtaClient):
             pass
 
-    elif platform == "sub_ecu":
-        # TODO: sub_ecu
-        pass
+    elif platform == "cboot":
+        
+        class OtaClient(CBootControl, _BaseOtaClient):
+            pass
 
     return OtaClient
 
