@@ -5,15 +5,17 @@ import shlex
 import tempfile
 import shutil
 from pathlib import Path
+
+from configs import grub_cfg as cfg
+from boot_control import BootControlMixinInterface
+from ota_status import OtaStatus
 from grub_control import GrubControl
 from ota_error import OtaErrorUnrecoverable
-from configs import Config as cfg
 import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
-
 
 class OtaPartition:
     """
@@ -414,3 +416,77 @@ class OtaPartitionFile(OtaPartition):
     def _move_atomic(self, src, dst):
         cmd_mv = f"mv -T {src} {dst}"
         return subprocess.check_output(shlex.split(cmd_mv))
+
+######## bootcontrol adapter for grub_control ########
+class GrubControlMixin(BootControlMixinInterface):
+    def __init__(self):
+        self._boot_control = OtaPartitionFile()
+        self._ota_status = self.initialize_ota_status()
+
+        self._mount_point = cfg.MOUNT_POINT
+        self._passwd_file = cfg.PASSWD_FILE
+        self._group_file = cfg.GROUP_FILE
+
+    def initialize_ota_status(self):
+        status_string = self.load_ota_status()
+        if status_string == "":
+            self.write_standby_ota_status(OtaStatus.INITIALIZED)
+            return OtaStatus.INITIALIZED
+        elif status_string == OtaStatus.UPDATING.name:
+            return self.finalize_update()
+        elif status_string == OtaStatus.ROLLBACKING.name:
+            return self.finalize_rollback()
+        else:
+            return OtaStatus[status_string]
+
+    def write_standby_ota_status(self, status: OtaStatus):
+        self._boot_control.store_standby_ota_status(status.name)
+
+    def write_standby_ota_version(self, version):
+        self._boot_control.store_standby_ota_version(version)
+
+    def write_initialized_ota_status(self):
+        self.write_standby_ota_status(OtaStatus.INITIALIZED.name)
+        return OtaStatus.INITIALIZED
+
+    def write_ota_status(self, status: OtaStatus):
+        self._boot_control.store_active_ota_status(status.name)
+
+    def load_ota_status(self):
+        return self._boot_control.load_ota_status()
+
+    def get_standby_boot_partition_path(self) -> Path:
+        return self._boot_control.get_standby_boot_partition_path()
+
+    def get_version(self):
+        return self._boot_control.load_ota_version()
+
+    def boot_ctrl_pre_update(self, version):
+        self.write_standby_ota_status(OtaStatus.UPDATING)
+        self.write_standby_ota_version(version)
+
+        self._boot_control.cleanup_standby_boot_partition()
+        self._boot_control.mount_standby_root_partition_and_clean(self._mount_point)
+
+    def boot_ctrl_post_update(self):
+        self._boot_control.update_fstab(self._mount_point)
+        self._boot_control.create_custom_cfg_and_reboot()
+
+    def boot_ctrl_pre_rollback(self):
+        self._boot_control.store_standby_ota_status(OtaStatus.ROLLBACKING.name)
+
+    def boot_ctrl_post_rollback(self):
+        self._boot_control.create_custom_cfg_and_reboot(rollback=True)
+
+    def finalize_update(self) -> OtaStatus:
+        if self._boot_control.is_switching_boot_partition_from_active_to_standby():
+            self.write_ota_status(OtaStatus.SUCCESS)
+            self._boot_control.update_grub_cfg()
+            # switch should be called last.
+            self._boot_control.switch_boot_partition_from_active_to_standby()
+            return OtaStatus.SUCCESS
+        else:
+            self.write_standby_ota_status(OtaStatus.FAILURE)
+            return OtaStatus.FAILURE
+
+    finalize_rollback = finalize_update

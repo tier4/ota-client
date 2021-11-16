@@ -1,16 +1,16 @@
 import io
-from logging import fatal, log
 import re
-from pathlib import Path
 import shlex
 import subprocess
+from pathlib import Path
 from typing import Tuple
 
 import log_util
+from configs import cboot_cfg as cfg 
 from ota_error import OtaErrorUnrecoverable
 from ota_status import OtaStatus
 from boot_control import BootControlMixinInterface
-from configs import Config as cfg
+
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

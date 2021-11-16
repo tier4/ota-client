@@ -1,7 +1,6 @@
 from abc import ABC
 from pathlib import Path
 
-
 class BootControlMixinInterface(ABC):
     """
     platform neutral boot control interface

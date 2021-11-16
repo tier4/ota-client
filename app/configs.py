@@ -12,13 +12,13 @@ class _BaseConfig(ABC):
     log_level_table = {
         "ecu_info": INFO,
         "grub_control": INFO,
+        "grub_ota_partition": INFO,
         "main": INFO,
         "ota_client": INFO,
         "ota_client_call": INFO,
         "ota_client_service": INFO,
         "ota_client_stub": INFO,
         "ota_metadata": INFO,
-        "ota_partition": INFO,
         "ota_status": INFO,
     }
 
@@ -54,12 +54,12 @@ class _BaseConfig(ABC):
             return self._properties_map[name]
 
 
-class MainECUConfig(_BaseConfig):
+class GrubControlConfig(_BaseConfig):
     """
     x86-64 platform, using grub
     """
 
-    PLATFORM = "main_ecu"
+    PLATFORM = "grub"
 
     def __init__(self):
         self.grub_dir = self.boot_dir / "grub"
@@ -79,13 +79,12 @@ class MainECUConfig(_BaseConfig):
         )
 
 
-class SubECUConfig(_BaseConfig):
+class CBootControlConfig(_BaseConfig):
     """
     NOTE: only for tegraid:0x19, jetson xavier platform
     """
 
-    PLATFORM = "sub_ecu"
-    # TODO: config options for sub_ecu
+    PLATFORM = "cboot"
 
     def __init__(self):
         self.extlinux_file = self.boot_dir / "extlinux/extlinux.conf"
@@ -109,13 +108,14 @@ def _detect_platform():
     elif platform.machine() == "aarch64" or platform.processor == "aarch64":
         return "cboot"
 
-
-def _create_config_object():
-    platform = _detect_platform()
+def create_config(platform):
     if platform == "grub":
-        return MainECUConfig()
+        return GrubControlConfig()
     elif platform == "cboot":
-        return SubECUConfig()
+        return CBootControlConfig()
 
 
-Config = _create_config_object()
+cboot_cfg = CBootControlConfig()
+grub_cfg = GrubControlConfig()
+
+Config = create_config(_detect_platform())

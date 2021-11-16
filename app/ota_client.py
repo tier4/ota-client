@@ -17,7 +17,7 @@ from enum import Enum, unique
 from extlinux_control import CBootControlMixin
 
 from boot_control import BootControlMixinInterface
-from grub_control import GrubControlMixin
+from grub_ota_partition import GrubControlMixin
 from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
