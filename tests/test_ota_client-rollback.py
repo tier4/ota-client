@@ -63,7 +63,7 @@ GRUB_CMDLINE_LINUX=""
 def test_ota_client_rollabck(mocker, tmp_path):
     import ota_client
     from configs import Config as cfg
-    from ota_partition import OtaPartition, OtaPartitionFile
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
 
@@ -171,7 +171,7 @@ def test_ota_client_rollabck(mocker, tmp_path):
 def test_ota_client_rollback_post_process(mocker, tmp_path):
     import ota_client
     from configs import Config as cfg
-    from ota_partition import OtaPartition, OtaPartitionFile
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
 

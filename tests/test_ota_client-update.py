@@ -1,3 +1,4 @@
+from logging import exception
 import os
 import pytest
 import time
@@ -81,10 +82,10 @@ GRUB_CMDLINE_LINUX=""
 def test_ota_client_update(mocker, tmp_path):
     import ota_client
     from ota_client import OtaClientFailureType
-    from ota_partition import OtaPartition, OtaPartitionFile
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
-    from configs import Config as cfg
+    from configs import grub_cfg as cfg
 
     """
     tmp_path/boot
@@ -229,8 +230,8 @@ def test_ota_client_update(mocker, tmp_path):
 
 def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     import ota_client
-    from configs import Config as cfg
-    from ota_partition import OtaPartition, OtaPartitionFile
+    from configs import grub_cfg as cfg
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
 
@@ -394,7 +395,7 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
 def test_ota_client_update_post_process(mocker, tmp_path):
     import ota_client
     from configs import Config as cfg
-    from ota_partition import OtaPartition, OtaPartitionFile
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
 
@@ -524,7 +525,7 @@ PERSISTENTS_TXT = """\
 def test_ota_client__copy_persistent_files(mocker, tmp_path):
     import ota_client
     from configs import Config as cfg
-    from ota_partition import OtaPartition, OtaPartitionFile
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
     from grub_control import GrubControl
 
     """

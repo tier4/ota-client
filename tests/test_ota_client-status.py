@@ -8,7 +8,7 @@ test_dir = Path(__file__).parent
 def test_ota_client_status(mocker, tmp_path):
     import ota_client
     from ota_client import OtaClientFailureType
-    from ota_partition import OtaPartition
+    from grub_ota_partition import OtaPartition
 
     """
     tmp_path/boot
