@@ -25,6 +25,7 @@ def _read_file(path: Path) -> str:
 
 
 def _write_file(path: Path, input: str):
+    path.touch(mode=420, exist_ok=True)
     path.write_text(input)
 
 
@@ -440,6 +441,8 @@ class CBootControlMixin(BootControlMixinInterface):
             "/"
         )
 
+        # TODO: ota status initializing
+
     def _mount_standby(self):
         standby_dev = self._boot_control.get_standby_dev()
         cmd_mount = f"mount {standby_dev} {self._mount_point}"
@@ -509,7 +512,7 @@ class CBootControlMixin(BootControlMixinInterface):
         _write_file(self._ota_status_file, status.name)
 
     def write_initialized_ota_status(self):
-        self.write_standby_ota_status(OtaStatus.INITIALIZED)
+        self.write_ota_status(OtaStatus.INITIALIZED)
         return OtaStatus.INITIALIZED
 
     def get_standby_boot_partition_path(self) -> Path:
