@@ -60,6 +60,10 @@ class helperFuncsWrapper:
     def get_dev_by_partlabel(cls, partlabel: str) -> str:
         return cls._findfs("PARTLABEL", partlabel)
 
+    @classmethod
+    def get_dev_by_partuuid(cls, partuuid: str) -> str:
+        return cls._findfs("PARTUUID", partuuid)
+
 
 class nvbootctrlWrapper:
     """
@@ -89,7 +93,7 @@ class nvbootctrlWrapper:
 
     @classmethod
     def get_stanby_slot(cls) -> str:
-        return cls._active_standby_flip(cls.get_current_slot)
+        return cls._active_standby_flip[cls.get_current_slot()]
 
     @classmethod
     def get_suffix(cls, slot: str) -> str:
@@ -129,11 +133,13 @@ class nvbootctrlWrapper:
         """
         check the givin dev is root dev or not
         """
-        pa = re.compile(r"\broot=(?P<rdev>[\w/]*)\b")
-        rootdev = pa.match(
-            subprocess.check_output(shlex.split("cat /proc/cmdline"))
+        pa = re.compile(r'\broot=(?P<rdev>[\w=-]*)\b')
+        ma = pa.search(
+            subprocess.check_output(shlex.split("cat /proc/cmdline")).decode()
         ).group("rdev")
-        return Path(rootdev).resolve(strict=True) == Path(dev).resolve(strict=True)
+        uuid = ma.split("=")[-1]
+
+        return Path(helperFuncsWrapper.get_dev_by_partuuid(uuid)).resolve(strict=True) == Path(dev).resolve(strict=True)
 
     @classmethod
     def get_current_slot_dev(cls) -> str:
