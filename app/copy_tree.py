@@ -86,7 +86,8 @@ class CopyTree:
         if src.is_dir() and not src.is_symlink():
             # if plain file or symlink (which links to file or directory)
             if dst_path.is_file() or dst_path.is_symlink():
-                raise OtaErrorRecoverable(f"{dst_path} exists but is not a directory")
+                logger.info(f"{src}: {dst_path} exists but is not a directory")
+                dst_path.unlink()
             if dst_path.is_dir():  # dst_path exists as a directory
                 return  # keep it untouched
             logger.info(f"creating directory {dst_path}")
@@ -100,7 +101,8 @@ class CopyTree:
                 # To avoid these cases, remove destination file beforehand.
                 dst_path.unlink()
             if dst_path.is_dir():
-                raise OtaErrorRecoverable(f"{dst_path} exists as a directory")
+                logger.info(f"{src}: {dst_path} exists as a directory")
+                shutil.rmtree(dst_path)
 
             logger.info(f"copying file {dst_dir / src.name}")
             shutil.copy2(src, dst_path, follow_symlinks=False)
