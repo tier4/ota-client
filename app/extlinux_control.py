@@ -58,7 +58,6 @@ class helperFuncsWrapper:
         _cmd = f"findfs {key}={value}"
         return _subprocess_check_output(_cmd)
 
-
     @classmethod
     def _blkid(cls, args: str) -> str:
         _cmd = f"blkid {args}"
@@ -466,7 +465,7 @@ class CBootControlMixin(BootControlMixinInterface):
 
         _subprocess_call(cmd_mount, raise_exception=True)
         # create new ota_status_dir on standby dev
-        self._standby_ota_status_dir.mkdir(exist_ok=True)
+        self._standby_ota_status_dir.mkdir(parents=True, exist_ok=True)
 
     def _cleanup_standby(self):
         """
