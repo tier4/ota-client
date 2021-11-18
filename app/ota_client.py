@@ -20,7 +20,7 @@ from retrying import retry
 
 from ota_status import OtaStatusControl, OtaStatus
 from ota_metadata import OtaMetadata
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
 import configs as cfg
 import log_util
@@ -177,18 +177,14 @@ class OtaClient:
         self._statistics = OtaClientStatistics()
 
     def update(self, version, url_base, cookies_json: str):
-        # check if there is an on-going update
-        try:
-            self._ota_status.check_update_status()
-        except OtaErrorRecoverable:
-            # not setting ota_status
-            logger.exception("check_update_status")
-            return OtaClientFailureType.RECOVERABLE
-
         try:
             cookies = json.loads(cookies_json)
             self._update(version, url_base, cookies)
             return self._result_ok()
+        except OtaErrorBusy:  # there is an on-going update
+            # not setting ota_status
+            logger.exception("update busy")
+            return OtaClientFailureType.RECOVERABLE
         except (JSONDecodeError, OtaErrorRecoverable) as e:
             logger.exception("recoverable")
             self._ota_status.set_ota_status(OtaStatus.FAILURE)
@@ -210,6 +206,10 @@ class OtaClient:
         try:
             self._rollback()
             return self._result_ok()
+        except OtaErrorBusy:  # there is an on-going update
+            # not setting ota_status
+            logger.exception("rollback busy")
+            return OtaClientFailureType.RECOVERABLE
         except OtaErrorRecoverable as e:
             logger.exception("recoverable")
             self._ota_status.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
@@ -260,12 +260,14 @@ class OtaClient:
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        self._update_phase = OtaClientUpdatePhase.INITIAL
-        self._statistics.clear()
-
-        logger.info(f"version={version}, url_base={url_base}, cookies={cookies}")
         # enter update
-        self._ota_status.enter_updating(version, self._mount_point)
+        with self._lock:
+            self._ota_status.enter_updating(version, self._mount_point)
+
+        self._update_phase = OtaClientUpdatePhase.INITIAL
+        self._failure_type = OtaClientFailureType.NO_FAILURE
+        self._failure_reason = ""
+        self._statistics.clear()
 
         # process metadata.jwt
         self._update_phase = OtaClientUpdatePhase.METADATA
@@ -306,7 +308,10 @@ class OtaClient:
 
     def _rollback(self):
         # enter rollback
-        self._ota_status.enter_rollbacking()
+        with self._lock:
+            self._ota_status.enter_rollbacking()
+        self._failure_type = OtaClientFailureType.NO_FAILURE
+        self._failure_reason = ""
         # leave rollback
         self._ota_status.leave_rollbacking()
 

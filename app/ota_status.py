@@ -2,7 +2,7 @@ from enum import Enum, unique
 from pathlib import Path
 
 from ota_partition import OtaPartitionFile
-from ota_error import OtaErrorRecoverable
+from ota_error import OtaErrorRecoverable, OtaErrorBusy
 import configs as cfg
 import log_util
 
@@ -49,9 +49,7 @@ class OtaStatusControl:
             OtaStatus.FAILURE,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
-            raise OtaErrorRecoverable(
-                f"status={self._ota_status} is illegal for update"
-            )
+            raise OtaErrorBusy(f"status={self._ota_status} is illegal for update")
 
     def enter_updating(self, version, mount_path: Path):
         logger.info(f"{version=},{mount_path=}")
@@ -75,9 +73,7 @@ class OtaStatusControl:
             OtaStatus.SUCCESS,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
-            raise OtaErrorRecoverable(
-                f"status={self._ota_status} is illegal for rollback"
-            )
+            raise OtaErrorBusy(f"status={self._ota_status} is illegal for rollback")
 
     def enter_rollbacking(self):
         self.check_rollback_status()
