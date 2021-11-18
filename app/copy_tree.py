@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 import configs as cfg
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from ota_error import OtaErrorUnrecoverable
 import log_util
 
 logger = log_util.get_logger(
