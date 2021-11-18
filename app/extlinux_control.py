@@ -28,6 +28,24 @@ def _write_file(path: Path, input: str):
     path.touch(mode=420, exist_ok=True)
     path.write_text(input)
 
+def _subprocess_call(cmd: str, *, raise_exception=False):
+    try:
+        logger.debug(f"[_subprocess_call] cmd: {cmd}")
+        subprocess.check_call(shlex.split(cmd), stdout=subprocess.DEVNULL)
+    except subprocess.CalledProcessError as e:
+        logger.exception(msg=f"command failed(exit-code: {e.returncode} \n stderr: {e.stderr} \n stdout: {e.stdout}): {cmd}")
+        if raise_exception:
+            raise e
+
+def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
+    try:
+        logger.debug(f"[_subprocess_checkout] cmd: {cmd}")
+        return subprocess.check_output(shlex.split(cmd)).decode().strip()
+    except subprocess.CalledProcessError as e:
+        logger.exception(msg=f"command failed(exit-code: {e.returncode} \n stderr: {e.stderr} \n stdout: {e.stdout}): {cmd}")
+        if raise_exception:
+            raise e
+        return ""
 
 class helperFuncsWrapper:
     @classmethod
@@ -37,19 +55,13 @@ class helperFuncsWrapper:
         Usage:
             findfs [options] {LABEL,UUID,PARTUUID,PARTLABEL}=<value>
         """
-        _args = shlex.split(f"findfs {key}={value}")
-        try:
-            return subprocess.check_output(_args).decode().strip()
-        except subprocess.CalledProcessError:
-            return ""
+        _cmd = f"findfs {key}={value}"
+        return _subprocess_check_output(_cmd)
 
     @classmethod
     def _blkid(cls, args: str) -> str:
-        _args = shlex.split(f"blkid {args}")
-        try:
-            return subprocess.check_output(_args).decode().strip()
-        except subprocess.CalledProcessError:
-            return ""
+        _cmd = f"blkid {args}"
+        return _subprocess_check_output(_cmd)
 
     @classmethod
     def get_partuuid_by_dev(cls, dev: str) -> str:
@@ -77,15 +89,10 @@ class nvbootctrlWrapper:
     _active_standby_flip = {"0": "1", "1": "0"}
 
     @classmethod
-    def _nvbootctrl(cls, arg: str) -> str:
+    def _nvbootctrl(cls, arg: str, *, raise_exception=True) -> str:
         # NOTE: target is always set to rootfs
-        _cmd = shlex.split(f"nvbootctrl -t rootfs {arg}")
-        try:
-            res = subprocess.check_output(_cmd).decode().strip()
-            return res
-        # TODO: logger here
-        except subprocess.CalledProcessError as e:
-            logger.debug(f"nvbootctrl: {e.stderr}")
+        _cmd = f"nvbootctrl -t rootfs {arg}"
+        return _subprocess_check_output(_cmd, raise_exception=raise_exception)
 
     # nvbootctrl wrapper
     @classmethod
@@ -136,7 +143,7 @@ class nvbootctrlWrapper:
         """
         pa = re.compile(r'\broot=(?P<rdev>[\w=-]*)\b')
         ma = pa.search(
-            subprocess.check_output(shlex.split("cat /proc/cmdline")).decode()
+            _subprocess_check_output("cat /proc/cmdline")
         ).group("rdev")
         uuid = ma.split("=")[-1]
 
@@ -150,6 +157,8 @@ class nvbootctrlWrapper:
 
         if not cls._check_is_rootdev(dev):
             raise OtaErrorUnrecoverable(f"rootfs mismatch, expect {dev} as rootfs")
+        
+        logger.debug(f"[get_current_slot_dev] current slot dev: {dev}")
         return dev
 
     @classmethod
@@ -446,9 +455,8 @@ class CBootControlMixin(BootControlMixinInterface):
     def _mount_standby(self):
         standby_dev = self._boot_control.get_standby_dev()
         cmd_mount = f"mount {standby_dev} {self._mount_point}"
-        subprocess.check_call(shlex.split(cmd_mount))
-        # create ota_status_dir
-        self._standby_ota_status_dir.mkdir(exist_ok=True)
+        _subprocess_call(cmd_mount, raise_exception=True)
+        # create new ota_status_dir on standby dev
 
     def _cleanup_standby(self):
         """
@@ -458,7 +466,7 @@ class CBootControlMixin(BootControlMixinInterface):
         # first try umount the dev
         _unmount = shlex.split(f"umount -q -f {standby_dev}")
         try:
-            subprocess.check_call(_unmount)
+            _subprocess_call(f"umount -f {standby_dev}", raise_exception=True)
         except subprocess.CalledProcessError as e:
             # suppress target not mounted error
             if e.returncode != 32:
@@ -468,7 +476,7 @@ class CBootControlMixin(BootControlMixinInterface):
         # format the standby slot
         _format = shlex.split(f"mkfs.ext4 {standby_dev}")
         try:
-            subprocess.check_call(_format)
+            _subprocess_call(f"mkfs.ext4 {standby_dev}", raise_exception=True)
         except subprocess.CalledProcessError as e:
             logger.error(f"failed to cleanup standby bank {standby_dev}")
             raise e
