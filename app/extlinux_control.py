@@ -535,7 +535,10 @@ class CBootControlMixin(BootControlMixinInterface):
         return OtaStatus.INITIALIZED
 
     def get_standby_boot_partition_path(self) -> Path:
-        return self._boot_control.get_standby_dev()
+        """
+        return the location of /boot folder of the mounted standby slot
+        """
+        return self._mount_point / "boot"
 
     def get_version(self):
         return _read_file(self._ota_version_file)
