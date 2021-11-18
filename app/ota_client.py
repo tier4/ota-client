@@ -178,11 +178,13 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         self._update_regular_files_processed = 0
 
     def update(self, version, url_base, cookies_json: str):
+        logger.debug("[update] entering...")
         # check if there is an on-going update
         try:
             self.check_update_status()
         except OtaErrorRecoverable:
             # not setting ota_status
+            logger.warn(msg=f"current ota status {self._ota_status} is invalid for ota updating, abort")
             return OtaClientFailureType.RECOVERABLE
 
         try:
@@ -190,10 +192,12 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             self._update(version, url_base, cookies)
             return self._result_ok()
         except (JSONDecodeError, OtaErrorRecoverable) as e:
+            logger.exception(msg="failed to apply ota update")
             self.set_ota_status(OtaStatus.FAILURE)
             self.write_standby_ota_status(OtaStatus.FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
+            logger.exception(msg="failed to apply ota update")
             self.set_ota_status(OtaStatus.FAILURE)
             self.write_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
@@ -265,23 +269,27 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         self.enter_update(version)
 
         # process metadata.jwt
+        logger.debug("[update] process metadata...")
         self._update_phase = OtaClientUpdatePhase.METADATA
         url = f"{url_base}/"
         metadata = self._process_metadata(url, cookies)
 
         # process directory file
+        logger.debug("[update] process directory files...")
         self._update_phase = OtaClientUpdatePhase.DIRECTORY
         self._process_directory(
             url, cookies, metadata.get_directories_info(), self._mount_point
         )
 
         # process symlink file
+        logger.debug("[update] process symlink files...")
         self._update_phase = OtaClientUpdatePhase.SYMLINK
         self._process_symlink(
             url, cookies, metadata.get_symboliclinks_info(), self._mount_point
         )
 
         # process regular file
+        logger.debug("[update] process regular files...")
         self._update_phase = OtaClientUpdatePhase.REGULAR
         self._process_regular(
             url,
@@ -292,12 +300,14 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         )
 
         # process persistent file
+        logger.debug("[update] process persistent files...")
         self._update_phase = OtaClientUpdatePhase.PERSISTENT
         self._process_persistent(
             url, cookies, metadata.get_persistent_info(), self._mount_point
         )
 
         # leave update
+        logger.debug("[update] update finished, entering post-update...")
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
         self.leave_update()
 
@@ -530,13 +540,17 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
                 copy_tree.copy_with_parents(perinf.path, standby_path)
 
     def enter_update(self, version):
+        logger.debug("[enter_update] check if ota_status is valid for updating...")
         self.check_update_status()
+
+        logger.debug("[enter_update] pre-update setup...")
+        self.boot_ctrl_pre_update(version)
         self.set_ota_status(OtaStatus.UPDATING)
         self.write_standby_ota_status(OtaStatus.UPDATING)
-
-        self.boot_ctrl_pre_update(version)
+        logger.debug("[enter_update] finished pre-update setup")
 
     def leave_update(self):
+        logger.debug("[leave_update] post-update setup...")
         self.boot_ctrl_post_update()
 
     def enter_rollbacking(self):
@@ -551,6 +565,8 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
 def ota_client_instance():
     platform = cfg.PLATFORM
+    logger.debug("ota_client is running on {platform}")
+
     if platform == "grub":
 
         class OtaClient(GrubControlMixin, _BaseOtaClient):
@@ -566,6 +582,7 @@ def ota_client_instance():
                 super(CBootControlMixin, self).__init__()
 
                 self._ota_status = self.initialize_ota_status()
+                logger.debug(f"ota_status: {self._ota_status}")
 
     return OtaClient
 
