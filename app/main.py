@@ -1,3 +1,7 @@
+import sys
+import os
+from pathlib import Path
+
 from ota_client_stub import OtaClientStub
 from ota_client_service import (
     OtaClientServiceV2,
@@ -17,6 +21,18 @@ logger = log_util.get_logger(
 if __name__ == "__main__":
     ota_client_stub = OtaClientStub()
     ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
+
+    # create a lock file to prevent multiple ota-client instances start
+    lock_file = Path("/var/run/ota-client.lock")
+    our_pid = os.getpid()
+    if lock_file.is_file():
+        pid = lock_file.read_text()
+        # running process will have a folder under /proc
+        if Path(f"/proc/{pid}").is_dir():
+            msg = f"another instance of ota-client(pid: {pid}) is running, abort"
+            sys.exit(msg)
+    # write our pid to the lock file
+    lock_file.write_text(f"{our_pid}")
 
     server = service_start(
         "localhost:50051",
