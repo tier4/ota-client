@@ -58,6 +58,7 @@ class helperFuncsWrapper:
         _cmd = f"findfs {key}={value}"
         return _subprocess_check_output(_cmd)
 
+
     @classmethod
     def _blkid(cls, args: str) -> str:
         _cmd = f"blkid {args}"
@@ -174,6 +175,7 @@ class nvbootctrlWrapper:
             logger.error(msg)
             raise OtaErrorUnrecoverable(msg)
 
+        logger.debug(f"[get_standby_slot_dev] standby slot dev: {dev}")
         return dev
 
     @classmethod
@@ -309,7 +311,10 @@ class ExtlinuxCfgFile:
             for mt, mop in e.items():
                 _write(f"\t{mt} {mop}")
 
-        return buff.getvalue()
+        res = buff.getvalue()
+        logger.debug("[dump_cfg] generated extlinux.conf: ")
+        logger.debug(f"################ \n {res} \n ################")
+        return res
 
 
 class CBootControl:
@@ -325,6 +330,9 @@ class CBootControl:
             self._standby_dev,
             self._standby_partuuid,
         ) = self._get_slot_info()
+        logger.debug(f"[CBootControl] standby slot: {self._standby_slot}")
+        logger.debug(f"[CBootControl] standby dev: {self._standby_dev}")
+        logger.debug(f"[CBootControl] standby dev partuuid: {self._standby_partuuid}")
 
     def _get_slot_info(self) -> Tuple[str, str, str]:
         """
@@ -364,6 +372,8 @@ class CBootControl:
             cmd_append = " ".join(
                 [default_entry.get("APPEND", default=""), self._gen_cmdline()]
             )
+            logger.debug(f"[gen_extlinux_cfg] cmdline: {cmd_append}")
+
             # edit default entry
             cfg.edit_entry(default_entry, "APPEND", cmd_append)
         else:
@@ -432,7 +442,6 @@ class CBootControlMixin(BootControlMixinInterface):
 
         # current slot
         self._ota_status_dir: Path = cfg.OTA_STATUS_DIR
-        self._ota_status_dir.mkdir(exist_ok=True)
         self._ota_status_file = self._ota_status_dir / cfg.OTA_STATUS_FNAME
         self._ota_version_file = self._ota_status_dir / cfg.OTA_VERSION_FNAME
 
@@ -450,21 +459,23 @@ class CBootControlMixin(BootControlMixinInterface):
             "/"
         )
 
-        # TODO: ota status initializing
-
     def _mount_standby(self):
         standby_dev = self._boot_control.get_standby_dev()
         cmd_mount = f"mount {standby_dev} {self._mount_point}"
+        logger.debug(f"[_mount_standby] starget: {standby_dev}, mount_point: {self._mount_point}")
+
         _subprocess_call(cmd_mount, raise_exception=True)
         # create new ota_status_dir on standby dev
+        self._standby_ota_status_dir.mkdir(exist_ok=True)
 
     def _cleanup_standby(self):
         """
         WARNING: apply mkfs.ext4 to standby bank
         """
         standby_dev = self._boot_control.get_standby_dev()
+        logger.warn(f"[_cleanup_standby] cleanup standby slot dev {standby_dev}")
+
         # first try umount the dev
-        _unmount = shlex.split(f"umount -q -f {standby_dev}")
         try:
             _subprocess_call(f"umount -f {standby_dev}", raise_exception=True)
         except subprocess.CalledProcessError as e:
@@ -474,7 +485,6 @@ class CBootControlMixin(BootControlMixinInterface):
                 raise e
 
         # format the standby slot
-        _format = shlex.split(f"mkfs.ext4 {standby_dev}")
         try:
             _subprocess_call(f"mkfs.ext4 {standby_dev}", raise_exception=True)
         except subprocess.CalledProcessError as e:
@@ -499,6 +509,8 @@ class CBootControlMixin(BootControlMixinInterface):
         return _read_file(self._ota_status_file)
 
     def initialize_ota_status(self) -> OtaStatus:
+        self._ota_status_dir.mkdir(parents=True, exist_ok=True)
+
         status = self.load_ota_status()
         if len(status) == 0:
             self.write_initialized_ota_status()
@@ -530,6 +542,7 @@ class CBootControlMixin(BootControlMixinInterface):
         return _read_file(self._ota_version_file)
 
     def boot_ctrl_pre_update(self, version):
+        logger.debug("[boot_ctrl_pre_update] entering...")
         # setup updating
         self._boot_control.set_standby_slot_unbootable()
         self._cleanup_standby()
@@ -538,8 +551,10 @@ class CBootControlMixin(BootControlMixinInterface):
         # store status
         self.write_standby_ota_status(OtaStatus.UPDATING)
         self.write_standby_ota_version(version)
+        logger.debug("[boot_ctrl_pre_update] finished")
 
     def boot_ctrl_post_update(self):
+        logger.debug("[boot_ctrl_post_update] entering...")
         self._boot_control.write_extlinux_cfg(
             target=self._standby_extlinux_cfg, src=self._standby_extlinux_cfg
         )
@@ -547,12 +562,14 @@ class CBootControlMixin(BootControlMixinInterface):
         self._boot_control.reboot()
 
     def finalize_update(self) -> OtaStatus:
+        logger.debug("[finalize_update] entering...")
         if self._is_switching_boot():
             # set the current slot(switched slot) as boot successful
             self._boot_control.mark_current_slot_boot_successful()
             self.write_ota_status(OtaStatus.SUCCESS)
             return OtaStatus.SUCCESS
         else:
+            logger.debug("[finalized_update] update failed, switch active slot back to previous slot")
             self.write_ota_status(OtaStatus.FAILURE)
             # set active slot back to the previous slot
             self._boot_control.switch_boot_standby()
