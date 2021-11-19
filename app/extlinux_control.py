@@ -30,7 +30,7 @@ def _write_file(path: Path, input: str):
 
 def _subprocess_call(cmd: str, *, raise_exception=False):
     try:
-        logger.debug(f"[_subprocess_call] cmd: {cmd}")
+        logger.debug(f"cmd: {cmd}")
         subprocess.check_call(shlex.split(cmd), stdout=subprocess.DEVNULL)
     except subprocess.CalledProcessError as e:
         logger.exception(msg=f"command failed(exit-code: {e.returncode} \n stderr: {e.stderr} \n stdout: {e.stdout}): {cmd}")
@@ -39,7 +39,7 @@ def _subprocess_call(cmd: str, *, raise_exception=False):
 
 def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
     try:
-        logger.debug(f"[_subprocess_checkout] cmd: {cmd}")
+        logger.debug(f"cmd: {cmd}")
         return subprocess.check_output(shlex.split(cmd)).decode().strip()
     except subprocess.CalledProcessError as e:
         logger.exception(msg=f"command failed(exit-code: {e.returncode} \n stderr: {e.stderr} \n stdout: {e.stdout}): {cmd}")
@@ -66,8 +66,11 @@ class helperFuncsWrapper:
     @classmethod
     def get_partuuid_by_dev(cls, dev: str) -> str:
         args = f"{dev} -s PARTUUID"
-        res = cls._blkid(args)
-        return res.split(":")[-1].strip(' "')
+        res = cls._blkid(args).split(":")[-1].strip()
+        k, v = res.split("=")
+        v.strip('"')
+
+        return f"{k}={v}"
 
     @classmethod
     def get_dev_by_partlabel(cls, partlabel: str) -> str:
@@ -158,7 +161,7 @@ class nvbootctrlWrapper:
         if not cls._check_is_rootdev(dev):
             raise OtaErrorUnrecoverable(f"rootfs mismatch, expect {dev} as rootfs")
         
-        logger.debug(f"[get_current_slot_dev] current slot dev: {dev}")
+        logger.debug(f"current slot dev: {dev}")
         return dev
 
     @classmethod
@@ -174,7 +177,7 @@ class nvbootctrlWrapper:
             logger.error(msg)
             raise OtaErrorUnrecoverable(msg)
 
-        logger.debug(f"[get_standby_slot_dev] standby slot dev: {dev}")
+        logger.debug(f"standby slot dev: {dev}")
         return dev
 
     @classmethod
@@ -311,7 +314,7 @@ class ExtlinuxCfgFile:
                 _write(f"\t{mt} {mop}")
 
         res = buff.getvalue()
-        logger.debug("[dump_cfg] generated extlinux.conf: ")
+        logger.debug("generated extlinux.conf: ")
         logger.debug(f"################ \n {res} \n ################")
         return res
 
@@ -329,9 +332,9 @@ class CBootControl:
             self._standby_dev,
             self._standby_partuuid,
         ) = self._get_slot_info()
-        logger.debug(f"[CBootControl] standby slot: {self._standby_slot}")
-        logger.debug(f"[CBootControl] standby dev: {self._standby_dev}")
-        logger.debug(f"[CBootControl] standby dev partuuid: {self._standby_partuuid}")
+        logger.debug(f"standby slot: {self._standby_slot}")
+        logger.debug(f"standby dev: {self._standby_dev}")
+        logger.debug(f"standby dev partuuid: {self._standby_partuuid}")
 
     def _get_slot_info(self) -> Tuple[str, str, str]:
         """
@@ -371,7 +374,7 @@ class CBootControl:
             cmd_append = " ".join(
                 [default_entry.get("APPEND", default=""), self._gen_cmdline()]
             )
-            logger.debug(f"[gen_extlinux_cfg] cmdline: {cmd_append}")
+            logger.debug(f"cmdline: {cmd_append}")
 
             # edit default entry
             cfg.edit_entry(default_entry, "APPEND", cmd_append)
@@ -461,7 +464,7 @@ class CBootControlMixin(BootControlMixinInterface):
     def _mount_standby(self):
         standby_dev = self._boot_control.get_standby_dev()
         cmd_mount = f"mount {standby_dev} {self._mount_point}"
-        logger.debug(f"[_mount_standby] starget: {standby_dev}, mount_point: {self._mount_point}")
+        logger.debug(f"starget: {standby_dev}, mount_point: {self._mount_point}")
 
         _subprocess_call(cmd_mount, raise_exception=True)
         # create new ota_status_dir on standby dev
@@ -544,7 +547,7 @@ class CBootControlMixin(BootControlMixinInterface):
         return _read_file(self._ota_version_file)
 
     def boot_ctrl_pre_update(self, version):
-        logger.debug("[boot_ctrl_pre_update] entering...")
+        logger.debug("entering pre-update...")
         # setup updating
         self._boot_control.set_standby_slot_unbootable()
         self._cleanup_standby()
@@ -553,10 +556,10 @@ class CBootControlMixin(BootControlMixinInterface):
         # store status
         self.write_standby_ota_status(OtaStatus.UPDATING)
         self.write_standby_ota_version(version)
-        logger.debug("[boot_ctrl_pre_update] finished")
+        logger.debug("pre-update setting finished")
 
     def boot_ctrl_post_update(self):
-        logger.debug("[boot_ctrl_post_update] entering...")
+        logger.debug("entering post-update...")
         self._boot_control.write_extlinux_cfg(
             target=self._standby_extlinux_cfg, src=self._standby_extlinux_cfg
         )
@@ -564,14 +567,15 @@ class CBootControlMixin(BootControlMixinInterface):
         self._boot_control.reboot()
 
     def finalize_update(self) -> OtaStatus:
-        logger.debug("[finalize_update] entering...")
+        logger.debug("entering finalizing update...")
         if self._is_switching_boot():
+            logger.debug("update successed")
             # set the current slot(switched slot) as boot successful
             self._boot_control.mark_current_slot_boot_successful()
             self.write_ota_status(OtaStatus.SUCCESS)
             return OtaStatus.SUCCESS
         else:
-            logger.debug("[finalized_update] update failed, switch active slot back to previous slot")
+            logger.debug("update failed, switch active slot back to previous slot")
             self.write_ota_status(OtaStatus.FAILURE)
             # set active slot back to the previous slot
             self._boot_control.switch_boot_standby()
