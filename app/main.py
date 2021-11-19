@@ -19,9 +19,6 @@ logger = log_util.get_logger(
 
 
 if __name__ == "__main__":
-    ota_client_stub = OtaClientStub()
-    ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
-
     # create a lock file to prevent multiple ota-client instances start
     lock_file = Path("/var/run/ota-client.lock")
     our_pid = os.getpid()
@@ -33,6 +30,9 @@ if __name__ == "__main__":
             sys.exit(msg)
     # write our pid to the lock file
     lock_file.write_text(f"{our_pid}")
+
+    ota_client_stub = OtaClientStub()
+    ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
 
     server = service_start(
         "localhost:50051",
