@@ -1,3 +1,4 @@
+from sys import platform
 import tempfile
 import requests
 import shutil
@@ -14,8 +15,10 @@ from multiprocessing import Pool, Manager
 from threading import Lock
 from functools import partial
 from enum import Enum, unique
-from extlinux_control import CBootControlMixin
+from requests.exceptions import RequestException
+from retrying import retry
 
+from extlinux_control import CBootControlMixin
 from boot_control import BootControlMixinInterface
 from grub_ota_partition import GrubControlMixin
 from ota_metadata import OtaMetadata
@@ -39,45 +42,73 @@ def verify_file(filename: Path, filehash: str) -> bool:
     return file_sha256(filename) == filehash
 
 
-def _download(url, cookies, dst, digest, retry=5):
+def _download(url_base: str, path: str, dst: Path, digest: str, *, cookies, retry=5):
+    quoted_path = urllib.parse.quote(path)
+    url = urllib.parse.urljoin(url_base, quoted_path)
+
+    error_count = 0
+    last_error = ""
+
+    def retry_if_possible(e):
+        nonlocal error_count
+        nonlocal last_error
+        error_count += 1
+        do_retry = True
+        if isinstance(e, requests.exceptions.Timeout):
+            last_error = f"requests timeout: {e},{url=} ({error_count})"
+        elif isinstance(e, requests.exceptions.ConnectionError):
+            last_error = f"requests connection error: {e},{url=} ({error_count})"
+        elif isinstance(e, requests.exceptions.ChunkedEncodingError):
+            last_error = f"requests ChunkedEncodingError: {url=} ({error_count})"
+        elif isinstance(e, RequestException):
+            status_code = getattr(e.response, "status_code", None)
+            last_error = f"requests error: {status_code=},{url=} ({error_count})"
+            if isinstance(status_code, int) and status_code // 100 == 4:
+                do_retry = False
+        else:
+            last_error = f"requests error unknown: {e},{url=}, ({error_count})"
+        logger.warning(last_error)
+        return do_retry
+
+    @retry(
+        stop_max_attempt_number=5,
+        retry_on_exception=retry_if_possible,
+        wait_exponential_multiplier=1_000,
+        wait_exponential_max=10_000,
+    )
     def _requests_get():
+        CHUNK_SIZE = 4096
         headers = {}
         headers["Accept-encording"] = "gzip"
-        response = requests.get(url, headers=headers, cookies=cookies, timeout=10)
-        # For 50x, especially 503, wait a few seconds and try again.
-        if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
-            time.sleep(10)
+        response = requests.get(
+            url, headers=headers, cookies=cookies, timeout=10, stream=True
+        )
         response.raise_for_status()
-        return response
 
-    count = 0
-    while True:
-        try:
-            response = _requests_get()
-            break
-        except Exception as e:
-            count += 1
-            if count == retry:
-                logger.exception(e)
-                # TODO: timeout or status_code information
-                raise OtaErrorRecoverable("requests error")
+        with open(dst, "wb") as f:
+            m = sha256()
+            total_length = response.headers.get("content-length")
+            if total_length is None:
+                m.update(response.content)
+                f.write(response.content)
+            else:
+                for data in response.iter_content(chunk_size=CHUNK_SIZE):
+                    m.update(data)
+                    f.write(data)
+        return m.hexdigest()
 
-    with open(dst, "wb") as f:
-        m = sha256()
-        total_length = response.headers.get("content-length")
-        if total_length is None:
-            m.update(response.content)
-            f.write(response.content)
-        else:
-            dl = 0
-            for data in response.iter_content(chunk_size=4096):
-                dl += len(data)
-                m.update(data)
-                f.write(data)
+    try:
+        calc_digest = _requests_get()
+    except Exception:
+        logger.exception("requests_get")
+        raise OtaErrorRecoverable(last_error)
 
-    calc_digest = m.hexdigest()
     if digest and digest != calc_digest:
-        raise OtaErrorRecoverable(f"hash error: act={calc_digest}, exp={digest}")
+        raise OtaErrorRecoverable(
+            f"hash error: act={calc_digest}, exp={digest}, {url=}"
+        )
+
+    return error_count
 
 
 class _BaseInf:
@@ -353,15 +384,14 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            url = urllib.parse.urljoin(url_base, list_info["file"])
-            _download(url, cookies, file_name, list_info["hash"])
+            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             metadata.verify(open(file_name).read())
 
     def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
-            url = urllib.parse.urljoin(url_base, "metadata.jwt")
-            _download(url, cookies, file_name, None)
+            _download(url_base, "metadata.jwt", file_name, None, cookies=cookies)
+
             metadata = OtaMetadata(open(file_name, "r").read())
             certificate_info = metadata.get_certificate_info()
             self._verify_metadata(url_base, cookies, certificate_info, metadata)
@@ -370,30 +400,26 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def _process_directory(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            url = urllib.parse.urljoin(url_base, list_info["file"])
-            _download(url, cookies, file_name, list_info["hash"])
+            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             self._create_directories(file_name, standby_path)
 
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            url = urllib.parse.urljoin(url_base, list_info["file"])
-            _download(url, cookies, file_name, list_info["hash"])
+            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             self._create_symbolic_links(file_name, standby_path)
 
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            url = urllib.parse.urljoin(url_base, list_info["file"])
-            _download(url, cookies, file_name, list_info["hash"])
+            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
 
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            url = urllib.parse.urljoin(url_base, list_info["file"])
-            _download(url, cookies, file_name, list_info["hash"])
+            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             self._copy_persistent_files(file_name, standby_path)
 
     def _create_directories(self, list_file, standby_path):
@@ -512,8 +538,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
                 # copy file from active bank if hash is the same
                 shutil.copy(reginf.path, dst)
             else:
-                url = urllib.parse.urljoin(url_base, str(reginf.path.relative_to("/")))
-                _download(url, cookies, dst, reginf.sha256hash)
+                _download(url_base, str(reginf.path.relative_to("/")), dst, reginf.sha256hash, cookies=cookies)
 
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
@@ -564,17 +589,17 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
 
 def ota_client_instance():
-    platform = cfg.PLATFORM
-    logger.debug("ota_client is running on {platform}")
+    boot = cfg.PLATFORM
+    logger.debug(f"ota_client is running with {boot}")
 
-    if platform == "grub":
+    if boot == "grub":
 
         class OtaClient(GrubControlMixin, _BaseOtaClient):
             def __init__(self):
                 super().__init__()
                 super(GrubControlMixin, self).__init__()
 
-    elif platform == "cboot":
+    elif boot == "cboot":
 
         class OtaClient(CBootControlMixin, _BaseOtaClient):
             def __init__(self):
