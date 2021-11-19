@@ -92,15 +92,18 @@ class nvbootctrlWrapper:
     _active_standby_flip = {"0": "1", "1": "0"}
 
     @classmethod
-    def _nvbootctrl(cls, arg: str, *, raise_exception=True) -> str:
+    def _nvbootctrl(cls, arg: str, *, call_only=True, raise_exception=True) -> str:
         # NOTE: target is always set to rootfs
         _cmd = f"nvbootctrl -t rootfs {arg}"
-        return _subprocess_check_output(_cmd, raise_exception=raise_exception)
+        if call_only:
+            _subprocess_call(_cmd, raise_exception=raise_exception)
+        else:
+            return _subprocess_check_output(_cmd, raise_exception=raise_exception)
 
     # nvbootctrl wrapper
     @classmethod
     def get_current_slot(cls) -> str:
-        return cls._nvbootctrl("get-current-slot")
+        return cls._nvbootctrl("get-current-slot", call_only=False)
 
     @classmethod
     def get_stanby_slot(cls) -> str:
@@ -108,7 +111,7 @@ class nvbootctrlWrapper:
 
     @classmethod
     def get_suffix(cls, slot: str) -> str:
-        return cls._nvbootctrl(f"get-suffix {slot}")
+        return cls._nvbootctrl(f"get-suffix {slot}", call_only=False)
 
     @classmethod
     def mark_boot_successful(cls, slot: str):
@@ -156,7 +159,7 @@ class nvbootctrlWrapper:
     def get_current_slot_dev(cls) -> str:
         slot = cls.get_current_slot()
         suffix = cls.get_suffix(slot)
-        dev = helperFuncsWrapper.get_dev_by_partlabel(f"APP{suffix}")
+        dev = helperFuncsWrapper.get_dev_by_partlabel(f"{cls._prefix}{suffix}")
 
         if not cls._check_is_rootdev(dev):
             raise OtaErrorUnrecoverable(f"rootfs mismatch, expect {dev} as rootfs")
