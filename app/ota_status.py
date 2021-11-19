@@ -2,7 +2,7 @@ from enum import Enum, unique
 from pathlib import Path
 
 from ota_partition import OtaPartitionFile
-from ota_error import OtaErrorRecoverable, OtaErrorBusy
+from ota_error import OtaErrorBusy
 import configs as cfg
 import log_util
 
