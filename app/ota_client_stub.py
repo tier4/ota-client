@@ -29,9 +29,11 @@ class OtaClientStub:
         self._executor.shutdown()
 
     async def update(self, request):
+        logger.info(f"{request=}")
         # secondary ecus
         tasks = []
         secondary_ecus = self._ecu_info.get_secondary_ecus()
+        logger.info(f"{secondary_ecus=}")
         for secondary in secondary_ecus:
             if OtaClientStub._find_request(request.ecu, secondary):
                 tasks.append(
@@ -42,7 +44,10 @@ class OtaClientStub:
                 )
 
         # my ecu
-        entry = OtaClientStub._find_request(request.ecu, self._ecu_info.get_ecu_id())
+        ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
+        logger.info(f"{ecu_id=}")
+        entry = OtaClientStub._find_request(request.ecu, ecu_id)
+        logger.info(f"{entry=}")
         if entry:
             # we only dispatch the request, so we don't process the returned future object
             self._executor.submit(
@@ -61,6 +66,7 @@ class OtaClientStub:
             done, pending = await asyncio.wait(tasks, timeout=10)
             for t in pending:
                 ecu_id = t.get_name()
+                logger.info(f"{ecu_id=}")
                 response.append(
                     {"ecu_id": ecu_id, "result": otaclient_v2_pb2.RECOVERABLE}
                 )
@@ -72,13 +78,16 @@ class OtaClientStub:
 
         response.append(main_ecu_update_result)
 
+        logger.info(f"{response=}")
         return response
 
     def rollback(self, request):
+        logger.info(f"{request=}")
         response = []
 
         # secondary ecus
         secondary_ecus = self._ecu_info.get_secondary_ecus()
+        logger.info(f"{secondary_ecus=}")
         for secondary in secondary_ecus:
             entry = OtaClientStub._find_request(request.ecu, secondary)
             if entry:
@@ -87,11 +96,15 @@ class OtaClientStub:
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
+        logger.info(f"{ecu_id=}")
         entry = OtaClientStub._find_request(request.ecu, ecu_id)
+        logger.info(f"{entry=}")
         if entry:
             result = self._ota_client.rollback()
+            logger.info(f"{result=}")
             response.append({"ecu_id": entry.ecu_id, "result": result.value})
 
+        logger.info(f"{response=}")
         return response
 
     def status(self, request):

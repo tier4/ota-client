@@ -45,6 +45,7 @@ class _BaseConfig(ABC):
         "BOOT_OTA_PARTITION_FILE": ota_partition_folder,
         "OTA_STATUS_FNAME": "status",
         "OTA_VERSION_FNAME": "version",
+        "LOG_FORMAT": "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s",
     }
 
     def __getattr__(self, name: str):

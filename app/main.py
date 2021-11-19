@@ -17,6 +17,14 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+VERSION_FILE = Path(__file__).parent.parent / "version.txt"
+
+def main():
+    logger.info("started")
+    version_file = VERSION_FILE
+    if version_file.is_file():
+        version = open(version_file).read()
+        logger.info(version)
 
 if __name__ == "__main__":
     # create a lock file to prevent multiple ota-client instances start
@@ -42,3 +50,7 @@ if __name__ == "__main__":
     )
 
     service_wait_for_termination(server)
+
+
+if __name__ == "__main__":
+    main()

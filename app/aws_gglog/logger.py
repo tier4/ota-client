@@ -6,11 +6,6 @@ import sys
 sys.path.append(os.path.dirname(__file__))
 from boto3_session import Boto3Session
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-_sh = logging.StreamHandler()
-logger.addHandler(_sh)
-
 
 class _BaseLogger:
     """
@@ -33,20 +28,23 @@ class _BaseLogger:
         return _BaseLogger._instance
 
     def __init__(
-        self, name: str = "_base_", level=logging.INFO, boto3_session_duration: int = 0
+        self,
+        name: str = "_base_",
     ):
         if _BaseLogger._instance is not None:
             raise Exception("BaseLogger is singleton")
 
         self._logger = logging.getLogger(name)
-        self._logger.setLevel(level)
         # not pass log records to root logger
         self._logger.propagate = False
 
-        # log is formatted as follows:
-        # [2021-09-29 17:42:50,607][INFO]-logger.py:108,hello,world
+    def set_handlers(self, level, format: str, boto3_session_duration: int = 0):
+        if self._logger.hasHandlers():
+            # if handlers are already set, skip to set handlers
+            return
+
         formatter = logging.Formatter(
-            fmt="[%(asctime)s][%(levelname)s]-%(filename)s:%(lineno)d,%(message)s",
+            fmt=format,
         )
 
         # set stream handler
@@ -55,7 +53,8 @@ class _BaseLogger:
         # set cloudwatch log handler
         self._set_cloudwatch_log_handler(formatter, boto3_session_duration)
 
-        logger.info("base logger is created")
+        self._logger.setLevel(level)
+        self._logger.info("handlers are set to base logger")
 
     def _set_stream_log_handler(self, formatter: logging.Formatter):
         handler = logging.StreamHandler()
@@ -83,8 +82,8 @@ class _BaseLogger:
             )
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
-        except:
-            logger.exception("failed to setup cloudwatch log handler")
+        except Exception as e:
+            self._logger.warning(f"failed to setup cloudwatch log handler: {e}")
 
     @staticmethod
     def _get_config() -> dict:
@@ -114,7 +113,13 @@ class _BaseLogger:
 
 
 class Logger:
-    def __init__(self, name: str, level=logging.INFO):
+    def __init__(
+        self,
+        name: str,
+        level=logging.INFO,
+        format="[%(asctime)s][%(levelname)s]-%(filename)s:%(lineno)d,%(message)s",
+    ):
+        _BaseLogger.get_instance().set_handlers(level, format)
         base_logger = _BaseLogger.get_instance().get_logger()
         self._logger = logging.getLogger(f"{base_logger.name}.{name}")
         self._logger.setLevel(level)
@@ -128,13 +133,20 @@ if __name__ == "__main__":
     examples
     """
 
-    log1 = Logger("foo").get_logger()
+    log1 = Logger(
+        "foo",
+        level=logging.INFO,
+        format="### %(asctime)s %(levelname)s]-%(filename)s:%(lineno)d,%(message)s",
+    ).get_logger()
     log1.debug("hello,world")
     log1.info("hello,world")
     log1.warning("hello,world")
     log1.error("hello,world")
 
-    log2 = Logger("bar", logging.DEBUG).get_logger()
+    log2 = Logger(
+        "bar",
+        level=logging.DEBUG,
+    ).get_logger()
     log2.debug("hello,world")
     log2.info("hello,world")
     log2.warning("hello,world")

@@ -103,6 +103,16 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
             "phase": "REGULAR",
             "total_regular_files": 99,
             "regular_files_processed": 10,
+            "files_processed_copy": 50,
+            "files_processed_link": 9,
+            "files_processed_download": 40,
+            "file_size_processed_copy": 1000,
+            "file_size_processed_link": 100,
+            "file_size_processed_download": 1000,
+            "elapsed_time_copy": 1230,
+            "elapsed_time_link": 120,
+            "elapsed_time_download": 9870,
+            "errors_download": 10,
         },
     }
 
@@ -125,6 +135,19 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
         res_ecu.status.progress.phase = v2.StatusProgressPhase.REGULAR
         res_ecu.status.progress.total_regular_files = 99
         res_ecu.status.progress.regular_files_processed = 10
+
+        res_ecu.status.progress.files_processed_copy = 50
+        res_ecu.status.progress.files_processed_link = 9
+        res_ecu.status.progress.files_processed_download = 40
+        res_ecu.status.progress.file_size_processed_copy = 1000
+        res_ecu.status.progress.file_size_processed_link = 100
+        res_ecu.status.progress.file_size_processed_download = 1000
+
+        res_ecu.status.progress.elapsed_time_copy.FromMilliseconds(1230)
+        res_ecu.status.progress.elapsed_time_link.FromMilliseconds(120)
+        res_ecu.status.progress.elapsed_time_download.FromMilliseconds(9870)
+        res_ecu.status.progress.errors_download = 10
+
         assert response == response_exp
 
     ota_client_mock.status.assert_called_once()

@@ -4,6 +4,7 @@ import shlex
 import tempfile
 import shutil
 from pathlib import Path
+from pprint import pformat
 
 import log_util
 from configs import grub_cfg as cfg
@@ -19,6 +20,7 @@ class GrubCfgParser:
 
     def parse(self):
         menu, _ = self._parse(self._grub_cfg, False)
+        logger.info(f"menu={pformat(menu)}")
         return menu
 
     def _parse(self, cfg, in_submenu):
@@ -85,10 +87,12 @@ class GrubControl:
     ):
         # pick up booted menuentry to create custom.cfg
         booted_menuentry = self._get_booted_menuentry()
+        logger.info(f"{booted_menuentry=}")
         # modify booted menuentry for custom.cfg
         custom_cfg = self._update_menuentry(
             booted_menuentry, standby_device, vmlinuz_file, initrd_img_file
         )
+        logger.info(f"{custom_cfg=}")
         # store custom.cfg
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             temp_name = f.name
@@ -127,6 +131,7 @@ class GrubControl:
             menus = GrubCfgParser(open(file_name).read()).parse()
             uuid = self._get_uuid(device)
             number = self._count_menuentry(menus, uuid, default_vmlinuz)
+            logger.info(f"{number=}")
             if number < 0:
                 raise OtaErrorUnrecoverable(
                     f"menuentry not found: UUID={uuid}, vmlinuz={default_vmlinuz}, menus={menus}"
@@ -147,6 +152,7 @@ class GrubControl:
         return subprocess.check_output(shlex.split(cmd))
 
     def update_fstab(self, mount_point, active_device, standby_device):
+        logger.info(f"{mount_point=},{active_device=},{standby_device=}")
         """
         NOTE:
         fstab operation might not be a part of grub, but uuid operation is only
@@ -154,6 +160,7 @@ class GrubControl:
         """
         active_uuid = self._get_uuid(active_device)
         standby_uuid = self._get_uuid(standby_device)
+        logger.info(f"{active_uuid=},{standby_uuid=}")
 
         fstab_active = open(self._fstab_file).readlines()  # active partition fstab
 
@@ -165,6 +172,7 @@ class GrubControl:
             if not line.startswith("#") and not line.startswith("\n"):
                 path = line.split()[1]
                 fstab_standby_dict[path] = line
+        logger.info(f"fstab_standby_dict={pformat(fstab_standby_dict)}")
 
         # merge entries
         merged = []
@@ -181,6 +189,7 @@ class GrubControl:
         for v in fstab_standby_dict.values():
             merged.append(v)
 
+        logger.info(f"{merged=}")
         with open(mount_point / "etc" / "fstab", "w") as f:
             f.writelines(merged)
 
@@ -227,11 +236,14 @@ class GrubControl:
 
         # booted vmlinuz and initrd.img
         vmlinuz, uuid = self.get_booted_vmlinuz_and_uuid()
+        logger.info(f"{vmlinuz=},{uuid=}")
         menuentry = self._find_menuentry(menus, uuid, vmlinuz)
+        logger.info(f"{menuentry=}")
         return f"{menuentry['entry']}\n"  # append newline
 
     def _update_menuentry(self, menuentry, standby_device, vmlinuz, initrd_img):
         uuid = self._get_uuid(standby_device)
+        logger.info(f"{uuid=}")
         # NOTE: Only UUID sepcifier is supported.
         replaced = re.sub(
             r"(.*\slinux\s+/)\S*(\s+root=UUID=)\S*(\s.*)",
@@ -243,9 +255,11 @@ class GrubControl:
             rf"\g<1>{initrd_img}\g<2>",
             replaced,
         )
+        logger.info(f"{replaced=}")
         return replaced
 
     def _update_default_grub(self, patterns):
+        logger.info(f"{patterns=}")
         lines = open(self._default_grub_file).readlines()
         patterns_found = {}
         updated = []
@@ -261,7 +275,9 @@ class GrubControl:
             if not found:
                 updated.append(line)
 
+        logger.info(f"{updated=}")
         deltas = dict(patterns.items() - patterns_found.items())
+        logger.info(f"{deltas=}")
         for k, v in deltas.items():
             updated.append(f"{k}{v}\n")
 

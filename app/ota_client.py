@@ -6,13 +6,14 @@ import re
 import os
 import time
 import json
-from http import HTTPStatus
+import operator
 from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
 from multiprocessing import Pool, Manager
 from threading import Lock
-from functools import partial
+from functools import partial, reduce
+from collections import Counter
 from enum import Enum, unique
 from requests.exceptions import RequestException
 from retrying import retry
@@ -205,14 +206,42 @@ class OtaClientUpdatePhase(Enum):
     POST_PROCESSING = 6
 
 
+class OtaClientStatistics(object):
+    def __init__(self):
+        self.clear()
+
+    def clear(self):
+        self.total_files = 0
+        self.files_processed = 0
+
+        self.files_processed_copy = 0
+        self.files_processed_link = 0
+        self.files_processed_download = 0
+
+        self.file_size_processed_copy = 0
+        self.file_size_processed_link = 0
+        self.file_size_processed_download = 0
+
+        self.elapsed_time_copy = 0  # in milliseconds
+        self.elapsed_time_link = 0  # in milliseconds
+        self.elapsed_time_download = 0  # in milliseconds
+
+        self.errors_download = 0
+
+
 class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
+    MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
+    PASSWD_FILE = cfg.PASSWD_FILE  # Path("/etc/passwd")
+    GROUP_FILE = cfg.GROUP_FILE  # Path("/etc/group")
+
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
         self._failure_reason = ""
         self._update_phase = OtaClientUpdatePhase.INITIAL
-        self._update_total_regular_files = 0
-        self._update_regular_files_processed = 0
+
+        # statistics
+        self._statistics = OtaClientStatistics()
 
     def update(self, version, url_base, cookies_json: str):
         logger.debug("[update] entering...")
@@ -229,12 +258,12 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             self._update(version, url_base, cookies)
             return self._result_ok()
         except (JSONDecodeError, OtaErrorRecoverable) as e:
-            logger.exception(msg="failed to apply ota update")
+            logger.exception(msg="recoverable")
             self.set_ota_status(OtaStatus.FAILURE)
             self.write_standby_ota_status(OtaStatus.FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
-            logger.exception(msg="failed to apply ota update")
+            logger.exception(msg="unrecoverable")
             self.set_ota_status(OtaStatus.FAILURE)
             self.write_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
@@ -245,16 +274,19 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             self.check_rollback_status()
         except OtaErrorRecoverable:
             # not setting ota_status
+            logger.exception("check_rollback_status")
             return OtaClientFailureType.RECOVERABLE
 
         try:
             self._rollback()
             return self._result_ok()
         except OtaErrorRecoverable as e:
+            logger.exception(msg="recoverable")
             self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
             self.write_standby_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
+            logger.exception(msg="unrecoverable")
             self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
             self.write_standby_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_unrecoverable(e)
@@ -265,8 +297,10 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             status = self._status()
             return OtaClientFailureType.NO_FAILURE, status
         except OtaErrorRecoverable:
+            logger.exception("recoverable")
             return OtaClientFailureType.RECOVERABLE, None
         except (OtaErrorUnrecoverable, Exception):
+            logger.exception("unrecoverable")
             return OtaClientFailureType.UNRECOVERABLE, None
 
     """ private functions from here """
@@ -289,6 +323,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         return OtaClientFailureType.UNRECOVERABLE
 
     def _update(self, version, url_base, cookies):
+        logger.info(f"{version=},{url_base=},{cookies=}")
         """
         e.g.
         cookies = {
@@ -298,8 +333,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         }
         """
         self._update_phase = OtaClientUpdatePhase.INITIAL
-        self._total_regular_files = 0
-        self._regular_files_processed = 0
+        self._statistics.clear()
 
         logger.info(f"version={version}, url_base={url_base}, cookies={cookies}")
         # enter update
@@ -362,8 +396,18 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             "version": self.get_version(),
             "update_progress": {
                 "phase": self._update_phase.name,
-                "total_regular_files": self._total_regular_files,
-                "regular_files_processed": self._regular_files_processed,
+                "total_regular_files": self._statistics.total_files,
+                "regular_files_processed": self._statistics.files_processed,
+                "files_processed_copy": self._statistics.files_processed_copy,
+                "files_processed_link": self._statistics.files_processed_link,
+                "files_processed_download": self._statistics.files_processed_download,
+                "file_size_processed_copy": self._statistics.file_size_processed_copy,
+                "file_size_processed_link": self._statistics.file_size_processed_link,
+                "file_size_processed_download": self._statistics.file_size_processed_download,
+                "elapsed_time_copy": self._statistics.elapsed_time_copy,
+                "elapsed_time_link": self._statistics.elapsed_time_link,
+                "elapsed_time_download": self._statistics.elapsed_time_download,
+                "errors_download": self._statistics.errors_download,
             },
         }
 
@@ -392,6 +436,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             file_name = Path(d) / list_info["file"]
             _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             metadata.verify(open(file_name).read())
+            logger.info("done")
 
     def _process_metadata(self, url_base, cookies):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -401,6 +446,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             metadata = OtaMetadata(open(file_name, "r").read())
             certificate_info = metadata.get_certificate_info()
             self._verify_metadata(url_base, cookies, certificate_info, metadata)
+            logger.info("done")
             return metadata
 
     def _process_directory(self, url_base, cookies, list_info, standby_path):
@@ -408,12 +454,14 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             file_name = Path(d) / list_info["file"]
             _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             self._create_directories(file_name, standby_path)
+            logger.info("done")
 
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             self._create_symbolic_links(file_name, standby_path)
+            logger.info("done")
 
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -421,17 +469,19 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
+            logger.info("done")
 
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
             self._copy_persistent_files(file_name, standby_path)
+            logger.info("done")
 
     def _create_directories(self, list_file, standby_path):
         lines = open(list_file).read().splitlines()
-        for l in lines:
-            dirinf = DirectoryInf(l)
+        for line in lines:
+            dirinf = DirectoryInf(line)
             target_path = standby_path.joinpath(dirinf.path.relative_to("/"))
             target_path.mkdir(mode=dirinf.mode, parents=True, exist_ok=True)
             os.chown(target_path, dirinf.uid, dirinf.gid)
@@ -439,20 +489,66 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
     def _create_symbolic_links(self, list_file, standby_path):
         lines = open(list_file).read().splitlines()
-        for l in lines:
+        for line in lines:
             # NOTE: symbolic link in /boot directory is not supported. We don't use it.
-            slinkf = SymbolicLinkInf(l)
+            slinkf = SymbolicLinkInf(line)
             slink = standby_path.joinpath(slinkf.slink.relative_to("/"))
             slink.symlink_to(slinkf.srcpath)
             os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
 
+    def _set_statistics(self, processed_list):
+        st = self._statistics
+        st.files_processed = len(processed_list)
+
+        def set_st(op, files_processed, file_size_processed, elapsed_time):
+            _list = []
+            for i in processed_list[: st.files_processed]:
+                if i["op"] == op:
+                    i.pop("op")  # remove 'op' element
+                    _list.append(i)
+            setattr(st, files_processed, len(_list))
+
+            _list = _list if _list else [{}]  # add {} if empty
+            _total = reduce(operator.add, map(Counter, _list))
+            setattr(st, file_size_processed, _total.get("size", 0))
+            # convert from seconds to milli seconds as int
+            setattr(st, elapsed_time, int(_total.get("elapsed", 0) * 1000))
+            if op == "download":
+                st.errors_download = _total.get("errors", 0)
+
+        set_st(
+            "copy",
+            "files_processed_copy",
+            "file_size_processed_copy",
+            "elapsed_time_copy",
+        )
+        set_st(
+            "link",
+            "files_processed_link",
+            "file_size_processed_link",
+            "elapsed_time_link",
+        )
+        set_st(
+            "download",
+            "files_processed_download",
+            "file_size_processed_download",
+            "elapsed_time_download",
+        )
+
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         reginf_list_raw_lines = open(list_file).read().splitlines()
-        self._total_regular_files = len(reginf_list_raw_lines)
+        self._statistics.total_files = len(reginf_list_raw_lines)
 
         with Manager() as manager:
             error_queue = manager.Queue()
             # NOTE: manager.Value doesn't work properly.
+            """
+            processed_list have dictionaries as follows:
+            {"size": int}  # file size
+            {"elapsed": int}  # elapsed time in seconds
+            {"op": str}  # operation. "copy", "link" or "download"
+            {"errors": int}  # number of errors that occurred when downloading.
+            """
             processed_list = manager.list()
 
             def error_callback(e):
@@ -472,7 +568,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             with Pool() as pool:
                 hardlink_dict = dict()  # sha256hash[tuple[reginf, event]]
 
-                # imap_unordered return a lazy itorator without blocking
+                # imap_unordered return a lazy iterator without blocking
                 reginf_list = pool.imap_unordered(RegularInf, reginf_list_raw_lines)
                 for reginf in reginf_list:
                     if reginf.nlink >= 2:
@@ -500,13 +596,14 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
 
                 pool.close()
                 while len(processed_list) < len(reginf_list_raw_lines):
-                    self._regular_files_processed = len(processed_list)  # via setter
+                    self._set_statistics(processed_list)
+
                     if not error_queue.empty():
                         error = error_queue.get()
                         pool.terminate()
                         raise error
                     time.sleep(2)  # set pulling interval to 2 seconds
-                self._regular_files_processed = len(processed_list)  # via setter
+                self._set_statistics(processed_list)
 
     # NOTE:
     # _create_regular_file should be static to be used from pool.apply_async,
@@ -525,6 +622,8 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         # for hardlink file
         hardlink_event=None,
     ):
+        processed = {}
+        begin_time = time.time()
         ishardlink = reginf.nlink >= 2
         hardlink_first_copy = (
             prev_reginf is not None and prev_reginf.path == reginf.path
@@ -539,17 +638,27 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             # wait until the first copy is ready
             hardlink_event.wait()
             (standby_path / prev_reginf.path.relative_to("/")).link_to(dst)
+            processed["op"] = "link"
+            processed["errors"] = 0
         else:  # normal file or first copy of hardlink file
             if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
                 # copy file from active bank if hash is the same
                 shutil.copy(reginf.path, dst)
+                processed["op"] = "copy"
+                processed["errors"] = 0
             else:
-                _download(url_base, str(reginf.path.relative_to("/")), dst, reginf.sha256hash, cookies=cookies)
+                errors = _download(url_base, str(reginf.path.relative_to("/")), dst, reginf.sha256hash, cookies=cookies)
+                processed["op"] = "download"
+                processed["errors"] = errors
+        processed["size"] = dst.stat().st_size
 
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
 
-        processed_list.append(True)
+        end_time = time.time()
+        processed["elapsed"] = end_time - begin_time
+
+        processed_list.append(processed)
         if ishardlink and hardlink_first_copy:
             hardlink_event.set()  # first copy of hardlink file is ready
 
@@ -561,8 +670,8 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             dst_group_file=standby_path / self._group_file.relative_to("/"),
         )
         lines = open(list_file).read().splitlines()
-        for l in lines:
-            perinf = PersistentInf(l)
+        for line in lines:
+            perinf = PersistentInf(line)
             if (
                 perinf.path.is_file()
                 or perinf.path.is_dir()
@@ -617,5 +726,8 @@ def ota_client_instance():
 
     return OtaClient
 
-
 OtaClient = ota_client_instance()
+
+if __name__ == "__main__":
+    ota_client = OtaClient()
+    ota_client.update("123.x", "http://localhost:8080", "{}")

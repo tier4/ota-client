@@ -49,8 +49,18 @@ def test_ota_client_status(mocker, tmp_path):
 
     # test start
     ota_client_instance = ota_client.OtaClient()
-    ota_client_instance._total_regular_files = 99
-    ota_client_instance._regular_files_processed = 1
+    ota_client_instance._statistics.total_files = 99
+    ota_client_instance._statistics.files_processed = 1
+    ota_client_instance._statistics.files_processed_copy = 80
+    ota_client_instance._statistics.files_processed_link = 9
+    ota_client_instance._statistics.files_processed_download = 10
+    ota_client_instance._statistics.file_size_processed_copy = 1111
+    ota_client_instance._statistics.file_size_processed_link = 2222
+    ota_client_instance._statistics.file_size_processed_download = 3333
+    ota_client_instance._statistics.elapsed_time_copy = 1.01
+    ota_client_instance._statistics.elapsed_time_link = 2.02
+    ota_client_instance._statistics.elapsed_time_download = 3.03
+    ota_client_instance._statistics.errors_download = 10
 
     result, ota_status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
@@ -63,5 +73,15 @@ def test_ota_client_status(mocker, tmp_path):
             "phase": "INITIAL",
             "total_regular_files": 99,
             "regular_files_processed": 1,
+            "files_processed_copy": 80,
+            "files_processed_link": 9,
+            "files_processed_download": 10,
+            "file_size_processed_copy": 1111,
+            "file_size_processed_link": 2222,
+            "file_size_processed_download": 3333,
+            "elapsed_time_copy": 1.01,
+            "elapsed_time_link": 2.02,
+            "elapsed_time_download": 3.03,
+            "errors_download": 10,
         },
     }
