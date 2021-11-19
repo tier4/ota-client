@@ -465,6 +465,8 @@ class CBootControlMixin(BootControlMixinInterface):
         )
 
     def _mount_standby(self):
+        self._mount_point.mkdir(parents=True, exist_ok=True)
+
         standby_dev = self._boot_control.get_standby_dev()
         cmd_mount = f"mount {standby_dev} {self._mount_point}"
         logger.debug(f"starget: {standby_dev}, mount_point: {self._mount_point}")
