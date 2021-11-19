@@ -6,7 +6,7 @@ import shutil
 import requests
 import requests_mock
 from pathlib import Path
-from threading import Thread
+from threading import Thread, Event
 
 test_dir = Path(__file__).parent
 
@@ -329,97 +329,83 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     cmdline = "BOOT_IMAGE=/vmlinuz-5.4.0-73-generic root=UUID=01234567-0123-0123-0123-0123456789ab ro maybe-ubiquity"
 
     mocker.patch.object(GrubControl, "_get_cmdline", return_value=cmdline)
-    reboot_mock = mocker.patch.object(GrubControl, "reboot", return_value=0)
-    _grub_reboot_mock = mocker.patch.object(
-        GrubControl, "_grub_reboot_cmd", return_value=0
-    )
+    mocker.patch.object(GrubControl, "reboot", return_value=0)
+    mocker.patch.object(GrubControl, "_grub_reboot_cmd", return_value=0)
     # test start
     ota_client = OtaClient()
     # check if _failure_type and _failure_reason are cleared by update call.
     ota_client._failure_type = OtaClientFailureType.UNRECOVERABLE
     ota_client._failure_reason = "fuga"
 
-    th = Thread(
+    event = Event()
+
+    # This test makes sure that event is set and failure type and reason are cleared.
+    event.clear()
+    th1 = Thread(
         target=ota_client.update,
         args=(
             "123.x",
             "http://ota-server:8080/ota-server",
             json.dumps({"test": "my-cookie"}),
+            event,
         ),
     )
-    th.start()
-    time.sleep(1)
+    th1.start()
+    event.wait()
 
     result, status = ota_client.status()
     assert result == OtaClientFailureType.NO_FAILURE
     assert status["status"] == "UPDATING"
-    assert status["failure_reason"] == ""
-    assert status["failure_type"] == "NO_FAILURE"
+    assert status["failure_reason"] == ""  # make sure failure_reason is cleared
+    assert status["failure_type"] == "NO_FAILURE"  # make sure failure_type is cleared
     assert status["version"] == "a.b.c"
-    progress = status["update_progress"]
-    assert progress["phase"] == "POST_PROCESSING"
-    # NOTE: numbers are depends on ota-image
-    # total file size processed is:
-    # find data/ -type f | xargs ls -l | awk '{total += $5}; END {print total}'
-    TOTAL_FILES = 2499
-    # NOTE: There is difference between github actins and local environment, so
-    # approximate value is used.
-    TOTAL_FILE_SIZE_APPROX = 108700000
-    assert progress["total_regular_files"] == TOTAL_FILES
-    assert progress["regular_files_processed"] == progress["total_regular_files"]
-    assert (
-        progress["files_processed_copy"]
-        + progress["files_processed_link"]
-        + progress["files_processed_download"]
-        == progress["total_regular_files"]
-    )
-    assert (
-        progress["file_size_processed_copy"]
-        + progress["file_size_processed_link"]
-        + progress["file_size_processed_download"]
-    ) // 100000 == TOTAL_FILE_SIZE_APPROX // 100000
-    assert type(progress["elapsed_time_copy"]) == int  # in milliseconds
-    assert type(progress["elapsed_time_link"]) == int  # in milliseconds
-    assert type(progress["elapsed_time_download"]) == int  # in milliseconds
 
-    # make sure boot ota-partition is NOT switched
-    assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"
-    assert (
-        os.readlink(boot_dir / "vmlinuz-ota.standby")
-        == "ota-partition.sdx4/vmlinuz-ota"
+    # This request fails since ota status is UPDATING and returns immediately.
+    th2 = Thread(
+        target=ota_client.update,
+        args=(
+            "123.x",
+            "http://ota-server:8080/ota-server",
+            json.dumps({"test": "my-cookie"}),
+            event,
+        ),
     )
-    assert (
-        os.readlink(boot_dir / "initrd.img-ota.standby")
-        == "ota-partition.sdx4/initrd.img-ota"
-    )
+    th2.start()
+    event.wait()
 
-    assert (
-        os.readlink(boot_dir / "ota-partition.sdx4" / "vmlinuz-ota")
-        == "vmlinuz-5.8.0-53-generic"  # FIXME
-    )
-    assert (
-        os.readlink(boot_dir / "ota-partition.sdx4" / "initrd.img-ota")
-        == "initrd.img-5.8.0-53-generic"  # FIXME
-    )
-    assert open(boot_dir / "ota-partition.sdx4" / "status").read() == "UPDATING"
-    assert open(boot_dir / "ota-partition.sdx4" / "version").read() == "123.x"
-    # make sure grub.cfg is not created yet in standby boot partition
-    assert not (boot_dir / "ota-partition.sdx4" / "grub.cfg").is_file()
+    result, status = ota_client.status()
+    assert result == OtaClientFailureType.NO_FAILURE
+    assert status["status"] == "UPDATING"
+    assert status["failure_reason"] == ""  # make sure failure_reason is unchanged
+    assert status["failure_type"] == "NO_FAILURE"  # make sure failure_type is unchanged
+    assert status["version"] == "a.b.c"
 
-    # custom.cfg is created
-    assert (boot_dir / "grub" / "custom.cfg").is_file()
-    assert open(boot_dir / "grub" / "custom.cfg").read() == custom_cfg
+    th2.join()
+    th1.join()
 
-    # number of menuentry in grub_cfg_wo_submenu is 9
-    _grub_reboot_mock.assert_called_once_with(9)
-    reboot_mock.assert_called_once()
-
-    # fstab
-    assert (
-        open(tmp_path / "mnt" / "standby" / "etc" / "fstab").read()
-        == FSTAB_DEV_DISK_BY_UUID_STANDBY
+    # This test makes sure that:
+    # event is set if an error occured,
+    # and failure type/reason are set.
+    event.clear()
+    th = Thread(
+        target=ota_client.update,
+        args=(
+            "123.x",
+            "http://ota-server:8080/ota-server",
+            "illegal json string",
+            event,
+        ),
     )
-    assert ota_client._ota_status.get_ota_status() == OtaStatus.UPDATING
+    th.start()
+    event.wait()  # event should be set even if error.
+
+    result, status = ota_client.status()
+    assert result == OtaClientFailureType.NO_FAILURE
+    assert status["status"] == "FAILURE"
+    assert status["failure_reason"].startswith("Expecting value:")  # json error
+    assert status["failure_type"] == "RECOVERABLE"  # failure type is set as RECOVERABLE
+    assert status["version"] == "a.b.c"
+    th.join()
 
 
 @pytest.mark.parametrize(
