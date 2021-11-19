@@ -66,11 +66,12 @@ class helperFuncsWrapper:
     @classmethod
     def get_partuuid_by_dev(cls, dev: str) -> str:
         args = f"{dev} -s PARTUUID"
-        res = cls._blkid(args).split(":")[-1].strip()
-        k, v = res.split("=")
-        v.strip('"')
+        res = cls._blkid(args)
 
-        return f"{k}={v}"
+        pa = re.compile(r'PARTUUID="?(?P<partuuid>[\w-]*)"?')
+        v = pa.search(res).group("partuuid")
+
+        return f"PARTUUID={v}"
 
     @classmethod
     def get_dev_by_partlabel(cls, partlabel: str) -> str:
