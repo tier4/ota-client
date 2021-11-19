@@ -1,4 +1,3 @@
-from sys import platform
 import tempfile
 import requests
 import shutil
@@ -34,8 +33,15 @@ logger = log_util.get_logger(
 
 
 def file_sha256(filename: Path) -> str:
+    ONE_MB = 1048576
     with open(filename, "rb") as f:
-        return sha256(f.read()).hexdigest()
+        m = sha256()
+        while True:
+            d = f.read(ONE_MB)
+            if d == b"":
+                break
+            m.update(d)
+        return m.hexdigest()
 
 
 def verify_file(filename: Path, filehash: str) -> bool:
