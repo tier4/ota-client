@@ -33,7 +33,7 @@ def _subprocess_call(cmd: str, *, raise_exception=False):
         logger.debug(f"cmd: {cmd}")
         subprocess.check_call(shlex.split(cmd), stdout=subprocess.DEVNULL)
     except subprocess.CalledProcessError as e:
-        logger.exception(msg=f"command failed(exit-code: {e.returncode} \n stderr: {e.stderr} \n stdout: {e.stdout}): {cmd}")
+        logger.warn(msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}")
         if raise_exception:
             raise e
 
@@ -42,7 +42,7 @@ def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
         logger.debug(f"cmd: {cmd}")
         return subprocess.check_output(shlex.split(cmd)).decode().strip()
     except subprocess.CalledProcessError as e:
-        logger.exception(msg=f"command failed(exit-code: {e.returncode} \n stderr: {e.stderr} \n stdout: {e.stdout}): {cmd}")
+        logger.warn(msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}")
         if raise_exception:
             raise e
         return ""
@@ -611,7 +611,7 @@ class CBootControlMixin(BootControlMixinInterface):
     def finalize_update(self) -> OtaStatus:
         logger.debug("entering finalizing stage...")
         if self._is_switching_boot():
-            logger.debug("changes applied successed")
+            logger.debug("changes applied succeeded")
             # set the current slot(switched slot) as boot successful
             self._boot_control.mark_current_slot_boot_successful()
             self.write_ota_status(OtaStatus.SUCCESS)
