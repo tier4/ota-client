@@ -82,7 +82,7 @@ class helperFuncsWrapper:
         return cls._findfs("PARTUUID", partuuid)
 
 
-class nvbootctrlWrapper:
+class nvbootctrl:
     """
     slot num: 0->A, 1->B
     slot suffix: "", "_b"
@@ -99,7 +99,7 @@ class nvbootctrlWrapper:
         if call_only:
             _subprocess_call(_cmd, raise_exception=raise_exception)
         else:
-            return _subprocess_check_output(_cmd, raise_exception=raise_exception)
+            return _subprocess_check_output(_cmd, raise_exception=raise_exception).strip()
 
     # nvbootctrl wrapper
     @classmethod
@@ -107,7 +107,7 @@ class nvbootctrlWrapper:
         return cls._nvbootctrl("get-current-slot", call_only=False)
 
     @classmethod
-    def get_stanby_slot(cls) -> str:
+    def get_standby_slot(cls) -> str:
         return cls._active_standby_flip[cls.get_current_slot()]
 
     @classmethod
@@ -170,7 +170,7 @@ class nvbootctrlWrapper:
 
     @classmethod
     def get_standby_slot_dev(cls) -> str:
-        slot = cls.get_stanby_slot()
+        slot = cls.get_standby_slot()
         suffix = cls.get_suffix(slot)
         dev = helperFuncsWrapper.get_dev_by_partlabel(f"APP{suffix}")
 
@@ -345,9 +345,9 @@ class CBootControl:
         return
             slot, dev, partuuid
         """
-        _slot = nvbootctrlWrapper.get_stanby_slot()
-        _dev = nvbootctrlWrapper.get_standby_slot_dev()
-        _partuuid = nvbootctrlWrapper.get_standby_slot_partuuid()
+        _slot = nvbootctrl.get_standby_slot()
+        _dev = nvbootctrl.get_standby_slot_dev()
+        _partuuid = nvbootctrl.get_standby_slot_partuuid()
 
         return _slot, _dev, _partuuid
 
@@ -413,28 +413,28 @@ class CBootControl:
     ###### nvbootctrl ######
     @classmethod
     def mark_current_slot_boot_successful(cls):
-        slot = nvbootctrlWrapper.get_current_slot()
-        nvbootctrlWrapper.mark_boot_successful(slot)
+        slot = nvbootctrl.get_current_slot()
+        nvbootctrl.mark_boot_successful(slot)
 
     @classmethod
     def set_standby_slot_unbootable(cls):
-        slot = nvbootctrlWrapper.get_stanby_slot()
-        nvbootctrlWrapper.set_slot_as_unbootable(slot)
+        slot = nvbootctrl.get_standby_slot()
+        nvbootctrl.set_slot_as_unbootable(slot)
 
     @classmethod
     def switch_boot_standby(cls):
-        dev = nvbootctrlWrapper.get_stanby_slot()
-        nvbootctrlWrapper.set_active_boot_slot(dev)
+        dev = nvbootctrl.get_standby_slot()
+        nvbootctrl.set_active_boot_slot(dev)
 
     @classmethod
     def is_current_slot_bootable(cls) -> bool:
-        slot = nvbootctrlWrapper.get_current_slot()
-        return nvbootctrlWrapper.is_slot_bootable(slot)
+        slot = nvbootctrl.get_current_slot()
+        return nvbootctrl.is_slot_bootable(slot)
 
     @classmethod
     def is_current_slot_marked_successful(cls) -> bool:
-        slot = nvbootctrlWrapper.get_current_slot()
-        return nvbootctrlWrapper.is_slot_marked_successful(slot)
+        slot = nvbootctrl.get_current_slot()
+        return nvbootctrl.is_slot_marked_successful(slot)
 
     @classmethod
     def reboot(cls):
@@ -450,6 +450,7 @@ class CBootControlMixin(BootControlMixinInterface):
         self._ota_status_dir: Path = cfg.OTA_STATUS_DIR
         self._ota_status_file = self._ota_status_dir / cfg.OTA_STATUS_FNAME
         self._ota_version_file = self._ota_status_dir / cfg.OTA_VERSION_FNAME
+        self._slot_in_use_file = cfg.SLOT_IN_USE_FILE
 
         # standby slot
         self._standby_ota_status_dir: Path = (
@@ -464,6 +465,7 @@ class CBootControlMixin(BootControlMixinInterface):
         self._standby_extlinux_cfg = self._mount_point / cfg.EXLINUX_FILE.relative_to(
             "/"
         )
+        self._standby_slot_in_use_file = self._mount_point / cfg.SLOT_IN_USE_FILE.relative_to(Path("/"))
 
     def _mount_standby(self):
         self._mount_point.mkdir(parents=True, exist_ok=True)
@@ -511,7 +513,28 @@ class CBootControlMixin(BootControlMixinInterface):
             OtaStatus.ROLLBACKING.name,
         ]
 
-        return _nvboot_res and _ota_status_res
+        # evidence 3: slot in use
+        # the slot_in_use file should have the same slot as current slot
+        _is_slot_in_use = self._load_slot_in_use_file() == nvbootctrl.get_current_slot()
+
+        logger.debug(f"checking result:    nvboot: {_nvboot_res}, ota_status: {_ota_status_res}, slot_in_use: {_is_slot_in_use}")
+        return _nvboot_res and _ota_status_res and _is_slot_in_use
+
+    def _init_slot_in_use_file(self):
+        """
+        Note: only init current slot if needed
+        """
+        slot = nvbootctrl.get_current_slot()
+        self._slot_in_use_file.write_text(slot)
+
+    def _load_slot_in_use_file(self):
+        """
+        Note: only load current slot if needed
+        """
+        return _read_file(self._slot_in_use_file)
+
+    def _write_slot_in_use_file(self, slot_in_use: str, target: Path):
+        _write_file(target, slot_in_use)
 
     def load_ota_status(self) -> str:
         return _read_file(self._ota_status_file)
@@ -520,13 +543,23 @@ class CBootControlMixin(BootControlMixinInterface):
         self._ota_status_dir.mkdir(parents=True, exist_ok=True)
 
         status = self.load_ota_status()
-        if len(status) == 0:
+        slot_in_use = self._load_slot_in_use_file()
+
+        if len(status) == 0 or len(slot_in_use) == 0:
             self.write_initialized_ota_status()
+            self._init_slot_in_use_file()
             return OtaStatus.INITIALIZED
         elif status == OtaStatus.UPDATING.name:
             return self.finalize_update()
         elif status == OtaStatus.ROLLBACKING.name:
             return self.finalize_rollback()
+        elif status == OtaStatus.SUCCESS.name:
+            current_slot = nvbootctrl.get_current_slot()
+            if current_slot != slot_in_use:
+                logger.debug(f"boot into old slot {current_slot}, should boot into {slot_in_use}")
+                return OtaStatus.FAILURE
+            else:
+                return OtaStatus.SUCCESS
         else:
             return OtaStatus[status]
 
@@ -562,6 +595,9 @@ class CBootControlMixin(BootControlMixinInterface):
         # store status
         self.write_standby_ota_status(OtaStatus.UPDATING)
         self.write_standby_ota_version(version)
+        self._write_slot_in_use_file(nvbootctrl.get_standby_slot(), self._slot_in_use_file)
+        self._write_slot_in_use_file(nvbootctrl.get_standby_slot(), self._standby_slot_in_use_file)
+
         logger.debug("pre-update setting finished")
 
     def boot_ctrl_post_update(self):
@@ -573,16 +609,18 @@ class CBootControlMixin(BootControlMixinInterface):
         self._boot_control.reboot()
 
     def finalize_update(self) -> OtaStatus:
-        logger.debug("entering finalizing update...")
+        logger.debug("entering finalizing stage...")
         if self._is_switching_boot():
-            logger.debug("update successed")
+            logger.debug("changes applied successed")
             # set the current slot(switched slot) as boot successful
             self._boot_control.mark_current_slot_boot_successful()
             self.write_ota_status(OtaStatus.SUCCESS)
             return OtaStatus.SUCCESS
         else:
-            logger.debug("update failed, switch active slot back to previous slot")
+            logger.debug("changes applied failed, switch active slot back to previous slot")
             self.write_ota_status(OtaStatus.FAILURE)
             # set active slot back to the previous slot
             self._boot_control.switch_boot_standby()
             return OtaStatus.FAILURE
+    
+    finalize_rollback = finalize_update
