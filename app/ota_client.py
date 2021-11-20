@@ -49,7 +49,7 @@ def verify_file(filename: Path, filehash: str) -> bool:
     return file_sha256(filename) == filehash
 
 
-def _download(url_base: str, path: str, dst: Path, digest: str, *, cookies, retry=5):
+def _download(url_base: str, path: str, dst: Path, digest: str, *, cookies):
     quoted_path = urllib.parse.quote(path)
     url = urllib.parse.urljoin(url_base, quoted_path)
 
@@ -230,15 +230,16 @@ class OtaClientStatistics(object):
 
 
 class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
-    MOUNT_POINT = cfg.MOUNT_POINT  # Path("/mnt/standby")
-    PASSWD_FILE = cfg.PASSWD_FILE  # Path("/etc/passwd")
-    GROUP_FILE = cfg.GROUP_FILE  # Path("/etc/group")
 
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
         self._failure_reason = ""
         self._update_phase = OtaClientUpdatePhase.INITIAL
+
+        self._mount_point = cfg.MOUNT_POINT
+        self._passwd_file = cfg.PASSWD_FILE
+        self._group_file = cfg.GROUP_FILE
 
         # statistics
         self._statistics = OtaClientStatistics()
@@ -536,7 +537,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         )
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
-        reginf_list_raw_lines = open(list_file).read().splitlines()
+        reginf_list_raw_lines = open(list_file).readlines()
         self._statistics.total_files = len(reginf_list_raw_lines)
 
         with Manager() as manager:
@@ -566,7 +567,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             )
 
             with Pool() as pool:
-                hardlink_dict = dict()  # sha256hash[tuple[reginf, event]]
+                hardlink_dict = dict()  # sha256hash[tuple[reginf, event]
 
                 # imap_unordered return a lazy iterator without blocking
                 reginf_list = pool.imap_unordered(RegularInf, reginf_list_raw_lines)
@@ -617,7 +618,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         url_base: str,
         cookies: dict,
         standby_path: Path,
-        processed_list,
+        processed_list: list,
         boot_standby_path: Path,
         # for hardlink file
         hardlink_event=None,
