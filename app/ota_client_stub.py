@@ -35,6 +35,7 @@ class OtaClientStub:
         tasks = []
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         logger.info(f"{secondary_ecus=}")
+        # simultaneously dispatching update requests to all subecus without blocking
         for secondary in secondary_ecus:
             if OtaClientStub._find_request(request.ecu, secondary):
                 tasks.append(

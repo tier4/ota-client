@@ -252,9 +252,10 @@ def test_ota_client_update(mocker, tmp_path):
 
 
 def test_ota_client_update_multiple_call(mocker, tmp_path):
-    from ota_client import OtaClient, OtaClientFailureType
-    from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatus
+    import ota_client
+    from ota_client import OtaClientFailureType
+    from configs import grub_cfg as cfg
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
     from grub_control import GrubControl
 
     """
@@ -302,7 +303,8 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
 
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
-    mocker.patch.object(OtaClient, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+    mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+    mocker.patch.object(ota_client, "cfg", cfg)
     mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
     mocker.patch.object(
         GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
@@ -337,17 +339,17 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     mocker.patch.object(GrubControl, "reboot", return_value=0)
     mocker.patch.object(GrubControl, "_grub_reboot_cmd", return_value=0)
     # test start
-    ota_client = OtaClient()
+    ota_client_instance = ota_client.OtaClient()
     # check if _failure_type and _failure_reason are cleared by update call.
-    ota_client._failure_type = OtaClientFailureType.UNRECOVERABLE
-    ota_client._failure_reason = "fuga"
+    ota_client_instance._failure_type = OtaClientFailureType.UNRECOVERABLE
+    ota_client_instance._failure_reason = "fuga"
 
     event = Event()
 
     # This test makes sure that event is set and failure type and reason are cleared.
     event.clear()
     th1 = Thread(
-        target=ota_client.update,
+        target=ota_client_instance.update,
         args=(
             "123.x",
             "http://ota-server:8080/ota-server",
@@ -358,7 +360,7 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     th1.start()
     event.wait()
 
-    result, status = ota_client.status()
+    result, status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
     assert status["status"] == "UPDATING"
     assert status["failure_reason"] == ""  # make sure failure_reason is cleared
@@ -367,7 +369,7 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
 
     # This request fails since ota status is UPDATING and returns immediately.
     th2 = Thread(
-        target=ota_client.update,
+        target=ota_client_instance.update,
         args=(
             "123.x",
             "http://ota-server:8080/ota-server",
@@ -378,7 +380,7 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     th2.start()
     event.wait()
 
-    result, status = ota_client.status()
+    result, status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
     assert status["status"] == "UPDATING"
     assert status["failure_reason"] == ""  # make sure failure_reason is unchanged
@@ -393,7 +395,7 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     # and failure type/reason are set.
     event.clear()
     th = Thread(
-        target=ota_client.update,
+        target=ota_client_instance.update,
         args=(
             "123.x",
             "http://ota-server:8080/ota-server",
@@ -404,7 +406,7 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     th.start()
     event.wait()  # event should be set even if error.
 
-    result, status = ota_client.status()
+    result, status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
     assert status["status"] == "FAILURE"
     assert status["failure_reason"].startswith("Expecting value:")  # json error
@@ -912,7 +914,7 @@ def test_ota_client__copy_persistent_files(mocker, tmp_path):
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
     mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
     mocker.patch.object(ota_client, "cfg", cfg)
-    
+
     mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
     mocker.patch.object(
         GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
