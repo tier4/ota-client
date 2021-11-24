@@ -467,6 +467,10 @@ class CBootControlMixin(BootControlMixinInterface):
         )
         self._standby_slot_in_use_file = self._mount_point / cfg.SLOT_IN_USE_FILE.relative_to(Path("/"))
 
+        # initialize ota status
+        self._ota_status = self.initialize_ota_status()
+        logger.debug(f"ota_status: {self._ota_status}")
+
     def _mount_standby(self):
         self._mount_point.mkdir(parents=True, exist_ok=True)
 

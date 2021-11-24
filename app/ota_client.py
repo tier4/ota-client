@@ -722,9 +722,6 @@ def ota_client_instance():
                 super().__init__()
                 super(CBootControlMixin, self).__init__()
 
-                self._ota_status = self.initialize_ota_status()
-                logger.debug(f"ota_status: {self._ota_status}")
-
     return OtaClient
 
 OtaClient = ota_client_instance()
