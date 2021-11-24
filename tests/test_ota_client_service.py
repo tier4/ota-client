@@ -2,6 +2,7 @@ import os
 import pytest
 import grpc
 import json
+from unittest.mock import ANY
 
 
 @pytest.fixture
@@ -41,7 +42,12 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
     from ota_client import OtaClientFailureType
 
     ota_client_mock = start_service_with_ota_client_mock
-    ota_client_mock.update.return_value = OtaClientFailureType.NO_FAILURE
+
+    def mock_update(version, url, cookies, event):
+        event.set()
+        return OtaClientFailureType.NO_FAILURE
+
+    ota_client_mock.update.side_effect = mock_update
 
     with grpc.insecure_channel("localhost:50051") as channel:
         request = v2.UpdateRequest()
@@ -60,7 +66,10 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
         assert response == response_exp
 
     ota_client_mock.update.assert_called_once_with(
-        "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}'
+        "1.2.3.a",
+        "https://foo.bar.com/ota-data",
+        '{"test": "my data"}',
+        ANY,
     )
 
 
