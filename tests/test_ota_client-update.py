@@ -272,7 +272,7 @@ def test_ota_client_update_regular_download_error(
     mocker, tmp_path, error_injection, failure_reason_startswith
 ):
     from ota_client import OtaClient, OtaClientFailureType
-    from ota_partition import OtaPartition, OtaPartitionFile
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
 
@@ -399,7 +399,7 @@ def test_ota_client_update_regular_download_error(
     _grub_reboot_mock.assert_not_called()
     reboot_mock.assert_not_called()
 
-    assert ota_client._ota_status.get_ota_status() == OtaStatus.FAILURE
+    assert ota_client.get_ota_status() == OtaStatus.FAILURE
 
 
 def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
