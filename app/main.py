@@ -19,12 +19,14 @@ logger = log_util.get_logger(
 
 VERSION_FILE = Path(__file__).parent.parent / "version.txt"
 
+
 def main():
     logger.info("started")
     version_file = VERSION_FILE
     if version_file.is_file():
         version = open(version_file).read()
         logger.info(version)
+
 
 if __name__ == "__main__":
     # create a lock file to prevent multiple ota-client instances start

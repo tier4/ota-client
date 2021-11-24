@@ -17,6 +17,7 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+
 class OtaPartition:
     """
     NOTE:
@@ -430,15 +431,12 @@ class OtaPartitionFile(OtaPartition):
         cmd_mv = f"mv -T {src} {dst}"
         return subprocess.check_output(shlex.split(cmd_mv))
 
+
 ######## bootcontrol adapter for grub_control ########
 class GrubControlMixin(BootControlMixinInterface):
     def __init__(self):
         self._boot_control = OtaPartitionFile()
         self._ota_status = self.initialize_ota_status()
-
-        self._mount_point = cfg.MOUNT_POINT
-        self._passwd_file = cfg.PASSWD_FILE
-        self._group_file = cfg.GROUP_FILE
 
     def initialize_ota_status(self):
         status_string = self.load_ota_status()

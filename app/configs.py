@@ -6,8 +6,8 @@ from logging import INFO
 
 __all__ = ["Config", "cboot_cfg", "grub_cfg"]
 
-class _BaseConfig(ABC):
 
+class _BaseConfig(ABC):
     def __init__(self):
         # default settings(platform neutral)
         default_log_level = INFO
@@ -58,6 +58,7 @@ class _BaseConfig(ABC):
             raise AttributeError(f"config option {name} not found")
         else:
             return self._properties_map[name]
+
 
 class GrubControlConfig(_BaseConfig):
     """
@@ -116,11 +117,13 @@ def _detect_platform():
     elif platform.machine() == "aarch64" or platform.processor == "aarch64":
         return "cboot"
 
+
 def create_config(platform):
     if platform == "grub":
         return GrubControlConfig()
     elif platform == "cboot":
         return CBootControlConfig()
+
 
 cboot_cfg = CBootControlConfig()
 grub_cfg = GrubControlConfig()

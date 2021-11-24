@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Tuple
 
 import log_util
-from configs import cboot_cfg as cfg 
+from configs import cboot_cfg as cfg
 from ota_error import OtaErrorUnrecoverable
 from ota_status import OtaStatus
 from boot_control import BootControlMixinInterface
@@ -28,24 +28,31 @@ def _write_file(path: Path, input: str):
     path.touch(mode=420, exist_ok=True)
     path.write_text(input)
 
+
 def _subprocess_call(cmd: str, *, raise_exception=False):
     try:
         logger.debug(f"cmd: {cmd}")
         subprocess.check_call(shlex.split(cmd), stdout=subprocess.DEVNULL)
     except subprocess.CalledProcessError as e:
-        logger.warn(msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}")
+        logger.warn(
+            msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}"
+        )
         if raise_exception:
             raise e
+
 
 def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
     try:
         logger.debug(f"cmd: {cmd}")
         return subprocess.check_output(shlex.split(cmd)).decode().strip()
     except subprocess.CalledProcessError as e:
-        logger.warn(msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}")
+        logger.warn(
+            msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}"
+        )
         if raise_exception:
             raise e
         return ""
+
 
 class helperFuncsWrapper:
     @classmethod
@@ -99,7 +106,9 @@ class nvbootctrl:
         if call_only:
             _subprocess_call(_cmd, raise_exception=raise_exception)
         else:
-            return _subprocess_check_output(_cmd, raise_exception=raise_exception).strip()
+            return _subprocess_check_output(
+                _cmd, raise_exception=raise_exception
+            ).strip()
 
     # nvbootctrl wrapper
     @classmethod
@@ -148,13 +157,13 @@ class nvbootctrl:
         """
         check the givin dev is root dev or not
         """
-        pa = re.compile(r'\broot=(?P<rdev>[\w=-]*)\b')
-        ma = pa.search(
-            _subprocess_check_output("cat /proc/cmdline")
-        ).group("rdev")
+        pa = re.compile(r"\broot=(?P<rdev>[\w=-]*)\b")
+        ma = pa.search(_subprocess_check_output("cat /proc/cmdline")).group("rdev")
         uuid = ma.split("=")[-1]
 
-        return Path(helperFuncsWrapper.get_dev_by_partuuid(uuid)).resolve(strict=True) == Path(dev).resolve(strict=True)
+        return Path(helperFuncsWrapper.get_dev_by_partuuid(uuid)).resolve(
+            strict=True
+        ) == Path(dev).resolve(strict=True)
 
     @classmethod
     def get_current_slot_dev(cls) -> str:
@@ -164,7 +173,7 @@ class nvbootctrl:
 
         if not cls._check_is_rootdev(dev):
             raise OtaErrorUnrecoverable(f"rootfs mismatch, expect {dev} as rootfs")
-        
+
         logger.debug(f"current slot dev: {dev}")
         return dev
 
@@ -465,7 +474,9 @@ class CBootControlMixin(BootControlMixinInterface):
         self._standby_extlinux_cfg = self._mount_point / cfg.EXLINUX_FILE.relative_to(
             "/"
         )
-        self._standby_slot_in_use_file = self._mount_point / cfg.SLOT_IN_USE_FILE.relative_to(Path("/"))
+        self._standby_slot_in_use_file = (
+            self._mount_point / cfg.SLOT_IN_USE_FILE.relative_to(Path("/"))
+        )
 
         # initialize ota status
         self._ota_status = self.initialize_ota_status()
@@ -521,7 +532,9 @@ class CBootControlMixin(BootControlMixinInterface):
         # the slot_in_use file should have the same slot as current slot
         _is_slot_in_use = self._load_slot_in_use_file() == nvbootctrl.get_current_slot()
 
-        logger.debug(f"checking result:    nvboot: {_nvboot_res}, ota_status: {_ota_status_res}, slot_in_use: {_is_slot_in_use}")
+        logger.debug(
+            f"checking result:    nvboot: {_nvboot_res}, ota_status: {_ota_status_res}, slot_in_use: {_is_slot_in_use}"
+        )
         return _nvboot_res and _ota_status_res and _is_slot_in_use
 
     def _init_slot_in_use_file(self):
@@ -560,7 +573,9 @@ class CBootControlMixin(BootControlMixinInterface):
         elif status == OtaStatus.SUCCESS.name:
             current_slot = nvbootctrl.get_current_slot()
             if current_slot != slot_in_use:
-                logger.debug(f"boot into old slot {current_slot}, should boot into {slot_in_use}")
+                logger.debug(
+                    f"boot into old slot {current_slot}, should boot into {slot_in_use}"
+                )
                 return OtaStatus.FAILURE
             else:
                 return OtaStatus.SUCCESS
@@ -599,8 +614,12 @@ class CBootControlMixin(BootControlMixinInterface):
         # store status
         self.write_standby_ota_status(OtaStatus.UPDATING)
         self.write_standby_ota_version(version)
-        self._write_slot_in_use_file(nvbootctrl.get_standby_slot(), self._slot_in_use_file)
-        self._write_slot_in_use_file(nvbootctrl.get_standby_slot(), self._standby_slot_in_use_file)
+        self._write_slot_in_use_file(
+            nvbootctrl.get_standby_slot(), self._slot_in_use_file
+        )
+        self._write_slot_in_use_file(
+            nvbootctrl.get_standby_slot(), self._standby_slot_in_use_file
+        )
 
         logger.debug("pre-update setting finished")
 
@@ -621,10 +640,12 @@ class CBootControlMixin(BootControlMixinInterface):
             self.write_ota_status(OtaStatus.SUCCESS)
             return OtaStatus.SUCCESS
         else:
-            logger.debug("changes applied failed, switch active slot back to previous slot")
+            logger.debug(
+                "changes applied failed, switch active slot back to previous slot"
+            )
             self.write_ota_status(OtaStatus.FAILURE)
             # set active slot back to the previous slot
             self._boot_control.switch_boot_standby()
             return OtaStatus.FAILURE
-    
+
     finalize_rollback = finalize_update

@@ -14,6 +14,7 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+
 class GrubCfgParser:
     def __init__(self, grub_cfg):
         self._grub_cfg = grub_cfg

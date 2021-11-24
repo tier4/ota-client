@@ -7,6 +7,7 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+
 @unique
 class OtaStatus(Enum):
     INITIALIZED = 0

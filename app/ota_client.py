@@ -230,7 +230,6 @@ class OtaClientStatistics(object):
 
 
 class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
-
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
@@ -251,7 +250,9 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             self.check_update_status()
         except OtaErrorRecoverable:
             # not setting ota_status
-            logger.warn(msg=f"current ota status {self._ota_status} is invalid for ota updating, abort")
+            logger.warn(
+                msg=f"current ota status {self._ota_status} is invalid for ota updating, abort"
+            )
             return OtaClientFailureType.RECOVERABLE
 
         try:
@@ -435,7 +436,13 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
+            _download(
+                url_base,
+                list_info["file"],
+                file_name,
+                list_info["hash"],
+                cookies=cookies,
+            )
             metadata.verify(open(file_name).read())
             logger.info("done")
 
@@ -453,21 +460,39 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def _process_directory(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
+            _download(
+                url_base,
+                list_info["file"],
+                file_name,
+                list_info["hash"],
+                cookies=cookies,
+            )
             self._create_directories(file_name, standby_path)
             logger.info("done")
 
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
+            _download(
+                url_base,
+                list_info["file"],
+                file_name,
+                list_info["hash"],
+                cookies=cookies,
+            )
             self._create_symbolic_links(file_name, standby_path)
             logger.info("done")
 
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
+            _download(
+                url_base,
+                list_info["file"],
+                file_name,
+                list_info["hash"],
+                cookies=cookies,
+            )
             url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
             logger.info("done")
@@ -475,7 +500,13 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(url_base, list_info["file"], file_name, list_info["hash"], cookies=cookies)
+            _download(
+                url_base,
+                list_info["file"],
+                file_name,
+                list_info["hash"],
+                cookies=cookies,
+            )
             self._copy_persistent_files(file_name, standby_path)
             logger.info("done")
 
@@ -648,7 +679,13 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
                 processed["op"] = "copy"
                 processed["errors"] = 0
             else:
-                errors = _download(url_base, str(reginf.path.relative_to("/")), dst, reginf.sha256hash, cookies=cookies)
+                errors = _download(
+                    url_base,
+                    str(reginf.path.relative_to("/")),
+                    dst,
+                    reginf.sha256hash,
+                    cookies=cookies,
+                )
                 processed["op"] = "download"
                 processed["errors"] = errors
         processed["size"] = dst.stat().st_size
@@ -723,6 +760,7 @@ def ota_client_instance():
                 super(CBootControlMixin, self).__init__()
 
     return OtaClient
+
 
 OtaClient = ota_client_instance()
 
