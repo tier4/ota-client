@@ -1,5 +1,6 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import otaclient_v2_pb2
 from ota_client import OtaClient
@@ -50,9 +51,12 @@ class OtaClientStub:
         logger.info(f"{entry=}")
         if entry:
             # we only dispatch the request, so we don't process the returned future object
+            event = Event()
             self._executor.submit(
-                self._ota_client.update, entry.version, entry.url, entry.cookies
+                self._ota_client.update, entry.version, entry.url, entry.cookies, event
             )
+            # wait until update is initialized or error occured.
+            event.wait()
 
             main_ecu_update_result = {
                 "ecu_id": entry.ecu_id,

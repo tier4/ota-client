@@ -23,7 +23,7 @@ from boot_control import BootControlMixinInterface
 from grub_ota_partition import GrubControlMixin
 from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
+from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
 from configs import Config as cfg
 import log_util
@@ -243,22 +243,16 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         # statistics
         self._statistics = OtaClientStatistics()
 
-    def update(self, version, url_base, cookies_json: str):
+    def update(self, version, url_base, cookies_json: str, event=None):
         logger.debug("[update] entering...")
-        # check if there is an on-going update
-        try:
-            self.check_update_status()
-        except OtaErrorRecoverable:
-            # not setting ota_status
-            logger.warn(
-                msg=f"current ota status {self._ota_status} is invalid for ota updating, abort"
-            )
-            return OtaClientFailureType.RECOVERABLE
-
         try:
             cookies = json.loads(cookies_json)
-            self._update(version, url_base, cookies)
+            self._update(version, url_base, cookies, event)
             return self._result_ok()
+        except OtaErrorBusy:  # there is an on-going update
+            # not setting ota_status
+            logger.exception("update busy")
+            return OtaClientFailureType.RECOVERABLE
         except (JSONDecodeError, OtaErrorRecoverable) as e:
             logger.exception(msg="recoverable")
             self.set_ota_status(OtaStatus.FAILURE)
@@ -269,19 +263,18 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             self.set_ota_status(OtaStatus.FAILURE)
             self.write_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
+        finally:
+            if event:
+                event.set()
 
     def rollback(self):
-        # check if there is an on-going rollback
-        try:
-            self.check_rollback_status()
-        except OtaErrorRecoverable:
-            # not setting ota_status
-            logger.exception("check_rollback_status")
-            return OtaClientFailureType.RECOVERABLE
-
         try:
             self._rollback()
             return self._result_ok()
+        except OtaErrorBusy:  # there is an on-going update
+            # not setting ota_status
+            logger.exception("rollback busy")
+            return OtaClientFailureType.RECOVERABLE
         except OtaErrorRecoverable as e:
             logger.exception(msg="recoverable")
             self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
@@ -324,7 +317,7 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         self._failure_reason = str(e)
         return OtaClientFailureType.UNRECOVERABLE
 
-    def _update(self, version, url_base, cookies):
+    def _update(self, version, url_base, cookies, event=None):
         logger.info(f"{version=},{url_base=},{cookies=}")
         """
         e.g.
@@ -334,12 +327,15 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        self._update_phase = OtaClientUpdatePhase.INITIAL
-        self._statistics.clear()
-
-        logger.info(f"version={version}, url_base={url_base}, cookies={cookies}")
         # enter update
-        self.enter_update(version)
+        with self._lock:
+            self.enter_update(version)
+            self._update_phase = OtaClientUpdatePhase.INITIAL
+            self._failure_type = OtaClientFailureType.NO_FAILURE
+            self._failure_reason = ""
+            self._statistics.clear()
+        if event:
+            event.set()
 
         # process metadata.jwt
         logger.debug("[update] process metadata...")
@@ -385,33 +381,37 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
         self.leave_update()
 
     def _rollback(self):
-        # enter rollback
-        self.enter_rollbacking()
+        with self._lock:
+            # enter rollback
+            self.enter_rollbacking()
+            self._failure_type = OtaClientFailureType.NO_FAILURE
+            self._failure_reason = ""
         # leave rollback
         self.leave_rollbacking()
 
     def _status(self):
-        return {
-            "status": self.get_ota_status().name,
-            "failure_type": self._failure_type.name,
-            "failure_reason": self._failure_reason,
-            "version": self.get_version(),
-            "update_progress": {
-                "phase": self._update_phase.name,
-                "total_regular_files": self._statistics.total_files,
-                "regular_files_processed": self._statistics.files_processed,
-                "files_processed_copy": self._statistics.files_processed_copy,
-                "files_processed_link": self._statistics.files_processed_link,
-                "files_processed_download": self._statistics.files_processed_download,
-                "file_size_processed_copy": self._statistics.file_size_processed_copy,
-                "file_size_processed_link": self._statistics.file_size_processed_link,
-                "file_size_processed_download": self._statistics.file_size_processed_download,
-                "elapsed_time_copy": self._statistics.elapsed_time_copy,
-                "elapsed_time_link": self._statistics.elapsed_time_link,
-                "elapsed_time_download": self._statistics.elapsed_time_download,
-                "errors_download": self._statistics.errors_download,
-            },
-        }
+        with self._lock:
+            return {
+                "status": self.get_ota_status().name,
+                "failure_type": self._failure_type.name,
+                "failure_reason": self._failure_reason,
+                "version": self.get_version(),
+                "update_progress": {
+                    "phase": self._update_phase.name,
+                    "total_regular_files": self._statistics.total_files,
+                    "regular_files_processed": self._statistics.files_processed,
+                    "files_processed_copy": self._statistics.files_processed_copy,
+                    "files_processed_link": self._statistics.files_processed_link,
+                    "files_processed_download": self._statistics.files_processed_download,
+                    "file_size_processed_copy": self._statistics.file_size_processed_copy,
+                    "file_size_processed_link": self._statistics.file_size_processed_link,
+                    "file_size_processed_download": self._statistics.file_size_processed_download,
+                    "elapsed_time_copy": self._statistics.elapsed_time_copy,
+                    "elapsed_time_link": self._statistics.elapsed_time_link,
+                    "elapsed_time_download": self._statistics.elapsed_time_download,
+                    "errors_download": self._statistics.errors_download,
+                },
+            }
 
     @property
     def _total_regular_files(self):

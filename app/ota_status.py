@@ -1,4 +1,4 @@
-from ota_error import OtaErrorRecoverable
+from ota_error import OtaErrorRecoverable, OtaErrorBusy
 from enum import Enum, unique
 from configs import Config as cfg
 import log_util
@@ -36,9 +36,7 @@ class OtaStatusControlMixin:
             OtaStatus.FAILURE,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
-            raise OtaErrorRecoverable(
-                f"status={self._ota_status} is illegal for update"
-            )
+            raise OtaErrorBusy(f"status={self._ota_status} is illegal for update")
 
     def check_rollback_status(self):
         # check status
@@ -46,6 +44,4 @@ class OtaStatusControlMixin:
             OtaStatus.SUCCESS,
             OtaStatus.ROLLBACK_FAILURE,
         ]:
-            raise OtaErrorRecoverable(
-                f"status={self._ota_status} is illegal for rollback"
-            )
+            raise OtaErrorBusy(f"status={self._ota_status} is illegal for rollback")
