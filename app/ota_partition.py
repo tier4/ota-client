@@ -163,7 +163,7 @@ class OtaPartitionFile(OtaPartition):
             )
             ota_partition_file = self._boot_dir / self._boot_ota_partition_file
             logger.info(f"switching: {os.readlink(temp_file)=} -> {ota_partition_file}")
-            self._move_atomic(str(temp_file), str(ota_partition_file))
+            self._move_atomic(temp_file, ota_partition_file)
             logger.info(f"switched: {os.readlink(ota_partition_file)=}")
 
     def store_active_ota_status(self, status):
@@ -394,7 +394,7 @@ class OtaPartitionFile(OtaPartition):
                 temp_file = Path(d) / "temp_link"
                 temp_file.symlink_to(Path("..") / "ota-partition" / "grub.cfg")
                 # move temp symlink to grub.cfg
-                self._move_atomic(str(temp_file), str(grub_cfg_file))
+                self._move_atomic(temp_file, grub_cfg_file)
 
         # update grub.cfg
         self._grub_control.update_grub_cfg(
