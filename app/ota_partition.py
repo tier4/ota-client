@@ -164,6 +164,9 @@ class OtaPartitionFile(OtaPartition):
             self._move_atomic(
                 str(temp_file), str(self._boot_dir / self._boot_ota_partition_file)
             )
+            logger.info(
+                f"switched: {os.readlink(temp_file)=} -> {(self._boot_dir / self._boot_ota_partition_file)}"
+            )
 
     def store_active_ota_status(self, status):
         """
