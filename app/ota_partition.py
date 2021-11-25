@@ -163,9 +163,7 @@ class OtaPartitionFile(OtaPartition):
             )
             ota_partition_file = self._boot_dir / self._boot_ota_partition_file
             logger.info(f"switching: {os.readlink(temp_file)=} -> {ota_partition_file}")
-            self._move_atomic(
-                str(temp_file), str(self._boot_dir / self._boot_ota_partition_file)
-            )
+            self._move_atomic(str(temp_file), str(ota_partition_file))
             logger.info(f"switched: {os.readlink(ota_partition_file)=}")
 
     def store_active_ota_status(self, status):
@@ -430,6 +428,17 @@ class OtaPartitionFile(OtaPartition):
         cmd_rm = f"rm -rf {mount_point}/*"
         return subprocess.check_output(cmd_rm, shell=True)  # to use `*`
 
-    def _move_atomic(self, src, dst):
-        cmd_mv = f"mv -T {src} {dst}"
-        return subprocess.check_output(shlex.split(cmd_mv))
+    def _move_atomic(self, src: Path, dst: Path):
+        cmd_mv = f"mv -T {str(src)} {str(dst)}"
+        subprocess.check_output(shlex.split(cmd_mv))
+        self._fsync(src.parent)
+        self._fsync(dst.parent)
+
+    def _fsync(self, path):
+        try:
+            fd = None
+            fd = os.open(path, os.O_RDONLY)
+            os.fsync(fd)
+        finally:
+            if fd:
+                os.close(fd)
