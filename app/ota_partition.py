@@ -295,6 +295,8 @@ class OtaPartitionFile(OtaPartition):
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             temp_name = f.name
             f.write(string)
+            f.flush()
+            os.fsync(f.fileno())
         # should not be called within the NamedTemporaryFile context
         shutil.move(temp_name, path)
 
