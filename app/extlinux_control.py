@@ -471,16 +471,24 @@ class CBootControlMixin(BootControlMixinInterface):
         self._standby_ota_version_file = (
             self._standby_ota_status_dir / cfg.OTA_VERSION_FNAME
         )
-        self._standby_extlinux_cfg = self._mount_point / cfg.EXLINUX_FILE.relative_to(
+        self._standby_extlinux_cfg = self._mount_point / cfg.EXTLINUX_FILE.relative_to(
             "/"
         )
         self._standby_slot_in_use_file = (
             self._mount_point / cfg.SLOT_IN_USE_FILE.relative_to(Path("/"))
         )
 
-        # initialize ota status
+        # initialize status
         self._ota_status = self.initialize_ota_status()
+        self._slot_in_use = self.load_slot_in_use_file()
+        self._current_slot, self._standby_slot = (
+            nvbootctrl.get_current_slot(),
+            nvbootctrl.get_standby_slot(),
+        )
         logger.debug(f"ota_status: {self._ota_status}")
+        logger.debug(
+            f"active slot: {self._slot_in_use}, current slot: {self._current_slot}, standby slot: {self._standby_slot}"
+        )
 
     def _mount_standby(self):
         self._mount_point.mkdir(parents=True, exist_ok=True)
@@ -530,27 +538,27 @@ class CBootControlMixin(BootControlMixinInterface):
 
         # evidence 3: slot in use
         # the slot_in_use file should have the same slot as current slot
-        _is_slot_in_use = self._load_slot_in_use_file() == nvbootctrl.get_current_slot()
+        _is_slot_in_use = self.load_slot_in_use_file() == nvbootctrl.get_current_slot()
 
         logger.debug(
-            f"checking result:    nvboot: {_nvboot_res}, ota_status: {_ota_status_res}, slot_in_use: {_is_slot_in_use}"
+            f"[checking result] nvboot: {_nvboot_res}, ota_status: {_ota_status_res}, slot_in_use: {_is_slot_in_use}"
         )
         return _nvboot_res and _ota_status_res and _is_slot_in_use
 
-    def _init_slot_in_use_file(self):
+    def init_slot_in_use_file(self):
         """
         Note: only init current slot if needed
         """
         slot = nvbootctrl.get_current_slot()
-        self._slot_in_use_file.write_text(slot)
+        _write_file(self._slot_in_use_file, slot)
 
-    def _load_slot_in_use_file(self):
+    def load_slot_in_use_file(self):
         """
         Note: only load current slot if needed
         """
         return _read_file(self._slot_in_use_file)
 
-    def _write_slot_in_use_file(self, slot_in_use: str, target: Path):
+    def write_slot_in_use_file(self, slot_in_use: str, target: Path):
         _write_file(target, slot_in_use)
 
     def load_ota_status(self) -> str:
@@ -560,11 +568,11 @@ class CBootControlMixin(BootControlMixinInterface):
         self._ota_status_dir.mkdir(parents=True, exist_ok=True)
 
         status = self.load_ota_status()
-        slot_in_use = self._load_slot_in_use_file()
+        slot_in_use = self.load_slot_in_use_file()
 
         if len(status) == 0 or len(slot_in_use) == 0:
             self.write_initialized_ota_status()
-            self._init_slot_in_use_file()
+            self.init_slot_in_use_file()
             return OtaStatus.INITIALIZED
         elif status == OtaStatus.UPDATING.name:
             return self.finalize_update()
@@ -614,10 +622,10 @@ class CBootControlMixin(BootControlMixinInterface):
         # store status
         self.write_standby_ota_status(OtaStatus.UPDATING)
         self.write_standby_ota_version(version)
-        self._write_slot_in_use_file(
+        self.write_slot_in_use_file(
             nvbootctrl.get_standby_slot(), self._slot_in_use_file
         )
-        self._write_slot_in_use_file(
+        self.write_slot_in_use_file(
             nvbootctrl.get_standby_slot(), self._standby_slot_in_use_file
         )
 

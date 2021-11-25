@@ -1,4 +1,4 @@
-from ota_error import OtaErrorRecoverable, OtaErrorBusy
+from ota_error import OtaErrorBusy
 from enum import Enum, unique
 from configs import Config as cfg
 import log_util

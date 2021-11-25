@@ -718,17 +718,17 @@ class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface):
                 copy_tree.copy_with_parents(perinf.path, standby_path)
 
     def enter_update(self, version):
-        logger.debug("[enter_update] check if ota_status is valid for updating...")
+        logger.debug("check if ota_status is valid for updating...")
         self.check_update_status()
 
-        logger.debug("[enter_update] pre-update setup...")
+        logger.debug("pre-update setup...")
         self.boot_ctrl_pre_update(version)
         self.set_ota_status(OtaStatus.UPDATING)
         self.write_standby_ota_status(OtaStatus.UPDATING)
-        logger.debug("[enter_update] finished pre-update setup")
+        logger.debug("finished pre-update setup")
 
     def leave_update(self):
-        logger.debug("[leave_update] post-update setup...")
+        logger.debug("post-update setup...")
         self.boot_ctrl_post_update()
 
     def enter_rollbacking(self):

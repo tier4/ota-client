@@ -99,7 +99,7 @@ class CBootControlConfig(_BaseConfig):
 
         self._properties_map.update(
             {
-                "EXLINUX_FILE": self.extlinux_file,
+                "EXTLINUX_FILE": self.extlinux_file,
                 "SLOT_IN_USE_FILE": self.BOOT_DIR / "ota-status/slot_in_use",
                 "OTA_STATUS_DIR": self.BOOT_DIR / "ota-status",
                 "LINUX": self.BOOT_DIR / "Image",
