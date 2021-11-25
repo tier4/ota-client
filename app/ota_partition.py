@@ -161,12 +161,12 @@ class OtaPartitionFile(OtaPartition):
             temp_file.symlink_to(
                 self._boot_ota_partition_file.with_suffix(f".{standby_device}")
             )
+            ota_partition_file = self._boot_dir / self._boot_ota_partition_file
+            logger.info(f"switching: {os.readlink(temp_file)=} -> {ota_partition_file}")
             self._move_atomic(
                 str(temp_file), str(self._boot_dir / self._boot_ota_partition_file)
             )
-            logger.info(
-                f"switched: {os.readlink(temp_file)=} -> {(self._boot_dir / self._boot_ota_partition_file)}"
-            )
+            logger.info(f"switched: {os.readlink(ota_partition_file)=}")
 
     def store_active_ota_status(self, status):
         """
