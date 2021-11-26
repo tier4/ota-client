@@ -1,7 +1,7 @@
 import grpc
 import otaclient_v2_pb2_grpc as v2_grpc
 
-from configs import Config as cfg
+from configs import config as cfg
 import log_util
 
 logger = log_util.get_logger(

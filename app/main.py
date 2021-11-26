@@ -10,7 +10,7 @@ from ota_client_service import (
 )
 import otaclient_v2_pb2_grpc as v2_grpc
 
-from configs import Config as cfg
+from configs import config as cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -29,6 +29,9 @@ def main():
 
 
 if __name__ == "__main__":
+    if cfg is None:
+        sys.exit(f"unsupported platform, abort")
+
     # create a lock file to prevent multiple ota-client instances start
     lock_file = Path("/var/run/ota-client.lock")
     our_pid = os.getpid()

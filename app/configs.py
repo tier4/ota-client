@@ -4,8 +4,6 @@ from pathlib import Path
 
 from logging import INFO
 
-__all__ = ["Config", "cboot_cfg", "grub_cfg"]
-
 
 class _BaseConfig(ABC):
     def __init__(self):
@@ -116,6 +114,7 @@ def _detect_platform():
         return "grub"
     elif platform.machine() == "aarch64" or platform.processor == "aarch64":
         return "cboot"
+    return
 
 
 def create_config(platform):
@@ -123,9 +122,7 @@ def create_config(platform):
         return GrubControlConfig()
     elif platform == "cboot":
         return CBootControlConfig()
+    return
 
 
-cboot_cfg = CBootControlConfig()
-grub_cfg = GrubControlConfig()
-
-Config = create_config(_detect_platform())
+config = create_config(_detect_platform())

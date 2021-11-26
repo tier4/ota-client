@@ -1,6 +1,6 @@
 from ota_error import OtaErrorBusy
 from enum import Enum, unique
-from configs import Config as cfg
+from configs import config as cfg
 import log_util
 
 logger = log_util.get_logger(

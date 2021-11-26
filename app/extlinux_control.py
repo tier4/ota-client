@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import Tuple
 
 import log_util
-from configs import cboot_cfg as cfg
+import configs
 from ota_error import OtaErrorUnrecoverable
 from ota_status import OtaStatus
 from ota_client_interface import BootControlMixinInterface
 
+cfg = configs.create_config("cboot")
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -161,9 +162,9 @@ class Nvbootctrl:
         ma = pa.search(_subprocess_check_output("cat /proc/cmdline")).group("rdev")
         uuid = ma.split("=")[-1]
 
-        return Path(HelperFuncs.get_dev_by_partuuid(uuid)).resolve(
-            strict=True
-        ) == Path(dev).resolve(strict=True)
+        return Path(HelperFuncs.get_dev_by_partuuid(uuid)).resolve(strict=True) == Path(
+            dev
+        ).resolve(strict=True)
 
     @classmethod
     def get_current_slot_dev(cls) -> str:
@@ -205,7 +206,11 @@ class Nvbootctrl:
 
 
 class ExtlinuxCfgFile:
-    DEFAULT_HEADING = {"TIMEOUT": 30, "DEFAULT": "primary", "MENU TITLE": "L4T boot options"}
+    DEFAULT_HEADING = {
+        "TIMEOUT": 30,
+        "DEFAULT": "primary",
+        "MENU TITLE": "L4T boot options",
+    }
 
     def __init__(self):
         self._heading = self.DEFAULT_HEADING.copy()
@@ -336,7 +341,6 @@ class ExtlinuxCfgFile:
 
 
 class CBootControl:
-
     def __init__(self):
         self._linux = cfg.LINUX
         self._initrd = cfg.INITRD

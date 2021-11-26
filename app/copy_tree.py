@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 import log_util
-from configs import Config as cfg
+from configs import config as cfg
 from ota_error import OtaErrorUnrecoverable
 
 logger = log_util.get_logger(

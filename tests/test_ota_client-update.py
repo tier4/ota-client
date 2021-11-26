@@ -88,7 +88,8 @@ def test_ota_client_update(mocker, tmp_path):
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
-    from configs import grub_cfg as cfg
+    from configs import create_config
+    cfg = create_config("grub")
 
     """
     tmp_path/boot
@@ -254,9 +255,10 @@ def test_ota_client_update(mocker, tmp_path):
 def test_ota_client_update_multiple_call(mocker, tmp_path):
     import ota_client
     from ota_client import OtaClientFailureType
-    from configs import grub_cfg as cfg
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from grub_control import GrubControl
+    from configs import create_config
+    cfg = create_config("grub")
 
     """
     tmp_path/boot
@@ -437,11 +439,12 @@ def test_ota_client_update_regular_download_error(
     mocker, tmp_path, error_injection, failure_reason_startswith
 ):
     import ota_client
-    from configs import grub_cfg as cfg
     from ota_client import OtaClientFailureType
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
+    from configs import create_config
+    cfg = create_config("grub")
 
     """
     tmp_path/boot
@@ -573,10 +576,11 @@ def test_ota_client_update_regular_download_error(
 
 def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     import ota_client
-    from configs import grub_cfg as cfg
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
+    from configs import create_config
+    cfg = create_config("grub")
 
     """
     tmp_path/boot
@@ -737,10 +741,11 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
 
 def test_ota_client_update_post_process(mocker, tmp_path):
     import ota_client
-    from configs import Config as cfg
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
+    from configs import create_config
+    cfg = create_config("grub")
 
     """
     tmp_path/boot
@@ -867,7 +872,7 @@ PERSISTENTS_TXT = """\
 
 def test_ota_client__copy_persistent_files(mocker, tmp_path):
     import ota_client
-    from configs import Config as cfg
+    from configs import config as cfg
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from grub_control import GrubControl
 

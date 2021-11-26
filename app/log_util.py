@@ -2,7 +2,7 @@ import os
 import logging
 
 import aws_gglog.logger
-from configs import Config as cfg
+from configs import config as cfg
 
 
 def get_logger(name: str, level: int) -> logging.Logger:

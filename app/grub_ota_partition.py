@@ -6,12 +6,14 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from configs import grub_cfg as cfg
+import configs
 from ota_client_interface import BootControlMixinInterface
 from ota_status import OtaStatus
 from grub_control import GrubControl
 from ota_error import OtaErrorUnrecoverable
 import log_util
+
+cfg = configs.create_config("grub")
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

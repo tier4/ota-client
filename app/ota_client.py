@@ -27,7 +27,7 @@ from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
-from configs import Config as cfg
+from configs import config as cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -760,16 +760,15 @@ def gen_ota_client_class(platform: str):
                 super().__init__()
                 super(CBootControlMixin, self).__init__()
 
-    else:
-        sys.exit(f"unsupported platform {platform}, abort")
-
     return OtaClient
+
 
 def _ota_client_class():
     platform = cfg.PLATFORM
     logger.debug(f"ota_client is running with {platform}")
 
     return gen_ota_client_class(platform)
+
 
 OtaClient = _ota_client_class()
 
