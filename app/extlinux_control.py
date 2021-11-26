@@ -337,12 +337,12 @@ class ExtlinuxCfgFile:
 
 class CBootControl:
 
-    _linux = cfg.LINUX
-    _initrd = cfg.INITRD
-    _fdt = cfg.FDT
-    _cmdline_extra = cfg.EXTRA_CMDLINE
-
     def __init__(self):
+        self._linux = cfg.LINUX
+        self._initrd = cfg.INITRD
+        self._fdt = cfg.FDT
+        self._cmdline_extra = cfg.EXTRA_CMDLINE
+
         (
             self._standby_slot,
             self._standby_dev,
