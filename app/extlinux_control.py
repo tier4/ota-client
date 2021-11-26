@@ -9,7 +9,7 @@ import log_util
 from configs import cboot_cfg as cfg
 from ota_error import OtaErrorUnrecoverable
 from ota_status import OtaStatus
-from boot_control import BootControlMixinInterface
+from ota_client_interface import BootControlMixinInterface
 
 
 logger = log_util.get_logger(
@@ -328,7 +328,7 @@ class ExtlinuxCfgFile:
 
         res = buff.getvalue()
         logger.debug("generated extlinux.conf: ")
-        logger.debug(f"################ \n {res} \n ################")
+        logger.debug(f"\n################ \n {res} \n ################\n")
         return res
 
 
@@ -609,7 +609,7 @@ class CBootControlMixin(BootControlMixinInterface):
         """
         return self._mount_point / "boot"
 
-    def get_version(self):
+    def get_version(self) -> str:
         return _read_file(self._ota_version_file)
 
     def boot_ctrl_pre_update(self, version):

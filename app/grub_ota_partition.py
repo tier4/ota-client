@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from configs import grub_cfg as cfg
-from boot_control import BootControlMixinInterface
+from ota_client_interface import BootControlMixinInterface
 from ota_status import OtaStatus
 from grub_control import GrubControl
 from ota_error import OtaErrorUnrecoverable
