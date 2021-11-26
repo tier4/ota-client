@@ -436,7 +436,7 @@ class OtaPartitionFile(OtaPartition):
         # NOTE:
         # If the system is reset here, grub has a problem of not starting with
         # the proper partition, so the sync below is required.
-        self._sync_cmd()
+        os.sync()
 
     def _fsync(self, path):
         try:
@@ -446,7 +446,3 @@ class OtaPartitionFile(OtaPartition):
         finally:
             if fd:
                 os.close(fd)
-
-    def _sync_cmd(self):
-        cmd = "sync"
-        subprocess.check_output(shlex.split(cmd))
