@@ -229,7 +229,9 @@ class OtaClientStatistics(object):
         self.errors_download = 0
 
 
-class _BaseOtaClient(OtaStatusControlMixin, BootControlMixinInterface, OtaClientInterface):
+class _BaseOtaClient(
+    OtaStatusControlMixin, BootControlMixinInterface, OtaClientInterface
+):
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE

@@ -1,4 +1,5 @@
 # interface definition for ota-client
+# fmt: off
 import abc
 from pathlib import Path
 from typing import Any
@@ -31,3 +32,5 @@ class OtaClientInterface(metaclass=abc.ABCMeta):
     def update(self, version, url_base, cookies_json: str, event=None) -> Any: ...
     def rollback(self) -> Any: ...
     def status(self) -> Any: ...
+
+# fmt: on
