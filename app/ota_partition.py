@@ -161,9 +161,10 @@ class OtaPartitionFile(OtaPartition):
             temp_file.symlink_to(
                 self._boot_ota_partition_file.with_suffix(f".{standby_device}")
             )
-            self._move_atomic(
-                str(temp_file), str(self._boot_dir / self._boot_ota_partition_file)
-            )
+            ota_partition_file = self._boot_dir / self._boot_ota_partition_file
+            logger.info(f"switching: {os.readlink(temp_file)=} -> {ota_partition_file}")
+            self._move_atomic(temp_file, ota_partition_file)
+            logger.info(f"switched: {os.readlink(ota_partition_file)=}")
 
     def store_active_ota_status(self, status):
         """
@@ -295,6 +296,8 @@ class OtaPartitionFile(OtaPartition):
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             temp_name = f.name
             f.write(string)
+            f.flush()
+            os.fsync(f.fileno())
         # should not be called within the NamedTemporaryFile context
         shutil.move(temp_name, path)
 
@@ -391,7 +394,7 @@ class OtaPartitionFile(OtaPartition):
                 temp_file = Path(d) / "temp_link"
                 temp_file.symlink_to(Path("..") / "ota-partition" / "grub.cfg")
                 # move temp symlink to grub.cfg
-                self._move_atomic(str(temp_file), str(grub_cfg_file))
+                self._move_atomic(temp_file, grub_cfg_file)
 
         # update grub.cfg
         self._grub_control.update_grub_cfg(
@@ -425,6 +428,21 @@ class OtaPartitionFile(OtaPartition):
         cmd_rm = f"rm -rf {mount_point}/*"
         return subprocess.check_output(cmd_rm, shell=True)  # to use `*`
 
-    def _move_atomic(self, src, dst):
-        cmd_mv = f"mv -T {src} {dst}"
-        return subprocess.check_output(shlex.split(cmd_mv))
+    def _move_atomic(self, src: Path, dst: Path):
+        cmd_mv = f"mv -T {str(src)} {str(dst)}"
+        subprocess.check_output(shlex.split(cmd_mv))
+        self._fsync(src.parent)
+        self._fsync(dst.parent)
+        # NOTE:
+        # If the system is reset here, grub has a problem of not starting with
+        # the proper partition, so the sync below is required.
+        os.sync()
+
+    def _fsync(self, path):
+        try:
+            fd = None
+            fd = os.open(path, os.O_RDONLY)
+            os.fsync(fd)
+        finally:
+            if fd:
+                os.close(fd)
