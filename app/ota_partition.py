@@ -433,6 +433,7 @@ class OtaPartitionFile(OtaPartition):
         subprocess.check_output(shlex.split(cmd_mv))
         self._fsync(src.parent)
         self._fsync(dst.parent)
+        self._sync_cmd()
 
     def _fsync(self, path):
         try:
@@ -442,3 +443,7 @@ class OtaPartitionFile(OtaPartition):
         finally:
             if fd:
                 os.close(fd)
+
+    def _sync_cmd(self):
+        cmd = "sync"
+        subprocess.check_output(shlex.split(cmd))
