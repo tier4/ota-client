@@ -459,7 +459,7 @@ class GrubControlMixin(BootControlMixinInterface):
     def initialize_ota_status(self):
         status_string = self.load_ota_status()
         if status_string == "":
-            self.write_standby_ota_status(OtaStatus.INITIALIZED)
+            self.store_standby_ota_status(OtaStatus.INITIALIZED)
             return OtaStatus.INITIALIZED
         elif status_string == OtaStatus.UPDATING.name:
             return self.finalize_update()
@@ -468,17 +468,17 @@ class GrubControlMixin(BootControlMixinInterface):
         else:
             return OtaStatus[status_string]
 
-    def write_standby_ota_status(self, status: OtaStatus):
+    def store_standby_ota_status(self, status: OtaStatus):
         self._boot_control.store_standby_ota_status(status.name)
 
-    def write_standby_ota_version(self, version):
+    def store_standby_ota_version(self, version):
         self._boot_control.store_standby_ota_version(version)
 
-    def write_initialized_ota_status(self):
-        self.write_standby_ota_status(OtaStatus.INITIALIZED.name)
+    def store_initialized_ota_status(self):
+        self.store_standby_ota_status(OtaStatus.INITIALIZED.name)
         return OtaStatus.INITIALIZED
 
-    def write_ota_status(self, status: OtaStatus):
+    def store_ota_status(self, status: OtaStatus):
         self._boot_control.store_active_ota_status(status.name)
 
     def load_ota_status(self):
@@ -491,8 +491,8 @@ class GrubControlMixin(BootControlMixinInterface):
         return self._boot_control.load_ota_version()
 
     def boot_ctrl_pre_update(self, version):
-        self.write_standby_ota_status(OtaStatus.UPDATING)
-        self.write_standby_ota_version(version)
+        self.store_standby_ota_status(OtaStatus.UPDATING)
+        self.store_standby_ota_version(version)
 
         self._boot_control.cleanup_standby_boot_partition()
         self._boot_control.mount_standby_root_partition_and_clean(self._mount_point)
@@ -509,13 +509,13 @@ class GrubControlMixin(BootControlMixinInterface):
 
     def finalize_update(self) -> OtaStatus:
         if self._boot_control.is_switching_boot_partition_from_active_to_standby():
-            self.write_ota_status(OtaStatus.SUCCESS)
+            self.store_ota_status(OtaStatus.SUCCESS)
             self._boot_control.update_grub_cfg()
             # switch should be called last.
             self._boot_control.switch_boot_partition_from_active_to_standby()
             return OtaStatus.SUCCESS
         else:
-            self.write_standby_ota_status(OtaStatus.FAILURE)
+            self.store_standby_ota_status(OtaStatus.FAILURE)
             return OtaStatus.FAILURE
 
     finalize_rollback = finalize_update

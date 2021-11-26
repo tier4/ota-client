@@ -34,7 +34,7 @@ class _BaseConfig(ABC):
         passwd_file = etc_dir / "passwd"
         group_file = etc_dir / "group"
 
-        ota_partition_folder = Path("ota-partition")
+        ota_partition_dir = Path("ota-partition")
 
         # properties map
         self._properties_map = {
@@ -46,7 +46,7 @@ class _BaseConfig(ABC):
             "ECU_INFO_FILE": ecu_info_file,
             "PASSWD_FILE": passwd_file,
             "GROUP_FILE": group_file,
-            "BOOT_OTA_PARTITION_FILE": ota_partition_folder,
+            "BOOT_OTA_PARTITION_FILE": ota_partition_dir,
             "OTA_STATUS_FNAME": "status",
             "OTA_VERSION_FNAME": "version",
             "LOG_FORMAT": "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s",

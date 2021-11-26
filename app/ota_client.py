@@ -74,7 +74,7 @@ def _download(url_base: str, path: str, dst: Path, digest: str, *, cookies):
                 do_retry = False
         else:
             last_error = f"requests error unknown: {e},{url=}, ({error_count})"
-        logger.warning(last_error)
+        logger.warninging(last_error)
         return do_retry
 
     @retry(
@@ -258,12 +258,12 @@ class _BaseOtaClient(
         except (JSONDecodeError, OtaErrorRecoverable) as e:
             logger.exception(msg="recoverable")
             self.set_ota_status(OtaStatus.FAILURE)
-            self.write_standby_ota_status(OtaStatus.FAILURE)
+            self.store_standby_ota_status(OtaStatus.FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
             logger.exception(msg="unrecoverable")
             self.set_ota_status(OtaStatus.FAILURE)
-            self.write_standby_ota_status(OtaStatus.FAILURE)
+            self.store_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
         finally:
             if event:
@@ -280,12 +280,12 @@ class _BaseOtaClient(
         except OtaErrorRecoverable as e:
             logger.exception(msg="recoverable")
             self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
-            self.write_standby_ota_status(OtaStatus.ROLLBACK_FAILURE)
+            self.store_standby_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_recoverable(e)
         except (OtaErrorUnrecoverable, Exception) as e:
             logger.exception(msg="unrecoverable")
             self.set_ota_status(OtaStatus.ROLLBACK_FAILURE)
-            self.write_standby_ota_status(OtaStatus.ROLLBACK_FAILURE)
+            self.store_standby_ota_status(OtaStatus.ROLLBACK_FAILURE)
             return self._result_unrecoverable(e)
 
     # NOTE: status should not update any internal status
@@ -726,7 +726,7 @@ class _BaseOtaClient(
         logger.debug("pre-update setup...")
         self.boot_ctrl_pre_update(version)
         self.set_ota_status(OtaStatus.UPDATING)
-        self.write_standby_ota_status(OtaStatus.UPDATING)
+        self.store_standby_ota_status(OtaStatus.UPDATING)
         logger.debug("finished pre-update setup")
 
     def leave_update(self):
@@ -736,7 +736,7 @@ class _BaseOtaClient(
     def enter_rollbacking(self):
         self.check_rollback_status()
         self.set_ota_status(OtaStatus.ROLLBACKING)
-        self.write_standby_ota_status(OtaStatus.ROLLBACKING)
+        self.store_standby_ota_status(OtaStatus.ROLLBACKING)
         self.boot_ctrl_pre_rollback()
 
     def leave_rollbacking(self):
