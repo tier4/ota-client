@@ -455,7 +455,7 @@ class OtaPartitionFile(OtaPartition):
 ######## bootcontrol adapter for grub_control ########
 class GrubControlMixin(BootControlMixinInterface):
     def __init__(self):
-        self._boot_control = OtaPartitionFile()
+        self._boot_control: OtaPartitionFile = OtaPartitionFile()
         self._ota_status = self.initialize_ota_status()
 
     def initialize_ota_status(self):
