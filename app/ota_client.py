@@ -74,7 +74,7 @@ def _download(url_base: str, path: str, dst: Path, digest: str, *, cookies):
                 do_retry = False
         else:
             last_error = f"requests error unknown: {e},{url=}, ({error_count})"
-        logger.warninging(last_error)
+        logger.warning(last_error)
         return do_retry
 
     @retry(
