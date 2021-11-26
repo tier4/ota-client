@@ -96,8 +96,8 @@ class Nvbootctrl:
     rootfs default label prefix: APP
     """
 
-    _prefix = "APP"
-    _active_standby_flip = {"0": "1", "1": "0"}
+    PREFIX = "APP"
+    ACTIVE_STANDBY_FLIP = {"0": "1", "1": "0"}
 
     @classmethod
     def _nvbootctrl(cls, arg: str, *, call_only=True, raise_exception=True) -> str:
@@ -117,7 +117,7 @@ class Nvbootctrl:
 
     @classmethod
     def get_standby_slot(cls) -> str:
-        return cls._active_standby_flip[cls.get_current_slot()]
+        return cls.ACTIVE_STANDBY_FLIP[cls.get_current_slot()]
 
     @classmethod
     def get_suffix(cls, slot: str) -> str:
@@ -169,7 +169,7 @@ class Nvbootctrl:
     def get_current_slot_dev(cls) -> str:
         slot = cls.get_current_slot()
         suffix = cls.get_suffix(slot)
-        dev = HelperFuncs.get_dev_by_partlabel(f"{cls._prefix}{suffix}")
+        dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
 
         if not cls._check_is_rootdev(dev):
             raise OtaErrorUnrecoverable(f"rootfs mismatch, expect {dev} as rootfs")
@@ -205,9 +205,10 @@ class Nvbootctrl:
 
 
 class ExtlinuxCfgFile:
-    _heading = {"TIMEOUT": 30, "DEFAULT": "primary", "MENU TITLE": "L4T boot options"}
+    DEFAULT_HEADING = {"TIMEOUT": 30, "DEFAULT": "primary", "MENU TITLE": "L4T boot options"}
 
     def __init__(self):
+        self._heading = self.DEFAULT_HEADING.copy()
         self._entry = dict()  # [name]entry
 
     def set_default_entry(self, label: str):
@@ -297,7 +298,9 @@ class ExtlinuxCfgFile:
     def get_default_entry(self) -> dict:
         name = self._heading.get("DEFAULT")
         if name in self._entry:
-            return self._entry.get(name, default=dict()).copy()
+            return self._entry.get(name).copy()
+        else:
+            return dict()
 
     def edit_entry(self, name: str, key: str, value: str):
         """
