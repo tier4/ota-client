@@ -1,3 +1,4 @@
+from platform import platform
 import tempfile
 import requests
 import shutil
@@ -7,6 +8,7 @@ import os
 import time
 import json
 import operator
+import sys
 from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
@@ -743,28 +745,33 @@ class _BaseOtaClient(
         self.boot_ctrl_post_rollback()
 
 
-def ota_client_instance():
-    boot = cfg.PLATFORM
-    logger.debug(f"ota_client is running with {boot}")
-
-    if boot == "grub":
+def gen_ota_client_class(platform: str):
+    if platform == "grub":
 
         class OtaClient(GrubControlMixin, _BaseOtaClient):
             def __init__(self):
                 super().__init__()
                 super(GrubControlMixin, self).__init__()
 
-    elif boot == "cboot":
+    elif platform == "cboot":
 
         class OtaClient(CBootControlMixin, _BaseOtaClient):
             def __init__(self):
                 super().__init__()
                 super(CBootControlMixin, self).__init__()
 
+    else:
+        sys.exit(f"unsupported platform {platform}, abort")
+
     return OtaClient
 
+def _ota_client_class():
+    platform = cfg.PLATFORM
+    logger.debug(f"ota_client is running with {platform}")
 
-OtaClient = ota_client_instance()
+    return gen_ota_client_class(platform)
+
+OtaClient = _ota_client_class()
 
 if __name__ == "__main__":
     ota_client = OtaClient()
