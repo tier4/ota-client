@@ -247,7 +247,7 @@ class ExtlinuxCfgFile:
         entry_name, entry = "", dict()
 
         for l in f.read_text().split("\n"):
-            if l.strip().find("#") != -1:
+            if l.strip().startswith("#"):
                 continue
 
             # top-level options
