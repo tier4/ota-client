@@ -1,4 +1,5 @@
 import re
+import os
 import subprocess
 import shlex
 import tempfile
@@ -98,6 +99,8 @@ class GrubControl:
         with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
             temp_name = f.name
             f.write(custom_cfg)
+            f.flush()
+            os.fsync(f.fileno())
         # should not be called within the NamedTemporaryFile context
         shutil.move(temp_name, self._custom_cfg_file)
 
@@ -193,6 +196,8 @@ class GrubControl:
         logger.info(f"{merged=}")
         with open(mount_point / "etc" / "fstab", "w") as f:
             f.writelines(merged)
+            f.flush()
+            os.fsync(f.fileno())
 
     def get_booted_vmlinuz_and_uuid(self):
         cmdline = self._get_cmdline()
@@ -284,8 +289,12 @@ class GrubControl:
 
         with open(self._default_grub_file, "w") as f:
             f.writelines(updated)
+            f.flush()
+            os.fsync(f.fileno())
 
     def _grub_reboot_cmd(self, num):
+        cmd = "sync"
+        subprocess.check_output(shlex.split(cmd))
         cmd = f"grub-reboot {num}"
         return subprocess.check_output(shlex.split(cmd))
 
@@ -304,4 +313,6 @@ class GrubControl:
 
     def _grub_mkconfig_cmd(self, outfile):
         cmd = f"grub-mkconfig -o {outfile}"
-        return subprocess.check_output(shlex.split(cmd)).decode().strip()
+        subprocess.check_output(shlex.split(cmd))
+        cmd = f"sync {outfile}"
+        subprocess.check_output(shlex.split(cmd))
