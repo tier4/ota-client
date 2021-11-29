@@ -57,6 +57,9 @@ class _BaseConfig(ABC):
         else:
             return self._properties_map[name]
 
+    def __setattr__(self, __name: str, __value):
+        self._properties_map[__name] = __value
+
 
 class GrubControlConfig(_BaseConfig):
     """
@@ -89,6 +92,9 @@ class CBootControlConfig(_BaseConfig):
     """
 
     PLATFORM = "cboot"
+    CHIP_ID_MODEL_MAP = {
+        0x19: "rqx_580"
+    }
 
     def __init__(self):
         super().__init__()
@@ -114,6 +120,8 @@ def _detect_platform():
         return "grub"
     elif platform.machine() == "aarch64" or platform.processor == "aarch64":
         return "cboot"
+    else:
+        raise NotImplementedError(f"unsupported platform found {platform.machine()}, abort")
     return
 
 
@@ -121,7 +129,14 @@ def create_config(platform):
     if platform == "grub":
         return GrubControlConfig()
     elif platform == "cboot":
-        return CBootControlConfig()
+        cfg = CBootControlConfig()
+        # NOTE: only support r580 platform right now!
+        chip_id = int(Path("/sys/module/tegra_fuse/parameters/tegra_chip_id").read_text().strip())
+        # detect the chip id
+        cfg.CHIP_ID = chip_id
+        if chip_id not in cfg.CHIP_ID_MODEL_MAP:
+            raise NotImplementedError(f"unsupported platform found {platform.machine()}, abort")
+        cfg.MODEL = cfg.CHIP_ID_MODEL_MAP[chip_id]
     return
 
 
