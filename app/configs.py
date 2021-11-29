@@ -57,7 +57,7 @@ class _BaseConfig(ABC):
         else:
             return self._properties_map[name]
 
-    def __setattr__(self, __name: str, __value):
+    def set(self, __name: str, __value):
         self._properties_map[__name] = __value
 
 
@@ -131,13 +131,15 @@ def create_config(platform):
     elif platform == "cboot":
         cfg = CBootControlConfig()
         # NOTE: only support r580 platform right now!
-        chip_id = int(Path("/sys/module/tegra_fuse/parameters/tegra_chip_id").read_text().strip())
         # detect the chip id
-        cfg.CHIP_ID = chip_id
+        chip_id = int(Path("/sys/module/tegra_fuse/parameters/tegra_chip_id").read_text().strip())
+        cfg.set("CHIP_ID", chip_id)
         if chip_id not in cfg.CHIP_ID_MODEL_MAP:
             raise NotImplementedError(f"unsupported platform found {platform.machine()}, abort")
-        cfg.MODEL = cfg.CHIP_ID_MODEL_MAP[chip_id]
-    return
+            
+        cfg.set("MODEL", cfg.CHIP_ID_MODEL_MAP[chip_id])
+
+        return cfg
 
 
 config = create_config(_detect_platform())
