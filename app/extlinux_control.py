@@ -352,6 +352,15 @@ class CBootControl:
             self._standby_dev,
             self._standby_partuuid,
         ) = self._get_slot_info()
+
+        # NOTE: only support r580 platform right now!
+        # detect the chip id
+        self.chip_id = int(Path("/sys/module/tegra_fuse/parameters/tegra_chip_id").read_text().strip())
+        if self.chip_id not in cfg.CHIP_ID_MODEL_MAP:
+            raise NotImplementedError(f"unsupported platform found (chip_id: {self.chip_id}), abort")
+            
+        self.model = cfg.CHIP_ID_MODEL_MAP[self.chip_id]
+
         logger.debug(f"standby slot: {self._standby_slot}")
         logger.debug(f"standby dev: {self._standby_dev}")
         logger.debug(f"standby dev partuuid: {self._standby_partuuid}")
@@ -551,6 +560,18 @@ class CBootControlMixin(BootControlMixinInterface):
             f"[checking result] nvboot: {_nvboot_res}, ota_status: {_ota_status_res}, slot_in_use: {_is_slot_in_use}"
         )
         return _nvboot_res and _ota_status_res and _is_slot_in_use
+
+    def _ensure_nv_boot_control_file(self):
+        """
+        ensure the present of nv_boot_control.conf in the newly updated slot
+        NOTE: currently we just ensure the file exists and not empty!
+        """
+        nv_boot_cfg = self._mount_point / "etc/nv_boot_control.conf"
+        if not nv_boot_cfg.is_file() or not _read_file(nv_boot_cfg):
+            # nv_boot_cfg is not presented/empty
+            # write the conf with our default one
+            default_nv_boot_cfg = Path(__file__) / f"nv_boot_control.conf.{self._boot_control.model}"
+            _write_file(nv_boot_cfg, _read_file(default_nv_boot_cfg))
 
     def init_slot_in_use_file(self):
         """

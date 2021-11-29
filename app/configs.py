@@ -129,17 +129,7 @@ def create_config(platform):
     if platform == "grub":
         return GrubControlConfig()
     elif platform == "cboot":
-        cfg = CBootControlConfig()
-        # NOTE: only support r580 platform right now!
-        # detect the chip id
-        chip_id = int(Path("/sys/module/tegra_fuse/parameters/tegra_chip_id").read_text().strip())
-        cfg.set("CHIP_ID", chip_id)
-        if chip_id not in cfg.CHIP_ID_MODEL_MAP:
-            raise NotImplementedError(f"unsupported platform found {platform.machine()}, abort")
-            
-        cfg.set("MODEL", cfg.CHIP_ID_MODEL_MAP[chip_id])
-
-        return cfg
+        return CBootControlConfig()
 
 
 config = create_config(_detect_platform())
