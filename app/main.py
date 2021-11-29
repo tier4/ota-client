@@ -30,7 +30,7 @@ def main():
 
 if __name__ == "__main__":
     if cfg is None:
-        sys.exit(f"unsupported platform, abort")
+        sys.exit("unsupported platform, abort")
 
     # create a lock file to prevent multiple ota-client instances start
     lock_file = Path("/var/run/ota-client.lock")

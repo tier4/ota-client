@@ -655,12 +655,8 @@ class CBootControlMixin(BootControlMixinInterface):
             self.store_ota_status(OtaStatus.SUCCESS)
             return OtaStatus.SUCCESS
         else:
-            logger.debug(
-                "changes applied failed, switch active slot back to previous slot"
-            )
+            logger.warning("changes applied failed")
             self.store_ota_status(OtaStatus.FAILURE)
-            # set active slot back to the previous slot
-            self._boot_control.switch_boot_standby()
             return OtaStatus.FAILURE
 
     finalize_rollback = finalize_update

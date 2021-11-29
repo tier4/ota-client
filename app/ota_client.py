@@ -1,4 +1,3 @@
-from platform import platform
 import tempfile
 import requests
 import shutil
@@ -8,7 +7,6 @@ import os
 import time
 import json
 import operator
-import sys
 from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
