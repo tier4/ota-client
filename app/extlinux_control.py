@@ -9,7 +9,7 @@ import log_util
 import configs
 from ota_error import OtaErrorUnrecoverable
 from ota_status import OtaStatus
-from ota_client_interface import BootControlMixinInterface
+from ota_client_interface import BootControlInterface
 
 cfg = configs.create_config("cboot")
 
@@ -26,7 +26,6 @@ def _read_file(path: Path) -> str:
 
 
 def _write_file(path: Path, input: str):
-    path.touch(mode=420, exist_ok=True)
     path.write_text(input)
 
 
@@ -56,8 +55,8 @@ def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
 
 
 class HelperFuncs:
-    @classmethod
-    def _findfs(cls, key: str, value: str) -> str:
+    @staticmethod
+    def _findfs(key: str, value: str) -> str:
         """
         findfs finds a partition by conditions
         Usage:
@@ -66,8 +65,8 @@ class HelperFuncs:
         _cmd = f"findfs {key}={value}"
         return _subprocess_check_output(_cmd)
 
-    @classmethod
-    def _blkid(cls, args: str) -> str:
+    @staticmethod
+    def _blkid(args: str) -> str:
         _cmd = f"blkid {args}"
         return _subprocess_check_output(_cmd)
 
@@ -100,8 +99,8 @@ class Nvbootctrl:
     PREFIX = "APP"
     ACTIVE_STANDBY_FLIP = {"0": "1", "1": "0"}
 
-    @classmethod
-    def _nvbootctrl(cls, arg: str, *, call_only=True, raise_exception=True) -> str:
+    @staticmethod
+    def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> str:
         # NOTE: target is always set to rootfs
         _cmd = f"nvbootctrl -t rootfs {arg}"
         if call_only:
@@ -240,59 +239,60 @@ class ExtlinuxCfgFile:
             entry["APPEND"] = append
             self._entry[label] = entry
 
-    def load_extlinux_cfg_file(self, f: Path):
+    def load_extlinux_cfg_file(self, file: Path):
         """
         load entries from external extlinux conf file
         """
-        if not f.is_file():
+        if not file.is_file():
             return
 
         # search for entries
         in_entry = False
         entry_name, entry = "", dict()
 
-        for l in f.read_text().split("\n"):
-            if l.strip().startswith("#"):
-                continue
+        with open(file, "r") as f:
+            for l in f.readlines():
+                if l.strip().startswith("#"):
+                    continue
 
-            # top-level options
-            if l.find("TIMEOUT") == 0:
-                self._heading["TIMEOUT"] = l.strip().split(" ")[-1]
-            elif l.find("DEFAULT") == 0:
-                self._heading["DEFAULT"] = l.strip().replace("DEFAULT", "")
-            elif l.find("MENU TITLE") == 0:
-                self._heading["MENU TITLE"] = l.strip().replace("MENU TITLE", "")
+                # top-level options
+                if l.find("TIMEOUT") == 0:
+                    self._heading["TIMEOUT"] = l.strip().split(" ")[-1]
+                elif l.find("DEFAULT") == 0:
+                    self._heading["DEFAULT"] = l.strip().replace("DEFAULT", "")
+                elif l.find("MENU TITLE") == 0:
+                    self._heading["MENU TITLE"] = l.strip().replace("MENU TITLE", "")
 
-            # entry
-            if in_entry:
-                if l.find("\t") != 0 or l.find(" ") != 0:
-                    # we encount the end of an entry
-                    in_entry = False
-                    # save the previous entry
-                    self.load_entry(label=entry_name, entry=entry)
-                    # options that we don't know and are also not comments
-                    if l:
-                        entry[l.strip()] = ""
+                # entry
+                if in_entry:
+                    if l.find("\t") != 0 or l.find(" ") != 0:
+                        # we encount the end of an entry
+                        in_entry = False
+                        # save the previous entry
+                        self.load_entry(label=entry_name, entry=entry)
+                        # options that we don't know and are also not comments
+                        if l:
+                            entry[l.strip()] = ""
+                    elif l.strip().find("LABEL") == 0:
+                        # follow by another new entry
+                        # save the previous entry
+                        self.load_entry(label=entry_name, entry=entry)
+                        # load new entry
+                        entry_name, entry = l.strip().split(" ")[-1], dict()
+                    # load entry's contents
+                    elif l.find("LINUX") != -1:
+                        entry["LINUX"] = l.strip().split(" ")[-1]
+                    elif l.find("INITRD") != -1:
+                        entry["INITRD"] = l.strip().split(" ")[-1]
+                    elif l.find("FDT") != -1:
+                        entry["FDT"] = l.strip().split(" ")[-1]
+                    elif l.find("APPEND") != -1:
+                        entry["APPEND"] = l.strip().replace("APPEND", "")
+                    elif l.find("MENU LABEL") != -1:
+                        entry["MENU LABEL"] = l.replace("MENU LABEL", "")
                 elif l.strip().find("LABEL") == 0:
-                    # follow by another new entry
-                    # save the previous entry
-                    self.load_entry(label=entry_name, entry=entry)
-                    # load new entry
+                    in_entry = True
                     entry_name, entry = l.strip().split(" ")[-1], dict()
-                # load entry's contents
-                elif l.find("LINUX") != -1:
-                    entry["LINUX"] = l.strip().split(" ")[-1]
-                elif l.find("INITRD") != -1:
-                    entry["INITRD"] = l.strip().split(" ")[-1]
-                elif l.find("FDT") != -1:
-                    entry["FDT"] = l.strip().split(" ")[-1]
-                elif l.find("APPEND") != -1:
-                    entry["APPEND"] = l.strip().replace("APPEND", "")
-                elif l.find("MENU LABEL") != -1:
-                    entry["MENU LABEL"] = l.replace("MENU LABEL", "")
-            elif l.strip().find("LABEL") == 0:
-                in_entry = True
-                entry_name, entry = l.strip().split(" ")[-1], dict()
 
     def get_entry(self, name: str) -> dict:
         """
@@ -355,10 +355,14 @@ class CBootControl:
 
         # NOTE: only support r580 platform right now!
         # detect the chip id
-        self.chip_id = int(Path("/sys/module/tegra_fuse/parameters/tegra_chip_id").read_text().strip())
+        self.chip_id = int(
+            Path("/sys/module/tegra_fuse/parameters/tegra_chip_id").read_text().strip()
+        )
         if self.chip_id not in cfg.CHIP_ID_MODEL_MAP:
-            raise NotImplementedError(f"unsupported platform found (chip_id: {self.chip_id}), abort")
-            
+            raise NotImplementedError(
+                f"unsupported platform found (chip_id: {self.chip_id}), abort"
+            )
+
         self.model = cfg.CHIP_ID_MODEL_MAP[self.chip_id]
 
         logger.debug(f"standby slot: {self._standby_slot}")
@@ -466,52 +470,36 @@ class CBootControl:
         subprocess.check_call(shlex.split("reboot"))
 
 
-class CBootControlMixin(BootControlMixinInterface):
+class CBootControlMixin(BootControlInterface):
     def __init__(self):
-        self._boot_control: CBootControl = CBootControl()
-        self._mount_point: Path = cfg.MOUNT_POINT
+        """
+        attributes that needed for this mixin to work
+
+        these attributes will be initialized in OtaClient,
+        so we don't need to call this __init__ method
+        """
+        self._mount_point: Path = None
+        self._boot_control: CBootControl = None
 
         # current slot
-        self._ota_status_dir: Path = cfg.OTA_STATUS_DIR
-        self._ota_status_file = self._ota_status_dir / cfg.OTA_STATUS_FNAME
-        self._ota_version_file = self._ota_status_dir / cfg.OTA_VERSION_FNAME
-        self._slot_in_use_file = cfg.SLOT_IN_USE_FILE
+        self._ota_status_dir: Path = None
+        self._ota_status_file: Path = None
+        self._ota_version_file: Path = None
+        self._slot_in_use_file: Path = None
 
         # standby slot
-        self._standby_ota_status_dir: Path = (
-            self._mount_point / cfg.OTA_STATUS_DIR.relative_to(Path("/"))
-        )
-        self._standby_ota_status_file = (
-            self._standby_ota_status_dir / cfg.OTA_STATUS_FNAME
-        )
-        self._standby_ota_version_file = (
-            self._standby_ota_status_dir / cfg.OTA_VERSION_FNAME
-        )
-        self._standby_extlinux_cfg = self._mount_point / cfg.EXTLINUX_FILE.relative_to(
-            "/"
-        )
-        self._standby_slot_in_use_file = (
-            self._mount_point / cfg.SLOT_IN_USE_FILE.relative_to(Path("/"))
-        )
-
-        # initialize status
-        self._ota_status = self.initialize_ota_status()
-        self._slot_in_use = self.load_slot_in_use_file()
-        self._current_slot, self._standby_slot = (
-            Nvbootctrl.get_current_slot(),
-            Nvbootctrl.get_standby_slot(),
-        )
-        logger.debug(f"ota_status: {self._ota_status}")
-        logger.debug(
-            f"active slot: {self._slot_in_use}, current slot: {self._current_slot}, standby slot: {self._standby_slot}"
-        )
+        self._standby_ota_status_dir: Path = None
+        self._standby_ota_status_file: Path = None
+        self._standby_ota_version_file: Path = None
+        self._standby_extlinux_cfg: Path = None
+        self._standby_slot_in_use_file: Path = None
 
     def _mount_standby(self):
         self._mount_point.mkdir(parents=True, exist_ok=True)
 
         standby_dev = self._boot_control.get_standby_dev()
         cmd_mount = f"mount {standby_dev} {self._mount_point}"
-        logger.debug(f"starget: {standby_dev}, mount_point: {self._mount_point}")
+        logger.debug(f"target: {standby_dev}, mount_point: {self._mount_point}")
 
         _subprocess_call(cmd_mount, raise_exception=True)
         # create new ota_status_dir on standby dev
@@ -531,14 +519,14 @@ class CBootControlMixin(BootControlMixinInterface):
             # suppress target not mounted error
             if e.returncode != 32:
                 logger.error(f"failed to umount standby bank {standby_dev}")
-                raise e
+                raise
 
         # format the standby slot
         try:
             _subprocess_call(f"mkfs.ext4 -F {standby_dev}", raise_exception=True)
         except subprocess.CalledProcessError as e:
             logger.error(f"failed to cleanup standby bank {standby_dev}")
-            raise e
+            raise
 
     def _is_switching_boot(self) -> bool:
         # evidence 1: nvbootctrl status
@@ -570,7 +558,9 @@ class CBootControlMixin(BootControlMixinInterface):
         if not nv_boot_cfg.is_file() or not _read_file(nv_boot_cfg):
             # nv_boot_cfg is not presented/empty
             # write the conf with our default one
-            default_nv_boot_cfg = Path(__file__) / f"nv_boot_control.conf.{self._boot_control.model}"
+            default_nv_boot_cfg = (
+                Path(__file__) / f"nv_boot_control.conf.{self._boot_control.model}"
+            )
             _write_file(nv_boot_cfg, _read_file(default_nv_boot_cfg))
 
     def init_slot_in_use_file(self):
@@ -597,6 +587,11 @@ class CBootControlMixin(BootControlMixinInterface):
 
         status = self.load_ota_status()
         slot_in_use = self.load_slot_in_use_file()
+
+        logger.debug(f"active slot should be {slot_in_use}")
+        logger.debug(
+            f"current slot: {Nvbootctrl.get_current_slot()}, standby slot: {Nvbootctrl.get_standby_slot()}"
+        )
 
         if len(status) == 0 or len(slot_in_use) == 0:
             self.store_initialized_ota_status()
@@ -664,6 +659,9 @@ class CBootControlMixin(BootControlMixinInterface):
         self._boot_control.write_extlinux_cfg(
             target=self._standby_extlinux_cfg, src=self._standby_extlinux_cfg
         )
+
+        self._ensure_nv_boot_control_file()
+
         self._boot_control.switch_boot_standby()
         self._boot_control.reboot()
 

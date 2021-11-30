@@ -6,15 +6,10 @@ from typing import Any
 
 from ota_status import OtaStatus
 
-class BootControlMixinInterface(metaclass=abc.ABCMeta):
+class BootControlInterface(metaclass=abc.ABCMeta):
     """
     platform neutral boot control interface
     """
-
-    _boot_control: Any # any type that support controlling bootloader behaviors
-    _ota_status: OtaStatus
-    _mount_point: Path
-
     def initialize_ota_status(self): ...
     def store_standby_ota_status(self, status: OtaStatus): ...
     def store_ota_status(self, status): ...

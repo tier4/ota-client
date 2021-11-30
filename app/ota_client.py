@@ -18,9 +18,9 @@ from enum import Enum, unique
 from requests.exceptions import RequestException
 from retrying import retry
 
-from extlinux_control import CBootControlMixin
-from ota_client_interface import BootControlMixinInterface, OtaClientInterface
-from grub_ota_partition import GrubControlMixin
+from extlinux_control import CBootControl, CBootControlMixin
+from ota_client_interface import BootControlInterface, OtaClientInterface
+from grub_ota_partition import GrubControlMixin, OtaPartitionFile
 from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
@@ -229,9 +229,7 @@ class OtaClientStatistics(object):
         self.errors_download = 0
 
 
-class _BaseOtaClient(
-    OtaStatusControlMixin, BootControlMixinInterface, OtaClientInterface
-):
+class _BaseOtaClient(OtaStatusControlMixin, BootControlInterface, OtaClientInterface):
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
@@ -746,17 +744,56 @@ class _BaseOtaClient(
 def gen_ota_client_class(platform: str):
     if platform == "grub":
 
-        class OtaClient(GrubControlMixin, _BaseOtaClient):
+        class OtaClient(_BaseOtaClient, GrubControlMixin):
             def __init__(self):
                 super().__init__()
-                super(GrubControlMixin, self).__init__()
+
+                self._boot_control: OtaPartitionFile = OtaPartitionFile()
+                self._ota_status: OtaStatus = self.initialize_ota_status()
+
+                logger.debug(f"ota status: {self._ota_status.name}")
 
     elif platform == "cboot":
 
-        class OtaClient(CBootControlMixin, _BaseOtaClient):
+        class OtaClient(_BaseOtaClient, CBootControlMixin):
             def __init__(self):
                 super().__init__()
-                super(CBootControlMixin, self).__init__()
+
+                # current slot
+                self._ota_status_dir: Path = cfg.OTA_STATUS_DIR
+                self._ota_status_file: Path = (
+                    self._ota_status_dir / cfg.OTA_STATUS_FNAME
+                )
+                self._ota_version_file: Path = (
+                    self._ota_status_dir / cfg.OTA_VERSION_FNAME
+                )
+                self._slot_in_use_file: Path = cfg.SLOT_IN_USE_FILE
+
+                # standby slot
+                self._standby_ota_status_dir: Path = (
+                    self._mount_point / self._ota_status_dir.relative_to(Path("/"))
+                )
+                self._standby_ota_status_file = (
+                    self._standby_ota_status_dir / cfg.OTA_STATUS_FNAME
+                )
+                self._standby_ota_version_file = (
+                    self._standby_ota_status_dir / cfg.OTA_VERSION_FNAME
+                )
+                self._standby_extlinux_cfg = (
+                    self._mount_point / cfg.EXTLINUX_FILE.relative_to("/")
+                )
+                self._standby_slot_in_use_file = (
+                    self._mount_point / self._slot_in_use_file.relative_to(Path("/"))
+                )
+
+                self._boot_control: CBootControl = CBootControl()
+                self._ota_status: OtaStatus = self.initialize_ota_status()
+                self._slot_in_use = self.load_slot_in_use_file()
+
+                logger.info(
+                    f"model: {self._boot_control.model} (chip_id: {hex(self._boot_control.chip_id)})"
+                )
+                logger.info(f"ota status: {self._ota_status.name}")
 
     return OtaClient
 

@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 import configs
-from ota_client_interface import BootControlMixinInterface
+from ota_client_interface import BootControlInterface
 from ota_status import OtaStatus
 from grub_control import GrubControl
 from ota_error import OtaErrorUnrecoverable
@@ -453,10 +453,16 @@ class OtaPartitionFile(OtaPartition):
 
 
 ######## bootcontrol adapter for grub_control ########
-class GrubControlMixin(BootControlMixinInterface):
+class GrubControlMixin(BootControlInterface):
     def __init__(self):
-        self._boot_control: OtaPartitionFile = OtaPartitionFile()
-        self._ota_status = self.initialize_ota_status()
+        """
+        attributes that needed for this mixin to work
+
+        these attributes will be initialized in OtaClient,
+        so we don't need to call this __init__ method
+        """
+        self._boot_control: OtaPartitionFile = None
+        self._ota_status = None
 
     def initialize_ota_status(self):
         status_string = self.load_ota_status()

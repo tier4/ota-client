@@ -19,7 +19,9 @@ class OtaStatus(Enum):
 
 
 class OtaStatusControlMixin:
-    _ota_status = None  # initialized by boot_control
+    def __init__(self):
+        # ota_status will be initialized by ota_client
+        self._ota_status: OtaStatus = None
 
     def get_ota_status(self):
         return self._ota_status

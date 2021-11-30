@@ -92,9 +92,7 @@ class CBootControlConfig(_BaseConfig):
     """
 
     PLATFORM = "cboot"
-    CHIP_ID_MODEL_MAP = {
-        0x19: "rqx_580"
-    }
+    CHIP_ID_MODEL_MAP = {0x19: "rqx_580"}
 
     def __init__(self):
         super().__init__()
@@ -121,7 +119,9 @@ def _detect_platform():
     elif platform.machine() == "aarch64" or platform.processor == "aarch64":
         return "cboot"
     else:
-        raise NotImplementedError(f"unsupported platform found {platform.machine()}, abort")
+        raise NotImplementedError(
+            f"unsupported platform found {platform.machine()}, abort"
+        )
     return
 
 
