@@ -20,7 +20,12 @@ class OtaStatus(Enum):
 
 class OtaStatusControlMixin:
     def __init__(self):
-        # ota_status will be initialized by ota_client
+        """
+        attributes that needed for this mixin to work
+
+        these attributes will be initialized in OtaClient,
+        so we don't need to call this __init__ method
+        """
         self._ota_status: OtaStatus = None
 
     def get_ota_status(self):

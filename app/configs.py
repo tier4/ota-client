@@ -122,7 +122,6 @@ def _detect_platform():
         raise NotImplementedError(
             f"unsupported platform found {platform.machine()}, abort"
         )
-    return
 
 
 def create_config(platform):
@@ -130,6 +129,7 @@ def create_config(platform):
         return GrubControlConfig()
     elif platform == "cboot":
         return CBootControlConfig()
+    return None
 
 
 config = create_config(_detect_platform())
