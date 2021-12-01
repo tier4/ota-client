@@ -524,7 +524,7 @@ class CBootControlMixin(BootControlInterface):
         # format the standby slot
         try:
             _subprocess_call(f"mkfs.ext4 -F {standby_dev}", raise_exception=True)
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             logger.error(f"failed to cleanup standby bank {standby_dev}")
             raise
 

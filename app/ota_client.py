@@ -19,7 +19,7 @@ from requests.exceptions import RequestException
 from retrying import retry
 
 from extlinux_control import CBootControl, CBootControlMixin
-from ota_client_interface import BootControlInterface, OtaClientInterface
+from ota_client_interface import OtaClientInterface
 from grub_ota_partition import GrubControlMixin, OtaPartitionFile
 from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
@@ -229,7 +229,7 @@ class OtaClientStatistics(object):
         self.errors_download = 0
 
 
-class _BaseOtaClient(OtaStatusControlMixin, BootControlInterface, OtaClientInterface):
+class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
