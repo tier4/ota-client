@@ -18,9 +18,7 @@ from enum import Enum, unique
 from requests.exceptions import RequestException
 from retrying import retry
 
-from extlinux_control import CBootControl, CBootControlMixin
 from ota_client_interface import OtaClientInterface
-from grub_ota_partition import GrubControlMixin, OtaPartitionFile
 from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
@@ -744,6 +742,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 def gen_ota_client_class(platform: str):
     if platform == "grub":
 
+        from grub_ota_partition import GrubControlMixin, OtaPartitionFile
+
         class OtaClient(_BaseOtaClient, GrubControlMixin):
             def __init__(self):
                 super().__init__()
@@ -754,6 +754,8 @@ def gen_ota_client_class(platform: str):
                 logger.debug(f"ota status: {self._ota_status.name}")
 
     elif platform == "cboot":
+
+        from extlinux_control import CBootControl, CBootControlMixin
 
         class OtaClient(_BaseOtaClient, CBootControlMixin):
             def __init__(self):
