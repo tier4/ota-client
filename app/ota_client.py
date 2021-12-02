@@ -791,9 +791,6 @@ def gen_ota_client_class(platform: str):
                 self._ota_status: OtaStatus = self.initialize_ota_status()
                 self._slot_in_use = self.load_slot_in_use_file()
 
-                logger.info(
-                    f"model: {self._boot_control.model} (chip_id: {hex(self._boot_control.chip_id)})"
-                )
                 logger.info(f"ota status: {self._ota_status.name}")
 
     return OtaClient

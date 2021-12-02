@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Tuple
 
 import log_util
-import configs
+from configs import config as cfg
 from ota_error import OtaErrorUnrecoverable
 from ota_status import OtaStatus
 from ota_client_interface import BootControlInterface
 
-cfg = configs.create_config("cboot")
+assert cfg.PLATFORM == "cboot"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -355,9 +355,8 @@ class CBootControl:
 
         # NOTE: only support r580 platform right now!
         # detect the chip id
-        self.chip_id = int(
-            Path("/sys/module/tegra_fuse/parameters/tegra_chip_id").read_text().strip()
-        )
+        tegra_chip_id_f = Path("/sys/module/tegra_fuse/parameters/tegra_chip_id")
+        self.chip_id = int(_read_file(tegra_chip_id_f).strip())
         if self.chip_id not in cfg.CHIP_ID_MODEL_MAP:
             raise NotImplementedError(
                 f"unsupported platform found (chip_id: {self.chip_id}), abort"
@@ -368,6 +367,7 @@ class CBootControl:
         logger.debug(f"standby slot: {self._standby_slot}")
         logger.debug(f"standby dev: {self._standby_dev}")
         logger.debug(f"standby dev partuuid: {self._standby_partuuid}")
+        logger.info(f"model: {self.model} (chip_id: {hex(self.chip_id)})")
 
     def _get_slot_info(self) -> Tuple[str, str, str]:
         """

@@ -8,10 +8,10 @@ from pathlib import Path
 from pprint import pformat
 
 import log_util
-import configs
+from configs import config as cfg
 from ota_error import OtaErrorUnrecoverable
 
-cfg = configs.create_config("grub")
+assert cfg.PLATFORM == "grub"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
