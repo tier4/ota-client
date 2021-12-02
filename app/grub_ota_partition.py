@@ -26,11 +26,15 @@ class OtaPartition:
     device means: sda3
     device_file means: /dev/sda3
     """
+
+    BOOT_DIR = cfg.BOOT_DIR  # Path("/boot")
+    BOOT_OTA_PARTITION_FILE = cfg.BOOT_OTA_PARTITION_FILE  # Path("ota-partition")
+
     def __init__(self):
         self._active_root_device_cache = None
         self._standby_root_device_cache = None
-        self._boot_dir = cfg.BOOT_DIR # Path("/boot")
-        self._boot_ota_partition_file = cfg.BOOT_OTA_PARTITION_FILE # Path("ota-partition")
+        self._boot_dir = OtaPartition.BOOT_DIR
+        self._boot_ota_partition_file = OtaPartition.BOOT_OTA_PARTITION_FILE
 
     def get_active_boot_device(self):
         """
