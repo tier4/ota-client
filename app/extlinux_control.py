@@ -97,7 +97,7 @@ class Nvbootctrl:
     """
 
     PREFIX = "APP"
-    ACTIVE_STANDBY_FLIP = {"0": "1", "1": "0"}
+    CURRENT_STANDBY_FLIP = {"0": "1", "1": "0"}
 
     @staticmethod
     def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> str:
@@ -117,7 +117,7 @@ class Nvbootctrl:
 
     @classmethod
     def get_standby_slot(cls) -> str:
-        return cls.ACTIVE_STANDBY_FLIP[cls.get_current_slot()]
+        return cls.CURRENT_STANDBY_FLIP[cls.get_current_slot()]
 
     @classmethod
     def get_suffix(cls, slot: str) -> str:
@@ -429,7 +429,7 @@ class CBootControl:
 
         write new extlinux conf file to target
         """
-        if src.is_file():
+        if src and src.is_file():
             # load template extlinux_cfg from external
             cfg_text = self.gen_extlinux_cfg(src)
         else:
@@ -643,7 +643,6 @@ class CBootControlMixin(BootControlInterface):
         self._mount_standby()
 
         # store status
-        self.store_standby_ota_status(OtaStatus.UPDATING)
         self.store_standby_ota_version(version)
         self.store_slot_in_use_file(
             Nvbootctrl.get_standby_slot(), self._slot_in_use_file

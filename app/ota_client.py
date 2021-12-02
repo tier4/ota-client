@@ -381,11 +381,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _rollback(self):
         with self._lock:
             # enter rollback
-            self.enter_rollbacking()
+            self.enter_rollback()
             self._failure_type = OtaClientFailureType.NO_FAILURE
             self._failure_reason = ""
         # leave rollback
-        self.leave_rollbacking()
+        self.leave_rollback()
 
     def _status(self):
         with self._lock:
@@ -720,8 +720,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self.check_update_status()
 
         logger.debug("pre-update setup...")
-        self.boot_ctrl_pre_update(version)
         self.set_ota_status(OtaStatus.UPDATING)
+        self.boot_ctrl_pre_update(version)
         self.store_standby_ota_status(OtaStatus.UPDATING)
         logger.debug("finished pre-update setup")
 
@@ -729,13 +729,12 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         logger.debug("post-update setup...")
         self.boot_ctrl_post_update()
 
-    def enter_rollbacking(self):
+    def enter_rollback(self):
         self.check_rollback_status()
         self.set_ota_status(OtaStatus.ROLLBACKING)
         self.store_standby_ota_status(OtaStatus.ROLLBACKING)
-        self.boot_ctrl_pre_rollback()
 
-    def leave_rollbacking(self):
+    def leave_rollback(self):
         self.boot_ctrl_post_rollback()
 
 

@@ -466,6 +466,7 @@ class GrubControlMixin(BootControlInterface):
 
     def initialize_ota_status(self):
         status_string = self.load_ota_status()
+        logger.info(f"loaded ota_status: {status_string}")
         if status_string == "":
             self.store_standby_ota_status(OtaStatus.INITIALIZED)
             return OtaStatus.INITIALIZED
@@ -482,10 +483,6 @@ class GrubControlMixin(BootControlInterface):
     def store_standby_ota_version(self, version):
         self._boot_control.store_standby_ota_version(version)
 
-    def store_initialized_ota_status(self):
-        self.store_standby_ota_status(OtaStatus.INITIALIZED.name)
-        return OtaStatus.INITIALIZED
-
     def store_ota_status(self, status: OtaStatus):
         self._boot_control.store_active_ota_status(status.name)
 
@@ -499,7 +496,6 @@ class GrubControlMixin(BootControlInterface):
         return self._boot_control.load_ota_version()
 
     def boot_ctrl_pre_update(self, version):
-        self.store_standby_ota_status(OtaStatus.UPDATING)
         self.store_standby_ota_version(version)
 
         self._boot_control.cleanup_standby_boot_partition()
@@ -508,9 +504,6 @@ class GrubControlMixin(BootControlInterface):
     def boot_ctrl_post_update(self):
         self._boot_control.update_fstab(self._mount_point)
         self._boot_control.create_custom_cfg_and_reboot()
-
-    def boot_ctrl_pre_rollback(self):
-        self._boot_control.store_standby_ota_status(OtaStatus.ROLLBACKING.name)
 
     def boot_ctrl_post_rollback(self):
         self._boot_control.create_custom_cfg_and_reboot(rollback=True)
