@@ -549,20 +549,6 @@ class CBootControlMixin(BootControlInterface):
         )
         return _nvboot_res and _ota_status_res and _is_slot_in_use
 
-    def _ensure_nv_boot_control_file(self):
-        """
-        ensure the present of nv_boot_control.conf in the newly updated slot
-        NOTE: currently we just ensure the file exists and not empty!
-        """
-        nv_boot_cfg = self._mount_point / "etc/nv_boot_control.conf"
-        if not nv_boot_cfg.is_file() or not _read_file(nv_boot_cfg):
-            # nv_boot_cfg is not presented/empty
-            # write the conf with our default one
-            default_nv_boot_cfg = (
-                Path(__file__) / f"nv_boot_control.conf.{self._boot_control.model}"
-            )
-            _write_file(nv_boot_cfg, _read_file(default_nv_boot_cfg))
-
     def init_slot_in_use_file(self):
         """
         Note: only init current slot if needed
@@ -658,8 +644,6 @@ class CBootControlMixin(BootControlInterface):
         self._boot_control.write_extlinux_cfg(
             target=self._standby_extlinux_cfg, src=self._standby_extlinux_cfg
         )
-
-        self._ensure_nv_boot_control_file()
 
         self._boot_control.switch_boot_standby()
         self._boot_control.reboot()
