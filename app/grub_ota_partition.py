@@ -26,15 +26,11 @@ class OtaPartition:
     device means: sda3
     device_file means: /dev/sda3
     """
-
-    BOOT_DIR = cfg.BOOT_DIR  # Path("/boot")
-    BOOT_OTA_PARTITION_FILE = cfg.BOOT_OTA_PARTITION_FILE  # Path("ota-partition")
-
     def __init__(self):
         self._active_root_device_cache = None
         self._standby_root_device_cache = None
-        self._boot_dir = OtaPartition.BOOT_DIR
-        self._boot_ota_partition_file = OtaPartition.BOOT_OTA_PARTITION_FILE
+        self._boot_dir = cfg.BOOT_DIR # Path("/boot")
+        self._boot_ota_partition_file = cfg.BOOT_OTA_PARTITION_FILE # Path("ota-partition")
 
     def get_active_boot_device(self):
         """
@@ -454,12 +450,12 @@ class OtaPartitionFile(OtaPartition):
 
 ######## bootcontrol adapter for grub_control ########
 class GrubControlMixin(BootControlInterface):
-    def __init__(self):
+    def _attributes_dependencies(self):
         """
+        placeholder method
         attributes that needed for this mixin to work
 
-        these attributes will be initialized in OtaClient,
-        so we don't need to call this __init__ method
+        these attributes will be initialized in OtaClient
         """
         self._boot_control: OtaPartitionFile = None
         self._ota_status = None

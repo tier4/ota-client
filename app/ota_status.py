@@ -19,12 +19,12 @@ class OtaStatus(Enum):
 
 
 class OtaStatusControlMixin:
-    def __init__(self):
+    def _attributes_dependencies(self):
         """
+        placeholder method
         attributes that needed for this mixin to work
 
-        these attributes will be initialized in OtaClient,
-        so we don't need to call this __init__ method
+        these attributes will be initialized in OtaClient
         """
         self._ota_status: OtaStatus = None
 
