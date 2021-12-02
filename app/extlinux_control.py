@@ -678,4 +678,8 @@ class CBootControlMixin(BootControlInterface):
             self.store_ota_status(OtaStatus.FAILURE)
             return OtaStatus.FAILURE
 
+    def boot_ctrl_post_rollback(self):
+        self._boot_control.switch_boot_standby()
+        self._boot_control.reboot()
+
     finalize_rollback = finalize_update
