@@ -587,7 +587,7 @@ class CBootControlMixin(BootControlInterface):
             return self.finalize_update()
         elif status == OtaStatus.ROLLBACKING.name:
             return self.finalize_rollback()
-        elif status == OtaStatus.SUCCESS.name:
+        elif status == OtaStatus.SUCCESS.name or status == OtaStatus.INITIALIZED.name:
             current_slot = Nvbootctrl.get_current_slot()
             if current_slot != slot_in_use:
                 logger.debug(
