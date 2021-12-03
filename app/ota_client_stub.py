@@ -7,7 +7,7 @@ from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
 
-import configs as cfg
+from configs import config as cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -35,6 +35,7 @@ class OtaClientStub:
         tasks = []
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         logger.info(f"{secondary_ecus=}")
+        # simultaneously dispatching update requests to all subecus without blocking
         for secondary in secondary_ecus:
             if OtaClientStub._find_request(request.ecu, secondary):
                 tasks.append(

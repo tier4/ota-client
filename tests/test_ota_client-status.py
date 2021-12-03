@@ -6,8 +6,9 @@ test_dir = Path(__file__).parent
 
 
 def test_ota_client_status(mocker, tmp_path):
-    from ota_client import OtaClient, OtaClientFailureType
-    from ota_partition import OtaPartition, OtaPartitionFile
+    import ota_client
+    from ota_client import OtaClientFailureType
+    from grub_ota_partition import OtaPartition
 
     """
     tmp_path/boot
@@ -47,21 +48,21 @@ def test_ota_client_status(mocker, tmp_path):
     )
 
     # test start
-    ota_client = OtaClient()
-    ota_client._statistics.total_files = 99
-    ota_client._statistics.files_processed = 1
-    ota_client._statistics.files_processed_copy = 80
-    ota_client._statistics.files_processed_link = 9
-    ota_client._statistics.files_processed_download = 10
-    ota_client._statistics.file_size_processed_copy = 1111
-    ota_client._statistics.file_size_processed_link = 2222
-    ota_client._statistics.file_size_processed_download = 3333
-    ota_client._statistics.elapsed_time_copy = 1.01
-    ota_client._statistics.elapsed_time_link = 2.02
-    ota_client._statistics.elapsed_time_download = 3.03
-    ota_client._statistics.errors_download = 10
+    ota_client_instance = ota_client.OtaClient()
+    ota_client_instance._statistics.total_files = 99
+    ota_client_instance._statistics.files_processed = 1
+    ota_client_instance._statistics.files_processed_copy = 80
+    ota_client_instance._statistics.files_processed_link = 9
+    ota_client_instance._statistics.files_processed_download = 10
+    ota_client_instance._statistics.file_size_processed_copy = 1111
+    ota_client_instance._statistics.file_size_processed_link = 2222
+    ota_client_instance._statistics.file_size_processed_download = 3333
+    ota_client_instance._statistics.elapsed_time_copy = 1.01
+    ota_client_instance._statistics.elapsed_time_link = 2.02
+    ota_client_instance._statistics.elapsed_time_download = 3.03
+    ota_client_instance._statistics.errors_download = 10
 
-    result, ota_status = ota_client.status()
+    result, ota_status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
     assert ota_status == {
         "status": "SUCCESS",

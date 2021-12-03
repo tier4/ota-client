@@ -1,4 +1,7 @@
+import sys
+import os
 from pathlib import Path
+
 from ota_client_stub import OtaClientStub
 from ota_client_service import (
     OtaClientServiceV2,
@@ -7,7 +10,7 @@ from ota_client_service import (
 )
 import otaclient_v2_pb2_grpc as v2_grpc
 
-import configs as cfg
+from configs import config as cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -23,6 +26,23 @@ def main():
     if version_file.is_file():
         version = open(version_file).read()
         logger.info(version)
+
+
+if __name__ == "__main__":
+    if cfg is None:
+        sys.exit("unsupported platform, abort")
+
+    # create a lock file to prevent multiple ota-client instances start
+    lock_file = Path("/var/run/ota-client.lock")
+    our_pid = os.getpid()
+    if lock_file.is_file():
+        pid = lock_file.read_text()
+        # running process will have a folder under /proc
+        if Path(f"/proc/{pid}").is_dir():
+            msg = f"another instance of ota-client(pid: {pid}) is running, abort"
+            sys.exit(msg)
+    # write our pid to the lock file
+    lock_file.write_text(f"{our_pid}")
 
     ota_client_stub = OtaClientStub()
     ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)

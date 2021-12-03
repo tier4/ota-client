@@ -61,11 +61,11 @@ GRUB_CMDLINE_LINUX=""
 
 
 def test_ota_client_rollabck(mocker, tmp_path):
-    from ota_client import OtaClient
-    from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl, OtaStatus
+    import ota_client
+    from configs import config as cfg
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
+    from ota_status import OtaStatus
     from grub_control import GrubControl
-    import grub_control
 
     """
     tmp_path/boot
@@ -112,7 +112,9 @@ def test_ota_client_rollabck(mocker, tmp_path):
 
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
-    mocker.patch.object(OtaClient, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+    mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+    mocker.patch.object(ota_client, "cfg", cfg)
+
     mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
     mocker.patch.object(
         GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
@@ -149,8 +151,8 @@ def test_ota_client_rollabck(mocker, tmp_path):
         GrubControl, "_grub_reboot_cmd", return_value=0
     )
     # test start
-    ota_client = OtaClient()
-    ota_client.rollback()
+    ota_client_instance = ota_client.OtaClient()
+    ota_client_instance.rollback()
 
     # make sure boot ota-partition is NOT switched
     assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"
@@ -163,15 +165,15 @@ def test_ota_client_rollabck(mocker, tmp_path):
     _grub_reboot_mock.assert_called_once_with(9)
     reboot_mock.assert_called_once()
 
-    assert ota_client._ota_status.get_ota_status() == OtaStatus.ROLLBACKING
+    assert ota_client_instance.get_ota_status() == OtaStatus.ROLLBACKING
 
 
 def test_ota_client_rollback_post_process(mocker, tmp_path):
-    from ota_client import OtaClient
-    from ota_partition import OtaPartition, OtaPartitionFile
-    from ota_status import OtaStatusControl, OtaStatus
+    import ota_client
+    from configs import config as cfg
+    from grub_ota_partition import OtaPartition, OtaPartitionFile
+    from ota_status import OtaStatus
     from grub_control import GrubControl
-    import grub_control
 
     """
     tmp_path/boot
@@ -216,7 +218,8 @@ def test_ota_client_rollback_post_process(mocker, tmp_path):
 
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
-    mocker.patch.object(OtaClient, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+    mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+    mocker.patch.object(ota_client, "cfg", cfg)
     mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
     mocker.patch.object(
         GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
@@ -264,13 +267,13 @@ def test_ota_client_rollback_post_process(mocker, tmp_path):
     mocker.patch.object(GrubControl, "_grub_mkconfig_cmd", mock__grub_mkconfig_cmd)
 
     # test start
-    ota_client = OtaClient()
+    ota_client_instance = ota_client.OtaClient()
 
     # make sure boot ota-partition is switched
     assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx4"
 
     assert open(boot_dir / "ota-partition.sdx3" / "status").read() == "SUCCESS"
-    assert ota_client._ota_status.get_ota_status() == OtaStatus.SUCCESS
+    assert ota_client_instance.get_ota_status() == OtaStatus.SUCCESS
 
     # TODO:
     # assert /etc/default/grub is updated

@@ -1,15 +1,17 @@
 import re
+import os
 import subprocess
 import shlex
 import tempfile
 import shutil
-import os
 from pathlib import Path
 from pprint import pformat
 
-from ota_error import OtaErrorUnrecoverable
-import configs as cfg
 import log_util
+from configs import config as cfg
+from ota_error import OtaErrorUnrecoverable
+
+assert cfg.PLATFORM == "grub"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
