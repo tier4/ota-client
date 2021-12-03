@@ -74,7 +74,7 @@ class GrubControlConfig(_BaseConfig):
         self.grub_dir = self.BOOT_DIR / "grub"
         self.grub_cfg_file = self.grub_dir / "grub.cfg"
         self.custom_cfg_file = self.grub_dir / "custom.cfg"
-        self.default_grub_file = self.grub_dir / "default/grub"
+        self.default_grub_file = self.ETC_DIR / "default/grub"
 
         self._properties_map.update(
             {
