@@ -560,17 +560,18 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             {"op": str}  # operation. "copy", "link" or "download"
             {"errors": int}  # number of errors that occurred when downloading.
         """
+        all_processed = len(sts)
         with self._statistics.modify_storage() as staging_storage:
             # failed to acquire lock for any reason
             if staging_storage is None:
                 return
 
             already_processed = staging_storage.get("files_processed", 0)
-            if already_processed >= len(sts):
+            if already_processed >= staging_storage.get("total_files",0):
                 return
 
-            staging_storage["files_processed"] += len(sts) - already_processed
-            for st in sts[already_processed:]:
+            staging_storage["files_processed"] += all_processed - already_processed
+            for st in sts[already_processed:all_processed]:
                 _suffix = st.get("op")
                 if _suffix in {"copy", "link", "download"}:
                     staging_storage[f"files_processed_{_suffix}"] += 1
