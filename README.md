@@ -3,7 +3,7 @@
 ## setup
 
 ```bash
-sudo apt isntall python3.8 python3-setuptools
+sudo apt install -y python3.8 python3-setuptools
 sudo python3.8 -m pip install -U pip
 sudo python3.8 -m pip install -r app/requirements.txt
 ```
