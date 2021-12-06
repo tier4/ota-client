@@ -7,6 +7,7 @@ import os
 import time
 import json
 import operator
+from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
@@ -206,26 +207,64 @@ class OtaClientUpdatePhase(Enum):
 
 class OtaClientStatistics(object):
     def __init__(self):
-        self.clear()
+        self._lock = Lock()       
+        self._slot: dict = self._init_statistics_storage()
+
+    @staticmethod
+    def _init_statistics_storage(self) -> dict:
+        return {
+            "total_files": 0,
+            "files_processed": 0,
+
+            "files_processed_copy": 0,
+            "files_processed_link": 0,
+            "files_processed_download": 0,
+
+            "file_size_processed_copy": 0,
+            "file_size_processed_link": 0,
+            "file_size_processed_download": 0,
+
+            "elapsed_time_copy": 0,  # in milliseconds
+            "elapsed_time_link": 0,  # in milliseconds
+            "elapsed_time_download": 0,  # in milliseconds
+
+            "errors_download": 0,
+        }
+    
+    def __getattr__(self, attr: str) -> int:
+        """
+        get attribute from the storage area
+        """
+        return self._slot.get(attr, 0)
+
+    def set(self, attr: str, value):
+        """
+        set single attr in the slot
+        """
+        with self._lock:
+            self._slot[attr] = value
 
     def clear(self):
-        self.total_files = 0
-        self.files_processed = 0
+        """
+        clear the storage slot and reset to empty
+        """
+        self._slot = self._init_statistics_storage()
 
-        self.files_processed_copy = 0
-        self.files_processed_link = 0
-        self.files_processed_download = 0
+    @contextmanager
+    def modify_storage(self):
+        """
+        update the whole storage
 
-        self.file_size_processed_copy = 0
-        self.file_size_processed_link = 0
-        self.file_size_processed_download = 0
-
-        self.elapsed_time_copy = 0  # in milliseconds
-        self.elapsed_time_link = 0  # in milliseconds
-        self.elapsed_time_download = 0  # in milliseconds
-
-        self.errors_download = 0
-
+        yield a staging storage area for thread-safe modifying the storage
+        """
+        staged_slot: dict = self._slot.copy()
+        try:
+            self._lock.acquire(timeout=1)
+            yield staged_slot
+        finally:
+            self._slot = staged_slot.copy()
+            staged_slot.clear()
+            self._lock.release()
 
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def __init__(self):
@@ -387,49 +426,28 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # leave rollback
         self.leave_rollback()
 
-    def _status(self):
-        with self._lock:
-            return {
-                "status": self.get_ota_status().name,
-                "failure_type": self._failure_type.name,
-                "failure_reason": self._failure_reason,
-                "version": self.get_version(),
-                "update_progress": {
-                    "phase": self._update_phase.name,
-                    "total_regular_files": self._statistics.total_files,
-                    "regular_files_processed": self._statistics.files_processed,
-                    "files_processed_copy": self._statistics.files_processed_copy,
-                    "files_processed_link": self._statistics.files_processed_link,
-                    "files_processed_download": self._statistics.files_processed_download,
-                    "file_size_processed_copy": self._statistics.file_size_processed_copy,
-                    "file_size_processed_link": self._statistics.file_size_processed_link,
-                    "file_size_processed_download": self._statistics.file_size_processed_download,
-                    "elapsed_time_copy": self._statistics.elapsed_time_copy,
-                    "elapsed_time_link": self._statistics.elapsed_time_link,
-                    "elapsed_time_download": self._statistics.elapsed_time_download,
-                    "errors_download": self._statistics.errors_download,
-                },
+    def _status(self) -> dict:
+        return {
+            "status": self.get_ota_status().name,
+            "failure_type": self._failure_type.name,
+            "failure_reason": self._failure_reason,
+            "version": self.get_version(),
+            "update_progress": {
+                "phase": self._update_phase.name,
+                "total_regular_files": self._statistics.total_files,
+                "regular_files_processed": self._statistics.files_processed,
+                "files_processed_copy": self._statistics.files_processed_copy,
+                "files_processed_link": self._statistics.files_processed_link,
+                "files_processed_download": self._statistics.files_processed_download,
+                "file_size_processed_copy": self._statistics.file_size_processed_copy,
+                "file_size_processed_link": self._statistics.file_size_processed_link,
+                "file_size_processed_download": self._statistics.file_size_processed_download,
+                "elapsed_time_copy": self._statistics.elapsed_time_copy,
+                "elapsed_time_link": self._statistics.elapsed_time_link,
+                "elapsed_time_download": self._statistics.elapsed_time_download,
+                "errors_download": self._statistics.errors_download,
             }
-
-    @property
-    def _total_regular_files(self):
-        with self._lock:
-            return self._update_total_regular_files
-
-    @property
-    def _regular_files_processed(self):
-        with self._lock:
-            return self._update_regular_files_processed
-
-    @_total_regular_files.setter
-    def _total_regular_files(self, num):
-        with self._lock:
-            self._update_total_regular_files = num
-
-    @_regular_files_processed.setter
-    def _regular_files_processed(self, num):
-        with self._lock:
-            self._update_regular_files_processed = num
+        }
 
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
@@ -526,48 +544,33 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             slink.symlink_to(slinkf.srcpath)
             os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
 
-    def _set_statistics(self, processed_list):
-        st = self._statistics
-        st.files_processed = len(processed_list)
+    def _set_statistics(self, sts):
+        """
+        thread-safe modify statistics storage
 
-        def set_st(op, files_processed, file_size_processed, elapsed_time):
-            _list = []
-            for i in processed_list[: st.files_processed]:
-                if i["op"] == op:
-                    i.pop("op")  # remove 'op' element
-                    _list.append(i)
-            setattr(st, files_processed, len(_list))
+        st format:
+            {"size": int}  # file size
+            {"elapsed": int}  # elapsed time in seconds
+            {"op": str}  # operation. "copy", "link" or "download"
+            {"errors": int}  # number of errors that occurred when downloading.
+        """
+        with self._statistics.modify_storage() as staged_storage:
+            start = staged_storage.get("files_processed", 0)
+            if start >= len(sts):
+                return
 
-            _list = _list if _list else [{}]  # add {} if empty
-            _total = reduce(operator.add, map(Counter, _list))
-            setattr(st, file_size_processed, _total.get("size", 0))
-            # convert from seconds to milli seconds as int
-            setattr(st, elapsed_time, int(_total.get("elapsed", 0) * 1000))
-            if op == "download":
-                st.errors_download = _total.get("errors", 0)
-
-        set_st(
-            "copy",
-            "files_processed_copy",
-            "file_size_processed_copy",
-            "elapsed_time_copy",
-        )
-        set_st(
-            "link",
-            "files_processed_link",
-            "file_size_processed_link",
-            "elapsed_time_link",
-        )
-        set_st(
-            "download",
-            "files_processed_download",
-            "file_size_processed_download",
-            "elapsed_time_download",
-        )
+            staged_storage["files_processed"] += len(sts)
+            for st in sts[start:]:
+                _suffix = st.get("op")
+                if _suffix in {"copy", "link", "download"}:
+                    staged_storage[f"files_process_{_suffix}"] += 1
+                    staged_storage[f"file_size_processed_{_suffix}"] += st.get("size", 0)
+                    staged_storage[f"elapsed_time_{_suffix}"] += int(st.get("elapsed", 0) * 1000)
+                    staged_storage[f"errors_{_suffix}"] = st.get("errors", 0)
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         reginf_list_raw_lines = open(list_file).readlines()
-        self._statistics.total_files = len(reginf_list_raw_lines)
+        self._statistics.set("total_files", len(reginf_list_raw_lines))
 
         with Manager() as manager:
             error_queue = manager.Queue()
@@ -633,6 +636,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                         pool.terminate()
                         raise error
                     time.sleep(2)  # set pulling interval to 2 seconds
+                
+                # final statistics record
                 self._set_statistics(processed_list)
 
     # NOTE:
