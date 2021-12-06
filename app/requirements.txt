@@ -3,7 +3,7 @@ jwt==1.2.0
 cryptography==3.4.8
 grpcio==1.40.0
 protobuf==3.15.8
-PyYAML==5.4.1
+PyYAML>=3.12
 requests==2.25.1
 watchtower==1.0.6
 pytz==2021.1
