@@ -33,8 +33,4 @@ class EcuInfo:
                 ecu_info = yaml.load(f, Loader=yaml.SafeLoader)
         except Exception:
             return EcuInfo.DEFAULT_ECU_INFO
-
-        format_version = ecu_info.get("format_version")
-        if format_version != 1:
-            raise OtaErrorUnrecoverable(f"format_version={format_version} is illegal")
         return ecu_info
