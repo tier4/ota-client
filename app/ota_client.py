@@ -211,7 +211,7 @@ class OtaClientStatistics(object):
         self._slot: dict = self._init_statistics_storage()
 
     @staticmethod
-    def _init_statistics_storage(self) -> dict:
+    def _init_statistics_storage() -> dict:
         return {
             "total_files": 0,
             "files_processed": 0,
@@ -257,14 +257,20 @@ class OtaClientStatistics(object):
 
         yield a staging storage area for thread-safe modifying the storage
         """
-        staged_slot: dict = self._slot.copy()
+        lock_acquired = False
         try:
-            self._lock.acquire(timeout=1)
-            yield staged_slot
+            if self._lock.acquire():
+                staging_slot: dict = self._slot.copy()
+                lock_acquired = True
+                yield staging_slot
+            else:
+                # failed to acquire lock, so we don't yield a staging_slot
+                yield None
         finally:
-            self._slot = staged_slot.copy()
-            staged_slot.clear()
-            self._lock.release()
+            if lock_acquired:
+                self._slot = staging_slot.copy()
+                staging_slot.clear()
+                self._lock.release()
 
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def __init__(self):
@@ -554,19 +560,23 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             {"op": str}  # operation. "copy", "link" or "download"
             {"errors": int}  # number of errors that occurred when downloading.
         """
-        with self._statistics.modify_storage() as staged_storage:
-            start = staged_storage.get("files_processed", 0)
-            if start >= len(sts):
+        with self._statistics.modify_storage() as staging_storage:
+            # failed to acquire lock for any reason
+            if staging_storage is None:
                 return
 
-            staged_storage["files_processed"] += len(sts)
-            for st in sts[start:]:
+            already_processed = staging_storage.get("files_processed", 0)
+            if already_processed >= len(sts):
+                return
+
+            staging_storage["files_processed"] += len(sts) - already_processed
+            for st in sts[already_processed:]:
                 _suffix = st.get("op")
                 if _suffix in {"copy", "link", "download"}:
-                    staged_storage[f"files_process_{_suffix}"] += 1
-                    staged_storage[f"file_size_processed_{_suffix}"] += st.get("size", 0)
-                    staged_storage[f"elapsed_time_{_suffix}"] += int(st.get("elapsed", 0) * 1000)
-                    staged_storage[f"errors_{_suffix}"] = st.get("errors", 0)
+                    staging_storage[f"files_processed_{_suffix}"] += 1
+                    staging_storage[f"file_size_processed_{_suffix}"] += st.get("size", 0)
+                    staging_storage[f"elapsed_time_{_suffix}"] += int(st.get("elapsed", 0) * 1000)
+                    staging_storage[f"errors_{_suffix}"] = st.get("errors", 0)
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         reginf_list_raw_lines = open(list_file).readlines()
