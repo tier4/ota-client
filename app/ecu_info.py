@@ -1,6 +1,5 @@
 import yaml
 
-from ota_error import OtaErrorUnrecoverable
 from configs import config as cfg
 import log_util
 
