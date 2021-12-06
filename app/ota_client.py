@@ -207,30 +207,26 @@ class OtaClientUpdatePhase(Enum):
 
 class OtaClientStatistics(object):
     def __init__(self):
-        self._lock = Lock()       
-        self._slot: dict = self._init_statistics_storage()
+        self._lock = Lock()
+        self.clear()
 
     @staticmethod
     def _init_statistics_storage() -> dict:
         return {
             "total_files": 0,
             "files_processed": 0,
-
             "files_processed_copy": 0,
             "files_processed_link": 0,
             "files_processed_download": 0,
-
             "file_size_processed_copy": 0,
             "file_size_processed_link": 0,
             "file_size_processed_download": 0,
-
             "elapsed_time_copy": 0,  # in milliseconds
             "elapsed_time_link": 0,  # in milliseconds
             "elapsed_time_download": 0,  # in milliseconds
-
             "errors_download": 0,
         }
-    
+
     def __getattr__(self, attr: str) -> int:
         """
         get attribute from the storage area
@@ -271,6 +267,7 @@ class OtaClientStatistics(object):
                 self._slot = staging_slot.copy()
                 staging_slot.clear()
                 self._lock.release()
+
 
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def __init__(self):
@@ -452,7 +449,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 "elapsed_time_link": self._statistics.elapsed_time_link,
                 "elapsed_time_download": self._statistics.elapsed_time_download,
                 "errors_download": self._statistics.errors_download,
-            }
+            },
         }
 
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
@@ -567,7 +564,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 return
 
             already_processed = staging_storage.get("files_processed", 0)
-            if already_processed >= staging_storage.get("total_files",0):
+            if already_processed >= staging_storage.get("total_files", 0):
                 return
 
             staging_storage["files_processed"] += all_processed - already_processed
@@ -575,8 +572,12 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 _suffix = st.get("op")
                 if _suffix in {"copy", "link", "download"}:
                     staging_storage[f"files_processed_{_suffix}"] += 1
-                    staging_storage[f"file_size_processed_{_suffix}"] += st.get("size", 0)
-                    staging_storage[f"elapsed_time_{_suffix}"] += int(st.get("elapsed", 0) * 1000)
+                    staging_storage[f"file_size_processed_{_suffix}"] += st.get(
+                        "size", 0
+                    )
+                    staging_storage[f"elapsed_time_{_suffix}"] += int(
+                        st.get("elapsed", 0) * 1000
+                    )
                     staging_storage[f"errors_{_suffix}"] = st.get("errors", 0)
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
@@ -647,7 +648,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                         pool.terminate()
                         raise error
                     time.sleep(2)  # set pulling interval to 2 seconds
-                
+
                 # final statistics record
                 self._set_statistics(processed_list)
 
