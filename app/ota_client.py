@@ -208,7 +208,7 @@ class OtaClientUpdatePhase(Enum):
 class OtaClientStatistics(object):
     def __init__(self):
         self._lock = Lock()
-        self.clear()
+        self._slot = self._init_statistics_storage()
 
     @staticmethod
     def _init_statistics_storage() -> dict:
@@ -227,15 +227,15 @@ class OtaClientStatistics(object):
             "errors_download": 0,
         }
 
-    def __getattr__(self, attr: str) -> int:
+    def get_snapshot(self):
         """
-        get attribute from the storage area
+        return a copy of statistics storage
         """
-        return self._slot.get(attr, 0)
+        return self._slot.copy()
 
     def set(self, attr: str, value):
         """
-        set single attr in the slot
+        set a single attr in the slot
         """
         with self._lock:
             self._slot[attr] = value
@@ -430,6 +430,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self.leave_rollback()
 
     def _status(self) -> dict:
+        _statistics = self._statistics.get_snapshot()
         return {
             "status": self.get_ota_status().name,
             "failure_type": self._failure_type.name,
@@ -437,18 +438,26 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             "version": self.get_version(),
             "update_progress": {
                 "phase": self._update_phase.name,
-                "total_regular_files": self._statistics.total_files,
-                "regular_files_processed": self._statistics.files_processed,
-                "files_processed_copy": self._statistics.files_processed_copy,
-                "files_processed_link": self._statistics.files_processed_link,
-                "files_processed_download": self._statistics.files_processed_download,
-                "file_size_processed_copy": self._statistics.file_size_processed_copy,
-                "file_size_processed_link": self._statistics.file_size_processed_link,
-                "file_size_processed_download": self._statistics.file_size_processed_download,
-                "elapsed_time_copy": self._statistics.elapsed_time_copy,
-                "elapsed_time_link": self._statistics.elapsed_time_link,
-                "elapsed_time_download": self._statistics.elapsed_time_download,
-                "errors_download": self._statistics.errors_download,
+                "total_regular_files": _statistics.get("total_files", 0),
+                "regular_files_processed": _statistics.get("files_processed", 0),
+                "files_processed_copy": _statistics.get("files_processed_copy", 0),
+                "files_processed_link": _statistics.get("files_processed_link", 0),
+                "files_processed_download": _statistics.get(
+                    "files_processed_download", 0
+                ),
+                "file_size_processed_copy": _statistics.get(
+                    "file_size_processed_copy", 0
+                ),
+                "file_size_processed_link": _statistics.get(
+                    "file_size_processed_link", 0
+                ),
+                "file_size_processed_download": _statistics.get(
+                    "file_size_processed_download", 0
+                ),
+                "elapsed_time_copy": _statistics.get("elapsed_time_copy", 0),
+                "elapsed_time_link": _statistics.get("elapsed_time_link", 0),
+                "elapsed_time_download": _statistics.get("elapsed_time_download", 0),
+                "errors_download": _statistics.get("errors_download", 0),
             },
         }
 
