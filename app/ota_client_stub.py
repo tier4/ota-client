@@ -30,7 +30,7 @@ class OtaClientStub:
         self._executor.shutdown()
 
     def host_addr(self):
-        self._ecu_info.get_ecu_ip_addr()
+        return self._ecu_info.get_ecu_ip_addr()
 
     async def update(self, request):
         logger.info(f"{request=}")
