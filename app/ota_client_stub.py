@@ -6,6 +6,7 @@ import otaclient_v2_pb2 as v2
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
+from ota_error import OtaErrorRecoverable
 
 from configs import config as cfg
 import log_util
@@ -50,6 +51,22 @@ class OtaClientStub:
                         name=secondary["ecu_id"],
                     )
                 )
+
+        def can_reboot():
+            st = self._secondary_ecus_status(request)
+            count = 0
+            for s in st:
+                if s.result != v2.NO_FAILURE:
+                    msg = f"Secondary ECU {s.ecu_id} failed: {s.result=}"
+                    raise OtaErrorRecoverable(msg)
+                if s.status.status == v2.StatusOta.FAILURE:
+                    msg = f"Secondary ECU {s.ecu_id} failed: {s.status.status=}"
+                    raise OtaErrorRecoverable(msg)
+                if s.status.status == v2.StatusOta.SUCCESS:
+                    count += 1
+            if count == len(st):
+                return True
+            return False
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
@@ -166,8 +183,8 @@ class OtaClientStub:
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
             r = self._ota_client_call.status(request, secondary["ip_addr"])
-            ecu = response.ecu.add()
-            ecu.ecu_id = secondary["ecu_id"]
-            ecu.result = r
+            for e in r.ecu:
+                ecu = response.ecu.add()
+                ecu.CopyFrom(e)
 
         return response
