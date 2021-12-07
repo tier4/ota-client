@@ -2,7 +2,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
-import otaclient_v2_pb2
+import otaclient_v2_pb2 as v2
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
@@ -34,6 +34,8 @@ class OtaClientStub:
 
     async def update(self, request):
         logger.info(f"{request=}")
+        response = v2.UpdateResponse()
+
         # secondary ecus
         tasks = []
         secondary_ecus = self._ecu_info.get_secondary_ecus()
@@ -44,7 +46,8 @@ class OtaClientStub:
                 tasks.append(
                     asyncio.create_task(
                         self._ota_client_call.update(request, secondary["ip_addr"]),
-                        name=secondary,  # register the task name with sub_ecu id
+                        # register the task name with sub_ecu id
+                        name=secondary["ecu_id"],
                     )
                 )
 
@@ -62,36 +65,33 @@ class OtaClientStub:
             # wait until update is initialized or error occured.
             event.wait()
 
-            main_ecu_update_result = {
-                "ecu_id": entry.ecu_id,
-                "result": otaclient_v2_pb2.NO_FAILURE,
-            }
+            ecu = response.ecu.add()
+            ecu.ecu_id = entry.ecu_id
+            ecu.result = v2.NO_FAILURE
 
         # wait for all sub ecu acknowledge ota update requests
         # TODO: hard coded timeout
-        response = []
         if len(tasks):  # if we have sub ecu to update
             done, pending = await asyncio.wait(tasks, timeout=10)
             for t in pending:
-                ecu_id = t.get_name()
-                logger.info(f"{ecu_id=}")
-                response.append(
-                    {"ecu_id": ecu_id, "result": otaclient_v2_pb2.RECOVERABLE}
-                )
+                ecu = response.ecu.add()
+                ecu.ecu_id = t.get_name()
+                ecu.result = v2.RECOVERABLE
                 logger.error(
-                    f"sub ecu {ecu_id} doesn't respond ota update request on time"
+                    f"sub ecu {ecu.ecu_id} doesn't respond ota update request on time"
                 )
-
-            response.append([t.result() for t in done])
-
-        response.append(main_ecu_update_result)
+            for t in done:
+                ecu = response.ecu.add()
+                ecu.ecu_id = t.get_name()
+                ecu.result = t.result()
+                logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
 
         logger.info(f"{response=}")
         return response
 
     def rollback(self, request):
         logger.info(f"{request=}")
-        response = []
+        response = v2.RollbackResponse()
 
         # secondary ecus
         secondary_ecus = self._ecu_info.get_secondary_ecus()
@@ -100,7 +100,9 @@ class OtaClientStub:
             entry = OtaClientStub._find_request(request.ecu, secondary)
             if entry:
                 r = self._ota_client_call.rollback(request, secondary["ip_addr"])
-                response.append(r)
+                ecu = response.ecu.add()
+                ecu.ecu_id = secondary["ecu_id"]
+                ecu.result = r
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
@@ -110,7 +112,9 @@ class OtaClientStub:
         if entry:
             result = self._ota_client.rollback()
             logger.info(f"{result=}")
-            response.append({"ecu_id": entry.ecu_id, "result": result.value})
+            ecu = response.ecu.add()
+            ecu.ecu_id = ecu_id
+            ecu.result = result.value
 
         logger.info(f"{response=}")
         return response
@@ -121,7 +125,31 @@ class OtaClientStub:
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
         result, status = self._ota_client.status()
-        response.append({"ecu_id": ecu_id, "result": result.value, "status": status})
+        logger.info(f"{result=},{status=}")
+        ecu = response.ecu.add()
+        ecu.ecu_id = ecu_id
+        ecu.result = result.value
+        ecu.status.status = v2.StatusOta.Value(status["status"])
+        ecu.status.failure = v2.FailureType.Value(status["failure_type"])
+        ecu.status.failure_reason = status["failure_reason"]
+        ecu.status.version = status["version"]
+        prg = ecu.status.progress
+        dict_prg = status["update_progress"]
+        # ecu.status.progress
+        prg.phase = v2.StatusProgressPhase.Value(dict_prg["phase"])
+        prg.total_regular_files = dict_prg["total_regular_files"]
+        prg.regular_files_processed = dict_prg["regular_files_processed"]
+        #
+        prg.files_processed_copy = dict_prg["files_processed_copy"]
+        prg.files_processed_link = dict_prg["files_processed_link"]
+        prg.files_processed_download = dict_prg["files_processed_download"]
+        prg.file_size_processed_copy = dict_prg["file_size_processed_copy"]
+        prg.file_size_processed_link = dict_prg["file_size_processed_link"]
+        prg.file_size_processed_download = dict_prg["file_size_processed_download"]
+        prg.elapsed_time_copy.FromMilliseconds(dict_prg["elapsed_time_copy"])
+        prg.elapsed_time_link.FromMilliseconds(dict_prg["elapsed_time_link"])
+        prg.elapsed_time_download.FromMilliseconds(dict_prg["elapsed_time_download"])
+        prg.errors_download = dict_prg["errors_download"]
 
         return response
 
@@ -133,11 +161,13 @@ class OtaClientStub:
         return None
 
     def _secondary_ecus_status(self, request):
-        response = []
+        response = v2.StatusResponse()
 
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
             r = self._ota_client_call.status(request, secondary["ip_addr"])
-            response.append(r)
+            ecu = response.ecu.add()
+            ecu.ecu_id = secondary["ecu_id"]
+            ecu.result = r
 
         return response
