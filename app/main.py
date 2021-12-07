@@ -48,7 +48,7 @@ if __name__ == "__main__":
     ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
 
     server = service_start(
-        "localhost:50051",
+        f"{ota_client_stub.host_addr()}:{cfg.SERVICE_PORT}",
         [
             {"grpc": v2_grpc, "instance": ota_client_service_v2},
         ],

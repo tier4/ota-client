@@ -105,7 +105,7 @@ def service_stop(server):
 
 
 if __name__ == "__main__":
-    with grpc.insecure_channel("localhost:50051") as channel:
+    with grpc.insecure_channel(f"localhost:{cfg.SERVICE_PORT}") as channel:
         stub = v2_grpc.OtaClientServiceStub(channel)
         response = stub.Status(v2.StatusRequest())
         print(f"{response=}")

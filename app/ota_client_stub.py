@@ -19,7 +19,7 @@ class OtaClientStub:
     def __init__(self):
         self._ota_client = OtaClient()
         self._ecu_info = EcuInfo()
-        self._ota_client_call = OtaClientCall("50051")
+        self._ota_client_call = OtaClientCall(cfg.SERVICE_PORT)
 
         # dispatch the requested operations to threadpool
         self._executor = ThreadPoolExecutor()
@@ -28,6 +28,9 @@ class OtaClientStub:
 
     def __del__(self):
         self._executor.shutdown()
+
+    def host_addr(self):
+        self._ecu_info.get_ecu_ip_addr()
 
     async def update(self, request):
         logger.info(f"{request=}")
@@ -113,13 +116,7 @@ class OtaClientStub:
         return response
 
     def status(self, request):
-        response = []
-
-        # secondary ecus
-        secondary_ecus = self._ecu_info.get_secondary_ecus()
-        for secondary in secondary_ecus:
-            r = self._ota_client_call.status(request, secondary["ip_addr"])
-            response.append(r)
+        response = self._secondary_ecus_status(request)
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
@@ -134,3 +131,13 @@ class OtaClientStub:
             if request.ecu_id == ecu_id:
                 return request
         return None
+
+    def _secondary_ecus_status(self, request):
+        response = []
+
+        secondary_ecus = self._ecu_info.get_secondary_ecus()
+        for secondary in secondary_ecus:
+            r = self._ota_client_call.status(request, secondary["ip_addr"])
+            response.append(r)
+
+        return response

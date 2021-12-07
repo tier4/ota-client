@@ -34,6 +34,8 @@ class _BaseConfig(ABC):
 
         ota_partition_dir = Path("ota-partition")
 
+        service_port = 50051
+
         # properties map
         self._properties_map = {
             "DEFAULT_LOG_LEVEL": default_log_level,
@@ -49,6 +51,7 @@ class _BaseConfig(ABC):
             "OTA_VERSION_FNAME": "version",
             "LOG_FORMAT": "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s",
             "MOUNT_POINT": mount_point,
+            "SERVICE_PORT": service_port,
         }
 
     def __getattr__(self, name: str):
