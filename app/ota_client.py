@@ -6,15 +6,13 @@ import re
 import os
 import time
 import json
-import operator
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
 from multiprocessing import Pool, Manager
 from threading import Lock
-from functools import partial, reduce
-from collections import Counter
+from functools import partial
 from enum import Enum, unique
 from requests.exceptions import RequestException
 from retrying import retry
@@ -247,11 +245,9 @@ class OtaClientStatistics(object):
         self._slot = self._init_statistics_storage()
 
     @contextmanager
-    def modify_storage(self):
+    def acquire_staging_storage(self):
         """
-        update the whole storage
-
-        yield a staging storage area for thread-safe modifying the storage
+        acquire a staging storage for updating the slot atomically and thread-safely
         """
         lock_acquired = False
         try:
@@ -567,7 +563,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             {"errors": int}  # number of errors that occurred when downloading.
         """
         all_processed = len(sts)
-        with self._statistics.modify_storage() as staging_storage:
+        with self._statistics.acquire_staging_storage() as staging_storage:
             # failed to acquire lock for any reason
             if staging_storage is None:
                 return

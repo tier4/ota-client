@@ -50,7 +50,7 @@ def test_ota_client_status(mocker, tmp_path):
     # test start
     ota_client_instance = ota_client.OtaClient()
     # thread-safe modifying the storage
-    with ota_client_instance._statistics.modify_storage() as staging_slot:
+    with ota_client_instance._statistics.acquire_staging_storage() as staging_slot:
         staging_slot["total_files"] = 99
         staging_slot["files_processed"] = 1
         staging_slot["files_processed_copy"] = 80
