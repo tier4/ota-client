@@ -1,5 +1,13 @@
 # ota-client
 
+## setup
+
+```bash
+sudo apt install -y python3.8 python3-setuptools
+sudo python3.8 -m pip install -U pip
+sudo python3.8 -m pip install -r app/requirements.txt
+```
+
 ## run tests
 
 ```bash
