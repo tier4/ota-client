@@ -102,3 +102,10 @@ def service_wait_for_termination(server):
 
 def service_stop(server):
     server.stop(None)
+
+
+if __name__ == "__main__":
+    with grpc.insecure_channel("localhost:50051") as channel:
+        stub = v2_grpc.OtaClientServiceStub(channel)
+        response = stub.Status(v2.StatusRequest())
+        print(f"{response=}")
