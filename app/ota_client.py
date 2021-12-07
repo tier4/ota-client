@@ -249,20 +249,14 @@ class OtaClientStatistics(object):
         """
         acquire a staging storage for updating the slot atomically and thread-safely
         """
-        lock_acquired = False
         try:
-            if self._lock.acquire():
-                staging_slot: dict = self._slot.copy()
-                lock_acquired = True
-                yield staging_slot
-            else:
-                # failed to acquire lock, so we don't yield a staging_slot
-                yield None
+            self._lock.acquire()
+            staging_slot: dict = self._slot.copy()
+            yield staging_slot
         finally:
-            if lock_acquired:
-                self._slot = staging_slot.copy()
-                staging_slot.clear()
-                self._lock.release()
+            self._slot = staging_slot.copy()
+            staging_slot.clear()
+            self._lock.release()
 
 
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
@@ -564,10 +558,6 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         """
         all_processed = len(sts)
         with self._statistics.acquire_staging_storage() as staging_storage:
-            # failed to acquire lock for any reason
-            if staging_storage is None:
-                return
-
             already_processed = staging_storage.get("files_processed", 0)
             if already_processed >= staging_storage.get("total_files", 0):
                 return
