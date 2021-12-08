@@ -43,7 +43,7 @@ class OtaClientStub:
         logger.info(f"{secondary_ecus=}")
         # simultaneously dispatching update requests to all subecus without blocking
         for secondary in secondary_ecus:
-            if OtaClientStub._find_request(request.ecu, secondary):
+            if OtaClientStub._find_request(request.ecu, secondary["ecu_id"]):
                 tasks.append(
                     asyncio.create_task(
                         self._ota_client_call.update(request, secondary["ip_addr"]),
@@ -51,6 +51,8 @@ class OtaClientStub:
                         name=secondary["ecu_id"],
                     )
                 )
+            else:
+                logger.warning(f"{secondary['ecu_id']} was not found in the {request=}")
 
         def can_reboot():
             st = self._secondary_ecus_status(request)
@@ -116,7 +118,7 @@ class OtaClientStub:
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         logger.info(f"{secondary_ecus=}")
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request.ecu, secondary)
+            entry = OtaClientStub._find_request(request.ecu, secondary["ecu_id"])
             if entry:
                 r = self._ota_client_call.rollback(request, secondary["ip_addr"])
                 ecu = response.ecu.add()
