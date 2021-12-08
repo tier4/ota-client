@@ -558,8 +558,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         """
         all_processed = len(sts)
         with self._statistics.acquire_staging_storage() as staging_storage:
-            already_processed = staging_storage.get("files_processed", 0)
-            if already_processed >= staging_storage.get("total_files", 0):
+            # NOTE: "files_processed" key and "total_files" key should be presented!
+            already_processed = staging_storage["files_processed"]
+            if already_processed >= staging_storage["total_files"]:
                 return
 
             staging_storage["files_processed"] += all_processed - already_processed
@@ -573,7 +574,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     staging_storage[f"elapsed_time_{_suffix}"] += int(
                         st.get("elapsed", 0) * 1000
                     )
-                    staging_storage[f"errors_{_suffix}"] = st.get("errors", 0)
+                    if _suffix == "download":
+                        staging_storage[f"errors_{_suffix}"] = st.get("errors", 0)
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         reginf_list_raw_lines = open(list_file).readlines()
