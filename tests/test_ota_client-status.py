@@ -49,18 +49,20 @@ def test_ota_client_status(mocker, tmp_path):
 
     # test start
     ota_client_instance = ota_client.OtaClient()
-    ota_client_instance._statistics.total_files = 99
-    ota_client_instance._statistics.files_processed = 1
-    ota_client_instance._statistics.files_processed_copy = 80
-    ota_client_instance._statistics.files_processed_link = 9
-    ota_client_instance._statistics.files_processed_download = 10
-    ota_client_instance._statistics.file_size_processed_copy = 1111
-    ota_client_instance._statistics.file_size_processed_link = 2222
-    ota_client_instance._statistics.file_size_processed_download = 3333
-    ota_client_instance._statistics.elapsed_time_copy = 1.01
-    ota_client_instance._statistics.elapsed_time_link = 2.02
-    ota_client_instance._statistics.elapsed_time_download = 3.03
-    ota_client_instance._statistics.errors_download = 10
+    # thread-safe modifying the storage
+    with ota_client_instance._statistics.acquire_staging_storage() as staging_slot:
+        staging_slot["total_files"] = 99
+        staging_slot["files_processed"] = 1
+        staging_slot["files_processed_copy"] = 80
+        staging_slot["files_processed_link"] = 9
+        staging_slot["files_processed_download"] = 10
+        staging_slot["file_size_processed_copy"] = 1111
+        staging_slot["file_size_processed_link"] = 2222
+        staging_slot["file_size_processed_download"] = 3333
+        staging_slot["elapsed_time_copy"] = 1.01
+        staging_slot["elapsed_time_link"] = 2.02
+        staging_slot["elapsed_time_download"] = 3.03
+        staging_slot["errors_download"] = 10
 
     result, ota_status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
