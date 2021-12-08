@@ -575,7 +575,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                         st.get("elapsed", 0) * 1000
                     )
                     if _suffix == "download":
-                        staging_storage[f"errors_{_suffix}"] = st.get("errors", 0)
+                        staging_storage[f"errors_{_suffix}"] += st.get("errors", 0)
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         reginf_list_raw_lines = open(list_file).readlines()
