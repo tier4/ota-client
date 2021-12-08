@@ -58,9 +58,11 @@ class OtaClientStub:
             for s in st:
                 if s.result != v2.NO_FAILURE:
                     msg = f"Secondary ECU {s.ecu_id} failed: {s.result=}"
+                    logger.error(msg)
                     raise OtaErrorRecoverable(msg)
                 if s.status.status == v2.StatusOta.FAILURE:
                     msg = f"Secondary ECU {s.ecu_id} failed: {s.status.status=}"
+                    logger.error(msg)
                     raise OtaErrorRecoverable(msg)
                 if s.status.status == v2.StatusOta.SUCCESS:
                     count += 1

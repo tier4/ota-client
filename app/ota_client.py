@@ -241,11 +241,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # statistics
         self._statistics = OtaClientStatistics()
 
-    def update(self, version, url_base, cookies_json: str, event=None):
+    def update(self, version, url_base, cookies_json: str, event=None, can_reboot=None):
         logger.debug("[update] entering...")
         try:
             cookies = json.loads(cookies_json)
-            self._update(version, url_base, cookies, event)
+            self._update(version, url_base, cookies, event, can_reboot)
             return self._result_ok()
         except OtaErrorBusy:  # there is an on-going update
             # not setting ota_status
@@ -315,7 +315,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._failure_reason = str(e)
         return OtaClientFailureType.UNRECOVERABLE
 
-    def _update(self, version, url_base, cookies, event=None):
+    def _update(self, version, url_base, cookies, event, can_reboot):
         logger.info(f"{version=},{url_base=},{cookies=}")
         """
         e.g.
@@ -376,6 +376,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # leave update
         logger.debug("[update] update finished, entering post-update...")
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
+        if can_reboot:
+            while True:
+                if can_reboot():
+                    break
+                time.sleep(2)  # set pulling interval to 2 seconds
         self.leave_update()
 
     def _rollback(self):
