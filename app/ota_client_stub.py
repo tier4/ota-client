@@ -102,10 +102,10 @@ class OtaClientStub:
                     f"sub ecu {ecu.ecu_id} doesn't respond ota update request on time"
                 )
             for t in done:
-                ecu = response.ecu.add()
-                ecu.ecu_id = t.get_name()
-                ecu.result = t.result()
-                logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
+                for e in t.result().ecu:
+                    ecu = response.ecu.add()
+                    ecu.CopyFrom(e)
+                    logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
 
         logger.info(f"{response=}")
         return response
