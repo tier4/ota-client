@@ -55,7 +55,29 @@ def service_stop(server):
 
 
 if __name__ == "__main__":
+    import time
+
     with grpc.insecure_channel(f"localhost:{cfg.SERVICE_PORT}") as channel:
         stub = v2_grpc.OtaClientServiceStub(channel)
-        response = stub.Status(v2.StatusRequest())
+        request = v2.StatusRequest()
+        response = stub.Status(request)
         print(f"{response=}")
+
+        request = v2.UpdateRequest()
+        ecu = request.ecu.add()
+        ecu.ecu_id = "autoware"
+        ecu.version = "autoware.1.1"
+        ecu.url = "http://192.168.56.1:8081"
+        ecu.cookies = "{}"
+        ecu = request.ecu.add()
+        ecu.ecu_id = "perception1"
+        ecu.version = "perception.1.1"
+        ecu.url = "http://192.168.56.1:8081"
+        ecu.cookies = "{}"
+        response = stub.Update(request)
+        print(f"{response=}")
+        while True:
+            request = v2.StatusRequest()
+            response = stub.Status(request)
+            print(f"{response=}")
+            time.sleep(2)
