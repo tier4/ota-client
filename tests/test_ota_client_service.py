@@ -40,10 +40,12 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
     import otaclient_v2_pb2 as v2
     import otaclient_v2_pb2_grpc as v2_grpc
     from ota_client import OtaClientFailureType
+    from ota_client_stub import OtaClientStub
 
     ota_client_mock = start_service_with_ota_client_mock
 
-    def mock_update(version, url, cookies, event):
+    def mock_update(version, url, cookies, event, can_reboot):
+        print("mock_update")
         event.set()
         return OtaClientFailureType.NO_FAILURE
 
@@ -70,7 +72,9 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
         "https://foo.bar.com/ota-data",
         '{"test": "my data"}',
         ANY,
+        ANY,
     )
+    print("test done")
 
 
 def test_ota_client_service_rollback(mocker, start_service_with_ota_client_mock):

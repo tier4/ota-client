@@ -2,6 +2,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
+import grpc
 import otaclient_v2_pb2 as v2
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
@@ -55,20 +56,23 @@ class OtaClientStub:
                 logger.warning(f"{secondary['ecu_id']} was not found in the {request=}")
 
         def can_reboot():
+            secondary_ecus = self._ecu_info.get_secondary_ecus()
             st = self._secondary_ecus_status(request)
             count = 0
-            for s in st:
-                if s.result != v2.NO_FAILURE:
-                    msg = f"Secondary ECU {s.ecu_id} failed: {s.result=}"
+            for e in st.ecu:
+                if e.result != v2.NO_FAILURE:
+                    msg = f"Secondary ECU {e.ecu_id} failed: {e.result=}"
                     logger.error(msg)
                     raise OtaErrorRecoverable(msg)
-                if s.status.status == v2.StatusOta.FAILURE:
-                    msg = f"Secondary ECU {s.ecu_id} failed: {s.status.status=}"
+                if e.status.status == v2.StatusOta.FAILURE:
+                    msg = f"Secondary ECU {e.ecu_id} failed: {e.status.status=}"
                     logger.error(msg)
                     raise OtaErrorRecoverable(msg)
-                if s.status.status == v2.StatusOta.SUCCESS:
+                if e.status.status == v2.StatusOta.SUCCESS:
                     count += 1
-            if count == len(st):
+            logger.info(f"success count={count}, total count={len(secondary_ecus)}")
+            if count == len(secondary_ecus):
+                logger.info("all secondary ecus are updated successfully.")
                 return True
             return False
 
@@ -81,7 +85,12 @@ class OtaClientStub:
             # we only dispatch the request, so we don't process the returned future object
             event = Event()
             self._executor.submit(
-                self._ota_client.update, entry.version, entry.url, entry.cookies, event
+                self._ota_client.update,
+                entry.version,
+                entry.url,
+                entry.cookies,
+                event,
+                can_reboot,
             )
             # wait until update is initialized or error occured.
             event.wait()
@@ -186,7 +195,16 @@ class OtaClientStub:
 
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
-            r = self._ota_client_call.status(request, secondary["ip_addr"])
+            try:
+                r = self._ota_client_call.status(request, secondary["ip_addr"])
+            except grpc.RpcError as e:
+                if e.code() == grpc.StatusCode.UNAVAILABLE:
+                    # request was not received.
+                    r = v2.StatusResponse()
+                    logger.warning(f"ecu_id={secondary['ecu_id']} is UNAVAILABLE")
+                else:
+                    logger.exception("RpcError")
+                    raise
             for e in r.ecu:
                 ecu = response.ecu.add()
                 ecu.CopyFrom(e)
