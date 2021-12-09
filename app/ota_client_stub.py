@@ -130,9 +130,9 @@ class OtaClientStub:
             entry = OtaClientStub._find_request(request.ecu, secondary["ecu_id"])
             if entry:
                 r = self._ota_client_call.rollback(request, secondary["ip_addr"])
-                ecu = response.ecu.add()
-                ecu.ecu_id = secondary["ecu_id"]
-                ecu.result = r
+                for e in r.ecu:
+                    ecu = response.ecu.add()
+                    ecu.CopyFrom(e)
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
@@ -194,6 +194,7 @@ class OtaClientStub:
         response = v2.StatusResponse()
 
         secondary_ecus = self._ecu_info.get_secondary_ecus()
+        logger.debug(f"{secondary_ecus=}")
         for secondary in secondary_ecus:
             try:
                 r = self._ota_client_call.status(request, secondary["ip_addr"])

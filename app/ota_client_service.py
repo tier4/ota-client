@@ -31,7 +31,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
     def Status(self, request, context):
         response = self._stub.status(request)
-        logger.info(f"{response=}")
+        logger.debug(f"{response=}")
         return response
 
 
