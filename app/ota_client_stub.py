@@ -155,7 +155,7 @@ class OtaClientStub:
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
         result, status = self._ota_client.status()
-        logger.info(f"{result=},{status=}")
+        logger.debug(f"{result=},{status=}")
         ecu = response.ecu.add()
         ecu.ecu_id = ecu_id
         ecu.result = result.value
