@@ -26,8 +26,9 @@ class OtaClientCall:
             stub = v2_grpc.OtaClientServiceStub(channel)
             return stub.Rollback(request)
 
-    def status(self, request, ip_addr, port=None):
+    async def status(self, request, ip_addr, port=None):
         target_addr = f"{ip_addr}:{port if port else self._port}"
-        with grpc.insecure_channel(target_addr) as channel:
+        async with grpc.aio.insecure_channel(target_addr) as channel:
             stub = v2_grpc.OtaClientServiceStub(channel)
-            return stub.Status(request)
+            response = await stub.Status(request)
+        return response

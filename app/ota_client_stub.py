@@ -2,7 +2,8 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
-import otaclient_v2_pb2
+import grpc
+import otaclient_v2_pb2 as v2
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
@@ -61,7 +62,7 @@ class OtaClientStub:
 
             main_ecu_update_result = {
                 "ecu_id": entry.ecu_id,
-                "result": otaclient_v2_pb2.NO_FAILURE,
+                "result": v2.NO_FAILURE,
             }
 
         # wait for all sub ecu acknowledge ota update requests
@@ -73,7 +74,7 @@ class OtaClientStub:
                 ecu_id = t.get_name()
                 logger.info(f"{ecu_id=}")
                 response.append(
-                    {"ecu_id": ecu_id, "result": otaclient_v2_pb2.RECOVERABLE}
+                    {"ecu_id": ecu_id, "result": v2.RECOVERABLE}
                 )
                 logger.error(
                     f"sub ecu {ecu_id} doesn't respond ota update request on time"
@@ -112,19 +113,79 @@ class OtaClientStub:
         logger.info(f"{response=}")
         return response
 
-    def status(self, request):
-        response = []
+    async def status(self, request):
+        response = v2.UpdateResponse()
 
         # secondary ecus
+        tasks = []
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         for secondary in secondary_ecus:
-            r = self._ota_client_call.status(request, secondary["ip_addr"])
-            response.append(r)
+            tasks.append(
+                asyncio.create_task(
+                    self._ota_client_call.status(request, secondary["ip_addr"]),
+                    name = secondary["ecu_id"],
+                )
+            )
+        
+        # TODO: hardcoded timeout
+        done, pending = await asyncio.wait(tasks, timeout=30)
+        for t in done:
+            exp = t.exception()
+            if exp is not None:
+                # task is done without any exception
+                ecu_id, result = t.get_name(), t.result()
+                logger.debug(f"{ecu_id=}, {result=}")
+
+                sub_ecu = response.ecu.add()
+                sub_ecu.CopyFrom(result)
+            else:
+                # exception raised from the task
+                logger.warning(f"{ecu_id} is UNAVAILABLE")
+                if isinstance(exp, grpc.RpcError):
+                    if exp.code() == grpc.StatusCode.UNAVAILABLE:
+                        # request was not received.
+                        logger.warning(f"{ecu_id} did not receive the request")
+                    else:
+                        # other grpc error
+                        logger.warning(f"{ecu_id} failed with grpc error {exp}")
+
+        for t in pending:
+            # task timeout
+            logger.debug(f"{ecu_id=}: timeout")
+            logger.warning(f"{ecu_id} maybe UNAVAILABLE")
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
         result, status = self._ota_client.status()
-        response.append({"ecu_id": ecu_id, "result": result.value, "status": status})
+        logger.debug(f"myecu: {result=},{status=}")
+
+        # construct status response
+        ecu = response.ecu.add()
+
+        ecu.ecu_id = ecu_id
+        ecu.result = result.value
+        ecu.status.status = v2.StatusOta.Value(status["status"])
+        ecu.status.failure = v2.FailureType.Value(status["failure_type"])
+        ecu.status.failure_reason = status["failure_reason"]
+        ecu.status.version = status["version"]
+
+        prg = ecu.status.progress
+        dict_prg = status["update_progress"]
+        # ecu.status.progress
+        prg.phase = v2.StatusProgressPhase.Value(dict_prg["phase"])
+        prg.total_regular_files = dict_prg["total_regular_files"]
+        prg.regular_files_processed = dict_prg["regular_files_processed"]
+        #
+        prg.files_processed_copy = dict_prg["files_processed_copy"]
+        prg.files_processed_link = dict_prg["files_processed_link"]
+        prg.files_processed_download = dict_prg["files_processed_download"]
+        prg.file_size_processed_copy = dict_prg["file_size_processed_copy"]
+        prg.file_size_processed_link = dict_prg["file_size_processed_link"]
+        prg.file_size_processed_download = dict_prg["file_size_processed_download"]
+        prg.elapsed_time_copy.FromMilliseconds(dict_prg["elapsed_time_copy"])
+        prg.elapsed_time_link.FromMilliseconds(dict_prg["elapsed_time_link"])
+        prg.elapsed_time_download.FromMilliseconds(dict_prg["elapsed_time_download"])
+        prg.errors_download = dict_prg["errors_download"]
 
         return response
 
