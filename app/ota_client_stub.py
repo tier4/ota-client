@@ -1,13 +1,10 @@
 import asyncio
-from asyncio.tasks import create_task
-from concurrent.futures import ThreadPoolExecutor
-import re
-from threading import Event
-from typing import Any
-
 import grpc
-from ota_error import OtaErrorRecoverable, OtaErrorUnrecoverable
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
 import otaclient_v2_pb2 as v2
+from ota_error import OtaErrorRecoverable, OtaErrorUnrecoverable
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
@@ -22,20 +19,19 @@ logger = log_util.get_logger(
 
 class OtaClientStub:
     def __init__(self):
+        # dispatch the requested operations to threadpool
+        self._executor = ThreadPoolExecutor()
+
         self._ota_client = OtaClient()
         self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall("50051")
-
-        # dispatch the requested operations to threadpool
-        self._executor = ThreadPoolExecutor()
-        # a dict to hold the future for each requests if needed
-        self._future = dict()
 
     def __del__(self):
         self._executor.shutdown()
 
     async def update(self, request):
         logger.info(f"{request=}")
+
         # secondary ecus
         tasks = []
         secondary_ecus = self._ecu_info.get_secondary_ecus()
@@ -57,12 +53,16 @@ class OtaClientStub:
         logger.info(f"{entry=}")
         if entry:
             # we only dispatch the request, so we don't process the returned future object
-            event = Event()
+            pre_update_event = Event()
             self._executor.submit(
-                self._ota_client.update, entry.version, entry.url, entry.cookies, event
+                self._update_executor,
+                entry,
+                request,
+                timeout=60, # in seconds
+                pre_update_event=pre_update_event,
             )
             # wait until update is initialized or error occured.
-            event.wait()
+            pre_update_event.wait()
 
             main_ecu_update_result = {
                 "ecu_id": entry.ecu_id,
@@ -157,7 +157,7 @@ class OtaClientStub:
         prg.errors_download = dict_prg["errors_download"]
 
         return response
-
+            
     @staticmethod
     def _find_request(update_request, ecu_id):
         for request in update_request:
@@ -165,6 +165,26 @@ class OtaClientStub:
                 return request
         return None
 
+    def _update_executor(self, entry, request, *, pre_update_event: Event, timeout: float=None):
+        post_update_event = Event()
+
+        # dispatch the update to threadpool
+        self._executor.submit(
+            self._ota_client.update,
+            entry.version,
+            entry.url,
+            entry.cookies,
+            pre_update_event=pre_update_event,
+            post_update_event=post_update_event,
+        )
+
+        # pulling subECU status
+        # NOTE: the method will block until all the subECUs' status are as expected
+        asyncio.run(self._loop_pulling_subecu_status(request, timeout=timeout))
+        # all subECUs are updated, now the ota_client can reboot
+        logger.debug(f"all subECUs are ready, set post_update_event")
+        post_update_event.set()
+        
     async def _get_subecu_status(
         self, 
         request: v2.StatusRequest, 

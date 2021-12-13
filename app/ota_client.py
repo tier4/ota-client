@@ -11,7 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
 from multiprocessing import Pool, Manager
-from threading import Lock
+from threading import Event, Lock
 from functools import partial
 from enum import Enum, unique
 from requests.exceptions import RequestException
@@ -273,11 +273,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # statistics
         self._statistics = OtaClientStatistics()
 
-    def update(self, version, url_base, cookies_json: str, event=None):
+    def update(self, version, url_base, cookies_json: str, *, pre_update_event: Event=None, post_update_event: Event=None):
         logger.debug("[update] entering...")
         try:
             cookies = json.loads(cookies_json)
-            self._update(version, url_base, cookies, event)
+            self._update(version, url_base, cookies, pre_update_event=pre_update_event, post_update_event=post_update_event)
             return self._result_ok()
         except OtaErrorBusy:  # there is an on-going update
             # not setting ota_status
@@ -294,8 +294,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self.store_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
         finally:
-            if event:
-                event.set()
+            if pre_update_event:
+                pre_update_event.set()
 
     def rollback(self):
         try:
@@ -347,7 +347,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._failure_reason = str(e)
         return OtaClientFailureType.UNRECOVERABLE
 
-    def _update(self, version, url_base, cookies, event=None):
+    def _update(self, version, url_base, cookies, *, pre_update_event: Event=None, post_update_event: Event=None):
         logger.info(f"{version=},{url_base=},{cookies=}")
         """
         e.g.
@@ -357,11 +357,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        logger.debug("check if ota_status is valid for updating...")
-        self.check_update_status()
 
         # set the status for ota-updating
         with self._lock:
+            self.check_update_status()
+            
             # set ota status
             self.set_ota_status(OtaStatus.UPDATING)
             self.store_standby_ota_status(OtaStatus.UPDATING)
@@ -370,8 +370,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self._failure_type = OtaClientFailureType.NO_FAILURE
             self._failure_reason = ""
             self._statistics.clear()
-        if event:
-            event.set()
+        if pre_update_event:
+            pre_update_event.set()
 
         # pre-update
         self.enter_update(version)
@@ -415,7 +415,13 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         )
 
         # leave update
-        logger.debug("[update] update finished, entering post-update...")
+        # wait for all subECUs before reboot itself
+        if post_update_event:
+            logger.debug(f"waiting for all subECUs to become ready...")
+            post_update_event.wait()
+            logger.debug(f"all subECUs are ready")
+        
+        logger.debug("update finished, entering post-update...")
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
         self.leave_update()
 
