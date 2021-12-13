@@ -1,8 +1,12 @@
 import asyncio
+from asyncio.tasks import create_task
 from concurrent.futures import ThreadPoolExecutor
+import re
 from threading import Event
+from typing import Any
 
 import grpc
+from ota_error import OtaErrorRecoverable, OtaErrorUnrecoverable
 import otaclient_v2_pb2 as v2
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
@@ -113,46 +117,11 @@ class OtaClientStub:
         logger.info(f"{response=}")
         return response
 
-    async def status(self, request):
-        response = v2.UpdateResponse()
+    async def status(self, request: v2.StatusRequest) -> v2.StatusResponse:
+        response = v2.StatusResponse()
 
-        # secondary ecus
-        tasks = []
-        secondary_ecus = self._ecu_info.get_secondary_ecus()
-        for secondary in secondary_ecus:
-            tasks.append(
-                asyncio.create_task(
-                    self._ota_client_call.status(request, secondary["ip_addr"]),
-                    name = secondary["ecu_id"],
-                )
-            )
-        
-        # TODO: hardcoded timeout
-        done, pending = await asyncio.wait(tasks, timeout=30)
-        for t in done:
-            exp = t.exception()
-            if exp is not None:
-                # task is done without any exception
-                ecu_id, result = t.get_name(), t.result()
-                logger.debug(f"{ecu_id=}, {result=}")
-
-                sub_ecu = response.ecu.add()
-                sub_ecu.CopyFrom(result)
-            else:
-                # exception raised from the task
-                logger.warning(f"{ecu_id} is UNAVAILABLE")
-                if isinstance(exp, grpc.RpcError):
-                    if exp.code() == grpc.StatusCode.UNAVAILABLE:
-                        # request was not received.
-                        logger.warning(f"{ecu_id} did not receive the request")
-                    else:
-                        # other grpc error
-                        logger.warning(f"{ecu_id} failed with grpc error {exp}")
-
-        for t in pending:
-            # task timeout
-            logger.debug(f"{ecu_id=}: timeout")
-            logger.warning(f"{ecu_id} maybe UNAVAILABLE")
+        # subecu
+        self._get_subecu_status(request, response)
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
@@ -195,3 +164,114 @@ class OtaClientStub:
             if request.ecu_id == ecu_id:
                 return request
         return None
+
+    async def _get_subecu_status(
+        self, 
+        request: v2.StatusRequest, 
+        response: v2.StatusResponse=None,
+        failed_ecu: list=None) -> bool:
+        """
+        fill the input response with subecu status
+        pulling only when input response is None
+
+        if input failed_ecu list is not None, record the failed subECU id in it
+        return true only when all subecu are reachable
+        """
+        failed_ecu = [] if failed_ecu is None else failed_ecu
+        res = True
+
+        # dispatch status pulling requests to all subecu
+        tasks = []
+        secondary_ecus = self._ecu_info.get_secondary_ecus()
+        for secondary in secondary_ecus:
+            tasks.append(
+                asyncio.create_task(
+                    self._ota_client_call.status(request, secondary["ip_addr"]),
+                    name = secondary["ecu_id"],
+                )
+            )
+        
+        # TODO: hardcoded timeout
+        done, pending = await asyncio.wait(tasks)
+        for t in done:
+            exp = t.exception()
+            if exp is not None:
+                # task is done without any exception
+                ecu_id, result = t.get_name(), t.result()
+                logger.debug(f"{ecu_id=}, {result=}")
+
+                if response is not None:
+                    sub_ecu = response.ecu.add()
+                    sub_ecu.CopyFrom(result)
+            else:
+                # exception raised from the task
+                failed_ecu.append(ecu_id)
+                res = False
+
+                logger.warning(f"{ecu_id} is UNAVAILABLE")
+                if isinstance(exp, grpc.RpcError):
+                    if exp.code() == grpc.StatusCode.UNAVAILABLE:
+                        # request was not received.
+                        logger.debug(f"{ecu_id} did not receive the request")
+                    else:
+                        # other grpc error
+                        logger.debug(f"contacting {ecu_id} failed with grpc error {exp}")
+
+        res = False if len(pending) != 0 else res
+        for t in pending:
+            # task timeout
+            failed_ecu.append(t.get_name())
+            logger.debug(f"{ecu_id=}: timeout for status pulling")
+            logger.warning(f"{ecu_id} maybe UNAVAILABLE due to connection timeout")
+
+        return res
+
+    async def _loop_pulling_subecu_status(self, request, timeout: float=None):
+        """
+        loop pulling the status of subecu, return only when all subECU are in SUCCESS condition
+        raise exception when timeout reach or any of the subECU is unavailable
+        """
+        async def _pulling(target: int, retry: int=3):
+            retry_count = 0
+
+            while True:
+                st = v2.StatusResponse()
+                failed_ecu_list, count = [], 0
+
+                if self._get_subecu_status(request, st, failed_ecu_list):
+                    # _get_subecu_status return True, means that all subECUs are reachable
+                    for e in st.ecu:
+                        if e.result != v2.NO_FAILURE:
+                            msg = f"Secondary ECU {e.ecu_id} failed: {e.result=}"
+                            logger.error(msg)
+                            raise OtaErrorRecoverable(msg)
+
+                        if e.status.status == v2.StatusOta.FAILURE:
+                            msg = f"Secondary ECU {e.ecu_id} failed: {e.status.status=}"
+                            logger.error(msg)
+                            raise OtaErrorRecoverable(msg)
+                        elif e.status.status == v2.StatusOta.SUCCESS:
+                            count += 1
+
+                    if count >= target:
+                        logger.info("all secondary ecus are updated successfully.")
+                        return
+                else:
+                    retry_count += 1
+                    logger.debug(f"retry pulling subECUs status, {retry_count=}")
+
+                    if retry_count > retry:
+                        # there is at least one subecu is unreachable, even with retrying n times
+                        logger.debug(f"failed subECU list: {failed_ecu_list}")
+                        raise OtaErrorUnrecoverable(f"failed to contact subECUs: {failed_ecu_list}")
+
+        secondary_ecus = self._ecu_info.get_secondary_ecus()
+        t = asyncio.create_task(_pulling(target=len(secondary_ecus)), name=f"subecu_status_pulling_loop")
+        try:
+            await asyncio.wait_for(t, timeout=timeout)
+        except Exception as e:
+            if isinstance(e, asyncio.TimeoutError):
+                raise OtaErrorUnrecoverable(f"failed to wait for all subECU to finish update in time")
+            else:
+                # other OtaException
+                raise
