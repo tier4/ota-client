@@ -357,15 +357,24 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        # enter update
+        logger.debug("check if ota_status is valid for updating...")
+        self.check_update_status()
+
+        # set the status for ota-updating
         with self._lock:
-            self.enter_update(version)
+            # set ota status
+            self.set_ota_status(OtaStatus.UPDATING)
+            self.store_standby_ota_status(OtaStatus.UPDATING)
+            # set update status
             self._update_phase = OtaClientUpdatePhase.INITIAL
             self._failure_type = OtaClientFailureType.NO_FAILURE
             self._failure_reason = ""
             self._statistics.clear()
         if event:
             event.set()
+
+        # pre-update
+        self.enter_update(version)
 
         # process metadata.jwt
         logger.debug("[update] process metadata...")
@@ -730,13 +739,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 copy_tree.copy_with_parents(perinf.path, standby_path)
 
     def enter_update(self, version):
-        logger.debug("check if ota_status is valid for updating...")
-        self.check_update_status()
-
         logger.debug("pre-update setup...")
-        self.set_ota_status(OtaStatus.UPDATING)
         self.boot_ctrl_pre_update(version)
-        self.store_standby_ota_status(OtaStatus.UPDATING)
         logger.debug("finished pre-update setup")
 
     def leave_update(self):
