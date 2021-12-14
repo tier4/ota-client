@@ -104,6 +104,13 @@ class OtaMetadata:
         """
         return self.__metadata_dict["certificate"]
 
+    def get_total_regular_size(self):
+        """
+        return
+            total regular file size: str
+        """
+        return self.__metadata_dict.get("total_regular_size", {}).get("file")
+
     """ private functions from here """
 
     def _jwt_decode(self, jwt):
@@ -133,6 +140,7 @@ class OtaMetadata:
             "certificate",
             "persistent",
             "rootfs_directory",
+            "total_regular_size",
         }
         hash_key = "hash"
         payload = json.loads(payload_json)
