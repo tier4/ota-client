@@ -121,7 +121,8 @@ class OtaClientStub:
         response = v2.StatusResponse()
 
         # subecu
-        self._get_subecu_status(request, response)
+        t = asyncio.create_task(self._get_subecu_status(request, response))
+        await asyncio.wait_for(t, timeout=60) # TODO: hardcoded timeout
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
