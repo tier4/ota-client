@@ -273,11 +273,25 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # statistics
         self._statistics = OtaClientStatistics()
 
-    def update(self, version, url_base, cookies_json: str, *, pre_update_event: Event=None, post_update_event: Event=None):
+    def update(
+        self,
+        version,
+        url_base,
+        cookies_json: str,
+        *,
+        pre_update_event: Event = None,
+        post_update_event: Event = None,
+    ):
         logger.debug("[update] entering...")
         try:
             cookies = json.loads(cookies_json)
-            self._update(version, url_base, cookies, pre_update_event=pre_update_event, post_update_event=post_update_event)
+            self._update(
+                version,
+                url_base,
+                cookies,
+                pre_update_event=pre_update_event,
+                post_update_event=post_update_event,
+            )
             return self._result_ok()
         except OtaErrorBusy:  # there is an on-going update
             # not setting ota_status
@@ -347,7 +361,15 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._failure_reason = str(e)
         return OtaClientFailureType.UNRECOVERABLE
 
-    def _update(self, version, url_base, cookies, *, pre_update_event: Event=None, post_update_event: Event=None):
+    def _update(
+        self,
+        version,
+        url_base,
+        cookies,
+        *,
+        pre_update_event: Event = None,
+        post_update_event: Event = None,
+    ):
         logger.info(f"{version=},{url_base=},{cookies=}")
         """
         e.g.
@@ -361,7 +383,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # set the status for ota-updating
         with self._lock:
             self.check_update_status()
-            
+
             # set ota status
             self.set_ota_status(OtaStatus.UPDATING)
             self.store_standby_ota_status(OtaStatus.UPDATING)
@@ -418,9 +440,14 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # wait for all subECUs before reboot itself
         if post_update_event:
             logger.debug(f"waiting for all subECUs to become ready...")
-            post_update_event.wait()
-            logger.debug(f"all subECUs are ready")
-        
+            if post_update_event.wait(timeout=3600): # TODO: hardcoded timeout
+                logger.debug(f"all subECUs are ready")
+            else:
+                # upper caller timeout, failed to wait for all subECU to get ready
+                msg = f"cannot ensure all subECUs' are ready, abort current local ota update..."
+                logger.error(msg)
+                raise OtaErrorRecoverable(msg)
+
         logger.debug("update finished, entering post-update...")
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
         self.leave_update()
