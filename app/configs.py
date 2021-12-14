@@ -1,9 +1,27 @@
 import platform
+from dataclasses import dataclass
 from abc import ABC
 from pathlib import Path
 
 from logging import INFO
 
+@dataclass(frozen=True)
+class OtaClientServiceConfig:
+    """
+    a configuration file that defines timeout options
+    for operations in ota_client_stub
+    """
+    SERVER_PORT: str = "50051"
+    # timeout for waiting all subECUs to acknowledage update requests
+    WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT: float = 120
+    # timeout for local ota_client to finish pre_update procedures
+    PRE_UPDATE_TIMEOUT: float = 30
+    # timeout for querying all subECUs' status
+    QUERYING_SUBECU_STATUS_TIMEOUT: float = 120
+    # timeout for local ota update to finish
+    LOCAL_OTA_UPDATE_TIMEOUT: float = 1800
+    # timeout for waiting all subECUs to be ready
+    WAITING_SUBECU_READY_TIMEOUT: float = 3600
 
 class _BaseConfig(ABC):
     def __init__(self):
@@ -49,6 +67,7 @@ class _BaseConfig(ABC):
             "OTA_VERSION_FNAME": "version",
             "LOG_FORMAT": "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s",
             "MOUNT_POINT": mount_point,
+            "OTA_CLIENT_SERVICE_CONFIG": OtaClientServiceConfig()
         }
 
     def __getattr__(self, name: str):
