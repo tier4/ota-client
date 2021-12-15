@@ -1,7 +1,7 @@
 import asyncio
 import grpc
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event
+from threading import Event, Lock
 
 import otaclient_v2_pb2 as v2
 from ota_error import OtaError, OtaErrorRecoverable, OtaErrorUnrecoverable
@@ -26,6 +26,11 @@ class OtaClientStub:
         self._ota_client = OtaClient()
         self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall(cfg.SERVER_PORT)
+
+        # for _get_subecu_status
+        self._status_pulling_lock = Lock()
+        self._cached_status: v2.StatusResponse = None
+        self._cached_if_subecu_ready: bool = None
 
     def __del__(self):
         self._executor.shutdown()
@@ -226,66 +231,87 @@ class OtaClientStub:
 
     async def _get_subecu_status(
         self,
-        response: v2.StatusResponse = None,  # output
+        output_response: v2.StatusResponse = None,  # output
         failed_ecu: list = None,  # output
     ) -> bool:
         """
         fill the response with subecu status
         pulling status only when input response is None
 
+        at anytime there will be only one on-going _get_subecu_status running,
+        to prevent request flooding, the result will be cached
+
+
         if input failed_ecu list is not None, record the failed subECU id in it
         return true only when all subecu are reachable
         """
-        failed_ecu = [] if failed_ecu is None else failed_ecu
-        res = True
+        if self._status_pulling_lock.acquire(blocking=False):
+            response = v2.StatusResponse()
+            failed_ecu = [] if failed_ecu is None else failed_ecu
+            res = True
 
-        # dispatch status pulling requests to all subecu
-        tasks = []
-        secondary_ecus = self._ecu_info.get_secondary_ecus()
-        for secondary in secondary_ecus:
-            tasks.append(
-                asyncio.create_task(
-                    self._ota_client_call.status(
-                        v2.StatusRequest(), secondary["ip_addr"]
-                    ),
-                    name=secondary["ecu_id"],
+            # dispatch status pulling requests to all subecu
+            tasks = []
+            secondary_ecus = self._ecu_info.get_secondary_ecus()
+            for secondary in secondary_ecus:
+                tasks.append(
+                    asyncio.create_task(
+                        self._ota_client_call.status(
+                            v2.StatusRequest(), secondary["ip_addr"]
+                        ),
+                        name=secondary["ecu_id"],
+                    )
                 )
+
+            done, pending = await asyncio.wait(
+                tasks, timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT
             )
+            for t in done:
+                exp = t.exception()
+                if exp is not None:
+                    # exception raised from the task
+                    failed_ecu.append(ecu_id)
+                    res = False
 
-        done, pending = await asyncio.wait(
-            tasks, timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT
-        )
-        for t in done:
-            exp = t.exception()
-            if exp is not None:
-                # exception raised from the task
-                failed_ecu.append(ecu_id)
-                res = False
+                    logger.warning(f"{ecu_id} is UNAVAILABLE: {exp!r}")
+                    if isinstance(exp, grpc.RpcError):
+                        if exp.code() == grpc.StatusCode.UNAVAILABLE:
+                            # request was not received.
+                            logger.debug(f"{ecu_id} did not receive the request")
+                        else:
+                            # other grpc error
+                            logger.debug(f"contacting {ecu_id} failed with grpc error")
+                else:
+                    # task is done without any exception
+                    ecu_id = t.get_name()
+                    logger.debug(f"{ecu_id=} is reachable")
 
-                logger.warning(f"{ecu_id} is UNAVAILABLE: {exp!r}")
-                if isinstance(exp, grpc.RpcError):
-                    if exp.code() == grpc.StatusCode.UNAVAILABLE:
-                        # request was not received.
-                        logger.debug(f"{ecu_id} did not receive the request")
-                    else:
-                        # other grpc error
-                        logger.debug(f"contacting {ecu_id} failed with grpc error")
-            else:
-                # task is done without any exception
-                ecu_id = t.get_name()
-                logger.debug(f"{ecu_id=} is reachable")
-
-                if response is not None:
                     for e in t.result().ecu:
                         ecu = response.ecu.add()
                         ecu.CopyFrom(e)
                         logger.debug(f"{ecu.ecu_id=}, {ecu.result=}")
 
-        res = False if len(pending) != 0 else res
-        for t in pending:
-            # task timeout
-            failed_ecu.append(t.get_name())
-            logger.warning(f"{ecu_id=} maybe UNAVAILABLE due to connection timeout")
+            res = False if len(pending) != 0 else res
+            for t in pending:
+                # task timeout
+                failed_ecu.append(t.get_name())
+                logger.warning(f"{ecu_id=} maybe UNAVAILABLE due to connection timeout")
+                # TODO: should we record these ECUs as FAILURE in the response?
+                ecu = response.ecu.add()
+                ecu.ecu_id = t.get_name()
+                ecu.result = v2.FAILURE
+
+            self._cached_if_subecu_ready = res
+            self._cached_status = response
+            self._status_pulling_lock.release()
+        else:
+            # there is an on-going pulling, use the cache or wait for the result from it
+            while self._cached_status is None:
+                asyncio.sleep(1)
+            
+            if output_response is not None:
+                output_response.CopyFrom(self._cached_status)
+            res = self._cached_if_subecu_ready
 
         return res
 
