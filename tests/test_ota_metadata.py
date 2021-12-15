@@ -27,6 +27,20 @@ PAYLOAD = """\
 ]\
 """
 
+PAYLOAD_W_TOTAL_SIZE = """\
+[\
+{"version": 1}, \
+{"directory": "dirs.txt", "hash": "43afbd19eab7c9e27f402a3332c38d072a69c7932fb35c32c1fc7069695235f1"}, \
+{"symboliclink": "symlinks.txt", "hash": "6643bf896d3ac3bd4034d742fae0d7eb82bd384062492235404114aeb34efd7d"}, \
+{"regular": "regulars.txt", "hash": "a390f92fe49b8402a2bb9f0b594e9de70f70dc6bf429031ac4d0b21365251600"}, \
+{"persistent": "persistents.txt", "hash": "3195ded730474d0181257204ba0fd79766721ab62ace395f20decd44983cb2d3"}, \
+{"rootfs_directory": "data"}, \
+{"certificate": "ota-intermediate.pem", "hash": "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c62ed2"}, \
+{"total_regular_size": "108708870"}\
+]\
+"""
+
+
 DIR_FNAME = "dirs.txt"
 DIR_HASH = "43afbd19eab7c9e27f402a3332c38d072a69c7932fb35c32c1fc7069695235f1"
 DIR_INFO = {"file": DIR_FNAME, "hash": DIR_HASH}
@@ -50,6 +64,8 @@ CERTIFICATE_FNAME = "ota-intermediate.pem"
 CERTIFICATE_HASH = "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c62ed2"
 CERTIFICATE_INFO = {"file": CERTIFICATE_FNAME, "hash": CERTIFICATE_HASH}
 
+TOTAL_REGULAR_SIZE = 108708870
+
 
 def sign(sign_key_file, data):
     with open(sign_key_file, "rb") as f:
@@ -63,20 +79,20 @@ def urlsafe_b64encode(data):
     return base64.urlsafe_b64encode(data).decode()
 
 
-@pytest.fixture
-def generate_jwt():
+def generate_jwt(pyaload_str):
     sign_key_file = test_dir / "keys" / "sign.key"
 
     header = urlsafe_b64encode(HEADER)
-    payload = urlsafe_b64encode(PAYLOAD)
+    payload = urlsafe_b64encode(pyaload_str)
     signature = sign(sign_key_file, f"{header}.{payload}")
     return f"{header}.{payload}.{signature}"
 
 
-def test_ota_metadata(generate_jwt):
+@pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
+def test_ota_metadata(payload_str):
     from ota_metadata import OtaMetadata
 
-    metadata = OtaMetadata(generate_jwt)
+    metadata = OtaMetadata(generate_jwt(payload_str))
     assert metadata.get_directories_info() == DIR_INFO
     assert metadata.get_symboliclinks_info() == SYMLINK_INFO
     assert metadata.get_regulars_info() == REGULAR_INFO
@@ -84,19 +100,25 @@ def test_ota_metadata(generate_jwt):
     assert metadata.get_rootfsdir_info() == ROOTFS_DIR_INFO
     assert metadata.get_certificate_info() == CERTIFICATE_INFO
     metadata.verify(open(test_dir / "keys" / "sign.pem").read())
+    if "total_regular_size" in payload_str:
+        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
+    else:
+        assert metadata.get_total_regular_file_size() is None
 
 
-def test_ota_metadata_exception(generate_jwt):
+@pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
+def test_ota_metadata_exception(payload_str):
     from ota_metadata import OtaMetadata
     from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 
-    metadata = OtaMetadata(generate_jwt)
+    metadata = OtaMetadata(generate_jwt(payload_str))
     with pytest.raises(OtaErrorRecoverable):
         # sing.key is invalid pem
         metadata.verify(open(test_dir / "keys" / "sign.key").read())
 
 
-def test_ota_metadata_with_verify_certificate(mocker, generate_jwt, tmp_path):
+@pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
+def test_ota_metadata_with_verify_certificate(mocker, payload_str, tmp_path):
     from ota_metadata import OtaMetadata
 
     certs_dir = tmp_path / "certs"
@@ -115,7 +137,7 @@ def test_ota_metadata_with_verify_certificate(mocker, generate_jwt, tmp_path):
 
     mocker.patch.object(OtaMetadata, "CERTS_DIR", certs_dir)
 
-    metadata = OtaMetadata(generate_jwt)
+    metadata = OtaMetadata(generate_jwt(payload_str))
     assert metadata.get_directories_info() == DIR_INFO
     assert metadata.get_symboliclinks_info() == SYMLINK_INFO
     assert metadata.get_regulars_info() == REGULAR_INFO
@@ -123,9 +145,14 @@ def test_ota_metadata_with_verify_certificate(mocker, generate_jwt, tmp_path):
     assert metadata.get_rootfsdir_info() == ROOTFS_DIR_INFO
     assert metadata.get_certificate_info() == CERTIFICATE_INFO
     metadata.verify(open(test_dir / "keys" / "sign.pem").read())
+    if "total_regular_size" in payload_str:
+        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
+    else:
+        assert metadata.get_total_regular_file_size() is None
 
 
-def test_ota_metadata_with_verify_certificate_exception(mocker, generate_jwt, tmp_path):
+@pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
+def test_ota_metadata_with_verify_certificate_exception(mocker, payload_str, tmp_path):
     from ota_metadata import OtaMetadata
     from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable
 
@@ -140,7 +167,7 @@ def test_ota_metadata_with_verify_certificate_exception(mocker, generate_jwt, tm
 
     mocker.patch.object(OtaMetadata, "CERTS_DIR", certs_dir)
 
-    metadata = OtaMetadata(generate_jwt)
+    metadata = OtaMetadata(generate_jwt(payload_str))
     assert metadata.get_directories_info() == DIR_INFO
     assert metadata.get_symboliclinks_info() == SYMLINK_INFO
     assert metadata.get_regulars_info() == REGULAR_INFO
@@ -149,3 +176,7 @@ def test_ota_metadata_with_verify_certificate_exception(mocker, generate_jwt, tm
     assert metadata.get_certificate_info() == CERTIFICATE_INFO
     with pytest.raises(OtaErrorRecoverable):
         metadata.verify(open(test_dir / "keys" / "sign.pem").read())
+    if "total_regular_size" in payload_str:
+        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
+    else:
+        assert metadata.get_total_regular_file_size() is None

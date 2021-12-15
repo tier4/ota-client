@@ -42,7 +42,9 @@ def file_sha256(filename: Path) -> str:
         return m.hexdigest()
 
 
-def verify_file(filename: Path, filehash: str) -> bool:
+def verify_file(filename: Path, filehash: str, filesize) -> bool:
+    if filename.stat().st_size != filesize:
+        return False
     return file_sha256(filename) == filehash
 
 
@@ -164,7 +166,9 @@ class RegularInf(_BaseInf):
     Regular file information class
     """
 
-    _pattern = re.compile(r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'")
+    _pattern = re.compile(
+        r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)',?(?P<size>\d+)?"
+    )
 
     def __init__(self, info):
         super().__init__(info)
@@ -174,6 +178,9 @@ class RegularInf(_BaseInf):
         self.nlink = int(res.group("nlink"))
         self.sha256hash = res.group("hash")
         self.path = Path(self.de_escape(res.group("path")))
+        # make sure that size might be None
+        size = res.group("size")
+        self.size = None if size is None else int(size)
 
 
 class PersistentInf(_BaseInf):
@@ -212,6 +219,7 @@ class OtaClientStatistics(object):
     def _init_statistics_storage() -> dict:
         return {
             "total_files": 0,
+            "total_file_size": 0,
             "files_processed": 0,
             "files_processed_copy": 0,
             "files_processed_link": 0,
@@ -372,6 +380,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._update_phase = OtaClientUpdatePhase.METADATA
         url = f"{url_base}/"
         metadata = self._process_metadata(url, cookies)
+        total_regular_file_size = metadata.get_total_regular_file_size()
+        if total_regular_file_size:
+            self._statistics.set("total_file_size", total_regular_file_size)
 
         # process directory file
         logger.debug("[update] process directory files...")
@@ -429,6 +440,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             "update_progress": {
                 "phase": self._update_phase.name,
                 "total_regular_files": _statistics.get("total_files", 0),
+                "total_regular_file_size": _statistics.get("total_file_size", 0),
                 "regular_files_processed": _statistics.get("files_processed", 0),
                 "files_processed_copy": _statistics.get("files_processed_copy", 0),
                 "files_processed_link": _statistics.get("files_processed_link", 0),
@@ -685,7 +697,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             processed["op"] = "link"
             processed["errors"] = 0
         else:  # normal file or first copy of hardlink file
-            if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
+            if reginf.path.is_file() and verify_file(
+                reginf.path, reginf.sha256hash, reginf.size
+            ):
                 # copy file from active bank if hash is the same
                 shutil.copy(reginf.path, dst)
                 processed["op"] = "copy"

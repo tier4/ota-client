@@ -52,6 +52,7 @@ def test_ota_client_status(mocker, tmp_path):
     # thread-safe modifying the storage
     with ota_client_instance._statistics.acquire_staging_storage() as staging_slot:
         staging_slot["total_files"] = 99
+        staging_slot["total_file_size"] = 12345667890
         staging_slot["files_processed"] = 1
         staging_slot["files_processed_copy"] = 80
         staging_slot["files_processed_link"] = 9
@@ -74,6 +75,7 @@ def test_ota_client_status(mocker, tmp_path):
         "update_progress": {
             "phase": "INITIAL",
             "total_regular_files": 99,
+            "total_regular_file_size": 12345667890,
             "regular_files_processed": 1,
             "files_processed_copy": 80,
             "files_processed_link": 9,
