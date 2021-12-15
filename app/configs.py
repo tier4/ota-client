@@ -12,6 +12,9 @@ class OtaClientServiceConfig:
     for operations in ota_client_stub
     """
     SERVER_PORT: str = "50051"
+
+    ######## timeout setting ########
+    # NOTE: all timeout options are in seconds
     # timeout for waiting all subECUs to acknowledage update requests
     WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT: float = 120
     # timeout for local ota_client to finish pre_update procedures
@@ -22,6 +25,8 @@ class OtaClientServiceConfig:
     LOCAL_OTA_UPDATE_TIMEOUT: float = 1800
     # timeout for waiting all subECUs to be ready
     WAITING_SUBECU_READY_TIMEOUT: float = 3600
+    # interval between subECUs' status loop pulling
+    LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 8
 
 class _BaseConfig(ABC):
     def __init__(self):
