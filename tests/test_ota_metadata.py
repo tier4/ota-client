@@ -64,7 +64,7 @@ CERTIFICATE_FNAME = "ota-intermediate.pem"
 CERTIFICATE_HASH = "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c62ed2"
 CERTIFICATE_INFO = {"file": CERTIFICATE_FNAME, "hash": CERTIFICATE_HASH}
 
-TOTAL_REGULAR_SIZE = "108708870"
+TOTAL_REGULAR_SIZE = 108708870
 
 
 def sign(sign_key_file, data):
@@ -101,9 +101,9 @@ def test_ota_metadata(payload_str):
     assert metadata.get_certificate_info() == CERTIFICATE_INFO
     metadata.verify(open(test_dir / "keys" / "sign.pem").read())
     if "total_regular_size" in payload_str:
-        assert metadata.get_total_regular_size() == TOTAL_REGULAR_SIZE
+        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.get_total_regular_size() is None
+        assert metadata.get_total_regular_file_size() is None
 
 
 @pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
@@ -146,9 +146,9 @@ def test_ota_metadata_with_verify_certificate(mocker, payload_str, tmp_path):
     assert metadata.get_certificate_info() == CERTIFICATE_INFO
     metadata.verify(open(test_dir / "keys" / "sign.pem").read())
     if "total_regular_size" in payload_str:
-        assert metadata.get_total_regular_size() == TOTAL_REGULAR_SIZE
+        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.get_total_regular_size() is None
+        assert metadata.get_total_regular_file_size() is None
 
 
 @pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
@@ -177,6 +177,6 @@ def test_ota_metadata_with_verify_certificate_exception(mocker, payload_str, tmp
     with pytest.raises(OtaErrorRecoverable):
         metadata.verify(open(test_dir / "keys" / "sign.pem").read())
     if "total_regular_size" in payload_str:
-        assert metadata.get_total_regular_size() == TOTAL_REGULAR_SIZE
+        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.get_total_regular_size() is None
+        assert metadata.get_total_regular_file_size() is None

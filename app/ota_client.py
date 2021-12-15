@@ -380,9 +380,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._update_phase = OtaClientUpdatePhase.METADATA
         url = f"{url_base}/"
         metadata = self._process_metadata(url, cookies)
-        total_regular_size = metadata.get_total_regular_size()
-        if total_regular_size:
-            self._statistics.set("total_file_size", total_regular_size)
+        total_regular_file_size = metadata.get_total_regular_file_size()
+        if total_regular_file_size:
+            self._statistics.set("total_file_size", total_regular_file_size)
 
         # process directory file
         logger.debug("[update] process directory files...")
