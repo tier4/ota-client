@@ -440,7 +440,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # wait for all subECUs before reboot itself
         if post_update_event:
             logger.debug(f"waiting for all subECUs to become ready...")
-            if post_update_event.wait(timeout=3600): # TODO: hardcoded timeout
+            if post_update_event.wait(timeout=3600):  # TODO: hardcoded timeout
                 logger.debug(f"all subECUs are ready")
             else:
                 # upper caller timeout, failed to wait for all subECU to get ready

@@ -5,12 +5,14 @@ from pathlib import Path
 
 from logging import INFO
 
+
 @dataclass(frozen=True)
 class OtaClientServiceConfig:
     """
     a configuration file that defines timeout options
     for operations in ota_client_stub
     """
+
     SERVER_PORT: str = "50051"
 
     ######## timeout setting ########
@@ -27,6 +29,7 @@ class OtaClientServiceConfig:
     WAITING_SUBECU_READY_TIMEOUT: float = 3600
     # interval between subECUs' status loop pulling
     LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 8
+
 
 class _BaseConfig(ABC):
     def __init__(self):
@@ -72,7 +75,7 @@ class _BaseConfig(ABC):
             "OTA_VERSION_FNAME": "version",
             "LOG_FORMAT": "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s",
             "MOUNT_POINT": mount_point,
-            "OTA_CLIENT_SERVICE_CONFIG": OtaClientServiceConfig()
+            "OTA_CLIENT_SERVICE_CONFIG": OtaClientServiceConfig(),
         }
 
     def __getattr__(self, name: str):

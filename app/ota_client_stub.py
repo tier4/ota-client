@@ -17,6 +17,7 @@ logger = log_util.get_logger(
 )
 cfg: OtaClientServiceConfig = config.OTA_CLIENT_SERVICE_CONFIG
 
+
 class OtaClientStub:
     def __init__(self):
         # dispatch the requested operations to threadpool
@@ -71,7 +72,7 @@ class OtaClientStub:
             else:
                 logger.error(
                     f"failed to wait for ota-client finish pre-update initializing in {cfg.PRE_UPDATE_TIMEOUT}s"
-                    )
+                )
                 # NOTE: not abort update even if local ota pre-update initializing failed
                 main_ecu = response.ecu.add()
                 main_ecu.ecu_id = entry.ecu_id
@@ -81,7 +82,7 @@ class OtaClientStub:
         if len(tasks):  # if we have sub ecu to update
             done, pending = await asyncio.wait(
                 tasks, timeout=cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
-                )
+            )
             for t in pending:
                 ecu_id = t.get_name()
                 logger.info(f"{ecu_id=}")
@@ -98,7 +99,7 @@ class OtaClientStub:
                     logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
                     sub_ecu = response.ecu.add()
                     sub_ecu.ecu_id = ecu_id
-                    sub_ecu.result = v2.UNRECOVERABLE # TODO: unrecoverable?
+                    sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
                 else:
                     for e in t.result().ecu:
                         ecu = response.ecu.add()
@@ -213,10 +214,11 @@ class OtaClientStub:
         # NOTE: the method will block until all the subECUs' status are as expected
         try:
             asyncio.run(
-                self._loop_pulling_subecu_status(
-                    total_subecu_list, # a list of all child ecus under this ecu
-                    timeout=cfg.WAITING_SUBECU_READY_TIMEOUT)
+                self._ensure_subecu_status(
+                    total_subecu_list,  # a list of all child ecus under this ecu
+                    timeout=cfg.WAITING_SUBECU_READY_TIMEOUT,
                 )
+            )
             # all subECUs are updated, now the ota_client can reboot
             logger.debug(f"all subECUs are ready, set post_update_event")
             post_update_event.set()
@@ -225,15 +227,14 @@ class OtaClientStub:
             exp = _future.exception(timeout=cfg.LOCAL_OTA_UPDATE_TIMEOUT)
             if exp:
                 raise exp
-
         except Exception as e:
             logger.error(f"ota update failed: {e!r}")
             logger.error(f"failed update {update_request=}")
 
     async def _get_subecu_status(
         self,
-        response: v2.StatusResponse = None,     # output
-        failed_ecu: list = None,                # output
+        response: v2.StatusResponse = None,  # output
+        failed_ecu: list = None,  # output
     ) -> bool:
         """
         fill the response with subecu status
@@ -251,12 +252,16 @@ class OtaClientStub:
         for secondary in secondary_ecus:
             tasks.append(
                 asyncio.create_task(
-                    self._ota_client_call.status(v2.StatusRequest(), secondary["ip_addr"]),
+                    self._ota_client_call.status(
+                        v2.StatusRequest(), secondary["ip_addr"]
+                    ),
                     name=secondary["ecu_id"],
                 )
             )
 
-        done, pending = await asyncio.wait(tasks, timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT)
+        done, pending = await asyncio.wait(
+            tasks, timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT
+        )
         for t in done:
             exp = t.exception()
             if exp is not None:
@@ -283,7 +288,6 @@ class OtaClientStub:
                         ecu.CopyFrom(e)
                         logger.debug(f"{ecu.ecu_id=}, {ecu.result=}")
 
-
         res = False if len(pending) != 0 else res
         for t in pending:
             # task timeout
@@ -293,73 +297,81 @@ class OtaClientStub:
         return res
 
     async def _loop_pulling_subecu_status(
-        self, total_subecu_list: list, timeout: float):
+        self, target: int, retry: int = 3, pulling_count: int = 600
+    ):
+        """
+        loop pulling subECUs' status recursively, until all the subECUs are in certain status
+        """
+        retry_count = 0
+
+        for _ in range(pulling_count):
+            # pulling interval
+            asyncio.sleep(cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
+
+            st = v2.StatusResponse()
+            failed_ecu_list, success_ecu_list, on_going_ecu_list = [], [], []
+
+            if self._get_subecu_status(st, failed_ecu_list):
+                # _get_subecu_status return True, means that all subECUs are reachable
+                for e in st.ecu:
+                    if e.result != v2.NO_FAILURE:
+                        failed_ecu_list.append(e.ecu_id)
+                        msg = f"Secondary ECU {e.ecu_id} failed: {e.result=}"
+                        logger.error(msg)
+
+                    if e.status.status == v2.StatusOta.FAILURE:
+                        failed_ecu_list.append(e.ecu_id)
+                        msg = f"Secondary ECU {e.ecu_id} failed: {e.status.status=}"
+                        logger.error(msg)
+                    elif e.status.status == v2.StatusOta.SUCCESS:
+                        logger.debug(f"subECU {e.ecu_id} is ready")
+                        success_ecu_list.append(e.ecu_id)
+                    elif e.status.status == v2.StatusOta.UPDATING:
+                        logger.debug(f"subECU {e.ecu_id} is updating")
+                        on_going_ecu_list.append(e.ecu_id)
+
+                logger.debug(
+                    "\nstatus pulling result: \n"
+                    f"{failed_ecu_list=}\n"
+                    f"{on_going_ecu_list=}\n"
+                    f"{success_ecu_list=}"
+                )
+
+                if len(success_ecu_list) >= target:
+                    logger.info("all secondary ecus are updated successfully.")
+                    return
+                elif len(success_ecu_list) + len(failed_ecu_list) >= target:
+                    logger.warning(
+                        "all secondary ecus have finished the ota update,"
+                        "but some subECUs failed to apply the ota update."
+                        f"list of failed subECUs: {failed_ecu_list}"
+                    )
+                    raise OtaErrorRecoverable(
+                        f"failed subECUs presented: {failed_ecu_list}"
+                    )
+            else:
+                # unreachable subECUs presented
+                retry_count += 1
+                logger.debug(
+                    f"retry pulling subECUs status due to unreachable subECUs {failed_ecu_list}, {retry_count=}"
+                )
+
+                if retry_count > retry:
+                    # there is at least one subecu is unreachable, even with retrying n times
+                    logger.debug(f"unreachable subECU list: {failed_ecu_list}")
+                    raise OtaErrorUnrecoverable(
+                        f"failed to contact subECUs: {failed_ecu_list}"
+                    )
+
+    async def _ensure_subecu_status(self, total_subecu_list: list, timeout: float):
         """
         loop pulling the status of subecu, return only when all subECU are in SUCCESS condition
         raise exception when timeout reach or any of the subECU is unavailable
         """
 
-        async def _pulling(target: int, retry: int = 3):
-            retry_count = 0
-
-            while True:
-                # pulling interval
-                asyncio.sleep(cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
-
-                st = v2.StatusResponse()
-                failed_ecu_list, success_ecu_list, on_going_ecu_list = [], [], []
-
-                if self._get_subecu_status(st, failed_ecu_list):
-                    # _get_subecu_status return True, means that all subECUs are reachable
-                    for e in st.ecu:
-                        if e.result != v2.NO_FAILURE:
-                            failed_ecu_list.append(e.ecu_id)
-                            msg = f"Secondary ECU {e.ecu_id} failed: {e.result=}"
-                            logger.error(msg)
-                        
-                        if e.status.status == v2.StatusOta.FAILURE:
-                            failed_ecu_list.append(e.ecu_id)
-                            msg = f"Secondary ECU {e.ecu_id} failed: {e.status.status=}"
-                            logger.error(msg)
-                        elif e.status.status == v2.StatusOta.SUCCESS:
-                            logger.debug(f"subECU {e.ecu_id} is ready")
-                            success_ecu_list.append(e.ecu_id)
-                        elif e.status.status == v2.StatusOta.UPDATING:
-                            logger.debug(f"subECU {e.ecu_id} is updating")
-                            on_going_ecu_list.append(e.ecu_id)
-
-                    logger.debug(
-                        "\nstatus pulling result: \n"
-                        f"{failed_ecu_list=}\n"
-                        f"{on_going_ecu_list=}\n"
-                        f"{success_ecu_list=}"
-                        )
-
-                    if len(success_ecu_list) >= target:
-                        logger.info("all secondary ecus are updated successfully.")
-                        return
-                    elif len(success_ecu_list) + len(failed_ecu_list) >= target:
-                        logger.warning(
-                            "all secondary ecus have finished the ota update,"
-                            "but some subECUs failed to apply the ota update."
-                            f"list of failed subECUs: {failed_ecu_list}"
-                            )
-                        raise OtaErrorRecoverable(f"failed subECUs presented: {failed_ecu_list}")
-                else:
-                    # unreachable subECUs presented
-                    retry_count += 1
-                    logger.debug(
-                        f"retry pulling subECUs status due to unreachable subECUs {failed_ecu_list}, {retry_count=}"
-                        )
-
-                    if retry_count > retry:
-                        # there is at least one subecu is unreachable, even with retrying n times
-                        logger.debug(f"unreachable subECU list: {failed_ecu_list}")
-                        raise OtaErrorUnrecoverable(
-                            f"failed to contact subECUs: {failed_ecu_list}"
-                        )
-
-        t = asyncio.create_task(_pulling(target=len(total_subecu_list)))
+        t = asyncio.create_task(
+            self._loop_pulling_subecu_status(target=len(total_subecu_list))
+        )
         try:
             await asyncio.wait_for(t, timeout=timeout)
         except Exception as e:
