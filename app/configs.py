@@ -26,7 +26,8 @@ class OtaClientServiceConfig:
     # timeout for local ota update to finish
     LOCAL_OTA_UPDATE_TIMEOUT: float = 1800
     # timeout for waiting all subECUs to be ready
-    WAITING_SUBECU_READY_TIMEOUT: float = 3600
+    # timeout for waiting subECUs' status
+    WAITING_GET_SUBECU_STATUS: float = 120
     # interval between subECUs' status loop pulling
     LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 8
 

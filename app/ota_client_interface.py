@@ -2,6 +2,7 @@
 # fmt: off
 import abc
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from ota_status import OtaStatus
@@ -24,7 +25,11 @@ class BootControlInterface(metaclass=abc.ABCMeta):
     def finalize_rollback(self) -> OtaStatus: ...
 
 class OtaClientInterface(metaclass=abc.ABCMeta):
-    def update(self, version, url_base, cookies_json: str, event=None) -> Any: ...
+    def update(
+        self, 
+        version, url_base, cookies_json: str, 
+        *, 
+        pre_update_event: Event =None, post_update_event: Event=None) -> Any: ...
     def rollback(self) -> Any: ...
     def status(self) -> Any: ...
 

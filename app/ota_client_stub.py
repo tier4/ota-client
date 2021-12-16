@@ -58,7 +58,7 @@ class OtaClientStub:
     def __del__(self):
         self._executor.shutdown()
 
-    async def update(self, request: v2.UpdateRequest):
+    async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
         logger.info(f"{request=}")
         response = v2.UpdateResponse()
 
@@ -174,7 +174,7 @@ class OtaClientStub:
 
         # subecu
         await asyncio.wait_for(
-            asyncio.create_task(self._get_subecu_status(request, response))
+            asyncio.create_task(self._get_subecu_status(request, response)), timeout=cfg.WAITING_GET_SUBECU_STATUS
         )
 
         # my ecu
@@ -322,7 +322,7 @@ class OtaClientStub:
         else:
             # there is an on-going pulling, use the cache or wait for the result from it
             while self._cached_status is None:
-                asyncio.sleep(1)
+                await asyncio.sleep(1)
 
             if output_response is not None:
                 output_response.CopyFrom(self._cached_status)
@@ -345,7 +345,7 @@ class OtaClientStub:
 
         for _ in range(pulling_count):
             # pulling interval
-            asyncio.sleep(cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
+            await asyncio.sleep(cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
 
             st = v2.StatusResponse()
             failed_ecu_list, success_ecu_list, on_going_ecu_list = [], [], []

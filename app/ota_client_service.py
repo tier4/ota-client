@@ -22,13 +22,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         # TODO: conver grpc request to dict
         results = asyncio.run(self._stub.update(request))
         logger.info(f"{results=}")
-        response = v2.UpdateResponse()
-        logger.info(f"{response=}")
-        for result in results:
-            res_ecu = response.ecu.add()
-            res_ecu.ecu_id = result["ecu_id"]
-            res_ecu.result = result["result"]
-        return response
+        return results
 
     def Rollback(self, request, context):
         logger.info(f"{request=}")
@@ -45,7 +39,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
     def Status(self, request, context):
         # TODO: conver grpc request to dict
-        results = self._stub.status(request)
+        results = asyncio.run(self._stub.status(request))
         response = v2.StatusResponse()
 
         def set_progress(in_progress, out_progress):
