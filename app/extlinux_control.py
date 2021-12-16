@@ -107,7 +107,7 @@ class HelperFuncs:
         """
         e.g. `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
         """
-        cmd = f"lsblk -ipn -o PKNAME {child_device}"
+        cmd = f"-ipn -o PKNAME {child_device}"
         return cls._lsblk(cmd)
 
     @classmethod
@@ -115,8 +115,8 @@ class HelperFuncs:
         """
         e.g. `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
         """
-        parent = cls.get_parnet_dev(device)
-        cmd = f"lsblk -Pp -o NAME {parent}"
+        parent = cls.get_parent_dev(device)
+        cmd = f"-Pp -o NAME {parent}"
         family = cls._lsblk(cmd)
         pa = re.compile(r'NAME="(?P<dev>.*)"')
         for blk in family.split("\n"):
