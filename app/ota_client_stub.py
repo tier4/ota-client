@@ -1,5 +1,6 @@
 import asyncio
 import grpc
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock
 
@@ -58,14 +59,20 @@ class OtaClientStub:
         logger.info(f"{ecu_id=}")
         entry = OtaClientStub._find_request(request.ecu, ecu_id)
         logger.info(f"{entry=}")
+
         if entry:
             # dispatch update requst to ota_client only
             pre_update_event = Event()
-            self._executor.submit(
-                self._update_executor,
-                entry,
-                request,
-                pre_update_event=pre_update_event,
+            
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                self._executor,
+                partial(
+                    self._update_executor,
+                    entry,
+                    request,
+                    pre_update_event=pre_update_event,
+                ),
             )
 
             # wait until pre-update initializing finished or error occured.
@@ -315,7 +322,7 @@ class OtaClientStub:
 
         return res
 
-    async def _loop_pulling_subecu_status(self, retry: int = 3, pulling_count: int = 600):
+    async def _loop_pulling_subecu_status(self, retry: int = 6, pulling_count: int = 600):
         """
         loop pulling subECUs' status recursively, until all the subECUs are in certain status
         """
