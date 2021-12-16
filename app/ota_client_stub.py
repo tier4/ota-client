@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock
 
 import otaclient_v2_pb2 as v2
-from ota_error import OtaError, OtaErrorRecoverable, OtaErrorUnrecoverable
+from ota_error import OtaErrorRecoverable, OtaErrorUnrecoverable
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
@@ -17,6 +17,28 @@ logger = log_util.get_logger(
     __name__, config.LOG_LEVEL_TABLE.get(__name__, config.DEFAULT_LOG_LEVEL)
 )
 cfg: OtaClientServiceConfig = config.OTA_CLIENT_SERVICE_CONFIG
+
+
+def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
+    """
+    expecting input dict to has the same structure as the statusprogress msg
+    """
+    from numbers import Number
+    from google.protobuf.duration_pb2 import Duration
+
+    res = v2.StatusProgress()
+    for k, v in input:
+        try:
+            msg_field = getattr(res, k)
+        except:
+            continue
+
+        if isinstance(msg_field, Number):
+            setattr(res, k, v)
+        elif isinstance(msg_field, Duration):
+            msg_field.FromMilliseconds(v)
+
+    return res
 
 
 class OtaClientStub:
@@ -63,7 +85,7 @@ class OtaClientStub:
         if entry:
             # dispatch update requst to ota_client only
             pre_update_event = Event()
-            
+
             loop = asyncio.get_running_loop()
             loop.run_in_executor(
                 self._executor,
@@ -171,22 +193,8 @@ class OtaClientStub:
         ecu.status.version = status["version"]
 
         prg = ecu.status.progress
-        dict_prg = status["update_progress"]
-        # ecu.status.progress
-        prg.phase = v2.StatusProgressPhase.Value(dict_prg["phase"])
-        prg.total_regular_files = dict_prg["total_regular_files"]
-        prg.regular_files_processed = dict_prg["regular_files_processed"]
-        #
-        prg.files_processed_copy = dict_prg["files_processed_copy"]
-        prg.files_processed_link = dict_prg["files_processed_link"]
-        prg.files_processed_download = dict_prg["files_processed_download"]
-        prg.file_size_processed_copy = dict_prg["file_size_processed_copy"]
-        prg.file_size_processed_link = dict_prg["file_size_processed_link"]
-        prg.file_size_processed_download = dict_prg["file_size_processed_download"]
-        prg.elapsed_time_copy.FromMilliseconds(dict_prg["elapsed_time_copy"])
-        prg.elapsed_time_link.FromMilliseconds(dict_prg["elapsed_time_link"])
-        prg.elapsed_time_download.FromMilliseconds(dict_prg["elapsed_time_download"])
-        prg.errors_download = dict_prg["errors_download"]
+        prg.CopyFrom(_statusprogress_msg_from_dict(status["update_progress"]))
+        prg.phase = v2.StatusProgressPhase.Value(status["update_progress"]["phase"])
 
         return response
 
@@ -315,21 +323,25 @@ class OtaClientStub:
             # there is an on-going pulling, use the cache or wait for the result from it
             while self._cached_status is None:
                 asyncio.sleep(1)
-            
+
             if output_response is not None:
                 output_response.CopyFrom(self._cached_status)
             res = self._cached_if_subecu_ready
 
         return res
 
-    async def _loop_pulling_subecu_status(self, retry: int = 6, pulling_count: int = 600):
+    async def _loop_pulling_subecu_status(
+        self, retry: int = 6, pulling_count: int = 600
+    ):
         """
         loop pulling subECUs' status recursively, until all the subECUs are in certain status
         """
         retry_count = 0
 
         # get the list of directly connect subecu
-        subecu_flag_dict = {e["ecu_id"]:v2.FAILURE for e in self._ecu_info.get_secondary_ecus()}
+        subecu_flag_dict = {
+            e["ecu_id"]: v2.FAILURE for e in self._ecu_info.get_secondary_ecus()
+        }
 
         for _ in range(pulling_count):
             # pulling interval
@@ -346,7 +358,7 @@ class OtaClientStub:
                         msg = f"Secondary ECU {e.ecu_id} failed: {e.result=}"
                         logger.error(msg)
                         continue
-                    
+
                     # directly connected subECU
                     ota_status = e.status.status
                     if e.ecu_id in subecu_flag_dict:
@@ -354,7 +366,9 @@ class OtaClientStub:
 
                     if ota_status == v2.StatusOta.FAILURE:
                         failed_ecu_list.append(e.ecu_id)
-                        logger.error(f"Secondary ECU {e.ecu_id} failed: {e.status.status=}")
+                        logger.error(
+                            f"Secondary ECU {e.ecu_id} failed: {e.status.status=}"
+                        )
                     elif ota_status == v2.StatusOta.SUCCESS:
                         success_ecu_list.append(e.ecu_id)
                     elif ota_status == v2.StatusOta.UPDATING:
@@ -375,7 +389,7 @@ class OtaClientStub:
                         keep_pulling = True
                     elif s == v2.StatusOta.FAILURE or s == v2.FAILURE:
                         failed_directly_connected_ecu.append(e)
-                
+
                 if not keep_pulling:
                     # all directly connected subECUs are in SUCCESS or FAILURE status
                     if failed_directly_connected_ecu:
@@ -388,7 +402,9 @@ class OtaClientStub:
                             f"failed directly subECUs presented: {failed_directly_connected_ecu}"
                         )
                     else:
-                        logger.info("all directly connected secondary ecus are updated successfully.")
+                        logger.info(
+                            "all directly connected secondary ecus are updated successfully."
+                        )
                     return
             else:
                 # unreachable directly connected subECUs presented
