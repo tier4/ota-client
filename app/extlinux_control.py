@@ -70,6 +70,16 @@ class HelperFuncs:
         _cmd = f"blkid {args}"
         return _subprocess_check_output(_cmd)
 
+    @staticmethod
+    def _findmnt(args: str) -> str:
+        _cmd = f"findmnt {args}"
+        return _subprocess_check_output(_cmd)
+
+    @staticmethod
+    def _lsblk(args: str) -> str:
+        _cmd = f"lsblk {args}"
+        return _subprocess_check_output(_cmd)
+
     @classmethod
     def get_partuuid_by_dev(cls, dev: str) -> str:
         args = f"{dev} -s PARTUUID"
@@ -87,6 +97,34 @@ class HelperFuncs:
     @classmethod
     def get_dev_by_partuuid(cls, partuuid: str) -> str:
         return cls._findfs("PARTUUID", partuuid)
+
+    @classmethod
+    def get_root_dev(cls) -> str:
+        return cls._findmnt("/ -o SOURCE -n")
+
+    @classmethod
+    def get_parent_dev(cls, child_device: str) -> str:
+        """
+        e.g. `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
+        """
+        cmd = f"lsblk -ipn -o PKNAME {child_device}"
+        return cls._lsblk(cmd)
+
+    @classmethod
+    def get_sibling_dev(cls, device: str) -> str:
+        """
+        e.g. `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
+        """
+        parent = cls.get_parnet_dev(device)
+        cmd = f"lsblk -Pp -o NAME {parent}"
+        family = cls._lsblk(cmd)
+        pa = re.compile(r'NAME="(?P<dev>.*)"')
+        for blk in family.split("\n"):
+            m = pa.match(blk)
+            dev = m.group("dev")
+            if dev != parent and dev != device:
+                return dev
+        raise OtaErrorUnrecoverable(f"lsblk output={family} is illegal")
 
 
 class Nvbootctrl:
