@@ -246,13 +246,6 @@ class Nvbootctrl:
         dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
         return HelperFuncs.get_partuuid_by_dev(dev)
 
-    @classmethod
-    def get_current_slot_partuuid(cls) -> str:
-        slot = cls.get_current_slot()
-        suffix = cls.get_suffix(slot)
-        dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
-        return HelperFuncs.get_partuuid_by_dev(dev)
-
 
 class ExtlinuxCfgFile:
     DEFAULT_HEADING = {
