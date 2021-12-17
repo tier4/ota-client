@@ -91,6 +91,10 @@ class HelperFuncs:
         return f"PARTUUID={v}"
 
     @classmethod
+    def get_dev_by_partlabel(cls, partlabel: str) -> str:
+        return cls._findfs("PARTLABEL", partlabel)
+
+    @classmethod
     def get_dev_by_partuuid(cls, partuuid: str) -> str:
         return cls._findfs("PARTUUID", partuuid)
 
@@ -138,6 +142,7 @@ class Nvbootctrl:
     rootfs default label prefix: APP
     """
 
+    PREFIX = "APP"
     CURRENT_STANDBY_FLIP = {"0": "1", "1": "0"}
 
     @staticmethod
@@ -233,12 +238,19 @@ class Nvbootctrl:
 
     @classmethod
     def get_standby_slot_partuuid(cls) -> str:
-        dev = cls.get_standby_slot_dev()
+        """
+        NOTE: This partuuid is the UUID of the partition labled APP or APP_b.
+        """
+        slot = cls.get_standby_slot()
+        suffix = cls.get_suffix(slot)
+        dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
         return HelperFuncs.get_partuuid_by_dev(dev)
 
     @classmethod
     def get_current_slot_partuuid(cls) -> str:
-        dev = cls.get_current_slot_dev()
+        slot = cls.get_current_slot()
+        suffix = cls.get_suffix(slot)
+        dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
         return HelperFuncs.get_partuuid_by_dev(dev)
 
 
