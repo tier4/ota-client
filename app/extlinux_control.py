@@ -117,7 +117,7 @@ class HelperFuncs:
         ["NAME=/dev/nvme0n1", "NAME=/dev/nvme0n1p1", "NAME=/dev/nvme0n1p2"] is returned.
         """
         cmd = f"-Pp -o NAME {parent_device}"
-        return cls._lsblk(cmd).split("\n")
+        return cls._lsblk(cmd).splitlines()
 
     @classmethod
     def get_sibling_dev(cls, device: str) -> str:
