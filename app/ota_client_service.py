@@ -34,6 +34,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         logger.info(f"{result=}")
         return result
 
+
 def service_start(port, service_list):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))
     for service in service_list:

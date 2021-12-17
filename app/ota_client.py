@@ -399,7 +399,6 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 
             # set ota status
             self.set_ota_status(OtaStatus.UPDATING)
-            self.store_standby_ota_status(OtaStatus.UPDATING)
             # set update status
             self._update_phase = OtaClientUpdatePhase.INITIAL
             self._failure_type = OtaClientFailureType.NO_FAILURE
@@ -618,7 +617,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         reginf_list_raw_lines = open(list_file).readlines()
-        self._statistics.set("total_files", len(reginf_list_raw_lines))
+        # NOTE: check _OtaStatisticsStorage for available attributes
+        self._statistics.set("total_regular_files", len(reginf_list_raw_lines))
 
         with Manager() as manager:
             error_queue = manager.Queue()
@@ -771,6 +771,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def enter_update(self, version):
         logger.debug("pre-update setup...")
         self.boot_ctrl_pre_update(version)
+        self.store_standby_ota_status(OtaStatus.UPDATING)
         logger.debug("finished pre-update setup")
 
     def leave_update(self):

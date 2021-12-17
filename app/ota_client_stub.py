@@ -1,11 +1,11 @@
 import asyncio
 import grpc
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from threading import Event, Lock
 
 import otaclient_v2_pb2 as v2
-from ota_error import OtaErrorRecoverable, OtaErrorUnrecoverable
+from ota_error import OtaError, OtaErrorRecoverable, OtaErrorUnrecoverable
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
@@ -175,7 +175,8 @@ class OtaClientStub:
         # subecu
         # NOTE: modify the input response object in-place
         await asyncio.wait_for(
-            asyncio.create_task(self._get_subecu_status(request, response)), timeout=cfg.WAITING_GET_SUBECU_STATUS
+            asyncio.create_task(self._get_subecu_status(request, response)),
+            timeout=cfg.WAITING_GET_SUBECU_STATUS,
         )
 
         # my ecu
@@ -242,8 +243,10 @@ class OtaClientStub:
             if exp:
                 raise exp
         except Exception as e:
-            logger.error(f"ota update failed: {e!r}")
-            logger.error(f"failed update {update_request=}")
+            if isinstance(e, OtaError):
+                logger.error(f"ota update failed: {e!r}")
+            elif isinstance(e, TimeoutError):
+                logger.error(f"timeout local ota update {update_request=}")
 
     async def _get_subecu_status(
         self,
@@ -346,6 +349,8 @@ class OtaClientStub:
         subecu_flag_dict = {
             e["ecu_id"]: v2.FAILURE for e in self._ecu_info.get_secondary_ecus()
         }
+        if not subecu_flag_dict:
+            return # return when no subecu is attached
 
         for _ in range(pulling_count):
             # pulling interval
