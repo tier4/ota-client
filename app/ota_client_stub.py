@@ -173,6 +173,7 @@ class OtaClientStub:
         response = v2.StatusResponse()
 
         # subecu
+        # NOTE: modify the input response object in-place
         await asyncio.wait_for(
             asyncio.create_task(self._get_subecu_status(request, response)), timeout=cfg.WAITING_GET_SUBECU_STATUS
         )
@@ -260,6 +261,10 @@ class OtaClientStub:
         if input failed_ecu list is not None, record the failed subECU id in it
         return true only when all subecu are reachable
         """
+        secondary_ecus = self._ecu_info.get_secondary_ecus()
+        if len(secondary_ecus) == 0:
+            return True
+
         if self._status_pulling_lock.acquire(blocking=False):
             response = v2.StatusResponse()
             failed_ecu = [] if failed_ecu is None else failed_ecu
@@ -267,7 +272,6 @@ class OtaClientStub:
 
             # dispatch status pulling requests to all subecu
             tasks = []
-            secondary_ecus = self._ecu_info.get_secondary_ecus()
             for secondary in secondary_ecus:
                 tasks.append(
                     asyncio.create_task(
