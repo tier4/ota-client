@@ -21,7 +21,7 @@ logger = log_util.get_logger(
 def _read_file(path: Path) -> str:
     try:
         return path.read_text().strip()
-    except:
+    except Exception:
         return ""
 
 
@@ -91,35 +91,39 @@ class HelperFuncs:
         return f"PARTUUID={v}"
 
     @classmethod
-    def get_dev_by_partlabel(cls, partlabel: str) -> str:
-        return cls._findfs("PARTLABEL", partlabel)
-
-    @classmethod
     def get_dev_by_partuuid(cls, partuuid: str) -> str:
         return cls._findfs("PARTUUID", partuuid)
 
     @classmethod
-    def get_root_dev(cls) -> str:
+    def get_rootfs_dev(cls) -> str:
         return cls._findmnt("/ -o SOURCE -n")
 
     @classmethod
     def get_parent_dev(cls, child_device: str) -> str:
         """
-        e.g. `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
+        When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
         """
         cmd = f"-ipn -o PKNAME {child_device}"
         return cls._lsblk(cmd)
 
     @classmethod
+    def get_family_devs(cls, parent_device: str) -> list:
+        """
+        When `/dev/nvme0n1` is specified as parent_device,
+        ["NAME=/dev/nvme0n1", "NAME=/dev/nvme0n1p1", "NAME=/dev/nvme0n1p2"] is returned.
+        """
+        cmd = f"-Pp -o NAME {parent_device}"
+        return cls._lsblk(cmd).split("\n")
+
+    @classmethod
     def get_sibling_dev(cls, device: str) -> str:
         """
-        e.g. `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
+        When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1p2 is returned.
         """
         parent = cls.get_parent_dev(device)
-        cmd = f"-Pp -o NAME {parent}"
-        family = cls._lsblk(cmd)
+        family = cls.get_family_devs(parent)
         pa = re.compile(r'NAME="(?P<dev>.*)"')
-        for blk in family.split("\n"):
+        for blk in family:
             m = pa.match(blk)
             dev = m.group("dev")
             if dev != parent and dev != device:
@@ -134,7 +138,6 @@ class Nvbootctrl:
     rootfs default label prefix: APP
     """
 
-    PREFIX = "APP"
     CURRENT_STANDBY_FLIP = {"0": "1", "1": "0"}
 
     @staticmethod
@@ -205,9 +208,7 @@ class Nvbootctrl:
 
     @classmethod
     def get_current_slot_dev(cls) -> str:
-        slot = cls.get_current_slot()
-        suffix = cls.get_suffix(slot)
-        dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
+        dev = HelperFuncs.get_rootfs_dev()
 
         if not cls._check_is_rootdev(dev):
             raise OtaErrorUnrecoverable(f"rootfs mismatch, expect {dev} as rootfs")
@@ -217,9 +218,8 @@ class Nvbootctrl:
 
     @classmethod
     def get_standby_slot_dev(cls) -> str:
-        slot = cls.get_standby_slot()
-        suffix = cls.get_suffix(slot)
-        dev = HelperFuncs.get_dev_by_partlabel(f"APP{suffix}")
+        rootfs_dev = HelperFuncs.get_rootfs_dev()
+        dev = HelperFuncs.get_sibling_dev(rootfs_dev)
 
         if cls._check_is_rootdev(dev):
             msg = (
