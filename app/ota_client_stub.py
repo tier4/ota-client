@@ -27,13 +27,13 @@ def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
     from google.protobuf.duration_pb2 import Duration
 
     res = v2.StatusProgress()
-    for k, v in input:
+    for k, v in input.items():
         try:
             msg_field = getattr(res, k)
         except:
             continue
 
-        if isinstance(msg_field, Number):
+        if isinstance(msg_field, Number) and isinstance(v, Number):
             setattr(res, k, v)
         elif isinstance(msg_field, Duration):
             msg_field.FromMilliseconds(v)
