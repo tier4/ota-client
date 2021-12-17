@@ -134,8 +134,6 @@ class HelperFuncs:
 class Nvbootctrl:
     """
     slot num: 0->A, 1->B
-    slot suffix: "", "_b"
-    rootfs default label prefix: APP
     """
 
     CURRENT_STANDBY_FLIP = {"0": "1", "1": "0"}
