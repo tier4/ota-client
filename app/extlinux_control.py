@@ -623,16 +623,17 @@ class CBootControlMixin(BootControlInterface):
 
     def boot_ctrl_pre_update(self, version):
         logger.debug("entering pre-update...")
+        self.store_slot_in_use_file(
+            Nvbootctrl.get_standby_slot(), self._slot_in_use_file
+        )
+
         # setup updating
         self._boot_control.set_standby_slot_unbootable()
         self._cleanup_standby()
         self._mount_standby()
 
-        # store status
+        # store status to standby slot
         self.store_standby_ota_version(version)
-        self.store_slot_in_use_file(
-            Nvbootctrl.get_standby_slot(), self._slot_in_use_file
-        )
         self.store_slot_in_use_file(
             Nvbootctrl.get_standby_slot(), self._standby_slot_in_use_file
         )
