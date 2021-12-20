@@ -238,13 +238,19 @@ class Nvbootctrl:
         return dev
 
     @classmethod
+    def get_standby_slot_dev_by_partlabel(cls) -> str:
+        slot = cls.get_standby_slot()
+        suffix = cls.get_suffix(slot)
+        dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
+        logger.debug(f"standby slot dev by part label {cls.PREFIX}{suffix}: {dev}")
+        return dev
+
+    @classmethod
     def get_standby_slot_partuuid(cls) -> str:
         """
         NOTE: This partuuid is the UUID of the partition labled APP or APP_b.
         """
-        slot = cls.get_standby_slot()
-        suffix = cls.get_suffix(slot)
-        dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
+        dev = cls.get_standby_slot_dev_by_partlabel()
         return HelperFuncs.get_partuuid_by_dev(dev)
 
 
@@ -395,6 +401,7 @@ class CBootControl:
             self._standby_slot,
             self._standby_dev,
             self._standby_partuuid,
+            self._standby_dev_by_partlabel,
         ) = self._get_slot_info()
 
         # NOTE: only support r580 platform right now!
@@ -421,14 +428,18 @@ class CBootControl:
         _slot = Nvbootctrl.get_standby_slot()
         _dev = Nvbootctrl.get_standby_slot_dev()
         _partuuid = Nvbootctrl.get_standby_slot_partuuid()
+        _dev_by_partlabel = Nvbootctrl.get_standby_slot_dev_by_partlabel()
 
-        return _slot, _dev, _partuuid
+        return _slot, _dev, _partuuid, _dev_by_partlabel
 
     def get_standby_slot(self) -> str:
         return self._standby_slot
 
     def get_standby_dev(self) -> Path:
         return Path(self._standby_dev)
+
+    def get_standby_dev_by_partlabel(self) -> Path:
+        return Path(self._standby_dev_by_partlabel)
 
     def get_standby_partuuid(self) -> str:
         return self._standby_partuuid
@@ -572,6 +583,21 @@ class CBootControlMixin(BootControlInterface):
             logger.error(f"failed to cleanup standby bank {standby_dev}")
             raise
 
+    def _sync_standby_boot(self):
+        standby_dev = self._boot_control.get_standby_dev()
+        standby_dev_by_partlabel = self._boot_control.get_standby_dev_by_partlabel()
+        if standby_dev == standby_dev_by_partlabel:
+            return  # do nothing
+
+        mount_point = Path(f"/mnt/{standby_dev_by_partlabel.name}")
+        mount_point.mkdir(parents=True, exist_ok=True)
+        cmd_mount = f"mount {standby_dev_by_partlabel} {mount_point}"
+        _subprocess_call(cmd_mount, raise_exception=True)
+
+        # copy {standby_dev}/boot to {standby_dev_by_partlabel}/boot
+        cmd_cp = f"cp -d -r -p {self._mount_point/ 'boot'} {mount_point / 'boot'}"
+        _subprocess_call(cmd_cp, raise_exception=True)
+
     def _is_switching_boot(self) -> bool:
         # evidence 1: nvbootctrl status
         # the newly updated slot should not be marked as successful on the first reboot
@@ -688,6 +714,7 @@ class CBootControlMixin(BootControlInterface):
         self._boot_control.write_extlinux_cfg(
             target=self._standby_extlinux_cfg, src=self._standby_extlinux_cfg
         )
+        self._sync_standby_boot()
 
         self._boot_control.switch_boot_standby()
         self._boot_control.reboot()
