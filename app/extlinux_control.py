@@ -126,13 +126,14 @@ class HelperFuncs:
         """
         parent = cls.get_parent_dev(device)
         family = cls.get_family_devs(parent)
-        pa = re.compile(r'NAME="(?P<dev>.*)"')
-        for blk in family:
-            m = pa.match(blk)
-            dev = m.group("dev")
-            if dev != parent and dev != device:
-                return dev
-        raise OtaErrorUnrecoverable(f"lsblk output={family} is illegal")
+        partitions = {i.split("=")[-1].strip('"') for i in family[1:]}
+        res = partitions - {device}
+        if len(res) == 1:
+            (r,) = res
+            return r
+        raise OtaErrorUnrecoverable(
+            f"device is has unexpected partition layout, {family=}"
+        )
 
 
 class Nvbootctrl:
