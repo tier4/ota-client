@@ -57,7 +57,7 @@ class OtaClientStub:
         # a dict to hold the future for each requests if needed
         self._future = dict()
 
-        self._threadset = ThreadSet()
+        self._thread_set = ThreadSet()
 
     def __del__(self):
         self._executor.shutdown()
@@ -86,7 +86,7 @@ class OtaClientStub:
         if entry:
             # we only dispatch the request, so we don't process the returned future object
             event = Event()
-            self._threadset.submit(
+            self._thread_set.submit(
                 target=self._ota_client.update,
                 args=(entry.version, entry.url, entry.cookies, event),
             )
