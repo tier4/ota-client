@@ -53,9 +53,6 @@ class OtaClientStub:
 
         self._thread_set = ThreadSet()
 
-    def __del__(self):
-        self._executor.shutdown()
-
     async def update(self, request):
         logger.info(f"{request=}")
         # secondary ecus
