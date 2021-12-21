@@ -11,4 +11,5 @@ class OtaErrorUnrecoverable(Exception):
 
 
 class OtaErrorCancel(Exception):
-    pass
+    def __init__(self):
+        super().__init__("canceled")

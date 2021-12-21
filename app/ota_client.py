@@ -20,7 +20,12 @@ from retrying import retry
 from ota_client_interface import OtaClientInterface
 from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
-from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
+from ota_error import (
+    OtaErrorUnrecoverable,
+    OtaErrorRecoverable,
+    OtaErrorBusy,
+    OtaErrorCancel,
+)
 from copy_tree import CopyTree
 from configs import config as cfg
 import log_util
@@ -291,7 +296,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             # not setting ota_status
             logger.exception("update busy")
             return OtaClientFailureType.RECOVERABLE
-        except (JSONDecodeError, OtaErrorRecoverable) as e:
+        except (JSONDecodeError, OtaErrorRecoverable, OtaErrorCancel) as e:
             logger.exception(msg="recoverable")
             self.set_ota_status(OtaStatus.FAILURE)
             self.store_standby_ota_status(OtaStatus.FAILURE)
