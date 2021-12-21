@@ -115,3 +115,33 @@ def service_wait_for_termination(server):
 
 def service_stop(server):
     server.stop(None)
+
+
+if __name__ == "__main__":
+    import time
+
+    with grpc.insecure_channel("localhost:50051") as channel:
+        stub = v2_grpc.OtaClientServiceStub(channel)
+        request = v2.StatusRequest()
+        response = stub.Status(request)
+        print(f"{response=}")
+
+        request = v2.UpdateRequest()
+        ecu = request.ecu.add()
+        ecu.ecu_id = "autoware"
+        ecu.version = "1.1.1"
+        ecu.url = "http://192.168.56.1:8081"
+        ecu.cookies = "{}"
+        response = stub.Update(request)
+        print(f"{response=}")
+        while True:
+            try:
+                request = v2.StatusRequest()
+                response = stub.Status(request)
+                print(f"{response=}")
+                time.sleep(2)
+            except KeyboardInterrupt:
+                request = v2.CancelUpdateRequest()
+                ecu = request.ecu.add()
+                ecu.ecu_id = "autoware"
+                response = stub.CancelUpdate(request)
