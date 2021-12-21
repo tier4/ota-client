@@ -7,22 +7,20 @@ from logging import INFO
 @dataclass(frozen=True)
 class _BaseConfig:
     DEFAULT_LOG_LEVEL: int = (INFO,)
-    LOG_LEVEL_TABLE: dict = (
-        field(
-            default_factory=lambda: {
-                "ecu_info": INFO,
-                "grub_control": INFO,
-                "grub_ota_partition": INFO,
-                "extlinux_control": INFO,
-                "main": INFO,
-                "ota_client": INFO,
-                "ota_client_call": INFO,
-                "ota_client_service": INFO,
-                "ota_client_stub": INFO,
-                "ota_metadata": INFO,
-                "ota_status": INFO,
-            }.copy()
-        ),
+    LOG_LEVEL_TABLE: dict = field(
+        default_factory=lambda: {
+            "ecu_info": INFO,
+            "grub_control": INFO,
+            "grub_ota_partition": INFO,
+            "extlinux_control": INFO,
+            "main": INFO,
+            "ota_client": INFO,
+            "ota_client_call": INFO,
+            "ota_client_service": INFO,
+            "ota_client_stub": INFO,
+            "ota_metadata": INFO,
+            "ota_status": INFO,
+        }.copy()
     )
     ECU_INFO_FILE: Path = (Path("/boot/ota/ecu_info.yaml"),)
     PASSWD_FILE: Path = (Path("/etc/passwd"),)
@@ -57,9 +55,7 @@ class CBootControlConfig(_BaseConfig):
     """
 
     BOOTLOADER: str = "cboot"
-    CHIP_ID_MODEL_MAP: dict = field(
-        default_factory=lambda: {0x19: "rqx_580"}.copy()
-    )
+    CHIP_ID_MODEL_MAP: dict = field(default_factory=lambda: {0x19: "rqx_580"}.copy())
     EXTLINUX_FILE: Path = ("/boot/extlinux/extlinux.conf",)
     SLOT_IN_USE_FILE: Path = ("/boot/ota-status/slot_in_use",)
     OTA_STATUS_DIR: Path = ("/boot/ota-status",)
