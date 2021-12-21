@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Tuple
 
 import log_util
 from configs import config as cfg
@@ -13,7 +12,7 @@ from ota_error import OtaErrorUnrecoverable
 from ota_status import OtaStatus
 from ota_client_interface import BootControlInterface
 
-assert cfg.PLATFORM == "cboot"
+assert cfg.BOOTLOADER == "cboot"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

@@ -13,7 +13,7 @@ from grub_control import GrubControl
 from ota_error import OtaErrorUnrecoverable
 import log_util
 
-assert cfg.PLATFORM == "grub"
+assert cfg.BOOTLOADER == "grub"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

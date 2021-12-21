@@ -11,7 +11,7 @@ import log_util
 from configs import config as cfg
 from ota_error import OtaErrorUnrecoverable
 
-assert cfg.PLATFORM == "grub"
+assert cfg.BOOTLOADER == "grub"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
