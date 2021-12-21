@@ -31,3 +31,9 @@ class OtaClientCall:
         with grpc.insecure_channel(target_addr) as channel:
             stub = v2_grpc.OtaClientServiceStub(channel)
             return stub.Status(request)
+
+    def cancel_update(self, request, ip_addr, port=None):
+        target_addr = f"{ip_addr}:{port if port else self._port}"
+        with grpc.insecure_channel(target_addr) as channel:
+            stub = v2_grpc.OtaClientServiceStub(channel)
+            return stub.CancelUpdate(request)

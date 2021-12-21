@@ -160,3 +160,21 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
         assert response == response_exp
 
     ota_client_mock.status.assert_called_once()
+
+
+def test_ota_client_service_cancel_update(start_service_with_ota_client_mock):
+    import otaclient_v2_pb2 as v2
+    import otaclient_v2_pb2_grpc as v2_grpc
+
+    with grpc.insecure_channel("localhost:50051") as channel:
+        request = v2.CancelUpdateRequest()
+        ecu = request.ecu.add()
+        ecu.ecu_id = "autoware"
+        service = v2_grpc.OtaClientServiceStub(channel)
+        response = service.CancelUpdate(request)
+
+        response_exp = v2.CancelUpdateResponse()
+        res_ecu = response_exp.ecu.add()
+        res_ecu.ecu_id = "autoware"
+        res_ecu.result = v2.FailureType.NO_FAILURE
+        assert response == response_exp
