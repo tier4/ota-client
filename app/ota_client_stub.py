@@ -1,5 +1,4 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Thread, Lock
 import ctypes
 
@@ -51,11 +50,6 @@ class OtaClientStub:
         self._ota_client = OtaClient()
         self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall("50051")
-
-        # dispatch the requested operations to threadpool
-        self._executor = ThreadPoolExecutor()
-        # a dict to hold the future for each requests if needed
-        self._future = dict()
 
         self._thread_set = ThreadSet()
 
