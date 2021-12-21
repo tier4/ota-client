@@ -1,14 +1,14 @@
-import dataclasses
 import platform
+from dataclasses import dataclass, field
 from pathlib import Path
 from logging import INFO
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class _BaseConfig:
     DEFAULT_LOG_LEVEL: int = (INFO,)
     LOG_LEVEL_TABLE: dict = (
-        dataclasses.field(
+        field(
             default_factory=lambda: {
                 "ecu_info": INFO,
                 "grub_control": INFO,
@@ -36,7 +36,7 @@ class _BaseConfig:
     MOUNT_POINT: Path = Path("/mnt/standby")
 
 
-@dataclasses.dataclass
+@dataclass(frozen=True)
 class GrubControlConfig(_BaseConfig):
     """
     x86-64 platform, using grub
@@ -50,14 +50,14 @@ class GrubControlConfig(_BaseConfig):
     DEFAULT_GRUB_FILE: Path = (Path("/etc/default/grub"),)
 
 
-@dataclasses.dataclass
+@dataclass(frozen=True)
 class CBootControlConfig(_BaseConfig):
     """
     NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
     """
 
     BOOTLOADER: str = "cboot"
-    CHIP_ID_MODEL_MAP: dict = dataclasses.field(
+    CHIP_ID_MODEL_MAP: dict = field(
         default_factory=lambda: {0x19: "rqx_580"}.copy()
     )
     EXTLINUX_FILE: Path = ("/boot/extlinux/extlinux.conf",)
