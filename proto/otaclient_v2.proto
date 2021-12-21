@@ -29,6 +29,7 @@ service OtaClientService {
   rpc Update (UpdateRequest) returns (UpdateResponse) {}
   rpc Rollback (RollbackRequest) returns (RollbackResponse) {}
   rpc Status (StatusRequest) returns (StatusResponse) {}
+  rpc CancelUpdate (CancelUpdateRequest) returns (CancelUpdateResponse) {}
 }
 
 //
@@ -149,3 +150,28 @@ message StatusResponseEcu {
 message StatusResponse {
   repeated StatusResponseEcu ecu = 1;
 }
+
+//
+// CancelUpdate
+//
+
+// Request
+message CancelUpdateRequestEcu {
+  string ecu_id = 1;
+}
+
+message CancelUpdateRequest {
+  repeated CancelUpdateRequestEcu ecu = 1;
+}
+
+// Response
+message CancelUpdateResponseEcu {
+  string ecu_id = 1;
+  FailureType result = 2;
+}
+
+message CancelUpdateResponse {
+  repeated CancelUpdateResponseEcu ecu = 1;
+}
+
+

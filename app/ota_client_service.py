@@ -84,6 +84,19 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
         return response
 
+    def CancelUpdate(self, request, context):
+        logger.info(f"{request=}")
+        # TODO: conver grpc request to dict
+        results = self._stub.cancel_update(request)
+        logger.info(f"{results=}")
+        response = v2.CancelUpdateResponse()
+        logger.info(f"{response=}")
+        for result in results:
+            res_ecu = response.ecu.add()
+            res_ecu.ecu_id = result["ecu_id"]
+            res_ecu.result = result["result"]
+        return response
+
 
 def service_start(port, service_list):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))

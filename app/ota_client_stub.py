@@ -161,6 +161,37 @@ class OtaClientStub:
 
         return response
 
+    def cancel_update(self, request):
+        logger.info(f"{request=}")
+        response = []
+
+        # secondary ecus
+        secondary_ecus = self._ecu_info.get_secondary_ecus()
+        logger.info(f"{secondary_ecus=}")
+        for secondary in secondary_ecus:
+            entry = OtaClientStub._find_request(request.ecu, secondary)
+            if entry:
+                r = self._ota_client_call.cancel_update(request, secondary["ip_addr"])
+                response.append(r)
+
+        # my ecu
+        ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
+        logger.info(f"{ecu_id=}")
+        entry = OtaClientStub._find_request(request.ecu, ecu_id)
+        logger.info(f"{entry=}")
+        if entry:
+            result = self._thread_set.cancel_all()  # FIXME: result
+            logger.info(f"{result=}")
+            response.append(
+                {
+                    "ecu_id": entry.ecu_id,
+                    "result": otaclient_v2_pb2.NO_FAILURE,
+                }
+            )
+
+        logger.info(f"{response=}")
+        return response
+
     @staticmethod
     def _find_request(update_request, ecu_id):
         for request in update_request:

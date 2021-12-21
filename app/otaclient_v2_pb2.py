@@ -21,7 +21,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=b'\242\002\003OTA',
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n\x12otaclient_v2.proto\x12\x0bOtaClientV2\x1a\x1egoogle/protobuf/duration.proto\"Q\n\x10UpdateRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\t\x12\x0b\n\x03url\x18\x03 \x01(\t\x12\x0f\n\x07\x63ookies\x18\x04 \x01(\t\";\n\rUpdateRequest\x12*\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1d.OtaClientV2.UpdateRequestEcu\"M\n\x11UpdateResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"=\n\x0eUpdateResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.UpdateResponseEcu\"$\n\x12RollbackRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\"?\n\x0fRollbackRequest\x12,\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1f.OtaClientV2.RollbackRequestEcu\"O\n\x13RollbackResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"A\n\x10RollbackResponse\x12-\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32 .OtaClientV2.RollbackResponseEcu\"\x0f\n\rStatusRequest\"\x86\x04\n\x0eStatusProgress\x12/\n\x05phase\x18\x01 \x01(\x0e\x32 .OtaClientV2.StatusProgressPhase\x12\x1b\n\x13total_regular_files\x18\x02 \x01(\x04\x12\x1f\n\x17regular_files_processed\x18\x03 \x01(\x04\x12\x1c\n\x14\x66iles_processed_copy\x18\x04 \x01(\x04\x12\x1c\n\x14\x66iles_processed_link\x18\x05 \x01(\x04\x12 \n\x18\x66iles_processed_download\x18\x06 \x01(\x04\x12 \n\x18\x66ile_size_processed_copy\x18\x07 \x01(\x04\x12 \n\x18\x66ile_size_processed_link\x18\x08 \x01(\x04\x12$\n\x1c\x66ile_size_processed_download\x18\t \x01(\x04\x12\x34\n\x11\x65lapsed_time_copy\x18\n \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x34\n\x11\x65lapsed_time_link\x18\x0b \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x38\n\x15\x65lapsed_time_download\x18\x0c \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x17\n\x0f\x65rrors_download\x18\r \x01(\x04\"\xb3\x01\n\x06Status\x12&\n\x06status\x18\x01 \x01(\x0e\x32\x16.OtaClientV2.StatusOta\x12)\n\x07\x66\x61ilure\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12\x16\n\x0e\x66\x61ilure_reason\x18\x03 \x01(\t\x12\x0f\n\x07version\x18\x04 \x01(\t\x12-\n\x08progress\x18\x05 \x01(\x0b\x32\x1b.OtaClientV2.StatusProgress\"r\n\x11StatusResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12#\n\x06status\x18\x03 \x01(\x0b\x32\x13.OtaClientV2.Status\"=\n\x0eStatusResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.StatusResponseEcu*A\n\x0b\x46\x61ilureType\x12\x0e\n\nNO_FAILURE\x10\x00\x12\x0f\n\x0bRECOVERABLE\x10\x01\x12\x11\n\rUNRECOVERABLE\x10\x02*k\n\tStatusOta\x12\x0f\n\x0bINITIALIZED\x10\x00\x12\x0b\n\x07SUCCESS\x10\x01\x12\x0b\n\x07\x46\x41ILURE\x10\x02\x12\x0c\n\x08UPDATING\x10\x03\x12\x0f\n\x0bROLLBACKING\x10\x04\x12\x14\n\x10ROLLBACK_FAILURE\x10\x05*~\n\x13StatusProgressPhase\x12\x0b\n\x07INITIAL\x10\x00\x12\x0c\n\x08METADATA\x10\x01\x12\r\n\tDIRECTORY\x10\x02\x12\x0b\n\x07SYMLINK\x10\x03\x12\x0b\n\x07REGULAR\x10\x04\x12\x0e\n\nPERSISTENT\x10\x05\x12\x13\n\x0fPOST_PROCESSING\x10\x06\x32\xe7\x01\n\x10OtaClientService\x12\x43\n\x06Update\x12\x1a.OtaClientV2.UpdateRequest\x1a\x1b.OtaClientV2.UpdateResponse\"\x00\x12I\n\x08Rollback\x12\x1c.OtaClientV2.RollbackRequest\x1a\x1d.OtaClientV2.RollbackResponse\"\x00\x12\x43\n\x06Status\x12\x1a.OtaClientV2.StatusRequest\x1a\x1b.OtaClientV2.StatusResponse\"\x00\x42\x06\xa2\x02\x03OTAb\x06proto3'
+  serialized_pb=b'\n\x12otaclient_v2.proto\x12\x0bOtaClientV2\x1a\x1egoogle/protobuf/duration.proto\"Q\n\x10UpdateRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\t\x12\x0b\n\x03url\x18\x03 \x01(\t\x12\x0f\n\x07\x63ookies\x18\x04 \x01(\t\";\n\rUpdateRequest\x12*\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1d.OtaClientV2.UpdateRequestEcu\"M\n\x11UpdateResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"=\n\x0eUpdateResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.UpdateResponseEcu\"$\n\x12RollbackRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\"?\n\x0fRollbackRequest\x12,\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1f.OtaClientV2.RollbackRequestEcu\"O\n\x13RollbackResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"A\n\x10RollbackResponse\x12-\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32 .OtaClientV2.RollbackResponseEcu\"\x0f\n\rStatusRequest\"\x86\x04\n\x0eStatusProgress\x12/\n\x05phase\x18\x01 \x01(\x0e\x32 .OtaClientV2.StatusProgressPhase\x12\x1b\n\x13total_regular_files\x18\x02 \x01(\x04\x12\x1f\n\x17regular_files_processed\x18\x03 \x01(\x04\x12\x1c\n\x14\x66iles_processed_copy\x18\x04 \x01(\x04\x12\x1c\n\x14\x66iles_processed_link\x18\x05 \x01(\x04\x12 \n\x18\x66iles_processed_download\x18\x06 \x01(\x04\x12 \n\x18\x66ile_size_processed_copy\x18\x07 \x01(\x04\x12 \n\x18\x66ile_size_processed_link\x18\x08 \x01(\x04\x12$\n\x1c\x66ile_size_processed_download\x18\t \x01(\x04\x12\x34\n\x11\x65lapsed_time_copy\x18\n \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x34\n\x11\x65lapsed_time_link\x18\x0b \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x38\n\x15\x65lapsed_time_download\x18\x0c \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x17\n\x0f\x65rrors_download\x18\r \x01(\x04\"\xb3\x01\n\x06Status\x12&\n\x06status\x18\x01 \x01(\x0e\x32\x16.OtaClientV2.StatusOta\x12)\n\x07\x66\x61ilure\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12\x16\n\x0e\x66\x61ilure_reason\x18\x03 \x01(\t\x12\x0f\n\x07version\x18\x04 \x01(\t\x12-\n\x08progress\x18\x05 \x01(\x0b\x32\x1b.OtaClientV2.StatusProgress\"r\n\x11StatusResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\x12#\n\x06status\x18\x03 \x01(\x0b\x32\x13.OtaClientV2.Status\"=\n\x0eStatusResponse\x12+\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32\x1e.OtaClientV2.StatusResponseEcu\"(\n\x16\x43\x61ncelUpdateRequestEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\"G\n\x13\x43\x61ncelUpdateRequest\x12\x30\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32#.OtaClientV2.CancelUpdateRequestEcu\"S\n\x17\x43\x61ncelUpdateResponseEcu\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12(\n\x06result\x18\x02 \x01(\x0e\x32\x18.OtaClientV2.FailureType\"I\n\x14\x43\x61ncelUpdateResponse\x12\x31\n\x03\x65\x63u\x18\x01 \x03(\x0b\x32$.OtaClientV2.CancelUpdateResponseEcu*A\n\x0b\x46\x61ilureType\x12\x0e\n\nNO_FAILURE\x10\x00\x12\x0f\n\x0bRECOVERABLE\x10\x01\x12\x11\n\rUNRECOVERABLE\x10\x02*k\n\tStatusOta\x12\x0f\n\x0bINITIALIZED\x10\x00\x12\x0b\n\x07SUCCESS\x10\x01\x12\x0b\n\x07\x46\x41ILURE\x10\x02\x12\x0c\n\x08UPDATING\x10\x03\x12\x0f\n\x0bROLLBACKING\x10\x04\x12\x14\n\x10ROLLBACK_FAILURE\x10\x05*~\n\x13StatusProgressPhase\x12\x0b\n\x07INITIAL\x10\x00\x12\x0c\n\x08METADATA\x10\x01\x12\r\n\tDIRECTORY\x10\x02\x12\x0b\n\x07SYMLINK\x10\x03\x12\x0b\n\x07REGULAR\x10\x04\x12\x0e\n\nPERSISTENT\x10\x05\x12\x13\n\x0fPOST_PROCESSING\x10\x06\x32\xbe\x02\n\x10OtaClientService\x12\x43\n\x06Update\x12\x1a.OtaClientV2.UpdateRequest\x1a\x1b.OtaClientV2.UpdateResponse\"\x00\x12I\n\x08Rollback\x12\x1c.OtaClientV2.RollbackRequest\x1a\x1d.OtaClientV2.RollbackResponse\"\x00\x12\x43\n\x06Status\x12\x1a.OtaClientV2.StatusRequest\x1a\x1b.OtaClientV2.StatusResponse\"\x00\x12U\n\x0c\x43\x61ncelUpdate\x12 .OtaClientV2.CancelUpdateRequest\x1a!.OtaClientV2.CancelUpdateResponse\"\x00\x42\x06\xa2\x02\x03OTAb\x06proto3'
   ,
   dependencies=[google_dot_protobuf_dot_duration__pb2.DESCRIPTOR,])
 
@@ -50,8 +50,8 @@ _FAILURETYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1503,
-  serialized_end=1568,
+  serialized_start=1778,
+  serialized_end=1843,
 )
 _sym_db.RegisterEnumDescriptor(_FAILURETYPE)
 
@@ -96,8 +96,8 @@ _STATUSOTA = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1570,
-  serialized_end=1677,
+  serialized_start=1845,
+  serialized_end=1952,
 )
 _sym_db.RegisterEnumDescriptor(_STATUSOTA)
 
@@ -147,8 +147,8 @@ _STATUSPROGRESSPHASE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1679,
-  serialized_end=1805,
+  serialized_start=1954,
+  serialized_end=2080,
 )
 _sym_db.RegisterEnumDescriptor(_STATUSPROGRESSPHASE)
 
@@ -741,6 +741,141 @@ _STATUSRESPONSE = _descriptor.Descriptor(
   serialized_end=1501,
 )
 
+
+_CANCELUPDATEREQUESTECU = _descriptor.Descriptor(
+  name='CancelUpdateRequestEcu',
+  full_name='OtaClientV2.CancelUpdateRequestEcu',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  create_key=_descriptor._internal_create_key,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='ecu_id', full_name='OtaClientV2.CancelUpdateRequestEcu.ecu_id', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"".decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1503,
+  serialized_end=1543,
+)
+
+
+_CANCELUPDATEREQUEST = _descriptor.Descriptor(
+  name='CancelUpdateRequest',
+  full_name='OtaClientV2.CancelUpdateRequest',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  create_key=_descriptor._internal_create_key,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='ecu', full_name='OtaClientV2.CancelUpdateRequest.ecu', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1545,
+  serialized_end=1616,
+)
+
+
+_CANCELUPDATERESPONSEECU = _descriptor.Descriptor(
+  name='CancelUpdateResponseEcu',
+  full_name='OtaClientV2.CancelUpdateResponseEcu',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  create_key=_descriptor._internal_create_key,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='ecu_id', full_name='OtaClientV2.CancelUpdateResponseEcu.ecu_id', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=b"".decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+    _descriptor.FieldDescriptor(
+      name='result', full_name='OtaClientV2.CancelUpdateResponseEcu.result', index=1,
+      number=2, type=14, cpp_type=8, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1618,
+  serialized_end=1701,
+)
+
+
+_CANCELUPDATERESPONSE = _descriptor.Descriptor(
+  name='CancelUpdateResponse',
+  full_name='OtaClientV2.CancelUpdateResponse',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  create_key=_descriptor._internal_create_key,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='ecu', full_name='OtaClientV2.CancelUpdateResponse.ecu', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1703,
+  serialized_end=1776,
+)
+
 _UPDATEREQUEST.fields_by_name['ecu'].message_type = _UPDATEREQUESTECU
 _UPDATERESPONSEECU.fields_by_name['result'].enum_type = _FAILURETYPE
 _UPDATERESPONSE.fields_by_name['ecu'].message_type = _UPDATERESPONSEECU
@@ -757,6 +892,9 @@ _STATUS.fields_by_name['progress'].message_type = _STATUSPROGRESS
 _STATUSRESPONSEECU.fields_by_name['result'].enum_type = _FAILURETYPE
 _STATUSRESPONSEECU.fields_by_name['status'].message_type = _STATUS
 _STATUSRESPONSE.fields_by_name['ecu'].message_type = _STATUSRESPONSEECU
+_CANCELUPDATEREQUEST.fields_by_name['ecu'].message_type = _CANCELUPDATEREQUESTECU
+_CANCELUPDATERESPONSEECU.fields_by_name['result'].enum_type = _FAILURETYPE
+_CANCELUPDATERESPONSE.fields_by_name['ecu'].message_type = _CANCELUPDATERESPONSEECU
 DESCRIPTOR.message_types_by_name['UpdateRequestEcu'] = _UPDATEREQUESTECU
 DESCRIPTOR.message_types_by_name['UpdateRequest'] = _UPDATEREQUEST
 DESCRIPTOR.message_types_by_name['UpdateResponseEcu'] = _UPDATERESPONSEECU
@@ -770,6 +908,10 @@ DESCRIPTOR.message_types_by_name['StatusProgress'] = _STATUSPROGRESS
 DESCRIPTOR.message_types_by_name['Status'] = _STATUS
 DESCRIPTOR.message_types_by_name['StatusResponseEcu'] = _STATUSRESPONSEECU
 DESCRIPTOR.message_types_by_name['StatusResponse'] = _STATUSRESPONSE
+DESCRIPTOR.message_types_by_name['CancelUpdateRequestEcu'] = _CANCELUPDATEREQUESTECU
+DESCRIPTOR.message_types_by_name['CancelUpdateRequest'] = _CANCELUPDATEREQUEST
+DESCRIPTOR.message_types_by_name['CancelUpdateResponseEcu'] = _CANCELUPDATERESPONSEECU
+DESCRIPTOR.message_types_by_name['CancelUpdateResponse'] = _CANCELUPDATERESPONSE
 DESCRIPTOR.enum_types_by_name['FailureType'] = _FAILURETYPE
 DESCRIPTOR.enum_types_by_name['StatusOta'] = _STATUSOTA
 DESCRIPTOR.enum_types_by_name['StatusProgressPhase'] = _STATUSPROGRESSPHASE
@@ -866,6 +1008,34 @@ StatusResponse = _reflection.GeneratedProtocolMessageType('StatusResponse', (_me
   })
 _sym_db.RegisterMessage(StatusResponse)
 
+CancelUpdateRequestEcu = _reflection.GeneratedProtocolMessageType('CancelUpdateRequestEcu', (_message.Message,), {
+  'DESCRIPTOR' : _CANCELUPDATEREQUESTECU,
+  '__module__' : 'otaclient_v2_pb2'
+  # @@protoc_insertion_point(class_scope:OtaClientV2.CancelUpdateRequestEcu)
+  })
+_sym_db.RegisterMessage(CancelUpdateRequestEcu)
+
+CancelUpdateRequest = _reflection.GeneratedProtocolMessageType('CancelUpdateRequest', (_message.Message,), {
+  'DESCRIPTOR' : _CANCELUPDATEREQUEST,
+  '__module__' : 'otaclient_v2_pb2'
+  # @@protoc_insertion_point(class_scope:OtaClientV2.CancelUpdateRequest)
+  })
+_sym_db.RegisterMessage(CancelUpdateRequest)
+
+CancelUpdateResponseEcu = _reflection.GeneratedProtocolMessageType('CancelUpdateResponseEcu', (_message.Message,), {
+  'DESCRIPTOR' : _CANCELUPDATERESPONSEECU,
+  '__module__' : 'otaclient_v2_pb2'
+  # @@protoc_insertion_point(class_scope:OtaClientV2.CancelUpdateResponseEcu)
+  })
+_sym_db.RegisterMessage(CancelUpdateResponseEcu)
+
+CancelUpdateResponse = _reflection.GeneratedProtocolMessageType('CancelUpdateResponse', (_message.Message,), {
+  'DESCRIPTOR' : _CANCELUPDATERESPONSE,
+  '__module__' : 'otaclient_v2_pb2'
+  # @@protoc_insertion_point(class_scope:OtaClientV2.CancelUpdateResponse)
+  })
+_sym_db.RegisterMessage(CancelUpdateResponse)
+
 
 DESCRIPTOR._options = None
 
@@ -876,8 +1046,8 @@ _OTACLIENTSERVICE = _descriptor.ServiceDescriptor(
   index=0,
   serialized_options=None,
   create_key=_descriptor._internal_create_key,
-  serialized_start=1808,
-  serialized_end=2039,
+  serialized_start=2083,
+  serialized_end=2401,
   methods=[
   _descriptor.MethodDescriptor(
     name='Update',
@@ -906,6 +1076,16 @@ _OTACLIENTSERVICE = _descriptor.ServiceDescriptor(
     containing_service=None,
     input_type=_STATUSREQUEST,
     output_type=_STATUSRESPONSE,
+    serialized_options=None,
+    create_key=_descriptor._internal_create_key,
+  ),
+  _descriptor.MethodDescriptor(
+    name='CancelUpdate',
+    full_name='OtaClientV2.OtaClientService.CancelUpdate',
+    index=3,
+    containing_service=None,
+    input_type=_CANCELUPDATEREQUEST,
+    output_type=_CANCELUPDATERESPONSE,
     serialized_options=None,
     create_key=_descriptor._internal_create_key,
   ),

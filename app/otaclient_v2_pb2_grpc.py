@@ -31,6 +31,11 @@ class OtaClientServiceStub(object):
                 request_serializer=otaclient__v2__pb2.StatusRequest.SerializeToString,
                 response_deserializer=otaclient__v2__pb2.StatusResponse.FromString,
                 )
+        self.CancelUpdate = channel.unary_unary(
+                '/OtaClientV2.OtaClientService/CancelUpdate',
+                request_serializer=otaclient__v2__pb2.CancelUpdateRequest.SerializeToString,
+                response_deserializer=otaclient__v2__pb2.CancelUpdateResponse.FromString,
+                )
 
 
 class OtaClientServiceServicer(object):
@@ -56,6 +61,12 @@ class OtaClientServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def CancelUpdate(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_OtaClientServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -73,6 +84,11 @@ def add_OtaClientServiceServicer_to_server(servicer, server):
                     servicer.Status,
                     request_deserializer=otaclient__v2__pb2.StatusRequest.FromString,
                     response_serializer=otaclient__v2__pb2.StatusResponse.SerializeToString,
+            ),
+            'CancelUpdate': grpc.unary_unary_rpc_method_handler(
+                    servicer.CancelUpdate,
+                    request_deserializer=otaclient__v2__pb2.CancelUpdateRequest.FromString,
+                    response_serializer=otaclient__v2__pb2.CancelUpdateResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -134,5 +150,22 @@ class OtaClientService(object):
         return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Status',
             otaclient__v2__pb2.StatusRequest.SerializeToString,
             otaclient__v2__pb2.StatusResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def CancelUpdate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/CancelUpdate',
+            otaclient__v2__pb2.CancelUpdateRequest.SerializeToString,
+            otaclient__v2__pb2.CancelUpdateResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
