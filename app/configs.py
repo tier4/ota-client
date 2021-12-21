@@ -97,17 +97,19 @@ class CBootControlConfig(_BaseConfig):
     def __init__(self):
         super().__init__()
 
-        self.extlinux_file = self.BOOT_DIR / "extlinux/extlinux.conf"
-
         self._properties_map.update(
             {
-                "EXTLINUX_FILE": self.extlinux_file,
+                "EXTLINUX_FILE": self.BOOT_DIR / "extlinux/extlinux.conf",
                 "SLOT_IN_USE_FILE": self.BOOT_DIR / "ota-status/slot_in_use",
                 "OTA_STATUS_DIR": self.BOOT_DIR / "ota-status",
-                "LINUX": self.BOOT_DIR / "Image",
+                "KERNEL": self.BOOT_DIR / "Image",
+                "KERNEL_SIG": self.BOOT_DIR / "Image.sig",
                 "INITRD": self.BOOT_DIR / "initrd",
+                "INITRD_IMG_LINK": self.BOOT_DIR / "initrd.img",
                 "FDT": self.BOOT_DIR / "tegra194-rqx-580.dtb",
+                "FDT_HDR40": self.BOOT_DIR / "tegra194-rqx-580-hdr40.dtbo",
                 "EXTRA_CMDLINE": "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0",
+                "SEPERATE_BOOT_MOUNT_POINT": Path("/mnt/standby_boot")
             }
         )
 
