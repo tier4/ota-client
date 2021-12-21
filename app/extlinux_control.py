@@ -1,6 +1,7 @@
 import io
 import re
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Tuple
@@ -66,6 +67,16 @@ class HelperFuncs:
         return _subprocess_check_output(_cmd)
 
     @staticmethod
+    def _findmnt(p: str) -> str:
+        _cmd = f"findmnt {p}"
+        return _subprocess_check_output(_cmd)
+
+    @staticmethod
+    def _lsblk(args: str) -> str:
+        _cmd = f"lsblk {args}"
+        return _subprocess_check_output(_cmd)
+
+    @staticmethod
     def _blkid(args: str) -> str:
         _cmd = f"blkid {args}"
         return _subprocess_check_output(_cmd)
@@ -88,17 +99,160 @@ class HelperFuncs:
     def get_dev_by_partuuid(cls, partuuid: str) -> str:
         return cls._findfs("PARTUUID", partuuid)
 
+    @classmethod
+    def get_rootfs_dev(cls) -> str:
+        dev = Path(cls._findmnt("/ -o SOURCE -n")).resolve(strict=True)
+        return str(dev)
+
+    @classmethod
+    def get_parent_dev(cls, child_device: str) -> str:
+        """
+        When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
+        """
+        cmd = f"-ipn -o PKNAME {child_device}"
+        return cls._lsblk(cmd)
+
+    @classmethod
+    def get_family_devs(cls, parent_device: str) -> list:
+        """
+        When `/dev/nvme0n1` is specified as parent_device,
+        ["NAME=/dev/nvme0n1", "NAME=/dev/nvme0n1p1", "NAME=/dev/nvme0n1p2"] is returned.
+        """
+        cmd = f"-Pp -o NAME {parent_device}"
+        return cls._lsblk(cmd).splitlines()
+
+    @classmethod
+    def get_sibling_dev(cls, device: str) -> str:
+        """
+        When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1p2 is returned.
+        """
+        parent = cls.get_parent_dev(device)
+        family = cls.get_family_devs(parent)
+        partitions = {i.split("=")[-1].strip('"') for i in family[1:3]}
+        res = partitions - {device}
+        if len(res) == 1:
+            (r,) = res
+            return r
+        raise OtaErrorUnrecoverable(
+            f"device is has unexpected partition layout, {family=}"
+        )    
 
 class Nvbootctrl:
     """
+    NOTE: slot and rootfs are binding accordingly!
+          partid mapping: p1->slot0, p2->slot1 
+
     slot num: 0->A, 1->B
-    slot suffix: "", "_b"
-    rootfs default label prefix: APP
     """
-
-    PREFIX = "APP"
+    EMMC_DEV: str = "mmcblk0"
+    NVME_DEV: str = "nvme0n1"
+    # slot0<->slot1
     CURRENT_STANDBY_FLIP = {"0": "1", "1": "0"}
+    # p1->slot0, p2->slot1
+    PARTID_SLOTID_MAP = {"1": "0", "2": "1"}
+    # slot0->p1, slot1->p2
+    SLOTID_PARTID_MAP = {"0": "1", "1": "2"}
 
+    def __new__(cls):
+        cls.current_slot: str = cls._nvbootctrl("get-current-slot", call_only=False)
+        cls.current_rootfs_dev: str = HelperFuncs.get_rootfs_dev()
+        # NOTE: boot dev is always emmc device now
+        cls.current_boot_dev: str = f"/dev/{cls.EMMC_DEV}p{cls.SLOTID_PARTID_MAP[cls.current_slot]}"
+
+        cls.standby_slot: str = cls.CURRENT_STANDBY_FLIP[cls.current_slot]
+        standby_partid = cls.SLOTID_PARTID_MAP[cls.standby_slot]
+        cls.standby_boot_dev: str = f"/dev/{cls.EMMC_DEV}p{standby_partid}"
+
+        # detect rootfs position
+        if cls.current_rootfs_dev.find(cls.NVME_DEV) != -1:
+            logger.debug(f"rootfs on external storage deteced, nvme rootfs is enable")
+            cls.is_rootfs_on_external = True
+            cls.standby_rootfs_dev = f"/dev/{cls.NVME_DEV}p{standby_partid}"
+        elif cls.current_rootfs_dev.find(cls.EMMC_DEV) != -1:
+            logger.debug(f"using internal storage as rootfs")
+            cls.is_rootfs_on_external = False
+            cls.standby_rootfs_dev = f"/dev/{cls.EMMC_DEV}p{standby_partid}"
+        else:
+            raise NotImplementedError(f"rootfs on {cls.current_rootfs_dev} is not supported, abort")
+
+        # ensure rootfs is as expected
+        cls._check_current_rootfs_dev()
+        cls._check_standby_rootfs_dev()
+
+        logger.debug(f"current slot dev: {cls.current_rootfs_dev}, standby slot dev: {cls.standby_rootfs_dev}")
+        logger.debug(f"current boot dev: {cls.current_boot_dev}, standby boot dev: {cls.standby_boot_dev}")
+
+    @classmethod
+    def _check_rootdev(cls, dev: str) -> bool:
+        """
+        check whether the givin dev is legal root dev or not
+
+        NOTE: expect using UUID method to assign rootfs!
+        """
+        pa = re.compile(r"\broot=(?P<rdev>[\w=-]*)\b")
+        ma = pa.search(_subprocess_check_output("cat /proc/cmdline")).group("rdev")
+
+        if ma is None:
+            raise OtaErrorUnrecoverable(f"failed to detect rootfs or PARTUUID method is not used")
+        uuid = ma.split("=")[-1]
+
+        return Path(HelperFuncs.get_dev_by_partuuid(uuid)).resolve(strict=True) == Path(
+            dev
+        ).resolve(strict=True)
+
+    @classmethod
+    def _check_current_rootfs_dev(cls):
+        dev = cls.current_rootfs_dev
+        if not cls._check_rootdev(dev):
+            msg = f"rootfs mismatch, expect {dev} as rootfs"
+            raise RuntimeError(msg)
+
+    @classmethod
+    def _check_standby_rootfs_dev(cls):
+        dev = cls.standby_rootfs_dev
+        if cls._check_rootdev(dev):
+            msg = (f"rootfs mismatch, expect {dev} as standby slot dev")
+            raise RuntimeError(msg)
+
+    @classmethod
+    def get_current_rootfs_dev(cls) -> str:
+        return cls.current_rootfs_dev
+
+    @classmethod
+    def get_standyb_rootfs_dev(cls) -> str:
+        return cls.standby_rootfs_dev
+
+    @classmethod
+    def get_standby_slot_partuuid(cls) -> str:
+        dev = cls.standby_rootfs_dev
+        return HelperFuncs.get_partuuid_by_dev(dev)
+
+    @classmethod
+    def get_current_slot_partuuid(cls) -> str:
+        dev = cls.current_rootfs_dev
+        return HelperFuncs.get_partuuid_by_dev(dev)
+
+    @classmethod
+    def get_current_slot(cls) -> str:
+        return cls.current_slot
+
+    @classmethod
+    def get_standby_slot(cls) -> str:
+        return cls.standby_slot
+    
+    @classmethod
+    def get_standby_boot_dev(cls) -> str:
+        return cls.standby_boot_dev
+
+    @classmethod
+    def get_current_boot_dev(cls) -> str:
+        return cls.current_boot_dev
+
+    @classmethod
+    def is_external_rootfs_enabled(cls) -> bool:
+        return cls.is_rootfs_on_external
+
+    # nvbootctrl
     @staticmethod
     def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> str:
         # NOTE: target is always set to rootfs
@@ -111,18 +265,6 @@ class Nvbootctrl:
             ).strip()
 
     # nvbootctrl wrapper
-    @classmethod
-    def get_current_slot(cls) -> str:
-        return cls._nvbootctrl("get-current-slot", call_only=False)
-
-    @classmethod
-    def get_standby_slot(cls) -> str:
-        return cls.CURRENT_STANDBY_FLIP[cls.get_current_slot()]
-
-    @classmethod
-    def get_suffix(cls, slot: str) -> str:
-        return cls._nvbootctrl(f"get-suffix {slot}", call_only=False)
-
     @classmethod
     def mark_boot_successful(cls, slot: str):
         cls._nvbootctrl(f"mark-boot-successful {slot}")
@@ -150,59 +292,6 @@ class Nvbootctrl:
             return True
         except subprocess.CalledProcessError:
             return False
-
-    # helper functions derived from nvbootctrl wrapper funcs
-    @classmethod
-    def _check_is_rootdev(cls, dev: str) -> bool:
-        """
-        check the givin dev is root dev or not
-        """
-        pa = re.compile(r"\broot=(?P<rdev>[\w=-]*)\b")
-        ma = pa.search(_subprocess_check_output("cat /proc/cmdline")).group("rdev")
-        uuid = ma.split("=")[-1]
-
-        return Path(HelperFuncs.get_dev_by_partuuid(uuid)).resolve(strict=True) == Path(
-            dev
-        ).resolve(strict=True)
-
-    @classmethod
-    def get_current_slot_dev(cls) -> str:
-        slot = cls.get_current_slot()
-        suffix = cls.get_suffix(slot)
-        dev = HelperFuncs.get_dev_by_partlabel(f"{cls.PREFIX}{suffix}")
-
-        if not cls._check_is_rootdev(dev):
-            raise OtaErrorUnrecoverable(f"rootfs mismatch, expect {dev} as rootfs")
-
-        logger.debug(f"current slot dev: {dev}")
-        return dev
-
-    @classmethod
-    def get_standby_slot_dev(cls) -> str:
-        slot = cls.get_standby_slot()
-        suffix = cls.get_suffix(slot)
-        dev = HelperFuncs.get_dev_by_partlabel(f"APP{suffix}")
-
-        if cls._check_is_rootdev(dev):
-            msg = (
-                f"rootfs mismatch, expect {dev} as standby slot dev, but it is rootdev"
-            )
-            logger.error(msg)
-            raise OtaErrorUnrecoverable(msg)
-
-        logger.debug(f"standby slot dev: {dev}")
-        return dev
-
-    @classmethod
-    def get_standby_slot_partuuid(cls) -> str:
-        dev = cls.get_standby_slot_dev()
-        return HelperFuncs.get_partuuid_by_dev(dev)
-
-    @classmethod
-    def get_current_slot_partuuid(cls) -> str:
-        dev = cls.get_current_slot_dev()
-        return HelperFuncs.get_partuuid_by_dev(dev)
-
 
 class ExtlinuxCfgFile:
     DEFAULT_HEADING = {
