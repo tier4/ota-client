@@ -800,7 +800,7 @@ def gen_ota_client_class(platform: str):
 
                 # standby slot
                 self._standby_ota_status_dir: Path = (
-                    self._mount_point / self._ota_status_dir.relative_to(Path("/"))
+                    self._mount_point / self._ota_status_dir.relative_to("/")
                 )
                 self._standby_ota_status_file = (
                     self._standby_ota_status_dir / cfg.OTA_STATUS_FNAME
@@ -808,12 +808,12 @@ def gen_ota_client_class(platform: str):
                 self._standby_ota_version_file = (
                     self._standby_ota_status_dir / cfg.OTA_VERSION_FNAME
                 )
-                self._standby_extlinux_cfg = (
-                    self._mount_point / cfg.EXTLINUX_FILE.relative_to("/")
-                )
                 self._standby_slot_in_use_file = (
-                    self._mount_point / self._slot_in_use_file.relative_to(Path("/"))
+                    self._mount_point / self._slot_in_use_file.relative_to("/")
                 )
+
+                # standby bootdev
+                self._standby_boot_mount_point = cfg.SEPERATE_BOOT_MOUNT_POINT
 
                 self._boot_control: CBootControl = CBootControl()
                 self._ota_status: OtaStatus = self.initialize_ota_status()

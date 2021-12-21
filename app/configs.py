@@ -109,7 +109,7 @@ class CBootControlConfig(_BaseConfig):
                 "FDT": self.BOOT_DIR / "tegra194-rqx-580.dtb",
                 "FDT_HDR40": self.BOOT_DIR / "tegra194-rqx-580-hdr40.dtbo",
                 "EXTRA_CMDLINE": "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0",
-                "SEPERATE_BOOT_MOUNT_POINT": Path("/mnt/standby_boot")
+                "SEPERATE_BOOT_MOUNT_POINT": Path("/mnt/standby_boot"),
             }
         )
 
