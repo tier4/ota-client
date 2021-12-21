@@ -7,6 +7,7 @@ import otaclient_v2_pb2
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
+from ota_error import OtaErrorCancel
 
 from configs import config as cfg
 import log_util
@@ -180,7 +181,7 @@ class OtaClientStub:
         entry = OtaClientStub._find_request(request.ecu, ecu_id)
         logger.info(f"{entry=}")
         if entry:
-            result = self._thread_set.cancel_all()  # FIXME: result
+            result = self._thread_set.cancel_all(OtaErrorCancel)  # FIXME: result
             logger.info(f"{result=}")
             response.append(
                 {

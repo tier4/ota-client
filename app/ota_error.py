@@ -8,3 +8,7 @@ class OtaErrorRecoverable(Exception):
 
 class OtaErrorUnrecoverable(Exception):
     pass
+
+
+class OtaErrorCancel(Exception):
+    pass
