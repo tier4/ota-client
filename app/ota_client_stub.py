@@ -1,6 +1,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event
+from threading import Event, Thread, Lock
+import ctypes
 
 import otaclient_v2_pb2
 from ota_client import OtaClient
@@ -15,6 +16,35 @@ logger = log_util.get_logger(
 )
 
 
+class ThreadSet:
+    def __init__(self):
+        self._thread = set()
+        self._lock = Lock()
+
+    def submit(self, target, args=()):
+        th = Thread(target=target, args=args)
+        th.start()
+        with self._lock:
+            self._gc()
+            self._thread.add(th)
+
+    def _gc(self):
+        alives = set([t for t in self._thread if t.is_alive()])
+        joinables = self._thread - alives
+        [t.join() for t in joinables]
+        self._thread = alives
+
+    def cancel_all(self, exception):
+        with self._lock:
+            alives = set([t for t in self._thread if t.is_alive()])
+        for t in alives:
+            ret = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_long(t.ident), ctypes.py_object(exception)
+            )
+            if ret != 1:
+                logger.warning(f"cancel failed: {t.ident=}")
+
+
 class OtaClientStub:
     def __init__(self):
         self._ota_client = OtaClient()
@@ -25,6 +55,8 @@ class OtaClientStub:
         self._executor = ThreadPoolExecutor()
         # a dict to hold the future for each requests if needed
         self._future = dict()
+
+        self._threadset = ThreadSet()
 
     def __del__(self):
         self._executor.shutdown()
@@ -53,8 +85,9 @@ class OtaClientStub:
         if entry:
             # we only dispatch the request, so we don't process the returned future object
             event = Event()
-            self._executor.submit(
-                self._ota_client.update, entry.version, entry.url, entry.cookies, event
+            self._threadset.submit(
+                target=self._ota_client.update,
+                args=(entry.version, entry.url, entry.cookies, event),
             )
             # wait until update is initialized or error occured.
             event.wait()
