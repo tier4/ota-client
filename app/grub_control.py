@@ -81,10 +81,10 @@ class GrubControl:
     DEFAULT_GRUB_FILE = cfg.DEFAULT_GRUB_FILE  # Path("/etc/default/grub")
 
     def __init__(self):
-        self._grub_cfg_file = GrubControl.GRUB_CFG_FILE
-        self._custom_cfg_file = GrubControl.CUSTOM_CFG_FILE
-        self._fstab_file = GrubControl.FSTAB_FILE
-        self._default_grub_file = GrubControl.DEFAULT_GRUB_FILE
+        self._grub_cfg_file = Path(GrubControl.GRUB_CFG_FILE)
+        self._custom_cfg_file = Path(GrubControl.CUSTOM_CFG_FILE)
+        self._fstab_file = Path(GrubControl.FSTAB_FILE)
+        self._default_grub_file = Path(GrubControl.DEFAULT_GRUB_FILE)
 
     def create_custom_cfg_and_reboot(
         self, standby_device, vmlinuz_file, initrd_img_file

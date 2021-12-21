@@ -33,8 +33,8 @@ class OtaPartition:
     def __init__(self):
         self._active_root_device_cache = None
         self._standby_root_device_cache = None
-        self._boot_dir = OtaPartition.BOOT_DIR
-        self._boot_ota_partition_file = OtaPartition.BOOT_OTA_PARTITION_FILE
+        self._boot_dir = Path(OtaPartition.BOOT_DIR)
+        self._boot_ota_partition_file = Path(OtaPartition.BOOT_OTA_PARTITION_FILE)
 
     def get_active_boot_device(self):
         """
