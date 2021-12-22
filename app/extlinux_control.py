@@ -3,7 +3,6 @@ import re
 import shlex
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 import log_util
@@ -178,9 +177,7 @@ class Nvbootctrl:
         ma = pa.search(_subprocess_check_output("cat /proc/cmdline")).group("rdev")
 
         if ma is None:
-            raise OtaErrorUnrecoverable(
-                f"failed to detect rootfs or PARTUUID method is not used"
-            )
+            raise OtaErrorUnrecoverable("rootfs detect failed or not PARTUUID method")
         uuid = ma.split("=")[-1]
 
         return Path(HelperFuncs.get_dev_by_partuuid(uuid)).resolve(strict=True) == Path(
@@ -189,7 +186,7 @@ class Nvbootctrl:
 
     @classmethod
     def get_current_slot(cls) -> str:
-        return cls._nvbootctrl(f"get-current-slot", call_only=False)
+        return cls._nvbootctrl("get-current-slot", call_only=False)
 
     @classmethod
     def mark_boot_successful(cls, slot: str):
@@ -394,14 +391,14 @@ class CBootControl:
 
         # detect rootfs position
         if self.current_rootfs_dev.find(Nvbootctrl.NVME_DEV) != -1:
-            logger.debug(f"rootfs on external storage detected, nvme rootfs is enable")
+            logger.debug("rootfs on external storage detected, nvme rootfs is enable")
             self.is_rootfs_on_external = True
             self.standby_rootfs_dev = f"/dev/{Nvbootctrl.NVME_DEV}p{standby_partid}"
             self.standby_slot_partuuid = HelperFuncs.get_partuuid_by_dev(
                 self.standby_rootfs_dev
             )
         elif self.current_rootfs_dev.find(Nvbootctrl.EMMC_DEV) != -1:
-            logger.debug(f"using internal storage as rootfs")
+            logger.debug("using internal storage as rootfs")
             self.is_rootfs_on_external = False
             self.standby_rootfs_dev = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
             self.standby_slot_partuuid = HelperFuncs.get_partuuid_by_dev(
@@ -422,7 +419,7 @@ class CBootControl:
             )
             raise RuntimeError(msg)
 
-        logger.info(f"dev info initializing completed")
+        logger.info("dev info initializing completed")
         logger.info(
             f"{self.current_slot=}, {self.current_boot_dev=}, {self.current_rootfs_dev=}"
         )
@@ -433,9 +430,6 @@ class CBootControl:
     ###### CBootControl API ######
     def get_current_slot(self) -> str:
         return self.current_slot
-
-    def get_standby_slot(self) -> str:
-        return self.standby_slot
 
     def get_current_rootfs_dev(self) -> str:
         return self.current_rootfs_dev
@@ -638,7 +632,7 @@ class CBootControlMixin(BootControlInterface):
             shutil.copy(str(src), target_dir)
         else:
             raise OtaErrorUnrecoverable(
-                f"extlinux.cfg on boot partition and/or standby slot not found"
+                "extlinux.cfg on boot partition and/or standby slot not found"
             )
 
     def _populate_boot_folder_to_separate_bootdev(self):
