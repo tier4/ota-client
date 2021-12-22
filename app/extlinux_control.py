@@ -323,6 +323,9 @@ class ExtlinuxCfgFile:
         else:
             return dict()
 
+    def get_default_entry_label(self) -> dict:
+        return self._heading.get("DEFAULT")
+
     def edit_entry(self, name: str, key: str, value: str):
         """
         edit specific entry
@@ -391,7 +394,7 @@ class CBootControl:
 
         # detect rootfs position
         if self.current_rootfs_dev.find(Nvbootctrl.NVME_DEV) != -1:
-            logger.debug(f"rootfs on external storage deteced, nvme rootfs is enable")
+            logger.debug(f"rootfs on external storage detected, nvme rootfs is enable")
             self.is_rootfs_on_external = True
             self.standby_rootfs_dev = f"/dev/{Nvbootctrl.NVME_DEV}p{standby_partid}"
             self.standby_slot_partuuid = HelperFuncs.get_partuuid_by_dev(
@@ -485,26 +488,19 @@ class CBootControl:
         _rootfs = f"root={self.standby_slot_partuuid} rw rootwait rootfstype=ext4"
         _cmdline = f"{_cboot} {_rootfs} {self._cmdline_extra}"
 
+        # first try to load existed cfg files
+        # NOTE: not loading external extlinux.cfg rightnow
         cfg = ExtlinuxCfgFile()
-        if f:
-            cfg.load_extlinux_cfg_file(f)
-            # get the default entry from ExtLInuxCfg
-            default_entry = cfg.get_default_entry()
+        cfg.load_entry(
+            label="primary",
+            menu_lable="primary kernel",
+            linux=self._linux,
+            initrd=self._initrd,
+            fdt=self._fdt,
+            append=_cmdline,
+        )
+        cfg.set_default_entry("primary")
 
-            cmd_append = " ".join([default_entry.get("APPEND", default=""), _cmdline])
-            logger.debug(f"cmdline: {cmd_append}")
-
-            # edit default entry
-            cfg.edit_entry(default_entry, "APPEND", cmd_append)
-        else:
-            cfg.load_entry(
-                label="primary",
-                menu_lable="primary kernel",
-                linux=self._linux,
-                initrd=self._initrd,
-                fdt=self._fdt,
-                append=_cmdline,
-            )
         return cfg.dump_cfg()
 
     def write_extlinux_cfg(self, target: Path, src: Path = None):
@@ -553,6 +549,8 @@ class CBootControlMixin(BootControlInterface):
 
     def _mount_standby(self):
         self._mount_point.mkdir(parents=True, exist_ok=True)
+        # try unmount mount point first
+        _subprocess_call(f"umount {self._mount_point}")
 
         standby_rootfs_dev = self._boot_control.get_standby_rootfs_dev()
         cmd_mount = f"mount {standby_rootfs_dev} {self._mount_point}"
@@ -567,6 +565,8 @@ class CBootControlMixin(BootControlInterface):
         # NOTE: in this case, emmc slot is used as boot partition
         if self._boot_control.is_external_rootfs_enabled():
             standby_boot_dev = self._boot_control.get_standby_boot_dev()
+            # try unmount mount point first
+            _subprocess_call(f"umount {self._standby_boot_mount_point}")
 
             self._standby_boot_mount_point.mkdir(parents=True, exist_ok=True)
             cmd_mount = f"mount {standby_boot_dev} {self._standby_boot_mount_point}"
@@ -626,12 +626,16 @@ class CBootControlMixin(BootControlInterface):
             return
 
         src: Path = self._mount_point / Path(cfg.EXTLINUX_FILE).relative_to("/")
-        target: Path = self._standby_boot_mount_point / Path(
-            cfg.EXTLINUX_FILE
-        ).relative_to("/")
+        target_dir: Path = (
+            self._standby_boot_mount_point
+            / Path(cfg.EXTLINUX_FILE).relative_to("/").parent
+        )
+
+        # ensure target dir's present
+        target_dir.mkdir(parents=True, exist_ok=True)
 
         if src.is_file():
-            shutil.copy(src, target)
+            shutil.copy(str(src), target_dir)
         else:
             raise OtaErrorUnrecoverable(
                 f"extlinux.cfg on boot partition and/or standby slot not found"
@@ -641,54 +645,47 @@ class CBootControlMixin(BootControlInterface):
         if not self._boot_control.is_external_rootfs_enabled():
             return
 
-        # copy the boot folder to bootdev
-        # use tmp_dir folder to temporary hold the new files
-        with tempfile.TemporaryDirectory(prefix=f"{__name__}_tmp_boot") as tmp_dir:
-            tmp_dir: Path = Path(tmp_dir)
-            dst_dir: Path = self._standby_boot_mount_point / "boot"
-            shutil.copytree(
-                (self._mount_point / "boot"), tmp_dir, symlinks=True, dirs_exist_ok=True
-            )
+        # copy the /boot folder from standby slot to boot dev unconditionally
+        tmp_dir = self._standby_boot_mount_point / ".tmp_boot"
+        dst_dir = self._standby_boot_mount_point / "boot"
+        dst_dir.mkdir(parents=True, exist_ok=True)  # ensure dst
+        # prepare temporary files
+        if tmp_dir.is_dir():  # cleanup previous temp
+            shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
-            # step 1: update kernel file
-            kernel_src, kernel_sig_src = (
-                tmp_dir / Path(cfg.KERNEL).name,
-                tmp_dir / Path(cfg.KERNEL_SIG).name,
-            )
-            kernel_dst, kernel_sig_dst = (
-                dst_dir / Path(cfg.KERNEL).name,
-                dst_dir / Path(cfg.KERNEL_SIG).name,
-            )
-            shutil.move(kernel_src, kernel_dst)
-            shutil.move(kernel_sig_src, kernel_sig_dst)
+        shutil.copytree(
+            str(self._mount_point / "boot"), tmp_dir, symlinks=True, dirs_exist_ok=True
+        )
 
-            # step 2: update(replace) initrd
-            initrd_src, initrd_dst = (
-                tmp_dir / Path(cfg.INITRD).name,
-                dst_dir / Path(cfg.INITRD).name,
-            )
-            shutil.move(initrd_src, initrd_dst)
+        src_files = tmp_dir.glob("**/*")
+        dst_files = {str(f.relative_to(dst_dir)) for f in dst_dir.glob("**/*")}
 
-            # NOTE: although we use initrd, not initrd.img in extlinux.cfg, we still update the initrd.img
-            initrd_img_link = Path(cfg.INITRD_IMG_LINK).name
-            new_initrd_link, old_initrd_link = (
-                tmp_dir / initrd_img_link,
-                dst_dir / initrd_img_link,
-            )
-            new_initrd = new_initrd_link.resolve(strict=True)
-            old_initrd = old_initrd_link.resolve(strict=True)
+        # move files from tmp to dst
+        # Path.replace is atomic operation on Unix platform, within the same partition
+        for f in src_files:
+            f_relative = f.relative_to(tmp_dir)
 
-            shutil.move(new_initrd_link, old_initrd_link)
-            if old_initrd.name != new_initrd.name:
-                # remove old initrd file
-                # NOTE: only check the name of the initrd file
-                shutil.move(new_initrd, dst_dir)
-                old_initrd.unlink(missing_ok=True)
+            dst = dst_dir / f_relative
+            if f.is_dir():
+                dst.mkdir(parents=True, exist_ok=True)
+            else:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.rename(dst)
 
-            # step 3: update(replace) dtb
-            dtb_file, dtb_hdr40_file = Path(cfg.FDT).name, Path(cfg.FDT_HDR40).name
-            shutil.move((tmp_dir / dtb_file), (dst_dir / dtb_file))
-            shutil.move((tmp_dir / dtb_hdr40_file), (dst_dir / dtb_hdr40_file))
+            fn = str(f_relative)
+            if fn in dst_files:
+                dst_files.remove(fn)
+
+        # cleanup old files in the dst
+        for f in dst_files:
+            f = dst_dir / f
+            if f.is_dir():
+                shutil.rmtree(str(f), ignore_errors=True)
+            else:
+                f.unlink(missing_ok=True)
+
+        # cleanup temporary
+        shutil.rmtree(tmp_dir)
 
     def init_slot_in_use_file(self):
         """
@@ -795,8 +792,8 @@ class CBootControlMixin(BootControlInterface):
             logger.debug(
                 "rootfs on external storage: updating the /boot folder in standby bootdev..."
             )
-            self._populate_extlinux_cfg_to_separate_bootdev()
             self._populate_boot_folder_to_separate_bootdev()
+            self._populate_extlinux_cfg_to_separate_bootdev()
 
         logger.debug("switching boot...")
         self._boot_control.switch_boot_standby()
