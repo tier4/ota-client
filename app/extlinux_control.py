@@ -650,7 +650,7 @@ class CBootControlMixin(BootControlInterface):
                 (self._mount_point / "boot"), tmp_dir, symlinks=True, dirs_exist_ok=True
             )
 
-            # step 1: update(replace) kernel file
+            # step 1: update kernel file
             kernel_src, kernel_sig_src = (
                 tmp_dir / Path(cfg.KERNEL).name,
                 tmp_dir / Path(cfg.KERNEL_SIG).name,
@@ -659,15 +659,15 @@ class CBootControlMixin(BootControlInterface):
                 dst_dir / Path(cfg.KERNEL).name,
                 dst_dir / Path(cfg.KERNEL_SIG).name,
             )
-            kernel_src.replace(kernel_dst)
-            kernel_sig_src.replace(kernel_sig_dst)
+            shutil.move(kernel_src, kernel_dst)
+            shutil.move(kernel_sig_src, kernel_sig_dst)
 
             # step 2: update(replace) initrd
             initrd_src, initrd_dst = (
                 tmp_dir / Path(cfg.INITRD).name,
                 dst_dir / Path(cfg.INITRD).name,
             )
-            initrd_src.replace(initrd_dst)
+            shutil.move(initrd_src, initrd_dst)
 
             # NOTE: although we use initrd, not initrd.img in extlinux.cfg, we still update the initrd.img
             initrd_img_link = Path(cfg.INITRD_IMG_LINK).name
@@ -675,18 +675,20 @@ class CBootControlMixin(BootControlInterface):
                 tmp_dir / initrd_img_link,
                 dst_dir / initrd_img_link,
             )
-            new_initrd, old_initrd = new_initrd_link.resolve(
-                strict=True
-            ), old_initrd_link.resolve(strict=True)
+            new_initrd = new_initrd_link.resolve(strict=True)
+            old_initrd = old_initrd_link.resolve(strict=True)
 
-            shutil.copy(new_initrd, dst_dir)
-            (new_initrd_link).replace(old_initrd_link)
-            old_initrd.unlink(missing_ok=True)
+            shutil.move(new_initrd_link, old_initrd_link)
+            if old_initrd.name != new_initrd.name:
+                # remove old initrd file
+                # NOTE: only check the name of the initrd file
+                shutil.move(new_initrd, dst_dir)
+                old_initrd.unlink(missing_ok=True)
 
             # step 3: update(replace) dtb
             dtb_file, dtb_hdr40_file = Path(cfg.FDT).name, Path(cfg.FDT_HDR40).name
-            (tmp_dir / dtb_file).replace(dst_dir / dtb_file)
-            (tmp_dir / dtb_hdr40_file).replace(dst_dir / dtb_hdr40_file)
+            shutil.move((tmp_dir / dtb_file), (dst_dir / dtb_file))
+            shutil.move((tmp_dir / dtb_hdr40_file), (dst_dir / dtb_hdr40_file))
 
     def init_slot_in_use_file(self):
         """
