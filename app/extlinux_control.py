@@ -155,45 +155,20 @@ class Nvbootctrl:
     # slot0->p1, slot1->p2
     SLOTID_PARTID_MAP = {"0": "1", "1": "2"}
 
-    def __new__(cls):
-        cls.current_slot: str = cls._nvbootctrl("get-current-slot", call_only=False)
-        cls.current_rootfs_dev: str = HelperFuncs.get_rootfs_dev()
-        # NOTE: boot dev is always emmc device now
-        cls.current_boot_dev: str = (
-            f"/dev/{cls.EMMC_DEV}p{cls.SLOTID_PARTID_MAP[cls.current_slot]}"
-        )
-
-        cls.standby_slot: str = cls.CURRENT_STANDBY_FLIP[cls.current_slot]
-        standby_partid = cls.SLOTID_PARTID_MAP[cls.standby_slot]
-        cls.standby_boot_dev: str = f"/dev/{cls.EMMC_DEV}p{standby_partid}"
-
-        # detect rootfs position
-        if cls.current_rootfs_dev.find(cls.NVME_DEV) != -1:
-            logger.debug(f"rootfs on external storage deteced, nvme rootfs is enable")
-            cls.is_rootfs_on_external = True
-            cls.standby_rootfs_dev = f"/dev/{cls.NVME_DEV}p{standby_partid}"
-        elif cls.current_rootfs_dev.find(cls.EMMC_DEV) != -1:
-            logger.debug(f"using internal storage as rootfs")
-            cls.is_rootfs_on_external = False
-            cls.standby_rootfs_dev = f"/dev/{cls.EMMC_DEV}p{standby_partid}"
+    # nvbootctrl
+    @staticmethod
+    def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> str:
+        # NOTE: target is always set to rootfs
+        _cmd = f"nvbootctrl -t rootfs {arg}"
+        if call_only:
+            _subprocess_call(_cmd, raise_exception=raise_exception)
         else:
-            raise NotImplementedError(
-                f"rootfs on {cls.current_rootfs_dev} is not supported, abort"
-            )
-
-        # ensure rootfs is as expected
-        cls._check_current_rootfs_dev()
-        cls._check_standby_rootfs_dev()
-
-        logger.debug(
-            f"current slot dev: {cls.current_rootfs_dev}, standby slot dev: {cls.standby_rootfs_dev}"
-        )
-        logger.debug(
-            f"current boot dev: {cls.current_boot_dev}, standby boot dev: {cls.standby_boot_dev}"
-        )
+            return _subprocess_check_output(
+                _cmd, raise_exception=raise_exception
+            ).strip()
 
     @classmethod
-    def _check_rootdev(cls, dev: str) -> bool:
+    def check_rootdev(cls, dev: str) -> bool:
         """
         check whether the givin dev is legal root dev or not
 
@@ -213,70 +188,9 @@ class Nvbootctrl:
         ).resolve(strict=True)
 
     @classmethod
-    def _check_current_rootfs_dev(cls):
-        dev = cls.current_rootfs_dev
-        if not cls._check_rootdev(dev):
-            msg = f"rootfs mismatch, expect {dev} as rootfs"
-            raise RuntimeError(msg)
-
-    @classmethod
-    def _check_standby_rootfs_dev(cls):
-        dev = cls.standby_rootfs_dev
-        if cls._check_rootdev(dev):
-            msg = f"rootfs mismatch, expect {dev} as standby slot dev"
-            raise RuntimeError(msg)
-
-    @classmethod
-    def get_current_rootfs_dev(cls) -> str:
-        return cls.current_rootfs_dev
-
-    @classmethod
-    def get_standby_rootfs_dev(cls) -> str:
-        return cls.standby_rootfs_dev
-
-    @classmethod
-    def get_standby_slot_partuuid(cls) -> str:
-        dev = cls.standby_rootfs_dev
-        return HelperFuncs.get_partuuid_by_dev(dev)
-
-    @classmethod
-    def get_current_slot_partuuid(cls) -> str:
-        dev = cls.current_rootfs_dev
-        return HelperFuncs.get_partuuid_by_dev(dev)
-
-    @classmethod
     def get_current_slot(cls) -> str:
-        return cls.current_slot
+        return cls._nvbootctrl(f"get-current-slot", call_only=False)
 
-    @classmethod
-    def get_standby_slot(cls) -> str:
-        return cls.standby_slot
-
-    @classmethod
-    def get_standby_boot_dev(cls) -> str:
-        return cls.standby_boot_dev
-
-    @classmethod
-    def get_current_boot_dev(cls) -> str:
-        return cls.current_boot_dev
-
-    @classmethod
-    def is_external_rootfs_enabled(cls) -> bool:
-        return cls.is_rootfs_on_external
-
-    # nvbootctrl
-    @staticmethod
-    def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> str:
-        # NOTE: target is always set to rootfs
-        _cmd = f"nvbootctrl -t rootfs {arg}"
-        if call_only:
-            _subprocess_call(_cmd, raise_exception=raise_exception)
-        else:
-            return _subprocess_check_output(
-                _cmd, raise_exception=raise_exception
-            ).strip()
-
-    # nvbootctrl wrapper
     @classmethod
     def mark_boot_successful(cls, slot: str):
         cls._nvbootctrl(f"mark-boot-successful {slot}")
@@ -444,7 +358,7 @@ class ExtlinuxCfgFile:
 
 class CBootControl:
     def __init__(self):
-        self._linux = cfg.LINUX
+        self._linux = cfg.KERNEL
         self._initrd = cfg.INITRD
         self._fdt = cfg.FDT
         self._cmdline_extra = cfg.EXTRA_CMDLINE
@@ -452,33 +366,132 @@ class CBootControl:
         # NOTE: only support r580 platform right now!
         # detect the chip id
         tegra_chip_id_f = Path("/sys/module/tegra_fuse/parameters/tegra_chip_id")
-        self.chip_id = int(_read_file(tegra_chip_id_f).strip())
-        if self.chip_id not in cfg.CHIP_ID_MODEL_MAP:
+        self.chip_id = _read_file(tegra_chip_id_f).strip()
+        if self.chip_id is None or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
             raise NotImplementedError(
                 f"unsupported platform found (chip_id: {self.chip_id}), abort"
             )
 
+        self.chip_id = int(self.chip_id)
         self.model = cfg.CHIP_ID_MODEL_MAP[self.chip_id]
         logger.info(f"{self.model=}, (chip_id={hex(self.chip_id)})")
 
-    ###### extlinux.cfg control ######
-    def _gen_cmdline(self) -> str:
-        _cboot = "${cbootargs} quiet "
-        _rootfs = f"root={self._standby_partuuid} rw rootwait rootfstype=ext4"
-        return f"{_cboot} {_rootfs} {self._cmdline_extra}"
+        # initializing dev info
+        self._init_dev_info()
+
+    def _init_dev_info(self):
+        self.current_slot: str = Nvbootctrl.get_current_slot()
+        self.current_rootfs_dev: str = HelperFuncs.get_rootfs_dev()
+        # NOTE: boot dev is always emmc device now
+        self.current_boot_dev: str = f"/dev/{Nvbootctrl.EMMC_DEV}p{Nvbootctrl.SLOTID_PARTID_MAP[self.current_slot]}"
+
+        self.standby_slot: str = Nvbootctrl.CURRENT_STANDBY_FLIP[self.current_slot]
+        standby_partid = Nvbootctrl.SLOTID_PARTID_MAP[self.standby_slot]
+        self.standby_boot_dev: str = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
+
+        # detect rootfs position
+        if self.current_rootfs_dev.find(Nvbootctrl.NVME_DEV) != -1:
+            logger.debug(f"rootfs on external storage deteced, nvme rootfs is enable")
+            self.is_rootfs_on_external = True
+            self.standby_rootfs_dev = f"/dev/{Nvbootctrl.NVME_DEV}p{standby_partid}"
+            self.standby_slot_partuuid = HelperFuncs.get_partuuid_by_dev(
+                self.standby_rootfs_dev
+            )
+        elif self.current_rootfs_dev.find(Nvbootctrl.EMMC_DEV) != -1:
+            logger.debug(f"using internal storage as rootfs")
+            self.is_rootfs_on_external = False
+            self.standby_rootfs_dev = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
+            self.standby_slot_partuuid = HelperFuncs.get_partuuid_by_dev(
+                self.standby_rootfs_dev
+            )
+        else:
+            raise NotImplementedError(
+                f"rootfs on {self.current_rootfs_dev} is not supported, abort"
+            )
+
+        # ensure rootfs is as expected
+        if not Nvbootctrl.check_rootdev(self.current_rootfs_dev):
+            msg = f"rootfs mismatch, expect {self.current_rootfs_dev} as rootfs"
+            raise RuntimeError(msg)
+        elif Nvbootctrl.check_rootdev(self.standby_rootfs_dev):
+            msg = (
+                f"rootfs mismatch, expect {self.standby_rootfs_dev} as standby slot dev"
+            )
+            raise RuntimeError(msg)
+
+        logger.info(f"dev info initializing completed")
+        logger.info(
+            f"{self.current_slot=}, {self.current_boot_dev=}, {self.current_rootfs_dev=}"
+        )
+        logger.info(
+            f"{self.standby_slot=}, {self.standby_boot_dev=}, {self.standby_rootfs_dev=}"
+        )
+
+    ###### CBootControl API ######
+    def get_current_slot(self) -> str:
+        return self.current_slot
+
+    def get_standby_slot(self) -> str:
+        return self.standby_slot
+
+    def get_current_rootfs_dev(self) -> str:
+        return self.current_rootfs_dev
+
+    def get_standby_rootfs_dev(self) -> str:
+        return self.standby_rootfs_dev
+
+    def get_standby_slot_partuuid(self) -> str:
+        dev = self.standby_rootfs_dev
+        return HelperFuncs.get_partuuid_by_dev(dev)
+
+    def get_standby_slot(self) -> str:
+        return self.standby_slot
+
+    def get_standby_boot_dev(self) -> str:
+        return self.standby_boot_dev
+
+    def is_external_rootfs_enabled(self) -> bool:
+        return self.is_rootfs_on_external
+
+    def mark_current_slot_boot_successful(self):
+        slot = self.current_slot
+        Nvbootctrl.mark_boot_successful(slot)
+
+    def set_standby_slot_unbootable(self):
+        slot = self.standby_slot
+        Nvbootctrl.set_slot_as_unbootable(slot)
+
+    def switch_boot_standby(self):
+        slot = self.standby_slot
+        Nvbootctrl.set_active_boot_slot(slot)
+
+    def is_current_slot_bootable(self) -> bool:
+        slot = self.current_slot
+        return Nvbootctrl.is_slot_bootable(slot)
+
+    def is_current_slot_marked_successful(self) -> bool:
+        slot = self.current_slot
+        return Nvbootctrl.is_slot_marked_successful(slot)
+
+    @classmethod
+    def reboot(cls):
+        subprocess.check_call(shlex.split("reboot"))
 
     def gen_extlinux_cfg(self, f: Path = None) -> str:
         """
         create extlinux config for standby slot based on imported cfg
         """
+        _cboot = "${cbootargs} quiet "
+        _rootfs = f"root={self.standby_slot_partuuid} rw rootwait rootfstype=ext4"
+        _cmdline = f"{_cboot} {_rootfs} {self._cmdline_extra}"
+
         cfg = ExtlinuxCfgFile()
         if f:
             cfg.load_extlinux_cfg_file(f)
             # get the default entry from ExtLInuxCfg
             default_entry = cfg.get_default_entry()
-            cmd_append = " ".join(
-                [default_entry.get("APPEND", default=""), self._gen_cmdline()]
-            )
+
+            cmd_append = " ".join([default_entry.get("APPEND", default=""), _cmdline])
             logger.debug(f"cmdline: {cmd_append}")
 
             # edit default entry
@@ -490,7 +503,7 @@ class CBootControl:
                 linux=self._linux,
                 initrd=self._initrd,
                 fdt=self._fdt,
-                append=self._gen_cmdline(),
+                append=_cmdline,
             )
         return cfg.dump_cfg()
 
@@ -510,36 +523,6 @@ class CBootControl:
 
         with open(target, "w") as f:
             f.write(cfg_text)
-
-    ###### nvbootctrl ######
-    @classmethod
-    def mark_current_slot_boot_successful(cls):
-        slot = Nvbootctrl.get_current_slot()
-        Nvbootctrl.mark_boot_successful(slot)
-
-    @classmethod
-    def set_standby_slot_unbootable(cls):
-        slot = Nvbootctrl.get_standby_slot()
-        Nvbootctrl.set_slot_as_unbootable(slot)
-
-    @classmethod
-    def switch_boot_standby(cls):
-        dev = Nvbootctrl.get_standby_slot()
-        Nvbootctrl.set_active_boot_slot(dev)
-
-    @classmethod
-    def is_current_slot_bootable(cls) -> bool:
-        slot = Nvbootctrl.get_current_slot()
-        return Nvbootctrl.is_slot_bootable(slot)
-
-    @classmethod
-    def is_current_slot_marked_successful(cls) -> bool:
-        slot = Nvbootctrl.get_current_slot()
-        return Nvbootctrl.is_slot_marked_successful(slot)
-
-    @classmethod
-    def reboot(cls):
-        subprocess.check_call(shlex.split("reboot"))
 
 
 class CBootControlMixin(BootControlInterface):
@@ -571,7 +554,7 @@ class CBootControlMixin(BootControlInterface):
     def _mount_standby(self):
         self._mount_point.mkdir(parents=True, exist_ok=True)
 
-        standby_rootfs_dev = Nvbootctrl.get_standby_rootfs_dev()
+        standby_rootfs_dev = self._boot_control.get_standby_rootfs_dev()
         cmd_mount = f"mount {standby_rootfs_dev} {self._mount_point}"
         logger.debug(
             f"mount rootfs partition: target={standby_rootfs_dev},mount_point={self._mount_point}"
@@ -582,8 +565,8 @@ class CBootControlMixin(BootControlInterface):
 
         # mount boot partition if rootfs on external is enabled
         # NOTE: in this case, emmc slot is used as boot partition
-        if Nvbootctrl.is_external_rootfs_enabled():
-            standby_boot_dev = Nvbootctrl.get_standby_boot_dev()
+        if self._boot_control.is_external_rootfs_enabled():
+            standby_boot_dev = self._boot_control.get_standby_boot_dev()
 
             self._standby_boot_mount_point.mkdir(parents=True, exist_ok=True)
             cmd_mount = f"mount {standby_boot_dev} {self._standby_boot_mount_point}"
@@ -596,7 +579,7 @@ class CBootControlMixin(BootControlInterface):
         """
         WARNING: apply mkfs.ext4 to standby bank
         """
-        standby_dev = Nvbootctrl.get_standby_rootfs_dev()
+        standby_dev = self._boot_control.get_standby_rootfs_dev()
         logger.warning(f"[_cleanup_standby] cleanup standby slot dev {standby_dev}")
 
         # first try umount the dev
@@ -629,7 +612,9 @@ class CBootControlMixin(BootControlInterface):
 
         # evidence 3: slot in use
         # the slot_in_use file should have the same slot as current slot
-        _is_slot_in_use = self.load_slot_in_use_file() == Nvbootctrl.get_current_slot()
+        _is_slot_in_use = (
+            self.load_slot_in_use_file() == self._boot_control.get_current_slot()
+        )
 
         logger.debug(
             f"[checking result] nvboot: {_nvboot_res}, ota_status: {_ota_status_res}, slot_in_use: {_is_slot_in_use}"
@@ -637,13 +622,13 @@ class CBootControlMixin(BootControlInterface):
         return _nvboot_res and _ota_status_res and _is_slot_in_use
 
     def _populate_extlinux_cfg_to_separate_bootdev(self):
-        if not Nvbootctrl.is_external_rootfs_enabled():
+        if not self._boot_control.is_external_rootfs_enabled():
             return
 
-        src: Path = self._mount_point / cfg.EXTLINUX_FILE.relative_to("/")
-        target: Path = self._standby_boot_mount_point / cfg.EXTLINUX_FILE.relative_to(
-            "/"
-        )
+        src: Path = self._mount_point / Path(cfg.EXTLINUX_FILE).relative_to("/")
+        target: Path = self._standby_boot_mount_point / Path(
+            cfg.EXTLINUX_FILE
+        ).relative_to("/")
 
         if src.is_file():
             shutil.copy(src, target)
@@ -653,12 +638,13 @@ class CBootControlMixin(BootControlInterface):
             )
 
     def _populate_boot_folder_to_separate_bootdev(self):
-        if not Nvbootctrl.is_external_rootfs_enabled():
+        if not self._boot_control.is_external_rootfs_enabled():
             return
 
         # copy the boot folder to bootdev
         # use tmp_dir folder to temporary hold the new files
         with tempfile.TemporaryDirectory(prefix=f"{__name__}_tmp_boot") as tmp_dir:
+            tmp_dir: Path = Path(tmp_dir)
             dst_dir: Path = self._standby_boot_mount_point / "boot"
             shutil.copytree(
                 (self._mount_point / "boot"), tmp_dir, symlinks=True, dirs_exist_ok=True
@@ -666,25 +652,25 @@ class CBootControlMixin(BootControlInterface):
 
             # step 1: update(replace) kernel file
             kernel_src, kernel_sig_src = (
-                tmp_dir / cfg.KERNEL.name,
-                tmp_dir / cfg.KERNEL_SIG.name,
+                tmp_dir / Path(cfg.KERNEL).name,
+                tmp_dir / Path(cfg.KERNEL_SIG).name,
             )
             kernel_dst, kernel_sig_dst = (
-                dst_dir / cfg.KERNEL.name,
-                dst_dir / cfg.KERNEL_SIG.name,
+                dst_dir / Path(cfg.KERNEL).name,
+                dst_dir / Path(cfg.KERNEL_SIG).name,
             )
             kernel_src.replace(kernel_dst)
             kernel_sig_src.replace(kernel_sig_dst)
 
             # step 2: update(replace) initrd
             initrd_src, initrd_dst = (
-                tmp_dir / cfg.INITRD.name,
-                dst_dir / cfg.INITRD.name,
+                tmp_dir / Path(cfg.INITRD).name,
+                dst_dir / Path(cfg.INITRD).name,
             )
             initrd_src.replace(initrd_dst)
 
             # NOTE: although we use initrd, not initrd.img in extlinux.cfg, we still update the initrd.img
-            initrd_img_link = cfg.INITRD_IMG_LINK.name
+            initrd_img_link = Path(cfg.INITRD_IMG_LINK).name
             new_initrd_link, old_initrd_link = (
                 tmp_dir / initrd_img_link,
                 dst_dir / initrd_img_link,
@@ -698,7 +684,7 @@ class CBootControlMixin(BootControlInterface):
             old_initrd.unlink(missing_ok=True)
 
             # step 3: update(replace) dtb
-            dtb_file, dtb_hdr40_file = cfg.FDT.name, cfg.FDT_HDR40.name
+            dtb_file, dtb_hdr40_file = Path(cfg.FDT).name, Path(cfg.FDT_HDR40).name
             (tmp_dir / dtb_file).replace(dst_dir / dtb_file)
             (tmp_dir / dtb_hdr40_file).replace(dst_dir / dtb_hdr40_file)
 
@@ -706,7 +692,7 @@ class CBootControlMixin(BootControlInterface):
         """
         Note: only init current slot if needed
         """
-        slot = Nvbootctrl.get_current_slot()
+        slot = self._boot_control.get_current_slot()
         _write_file(self._slot_in_use_file, slot)
 
     def load_slot_in_use_file(self):
@@ -729,7 +715,7 @@ class CBootControlMixin(BootControlInterface):
 
         logger.debug(f"active slot should be {slot_in_use}")
         logger.debug(
-            f"current slot: {Nvbootctrl.get_current_slot()}, standby slot: {Nvbootctrl.get_standby_slot()}"
+            f"current slot: {self._boot_control.get_current_slot()}, standby slot: {self._boot_control.get_standby_slot()}"
         )
 
         if len(status) == 0 or len(slot_in_use) == 0:
@@ -784,10 +770,10 @@ class CBootControlMixin(BootControlInterface):
         # store status
         self.store_standby_ota_version(version)
         self.store_slot_in_use_file(
-            Nvbootctrl.get_standby_slot(), self._slot_in_use_file
+            self._boot_control.get_standby_slot(), self._slot_in_use_file
         )
         self.store_slot_in_use_file(
-            Nvbootctrl.get_standby_slot(), self._standby_slot_in_use_file
+            self._boot_control.get_standby_slot(), self._standby_slot_in_use_file
         )
 
         logger.debug("pre-update setting finished")
@@ -795,13 +781,15 @@ class CBootControlMixin(BootControlInterface):
     def boot_ctrl_post_update(self):
         # TODO: deal with unexpected reboot during post_update
         logger.debug("entering post-update...")
-        standby_extlinux_cfg = self._mount_point / cfg.EXTLINUX_FILE.relative_to("/")
+        standby_extlinux_cfg = self._mount_point / Path(cfg.EXTLINUX_FILE).relative_to(
+            "/"
+        )
 
         self._boot_control.write_extlinux_cfg(
             target=standby_extlinux_cfg, src=standby_extlinux_cfg
         )
 
-        if Nvbootctrl.is_external_rootfs_enabled():
+        if self._boot_control.is_external_rootfs_enabled():
             logger.debug(
                 "rootfs on external storage: updating the /boot folder in standby bootdev..."
             )
