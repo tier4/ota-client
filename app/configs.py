@@ -25,7 +25,7 @@ class _BaseConfig:
     ECU_INFO_FILE: str = "/boot/ota/ecu_info.yaml"
     PASSWD_FILE: str = "/etc/passwd"
     GROUP_FILE: str = "/etc/group"
-    BOOT_OTA_PARTITION_FILE: str = str("ota-partition")
+    BOOT_OTA_PARTITION_FILE: str = "ota-partition"
     OTA_STATUS_FNAME: str = "status"
     OTA_VERSION_FNAME: str = "version"
     LOG_FORMAT: str = (
@@ -65,7 +65,7 @@ class CBootControlConfig(_BaseConfig):
     INITRD_IMG_LINK: str = "/boot/initrd.img"
     FDT: str = "/boot/tegra194-rqx-580.dtb"
     FDT_HDR40: str = "/boot/tegra194-rqx-580-hdr40.dtbo"
-    SEPERATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
+    SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
     EXTRA_CMDLINE: str = (
         "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0"
     )

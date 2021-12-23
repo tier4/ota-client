@@ -813,7 +813,7 @@ def gen_ota_client_class(bootloader: str):
                 )
 
                 # standby bootdev
-                self._standby_boot_mount_point = Path(cfg.SEPERATE_BOOT_MOUNT_POINT)
+                self._standby_boot_mount_point = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
 
                 self._boot_control: CBootControl = CBootControl()
                 self._ota_status: OtaStatus = self.initialize_ota_status()
