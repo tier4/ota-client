@@ -44,7 +44,9 @@ def file_sha256(filename: Path) -> str:
         return m.hexdigest()
 
 
-def verify_file(filename: Path, filehash: str) -> bool:
+def verify_file(filename: Path, filehash: str, filesize) -> bool:
+    if filename.stat().st_size != filesize:
+        return False
     return file_sha256(filename) == filehash
 
 
@@ -166,7 +168,9 @@ class RegularInf(_BaseInf):
     Regular file information class
     """
 
-    _pattern = re.compile(r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'")
+    _pattern = re.compile(
+        r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)',?(?P<size>\d+)?"
+    )
 
     def __init__(self, info):
         super().__init__(info)
@@ -176,6 +180,9 @@ class RegularInf(_BaseInf):
         self.nlink = int(res.group("nlink"))
         self.sha256hash = res.group("hash")
         self.path = Path(self.de_escape(res.group("path")))
+        # make sure that size might be None
+        size = res.group("size")
+        self.size = None if size is None else int(size)
 
 
 class PersistentInf(_BaseInf):
@@ -279,9 +286,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._failure_reason = ""
         self._update_phase = OtaClientUpdatePhase.INITIAL
 
-        self._mount_point = cfg.MOUNT_POINT
-        self._passwd_file = cfg.PASSWD_FILE
-        self._group_file = cfg.GROUP_FILE
+        self._mount_point = Path(cfg.MOUNT_POINT)
+        self._passwd_file = Path(cfg.PASSWD_FILE)
+        self._group_file = Path(cfg.GROUP_FILE)
 
         # statistics
         self._statistics = OtaClientStatistics()
@@ -415,6 +422,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._update_phase = OtaClientUpdatePhase.METADATA
         url = f"{url_base}/"
         metadata = self._process_metadata(url, cookies)
+        total_regular_file_size = metadata.get_total_regular_file_size()
+        if total_regular_file_size:
+            self._statistics.set("total_file_size", total_regular_file_size)
 
         # process directory file
         logger.debug("[update] process directory files...")
@@ -724,7 +734,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             processed["op"] = "link"
             processed["errors"] = 0
         else:  # normal file or first copy of hardlink file
-            if reginf.path.is_file() and verify_file(reginf.path, reginf.sha256hash):
+            if reginf.path.is_file() and verify_file(
+                reginf.path, reginf.sha256hash, reginf.size
+            ):
                 # copy file from active bank if hash is the same
                 shutil.copy(reginf.path, dst)
                 processed["op"] = "copy"
@@ -787,8 +799,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self.boot_ctrl_post_rollback()
 
 
-def gen_ota_client_class(platform: str):
-    if platform == "grub":
+def gen_ota_client_class(bootloader: str):
+    if bootloader == "grub":
 
         from grub_ota_partition import GrubControlMixin, OtaPartitionFile
 
@@ -801,7 +813,7 @@ def gen_ota_client_class(platform: str):
 
                 logger.debug(f"ota status: {self._ota_status.name}")
 
-    elif platform == "cboot":
+    elif bootloader == "cboot":
 
         from extlinux_control import CBootControl, CBootControlMixin
 
@@ -810,18 +822,18 @@ def gen_ota_client_class(platform: str):
                 super().__init__()
 
                 # current slot
-                self._ota_status_dir: Path = cfg.OTA_STATUS_DIR
+                self._ota_status_dir: Path = Path(cfg.OTA_STATUS_DIR)
                 self._ota_status_file: Path = (
                     self._ota_status_dir / cfg.OTA_STATUS_FNAME
                 )
                 self._ota_version_file: Path = (
                     self._ota_status_dir / cfg.OTA_VERSION_FNAME
                 )
-                self._slot_in_use_file: Path = cfg.SLOT_IN_USE_FILE
+                self._slot_in_use_file: Path = Path(cfg.SLOT_IN_USE_FILE)
 
                 # standby slot
                 self._standby_ota_status_dir: Path = (
-                    self._mount_point / self._ota_status_dir.relative_to(Path("/"))
+                    self._mount_point / self._ota_status_dir.relative_to("/")
                 )
                 self._standby_ota_status_file = (
                     self._standby_ota_status_dir / cfg.OTA_STATUS_FNAME
@@ -829,12 +841,12 @@ def gen_ota_client_class(platform: str):
                 self._standby_ota_version_file = (
                     self._standby_ota_status_dir / cfg.OTA_VERSION_FNAME
                 )
-                self._standby_extlinux_cfg = (
-                    self._mount_point / cfg.EXTLINUX_FILE.relative_to("/")
-                )
                 self._standby_slot_in_use_file = (
-                    self._mount_point / self._slot_in_use_file.relative_to(Path("/"))
+                    self._mount_point / self._slot_in_use_file.relative_to("/")
                 )
+
+                # standby bootdev
+                self._standby_boot_mount_point = Path(cfg.SEPERATE_BOOT_MOUNT_POINT)
 
                 self._boot_control: CBootControl = CBootControl()
                 self._ota_status: OtaStatus = self.initialize_ota_status()
@@ -846,10 +858,10 @@ def gen_ota_client_class(platform: str):
 
 
 def _ota_client_class():
-    platform = cfg.PLATFORM
-    logger.debug(f"ota_client is running with {platform}")
+    bootloader = cfg.BOOTLOADER
+    logger.debug(f"ota_client is running with {bootloader=}")
 
-    return gen_ota_client_class(platform)
+    return gen_ota_client_class(bootloader)
 
 
 OtaClient = _ota_client_class()
