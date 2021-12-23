@@ -719,7 +719,7 @@ class CBootControlMixin(BootControlInterface):
             return self.finalize_update()
         elif status == OtaStatus.ROLLBACKING.name:
             return self.finalize_rollback()
-        elif status == OtaStatus.SUCCESS.name or status == OtaStatus.INITIALIZED.name:
+        else:
             current_slot = Nvbootctrl.get_current_slot()
             if current_slot != slot_in_use:
                 logger.debug(
@@ -727,9 +727,7 @@ class CBootControlMixin(BootControlInterface):
                 )
                 return OtaStatus.FAILURE
             else:
-                return OtaStatus.SUCCESS
-        else:
-            return OtaStatus[status]
+                return OtaStatus[status]
 
     def store_standby_ota_status(self, status: OtaStatus):
         _write_file(self._standby_ota_status_file, status.name)
