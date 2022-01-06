@@ -2,6 +2,7 @@ import platform
 from dataclasses import dataclass, field
 from logging import INFO
 
+
 # fmt: off
 @dataclass
 class _BaseConfig:
@@ -19,7 +20,7 @@ class _BaseConfig:
             "ota_client_stub": INFO,
             "ota_metadata": INFO,
             "ota_status": INFO,
-        }.copy()
+        }
     )
     BOOT_DIR: str = "/boot"
     ECU_INFO_FILE: str = "/boot/ota/ecu_info.yaml"
@@ -55,7 +56,7 @@ class CBootControlConfig(_BaseConfig):
     """
 
     BOOTLOADER: str = "cboot"
-    CHIP_ID_MODEL_MAP: dict = field(default_factory=lambda: {0x19: "rqx_580"}.copy())
+    CHIP_ID_MODEL_MAP: dict = field(default_factory=lambda: {0x19: "rqx_580"})
     EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
     SLOT_IN_USE_FILE: str = "/boot/ota-status/slot_in_use"
     OTA_STATUS_DIR: str = "/boot/ota-status"
