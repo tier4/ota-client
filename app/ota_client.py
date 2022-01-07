@@ -43,7 +43,7 @@ def file_sha256(filename: Path) -> str:
 
 
 def verify_file(filename: Path, filehash: str, filesize) -> bool:
-    if filename.stat().st_size != filesize:
+    if filesize and filename.stat().st_size != filesize:
         return False
     return file_sha256(filename) == filehash
 
