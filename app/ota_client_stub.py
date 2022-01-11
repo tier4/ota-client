@@ -99,7 +99,7 @@ class OtaClientStub:
 
             # wait until pre-update initializing finished or error occured.
             if pre_update_event.wait(timeout=cfg.PRE_UPDATE_TIMEOUT):
-                logger.debug(f"finish pre-update initializing")
+                logger.debug("finish pre-update initializing")
                 main_ecu = response.ecu.add()
                 main_ecu.ecu_id = entry.ecu_id
                 main_ecu.result = v2.NO_FAILURE
@@ -350,7 +350,7 @@ class OtaClientStub:
             e["ecu_id"]: v2.FAILURE for e in self._ecu_info.get_secondary_ecus()
         }
         if not subecu_flag_dict:
-            return # return when no subecu is attached
+            return  # return when no subecu is attached
 
         for _ in range(pulling_count):
             # pulling interval
