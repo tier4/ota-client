@@ -4,7 +4,8 @@ def _path_load():
     from pathlib import Path
 
     project_base = Path(__file__).absolute().parent.parent
-    sys.path.extend([str(project_base), str(project_base/"app")])
+    sys.path.extend([str(project_base), str(project_base / "app")])
+
 
 _path_load()
 ######
@@ -20,14 +21,13 @@ import logging
 
 logger = logutil.get_logger(__name__, logging.DEBUG)
 
+
 def load_ecu_info(ecu_info_file: str) -> dict:
     with open(ecu_info_file, "r") as f:
         return yaml.safe_load(f)
 
-def main(args: argparse.Namespace):
-    from app.ota_client_call import OtaClientCall
 
-    caller = OtaClientCall()
+def main(args: argparse.Namespace):
     ecu_info = load_ecu_info(args.ecu_info)
 
     target = args.target
@@ -49,16 +49,16 @@ def main(args: argparse.Namespace):
 
         if not found:
             logger.warning(f"target ecu {target} is not found, use main ecu as target")
-    
+
     logger.debug(f"{ecu_id=}, {ecu_ipaddr=}")
     cmd = args.command
     if cmd == "update":
         request = update_call.load_external_update_request(args.request)
-        update_call.call_update(     
+        update_call.call_update(
             ecu_ip=ecu_ipaddr,
             ecu_port=ecu_port,
             request=request,
-            )
+        )
     elif cmd == "status":
         status_call.call_status(
             ecu_ip=ecu_ipaddr,
@@ -66,25 +66,35 @@ def main(args: argparse.Namespace):
             interval=args.interval,
         )
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="calling main ECU's API")
     parser.add_argument(
-        "-c", "--ecu_info",
-        type=str, default="ecu_info.yaml",
+        "-c",
+        "--ecu_info",
+        type=str,
+        default="ecu_info.yaml",
         help="ecu_info file to configure the caller(default: ecu_info.yaml)",
     )
     parser.add_argument("command", help="API to call, available API: update, status")
     parser.add_argument(
-        "-t", "--target", default="main",
-        help="indicate the API call's target(default: the main ecu)"
-        )
+        "-t",
+        "--target",
+        default="main",
+        help="indicate the API call's target(default: the main ecu)",
+    )
     parser.add_argument(
-        "-i", "--interval", type=float, default=1,
-        help="(status) pulling interval in second for status API call(default: 1)"
-        )
+        "-i",
+        "--interval",
+        type=float,
+        default=1,
+        help="(status) pulling interval in second for status API call(default: 1)",
+    )
     parser.add_argument(
-        "-r", "--request", default="update_request.yaml",
-        help="(update) yaml file that contains the request to send(default: update_request.yaml)"
+        "-r",
+        "--request",
+        default="update_request.yaml",
+        help="(update) yaml file that contains the request to send(default: update_request.yaml)",
     )
 
     args = parser.parse_args()

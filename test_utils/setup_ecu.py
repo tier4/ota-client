@@ -4,7 +4,8 @@ def _path_load():
     from pathlib import Path
 
     project_base = Path(__file__).absolute().parent.parent
-    sys.path.extend([str(project_base), str(project_base/"app")])
+    sys.path.extend([str(project_base), str(project_base / "app")])
+
 
 _path_load()
 ######
@@ -24,13 +25,14 @@ import app.otaclient_v2_pb2 as v2
 
 import logutil
 import logging
+
 logger: logging.Logger = logutil.get_logger(__name__, logging.DEBUG)
 
 _DEFAULT_PORT = "50051"
 _MODE = {"standalone", "mainecu", "subecus"}
 
-class MiniOtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
+class MiniOtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
     def __init__(self, ecu_id: dict):
         self.ecu_id = ecu_id
 
@@ -85,91 +87,114 @@ class MiniOtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         else:
             ecu_status.status = v2.UPDATING
 
-        return result    
+        return result
+
 
 def server_start(
-    pool: ThreadPoolExecutor, 
-    ecu_id: str,
-    ip: str, port: str="50051") -> grpc.server:
+    pool: ThreadPoolExecutor, ecu_id: str, ip: str, port: str = "50051"
+) -> grpc.server:
     service = MiniOtaClientServiceV2(ecu_id)
 
     server = grpc.server(pool)
     v2_grpc.add_OtaClientServiceServicer_to_server(service, server)
-    
+
     server.add_insecure_port(f"{ip}:{port}")
     server.start()
     logger.info(f"start {ecu_id=} at {ip}:{port}")
-    
+
     return server
+
 
 def mainecu_mode(executor: ThreadPoolExecutor, ecu_info: dict) -> List[grpc.server]:
     f = executor.submit(
         server_start,
         ecu_id=ecu_info["ecu_id"],
-        pool=executor, 
+        pool=executor,
         ip=ecu_info["ip_addr"],
-        port=ecu_info.get("port", _DEFAULT_PORT)
+        port=ecu_info.get("port", _DEFAULT_PORT),
     )
     server = f.result()
-    return [server, ]
+    return [
+        server,
+    ]
+
 
 def subecu_mode(executor: ThreadPoolExecutor, ecu_info: dict) -> List[grpc.server]:
     # schedule the servers to the thread pool
     futures = []
     for subecu in ecu_info["secondaries"]:
-        futures.append(executor.submit(
-            server_start,
-            ecu_id=subecu["ecu_id"],
-            pool=executor, 
-            ip=subecu["ip_addr"],
-            port=subecu.get("port", _DEFAULT_PORT),
-        ))
-    
-    servers = [ f.result() for f in futures]
+        futures.append(
+            executor.submit(
+                server_start,
+                ecu_id=subecu["ecu_id"],
+                pool=executor,
+                ip=subecu["ip_addr"],
+                port=subecu.get("port", _DEFAULT_PORT),
+            )
+        )
+
+    servers = [f.result() for f in futures]
     return servers
 
-def standalone_mode(executor: ThreadPoolExecutor, args: argparse.Namespace) -> List[grpc.server]:
+
+def standalone_mode(
+    executor: ThreadPoolExecutor, args: argparse.Namespace
+) -> List[grpc.server]:
     f = executor.submit(
         server_start,
         ecu_id="standalone",
-        pool=executor, 
+        pool=executor,
         ip=args.ip,
         port=args.port,
     )
     server = f.result()
-    return [server, ]
+    return [
+        server,
+    ]
+
 
 def load_ecu_info(ecu_info_file: str) -> dict:
     with open(ecu_info_file, "r") as f:
         return yaml.safe_load(f)
 
+
 def _sign_handler_wrapper(server_list: List[grpc.server], executor: ThreadPoolExecutor):
     def _sign_handler(signum, frame):
         logger.info(f"receive signal {signum}")
         if signum == signal.SIGINT:
-            logger.warning(f"terminating all servers...")
+            logger.warning("terminating all servers...")
             for s in server_list:
                 s.stop(None)
-            logger.info(f"close the threadpool")
+            logger.info("close the threadpool")
             executor.shutdown()
         raise InterruptedError("terminating the mini ota_client servers")
 
     return _sign_handler
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="calling main ECU's API")
     parser.add_argument("-c", "--ecu_info", default="ecu_info.yaml", help="ecu_info")
     parser.add_argument(
-        "mode", default="standalone", 
+        "mode",
+        default="standalone",
         help=(
             "running mode for mini_ota_client(standalone, subecus, mainecu)\n"
             "\tstandalone: run a single mini_ota_client\n"
             "\tmainecu: run a single mini_ota_client as mainecu according to ecu_info.yaml\n"
             "\tsubecus: run subecu(s) according to ecu_info.yaml"
-        )
+        ),
     )
-    parser.add_argument("--ip", default="127.0.0.1", help="(standalone) listen at IP(default: localhost)")
-    parser.add_argument("--port", default=_DEFAULT_PORT, help=f"(standalone) use port PORT(default: {_DEFAULT_PORT})")
+    parser.add_argument(
+        "--ip",
+        default="127.0.0.1",
+        help="(standalone) listen at IP(default: localhost)",
+    )
+    parser.add_argument(
+        "--port",
+        default=_DEFAULT_PORT,
+        help=f"(standalone) use port PORT(default: {_DEFAULT_PORT})",
+    )
 
     args = parser.parse_args()
     ecu_info_file = Path(args.ecu_info)
@@ -179,10 +204,12 @@ if __name__ == "__main__":
 
     if args.mode != "standalone":
         if not ecu_info_file.is_file():
-            parser.error(f"invalid {ecu_info_file=!r}. ecu_info.yaml is required for non-standalone mode")
+            parser.error(
+                f"invalid {ecu_info_file=!r}. ecu_info.yaml is required for non-standalone mode"
+            )
 
     ecu_info = yaml.safe_load(ecu_info_file.read_text())
-    
+
     executor = ThreadPoolExecutor()
     servers_list: List[grpc.server] = []
     if args.mode == "subecus":
@@ -199,4 +226,4 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _sign_handler_wrapper(servers_list, executor))
 
     while True:
-        pass # wait for the SIGINT
+        pass  # wait for the SIGINT
