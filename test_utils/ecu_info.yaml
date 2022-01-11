@@ -1,0 +1,11 @@
+format_version: 1
+ecu_id: "autoware"
+ip_addr: "10.6.65.3"
+port: "50000"
+secondaries:
+  - ecu_id: "p1"
+    ip_addr: "10.6.65.3"
+    port: "50001"
+  - ecu_id: "p2"
+    ip_addr: "10.6.65.3"
+    port: "50002"
