@@ -7,7 +7,7 @@ from pathlib import Path
 
 import log_util
 from configs import config as cfg
-from ota_error import OtaErrorUnrecoverable
+from ota_error import OtaErrorRecoverable, OtaErrorUnrecoverable
 from ota_status import OtaStatus
 from ota_client_interface import BootControlInterface
 
@@ -152,7 +152,7 @@ class Nvbootctrl:
     # p1->slot0, p2->slot1
     PARTID_SLOTID_MAP = {"1": "0", "2": "1"}
     # slot0->p1, slot1->p2
-    SLOTID_PARTID_MAP = {"0": "1", "1": "2"}
+    SLOTID_PARTID_MAP = {v: k for k, v in PARTID_SLOTID_MAP.items()}
 
     # nvbootctrl
     @staticmethod
@@ -615,71 +615,34 @@ class CBootControlMixin(BootControlInterface):
         )
         return _nvboot_res and _ota_status_res and _is_slot_in_use
 
-    def _populate_extlinux_cfg_to_separate_bootdev(self):
-        if not self._boot_control.is_external_rootfs_enabled():
-            return
-
-        src: Path = self._mount_point / Path(cfg.EXTLINUX_FILE).relative_to("/")
-        target_dir: Path = (
-            self._standby_boot_mount_point
-            / Path(cfg.EXTLINUX_FILE).relative_to("/").parent
-        )
-
-        # ensure target dir's present
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        if src.is_file():
-            shutil.copy(str(src), target_dir)
-        else:
-            raise OtaErrorUnrecoverable(
-                "extlinux.cfg on boot partition and/or standby slot not found"
-            )
-
     def _populate_boot_folder_to_separate_bootdev(self):
         if not self._boot_control.is_external_rootfs_enabled():
             return
 
-        # copy the /boot folder from standby slot to boot dev unconditionally
-        tmp_dir = self._standby_boot_mount_point / ".tmp_boot"
+        src_dir = self._mount_point / "boot"
         dst_dir = self._standby_boot_mount_point / "boot"
-        dst_dir.mkdir(parents=True, exist_ok=True)  # ensure dst
-        # prepare temporary files
-        if tmp_dir.is_dir():  # cleanup previous temp
-            shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
-        shutil.copytree(
-            str(self._mount_point / "boot"), tmp_dir, symlinks=True, dirs_exist_ok=True
-        )
+        # first list unneeded files in the dst_dir
+        src_dir_files_set = {str(f.relative_to(src_dir)) for f in src_dir.glob("**/*")}
+        dst_dir_files_set = {str(f.relative_to(dst_dir)) for f in dst_dir.glob("**/*")}
+        unneeded_files_set = dst_dir_files_set - src_dir_files_set
 
-        src_files = tmp_dir.glob("**/*")
-        dst_files = {str(f.relative_to(dst_dir)) for f in dst_dir.glob("**/*")}
+        # copy the /boot folder from standby slot to boot dev unconditionally
+        _cmd = f"cp -rdp {src_dir} {dst_dir}"
+        try:
+            _subprocess_call(_cmd, raise_exception=True)
+        except Exception as e:
+            raise OtaErrorRecoverable(
+                f"failed to update /boot on standby bootdev: {e!r}"
+            )
 
-        # move files from tmp to dst
-        # Path.replace is atomic operation on Unix platform, within the same partition
-        for f in src_files:
-            f_relative = f.relative_to(tmp_dir)
-
-            dst = dst_dir / f_relative
-            if f.is_dir():
-                dst.mkdir(parents=True, exist_ok=True)
-            else:
-                f.parent.mkdir(parents=True, exist_ok=True)
-                f.rename(dst)
-
-            fn = str(f_relative)
-            if fn in dst_files:
-                dst_files.remove(fn)
-
-        # cleanup old files in the dst
-        for f in dst_files:
+        # cleanup unused files in the dst_dir
+        for f in unneeded_files_set:
             f = dst_dir / f
             if f.is_dir():
                 shutil.rmtree(str(f), ignore_errors=True)
             else:
                 f.unlink(missing_ok=True)
-
-        # cleanup temporary
-        shutil.rmtree(tmp_dir)
 
     def init_slot_in_use_file(self):
         """
@@ -789,7 +752,6 @@ class CBootControlMixin(BootControlInterface):
                 "rootfs on external storage: updating the /boot folder in standby bootdev..."
             )
             self._populate_boot_folder_to_separate_bootdev()
-            self._populate_extlinux_cfg_to_separate_bootdev()
 
         logger.debug("switching boot...")
         self._boot_control.switch_boot_standby()

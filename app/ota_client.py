@@ -45,7 +45,7 @@ def file_sha256(filename: Path) -> str:
 
 
 def verify_file(filename: Path, filehash: str, filesize) -> bool:
-    if filename.stat().st_size != filesize:
+    if filesize and filename.stat().st_size != filesize:
         return False
     return file_sha256(filename) == filehash
 
@@ -846,7 +846,7 @@ def gen_ota_client_class(bootloader: str):
                 )
 
                 # standby bootdev
-                self._standby_boot_mount_point = Path(cfg.SEPERATE_BOOT_MOUNT_POINT)
+                self._standby_boot_mount_point = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
 
                 self._boot_control: CBootControl = CBootControl()
                 self._ota_status: OtaStatus = self.initialize_ota_status()
