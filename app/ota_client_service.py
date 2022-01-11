@@ -2,7 +2,6 @@ from concurrent import futures
 
 import grpc
 import asyncio
-import otaclient_v2_pb2 as v2
 import otaclient_v2_pb2_grpc as v2_grpc
 from configs import config as cfg
 import log_util

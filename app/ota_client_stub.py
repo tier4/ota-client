@@ -10,13 +10,13 @@ from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from ecu_info import EcuInfo
 
-from configs import config, OtaClientServiceConfig
+from configs import config as cfg
+from configs import server_cfg
 import log_util
 
 logger = log_util.get_logger(
-    __name__, config.LOG_LEVEL_TABLE.get(__name__, config.DEFAULT_LOG_LEVEL)
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
-cfg: OtaClientServiceConfig = config.OTA_CLIENT_SERVICE_CONFIG
 
 
 def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
@@ -48,7 +48,7 @@ class OtaClientStub:
 
         self._ota_client = OtaClient()
         self._ecu_info = EcuInfo()
-        self._ota_client_call = OtaClientCall(cfg.SERVER_PORT)
+        self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
 
         # for _get_subecu_status
         self._status_pulling_lock = Lock()
@@ -98,14 +98,14 @@ class OtaClientStub:
             )
 
             # wait until pre-update initializing finished or error occured.
-            if pre_update_event.wait(timeout=cfg.PRE_UPDATE_TIMEOUT):
+            if pre_update_event.wait(timeout=server_cfg.PRE_UPDATE_TIMEOUT):
                 logger.debug("finish pre-update initializing")
                 main_ecu = response.ecu.add()
                 main_ecu.ecu_id = entry.ecu_id
                 main_ecu.result = v2.NO_FAILURE
             else:
                 logger.error(
-                    f"failed to wait for ota-client finish pre-update initializing in {cfg.PRE_UPDATE_TIMEOUT}s"
+                    f"failed to wait for ota-client finish pre-update initializing in {server_cfg.PRE_UPDATE_TIMEOUT}s"
                 )
                 # NOTE: not abort update even if local ota pre-update initializing failed
                 main_ecu = response.ecu.add()
@@ -176,7 +176,7 @@ class OtaClientStub:
         # NOTE: modify the input response object in-place
         await asyncio.wait_for(
             asyncio.create_task(self._get_subecu_status(request, response)),
-            timeout=cfg.WAITING_GET_SUBECU_STATUS,
+            timeout=server_cfg.WAITING_GET_SUBECU_STATUS,
         )
 
         # my ecu
@@ -232,14 +232,16 @@ class OtaClientStub:
         # NOTE: the method will block until all the subECUs' status are as expected
         try:
             asyncio.run(
-                self._ensure_subecu_status(timeout=cfg.WAITING_SUBECU_READY_TIMEOUT)
+                self._ensure_subecu_status(
+                    timeout=server_cfg.WAITING_SUBECU_READY_TIMEOUT
+                )
             )
             # all subECUs are updated, now the ota_client can reboot
-            logger.debug(f"all subECUs are ready, set post_update_event")
+            logger.debug("all subECUs are ready, set post_update_event")
             post_update_event.set()
 
-            logger.debug(f"wait for local ota update to finish...")
-            exp = _future.exception(timeout=cfg.LOCAL_OTA_UPDATE_TIMEOUT)
+            logger.debug("wait for local ota update to finish...")
+            exp = _future.exception(timeout=server_cfg.LOCAL_OTA_UPDATE_TIMEOUT)
             if exp:
                 raise exp
         except Exception as e:
@@ -286,9 +288,11 @@ class OtaClientStub:
                 )
 
             done, pending = await asyncio.wait(
-                tasks, timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT
+                tasks, timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT
             )
             for t in done:
+                ecu_id = t.get_name()
+
                 exp = t.exception()
                 if exp is not None:
                     # exception raised from the task
@@ -305,7 +309,6 @@ class OtaClientStub:
                             logger.debug(f"contacting {ecu_id} failed with grpc error")
                 else:
                     # task is done without any exception
-                    ecu_id = t.get_name()
                     logger.debug(f"{ecu_id=} is reachable")
 
                     for e in t.result().ecu:
@@ -354,7 +357,7 @@ class OtaClientStub:
 
         for _ in range(pulling_count):
             # pulling interval
-            await asyncio.sleep(cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
+            await asyncio.sleep(server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
 
             st = v2.StatusResponse()
             failed_ecu_list, success_ecu_list, on_going_ecu_list = [], [], []
@@ -441,7 +444,7 @@ class OtaClientStub:
         except Exception as e:
             if isinstance(e, asyncio.TimeoutError):
                 raise OtaErrorUnrecoverable(
-                    f"failed to wait for all subECU to finish update on time"
+                    "failed to wait for all subECU to finish update on time"
                 )
             else:
                 # other OtaException

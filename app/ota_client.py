@@ -461,15 +461,15 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # leave update
         # wait for all subECUs before reboot itself
         if post_update_event:
-            logger.debug(f"waiting for all subECUs to become ready...")
+            logger.debug("waiting for all subECUs to become ready...")
             if post_update_event.wait(timeout=3600):  # TODO: hardcoded timeout
-                logger.debug(f"all subECUs are ready")
+                logger.debug("all subECUs are ready")
             else:
                 # upper caller timeout, failed to wait for all subECU to get ready
                 # raise an exception about this and report to the caller agent
                 #
                 # NOTE: this may cause the local ECU to be updated multiple times if any of a subECU keeps failing
-                msg = f"cannot ensure all subECUs' are ready, abort current local ota update..."
+                msg = "cannot ensure all subECUs' are ready, abort current local ota update..."
                 logger.error(msg)
                 raise OtaErrorRecoverable(msg)
 
