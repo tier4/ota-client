@@ -12,7 +12,7 @@ _path_load()
 import argparse
 import yaml
 from pathlib import Path
-from status_call import call_status
+import status_call
 import update_call
 
 import logutil
@@ -55,14 +55,12 @@ def main(args: argparse.Namespace):
     if cmd == "update":
         request = update_call.load_external_update_request(args.request)
         update_call.call_update(     
-            caller=caller,
             ecu_ip=ecu_ipaddr,
             ecu_port=ecu_port,
             request=request,
             )
     elif cmd == "status":
-        call_status(
-            caller=caller,
+        status_call.call_status(
             ecu_ip=ecu_ipaddr,
             ecu_port=ecu_port,
             interval=args.interval,
