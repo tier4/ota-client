@@ -234,7 +234,6 @@ class _OtaClientStatisticsStorage:
     def export_as_dict(self) -> dict:
         return dataclasses.asdict(self)
 
-    # TODO check whether these functions are required or not
     def __getitem__(self, key) -> Any:
         return getattr(self, key)
 

@@ -138,23 +138,25 @@ class OtaClientStub:
                     for e in t.result().ecu:
                         ecu = response.ecu.add()
                         ecu.CopyFrom(e)
-                        logger.debug(f"{ecu.ecu_id=}, {ecu.result=}")
+                        logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
 
         logger.info(f"{response=}")
         return response
 
     def rollback(self, request):
         logger.info(f"{request=}")
-        response = []
+        response = v2.RollbackResponse()
 
         # secondary ecus
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         logger.info(f"{secondary_ecus=}")
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request.ecu, secondary)
+            entry = OtaClientStub._find_request(request.ecu, secondary["ecu_id"])
             if entry:
                 r = self._ota_client_call.rollback(request, secondary["ip_addr"])
-                response.append(r)
+                for e in r.ecu:
+                    ecu = response.ecu.add()
+                    ecu.CopyFrom(e)
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
@@ -164,7 +166,9 @@ class OtaClientStub:
         if entry:
             result = self._ota_client.rollback()
             logger.info(f"{result=}")
-            response.append({"ecu_id": entry.ecu_id, "result": result.value})
+            ecu = response.ecu.add()
+            ecu.ecu_id = ecu_id
+            ecu.result = result.value
 
         logger.info(f"{response=}")
         return response
@@ -245,6 +249,7 @@ class OtaClientStub:
             if exp:
                 raise exp
         except Exception as e:
+            logger.exception("_ensure_subecu_status")
             if isinstance(e, OtaError):
                 logger.error(f"ota update failed: {e!r}")
             elif isinstance(e, TimeoutError):
@@ -442,6 +447,7 @@ class OtaClientStub:
         try:
             await asyncio.wait_for(t, timeout=timeout)
         except Exception as e:
+            logger.exception("_loop_pulling_subecu_status")
             if isinstance(e, asyncio.TimeoutError):
                 raise OtaErrorUnrecoverable(
                     "failed to wait for all subECU to finish update on time"

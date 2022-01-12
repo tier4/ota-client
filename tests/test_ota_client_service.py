@@ -43,8 +43,8 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
 
     ota_client_mock = start_service_with_ota_client_mock
 
-    def mock_update(version, url, cookies, event):
-        event.set()
+    def mock_update(version, url, cookies, pre_update_event, post_update_event):
+        pre_update_event.set()
         return OtaClientFailureType.NO_FAILURE
 
     ota_client_mock.update.side_effect = mock_update
@@ -69,7 +69,8 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
         "1.2.3.a",
         "https://foo.bar.com/ota-data",
         '{"test": "my data"}',
-        ANY,
+        pre_update_event=ANY,
+        post_update_event=ANY,
     )
 
 

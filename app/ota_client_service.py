@@ -18,20 +18,20 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
     def Update(self, request, context):
         logger.info(f"{request=}")
-        results = asyncio.run(self._stub.update(request))
-        logger.info(f"{results=}")
-        return results
+        response = asyncio.run(self._stub.update(request))
+        logger.info(f"{response=}")
+        return response
 
     def Rollback(self, request, context):
         logger.info(f"{request=}")
-        results = self._stub.rollback(request)
-        logger.info(f"{results=}")
-        return results
+        response = self._stub.rollback(request)
+        logger.info(f"{response=}")
+        return response
 
     def Status(self, request, context):
-        result = asyncio.run(self._stub.status(request))
-        logger.info(f"{result=}")
-        return result
+        response = asyncio.run(self._stub.status(request))
+        logger.info(f"{response=}")
+        return response
 
 
 def service_start(port, service_list):
