@@ -215,6 +215,7 @@ class OtaClientUpdatePhase(Enum):
 @dataclasses.dataclass
 class _OtaClientStatisticsStorage:
     total_regular_files: int = 0
+    total_regular_file_size: int = 0
     regular_files_processed: int = 0
     files_processed_copy: int = 0
     files_processed_link: int = 0
@@ -233,6 +234,7 @@ class _OtaClientStatisticsStorage:
     def export_as_dict(self) -> dict:
         return dataclasses.asdict(self)
 
+    # TODO check whether these functions are required or not
     def __getitem__(self, key) -> Any:
         return getattr(self, key)
 
@@ -275,7 +277,7 @@ class OtaClientStatistics(object):
             yield staging_slot
         finally:
             self._slot = staging_slot
-            staging_slot = None
+            staging_slot = None  # TODO check whether correct or not
             self._lock.release()
 
 
@@ -424,7 +426,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         metadata = self._process_metadata(url, cookies)
         total_regular_file_size = metadata.get_total_regular_file_size()
         if total_regular_file_size:
-            self._statistics.set("total_file_size", total_regular_file_size)
+            self._statistics.set("total_regular_file_size", total_regular_file_size)
 
         # process directory file
         logger.debug("[update] process directory files...")
@@ -461,19 +463,20 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # leave update
         # wait for all subECUs before reboot itself
         if post_update_event:
-            logger.debug("waiting for all subECUs to become ready...")
+            logger.info("waiting for all subECUs to become ready...")
             if post_update_event.wait(timeout=3600):  # TODO: hardcoded timeout
-                logger.debug("all subECUs are ready")
+                logger.info("all subECUs are ready")
             else:
                 # upper caller timeout, failed to wait for all subECU to get ready
                 # raise an exception about this and report to the caller agent
                 #
-                # NOTE: this may cause the local ECU to be updated multiple times if any of a subECU keeps failing
+                # NOTE: this may cause the local ECU to be updated multiple
+                # times if any of a subECU keeps failing
                 msg = "cannot ensure all subECUs' are ready, abort current local ota update..."
                 logger.error(msg)
                 raise OtaErrorRecoverable(msg)
 
-        logger.debug("update finished, entering post-update...")
+        logger.info("update finished, entering post-update...")
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
         self.leave_update()
 

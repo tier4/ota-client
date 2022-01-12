@@ -7,6 +7,7 @@ from typing import Any
 
 from ota_status import OtaStatus
 
+
 class BootControlInterface(metaclass=abc.ABCMeta):
     """
     platform neutral boot control interface
@@ -24,12 +25,14 @@ class BootControlInterface(metaclass=abc.ABCMeta):
     def finalize_update(self) -> OtaStatus: ...
     def finalize_rollback(self) -> OtaStatus: ...
 
+
 class OtaClientInterface(metaclass=abc.ABCMeta):
     def update(
         self, 
         version, url_base, cookies_json: str, 
         *, 
-        pre_update_event: Event =None, post_update_event: Event=None) -> Any: ...
+        pre_update_event: Event = None, post_update_event: Event = None) -> Any: ...
+
     def rollback(self) -> Any: ...
     def status(self) -> Any: ...
 
