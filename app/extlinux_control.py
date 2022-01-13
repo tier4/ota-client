@@ -21,7 +21,7 @@ logger = log_util.get_logger(
 def _read_file(path: Path) -> str:
     try:
         return path.read_text().strip()
-    except:
+    except Exception:
         return ""
 
 
@@ -716,10 +716,6 @@ class CBootControlMixin(BootControlInterface):
 
     def boot_ctrl_pre_update(self, version):
         logger.debug("entering pre-update...")
-        self.store_slot_in_use_file(
-            Nvbootctrl.get_standby_slot(), self._slot_in_use_file
-        )
-
         # setup updating
         self._boot_control.set_standby_slot_unbootable()
         self._cleanup_standby_rootfs_parititon()
