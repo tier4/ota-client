@@ -1,8 +1,9 @@
 import asyncio
 import grpc
+from typing import Tuple
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from threading import Event, Lock
+from threading import Event, Lock, Condition
 
 import otaclient_v2_pb2 as v2
 from ota_error import OtaError, OtaErrorRecoverable, OtaErrorUnrecoverable
@@ -30,7 +31,7 @@ def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
     for k, v in input.items():
         try:
             msg_field = getattr(res, k)
-        except:
+        except Exception:
             continue
 
         if isinstance(msg_field, Number) and isinstance(v, Number):
@@ -52,6 +53,7 @@ class OtaClientStub:
 
         # for _get_subecu_status
         self._status_pulling_lock = Lock()
+        self._cached_status_cv: Condition = Condition()
         self._cached_status: v2.StatusResponse = None
         self._cached_if_subecu_ready: bool = None
 
@@ -179,7 +181,7 @@ class OtaClientStub:
         # subecu
         # NOTE: modify the input response object in-place
         await asyncio.wait_for(
-            asyncio.create_task(self._get_subecu_status(request, response)),
+            asyncio.create_task(self._get_subecu_status(response)),
             timeout=server_cfg.WAITING_GET_SUBECU_STATUS,
         )
 
@@ -232,6 +234,10 @@ class OtaClientStub:
             post_update_event=post_update_event,
         )
 
+        # FIXME:
+        # If update returns "busy", it means that update was called during
+        # update, so the subsequent process should not be performed.
+
         # pulling subECU status
         # NOTE: the method will block until all the subECUs' status are as expected
         try:
@@ -257,12 +263,11 @@ class OtaClientStub:
 
     async def _get_subecu_status(
         self,
-        output_response: v2.StatusResponse = None,  # output
+        response: v2.StatusResponse,
         failed_ecu: list = None,  # output
     ) -> bool:
         """
         fill the response with subecu status
-        pulling status only when input response is None
 
         at anytime there will be only one on-going _get_subecu_status running,
         to prevent request flooding, the result will be cached
@@ -276,18 +281,15 @@ class OtaClientStub:
             return True
 
         if self._status_pulling_lock.acquire(blocking=False):
-            response = v2.StatusResponse()
             failed_ecu = [] if failed_ecu is None else failed_ecu
-            res = True
 
             # dispatch status pulling requests to all subecu
             tasks = []
             for secondary in secondary_ecus:
+                request = v2.StatusRequest()
                 tasks.append(
                     asyncio.create_task(
-                        self._ota_client_call.status(
-                            v2.StatusRequest(), secondary["ip_addr"]
-                        ),
+                        self._ota_client_call.status(request, secondary["ip_addr"]),
                         name=secondary["ecu_id"],
                     )
                 )
@@ -302,7 +304,6 @@ class OtaClientStub:
                 if exp is not None:
                     # exception raised from the task
                     failed_ecu.append(ecu_id)
-                    res = False
 
                     logger.warning(f"{ecu_id} is UNAVAILABLE: {exp!r}")
                     if isinstance(exp, grpc.RpcError):
@@ -321,7 +322,6 @@ class OtaClientStub:
                         ecu.CopyFrom(e)
                         logger.debug(f"{ecu.ecu_id=}, {ecu.result=}")
 
-            res = False if len(pending) != 0 else res
             for t in pending:
                 # task timeout
                 failed_ecu.append(t.get_name())
@@ -331,19 +331,100 @@ class OtaClientStub:
                 ecu.ecu_id = t.get_name()
                 ecu.result = v2.FAILURE
 
-            self._cached_if_subecu_ready = res
-            self._cached_status = response
+            ret = True if len(pending) == 0 and len(failed_ecu) == 0 else False
+            self._cached_if_subecu_ready = ret
+            with self._cached_status_cv:
+                self._cached_status.CopyFrom(response)
+                self._cached_status_cv.notify()
             self._status_pulling_lock.release()
+
+            return ret
+
         else:
             # there is an on-going pulling, use the cache or wait for the result from it
-            while self._cached_status is None:
-                await asyncio.sleep(1)
+            with self._cached_status_cv:
+                self._cached_status_cv.wait_for(lambda: self._cached_status)
+                response.CopyFrom(self._cached_status)
+            return self._cached_if_subecu_ready
 
-            if output_response is not None:
-                output_response.CopyFrom(self._cached_status)
-            res = self._cached_if_subecu_ready
+    def _pulling_subecu_status(self, failed_ecu_list: list) -> Tuple[bool, bool]:
+        """
+        This function return two bool values:
+        - all subecus are reachable (return value of _get_subecu_status)
+        - all directly connected subECUs are in SUCCESS or FAILURE
+        """
+        response = v2.StatusResponse()
+        success_ecu_list = []
+        on_going_ecu_list = []
 
-        return res
+        # get the list of directly connect subecu
+        subecu_directly_connected = {
+            e["ecu_id"]: v2.FAILURE for e in self._ecu_info.get_secondary_ecus()
+        }
+
+        all_subecus_reachable = self._get_subecu_status(response, failed_ecu_list)
+
+        if not all_subecus_reachable:
+            return False, False
+
+        # _get_subecu_status return True, means that all directly
+        # connected subECUs are reachable
+        for e in response.ecu:
+            if e.result != v2.NO_FAILURE:
+                failed_ecu_list.append(e.ecu_id)
+                msg = f"Secondary ECU {e.ecu_id} failed: {e.result=}"
+                logger.error(msg)
+                continue
+
+            # directly connected subECU
+            ota_status = e.status.status
+            if e.ecu_id in subecu_directly_connected:
+                subecu_directly_connected[e.ecu_id] = ota_status
+
+            if ota_status == v2.StatusOta.FAILURE:
+                failed_ecu_list.append(e.ecu_id)
+                logger.error(f"Secondary ECU {e.ecu_id} failed: {e.status.status=}")
+            elif ota_status == v2.StatusOta.SUCCESS:
+                success_ecu_list.append(e.ecu_id)
+            elif ota_status == v2.StatusOta.UPDATING:
+                on_going_ecu_list.append(e.ecu_id)
+
+        logger.debug(
+            "\nstatus pulling for all child ecu: \n"
+            f"{failed_ecu_list=}\n"
+            f"{on_going_ecu_list=}\n"
+            f"{success_ecu_list=}"
+        )
+
+        # ensure directly connect ecu status
+        failed_directly_connected_ecu = []
+
+        def is_keep_pulling():
+            for ecu, st in subecu_directly_connected.items():
+                if st == v2.StatusOta.UPDATING:
+                    return True
+                elif st == v2.StatusOta.FAILURE or st == v2.FAILURE:
+                    failed_directly_connected_ecu.append(ecu)
+            return False
+
+        keep_pulling = is_keep_pulling()
+
+        if not keep_pulling:
+            # all directly connected subECUs are in SUCCESS or FAILURE status
+            if failed_directly_connected_ecu:
+                logger.warning(
+                    "all directly connected subecus have finished the ota update,"
+                    "but some subECUs failed to apply the ota update."
+                    f"failed directly subECUs presented: {failed_directly_connected_ecu}"
+                )
+                raise OtaErrorRecoverable(
+                    f"failed directly subECUs presented: {failed_directly_connected_ecu}"
+                )
+            else:
+                logger.info(
+                    "all directly connected secondary ecus are updated successfully."
+                )
+        return True, keep_pulling
 
     async def _loop_pulling_subecu_status(
         self, retry: int = 6, pulling_count: int = 600
@@ -353,75 +434,20 @@ class OtaClientStub:
         """
         retry_count = 0
 
-        # get the list of directly connect subecu
-        subecu_flag_dict = {
-            e["ecu_id"]: v2.FAILURE for e in self._ecu_info.get_secondary_ecus()
-        }
-        if not subecu_flag_dict:
+        if not self._ecu_info.get_secondary_ecus():
             return  # return when no subecu is attached
 
         for _ in range(pulling_count):
             # pulling interval
             await asyncio.sleep(server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
 
-            st = v2.StatusResponse()
-            failed_ecu_list, success_ecu_list, on_going_ecu_list = [], [], []
+            failed_ecu_list = []
+            all_subecu_reachable, keep_pulling = self._pulling_subecu_status(
+                self, failed_ecu_list
+            )
 
-            if self._get_subecu_status(st, failed_ecu_list):
-                # _get_subecu_status return True, means that all directly connected subECUs are reachable
-                for e in st.ecu:
-                    if e.result != v2.NO_FAILURE:
-                        failed_ecu_list.append(e.ecu_id)
-                        msg = f"Secondary ECU {e.ecu_id} failed: {e.result=}"
-                        logger.error(msg)
-                        continue
-
-                    # directly connected subECU
-                    ota_status = e.status.status
-                    if e.ecu_id in subecu_flag_dict:
-                        subecu_flag_dict[e.ecu_id] = ota_status
-
-                    if ota_status == v2.StatusOta.FAILURE:
-                        failed_ecu_list.append(e.ecu_id)
-                        logger.error(
-                            f"Secondary ECU {e.ecu_id} failed: {e.status.status=}"
-                        )
-                    elif ota_status == v2.StatusOta.SUCCESS:
-                        success_ecu_list.append(e.ecu_id)
-                    elif ota_status == v2.StatusOta.UPDATING:
-                        on_going_ecu_list.append(e.ecu_id)
-
-                logger.debug(
-                    "\nstatus pulling for all child ecu: \n"
-                    f"{failed_ecu_list=}\n"
-                    f"{on_going_ecu_list=}\n"
-                    f"{success_ecu_list=}"
-                )
-
-                # ensure directly connect ecu status
-                keep_pulling = False
-                failed_directly_connected_ecu = []
-                for e, s in subecu_flag_dict.items():
-                    if s == v2.StatusOta.UPDATING and not keep_pulling:
-                        keep_pulling = True
-                    elif s == v2.StatusOta.FAILURE or s == v2.FAILURE:
-                        failed_directly_connected_ecu.append(e)
-
+            if all_subecu_reachable:
                 if not keep_pulling:
-                    # all directly connected subECUs are in SUCCESS or FAILURE status
-                    if failed_directly_connected_ecu:
-                        logger.warning(
-                            "all directly connected subecus have finished the ota update,"
-                            "but some subECUs failed to apply the ota update."
-                            f"failed directly subECUs presented: {failed_directly_connected_ecu}"
-                        )
-                        raise OtaErrorRecoverable(
-                            f"failed directly subECUs presented: {failed_directly_connected_ecu}"
-                        )
-                    else:
-                        logger.info(
-                            "all directly connected secondary ecus are updated successfully."
-                        )
                     return
             else:
                 # unreachable directly connected subECUs presented
