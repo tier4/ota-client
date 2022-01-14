@@ -30,7 +30,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
     def Status(self, request, context):
         response = asyncio.run(self._stub.status(request))
-        logger.info(f"{response=}")
+        logger.debug(f"{response=}")
         return response
 
 
@@ -51,3 +51,39 @@ def service_wait_for_termination(server):
 
 def service_stop(server):
     server.stop(None)
+
+
+if __name__ == "__main__":
+    import time
+    from configs import server_cfg
+    import otaclient_v2_pb2 as v2
+
+    with grpc.insecure_channel(f"localhost:{server_cfg.SERVER_PORT}") as channel:
+        stub = v2_grpc.OtaClientServiceStub(channel)
+        request = v2.StatusRequest()
+        response = stub.Status(request)
+        logger.info(f"{response=}")
+
+        request = v2.UpdateRequest()
+
+        # "autoware" ecu
+        ecu = request.ecu.add()
+        ecu.ecu_id = "autoware"
+        ecu.version = "1.2.3"
+        ecu.url = "http://192.168.56.1:8081/autoware"
+        ecu.cookies = "{}"
+
+        # "sub" ecu
+        ecu = request.ecu.add()
+        ecu.ecu_id = "sub"
+        ecu.version = "4.5.6"
+        ecu.url = "http://192.168.56.1:8081/autoware"
+        ecu.cookies = "{}"
+
+        response = stub.Update(request)
+        logger.info(f"{response=}")
+        while True:
+            request = v2.StatusRequest()
+            response = stub.Status(request)
+            logger.info(f"{response=}")
+            time.sleep(5)
