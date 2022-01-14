@@ -13,7 +13,7 @@ class OtaClientServerConfig:
     WAITING_SUBECU_READY_TIMEOUT: float = 3600  # 1h
     LOCAL_OTA_UPDATE_TIMEOUT: float = 3600  # 1h
     QUERYING_SUBECU_STATUS_TIMEOUT: float = 120  # 2mins
-    LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 6
+    LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 10
 
 
 @dataclass

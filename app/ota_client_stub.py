@@ -429,18 +429,15 @@ class OtaClientStub:
                 )
         return True, keep_pulling
 
-    async def _loop_pulling_subecu_status(
-        self, retry: int = 6, pulling_count: int = 600
-    ):
+    async def _loop_pulling_subecu_status(self):
         """
         loop pulling subECUs' status recursively, until all the subECUs are in certain status
         """
-        retry_count = 0
 
         if not self._ecu_info.get_secondary_ecus():
             return  # return when no subecu is attached
 
-        for _ in range(pulling_count):
+        while True:
             # pulling interval
             await asyncio.sleep(server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
 
@@ -454,17 +451,18 @@ class OtaClientStub:
                     return
             else:
                 # unreachable directly connected subECUs presented
-                retry_count += 1
-                logger.debug(
-                    f"retry pulling subECUs status due to unreachable subECUs {failed_ecu_list}, {retry_count=}"
+                logger.info(
+                    f"retry pulling subECUs status due to unreachable subECUs {failed_ecu_list}"
                 )
 
+                """
                 if retry_count > retry:
                     # there is at least one subecu is unreachable, even with retrying n times
                     logger.debug(f"unreachable subECU list: {failed_ecu_list}")
                     raise OtaErrorUnrecoverable(
                         f"failed to contact subECUs: {failed_ecu_list}"
                     )
+                """
 
     async def _ensure_subecu_status(self, timeout: float):
         """
