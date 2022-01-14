@@ -73,7 +73,7 @@ class OtaClientStub:
         logger.info(f"{secondary_ecus=}")
         # simultaneously dispatching update requests to all subecus without blocking
         for secondary in secondary_ecus:
-            if OtaClientStub._find_request(request.ecu, secondary):
+            if OtaClientStub._find_request(request.ecu, secondary["ecu_id"]):
                 tasks.append(
                     asyncio.create_task(
                         self._ota_client_call.update(request, secondary["ip_addr"]),
@@ -120,7 +120,7 @@ class OtaClientStub:
         # wait for all sub ecu acknowledge ota update requests
         if len(tasks):  # if we have sub ecu to update
             done, pending = await asyncio.wait(
-                tasks, timeout=cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
+                tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
             )
             for t in pending:
                 ecu_id = t.get_name()
@@ -337,7 +337,7 @@ class OtaClientStub:
             ret = True if len(pending) == 0 and len(failed_ecu) == 0 else False
             self._cached_if_subecu_ready = ret
             with self._cached_status_cv:
-                self._cached_status.CopyFrom(response)
+                self._cached_status = response
                 self._cached_status_cv.notify()
             self._status_pulling_lock.release()
 
@@ -350,7 +350,7 @@ class OtaClientStub:
                 response.CopyFrom(self._cached_status)
             return self._cached_if_subecu_ready
 
-    def _pulling_subecu_status(self, failed_ecu_list: list) -> Tuple[bool, bool]:
+    async def _pulling_subecu_status(self, failed_ecu_list: list) -> Tuple[bool, bool]:
         """
         This function return two bool values:
         - all subecus are reachable (return value of _get_subecu_status)
@@ -365,7 +365,7 @@ class OtaClientStub:
             e["ecu_id"]: v2.FAILURE for e in self._ecu_info.get_secondary_ecus()
         }
 
-        all_subecus_reachable = self._get_subecu_status(response, failed_ecu_list)
+        all_subecus_reachable = await self._get_subecu_status(response, failed_ecu_list)
 
         if not all_subecus_reachable:
             return False, False
@@ -445,8 +445,8 @@ class OtaClientStub:
             await asyncio.sleep(server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
 
             failed_ecu_list = []
-            all_subecu_reachable, keep_pulling = self._pulling_subecu_status(
-                self, failed_ecu_list
+            all_subecu_reachable, keep_pulling = await self._pulling_subecu_status(
+                failed_ecu_list
             )
 
             if all_subecu_reachable:
