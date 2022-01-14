@@ -60,6 +60,9 @@ class OtaClientStub:
     def __del__(self):
         self._executor.shutdown()
 
+    def host_addr(self):
+        return self._ecu_info.get_ecu_ip_addr()
+
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
         logger.info(f"{request=}")
         response = v2.UpdateResponse()
