@@ -276,7 +276,7 @@ class OtaClientStatistics(object):
             yield staging_slot
         finally:
             self._slot = staging_slot
-            staging_slot = None  # TODO check whether correct or not
+            # staging_slot = None  # TODO check whether correct or not
             self._lock.release()
 
 
