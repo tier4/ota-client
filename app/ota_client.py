@@ -1,3 +1,4 @@
+import dataclasses
 import tempfile
 import requests
 import shutil
@@ -6,12 +7,13 @@ import re
 import os
 import time
 import json
+from typing import Any
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
 from json.decoder import JSONDecodeError
 from multiprocessing import Pool, Manager
-from threading import Lock
+from threading import Event, Lock
 from functools import partial
 from enum import Enum, unique
 from requests.exceptions import RequestException
@@ -210,28 +212,39 @@ class OtaClientUpdatePhase(Enum):
     POST_PROCESSING = 6
 
 
+@dataclasses.dataclass
+class _OtaClientStatisticsStorage:
+    total_regular_files: int = 0
+    total_regular_file_size: int = 0
+    regular_files_processed: int = 0
+    files_processed_copy: int = 0
+    files_processed_link: int = 0
+    files_processed_download: int = 0
+    file_size_processed_copy: int = 0
+    file_size_processed_link: int = 0
+    file_size_processed_download: int = 0
+    elapsed_time_copy: int = 0
+    elapsed_time_link: int = 0
+    elapsed_time_download: int = 0
+    errors_download: int = 0
+
+    def copy(self):
+        return dataclasses.replace(self)
+
+    def export_as_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+    def __getitem__(self, key) -> Any:
+        return getattr(self, key)
+
+    def __setitem__(self, key: str, value: Any):
+        setattr(self, key, value)
+
+
 class OtaClientStatistics(object):
     def __init__(self):
         self._lock = Lock()
-        self._slot = self._init_statistics_storage()
-
-    @staticmethod
-    def _init_statistics_storage() -> dict:
-        return {
-            "total_files": 0,
-            "total_file_size": 0,
-            "files_processed": 0,
-            "files_processed_copy": 0,
-            "files_processed_link": 0,
-            "files_processed_download": 0,
-            "file_size_processed_copy": 0,
-            "file_size_processed_link": 0,
-            "file_size_processed_download": 0,
-            "elapsed_time_copy": 0,  # in milliseconds
-            "elapsed_time_link": 0,  # in milliseconds
-            "elapsed_time_download": 0,  # in milliseconds
-            "errors_download": 0,
-        }
+        self._slot = _OtaClientStatisticsStorage()
 
     def get_snapshot(self):
         """
@@ -244,13 +257,13 @@ class OtaClientStatistics(object):
         set a single attr in the slot
         """
         with self._lock:
-            self._slot[attr] = value
+            setattr(self._slot, attr, value)
 
     def clear(self):
         """
         clear the storage slot and reset to empty
         """
-        self._slot = self._init_statistics_storage()
+        self._slot = _OtaClientStatisticsStorage()
 
     @contextmanager
     def acquire_staging_storage(self):
@@ -259,11 +272,10 @@ class OtaClientStatistics(object):
         """
         try:
             self._lock.acquire()
-            staging_slot: dict = self._slot.copy()
+            staging_slot: _OtaClientStatisticsStorage = self._slot.copy()
             yield staging_slot
         finally:
-            self._slot = staging_slot.copy()
-            staging_slot.clear()
+            self._slot = staging_slot
             self._lock.release()
 
 
@@ -281,11 +293,25 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # statistics
         self._statistics = OtaClientStatistics()
 
-    def update(self, version, url_base, cookies_json: str, event=None):
+    def update(
+        self,
+        version,
+        url_base,
+        cookies_json: str,
+        *,
+        pre_update_event: Event = None,
+        post_update_event: Event = None,
+    ):
         logger.debug("[update] entering...")
         try:
             cookies = json.loads(cookies_json)
-            self._update(version, url_base, cookies, event)
+            self._update(
+                version,
+                url_base,
+                cookies,
+                pre_update_event=pre_update_event,
+                post_update_event=post_update_event,
+            )
             return self._result_ok()
         except OtaErrorBusy:  # there is an on-going update
             # not setting ota_status
@@ -302,8 +328,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self.store_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
         finally:
-            if event:
-                event.set()
+            if pre_update_event:
+                pre_update_event.set()
 
     def rollback(self):
         try:
@@ -355,7 +381,15 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._failure_reason = str(e)
         return OtaClientFailureType.UNRECOVERABLE
 
-    def _update(self, version, url_base, cookies, event=None):
+    def _update(
+        self,
+        version,
+        url_base,
+        cookies,
+        *,
+        pre_update_event: Event = None,
+        post_update_event: Event = None,
+    ):
         logger.info(f"{version=},{url_base=},{cookies=}")
         """
         e.g.
@@ -365,15 +399,23 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        # enter update
+
+        # set the status for ota-updating
         with self._lock:
-            self.enter_update(version)
+            self.check_update_status()
+
+            # set ota status
+            self.set_ota_status(OtaStatus.UPDATING)
+            # set update status
             self._update_phase = OtaClientUpdatePhase.INITIAL
             self._failure_type = OtaClientFailureType.NO_FAILURE
             self._failure_reason = ""
             self._statistics.clear()
-        if event:
-            event.set()
+        if pre_update_event:
+            pre_update_event.set()
+
+        # pre-update
+        self.enter_update(version)
 
         # process metadata.jwt
         logger.debug("[update] process metadata...")
@@ -382,7 +424,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         metadata = self._process_metadata(url, cookies)
         total_regular_file_size = metadata.get_total_regular_file_size()
         if total_regular_file_size:
-            self._statistics.set("total_file_size", total_regular_file_size)
+            self._statistics.set("total_regular_file_size", total_regular_file_size)
 
         # process directory file
         logger.debug("[update] process directory files...")
@@ -417,7 +459,22 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         )
 
         # leave update
-        logger.debug("[update] update finished, entering post-update...")
+        # wait for all subECUs before reboot itself
+        if post_update_event:
+            logger.info("waiting for all subECUs to become ready...")
+            if post_update_event.wait(timeout=3600):  # TODO: hardcoded timeout
+                logger.info("all subECUs are ready")
+            else:
+                # upper caller timeout, failed to wait for all subECU to get ready
+                # raise an exception about this and report to the caller agent
+                #
+                # NOTE: this may cause the local ECU to be updated multiple
+                # times if any of a subECU keeps failing
+                msg = "cannot ensure all subECUs' are ready, abort current local ota update..."
+                logger.error(msg)
+                raise OtaErrorRecoverable(msg)
+
+        logger.info("update finished, entering post-update...")
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
         self.leave_update()
 
@@ -431,36 +488,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self.leave_rollback()
 
     def _status(self) -> dict:
-        _statistics = self._statistics.get_snapshot()
+        update_progress = self._statistics.get_snapshot().export_as_dict()
+        # add extra fields
+        update_progress["phase"] = self._update_phase.name
+
         return {
             "status": self.get_ota_status().name,
             "failure_type": self._failure_type.name,
             "failure_reason": self._failure_reason,
             "version": self.get_version(),
-            "update_progress": {
-                "phase": self._update_phase.name,
-                "total_regular_files": _statistics.get("total_files", 0),
-                "total_regular_file_size": _statistics.get("total_file_size", 0),
-                "regular_files_processed": _statistics.get("files_processed", 0),
-                "files_processed_copy": _statistics.get("files_processed_copy", 0),
-                "files_processed_link": _statistics.get("files_processed_link", 0),
-                "files_processed_download": _statistics.get(
-                    "files_processed_download", 0
-                ),
-                "file_size_processed_copy": _statistics.get(
-                    "file_size_processed_copy", 0
-                ),
-                "file_size_processed_link": _statistics.get(
-                    "file_size_processed_link", 0
-                ),
-                "file_size_processed_download": _statistics.get(
-                    "file_size_processed_download", 0
-                ),
-                "elapsed_time_copy": _statistics.get("elapsed_time_copy", 0),
-                "elapsed_time_link": _statistics.get("elapsed_time_link", 0),
-                "elapsed_time_download": _statistics.get("elapsed_time_download", 0),
-                "errors_download": _statistics.get("errors_download", 0),
-            },
+            "update_progress": update_progress,
         }
 
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
@@ -571,11 +608,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         all_processed = len(sts)
         with self._statistics.acquire_staging_storage() as staging_storage:
             # NOTE: "files_processed" key and "total_files" key should be presented!
-            already_processed = staging_storage["files_processed"]
-            if already_processed >= staging_storage["total_files"]:
+            already_processed = staging_storage.regular_files_processed
+            if already_processed >= staging_storage.total_regular_files:
                 return
 
-            staging_storage["files_processed"] += all_processed - already_processed
+            staging_storage.regular_files_processed += all_processed - already_processed
             for st in sts[already_processed:all_processed]:
                 _suffix = st.get("op")
                 if _suffix in {"copy", "link", "download"}:
@@ -591,7 +628,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
         reginf_list_raw_lines = open(list_file).readlines()
-        self._statistics.set("total_files", len(reginf_list_raw_lines))
+        # NOTE: check _OtaStatisticsStorage for available attributes
+        self._statistics.set("total_regular_files", len(reginf_list_raw_lines))
 
         with Manager() as manager:
             error_queue = manager.Queue()
@@ -744,11 +782,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 copy_tree.copy_with_parents(perinf.path, standby_path)
 
     def enter_update(self, version):
-        logger.debug("check if ota_status is valid for updating...")
-        self.check_update_status()
-
         logger.debug("pre-update setup...")
-        self.set_ota_status(OtaStatus.UPDATING)
         self.boot_ctrl_pre_update(version)
         self.store_standby_ota_status(OtaStatus.UPDATING)
         logger.debug("finished pre-update setup")

@@ -11,6 +11,7 @@ from ota_client_service import (
 import otaclient_v2_pb2_grpc as v2_grpc
 
 from configs import config as cfg
+from configs import server_cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -48,7 +49,7 @@ if __name__ == "__main__":
     ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
 
     server = service_start(
-        "localhost:50051",
+        f"{ota_client_stub.host_addr()}:{server_cfg.SERVER_PORT}",
         [
             {"grpc": v2_grpc, "instance": ota_client_service_v2},
         ],

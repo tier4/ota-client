@@ -21,7 +21,7 @@ logger = log_util.get_logger(
 def _read_file(path: Path) -> str:
     try:
         return path.read_text().strip()
-    except:
+    except Exception:
         return ""
 
 
@@ -721,7 +721,7 @@ class CBootControlMixin(BootControlInterface):
         self._cleanup_standby_rootfs_parititon()
         self._mount_standby()
 
-        # store status
+        # store status to standby slot
         self.store_standby_ota_version(version)
         self.store_slot_in_use_file(
             self._boot_control.get_standby_slot(), self._slot_in_use_file

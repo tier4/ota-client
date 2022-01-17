@@ -2,7 +2,6 @@ from concurrent import futures
 
 import grpc
 import asyncio
-import otaclient_v2_pb2 as v2
 import otaclient_v2_pb2_grpc as v2_grpc
 from configs import config as cfg
 import log_util
@@ -19,69 +18,19 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
     def Update(self, request, context):
         logger.info(f"{request=}")
-        # TODO: conver grpc request to dict
-        results = asyncio.run(self._stub.update(request))
-        logger.info(f"{results=}")
-        response = v2.UpdateResponse()
+        response = asyncio.run(self._stub.update(request))
         logger.info(f"{response=}")
-        for result in results:
-            res_ecu = response.ecu.add()
-            res_ecu.ecu_id = result["ecu_id"]
-            res_ecu.result = result["result"]
         return response
 
     def Rollback(self, request, context):
         logger.info(f"{request=}")
-        # TODO: conver grpc request to dict
-        results = self._stub.rollback(request)
-        logger.info(f"{results=}")
-        response = v2.RollbackResponse()
+        response = self._stub.rollback(request)
         logger.info(f"{response=}")
-        for result in results:
-            res_ecu = response.ecu.add()
-            res_ecu.ecu_id = result["ecu_id"]
-            res_ecu.result = result["result"]
         return response
 
     def Status(self, request, context):
-        # TODO: conver grpc request to dict
-        results = self._stub.status(request)
-        response = v2.StatusResponse()
-
-        def set_progress(in_progress, out_progress):
-            ip = in_progress
-            op = out_progress
-
-            # ecu.status.progress
-            op.phase = v2.StatusProgressPhase.Value(ip["phase"])
-            op.total_regular_files = ip["total_regular_files"]
-            op.regular_files_processed = ip["regular_files_processed"]
-            #
-            op.files_processed_copy = ip["files_processed_copy"]
-            op.files_processed_link = ip["files_processed_link"]
-            op.files_processed_download = ip["files_processed_download"]
-            op.file_size_processed_copy = ip["file_size_processed_copy"]
-            op.file_size_processed_link = ip["file_size_processed_link"]
-            op.file_size_processed_download = ip["file_size_processed_download"]
-            op.elapsed_time_copy.FromMilliseconds(ip["elapsed_time_copy"])
-            op.elapsed_time_link.FromMilliseconds(ip["elapsed_time_link"])
-            op.elapsed_time_download.FromMilliseconds(ip["elapsed_time_download"])
-            op.errors_download = ip["errors_download"]
-
-        for result in results:
-            res_ecu = response.ecu.add()
-            res_ecu.ecu_id = result["ecu_id"]
-            res_ecu.result = result["result"]
-            status = result.get("status")
-            if status:
-                # ecu.status
-                es = res_ecu.status
-                es.status = v2.StatusOta.Value(status["status"])
-                es.failure = v2.FailureType.Value(status["failure_type"])
-                es.failure_reason = status["failure_reason"]
-                es.version = status["version"]
-                set_progress(status["update_progress"], es.progress)
-
+        response = asyncio.run(self._stub.status(request))
+        logger.debug(f"{response=}")
         return response
 
 
@@ -102,3 +51,39 @@ def service_wait_for_termination(server):
 
 def service_stop(server):
     server.stop(None)
+
+
+if __name__ == "__main__":
+    import time
+    from configs import server_cfg
+    import otaclient_v2_pb2 as v2
+
+    with grpc.insecure_channel(f"localhost:{server_cfg.SERVER_PORT}") as channel:
+        stub = v2_grpc.OtaClientServiceStub(channel)
+        request = v2.StatusRequest()
+        response = stub.Status(request)
+        logger.info(f"{response=}")
+
+        request = v2.UpdateRequest()
+
+        # "autoware" ecu
+        ecu = request.ecu.add()
+        ecu.ecu_id = "autoware"
+        ecu.version = "1.2.3"
+        ecu.url = "http://192.168.56.1:8081/autoware"
+        ecu.cookies = "{}"
+
+        # "sub" ecu
+        ecu = request.ecu.add()
+        ecu.ecu_id = "sub"
+        ecu.version = "4.5.6"
+        ecu.url = "http://192.168.56.1:8081/autoware"
+        ecu.cookies = "{}"
+
+        response = stub.Update(request)
+        logger.info(f"{response=}")
+        while True:
+            request = v2.StatusRequest()
+            response = stub.Status(request)
+            logger.info(f"{response=}")
+            time.sleep(5)

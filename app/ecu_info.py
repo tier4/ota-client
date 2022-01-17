@@ -26,6 +26,9 @@ class EcuInfo:
     def get_ecu_id(self):
         return self._ecu_info["ecu_id"]
 
+    def get_ecu_ip_addr(self):
+        return self._ecu_info.get("ip_addr", "localhost")
+
     def _load_ecu_info(self, path):
         try:
             with open(path) as f:

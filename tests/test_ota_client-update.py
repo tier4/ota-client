@@ -358,8 +358,8 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
             "123.x",
             "http://ota-server:8080/ota-server",
             json.dumps({"test": "my-cookie"}),
-            event,
         ),
+        kwargs={"pre_update_event": event},
     )
     th1.start()
     event.wait()
@@ -378,8 +378,8 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
             "123.x",
             "http://ota-server:8080/ota-server",
             json.dumps({"test": "my-cookie"}),
-            event,
         ),
+        kwargs={"pre_update_event": event},
     )
     th2.start()
     event.wait()
@@ -404,8 +404,8 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
             "123.x",
             "http://ota-server:8080/ota-server",
             "illegal json string",
-            event,
         ),
+        kwargs={"pre_update_event": event},
     )
     th.start()
     event.wait()  # event should be set even if error.

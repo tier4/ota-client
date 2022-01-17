@@ -1,10 +1,14 @@
-class OtaErrorBusy(Exception):
-    pass
+class OtaError(Exception):
+    ...
 
 
-class OtaErrorRecoverable(Exception):
-    pass
+class OtaErrorBusy(OtaError):
+    ...
 
 
-class OtaErrorUnrecoverable(Exception):
-    pass
+class OtaErrorRecoverable(OtaError):
+    ...
+
+
+class OtaErrorUnrecoverable(OtaError):
+    ...

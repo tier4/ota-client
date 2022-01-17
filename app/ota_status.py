@@ -36,6 +36,7 @@ class OtaStatusControlMixin:
         self._ota_status = ota_status
 
     def check_update_status(self):
+        logger.debug("check if ota_status is valid for updating...")
         # check status
         if self._ota_status not in [
             OtaStatus.INITIALIZED,
