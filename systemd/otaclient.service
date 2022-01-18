@@ -7,7 +7,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/ota/client/app/main.py
+ExecStart=/usr/bin/python3.8 /opt/ota/client/app/main.py
 Restart=always
 
 [Install]
