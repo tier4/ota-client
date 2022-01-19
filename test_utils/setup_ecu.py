@@ -108,17 +108,14 @@ def server_start(
 def mainecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.server]:
     ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
 
-    f = executor.submit(
-        server_start,
+    server = server_start(
         ecu_id=ecu_info["ecu_id"],
         pool=executor,
         ip=ecu_info["ip_addr"],
         port=ecu_info.get("port", _DEFAULT_PORT),
     )
-    server = f.result()
-    return [
-        server,
-    ]
+    
+    return [server,]
 
 
 def subecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.server]:
@@ -144,17 +141,14 @@ def subecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.s
 def standalone_mode(
     executor: ThreadPoolExecutor, args: argparse.Namespace
 ) -> List[grpc.server]:
-    f = executor.submit(
-        server_start,
+    server = server_start(
         ecu_id="standalone",
         pool=executor,
         ip=args.ip,
         port=args.port,
     )
-    server = f.result()
-    return [
-        server,
-    ]
+
+    return [server,]
 
 
 def load_ecu_info(ecu_info_file: str) -> dict:
