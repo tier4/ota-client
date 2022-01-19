@@ -226,4 +226,4 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _sign_handler_wrapper(servers_list, executor))
 
     while True:
-        pass  # wait for the SIGINT
+        time.sleep(2)  # wait for the SIGINT
