@@ -122,6 +122,7 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
             "elapsed_time_link": 120,
             "elapsed_time_download": 9870,
             "errors_download": 10,
+            "total_regular_file_size": 987654321,
         },
     }
 
@@ -156,6 +157,7 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
         res_ecu.status.progress.elapsed_time_link.FromMilliseconds(120)
         res_ecu.status.progress.elapsed_time_download.FromMilliseconds(9870)
         res_ecu.status.progress.errors_download = 10
+        res_ecu.status.progress.total_regular_file_size = 987654321
 
         assert response == response_exp
 
