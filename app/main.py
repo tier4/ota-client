@@ -28,8 +28,6 @@ def main():
         version = open(version_file).read()
         logger.info(version)
 
-
-if __name__ == "__main__":
     if cfg is None:
         sys.exit("unsupported platform, abort")
 
