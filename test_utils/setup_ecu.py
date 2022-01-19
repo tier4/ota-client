@@ -1,14 +1,4 @@
-###### load path ######
-def _path_load():
-    import sys
-    from pathlib import Path
-
-    project_base = Path(__file__).absolute().parent.parent
-    sys.path.extend([str(project_base), str(project_base / "app")])
-
-
-_path_load()
-######
+import path_loader
 
 import argparse
 from typing import List
@@ -171,6 +161,7 @@ def _sign_handler_wrapper(server_list: List[grpc.server], executor: ThreadPoolEx
 
 
 if __name__ == "__main__":
+    logger.debug(f"load path by {path_loader.__name__}")
     parser = argparse.ArgumentParser(description="calling main ECU's API")
     parser.add_argument("-c", "--ecu_info", default="ecu_info.yaml", help="ecu_info")
     parser.add_argument(
@@ -199,12 +190,10 @@ if __name__ == "__main__":
     if args.mode not in _MODE:
         parser.error(f"invalid mode {args.mode}, should be one of {_MODE}")
 
-    if args.mode != "standalone":
-        ecu_info_file = Path(args.ecu_info)
-        if not ecu_info_file.is_file():
-            parser.error(
-                f"invalid {ecu_info_file=!r}. ecu_info.yaml is required for non-standalone mode"
-            )
+    if args.mode != "standalone" and not Path(args.ecu_info).is_file():
+        parser.error(
+            f"invalid ecu_info_file {args.ecu_info!r}. ecu_info.yaml is required for non-standalone mode"
+        )
 
     executor = ThreadPoolExecutor()
     servers_list: List[grpc.server] = []

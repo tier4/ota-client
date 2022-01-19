@@ -1,14 +1,4 @@
-###### load path ######
-def _path_load():
-    import sys
-    from pathlib import Path
-
-    project_base = Path(__file__).absolute().parent.parent
-    sys.path.extend([str(project_base), str(project_base / "app")])
-
-
-_path_load()
-######
+import path_loader
 
 import argparse
 import yaml
@@ -68,6 +58,7 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
+    logger.debug(f"load path by {path_loader.__name__}")
     parser = argparse.ArgumentParser(description="calling main ECU's API")
     parser.add_argument(
         "-c",
