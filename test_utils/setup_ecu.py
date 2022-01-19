@@ -105,7 +105,9 @@ def server_start(
     return server
 
 
-def mainecu_mode(executor: ThreadPoolExecutor, ecu_info: dict) -> List[grpc.server]:
+def mainecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.server]:
+    ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
+
     f = executor.submit(
         server_start,
         ecu_id=ecu_info["ecu_id"],
@@ -119,7 +121,9 @@ def mainecu_mode(executor: ThreadPoolExecutor, ecu_info: dict) -> List[grpc.serv
     ]
 
 
-def subecu_mode(executor: ThreadPoolExecutor, ecu_info: dict) -> List[grpc.server]:
+def subecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.server]:
+    ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
+
     # schedule the servers to the thread pool
     futures = []
     for subecu in ecu_info["secondaries"]:
@@ -197,27 +201,25 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    ecu_info_file = Path(args.ecu_info)
 
     if args.mode not in _MODE:
         parser.error(f"invalid mode {args.mode}, should be one of {_MODE}")
 
     if args.mode != "standalone":
+        ecu_info_file = Path(args.ecu_info)
         if not ecu_info_file.is_file():
             parser.error(
                 f"invalid {ecu_info_file=!r}. ecu_info.yaml is required for non-standalone mode"
             )
 
-    ecu_info = yaml.safe_load(ecu_info_file.read_text())
-
     executor = ThreadPoolExecutor()
     servers_list: List[grpc.server] = []
     if args.mode == "subecus":
         logger.info("subecus mode")
-        servers_list = subecu_mode(executor, ecu_info)
+        servers_list = subecu_mode(executor, args.ecu_info)
     elif args.mode == "mainecu":
         logger.info("mainecu mode")
-        servers_list = mainecu_mode(executor, ecu_info)
+        servers_list = mainecu_mode(executor, args.ecu_info)
     elif args.mode == "standalone":
         logger.info("standalone mode")
         servers_list = standalone_mode(executor, args)
