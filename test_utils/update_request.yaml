@@ -1,0 +1,4 @@
+ecu_id: "autoware"
+version: "789.x"
+url: "http://10.6.65.3:8080"
+cookies: '{"test": "my-cookie"}'
