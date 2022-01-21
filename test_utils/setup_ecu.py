@@ -105,9 +105,7 @@ def mainecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.
         port=ecu_info.get("port", _DEFAULT_PORT),
     )
 
-    return [
-        server,
-    ]
+    return [server]
 
 
 def subecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.server]:
@@ -140,9 +138,7 @@ def standalone_mode(
         port=args.port,
     )
 
-    return [
-        server,
-    ]
+    return [server]
 
 
 def load_ecu_info(ecu_info_file: str) -> dict:

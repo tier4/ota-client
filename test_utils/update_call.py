@@ -1,5 +1,4 @@
 import asyncio
-import yaml
 import json
 import grpc
 
@@ -21,27 +20,6 @@ _default_request = UpdateRequest(
         )
     ],
 )
-
-
-def load_external_update_request(request_yaml_file: str) -> UpdateRequest:
-    with open(request_yaml_file, "r") as f:
-        request_yaml: dict = yaml.safe_load(f)
-        logger.debug(f"load external request: {request_yaml!r}")
-
-        request = UpdateRequest(
-            ecu=[
-                UpdateRequestEcu(
-                    ecu_id=request_yaml.get("ecu_id", "autoware"),
-                    version=request_yaml.get("version", "123.x"),
-                    url=request_yaml.get("url", "http://10.6.65.3:8080"),
-                    cookies=json.dumps(
-                        request_yaml.get("cookies", '{"test": "my-cookie"}')
-                    ),
-                )
-            ],
-        )
-
-    return request
 
 
 async def _update(request, ip_addr, port="50051"):
