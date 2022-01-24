@@ -4,8 +4,6 @@ import botocore.credentials
 import botocore.session
 import boto3
 import logging
-import os
-import sys
 import datetime
 from pytz import utc
 
