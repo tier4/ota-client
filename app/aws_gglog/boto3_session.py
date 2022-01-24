@@ -3,10 +3,14 @@ import json
 import botocore.credentials
 import botocore.session
 import boto3
-import re
 import logging
+import os
+import sys
 import datetime
 from pytz import utc
+
+sys.path.append(os.path.dirname(__file__))
+from greengrass_config import GreengrassConfig
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -16,9 +20,16 @@ logger.addHandler(_sh)
 
 class Boto3Session:
     def __init__(
-        self, greengrass_config: str, credential_provider_endpoint: str, role_alias: str
+        self,
+        greengrass_config: str,
+        credential_provider_endpoint: str,
+        role_alias: str,
+        config: dict,
     ):
-        cfg = Boto3Session.parse_config(greengrass_config)
+        if greengrass_config:
+            cfg = GreengrassConfig.parse_config(greengrass_config)
+        else:
+            cfg = config
 
         self._ca_cert = cfg.get("ca_cert")
         self._cert = cfg.get("cert")
@@ -28,52 +39,6 @@ class Boto3Session:
 
         self._credential_provider_endpoint = credential_provider_endpoint
         self._role_alias = role_alias
-
-    @staticmethod
-    def parse_config(config) -> dict:
-        try:
-            with open(config) as f:
-                cfg = json.load(f)
-        except FileNotFoundError:
-            logger.exception(f"config file is not found: file={config}")
-            raise
-        except json.JSONDecodeError as e:
-            logger.exception(f"invalid json format: {e}")
-            raise
-
-        ca_path = cfg.get("crypto", {}).get("caPath")
-        private_key_path = (
-            cfg.get("crypto", {})
-            .get("principals", {})
-            .get("IoTCertificate", {})
-            .get("privateKeyPath")
-        )
-        certificate_path = (
-            cfg.get("crypto", {})
-            .get("principals", {})
-            .get("IoTCertificate", {})
-            .get("certificatePath")
-        )
-        thing_arn = cfg.get("coreThing", {}).get("thingArn")
-
-        strs = thing_arn.split(":", 6)
-        if len(strs) != 6:
-            logger.error(f"invalid thing arn: thing_arn={thing_arn}")
-            raise Exception(f"invalid thing arn: thing_arn={thing_arn}")
-
-        region = strs[3]
-        thing_name = strs[5]
-
-        def remove_prefix(s, prefix):
-            return re.sub(f"^{prefix}", "", s)
-
-        return {
-            "ca_cert": remove_prefix(ca_path, "file://"),
-            "private_key": remove_prefix(private_key_path, "file://"),
-            "cert": remove_prefix(certificate_path, "file://"),
-            "region": region,
-            "thing_name": remove_prefix(thing_name, "thing/"),
-        }
 
     # session is automatically refreshed
     def get_session(self, session_duration: int = 0):
@@ -105,7 +70,7 @@ class Boto3Session:
             )
             response.raise_for_status()
         except requests.exceptions.RequestException:
-            logger.exception("requests error")
+            logger.warning("requests error")
             raise
 
         try:
