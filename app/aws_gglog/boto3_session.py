@@ -9,9 +9,6 @@ import sys
 import datetime
 from pytz import utc
 
-sys.path.append(os.path.dirname(__file__))
-from greengrass_config import GreengrassConfig
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 _sh = logging.StreamHandler()
@@ -21,15 +18,11 @@ logger.addHandler(_sh)
 class Boto3Session:
     def __init__(
         self,
-        greengrass_config: str,
+        config: dict,
         credential_provider_endpoint: str,
         role_alias: str,
-        config: dict,
     ):
-        if greengrass_config:
-            cfg = GreengrassConfig.parse_config(greengrass_config)
-        else:
-            cfg = config
+        cfg = config
 
         self._ca_cert = cfg.get("ca_cert")
         self._cert = cfg.get("cert")

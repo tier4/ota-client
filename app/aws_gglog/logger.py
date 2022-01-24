@@ -8,6 +8,7 @@ from retrying import retry
 
 sys.path.append(os.path.dirname(__file__))
 from boto3_session import Boto3Session
+from greengrass_config import GreengrassConfig
 
 
 class _BaseLogger:
@@ -74,17 +75,21 @@ class _BaseLogger:
     ):
         try:
             config = _BaseLogger._get_config_from_environment()
-            session = Boto3Session(
-                greengrass_config=config.get("AWS_GREENGRASS_CONFIG"),
-                credential_provider_endpoint=config["AWS_CREDENTIAL_PROVIDER_ENDPOINT"],
-                role_alias=config["AWS_ROLE_ALIAS"],
-                config={
+            greengrass_config = config.get("AWS_GREENGRASS_CONFIG")
+            if greengrass_config:
+                session_config = GreengrassConfig.parse_config(greengrass_config)
+            else:
+                session_config = {
                     "ca_cert": config.get("AWS_CA_CERT_FILE"),
                     "private_key": config.get("AWS_PRIVATE_KEY_FILE"),
                     "cert": config.get("AWS_CERT_FILE"),
                     "region": config.get("AWS_REGION"),
                     "thing_name": config.get("AWS_THING_NAME"),
-                },
+                }
+            session = Boto3Session(
+                config=session_config,
+                credential_provider_endpoint=config["AWS_CREDENTIAL_PROVIDER_ENDPOINT"],
+                role_alias=config["AWS_ROLE_ALIAS"],
             )
             boto3_session = session.get_session(session_duration=boto3_session_duration)
             stream_name = self._get_stream_name(session._thing_name)

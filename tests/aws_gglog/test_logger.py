@@ -79,7 +79,7 @@ class Test_BaseLogger:
 
         mocker.patch("boto3_session.Boto3Session.get_session", return_value="session")
         mocker.patch(
-            "boto3_session.GreengrassConfig.parse_config",
+            "greengrass_config.GreengrassConfig.parse_config",
             return_value={
                 "ca_cert": "/foo/bar/ca_cert.pem",
                 "private_key": "/foo/bar/private_key.pem",
