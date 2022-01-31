@@ -114,7 +114,9 @@ class OTACacheDB:
         rows = [m.to_tuple() for m in cache_meta]
         with self._wlock:
             cur = self._con.cursor()
-            cur.executemany(f"INSERT INTO {self.TABLE_NAME} VALUES (?,?,?,?,?)", rows)
+            cur.executemany(
+                f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES (?,?,?,?,?)", rows
+            )
 
             self._con.commit()
             cur.close()

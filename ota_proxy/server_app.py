@@ -85,13 +85,12 @@ class App:
 
         # parse response
         # NOTE: currently only record content_type and content_encoding
-        content_type = f.content_type
-        content_encoding = f.content_encoding
+        meta = f.meta
         headers = []
-        if content_type:
-            headers.append([b"Content-Type", content_type.encode()])
-        if content_encoding:
-            headers.append([b"Content-Encoding", content_encoding.encode()])
+        if meta.content_type:
+            headers.append([b"Content-Type", meta.content_type.encode()])
+        if meta.content_encoding:
+            headers.append([b"Content-Encoding", meta.content_encoding.encode()])
 
         # prepare the response to the client
         await self._init_response(HTTPStatus.OK, headers, send)
