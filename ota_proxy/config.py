@@ -20,4 +20,5 @@ class Config:
     )  # Bytes
     DB_FILE = f"{BASE_DIR}/cache_db"
 
+
 config = Config()

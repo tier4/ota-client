@@ -190,7 +190,6 @@ class OTAFile:
 
 
 class OTACache:
-    
     def __init__(
         self,
         cache_enabled: bool,
