@@ -1,5 +1,5 @@
 import asyncio
-import requests
+import aiohttp
 import subprocess
 import shlex
 import shutil
@@ -11,8 +11,9 @@ from queue import Queue
 from hashlib import sha256
 from http import HTTPStatus
 from threading import Lock, Event
-from typing import Dict
+from typing import Dict, Union
 from pathlib import Path
+from os import urandom
 
 from . import db
 from .config import config as cfg
@@ -65,7 +66,7 @@ class _Bucket(OrderedDict):
         enough_space = False
         with self._lock:
             hash_list, files_list = [], []
-            space_available = None
+            space_available = 0
             for h in self:
                 if space_available >= size:
                     break
@@ -76,6 +77,8 @@ class _Bucket(OrderedDict):
                         space_available += f.stat().st_size
                         hash_list.append(h)
                         files_list.append(f)
+                    else:
+                        logger.warning(f"dangling cache entry found: {h}")
 
             if space_available >= size:
                 enough_space = True
@@ -88,14 +91,12 @@ class _Bucket(OrderedDict):
                 f.unlink(missing_ok=True)
             return hash_list
 
-        return
-
 
 class OTAFile:
     def __init__(
         self,
         url: str,
-        fp: typing.BinaryIO,
+        fp: Union[aiohttp.ClientResponse, typing.BinaryIO],
         meta: db.CacheMeta,
         store_cache: bool = False,
         free_space_event: Event = None,
@@ -107,6 +108,10 @@ class OTAFile:
         self.meta = meta
 
         # data stream
+        self._remote = False
+        if isinstance(fp, aiohttp.ClientResponse):
+            self._remote = True
+
         self._fp = fp
         self._queue = None
 
@@ -125,9 +130,8 @@ class OTAFile:
 
         try:
             logger.debug(f"start to cache for {self.meta.url}...")
-            tmp_fpath = Path(cfg.BASE_DIR) / str(time.time()).replace(".", "")
-            self.temp_fpath = tmp_fpath
-            self._dst_fp = open(tmp_fpath, "wb")
+            self.temp_fpath = Path(cfg.BASE_DIR) / f"tmp_{urandom(16).hex()}"
+            self._dst_fp = open(self.temp_fpath, "wb")
 
             while not self.finished or not self._queue.empty():
                 if not self._free_space_event.is_set():
@@ -150,7 +154,7 @@ class OTAFile:
             self._dst_fp.close()
             if self.finished and self.meta.size > 0:  # not caching 0 size file
                 # rename the file to the hash value
-                hash = self._hash_f.hexdigest()[:16]
+                hash = self._hash_f.hexdigest()
 
                 self.meta.hash = hash
                 self.temp_fpath.rename(Path(cfg.BASE_DIR) / hash)
@@ -166,16 +170,22 @@ class OTAFile:
     def __aiter__(self):
         return self
 
+    async def _get_chunk(self) -> bytes:
+        if self._remote:
+            return await self._fp.content.read(cfg.CHUNK_SIZE)
+        else:
+            return self._fp.read(cfg.CHUNK_SIZE)
+
     async def __anext__(self) -> bytes:
         if self.finished:
             raise ValueError("file is closed")
 
-        chunk = self._fp.read(cfg.CHUNK_SIZE)
+        chunk = await self._get_chunk()
         if len(chunk) == 0:  # stream finished
             self.finished = True
             # finish the background cache writing
             if self._store_cache:
-                self._queue.put(b"")
+                self._queue.put_nowait(b"")
 
             # cleanup
             self._fp.close()
@@ -222,19 +232,20 @@ class OTACache:
             # NOTE: requests doesn't decompress the contents,
             # we cache the contents as its original form, and send
             # to the client
-            self._session = requests.Session()
             if upper_proxy:
-                # override the proxy setting if we configure one
-                proxies = {"http": upper_proxy, "https": ""}
-                self._session.proxies.update(proxies)
+                self._session = aiohttp.ClientSession(
+                    auto_decompress=False, proxy=upper_proxy
+                )
                 # if upper proxy presented, we must disable https
                 self._enable_https = False
+            else:
+                self._session = aiohttp.ClientSession(auto_decompress=False)
 
             self._init_buckets()
         else:
             self._cache_enabled = False
 
-    def close(self, cleanup: bool = False):
+    def close(self, cleanup: bool = True):
         logger.debug(f"shutdown ota-cache({cleanup=})...")
         if self._cache_enabled and not self._closed:
             self._closed = True
@@ -321,36 +332,35 @@ class OTACache:
         return target_size
 
     def _ensure_free_space(self, size: int) -> bool:
-        if not self._enough_free_space_event.is_set():  # no enough free space
-            bs = self._find_target_bucket_size(size)
-            bucket: _Bucket = self._buckets[bs]
-
-            # first check the current bucket
-            hash_list = bucket.reserve_space(size)
-            if hash_list:
-                self._db.remove_url_by_hash(*hash_list)
-                return True
-
-            else:  # if current bucket is not enough, check higher bucket
-                entry_to_clear = None
-                for bs in cfg.BUCKET_FILE_SIZE_LIST[
-                    cfg.BUCKET_FILE_SIZE_LIST.index(bs) + 1 :
-                ]:
-                    bucket = self._buckets[bs]
-                    entry_to_clear = bucket.popleft()
-
-                if entry_to_clear:
-                    # get one entry from the target bucket
-                    # and then delete it
-
-                    f: Path = Path(cfg.BASE_DIR) / entry_to_clear
-                    f.unlink(missing_ok=True)
-                    self._db.remove_url_by_hash(entry_to_clear)
-
-                    return True
-
-        else:  # there is already enough space
+        if self._enough_free_space_event.is_set():
             return True
+
+        bs = self._find_target_bucket_size(size)
+        bucket: _Bucket = self._buckets[bs]
+
+        # first check the current bucket
+        hash_list = bucket.reserve_space(size)
+        if hash_list:
+            self._db.remove_url_by_hash(*hash_list)
+            return True
+
+        else:  # if current bucket is not enough, check higher bucket
+            entry_to_clear = None
+            for bs in cfg.BUCKET_FILE_SIZE_LIST[
+                cfg.BUCKET_FILE_SIZE_LIST.index(bs) + 1 :
+            ]:
+                bucket = self._buckets[bs]
+                entry_to_clear = bucket.popleft()
+
+            if entry_to_clear:
+                # get one entry from the target bucket
+                # and then delete it
+
+                f: Path = Path(cfg.BASE_DIR) / entry_to_clear
+                f.unlink(missing_ok=True)
+                self._db.remove_url_by_hash(entry_to_clear)
+
+                return True
 
         return False
 
@@ -366,15 +376,15 @@ class OTACache:
         if fpath.is_file():
             return open(fpath, "rb")
 
-    def _open_fp_by_requests(
+    async def _open_fp_by_requests(
         self, raw_url: str
-    ) -> typing.Tuple[typing.BinaryIO, db.CacheMeta]:
+    ) -> typing.Tuple[aiohttp.ClientResponse, db.CacheMeta]:
         url = raw_url
         if self._enable_https:
             url = raw_url.replace("http", "https")
 
-        response = self._session.get(url, stream=True)
-        if response.status_code != HTTPStatus.OK:
+        response = await self._session.get(url)
+        if response.status != HTTPStatus.OK:
             return
 
         # assembling output cachemeta
@@ -384,16 +394,15 @@ class OTACache:
         )
 
         meta.content_type = response.headers.get(
-            "Content-Type", "application/octet-stream"
+            "content-type", "application/octet-stream"
         )
-        meta.content_encoding = response.headers.get("Content-Encoding", "")
+        meta.content_encoding = response.headers.get("content-encoding", "")
 
-        # return the raw urllib3.response.HTTPResponse and a new CacheMeta instance
-        return response.raw, meta
+        # return the raw response and a new CacheMeta instance
+        return response, meta
 
     # exposed API
     async def retrieve_file(self, url: str) -> OTAFile:
-        logger.debug(f"try to retrieve file from {url=}")
         if self._closed:
             raise ValueError("ota cache pool is closed")
 
@@ -401,7 +410,7 @@ class OTACache:
         # NOTE: also check if there is already an on-going caching
         if not self._cache_enabled or url in self._on_going_caching:
             # case 1: not using cache, directly download file
-            fp, meta = self._open_fp_by_requests(url)
+            fp, meta = await self._open_fp_by_requests(url)
             res = OTAFile(url=url, fp=fp, meta=meta)
         else:
             no_cache_available = True
@@ -422,7 +431,7 @@ class OTACache:
             if no_cache_available:
                 # case 2: download and cache new file
                 logger.debug(f"try to download and cache {url=}")
-                fp, meta = self._open_fp_by_requests(url)
+                fp, meta = await self._open_fp_by_requests(url)
                 # NOTE: remember to remove the url after cache comitted!
                 self._on_going_caching[url] = None
 

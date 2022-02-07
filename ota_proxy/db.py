@@ -69,11 +69,10 @@ class OTACacheDB:
 
     def _connect_db(self, init: bool):
         if init:
+            # remove the old db file if needed
             Path(self._db_file).unlink(missing_ok=True)
-            self._con = sqlite3.connect(self._db_file, check_same_thread=False)
-            self._init_table()
-        else:
-            self._con = sqlite3.connect(self._db_file, check_same_thread=False)
+
+        self._con = sqlite3.connect(self._db_file, check_same_thread=False)
 
         # check if the table exists
         cur = self._con.cursor()
@@ -88,21 +87,23 @@ class OTACacheDB:
         if self._closed:
             raise sqlite3.OperationalError("connect is closed")
 
+        hash_list = [(h,) for h in hash]
         with self._wlock:
             cur = self._con.cursor()
-            cur.executemany(f"DELETE FROM {self.TABLE_NAME} WHERE hash=?", hash)
+            cur.executemany(f"DELETE FROM {self.TABLE_NAME} WHERE hash=?", hash_list)
 
             self._con.commit()
             cur.close()
         return
 
-    def remove_urls(self, *urls):
+    def remove_urls(self, *urls: str):
         if self._closed:
             raise sqlite3.OperationalError("connect is closed")
 
+        url_list = [(u,) for u in urls]
         with self._wlock:
             cur = self._con.cursor()
-            cur.executemany(f"DELETE FROM {self.TABLE_NAME} WHERE url=?", urls)
+            cur.executemany(f"DELETE FROM {self.TABLE_NAME} WHERE url=?", url_list)
 
             self._con.commit()
             cur.close()
