@@ -339,13 +339,19 @@ class CBootControl:
         with open(src, "r") as f:
             cfg = f.read().splitlines()
         out = []
-        pa = re.compile(r"(^[\s]+)APPEND(.*)root=PARTUUID=([\w-]+)(.*)")
+        pa_append = re.compile(r"(^[\s]+)APPEND(.*)")
+        pa_rest = re.compile(r"(.*)root=PARTUUID=([\w-]+)(.*)")
         for line in cfg:
-            ma = pa.search(line)
-            if ma:
-                out.append(
-                    f"{ma.group(1)}APPEND{ma.group(2)}root=PARTUUID={self.standby_slot_partuuid}{ma.group(4)}\n"
-                )
+            ma_append = pa_append.search(line)
+            if ma_append:
+                ma_rest = pa_rest.search(ma_append.group(2))
+                if ma_rest:
+                    out.append(
+                        f"{ma_append.group(1)}APPEND{ma_rest.group(1)}root={self.standby_slot_partuuid}{ma_rest.group(3)}\n"
+                    )
+                else:
+                    # If root=PARTUUID= entry doesn't exist, it is just appended.
+                    out.append(f"{line} root={self.standby_slot_partuuid}\n")
             else:
                 out.append(f"{line}\n")
         with open(dst, "w") as f:
