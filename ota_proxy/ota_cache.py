@@ -188,7 +188,10 @@ class OTAFile:
                 self._queue.put_nowait(b"")
 
             # cleanup
-            self._fp.close()
+            if not self._remote:
+                self._fp.close()
+            else:
+                self._fp.release()
 
             raise StopAsyncIteration
         else:
