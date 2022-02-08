@@ -285,6 +285,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._failure_type = OtaClientFailureType.NO_FAILURE
         self._failure_reason = ""
         self._update_phase = OtaClientUpdatePhase.INITIAL
+        self._update_start_time: int = 0  # unix time in milli-seconds
 
         self._mount_point = Path(cfg.MOUNT_POINT)
         self._passwd_file = Path(cfg.PASSWD_FILE)
@@ -409,6 +410,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             # set update status
             self._update_phase = OtaClientUpdatePhase.INITIAL
             self._failure_type = OtaClientFailureType.NO_FAILURE
+            self._update_start_time = int(time.time() * 1000)
             self._failure_reason = ""
             self._statistics.clear()
         if pre_update_event:
@@ -488,6 +490,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self.leave_rollback()
 
     def _status(self) -> dict:
+        if self.get_ota_status() == OtaStatus.UPDATING:
+            total_elapsed_time = int(time.time() * 1000) - self._update_start_time
+            self._statistics.set("total_elapsed_time", total_elapsed_time)
         update_progress = self._statistics.get_snapshot().export_as_dict()
         # add extra fields
         update_progress["phase"] = self._update_phase.name

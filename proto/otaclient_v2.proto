@@ -131,6 +131,7 @@ message StatusProgress {
   google.protobuf.Duration elapsed_time_download = 12;
   uint64 errors_download = 13;
   uint64 total_regular_file_size = 14;
+  google.protobuf.Duration total_elapsed_time = 15;
 }
 
 message Status {
