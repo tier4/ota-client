@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 from pathlib import Path
+from functools import partial
 
 import log_util
 from configs import config as cfg
@@ -336,27 +337,18 @@ class CBootControl:
         subprocess.check_call(shlex.split("reboot"))
 
     def update_extlinux_cfg(self, dst: Path, src: Path):
-        with open(src, "r") as f:
-            cfg = f.read().splitlines()
-        out = []
-        pa_append = re.compile(r"(^[\s]+)APPEND(.*)")
-        pa_rest = re.compile(r"(.*)root=PARTUUID=([\w-]+)(.*)")
-        for line in cfg:
-            ma_append = pa_append.search(line)
-            if ma_append:
-                ma_rest = pa_rest.search(ma_append.group(2))
-                if ma_rest:
-                    out.append(
-                        f"{ma_append.group(1)}APPEND{ma_rest.group(1)}root={self.standby_slot_partuuid}{ma_rest.group(3)}\n"
-                    )
-                else:
-                    # If root=PARTUUID= entry doesn't exist, it is just appended.
-                    out.append(f"{line} root={self.standby_slot_partuuid}\n")
-            else:
-                out.append(f"{line}\n")
-        with open(dst, "w") as f:
-            f.writelines(out)
-            os.fsync(f.fileno())
+        def _replace(ma: re.Match, repl: str):
+            append_l = ma.group(0)
+            if append_l.startswith("#"):
+                return append_l
+            res, n = re.compile(r"root=[\w\-=]*").subn(repl, append_l)
+            if not n:
+                res = f"{append_l} {repl}"
+
+            return res
+
+        _repl_func = partial(_replace, repl=self.standby_slot_partuuid)
+        dst.write_text(re.compile(r".*APPEND.*").sub(_repl_func, src.read_text()))
 
 
 class CBootControlMixin(BootControlInterface):
@@ -460,9 +452,6 @@ class CBootControlMixin(BootControlInterface):
         return _nvboot_res and _ota_status_res and _is_slot_in_use
 
     def _populate_boot_folder_to_separate_bootdev(self):
-        if not self._boot_control.is_external_rootfs_enabled():
-            return
-
         src_dir = self._mount_point / "boot"
         dst_dir = self._standby_boot_mount_point / "boot"
 
@@ -592,6 +581,7 @@ class CBootControlMixin(BootControlInterface):
                 "rootfs on external storage: updating the /boot folder in standby bootdev..."
             )
             self._populate_boot_folder_to_separate_bootdev()
+        os.sync()
 
         logger.debug("switching boot...")
         self._boot_control.switch_boot_standby()
