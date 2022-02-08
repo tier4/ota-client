@@ -584,7 +584,7 @@ class CBootControlMixin(BootControlInterface):
         )
 
         self._boot_control.update_extlinux_cfg(
-            target=standby_extlinux_cfg, src=standby_extlinux_cfg
+            dst=standby_extlinux_cfg, src=standby_extlinux_cfg
         )
 
         if self._boot_control.is_external_rootfs_enabled():
