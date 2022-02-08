@@ -227,6 +227,7 @@ class _OtaClientStatisticsStorage:
     elapsed_time_link: int = 0
     elapsed_time_download: int = 0
     errors_download: int = 0
+    total_elapsed_time: int = 0
 
     def copy(self):
         return dataclasses.replace(self)

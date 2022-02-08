@@ -64,6 +64,7 @@ def test_ota_client_status(mocker, tmp_path):
         staging_slot["elapsed_time_link"] = 2.02
         staging_slot["elapsed_time_download"] = 3.03
         staging_slot["errors_download"] = 10
+        staging_slot["total_elapsed_time"] = 10001
 
     result, ota_status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
@@ -87,5 +88,6 @@ def test_ota_client_status(mocker, tmp_path):
             "elapsed_time_link": 2.02,
             "elapsed_time_download": 3.03,
             "errors_download": 10,
+            "total_elapsed_time": 10001,
         },
     }
