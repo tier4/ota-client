@@ -348,7 +348,7 @@ class CBootControl:
             return res
 
         _repl_func = partial(_replace, repl=f"root={self.standby_slot_partuuid}")
-        dst.write_text(re.compile(r"\n\sAPPEND.*").sub(_repl_func, src.read_text()))
+        dst.write_text(re.compile(r"\n\s*APPEND.*").sub(_repl_func, src.read_text()))
 
 
 class CBootControlMixin(BootControlInterface):
