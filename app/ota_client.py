@@ -25,6 +25,7 @@ from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
 from configs import config as cfg
+from proxy_info import proxy_cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -49,13 +50,18 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
         return False
     return file_sha256(filename) == filehash
 
-
+# TODO: refactor
 def _download(url_base: str, path: str, dst: Path, digest: str, *, cookies):
     quoted_path = urllib.parse.quote(path)
     url = urllib.parse.urljoin(url_base, quoted_path)
 
     error_count = 0
     last_error = ""
+
+    proxies = {"http": '', "https": ''}
+    proxy = proxy_cfg.get_proxy_for_local_ota()
+    if proxy:
+        proxies["http"] = proxy
 
     def retry_if_possible(e):
         nonlocal error_count
@@ -89,7 +95,8 @@ def _download(url_base: str, path: str, dst: Path, digest: str, *, cookies):
         headers = {}
         headers["Accept-encording"] = "gzip"
         response = requests.get(
-            url, headers=headers, cookies=cookies, timeout=10, stream=True
+            url, headers=headers, cookies=cookies, timeout=10, stream=True,
+            proxies=proxies,
         )
         response.raise_for_status()
 
