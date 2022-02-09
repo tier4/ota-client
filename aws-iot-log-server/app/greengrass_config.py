@@ -2,9 +2,13 @@ import logging
 import json
 import re
 
+from configs import LOG_FORMAT
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 _sh = logging.StreamHandler()
+fmt = logging.Formatter(fmt=LOG_FORMAT)
+_sh.setFormatter(fmt)
 logger.addHandler(_sh)
 
 
