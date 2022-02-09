@@ -36,6 +36,7 @@ class _BaseConfig:
     )
     BOOT_DIR: str = "/boot"
     ECU_INFO_FILE: str = "/boot/ota/ecu_info.yaml"
+    PROXY_INFO_FILE: str = "/boot/ota/proxy_info.yaml"
     PASSWD_FILE: str = "/etc/passwd"
     GROUP_FILE: str = "/etc/group"
     BOOT_OTA_PARTITION_FILE: str = "ota-partition"
