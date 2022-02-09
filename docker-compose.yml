@@ -26,6 +26,7 @@ services:
     volumes:
       - ./app:/ota-client/app:ro
       - ./tests:/ota-client/tests:ro
+      - ./aws-iot-log-server:/ota-client/aws-iot-log-server:ro
     depends_on:
       - server
 

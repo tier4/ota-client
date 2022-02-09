@@ -17,9 +17,12 @@ class CustomHttpHandler(logging.Handler):
 
     def emit(self, record):
         log_entry = self.format(record)
-        return requests.post(
-            f"http://{self.host}{self.url}", log_entry, timeout=self.timeout
-        ).content
+        try:
+            requests.post(
+                f"http://{self.host}{self.url}", log_entry, timeout=self.timeout
+            )
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
