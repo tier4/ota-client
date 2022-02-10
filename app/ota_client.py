@@ -51,7 +51,7 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
     return file_sha256(filename) == filehash
 
 class Downloader:
-    CHUNK_SIZE = 4 * 1024 * 1024 # 4MiB
+    CHUNK_SIZE = 2 * 1024 * 1024 # 2MiB
     RETRY_COUNT = 5
 
     def __init__(self, *, proxies: dict):

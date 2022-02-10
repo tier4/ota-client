@@ -300,9 +300,6 @@ class OtaClientStub:
             )
             # all subECUs are updated, now the ota_client can reboot
             logger.info("all subECUs are updated ready, set post_update_event")
-            # close ota proxy server since all child subECUs are updated
-            if proxy_cfg.enable_local_ota_proxy:
-                self._ota_proxy.stop()
             # signal the local updator to do post-update
             post_update_event.set()
 
@@ -316,6 +313,10 @@ class OtaClientStub:
                 logger.error(f"ota update failed: {e!r}")
             elif isinstance(e, TimeoutError):
                 logger.error(f"timeout local ota update {update_request=}")
+        finally:
+            # always close the local proxy server
+            if proxy_cfg.enable_local_ota_proxy:
+                self._ota_proxy.stop()
 
     async def _get_subecu_status(
         self,
