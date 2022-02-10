@@ -15,9 +15,7 @@ from multiprocessing import Pool, Manager
 from threading import Event, Lock
 from functools import partial
 from enum import Enum, unique
-from requests.exceptions import RequestException
 from urllib.parse import quote, urljoin
-import urllib3
 
 from ota_client_interface import OtaClientInterface
 from ota_metadata import OtaMetadata
@@ -68,6 +66,8 @@ class Downloader:
         # init retry mechanism
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
+            raise_on_status=True,
+            backoff_factor=0.1,
             # retry on common server side errors and non-critical client side errors
             status_forcelist={413, 429, 500, 502, 503, 504},
             allowed_methods=["GET"]
@@ -90,13 +90,31 @@ class Downloader:
 
     def __call__(self, url_base: str, path: str, dst: Path, digest: str, cookies: dict) -> int:
         url = self._regulate_url(path, url_base)
+
+        error_count = 0
         try:
             response = self._session.get(url, stream=True, timeout=10, cookies=cookies)
-        except urllib3.exceptions.MaxRetryError:
-            logger.error(f"failed to download {url=} after {self.RETRY_COUNT} tries")
-        finally:
-            raw_resp: urllib3.HTTPResponse = response.raw
-            error_count = len(raw_resp.retries.history)
+            response.raise_for_status()
+
+            raw_r = response.raw
+            if raw_r.retries:
+                error_count = len(raw_r.retries.history)
+        except requests.exceptions.HTTPError:
+            msg = f"requests error: status_code={response.status_code},{url=} ({error_count})"
+            raise OtaErrorRecoverable(msg)
+        except requests.exceptions.Timeout as e:
+            msg = f"requests timeout: {e},{url=} ({error_count})"
+            raise OtaErrorRecoverable(msg)
+        except requests.exceptions.ConnectionError as e:
+            msg = f"requests connection error: {e},{url=} ({error_count})"
+            raise OtaErrorRecoverable(msg)
+        except requests.exceptions.ChunkedEncodingError:
+            msg = f"requests ChunkedEncodingError: {url=} ({error_count})"
+            raise OtaErrorRecoverable(msg)
+        except requests.exceptions.RequestException as e:
+            # all unspecific errors go here
+            msg = f"requests failed: {e!r}"
+            raise OtaErrorRecoverable(msg)
 
         # prepare hash
         hash_f = sha256()
