@@ -50,7 +50,8 @@ class OtaProxyWrapper:
         self._closed = True
         self._server_p: Process = None
 
-    def _start_server(self, enable_cache):
+    @staticmethod
+    def _start_server(enable_cache):
         import uvicorn
         from ota_proxy import App
 
@@ -64,7 +65,9 @@ class OtaProxyWrapper:
     def start(self, enable_cache=False):
         with self._lock:
             if self._closed:
-                self._start_server(enable_cache)
+                self._server_p = Process(target=self._start_server, args=(enable_cache,))
+                self._server_p.start()
+                
                 self._closed = False
                 logger.info(
                     f"ota proxy server started(pid={self._server_p.pid}, {enable_cache=})"
