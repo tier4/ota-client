@@ -724,7 +724,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         )
 
         if str(reginf.path).startswith("/boot"):
-            dst = boot_standby_path / reginf.path.name
+            dst = boot_standby_path / reginf.path.relative_to("/boot")
         else:
             dst = standby_path / reginf.path.relative_to("/")
 
