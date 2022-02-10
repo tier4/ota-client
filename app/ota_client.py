@@ -48,8 +48,9 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
         return False
     return file_sha256(filename) == filehash
 
+
 class Downloader:
-    CHUNK_SIZE = 2 * 1024 * 1024 # 2MiB
+    CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
     RETRY_COUNT = 5
 
     def __init__(self, *, proxy: str):
@@ -60,7 +61,7 @@ class Downloader:
         session = requests.Session()
 
         # configure proxy
-        proxies={'http': proxy, 'https': ''}
+        proxies = {"http": proxy, "https": ""}
         session.proxies.update(proxies)
 
         # init retry mechanism
@@ -70,7 +71,7 @@ class Downloader:
             backoff_factor=0.1,
             # retry on common server side errors and non-critical client side errors
             status_forcelist={413, 429, 500, 502, 503, 504},
-            allowed_methods=["GET"]
+            allowed_methods=["GET"],
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("https://", adapter)
@@ -80,15 +81,18 @@ class Downloader:
         self._session = session
 
     @staticmethod
-    def _regulate_url(url: str, url_base: str) -> str:        
+    def _regulate_url(url: str, url_base: str) -> str:
         quoted_path = quote(url)
         return urljoin(url_base, quoted_path)
 
     def load_cookies_for_session(self, cookies: dict):
         from requests.cookies import cookiejar_from_dict
+
         self._session.cookies = cookiejar_from_dict(cookies)
 
-    def __call__(self, url_base: str, path: str, dst: Path, digest: str, cookies: dict) -> int:
+    def __call__(
+        self, url_base: str, path: str, dst: Path, digest: str, cookies: dict
+    ) -> int:
         url = self._regulate_url(path, url_base)
 
         error_count = 0
@@ -118,7 +122,7 @@ class Downloader:
 
         # prepare hash
         hash_f = sha256()
-        with open(dst, 'wb') as f:
+        with open(dst, "wb") as f:
             for data in response.iter_content(chunk_size=self.CHUNK_SIZE):
                 hash_f.update(data)
                 f.write(data)
@@ -126,8 +130,8 @@ class Downloader:
         calc_digest = hash_f.hexdigest()
         if digest and calc_digest != digest:
             raise OtaErrorRecoverable(
-            f"hash error: act={calc_digest}, exp={digest}, {url=}"
-        )
+                f"hash error: act={calc_digest}, exp={digest}, {url=}"
+            )
 
         return error_count
 

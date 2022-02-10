@@ -23,9 +23,9 @@ gateway: false
 enable_ota_proxy: false
 """
 
-class ProxyInfo:
 
-    def __init__(self, proxy_info_file: str=cfg.PROXY_INFO_FILE):
+class ProxyInfo:
+    def __init__(self, proxy_info_file: str = cfg.PROXY_INFO_FILE):
         proxy_info_file_path = Path(proxy_info_file)
         if proxy_info_file_path.is_file():
             proxy_info: dict = yaml.safe_load(proxy_info_file_path.read_text())
@@ -39,7 +39,7 @@ class ProxyInfo:
         if self.enable_local_ota_proxy:
             self.gateway: bool = proxy_info.get("gateway", False)
             self.host, self.port = proxy_info.get("local_server", ("0.0.0.0", 8000))
-    
+
     def get_proxy_for_local_ota(self) -> str:
         if self.enable_local_ota_proxy:
             # if local proxy is enabled, local ota client also uses it
@@ -59,5 +59,6 @@ class ProxyInfo:
             return self.generic_proxy
         else:
             return ""
+
 
 proxy_cfg = ProxyInfo()

@@ -43,21 +43,22 @@ def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
 
     return res
 
-class OtaProxyWrapper:
 
+class OtaProxyWrapper:
     def __init__(self):
         self._lock = Lock()
         self._closed = True
         self._server_p: Process = None
-    
+
     def _start_server(self, enable_cache):
         import uvicorn
-        from ..ota_proxy import App
+        from ota_proxy import App
 
         app = App(
-            cache_enabled=enable_cache, 
+            cache_enabled=enable_cache,
             upper_proxy=proxy_cfg.upper_ota_proxy,
-            enable_https=proxy_cfg.gateway)
+            enable_https=proxy_cfg.gateway,
+        )
         uvicorn.run(app, host=proxy_cfg.host, port=proxy_cfg.port, lifespan="on")
 
     def start(self, enable_cache=False):
@@ -68,7 +69,7 @@ class OtaProxyWrapper:
                 logger.info(
                     f"ota proxy server started(pid={self._server_p.pid}, {enable_cache=})"
                     f"{proxy_cfg}"
-                    )
+                )
             else:
                 raise Exception("server already started")
 
@@ -78,7 +79,7 @@ class OtaProxyWrapper:
                 # send SIGTERM to the server process
                 self._server_p.terminate()
                 self._closed = True
-                logger.info(f"ota proxy server closed")
+                logger.info("ota proxy server closed")
 
 
 class OtaClientStub:
