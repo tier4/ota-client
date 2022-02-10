@@ -54,17 +54,23 @@ class Downloader:
     CHUNK_SIZE = 2 * 1024 * 1024 # 2MiB
     RETRY_COUNT = 5
 
-    def __init__(self, *, proxies: dict):
+    def __init__(self, *, proxy: str):
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
 
         # base session
-        session = requests.Session(proxies=proxies)
+        session = requests.Session()
+
+        # configure proxy
+        proxies={'http': proxy, 'https': ''}
+        session.proxies.update(proxies)
 
         # init retry mechanism
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
-            method_whitelist=["GET"]
+            # retry on common server side errors and non-critical client side errors
+            status_forcelist={413, 429, 500, 502, 503, 504},
+            allowed_methods=["GET"]
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("https://", adapter)
@@ -82,13 +88,15 @@ class Downloader:
         from requests.cookies import cookiejar_from_dict
         self._session.cookies = cookiejar_from_dict(cookies)
 
-    def __call__(self, url_base: str, path: str, dst: Path, digest: str, cookies: dict):
+    def __call__(self, url_base: str, path: str, dst: Path, digest: str, cookies: dict) -> int:
         url = self._regulate_url(path, url_base)
         try:
             response = self._session.get(url, stream=True, timeout=10, cookies=cookies)
         except urllib3.exceptions.MaxRetryError:
-            msg = f"failed to download {url=} after {self.RETRY_COUNT} tries"
-            raise OtaErrorRecoverable(msg)
+            logger.error(f"failed to download {url=} after {self.RETRY_COUNT} tries")
+        finally:
+            raw_resp: urllib3.HTTPResponse = response.raw
+            error_count = len(raw_resp.retries.history)
 
         # prepare hash
         hash_f = sha256()
@@ -102,6 +110,8 @@ class Downloader:
             raise OtaErrorRecoverable(
             f"hash error: act={calc_digest}, exp={digest}, {url=}"
         )
+
+        return error_count
 
 
 class _BaseInf:
@@ -279,7 +289,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._statistics = OtaClientStatistics()
 
         # downloader
-        self._download = Downloader(proxy_cfg.get_proxy_for_local_ota())
+        self._download = Downloader(proxy=proxy_cfg.get_proxy_for_local_ota())
 
     def update(
         self,
@@ -733,16 +743,13 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 processed["op"] = "copy"
                 processed["errors"] = 0
             else:
-                try:
-                    downloader(
-                        url_base,
-                        str(reginf.path.relative_to("/")),
-                        dst,
-                        reginf.sha256hash,
-                        cookies=cookies,
-                    )
-                except Exception:
-                    processed["errors"] = 1
+                processed["errors"] = downloader(
+                    url_base,
+                    str(reginf.path.relative_to("/")),
+                    dst,
+                    reginf.sha256hash,
+                    cookies=cookies,
+                )
                 processed["op"] = "download"
 
         processed["size"] = dst.stat().st_size
