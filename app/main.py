@@ -20,12 +20,6 @@ logger = log_util.get_logger(
 
 VERSION_FILE = Path(__file__).parent.parent / "version.txt"
 
-def _path_load():
-    import sys
-    from pathlib import Path
-
-    project_base = Path(__file__).absolute().parent.parent
-    sys.path.append(str(project_base))
 
 def main():
     logger.info("started")
@@ -63,5 +57,4 @@ def main():
 
 
 if __name__ == "__main__":
-    _path_load()
     main()

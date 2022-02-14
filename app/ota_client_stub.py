@@ -21,6 +21,14 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+def _path_load():
+    import sys
+    from pathlib import Path
+
+    project_base = Path(__file__).absolute().parent.parent
+    sys.path.append(str(project_base))
+
+_path_load()
 
 def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
     """
