@@ -68,11 +68,12 @@ class Downloader:
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
             raise_on_status=True,
-            backoff_factor=0.1,
+            backoff_factor=1,
             # retry on common server side errors and non-critical client side errors
             status_forcelist={413, 429, 500, 502, 503, 504},
             allowed_methods=["GET"],
         )
+        retry_strategy.DEFAULT_BACKOFF_MAX = 10
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("https://", adapter)
         session.mount("http://", adapter)
