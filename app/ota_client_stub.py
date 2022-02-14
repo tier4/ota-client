@@ -21,6 +21,7 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+
 def _path_load():
     import sys
     from pathlib import Path
@@ -28,7 +29,9 @@ def _path_load():
     project_base = Path(__file__).absolute().parent.parent
     sys.path.append(str(project_base))
 
+
 _path_load()
+
 
 def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
     """
@@ -73,9 +76,11 @@ class OtaProxyWrapper:
     def start(self, enable_cache=False):
         with self._lock:
             if self._closed:
-                self._server_p = Process(target=self._start_server, args=(enable_cache,))
+                self._server_p = Process(
+                    target=self._start_server, args=(enable_cache,)
+                )
                 self._server_p.start()
-                
+
                 self._closed = False
                 logger.info(
                     f"ota proxy server started(pid={self._server_p.pid}, {enable_cache=})"

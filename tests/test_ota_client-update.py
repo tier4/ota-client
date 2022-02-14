@@ -1,7 +1,5 @@
-from logging import exception
 import os
 import pytest
-import time
 import json
 import shutil
 import requests
@@ -81,9 +79,15 @@ GRUB_CMDLINE_LINUX=""
 #GRUB_INIT_TUNE="480 440 1"\
 """
 
+# not enable proxy when doing test
+DEFUALT_PROXY_INFO = """
+enable_ota_proxy: false
+"""
+
 
 def test_ota_client_update(mocker, tmp_path):
     import ota_client
+    import proxy_info
     from ota_client import OtaClientFailureType
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
@@ -119,6 +123,10 @@ def test_ota_client_update(mocker, tmp_path):
     (sdx4 / "status").write_text("INITIALIZED")
     (sdx3 / "version").write_text("a.b.c")
 
+    # proxy info setup
+    proxy_info_file = boot_dir / "proxy_info.yaml"
+    proxy_info_file.write_text(DEFUALT_PROXY_INFO)
+
     mount_dir = tmp_path / "mnt"
     mount_dir.mkdir()
 
@@ -135,12 +143,16 @@ def test_ota_client_update(mocker, tmp_path):
     default_dir = etc_dir / "default"
     default_dir.mkdir()
 
+    # mock cfg
+    mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
+    mocker.patch.object(cfg, "PROXY_INFO_FILE", str(proxy_info_file))
+    proxy_cfg = proxy_info.ProxyInfo(proxy_info_file=proxy_info_file)
+    mocker.patch.object(ota_client, "proxy_cfg", proxy_cfg)
+
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
-    mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
-    mocker.patch.object(ota_client, "cfg", cfg)
-
     mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
+    mocker.patch.object(ota_client, "cfg", cfg)
     mocker.patch.object(
         GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
     )
@@ -247,14 +259,14 @@ def test_ota_client_update(mocker, tmp_path):
 
     # fstab
     assert (
-        open(tmp_path / "mnt" / "standby" / "etc" / "fstab").read()
-        == FSTAB_DEV_DISK_BY_UUID_STANDBY
-    )
+        tmp_path / "mnt" / "standby" / "etc" / "fstab"
+    ).read_text() == FSTAB_DEV_DISK_BY_UUID_STANDBY
     assert ota_client_instance.get_ota_status() == OtaStatus.UPDATING
 
 
 def test_ota_client_update_multiple_call(mocker, tmp_path):
     import ota_client
+    import proxy_info
     from ota_client import OtaClientFailureType
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from grub_control import GrubControl
@@ -305,10 +317,19 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     default_dir = etc_dir / "default"
     default_dir.mkdir()
 
+    # proxy info setup
+    proxy_info_file = boot_dir / "proxy_info.yaml"
+    proxy_info_file.write_text(DEFUALT_PROXY_INFO)
+
+    # proxy info
+    mocker.patch.object(cfg, "PROXY_INFO_FILE", str(proxy_info_file))
+    proxy_cfg = proxy_info.ProxyInfo(proxy_info_file=proxy_info_file)
+
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
     mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
     mocker.patch.object(ota_client, "cfg", cfg)
+    mocker.patch.object(ota_client, "proxy_cfg", proxy_cfg)
     mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
     mocker.patch.object(
         GrubControl, "CUSTOM_CFG_FILE", boot_dir / "grub" / "custom.cfg"
@@ -441,6 +462,7 @@ def test_ota_client_update_regular_download_error(
     mocker, tmp_path, error_injection, failure_reason_startswith
 ):
     import ota_client
+    import proxy_info
     from ota_client import OtaClientFailureType
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
@@ -492,10 +514,15 @@ def test_ota_client_update_regular_download_error(
     default_dir = etc_dir / "default"
     default_dir.mkdir()
 
+    proxy_info_file = boot_dir / "proxy_info.yaml"
+    proxy_info_file.write_text(DEFUALT_PROXY_INFO)
+    proxy_cfg = proxy_info.ProxyInfo(proxy_info_file=proxy_info_file)
+
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
     mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
     mocker.patch.object(ota_client, "cfg", cfg)
+    mocker.patch.object(ota_client, "proxy_cfg", proxy_cfg)
 
     mocker.patch.object(GrubControl, "GRUB_CFG_FILE", boot_dir / "grub" / "grub.cfg")
     mocker.patch.object(
@@ -579,6 +606,7 @@ def test_ota_client_update_regular_download_error(
 
 def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     import ota_client
+    import proxy_info
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
@@ -629,6 +657,12 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     default_dir.mkdir()
     default_grub = default_dir / "grub"
     default_grub.write_text(DEFAULT_GRUB)
+
+    # proxy info setup
+    proxy_info_file = boot_dir / "proxy_info.yaml"
+    proxy_info_file.write_text(DEFUALT_PROXY_INFO)
+    proxy_cfg = proxy_info.ProxyInfo(proxy_info_file=proxy_info_file)
+    mocker.patch.object(ota_client, "proxy_cfg", proxy_cfg)
 
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
