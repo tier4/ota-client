@@ -14,13 +14,14 @@ proxy_info.yaml:
 gateway: bool
 enable_ota_proxy: bool
 upper_ota_proxy: str
-generic_proxy: str
 local_server: Tuple[str, int]
 """
 
+# if no proxy_info.yaml presented,
+# we should treat the ecu as main ecu,
+# and enable ota_proxy without upper proxy
 DEFUALT_PROXY_INFO = """
-gateway: false
-enable_ota_proxy: false
+enable_ota_proxy: true
 """
 
 
@@ -34,7 +35,6 @@ class ProxyInfo:
 
         self.enable_local_ota_proxy: bool = proxy_info.get("enable_ota_proxy", False)
         self.upper_ota_proxy: str = proxy_info.get("upper_ota_proxy")
-        self.generic_proxy: str = proxy_info.get("generic_proxy")
 
         if self.enable_local_ota_proxy:
             self.gateway: bool = proxy_info.get("gateway", False)
@@ -47,17 +47,8 @@ class ProxyInfo:
         elif self.upper_ota_proxy:
             # else we directly use the upper proxy
             return self.upper_ota_proxy
-        elif self.generic_proxy:
-            # else we try to use the generic proxy
-            return self.generic_proxy
         else:
             # default not using proxy
-            return ""
-
-    def get_generic_proxy(self) -> str:
-        if self.generic_proxy:
-            return self.generic_proxy
-        else:
             return ""
 
 
