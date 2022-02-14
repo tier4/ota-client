@@ -85,11 +85,6 @@ class Downloader:
         quoted_path = quote(url)
         return urljoin(url_base, quoted_path)
 
-    def load_cookies_for_session(self, cookies: dict):
-        from requests.cookies import cookiejar_from_dict
-
-        self._session.cookies = cookiejar_from_dict(cookies)
-
     def __call__(
         self, url_base: str, path: str, dst: Path, digest: str, cookies: dict
     ) -> int:
