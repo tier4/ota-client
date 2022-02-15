@@ -1,5 +1,6 @@
 from http import HTTPStatus
 from threading import Lock
+from typing import Dict, List
 
 from . import ota_cache
 
@@ -43,6 +44,19 @@ class App:
                 logger.info("shutdown server completed")
             self._lock.release()
 
+    @staticmethod
+    def parse_raw_cookies(cookies_bytes: bytes) -> Dict[str, str]:
+        """
+        parse raw cookies bytes into dict
+        """
+        cookie_pairs: List[str] = cookies_bytes.decode().split(';')
+        res = dict()
+        for p in cookie_pairs:
+            k, v = p.strip().split('=')
+            res[k] = v
+
+        return res
+
     async def _respond_with_error(self, status: HTTPStatus, msg: str, send):
         await send(
             {
@@ -70,8 +84,17 @@ class App:
             }
         )
 
-    async def _pull_data_and_send(self, url: str, send):
-        f: ota_cache.OTAFile = await self._ota_cache.retrieve_file(url)
+    async def _pull_data_and_send(self, url: str, scope, send):
+        # pass cookies and other headers needed for proxy into the ota_cache module
+        cookies_dict: Dict[str, str] = dict()
+        extra_headers: Dict[str, str] = dict()
+        # currently we only need cookie and/or authorization header
+        for header in scope['headers']:
+            if header[0] == b'cookie':
+                cookies_dict = self.parse_raw_cookies(header[1])
+            elif header[0] == b'authorization':
+                extra_headers["Authorization"] = header[1].decode()
+        f: ota_cache.OTAFile = await self._ota_cache.retrieve_file(url, cookies_dict, extra_headers)
 
         # for any reason the response is not OK,
         # report to the client as 500
@@ -123,7 +146,7 @@ class App:
             return
 
         logger.debug(f"receive request for {url=}")
-        await self._pull_data_and_send(url, send)
+        await self._pull_data_and_send(url, scope, send)
 
     async def __call__(self, scope, receive, send):
         """

@@ -11,7 +11,7 @@ from queue import Queue
 from hashlib import sha256
 from http import HTTPStatus
 from threading import Lock, Event
-from typing import Dict, Union
+from typing import Dict, Tuple, Union, List
 from pathlib import Path
 from os import urandom
 
@@ -380,13 +380,13 @@ class OTACache:
             return open(fpath, "rb")
 
     async def _open_fp_by_requests(
-        self, raw_url: str
+        self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
     ) -> typing.Tuple[aiohttp.ClientResponse, db.CacheMeta]:
         url = raw_url
         if self._enable_https:
             url = raw_url.replace("http", "https")
 
-        response = await self._session.get(url)
+        response = await self._session.get(url, cookies=cookies, headers=extra_headers)
         if response.status != HTTPStatus.OK:
             return
 
@@ -405,7 +405,8 @@ class OTACache:
         return response, meta
 
     # exposed API
-    async def retrieve_file(self, url: str) -> OTAFile:
+    async def retrieve_file(
+        self, url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]) -> OTAFile:
         if self._closed:
             raise ValueError("ota cache pool is closed")
 
@@ -413,7 +414,7 @@ class OTACache:
         # NOTE: also check if there is already an on-going caching
         if not self._cache_enabled or url in self._on_going_caching:
             # case 1: not using cache, directly download file
-            fp, meta = await self._open_fp_by_requests(url)
+            fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
             res = OTAFile(url=url, fp=fp, meta=meta)
         else:
             no_cache_available = True
@@ -434,7 +435,7 @@ class OTACache:
             if no_cache_available:
                 # case 2: download and cache new file
                 logger.debug(f"try to download and cache {url=}")
-                fp, meta = await self._open_fp_by_requests(url)
+                fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
                 # NOTE: remember to remove the url after cache comitted!
                 self._on_going_caching[url] = None
 
