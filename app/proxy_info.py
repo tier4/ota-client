@@ -2,6 +2,7 @@ import yaml
 from pathlib import Path
 
 from configs import config as cfg
+from configs import server_cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -38,7 +39,7 @@ class ProxyInfo:
 
         if self.enable_local_ota_proxy:
             self.gateway: bool = proxy_info.get("gateway", False)
-            self.host, self.port = proxy_info.get("local_server", ("0.0.0.0", 8000))
+            self.host, self.port = proxy_info.get("local_server", server_cfg.OTA_PROXY_SERVER_ADDR)
 
     def get_proxy_for_local_ota(self) -> str:
         if self.enable_local_ota_proxy:
