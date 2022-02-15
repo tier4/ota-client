@@ -53,15 +53,15 @@ class Downloader:
     CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
     RETRY_COUNT = 5
 
-    def __init__(self, *, proxy: str):
+    def __init__(self):
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
 
         # base session
         session = requests.Session()
 
-        # configure proxy
-        proxies = {"http": proxy, "https": ""}
+        # cleanup proxy if any
+        proxies = {"http": "", "https": ""}
         session.proxies.update(proxies)
 
         # init retry mechanism
@@ -80,6 +80,14 @@ class Downloader:
 
         # register the connection pool
         self._session = session
+
+    def configure_proxy(self, proxy: str):
+        # configure proxy
+        proxies = {"http": proxy, "https": ""}
+        self._session.proxies.update(proxies)
+
+    def cleanup_proxy(self):
+        self.configure_proxy("")
 
     @staticmethod
     def _regulate_url(url: str, url_base: str) -> str:
@@ -307,7 +315,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._statistics = OtaClientStatistics()
 
         # downloader
-        self._download = Downloader(proxy=proxy_cfg.get_proxy_for_local_ota())
+        self._download = Downloader()
 
     def update(
         self,
@@ -319,6 +327,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         post_update_event: Event = None,
     ):
         logger.debug("[update] entering...")
+
+        # use local proxy for ota update if enabled
+        if proxy_cfg.enable_local_ota_proxy:
+            self._download.configure_proxy(proxy_cfg.get_proxy_for_local_ota())
+
         try:
             cookies = json.loads(cookies_json)
             self._update(
@@ -473,6 +486,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._process_persistent(
             url, cookies, metadata.get_persistent_info(), self._mount_point
         )
+
+        # finish update, we reset the downloader's proxy setting,
+        # although it is not needed actually
+        self._download.cleanup_proxy()
 
         # leave update
         # wait for all subECUs before reboot itself
