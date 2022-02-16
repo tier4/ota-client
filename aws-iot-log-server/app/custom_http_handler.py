@@ -1,6 +1,12 @@
 import requests
 import logging
 import logging.handlers
+from queue import Queue, Empty
+from threading import Thread
+from requests.packages.urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class CustomHttpHandler(logging.Handler):
@@ -14,15 +20,37 @@ class CustomHttpHandler(logging.Handler):
         self.host = host
         self.url = url if url.startswith("/") else f"/{url}"
         self.timeout = timeout
+        self.queue = Queue(maxsize=4096)
+        self.thread = Thread(target=self._start)
+        self.thread.start()
 
     def emit(self, record):
         log_entry = self.format(record)
+        if self.queue.full():
+            try:
+                self.queue.get_nowait()
+            except Empty:
+                pass
         try:
-            requests.post(
-                f"http://{self.host}{self.url}", log_entry, timeout=self.timeout
-            )
-        except Exception:
+            self.queue.put_nowait(log_entry)
+        except Empty:
             pass
+
+    def _start(self):
+        session = requests.Session()
+        retries = Retry(total=5, backoff_factor=1)  # 0, 1, 2, 4, 8
+        Retry.DEFAULT_BACKOFF_MAX = 10
+        session.mount("http://", HTTPAdapter(max_retries=retries))
+        while True:
+            log_entry = self.queue.get()
+            try:
+                session.post(
+                    url=f"http://{self.host}{self.url}",
+                    data=log_entry,
+                    timeout=self.timeout,
+                )
+            except Exception:
+                logger.exception("post failure")
 
 
 if __name__ == "__main__":

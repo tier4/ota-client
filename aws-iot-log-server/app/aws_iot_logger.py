@@ -116,12 +116,12 @@ class AwsIotLogger:
                     self._sequence_tokens[log_stream_name] = None
             raise
         except Exception:
+            # put log and just ignore
             logger.exception(
                 "put_log_events failure: "
                 f"log_group_name={self._log_group_name}, "
                 f"log_stream_name={log_stream_name}"
             )
-            raise
 
     def put_message(self, log_stream_suffix: str, message: LogMessage):
         data = {log_stream_suffix: message}
