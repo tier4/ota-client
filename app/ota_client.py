@@ -65,6 +65,10 @@ class Downloader:
         session.proxies.update(proxies)
 
         # init retry mechanism
+        # NOTE: for urllib3 version below 2.0, we have to change Retry class' DEFAULT_BACKOFF_MAX,
+        # to configure the backoff max, set the value to the instance will not work as increment() method
+        # will create a new instance of Retry on every try without inherit the change to instance's DEFAULT_BACKOFF_MAX
+        Retry.DEFAULT_BACKOFF_MAX = 10
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
             raise_on_status=True,
@@ -73,7 +77,6 @@ class Downloader:
             status_forcelist={413, 429, 500, 502, 503, 504},
             allowed_methods=["GET"],
         )
-        retry_strategy.DEFAULT_BACKOFF_MAX = 10
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("https://", adapter)
         session.mount("http://", adapter)
