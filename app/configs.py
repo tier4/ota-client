@@ -17,7 +17,7 @@ class OtaClientServerConfig:
     LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 10
 
     # proxy server
-    OTA_PROXY_SERVER_ADDR: Tuple[str, int] = ("0.0.0.0", 8000)
+    OTA_PROXY_SERVER_ADDR: Tuple[str, int] = ("0.0.0.0", 8082)
 
 
 @dataclass
