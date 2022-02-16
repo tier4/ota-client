@@ -4,15 +4,16 @@ import subprocess
 import shlex
 import shutil
 import time
-import typing
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from hashlib import sha256
 from threading import Lock, Event
-from typing import Dict, Union
+from typing import Dict, Union, Tuple, BinaryIO
 from pathlib import Path
 from os import urandom
+
+from ota_metadata import OtaMetadata
 
 from . import db
 from .config import config as cfg
@@ -72,11 +73,13 @@ class _Bucket(OrderedDict):
                 else:
                     f: Path = Path(cfg.BASE_DIR) / h
                     if f.is_file():
-                        # TODO: deal with dangling cache?
                         space_available += f.stat().st_size
                         hash_list.append(h)
                         files_list.append(f)
                     else:
+                        # deal with dangling cache by telling the caller also
+                        # delete the dangling entry from the database
+                        hash_list.append(h)
                         logger.warning(f"dangling cache entry found: {h}")
 
             if space_available >= size:
@@ -95,14 +98,14 @@ class OTAFile:
     def __init__(
         self,
         url: str,
-        fp: Union[aiohttp.ClientResponse, typing.BinaryIO],
+        fp: Union[aiohttp.ClientResponse, BinaryIO],
         meta: db.CacheMeta,
         store_cache: bool = False,
-        free_space_event: Event = None,
+        below_hard_limit_event: Event = None,
     ):
         logger.debug(f"new OTAFile request: {url}")
         self._store_cache = store_cache
-        self._free_space_event = free_space_event
+        self._storage_below_hard_limit = below_hard_limit_event
         # NOTE: for new cache entry meta, the hash and size are not set yet
         self.meta = meta
 
@@ -124,7 +127,10 @@ class OTAFile:
             self._queue = Queue()
 
     def background_write_cache(self, callback):
-        if not self._store_cache or not self._free_space_event:
+        if not self._store_cache or not self._storage_below_hard_limit:
+            # call callback function even we don't cache anything
+            # as we need to cleanup the status
+            callback(self)
             return
 
         try:
@@ -133,10 +139,9 @@ class OTAFile:
             self._dst_fp = open(self.temp_fpath, "wb")
 
             while not self.finished or not self._queue.empty():
-                if not self._free_space_event.is_set():
-                    # if the free space is not enough duing caching
-                    # abort the caching
-                    logger.error(
+                if not self._storage_below_hard_limit.is_set():
+                    # reach storage hard limit, abort caching
+                    logger.debug(
                         f"not enough free space during caching url={self.meta.url}, abort"
                     )
                     break
@@ -216,7 +221,8 @@ class OTACache:
         self._enable_https = enable_https
         self._executor = ThreadPoolExecutor()
 
-        self._enough_free_space_event = Event()
+        self._storage_below_hard_limit_event = Event()
+        self._storage_below_soft_limit_event = Event()
         self._on_going_caching = dict()
 
         if cache_enabled:
@@ -260,7 +266,7 @@ class OTACache:
                 shutil.rmtree(cfg.BASE_DIR, ignore_errors=True)
         logger.info("shutdown ota-cache completed")
 
-    def _background_check_free_space(self) -> bool:
+    def _background_check_free_space(self):
         while not self._closed:
             try:
                 cmd = f"df --output=pcent {cfg.BASE_DIR}"
@@ -270,12 +276,30 @@ class OTACache:
                 # 0: Use%
                 # 1: 33%
                 current_used_p = int(current_used_p.splitlines()[-1].strip(" %"))
-                if current_used_p < cfg.DISK_USE_LIMIT_P:
-                    self._enough_free_space_event.set()
+                if current_used_p < cfg.DISK_USE_LIMIT_SOTF_P:
+                    logger.debug(f"storage usage below soft limit: {current_used_p}")
+                    # below soft limit, normal caching mode
+                    self._storage_below_soft_limit_event.set()
+                    self._storage_below_hard_limit_event.set()
+                elif (
+                    current_used_p >= cfg.DISK_USE_LIMIT_SOTF_P
+                    and current_used_p < cfg.DISK_USE_LIMIT_HARD_P
+                ):
+                    logger.debug(f"storage usage below hard limit: {current_used_p}")
+                    # reach soft limit but not reach hard limit
+                    # space reservation will be triggered after new file cached
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.set()
                 else:
-                    self._enough_free_space_event.clear()
-            except Exception:
-                self._enough_free_space_event.clear()
+                    logger.debug(f"storage usage reach hard limit: {current_used_p}")
+                    # reach hard limit
+                    # totally disable caching
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.clear()
+            except Exception as e:
+                logger.warning(f"background free space check failed: {e!r}")
+                self._storage_below_soft_limit_event.clear()
+                self._storage_below_hard_limit_event.clear()
 
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
@@ -284,6 +308,14 @@ class OTACache:
 
         for s in cfg.BUCKET_FILE_SIZE_LIST:
             self._buckets[s] = _Bucket(s)
+
+    def _commit_cache(self, m: db.CacheMeta):
+        logger.debug(f"commit cache for {m.url}...")
+        bs = self._find_target_bucket_size(m.size)
+        self._buckets[bs].add_entry(m.hash)
+
+        # register to the database
+        self._db.insert_urls(m)
 
     def _register_cache_callback(self, f: OTAFile):
         """
@@ -296,16 +328,26 @@ class OTACache:
         we will first try reserving free space, if fails,
         then we delete the already cached file.
         """
-        meta = f.meta
-        if f.cached_success and self._ensure_free_space(meta.size):
-            logger.debug(f"commit cache for {meta.url}...")
-            bs = self._find_target_bucket_size(meta.size)
-            self._buckets[bs].add_entry(meta.hash)
 
-            # register to the database
-            self._db.insert_urls(meta)
+        meta = f.meta
+        if f.cached_success:
+            logger.debug(
+                f"caching successfully for {meta.url=}, try to commit cache..."
+            )
+            if not self._storage_below_soft_limit_event.is_set():
+                if self._ensure_free_space(meta.size):
+                    self._commit_cache(meta)
+                else:
+                    # failed to reserve space,
+                    # cleanup cache file
+                    logger.debug(f"failed to reserve space for {meta.url=}, cleanup")
+                    Path(f.temp_fpath).unlink(missing_ok=True)
+            else:
+                self._commit_cache(meta)
         else:
-            # try to cleanup the dangling cache file
+            # cache failed,
+            # cleanup dangling cache file
+            logger.debug(f"cache for {meta.url=} failed, cleanup")
             Path(f.temp_fpath).unlink(missing_ok=True)
 
         # always remember to remove url in the on_going_cache_list!
@@ -336,9 +378,6 @@ class OTACache:
         return target_size
 
     def _ensure_free_space(self, size: int) -> bool:
-        if self._enough_free_space_event.is_set():
-            return True
-
         bs = self._find_target_bucket_size(size)
         bucket: _Bucket = self._buckets[bs]
 
@@ -359,7 +398,6 @@ class OTACache:
             if entry_to_clear:
                 # get one entry from the target bucket
                 # and then delete it
-
                 f: Path = Path(cfg.BASE_DIR) / entry_to_clear
                 f.unlink(missing_ok=True)
                 self._db.remove_url_by_hash(entry_to_clear)
@@ -373,7 +411,7 @@ class OTACache:
         bucket: _Bucket = self._buckets[bs]
         bucket.warm_up_entry(cache_meta.hash)
 
-    def _open_fp_by_cache(self, meta: db.CacheMeta) -> typing.BinaryIO:
+    def _open_fp_by_cache(self, meta: db.CacheMeta) -> BinaryIO:
         hash: str = meta.hash
         fpath = Path(cfg.BASE_DIR) / hash
 
@@ -382,7 +420,7 @@ class OTACache:
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
-    ) -> typing.Tuple[aiohttp.ClientResponse, db.CacheMeta]:
+    ) -> Tuple[aiohttp.ClientResponse, db.CacheMeta]:
         url = raw_url
         if self._enable_https:
             url = raw_url.replace("http", "https")
@@ -444,7 +482,7 @@ class OTACache:
                     fp=fp,
                     meta=meta,
                     store_cache=True,
-                    free_space_event=self._enough_free_space_event,
+                    below_hard_limit_event=self._storage_below_hard_limit_event,
                 )
 
                 # dispatch the background cache writing to executor
