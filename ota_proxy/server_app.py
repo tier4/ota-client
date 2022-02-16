@@ -51,10 +51,10 @@ class App:
         """
         parse raw cookies bytes into dict
         """
-        cookie_pairs: List[str] = cookies_bytes.decode().split(';')
+        cookie_pairs: List[str] = cookies_bytes.decode().split(";")
         res = dict()
         for p in cookie_pairs:
-            k, v = p.strip().split('=')
+            k, v = p.strip().split("=")
             res[k] = v
 
         return res
@@ -91,10 +91,10 @@ class App:
         cookies_dict: Dict[str, str] = dict()
         extra_headers: Dict[str, str] = dict()
         # currently we only need cookie and/or authorization header
-        for header in scope['headers']:
-            if header[0] == b'cookie':
+        for header in scope["headers"]:
+            if header[0] == b"cookie":
                 cookies_dict = self.parse_raw_cookies(header[1])
-            elif header[0] == b'authorization':
+            elif header[0] == b"authorization":
                 extra_headers["Authorization"] = header[1].decode()
 
         f: ota_cache.OTAFile = None
@@ -105,18 +105,20 @@ class App:
             return
         except aiohttp.ClientConnectionError:
             await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, 
-                "failed to connect to remote server", send)
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "failed to connect to remote server",
+                send,
+            )
             return
         except aiohttp.ClientError as e:
             await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, 
-                f"client error: {e!r}", send)
+                HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
+            )
             return
         except Exception as e:
             await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, 
-                f"{e!r}", send)
+                HTTPStatus.INTERNAL_SERVER_ERROR, f"{e!r}", send
+            )
             return
 
         # parse response
@@ -139,8 +141,10 @@ class App:
             await self._send_chunk(b"", False, send)
         else:
             await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, 
-                f"failed to retrieve file for {url=}", send)
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                f"failed to retrieve file for {url=}",
+                send,
+            )
 
     async def app(self, scope, send):
         """

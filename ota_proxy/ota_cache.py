@@ -9,9 +9,8 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from hashlib import sha256
-from http import HTTPStatus
 from threading import Lock, Event
-from typing import Dict, Tuple, Union, List
+from typing import Dict, Union
 from pathlib import Path
 from os import urandom
 
@@ -242,7 +241,9 @@ class OTACache:
                 # if upper proxy presented, we must disable https
                 self._enable_https = False
             else:
-                self._session = aiohttp.ClientSession(auto_decompress=False, raise_for_status=True)
+                self._session = aiohttp.ClientSession(
+                    auto_decompress=False, raise_for_status=True
+                )
 
             self._init_buckets()
         else:
@@ -404,7 +405,8 @@ class OTACache:
 
     # exposed API
     async def retrieve_file(
-        self, url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]) -> OTAFile:
+        self, url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
+    ) -> OTAFile:
         if self._closed:
             raise ValueError("ota cache pool is closed")
 

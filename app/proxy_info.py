@@ -39,7 +39,9 @@ class ProxyInfo:
 
         if self.enable_local_ota_proxy:
             self.gateway: bool = proxy_info.get("gateway", False)
-            self.host, self.port = proxy_info.get("local_server", server_cfg.OTA_PROXY_SERVER_ADDR)
+            self.host, self.port = proxy_info.get(
+                "local_server", server_cfg.OTA_PROXY_SERVER_ADDR
+            )
 
     def get_proxy_for_local_ota(self) -> str:
         if self.enable_local_ota_proxy:

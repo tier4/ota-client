@@ -6,7 +6,7 @@ import re
 import os
 import time
 import json
-from typing import Any
+from typing import Any, Dict
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -95,7 +95,7 @@ class Downloader:
         return urljoin(url_base, quoted_path)
 
     def __call__(
-        self, url_base: str, path: str, dst: Path, digest: str, cookies: dict
+        self, url_base: str, path: str, dst: Path, digest: str, cookies: Dict[str, str]
     ) -> int:
         url = self._regulate_url(path, url_base)
 
@@ -546,7 +546,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             metadata.verify(open(file_name).read())
             logger.info("done")
 
-    def _process_metadata(self, url_base, cookies):
+    def _process_metadata(self, url_base, cookies: Dict[str, str]):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
             self._download(url_base, "metadata.jwt", file_name, None, cookies=cookies)

@@ -71,7 +71,13 @@ class OtaProxyWrapper:
             upper_proxy=proxy_cfg.upper_ota_proxy,
             enable_https=proxy_cfg.gateway,
         )
-        uvicorn.run(app, host=proxy_cfg.host, port=proxy_cfg.port, lifespan="on")
+        uvicorn.run(
+            app,
+            host=proxy_cfg.host,
+            port=proxy_cfg.port,
+            log_level="error",
+            lifespan="on",
+        )
 
     def start(self, enable_cache=False):
         with self._lock:
