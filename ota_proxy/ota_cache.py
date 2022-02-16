@@ -13,14 +13,13 @@ from typing import Dict, Union, Tuple, BinaryIO
 from pathlib import Path
 from os import urandom
 
-from ota_metadata import OtaMetadata
-
 from . import db
 from .config import config as cfg
 
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL)
 
 
 def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:

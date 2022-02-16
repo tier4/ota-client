@@ -5,10 +5,12 @@ from typing import Dict, List
 import aiohttp
 
 from . import ota_cache
+from .config import config as cfg
 
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL)
 
 # only expose app
 __all__ = "App"

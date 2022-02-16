@@ -5,7 +5,10 @@ from threading import Lock
 
 import logging
 
+from .config import config as cfg
+
 logger = logging.getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL)
 
 
 @dataclass

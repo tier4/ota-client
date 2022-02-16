@@ -1,3 +1,4 @@
+from logging import INFO
 from dataclasses import dataclass
 
 
@@ -20,6 +21,8 @@ class Config:
         1 * 1024 * 1024 * 1024,  # 1GiB
     )  # Bytes
     DB_FILE = f"{BASE_DIR}/cache_db"
+
+    LOG_LEVEL = INFO
 
 
 config = Config()
