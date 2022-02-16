@@ -2,6 +2,8 @@ from http import HTTPStatus
 from threading import Lock
 from typing import Dict, List
 
+import aiohttp
+
 from . import ota_cache
 
 import logging
@@ -94,35 +96,51 @@ class App:
                 cookies_dict = self.parse_raw_cookies(header[1])
             elif header[0] == b'authorization':
                 extra_headers["Authorization"] = header[1].decode()
-        f: ota_cache.OTAFile = await self._ota_cache.retrieve_file(url, cookies_dict, extra_headers)
 
-        # for any reason the response is not OK,
-        # report to the client as 500
-        if f is None:
-            msg = f"proxy server failed to handle request {url=}"
-            await self._respond_with_error(HTTPStatus.INTERNAL_SERVER_ERROR, msg, send)
-
-            # terminate the request processing
-            logger.error(f"failed to handle request {url=}")
+        f: ota_cache.OTAFile = None
+        try:
+            f = await self._ota_cache.retrieve_file(url, cookies_dict, extra_headers)
+        except aiohttp.ClientResponseError as e:
+            await self._respond_with_error(e.status, e.message, send)
+            return
+        except aiohttp.ClientConnectionError:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, 
+                "failed to connect to remote server", send)
+            return
+        except aiohttp.ClientError as e:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, 
+                f"client error: {e!r}", send)
+            return
+        except Exception as e:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, 
+                f"{e!r}", send)
             return
 
         # parse response
         # NOTE: currently only record content_type and content_encoding
-        meta = f.meta
-        headers = []
-        if meta.content_type:
-            headers.append([b"Content-Type", meta.content_type.encode()])
-        if meta.content_encoding:
-            headers.append([b"Content-Encoding", meta.content_encoding.encode()])
+        if f:
+            meta = f.meta
+            headers = []
+            if meta.content_type:
+                headers.append([b"Content-Type", meta.content_type.encode()])
+            if meta.content_encoding:
+                headers.append([b"Content-Encoding", meta.content_encoding.encode()])
 
-        # prepare the response to the client
-        await self._init_response(HTTPStatus.OK, headers, send)
+            # prepare the response to the client
+            await self._init_response(HTTPStatus.OK, headers, send)
 
-        # stream the response to the client
-        async for chunk in f:
-            await self._send_chunk(chunk, True, send)
-        # finish the streaming by send a 0 len payload
-        await self._send_chunk(b"", False, send)
+            # stream the response to the client
+            async for chunk in f:
+                await self._send_chunk(chunk, True, send)
+            # finish the streaming by send a 0 len payload
+            await self._send_chunk(b"", False, send)
+        else:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, 
+                f"failed to retrieve file for {url=}", send)
 
     async def app(self, scope, send):
         """

@@ -237,12 +237,12 @@ class OTACache:
             # to the client
             if upper_proxy:
                 self._session = aiohttp.ClientSession(
-                    auto_decompress=False, proxy=upper_proxy
+                    auto_decompress=False, proxy=upper_proxy, raise_for_status=True
                 )
                 # if upper proxy presented, we must disable https
                 self._enable_https = False
             else:
-                self._session = aiohttp.ClientSession(auto_decompress=False)
+                self._session = aiohttp.ClientSession(auto_decompress=False, raise_for_status=True)
 
             self._init_buckets()
         else:
@@ -387,8 +387,6 @@ class OTACache:
             url = raw_url.replace("http", "https")
 
         response = await self._session.get(url, cookies=cookies, headers=extra_headers)
-        if response.status != HTTPStatus.OK:
-            return
 
         # assembling output cachemeta
         # NOTE: output cachemeta doesn't have hash and size set yet
