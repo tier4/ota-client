@@ -4,11 +4,13 @@ from typing import Tuple
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from threading import Event, Lock, Condition
+from multiprocessing import Process
 
 import otaclient_v2_pb2 as v2
 from ota_error import OtaError, OtaErrorRecoverable, OtaErrorUnrecoverable
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
+from proxy_info import proxy_cfg
 from ecu_info import EcuInfo
 
 from configs import config as cfg
@@ -18,6 +20,17 @@ import log_util
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
+
+
+def _path_load():
+    import sys
+    from pathlib import Path
+
+    project_base = Path(__file__).absolute().parent.parent
+    sys.path.append(str(project_base))
+
+
+_path_load()
 
 
 def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
@@ -42,6 +55,55 @@ def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
     return res
 
 
+class OtaProxyWrapper:
+    def __init__(self):
+        self._lock = Lock()
+        self._closed = True
+        self._server_p: Process = None
+
+    @staticmethod
+    def _start_server(enable_cache):
+        import uvicorn
+        from ota_proxy import App
+
+        app = App(
+            cache_enabled=enable_cache,
+            upper_proxy=proxy_cfg.upper_ota_proxy,
+            enable_https=proxy_cfg.gateway,
+        )
+        uvicorn.run(
+            app,
+            host=proxy_cfg.host,
+            port=proxy_cfg.port,
+            log_level="error",
+            lifespan="on",
+        )
+
+    def start(self, enable_cache=False):
+        with self._lock:
+            if self._closed:
+                self._server_p = Process(
+                    target=self._start_server, args=(enable_cache,)
+                )
+                self._server_p.start()
+
+                self._closed = False
+                logger.info(
+                    f"ota proxy server started(pid={self._server_p.pid}, {enable_cache=})"
+                    f"{proxy_cfg}"
+                )
+            else:
+                raise Exception("server already started")
+
+    def stop(self):
+        with self._lock:
+            if not self._closed:
+                # send SIGTERM to the server process
+                self._server_p.terminate()
+                self._closed = True
+                logger.info("ota proxy server closed")
+
+
 class OtaClientStub:
     def __init__(self):
         # dispatch the requested operations to threadpool
@@ -57,7 +119,13 @@ class OtaClientStub:
         self._cached_status: v2.StatusResponse = None
         self._cached_if_subecu_ready: bool = None
 
+        # ota proxy server
+        if proxy_cfg.enable_local_ota_proxy:
+            self._ota_proxy = OtaProxyWrapper()
+
     def __del__(self):
+        if proxy_cfg.enable_local_ota_proxy:
+            self._ota_proxy.stop()
         self._executor.shutdown()
 
     def host_addr(self):
@@ -66,6 +134,10 @@ class OtaClientStub:
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
         logger.info(f"{request=}")
         response = v2.UpdateResponse()
+
+        # start ota proxy server
+        if proxy_cfg.enable_local_ota_proxy:
+            self._ota_proxy.start(enable_cache=True)
 
         # secondary ecus
         tasks = []
@@ -250,7 +322,8 @@ class OtaClientStub:
                 )
             )
             # all subECUs are updated, now the ota_client can reboot
-            logger.debug("all subECUs are ready, set post_update_event")
+            logger.info("all subECUs are updated ready, set post_update_event")
+            # signal the local updator to do post-update
             post_update_event.set()
 
             logger.debug("wait for local ota update to finish...")
@@ -263,6 +336,10 @@ class OtaClientStub:
                 logger.error(f"ota update failed: {e!r}")
             elif isinstance(e, TimeoutError):
                 logger.error(f"timeout local ota update {update_request=}")
+        finally:
+            # always close the local proxy server
+            if proxy_cfg.enable_local_ota_proxy:
+                self._ota_proxy.stop()
 
     async def _get_subecu_status(
         self,

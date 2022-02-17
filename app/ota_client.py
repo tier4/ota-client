@@ -2,12 +2,11 @@ import dataclasses
 import tempfile
 import requests
 import shutil
-import urllib.parse
 import re
 import os
 import time
 import json
-from typing import Any
+from typing import Any, Dict
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -16,8 +15,7 @@ from multiprocessing import Pool, Manager
 from threading import Event, Lock
 from functools import partial
 from enum import Enum, unique
-from requests.exceptions import RequestException
-from retrying import retry
+from urllib.parse import quote, urljoin
 
 from ota_client_interface import OtaClientInterface
 from ota_metadata import OtaMetadata
@@ -25,6 +23,7 @@ from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
 from configs import config as cfg
+from proxy_info import proxy_cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -50,73 +49,98 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
     return file_sha256(filename) == filehash
 
 
-def _download(url_base: str, path: str, dst: Path, digest: str, *, cookies):
-    quoted_path = urllib.parse.quote(path)
-    url = urllib.parse.urljoin(url_base, quoted_path)
+class Downloader:
+    CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
+    RETRY_COUNT = 5
 
-    error_count = 0
-    last_error = ""
+    def __init__(self):
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
 
-    def retry_if_possible(e):
-        nonlocal error_count
-        nonlocal last_error
-        error_count += 1
-        do_retry = True
-        if isinstance(e, requests.exceptions.Timeout):
-            last_error = f"requests timeout: {e},{url=} ({error_count})"
-        elif isinstance(e, requests.exceptions.ConnectionError):
-            last_error = f"requests connection error: {e},{url=} ({error_count})"
-        elif isinstance(e, requests.exceptions.ChunkedEncodingError):
-            last_error = f"requests ChunkedEncodingError: {url=} ({error_count})"
-        elif isinstance(e, RequestException):
-            status_code = getattr(e.response, "status_code", None)
-            last_error = f"requests error: {status_code=},{url=} ({error_count})"
-            if isinstance(status_code, int) and status_code // 100 == 4:
-                do_retry = False
-        else:
-            last_error = f"requests error unknown: {e},{url=}, ({error_count})"
-        logger.warning(last_error)
-        return do_retry
+        # base session
+        session = requests.Session()
 
-    @retry(
-        stop_max_attempt_number=5,
-        retry_on_exception=retry_if_possible,
-        wait_exponential_multiplier=1_000,
-        wait_exponential_max=10_000,
-    )
-    def _requests_get():
-        CHUNK_SIZE = 4096
-        headers = {}
-        headers["Accept-encording"] = "gzip"
-        response = requests.get(
-            url, headers=headers, cookies=cookies, timeout=10, stream=True
+        # cleanup proxy if any
+        proxies = {"http": "", "https": ""}
+        session.proxies.update(proxies)
+
+        # init retry mechanism
+        # NOTE: for urllib3 version below 2.0, we have to change Retry class' DEFAULT_BACKOFF_MAX,
+        # to configure the backoff max, set the value to the instance will not work as increment() method
+        # will create a new instance of Retry on every try without inherit the change to instance's DEFAULT_BACKOFF_MAX
+        Retry.DEFAULT_BACKOFF_MAX = 10
+        retry_strategy = Retry(
+            total=self.RETRY_COUNT,
+            raise_on_status=True,
+            backoff_factor=1,
+            # retry on common server side errors and non-critical client side errors
+            status_forcelist={413, 429, 500, 502, 503, 504},
+            allowed_methods=["GET"],
         )
-        response.raise_for_status()
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
 
+        # register the connection pool
+        self._session = session
+
+    def configure_proxy(self, proxy: str):
+        # configure proxy
+        proxies = {"http": proxy, "https": ""}
+        self._session.proxies.update(proxies)
+
+    def cleanup_proxy(self):
+        self.configure_proxy("")
+
+    @staticmethod
+    def _regulate_url(url: str, url_base: str) -> str:
+        quoted_path = quote(url)
+        return urljoin(url_base, quoted_path)
+
+    def __call__(
+        self, url_base: str, path: str, dst: Path, digest: str, cookies: Dict[str, str]
+    ) -> int:
+        url = self._regulate_url(path, url_base)
+
+        error_count = 0
+        try:
+            response = self._session.get(url, stream=True, timeout=10, cookies=cookies)
+            response.raise_for_status()
+
+            raw_r = response.raw
+            if raw_r.retries:
+                error_count = len(raw_r.retries.history)
+        except requests.exceptions.HTTPError:
+            msg = f"requests error: status_code={response.status_code},{url=} ({error_count})"
+            raise OtaErrorRecoverable(msg)
+        except requests.exceptions.Timeout as e:
+            msg = f"requests timeout: {e},{url=} ({error_count})"
+            raise OtaErrorRecoverable(msg)
+        except requests.exceptions.ConnectionError as e:
+            msg = f"requests connection error: {e},{url=} ({error_count})"
+            raise OtaErrorRecoverable(msg)
+        except requests.exceptions.ChunkedEncodingError:
+            msg = f"requests ChunkedEncodingError: {url=} ({error_count})"
+            raise OtaErrorRecoverable(msg)
+        except requests.exceptions.RequestException as e:
+            # all unspecific errors go here
+            msg = f"requests failed: {e!r}"
+            raise OtaErrorRecoverable(msg)
+
+        # prepare hash
+        hash_f = sha256()
         with open(dst, "wb") as f:
-            m = sha256()
-            total_length = response.headers.get("content-length")
-            if total_length is None:
-                m.update(response.content)
-                f.write(response.content)
-            else:
-                for data in response.iter_content(chunk_size=CHUNK_SIZE):
-                    m.update(data)
-                    f.write(data)
-        return m.hexdigest()
+            for data in response.iter_content(chunk_size=self.CHUNK_SIZE):
+                hash_f.update(data)
+                f.write(data)
 
-    try:
-        calc_digest = _requests_get()
-    except Exception:
-        logger.exception("requests_get")
-        raise OtaErrorRecoverable(last_error)
+        calc_digest = hash_f.hexdigest()
+        if digest and calc_digest != digest:
+            raise OtaErrorRecoverable(
+                f"hash error: act={calc_digest}, exp={digest}, {url=}"
+            )
 
-    if digest and digest != calc_digest:
-        raise OtaErrorRecoverable(
-            f"hash error: act={calc_digest}, exp={digest}, {url=}"
-        )
-
-    return error_count
+        return error_count
 
 
 class _BaseInf:
@@ -295,6 +319,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # statistics
         self._statistics = OtaClientStatistics()
 
+        # downloader
+        self._download = Downloader()
+
     def update(
         self,
         version,
@@ -305,6 +332,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         post_update_event: Event = None,
     ):
         logger.debug("[update] entering...")
+
+        proxy = proxy_cfg.get_proxy_for_local_ota()
+        if proxy:
+            self._download.configure_proxy(proxy)
+
         try:
             cookies = json.loads(cookies_json)
             self._update(
@@ -461,6 +493,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             url, cookies, metadata.get_persistent_info(), self._mount_point
         )
 
+        # finish update, we reset the downloader's proxy setting,
+        # although it is not needed actually
+        self._download.cleanup_proxy()
+
         # leave update
         # wait for all subECUs before reboot itself
         if post_update_event:
@@ -509,7 +545,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(
+            self._download(
                 url_base,
                 list_info["file"],
                 file_name,
@@ -519,10 +555,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             metadata.verify(open(file_name).read())
             logger.info("done")
 
-    def _process_metadata(self, url_base, cookies):
+    def _process_metadata(self, url_base, cookies: Dict[str, str]):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
-            _download(url_base, "metadata.jwt", file_name, None, cookies=cookies)
+            self._download(url_base, "metadata.jwt", file_name, None, cookies=cookies)
 
             metadata = OtaMetadata(open(file_name, "r").read())
             certificate_info = metadata.get_certificate_info()
@@ -533,7 +569,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_directory(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(
+            self._download(
                 url_base,
                 list_info["file"],
                 file_name,
@@ -546,7 +582,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(
+            self._download(
                 url_base,
                 list_info["file"],
                 file_name,
@@ -559,21 +595,21 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(
+            self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
             )
-            url_rootfsdir = urllib.parse.urljoin(url_base, f"{rootfsdir}/")
+            url_rootfsdir = urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
             logger.info("done")
 
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
-            _download(
+            self._download(
                 url_base,
                 list_info["file"],
                 file_name,
@@ -661,6 +697,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 standby_path=standby_path,
                 processed_list=processed_list,
                 boot_standby_path=boot_standby_path,
+                downloader=self._download,
             )
 
             with Pool() as pool:
@@ -721,6 +758,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         boot_standby_path: Path,
         # for hardlink file
         hardlink_event=None,
+        downloader,
     ):
         processed = {}
         begin_time = time.time()
@@ -749,7 +787,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 processed["op"] = "copy"
                 processed["errors"] = 0
             else:
-                errors = _download(
+                processed["errors"] = downloader(
                     url_base,
                     str(reginf.path.relative_to("/")),
                     dst,
@@ -757,7 +795,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     cookies=cookies,
                 )
                 processed["op"] = "download"
-                processed["errors"] = errors
+
         processed["size"] = dst.stat().st_size
 
         os.chown(dst, reginf.uid, reginf.gid)

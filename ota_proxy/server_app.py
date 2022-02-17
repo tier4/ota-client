@@ -1,11 +1,16 @@
 from http import HTTPStatus
 from threading import Lock
+from typing import Dict, List
+
+import aiohttp
 
 from . import ota_cache
+from .config import config as cfg
 
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(cfg.LOG_LEVEL)
 
 # only expose app
 __all__ = "App"
@@ -43,6 +48,19 @@ class App:
                 logger.info("shutdown server completed")
             self._lock.release()
 
+    @staticmethod
+    def parse_raw_cookies(cookies_bytes: bytes) -> Dict[str, str]:
+        """
+        parse raw cookies bytes into dict
+        """
+        cookie_pairs: List[str] = cookies_bytes.decode().split(";")
+        res = dict()
+        for p in cookie_pairs:
+            k, v = p.strip().split("=")
+            res[k] = v
+
+        return res
+
     async def _respond_with_error(self, status: HTTPStatus, msg: str, send):
         await send(
             {
@@ -70,36 +88,65 @@ class App:
             }
         )
 
-    async def _pull_data_and_send(self, url: str, send):
-        f: ota_cache.OTAFile = await self._ota_cache.retrieve_file(url)
+    async def _pull_data_and_send(self, url: str, scope, send):
+        # pass cookies and other headers needed for proxy into the ota_cache module
+        cookies_dict: Dict[str, str] = dict()
+        extra_headers: Dict[str, str] = dict()
+        # currently we only need cookie and/or authorization header
+        for header in scope["headers"]:
+            if header[0] == b"cookie":
+                cookies_dict = self.parse_raw_cookies(header[1])
+            elif header[0] == b"authorization":
+                extra_headers["Authorization"] = header[1].decode()
 
-        # for any reason the response is not OK,
-        # report to the client as 500
-        if f is None:
-            msg = f"proxy server failed to handle request {url=}"
-            await self._respond_with_error(HTTPStatus.INTERNAL_SERVER_ERROR, msg, send)
-
-            # terminate the request processing
-            logger.error(f"failed to handle request {url=}")
+        f: ota_cache.OTAFile = None
+        try:
+            f = await self._ota_cache.retrieve_file(url, cookies_dict, extra_headers)
+        except aiohttp.ClientResponseError as e:
+            await self._respond_with_error(e.status, e.message, send)
+            return
+        except aiohttp.ClientConnectionError:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "failed to connect to remote server",
+                send,
+            )
+            return
+        except aiohttp.ClientError as e:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
+            )
+            return
+        except Exception as e:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, f"{e!r}", send
+            )
             return
 
         # parse response
         # NOTE: currently only record content_type and content_encoding
-        meta = f.meta
-        headers = []
-        if meta.content_type:
-            headers.append([b"Content-Type", meta.content_type.encode()])
-        if meta.content_encoding:
-            headers.append([b"Content-Encoding", meta.content_encoding.encode()])
+        if f:
+            meta = f.meta
+            headers = []
+            if meta.content_type:
+                headers.append([b"Content-Type", meta.content_type.encode()])
+            if meta.content_encoding:
+                headers.append([b"Content-Encoding", meta.content_encoding.encode()])
 
-        # prepare the response to the client
-        await self._init_response(HTTPStatus.OK, headers, send)
+            # prepare the response to the client
+            await self._init_response(HTTPStatus.OK, headers, send)
 
-        # stream the response to the client
-        async for chunk in f:
-            await self._send_chunk(chunk, True, send)
-        # finish the streaming by send a 0 len payload
-        await self._send_chunk(b"", False, send)
+            # stream the response to the client
+            async for chunk in f:
+                await self._send_chunk(chunk, True, send)
+            # finish the streaming by send a 0 len payload
+            await self._send_chunk(b"", False, send)
+        else:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                f"failed to retrieve file for {url=}",
+                send,
+            )
 
     async def app(self, scope, send):
         """
@@ -123,7 +170,7 @@ class App:
             return
 
         logger.debug(f"receive request for {url=}")
-        await self._pull_data_and_send(url, send)
+        await self._pull_data_and_send(url, scope, send)
 
     async def __call__(self, scope, receive, send):
         """

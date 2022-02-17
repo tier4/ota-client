@@ -2,9 +2,10 @@ import platform
 from dataclasses import dataclass, field
 from logging import INFO
 
+from typing import Tuple
 
 # fmt: off
-@dataclass
+@dataclass(frozen=True)
 class OtaClientServerConfig:
     SERVER_PORT: str = "50051"
     PRE_UPDATE_TIMEOUT: float = 300  # 5mins
@@ -14,6 +15,9 @@ class OtaClientServerConfig:
     LOCAL_OTA_UPDATE_TIMEOUT: float = 3600  # 1h
     QUERYING_SUBECU_STATUS_TIMEOUT: float = 120  # 2mins
     LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 10
+
+    # proxy server
+    OTA_PROXY_SERVER_ADDR: Tuple[str, int] = ("0.0.0.0", 8082)
 
 
 @dataclass
@@ -36,6 +40,7 @@ class _BaseConfig:
     )
     BOOT_DIR: str = "/boot"
     ECU_INFO_FILE: str = "/boot/ota/ecu_info.yaml"
+    PROXY_INFO_FILE: str = "/boot/ota/proxy_info.yaml"
     PASSWD_FILE: str = "/etc/passwd"
     GROUP_FILE: str = "/etc/group"
     BOOT_OTA_PARTITION_FILE: str = "ota-partition"
