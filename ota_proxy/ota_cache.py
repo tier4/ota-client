@@ -223,6 +223,7 @@ class OTACache:
         self._storage_below_hard_limit_event = Event()
         self._storage_below_soft_limit_event = Event()
         self._on_going_caching = dict()
+        self._upper_proxy: str = ""
 
         if cache_enabled:
             self._cache_enabled = True
@@ -236,19 +237,19 @@ class OTACache:
             self._executor.submit(self._background_check_free_space)
 
             self._db = db.OTACacheDB(cfg.DB_FILE)
-            # NOTE: requests doesn't decompress the contents,
-            # we cache the contents as its original form, and send
-            # to the client
+
             if upper_proxy:
-                self._session = aiohttp.ClientSession(
-                    auto_decompress=False, proxy=upper_proxy, raise_for_status=True
-                )
                 # if upper proxy presented, we must disable https
+                self._upper_proxy = upper_proxy
                 self._enable_https = False
-            else:
-                self._session = aiohttp.ClientSession(
-                    auto_decompress=False, raise_for_status=True
-                )
+            
+            # NOTE: we configure aiohttp to not decompress the contents,
+            # we cache the contents as its original form, and send
+            # to the client with proper headers to indicate the client to
+            # compress the payload by their own
+            self._session = aiohttp.ClientSession(
+                auto_decompress=False, raise_for_status=True
+            )
 
             self._init_buckets()
         else:
@@ -424,7 +425,9 @@ class OTACache:
         if self._enable_https:
             url = raw_url.replace("http", "https")
 
-        response = await self._session.get(url, cookies=cookies, headers=extra_headers)
+        response = await self._session.get(
+            url, proxy=self._upper_proxy,
+            cookies=cookies, headers=extra_headers)
 
         # assembling output cachemeta
         # NOTE: output cachemeta doesn't have hash and size set yet
