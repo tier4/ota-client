@@ -242,7 +242,7 @@ class OTACache:
                 # if upper proxy presented, we must disable https
                 self._upper_proxy = upper_proxy
                 self._enable_https = False
-            
+
             # NOTE: we configure aiohttp to not decompress the contents,
             # we cache the contents as its original form, and send
             # to the client with proper headers to indicate the client to
@@ -426,8 +426,8 @@ class OTACache:
             url = raw_url.replace("http", "https")
 
         response = await self._session.get(
-            url, proxy=self._upper_proxy,
-            cookies=cookies, headers=extra_headers)
+            url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
+        )
 
         # assembling output cachemeta
         # NOTE: output cachemeta doesn't have hash and size set yet

@@ -331,9 +331,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     ):
         logger.debug("[update] entering...")
 
-        # use local proxy for ota update if enabled
-        if proxy_cfg.enable_local_ota_proxy:
-            self._download.configure_proxy(proxy_cfg.get_proxy_for_local_ota())
+        proxy = proxy_cfg.get_proxy_for_local_ota()
+        if proxy:
+            self._download.configure_proxy(proxy)
 
         try:
             cookies = json.loads(cookies_json)
