@@ -6,7 +6,7 @@ import re
 import os
 import time
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Union
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -15,7 +15,7 @@ from multiprocessing import Pool, Manager
 from threading import Event, Lock
 from functools import partial
 from enum import Enum, unique
-from urllib.parse import quote, urljoin
+from urllib.parse import urljoin, quote_from_bytes
 
 from ota_client_interface import OtaClientInterface
 from ota_metadata import OtaMetadata
@@ -93,14 +93,24 @@ class Downloader:
         self.configure_proxy("")
 
     @staticmethod
-    def _regulate_url(url: str, url_base: str) -> str:
-        quoted_path = quote(url)
-        return urljoin(url_base, quoted_path)
+    def _path_to_url(base: str, p: Union[Path, str]) -> str:
+        if isinstance(p, str):
+            p = Path(p)
+
+        relative_path = p
+        # if the path is relative to /
+        try:
+            relative_path = p.relative_to("/")
+        except ValueError:
+            pass
+
+        quoted_path = quote_from_bytes(bytes(relative_path))
+        return urljoin(base, quoted_path)
 
     def __call__(
         self, url_base: str, path: str, dst: Path, digest: str, cookies: Dict[str, str]
     ) -> int:
-        url = self._regulate_url(path, url_base)
+        url = self._path_to_url(url_base, path)
 
         error_count = 0
         try:
@@ -789,7 +799,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             else:
                 processed["errors"] = downloader(
                     url_base,
-                    str(reginf.path.relative_to("/")),
+                    reginf.path,
                     dst,
                     reginf.sha256hash,
                     cookies=cookies,
