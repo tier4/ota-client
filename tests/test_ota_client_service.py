@@ -379,6 +379,8 @@ def test_ota_client_service_status_with_secondary(
         res_ecu.status.progress.elapsed_time_download.FromMilliseconds(9870)
         res_ecu.status.progress.errors_download = 10
 
+        response_exp.total_ecu_ids.extend(["autoware"])  # default total_ecu_ids
+
         assert response == response_exp
 
     ota_client_mock.status.assert_called_once()
