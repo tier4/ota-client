@@ -4,7 +4,7 @@ import yaml
 
 
 @pytest.mark.parametrize(
-    "ecu_info_dict, secondary_ecus, ecu_id, ip_addr, total_ecu_ids",
+    "ecu_info_dict, secondary_ecus, ecu_id, ip_addr, available_ecu_ids",
     (
         (None, [], "autoware", "localhost", ["autoware"]),
         (
@@ -29,7 +29,7 @@ import yaml
                     {"ecu_id": "perception1", "ip_addr": "192.168.0.11"},
                     {"ecu_id": "perception2", "ip_addr": "192.168.0.12"},
                 ],
-                "total_ecu_ids": ["autoware", "perception1", "perception2"],
+                "available_ecu_ids": ["autoware", "perception1", "perception2"],
             },
             [
                 {"ecu_id": "perception1", "ip_addr": "192.168.0.11"},
@@ -42,7 +42,7 @@ import yaml
     ),
 )
 def test_ecu_info(
-    mocker, tmp_path, ecu_info_dict, secondary_ecus, ecu_id, ip_addr, total_ecu_ids
+    mocker, tmp_path, ecu_info_dict, secondary_ecus, ecu_id, ip_addr, available_ecu_ids
 ):
     from ecu_info import EcuInfo
 
@@ -58,4 +58,4 @@ def test_ecu_info(
     assert ecu_info.get_secondary_ecus() == secondary_ecus
     assert ecu_info.get_ecu_id() == ecu_id
     assert ecu_info.get_ecu_ip_addr() == ip_addr
-    assert ecu_info.get_total_ecu_ids() == total_ecu_ids
+    assert ecu_info.get_available_ecu_ids() == available_ecu_ids
