@@ -279,6 +279,10 @@ class OtaClientStub:
         prg.CopyFrom(_statusprogress_msg_from_dict(status["update_progress"]))
         prg.phase = v2.StatusProgressPhase.Value(status["update_progress"]["phase"])
 
+        # total ecu ids
+        total_ecu_ids = self._ecu_info.get_total_ecu_ids()
+        response.total_ecu_ids.extend(total_ecu_ids)
+
         return response
 
     @staticmethod
@@ -399,6 +403,7 @@ class OtaClientStub:
 
                     for e in t.result().ecu:
                         ecu = response.ecu.add()
+                        # NOTE: response.total_ecu_ids in sub ecu status is ignored.
                         ecu.CopyFrom(e)
                         logger.debug(f"{ecu.ecu_id=}, {ecu.result=}")
 
