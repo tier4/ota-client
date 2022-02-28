@@ -150,4 +150,5 @@ message StatusResponseEcu {
 
 message StatusResponse {
   repeated StatusResponseEcu ecu = 1;
+  repeated string available_ecu_ids = 2;
 }

@@ -161,6 +161,8 @@ def test_ota_client_service_status(mocker, start_service_with_ota_client_mock):
         res_ecu.status.progress.total_regular_file_size = 987654321
         res_ecu.status.progress.total_elapsed_time.FromMilliseconds(123456789)
 
+        response_exp.available_ecu_ids.extend(["autoware"])  # default available_ecu_ids
+
         assert response == response_exp
 
     ota_client_mock.status.assert_called_once()
@@ -376,6 +378,8 @@ def test_ota_client_service_status_with_secondary(
         res_ecu.status.progress.elapsed_time_link.FromMilliseconds(120)
         res_ecu.status.progress.elapsed_time_download.FromMilliseconds(9870)
         res_ecu.status.progress.errors_download = 10
+
+        response_exp.available_ecu_ids.extend(["autoware"])  # default available_ecu_ids
 
         assert response == response_exp
 
