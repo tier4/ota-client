@@ -439,8 +439,9 @@ class OTACache:
 
         # assembling output cachemeta
         # NOTE: output cachemeta doesn't have hash and size set yet
+        # NOTE.2: store the original unquoted url into the CacheMeta
         meta = db.CacheMeta(
-            url=url, hash=None, content_encoding=None, content_type=None, size=0
+            url=raw_url, hash=None, content_encoding=None, content_type=None, size=0
         )
 
         meta.content_type = response.headers.get(
