@@ -422,13 +422,14 @@ class OTACache:
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
     ) -> Tuple[aiohttp.ClientResponse, db.CacheMeta]:
         from urllib.parse import quote, urlparse
+
         url_parsed = urlparse(raw_url)
 
         # NOTE: raw_url is unquoted, we must quote it again before we send it to the remote
         url_parsed = url_parsed._replace(path=quote(url_parsed.path))
         if self._enable_https:
             url_parsed = url_parsed._replace(scheme="https")
-        
+
         url = url_parsed.geturl()
 
         response = await self._session.get(url)
