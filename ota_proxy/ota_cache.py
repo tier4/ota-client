@@ -421,18 +421,27 @@ class OTACache:
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
     ) -> Tuple[aiohttp.ClientResponse, db.CacheMeta]:
-        url = raw_url
+        from urllib.parse import quote, urlparse
+
+        url_parsed = urlparse(raw_url)
+
+        # NOTE: raw_url is unquoted, we must quote it again before we send it to the remote
+        url_parsed = url_parsed._replace(path=quote(url_parsed.path))
         if self._enable_https:
-            url = raw_url.replace("http", "https")
+            url_parsed = url_parsed._replace(scheme="https")
+
+        url = url_parsed.geturl()
 
         response = await self._session.get(
             url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
         )
+        response.raise_for_status()
 
         # assembling output cachemeta
         # NOTE: output cachemeta doesn't have hash and size set yet
+        # NOTE.2: store the original unquoted url into the CacheMeta
         meta = db.CacheMeta(
-            url=url, hash=None, content_encoding=None, content_type=None, size=0
+            url=raw_url, hash=None, content_encoding=None, content_type=None, size=0
         )
 
         meta.content_type = response.headers.get(
