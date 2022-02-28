@@ -432,12 +432,10 @@ class OTACache:
 
         url = url_parsed.geturl()
 
-        response = await self._session.get(url)
-        response.raise_for_status()
-
         response = await self._session.get(
             url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
         )
+        response.raise_for_status()
 
         # assembling output cachemeta
         # NOTE: output cachemeta doesn't have hash and size set yet
