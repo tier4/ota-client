@@ -1,5 +1,5 @@
 from logging import INFO
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -23,6 +23,18 @@ class Config:
     DB_FILE = f"{BASE_DIR}/cache_db"
 
     LOG_LEVEL = INFO
+
+    # db config
+    TABLE_NAME: str = "ota_cache"
+    COLUMNS: dict = field(
+        default_factory=lambda: {
+            "url": (str, "text UNIQUE PRIMARY KEY"),
+            "hash": (str, "text NOT NULL"),
+            "size": (int, "real NOT NULL"),
+            "content_type": (str, "text"),
+            "content_encoding": (str, "text"),
+        }
+    )
 
 
 config = Config()

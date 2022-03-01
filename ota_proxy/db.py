@@ -1,6 +1,6 @@
 import sqlite3
+from dataclasses import make_dataclass
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 
@@ -13,48 +13,39 @@ logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
 
 
-@dataclass
-class CacheMeta:
-    url: str = ""
-    hash: str = ""
-    size: int = 0
-    content_type: str = ""
-    content_encoding: str = ""
+class _CacheMetaMixin:
+    _cols = cfg.COLUMNS.copy()
 
     def to_tuple(self) -> tuple:
-        return (
-            self.url,
-            self.hash,
-            self.size,
-            self.content_type,
-            self.content_encoding,
-        )
+        return tuple([getattr(self, k) for k in self._cols])
 
     @classmethod
-    def row_to_meta(cls, row: sqlite3.Row):
+    def row_to_meta(cls, row):
         res = cls()
-        for k in OTACacheDB.COLUMNS:
+        for k in cls._cols:
             setattr(res, k, row[k])
 
         return res
 
 
+def make_cachemeta_cls(name: str):
+    # set default value of each field as field type's zero value
+    return make_dataclass(
+        name,
+        [(k, v[0], v[0]()) for k, v in cfg.COLUMNS.items()],
+        bases=(_CacheMetaMixin,),
+    )
+
+
+CacheMeta = make_cachemeta_cls("CacheMeta")
+
+
 class OTACacheDB:
-    TABLE_NAME: str = "ota_cache"
-    COLUMNS: dict = {
-        "url": 0,
-        "hash": 1,
-        "size": 2,
-        "content_type": 3,
-        "content_encoding": 4,
-    }
+    TABLE_NAME = cfg.TABLE_NAME
     INIT_DB: str = (
-        f"CREATE TABLE {TABLE_NAME}("
-        "url text UNIQUE PRIMARY KEY,"
-        "hash text NOT NULL, "
-        "size real NOT NULL,"
-        "content_type text, "
-        "content_encoding text)"
+        f"CREATE TABLE {cfg.TABLE_NAME}("
+        + ", ".join([f"{k} {v[-1]}" for k, v in cfg.COLUMNS.items()])
+        + ")"
     )
 
     def __init__(self, db_file: str, init: bool = False):
