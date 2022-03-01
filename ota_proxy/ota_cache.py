@@ -1,15 +1,16 @@
 import asyncio
+from functools import partial
 import aiohttp
 import subprocess
 import shlex
 import shutil
 import time
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from queue import Queue
 from hashlib import sha256
 from threading import Lock, Event
-from typing import Dict, Union, Tuple, BinaryIO
+from typing import Dict, List, Union, Tuple, BinaryIO
 from pathlib import Path
 from os import urandom
 
@@ -38,6 +39,7 @@ def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
 class _Bucket(OrderedDict):
     def __init__(self, size: int):
         super().__init__()
+        self._base_dir = Path(cfg.BASE_DIR)
         self._lock = Lock()
         self.size = size
 
@@ -70,7 +72,7 @@ class _Bucket(OrderedDict):
                 if space_available >= size:
                     break
                 else:
-                    f: Path = Path(cfg.BASE_DIR) / h
+                    f: Path = Path(self._base_dir) / h
                     if f.is_file():
                         space_available += f.stat().st_size
                         hash_list.append(h)
@@ -103,6 +105,7 @@ class OTAFile:
         below_hard_limit_event: Event = None,
     ):
         logger.debug(f"new OTAFile request: {url}")
+        self._base_dir = Path(cfg.BASE_DIR)
         self._store_cache = store_cache
         self._storage_below_hard_limit = below_hard_limit_event
         # NOTE: for new cache entry meta, the hash and size are not set yet
@@ -134,7 +137,7 @@ class OTAFile:
 
         try:
             logger.debug(f"start to cache for {self.meta.url}...")
-            self.temp_fpath = Path(cfg.BASE_DIR) / f"tmp_{urandom(16).hex()}"
+            self.temp_fpath = self._base_dir / f"tmp_{urandom(16).hex()}"
             self._dst_fp = open(self.temp_fpath, "wb")
 
             while not self.finished or not self._queue.empty():
@@ -160,7 +163,7 @@ class OTAFile:
                 hash = self._hash_f.hexdigest()
 
                 self.meta.hash = hash
-                self.temp_fpath.rename(Path(cfg.BASE_DIR) / hash)
+                self.temp_fpath.rename(self._base_dir / hash)
                 self.cached_success = True
                 logger.debug(f"successfully cache {self.meta.url}")
             # NOTE: if queue is empty but self._finished is not set
@@ -205,6 +208,68 @@ class OTAFile:
             return chunk
 
 
+class OTACacheHelper:
+    """
+    a helper bundle to maintain ota-cache
+    """
+
+    def __init__(self):
+        self._base_dir = Path(cfg.BASE_DIR)
+        self._db = db.OTACacheDB(cfg.DB_FILE)
+
+    @staticmethod
+    def _check_entry(base_dir: str, meta: db.CacheMeta) -> List[db.CacheMeta, bool]:
+        f = Path(base_dir) / meta.hash
+        if f.is_file():
+            hash_f = sha256()
+            # calculate file's hash and check against meta
+            with open(f, "rb") as fp:
+                while True:
+                    data = fp.read(cfg.CHUNK_SIZE)
+                    if data:
+                        hash_f.update(data)
+                    else:
+                        break
+
+            if hash_f.hexdigest() == meta.hash:
+                return meta, True
+
+        # check failed, try to remove the cache entry
+        f.unlink(missing_ok=True)
+        return meta, False
+
+    def scrub_cache(self):
+        dangling_db_entry = []
+        # NOTE: pre-add database file into the set
+        # to prevent db file being deleted
+        valid_cache_entry = {Path(cfg.DB_FILE).name}
+        with ProcessPoolExecutor() as pool:
+            res_list = pool.map(
+                partial(self._check_entry, str(self._base_dir)),
+                self._db.lookup_all(),
+                chunksize=128,
+            )
+
+            for meta, valid in res_list:
+                if not valid:
+                    logger.debug(f"invalid db entry found: {meta.url}")
+                    dangling_db_entry.append(meta.url)
+                else:
+                    valid_cache_entry.add(meta.hash)
+
+        # delete the invalid entry from the database
+        self._db.remove_urls(*dangling_db_entry)
+
+        # loop over all files under cache folder,
+        # if entry's hash is not presented in the valid_cache_entry set,
+        # we treat it as dangling cache entry and delete it
+        for entry in self._base_dir.glob("*"):
+            if entry.name not in valid_cache_entry:
+                logger.debug(f"dangling cache entry found: {entry.name}")
+                f = self._base_dir / entry.name
+                f.unlink(missing_ok=True)
+
+
 class OTACache:
     def __init__(
         self,
@@ -215,6 +280,7 @@ class OTACache:
     ):
         logger.debug(f"init ota cache({cache_enabled=}, {init=}, {upper_proxy=})")
 
+        self._base_dir = Path(cfg.BASE_DIR)
         self._closed = False
         self._cache_enabled = cache_enabled
         self._enable_https = enable_https
@@ -230,8 +296,8 @@ class OTACache:
 
             # prepare cache dire
             if init:
-                shutil.rmtree(cfg.BASE_DIR, ignore_errors=True)
-            Path(cfg.BASE_DIR).mkdir(exist_ok=True, parents=True)
+                shutil.rmtree(str(self._base_dir), ignore_errors=True)
+            self._base_dir.mkdir(exist_ok=True, parents=True)
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
@@ -263,13 +329,13 @@ class OTACache:
             self._db.close()
 
             if cleanup:
-                shutil.rmtree(cfg.BASE_DIR, ignore_errors=True)
+                shutil.rmtree(str(self._base_dir), ignore_errors=True)
         logger.info("shutdown ota-cache completed")
 
     def _background_check_free_space(self):
         while not self._closed:
             try:
-                cmd = f"df --output=pcent {cfg.BASE_DIR}"
+                cmd = f"df --output=pcent {self._base_dir}"
                 current_used_p = _subprocess_check_output(cmd, raise_exception=True)
 
                 # expected output:
@@ -398,7 +464,7 @@ class OTACache:
             if entry_to_clear:
                 # get one entry from the target bucket
                 # and then delete it
-                f: Path = Path(cfg.BASE_DIR) / entry_to_clear
+                f = self._base_dir / entry_to_clear
                 f.unlink(missing_ok=True)
                 self._db.remove_url_by_hash(entry_to_clear)
 
@@ -413,7 +479,7 @@ class OTACache:
 
     def _open_fp_by_cache(self, meta: db.CacheMeta) -> BinaryIO:
         hash: str = meta.hash
-        fpath = Path(cfg.BASE_DIR) / hash
+        fpath = self._base_dir / hash
 
         if fpath.is_file():
             return open(fpath, "rb")
@@ -471,7 +537,7 @@ class OTACache:
             cache_meta = self._db.lookup_url(url)
             if cache_meta:  # cache hit
                 logger.debug(f"cache hit for {url=}\n, {cache_meta=}")
-                path = Path(cfg.BASE_DIR) / cache_meta.hash
+                path = self._base_dir / cache_meta.hash
                 if not path.is_file():
                     # invalid cache entry found in the db, cleanup it
                     logger.error(f"dangling cache entry found: \n{cache_meta=}")
