@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class ColField:
-    type: type
+    col_type: type
     col_def: str
 
 

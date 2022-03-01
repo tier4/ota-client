@@ -32,7 +32,7 @@ def make_cachemeta_cls(name: str):
     # set default value of each field as field type's zero value
     return make_dataclass(
         name,
-        [(k, v.type, v.type()) for k, v in cfg.COLUMNS.items()],
+        [(k, v.col_type, v.col_type()) for k, v in cfg.COLUMNS.items()],
         bases=(_CacheMetaMixin,),
     )
 
