@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Lock
 
 import logging
-from typing import Any, List
+from typing import Any, Dict, List, Tuple
 
 from .config import config as cfg
 
@@ -14,13 +14,13 @@ logger.setLevel(cfg.LOG_LEVEL)
 
 
 class _CacheMetaMixin:
-    _cols = cfg.COLUMNS.copy()
+    _cols = cfg.COLUMNS
 
-    def to_tuple(self) -> tuple:
+    def to_tuple(self) -> Tuple[Any]:
         return tuple([getattr(self, k) for k in self._cols])
 
     @classmethod
-    def row_to_meta(cls, row):
+    def row_to_meta(cls, row: Dict[str, Any]):
         res = cls()
         for k in cls._cols:
             setattr(res, k, row[k])
@@ -32,7 +32,7 @@ def make_cachemeta_cls(name: str):
     # set default value of each field as field type's zero value
     return make_dataclass(
         name,
-        [(k, v[0], v[0]()) for k, v in cfg.COLUMNS.items()],
+        [(k, v.type, v.type()) for k, v in cfg.COLUMNS.items()],
         bases=(_CacheMetaMixin,),
     )
 
@@ -44,7 +44,7 @@ class OTACacheDB:
     TABLE_NAME = cfg.TABLE_NAME
     INIT_DB: str = (
         f"CREATE TABLE {cfg.TABLE_NAME}("
-        + ", ".join([f"{k} {v[-1]}" for k, v in cfg.COLUMNS.items()])
+        + ", ".join([f"{k} {v.col_def}" for k, v in cfg.COLUMNS.items()])
         + ")"
     )
 

@@ -2,6 +2,12 @@ from logging import INFO
 from dataclasses import dataclass, field
 
 
+@dataclass(frozen=True)
+class ColField:
+    type: type
+    col_def: str
+
+
 @dataclass
 class Config:
     BASE_DIR: str = "/ota-cache"
@@ -28,11 +34,11 @@ class Config:
     TABLE_NAME: str = "ota_cache"
     COLUMNS: dict = field(
         default_factory=lambda: {
-            "url": (str, "text UNIQUE PRIMARY KEY"),
-            "hash": (str, "text NOT NULL"),
-            "size": (int, "real NOT NULL"),
-            "content_type": (str, "text"),
-            "content_encoding": (str, "text"),
+            "url": ColField(str, "text UNIQUE PRIMARY KEY"),
+            "hash": ColField(str, "text NOT NULL"),
+            "size": ColField(int, "real NOT NULL"),
+            "content_type": ColField(str, "text"),
+            "content_encoding": ColField(str, "text"),
         }
     )
 
