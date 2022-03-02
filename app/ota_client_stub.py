@@ -320,7 +320,7 @@ class OtaClientStub:
         # pulling subECU status
         # NOTE: the method will block until all the subECUs' status are as expected
         try:
-            asyncio.run(self._ensure_subecu_status(timeout=None))
+            asyncio.run(self._ensure_subecu_status())
             # all subECUs are updated, now the ota_client can reboot
             logger.info("all subECUs are updated ready, set post_update_event")
             # signal the local updator to do post-update
@@ -542,21 +542,9 @@ class OtaClientStub:
                     )
                 """
 
-    async def _ensure_subecu_status(self, timeout: float):
+    async def _ensure_subecu_status(self):
         """
         loop pulling the status of subecu, return only when all subECU are in SUCCESS condition
         raise exception when timeout reach or any of the subECU is unavailable
         """
-
-        t = asyncio.create_task(self._loop_pulling_subecu_status())
-        try:
-            await asyncio.wait_for(t, timeout=timeout)
-        except Exception as e:
-            logger.exception("_loop_pulling_subecu_status")
-            if isinstance(e, asyncio.TimeoutError):
-                raise OtaErrorUnrecoverable(
-                    "failed to wait for all subECU to finish update on time"
-                )
-            else:
-                # other OtaException
-                raise
+        await self._loop_pulling_subecu_status()
