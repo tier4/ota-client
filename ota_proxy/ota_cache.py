@@ -36,6 +36,26 @@ def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
         return ""
 
 
+class _RegisterDict(dict):
+    def __init__(self):
+        self._lock = Lock()
+
+    def register(self, url: str) -> bool:
+        with self._lock:
+            if url in self:
+                return False
+            else:
+                self[url] = None
+                return True
+
+    def unregister(self, url: str):
+        with self._lock:
+            try:
+                del self[url]
+            except KeyError:
+                pass
+
+
 class _Bucket(OrderedDict):
     def __init__(self, size: int):
         super().__init__()
@@ -298,7 +318,7 @@ class OTACache:
 
         self._storage_below_hard_limit_event = Event()
         self._storage_below_soft_limit_event = Event()
-        self._on_going_caching = dict()
+        self._on_going_caching = _RegisterDict()
         self._upper_proxy: str = ""
 
         _event = Event()
@@ -435,7 +455,7 @@ class OTACache:
             Path(f.temp_fpath).unlink(missing_ok=True)
 
         # always remember to remove url in the on_going_cache_list!
-        del self._on_going_caching[meta.url]
+        self._on_going_caching.unregister(meta.url)
 
     def _find_target_bucket_size(self, file_size: int) -> int:
         if file_size < 0:
@@ -544,13 +564,8 @@ class OTACache:
             raise ValueError("ota cache pool is closed")
 
         res = None
-        # NOTE: also check if there is already an on-going caching
-        # NOTE.2: disable caching when scrubbing is on-going
-        if (
-            not self._cache_enabled
-            or url in self._on_going_caching
-            or not self._scrub_finished_event.is_set()
-        ):
+        # NOTE: disable caching when scrubbing is on-going
+        if not self._cache_enabled or not self._scrub_finished_event.is_set():
             # case 1: not using cache, directly download file
             fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
             res = OTAFile(url=url, fp=fp, meta=meta)
@@ -574,24 +589,32 @@ class OTACache:
                 # case 2: download and cache new file
                 logger.debug(f"try to download and cache {url=}")
                 fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
+
                 # NOTE: remember to remove the url after cache comitted!
-                self._on_going_caching[url] = None
+                # TODO: make this an atomic operation
+                # try to cache the file if no other same on-going caching
+                if self._on_going_caching.register(url):
+                    res = OTAFile(
+                        url=url,
+                        fp=fp,
+                        meta=meta,
+                        store_cache=True,
+                        below_hard_limit_event=self._storage_below_hard_limit_event,
+                    )
 
-                res = OTAFile(
-                    url=url,
-                    fp=fp,
-                    meta=meta,
-                    store_cache=True,
-                    below_hard_limit_event=self._storage_below_hard_limit_event,
-                )
-
-                # dispatch the background cache writing to executor
-                loop = asyncio.get_running_loop()
-                loop.run_in_executor(
-                    self._executor,
-                    res.background_write_cache,
-                    self._register_cache_callback,
-                )
+                    # dispatch the background cache writing to executor
+                    loop = asyncio.get_running_loop()
+                    loop.run_in_executor(
+                        self._executor,
+                        res.background_write_cache,
+                        self._register_cache_callback,
+                    )
+                else:
+                    # failed to get the chance to cache
+                    fp, meta = await self._open_fp_by_requests(
+                        url, cookies, extra_headers
+                    )
+                    res = OTAFile(url=url, fp=fp, meta=meta)
             else:
                 # case 3: use cache
                 logger.debug(f"use cache for {url=}")
