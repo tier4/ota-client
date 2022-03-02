@@ -213,9 +213,11 @@ class OTACacheHelper:
     a helper bundle to maintain ota-cache
     """
 
-    def __init__(self):
+    def __init__(self, event: Event):
         self._base_dir = Path(cfg.BASE_DIR)
         self._db = db.OTACacheDB(cfg.DB_FILE)
+
+        self._event = event
 
     @staticmethod
     def _check_entry(base_dir: str, meta: db.CacheMeta) -> List[db.CacheMeta, bool]:
@@ -239,11 +241,18 @@ class OTACacheHelper:
         return meta, False
 
     def scrub_cache(self):
+        from os import cpu_count
+
+        logger.debug("start to scrub the cache entries...")
+
+        if self._event.is_set():
+            self._event.clear()
+
         dangling_db_entry = []
         # NOTE: pre-add database file into the set
         # to prevent db file being deleted
         valid_cache_entry = {Path(cfg.DB_FILE).name}
-        with ProcessPoolExecutor() as pool:
+        with ProcessPoolExecutor(max_workers=cpu_count * 2 // 3) as pool:
             res_list = pool.map(
                 partial(self._check_entry, str(self._base_dir)),
                 self._db.lookup_all(),
@@ -269,6 +278,9 @@ class OTACacheHelper:
                 f = self._base_dir / entry.name
                 f.unlink(missing_ok=True)
 
+        self._event.set()
+        logger.debug(f"scrub finished")
+
 
 class OTACache:
     def __init__(
@@ -291,17 +303,26 @@ class OTACache:
         self._on_going_caching = dict()
         self._upper_proxy: str = ""
 
+        _event = Event()
+        self._scrub_finished_event = _event
+        self._cache_helper = OTACacheHelper(_event)
+
         if cache_enabled:
             self._cache_enabled = True
 
             # prepare cache dire
             if init:
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
-            self._base_dir.mkdir(exist_ok=True, parents=True)
+                self._base_dir.mkdir(exist_ok=True, parents=True)
+            else:
+                # scrub the cache folder in the background
+                self._base_dir.mkdir(exist_ok=True, parents=True)
+                self._executor.submit(self._cache_helper.scrub_cache)
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
+            # connect to db
             self._db = db.OTACacheDB(cfg.DB_FILE)
 
             if upper_proxy:
@@ -527,7 +548,12 @@ class OTACache:
 
         res = None
         # NOTE: also check if there is already an on-going caching
-        if not self._cache_enabled or url in self._on_going_caching:
+        # NOTE.2: disable caching when scrubbing is on-going
+        if (
+            not self._cache_enabled
+            or url in self._on_going_caching
+            or not self._scrub_finished_event.is_set()
+        ):
             # case 1: not using cache, directly download file
             fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
             res = OTAFile(url=url, fp=fp, meta=meta)
