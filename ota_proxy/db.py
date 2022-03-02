@@ -38,7 +38,8 @@ def make_cachemeta_cls(name: str):
 
 
 CacheMeta = make_cachemeta_cls("CacheMeta")
-
+# fix the issue of pickling dynamically generated dataclass
+CacheMeta.__module__ = __name__
 
 class OTACacheDB:
     TABLE_NAME = cfg.TABLE_NAME
