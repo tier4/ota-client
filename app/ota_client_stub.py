@@ -327,9 +327,7 @@ class OtaClientStub:
             post_update_event.set()
 
             logger.debug("wait for local ota update to finish...")
-            exp = _future.exception(timeout=server_cfg.LOCAL_OTA_UPDATE_TIMEOUT)
-            if exp:
-                raise exp
+            _future.result()
         except Exception as e:
             logger.exception("_ensure_subecu_status")
             if isinstance(e, OtaError):
