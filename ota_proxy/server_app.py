@@ -18,13 +18,21 @@ __all__ = "App"
 
 class App:
     def __init__(
-        self, cache_enabled=False, upper_proxy: str = None, enable_https: bool = False
+        self,
+        cache_enabled=False,
+        upper_proxy: str = None,
+        enable_https: bool = False,
+        init_cache: bool = True,
     ):
         self.cache_enabled = cache_enabled
         self.upper_proxy = upper_proxy
         self.enable_https = enable_https
-        self.started = False
+        self.init_cache = init_cache
+        logger.debug(
+            f"init ota-proxy({cache_enabled=}, {init_cache=}, {enable_https=}, {upper_proxy=})"
+        )
 
+        self.started = False
         self._lock = Lock()
 
     def start(self):
@@ -35,16 +43,22 @@ class App:
                 self._ota_cache = ota_cache.OTACache(
                     upper_proxy=self.upper_proxy,
                     cache_enabled=self.cache_enabled,
-                    init=True,
+                    init=self.init_cache,
                     enable_https=self.enable_https,
                 )
             self._lock.release()
 
-    def stop(self):
+    def stop(self, cleanup: bool = True):
         if self._lock.acquire(blocking=False):
             if self.started:
                 logger.info("stopping ota http proxy app...")
                 self._ota_cache.close()
+
+                if cleanup:
+                    import shutil
+
+                    shutil.rmtree(cfg.BASE_DIR, ignore_errors=True)
+
                 logger.info("shutdown server completed")
             self._lock.release()
 

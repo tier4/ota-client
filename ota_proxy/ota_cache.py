@@ -342,15 +342,13 @@ class OTACache:
         else:
             self._cache_enabled = False
 
-    def close(self, cleanup: bool = True):
-        logger.debug(f"shutdown ota-cache({cleanup=})...")
+    def close(self):
+        logger.debug(f"shutdown ota-cache...")
         if self._cache_enabled and not self._closed:
             self._closed = True
             self._executor.shutdown(wait=True)
             self._db.close()
 
-            if cleanup:
-                shutil.rmtree(str(self._base_dir), ignore_errors=True)
         logger.info("shutdown ota-cache completed")
 
     def _background_check_free_space(self):
