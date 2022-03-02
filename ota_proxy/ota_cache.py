@@ -220,7 +220,7 @@ class OTACacheHelper:
         self._event = event
 
     @staticmethod
-    def _check_entry(base_dir: str, meta: db.CacheMeta) -> List[db.CacheMeta, bool]:
+    def _check_entry(base_dir: str, meta: db.CacheMeta) -> Union[db.CacheMeta, bool]:
         f = Path(base_dir) / meta.hash
         if f.is_file():
             hash_f = sha256()
@@ -244,15 +244,13 @@ class OTACacheHelper:
         from os import cpu_count
 
         logger.debug("start to scrub the cache entries...")
-
-        if self._event.is_set():
-            self._event.clear()
+        self._event.clear()
 
         dangling_db_entry = []
         # NOTE: pre-add database file into the set
         # to prevent db file being deleted
         valid_cache_entry = {Path(cfg.DB_FILE).name}
-        with ProcessPoolExecutor(max_workers=cpu_count * 2 // 3) as pool:
+        with ProcessPoolExecutor(max_workers=cpu_count() * 2 // 3) as pool:
             res_list = pool.map(
                 partial(self._check_entry, str(self._base_dir)),
                 self._db.lookup_all(),
@@ -304,6 +302,7 @@ class OTACache:
         self._upper_proxy: str = ""
 
         _event = Event()
+        _event.set()
         self._scrub_finished_event = _event
         self._cache_helper = OTACacheHelper(_event)
 
