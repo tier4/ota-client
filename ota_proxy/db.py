@@ -61,11 +61,14 @@ class OTACacheDB:
         if not init and self._closed:
             raise sqlite3.OperationalError("connect is closed")
 
+        _query_method = query.strip().split(" ")[0]
+
         cur = self._con.cursor()
-        if len(query_param) > 1:
-            cur.executemany(query, query_param)
-        else:
-            cur.execute(query, query_param)
+        _query_handler = cur.execute
+        if _query_method in {"INSERT", "DELETE"}:
+            _query_handler = cur.executemany
+
+        _query_handler(query, query_param)
 
         try:
             yield cur
