@@ -320,11 +320,7 @@ class OtaClientStub:
         # pulling subECU status
         # NOTE: the method will block until all the subECUs' status are as expected
         try:
-            asyncio.run(
-                self._ensure_subecu_status(
-                    timeout=server_cfg.WAITING_SUBECU_READY_TIMEOUT
-                )
-            )
+            asyncio.run(self._ensure_subecu_status(timeout=None))
             # all subECUs are updated, now the ota_client can reboot
             logger.info("all subECUs are updated ready, set post_update_event")
             # signal the local updator to do post-update
