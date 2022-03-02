@@ -279,7 +279,7 @@ class OTACacheHelper:
                 f.unlink(missing_ok=True)
 
         self._event.set()
-        logger.debug(f"scrub finished")
+        logger.debug("scrub finished")
 
 
 class OTACache:
@@ -343,7 +343,7 @@ class OTACache:
             self._cache_enabled = False
 
     def close(self):
-        logger.debug(f"shutdown ota-cache...")
+        logger.debug("shutdown ota-cache...")
         if self._cache_enabled and not self._closed:
             self._closed = True
             self._executor.shutdown(wait=True)

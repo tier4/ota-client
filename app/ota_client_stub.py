@@ -5,10 +5,11 @@ from functools import partial
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from threading import Event, Lock, Condition
 from multiprocessing import Process
+from ota_status import OtaStatus
 
 import otaclient_v2_pb2 as v2
 from ota_error import OtaError, OtaErrorRecoverable, OtaErrorUnrecoverable
-from ota_client import OtaClient
+from ota_client import OtaClient, OtaClientUpdatePhase
 from ota_client_call import OtaClientCall
 from proxy_info import proxy_cfg
 from ecu_info import EcuInfo
@@ -56,13 +57,14 @@ def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
 
 
 class OtaProxyWrapper:
-    def __init__(self):
+    def __init__(self, init: bool):
         self._lock = Lock()
         self._closed = True
         self._server_p: Process = None
+        self._init_cache = init
 
     @staticmethod
-    def _start_server(enable_cache):
+    def _start_server(enable_cache: bool, init_cache: bool):
         import uvicorn
         from ota_proxy import App
 
@@ -70,6 +72,7 @@ class OtaProxyWrapper:
             cache_enabled=enable_cache,
             upper_proxy=proxy_cfg.upper_ota_proxy,
             enable_https=proxy_cfg.gateway,
+            init_cache=init_cache
         )
         uvicorn.run(
             app,
@@ -79,11 +82,11 @@ class OtaProxyWrapper:
             lifespan="on",
         )
 
-    def start(self, enable_cache=False):
+    def start(self, enable_cache=False, init_cache=True):
         with self._lock:
             if self._closed:
                 self._server_p = Process(
-                    target=self._start_server, args=(enable_cache,)
+                    target=self._start_server, args=(enable_cache, init_cache)
                 )
                 self._server_p.start()
 
@@ -95,13 +98,20 @@ class OtaProxyWrapper:
             else:
                 raise Exception("server already started")
 
-    def stop(self):
+    def stop(self, cleanup_cache=False):
+        from ota_proxy.config import config as proxy_srv_cfg
+
         with self._lock:
             if not self._closed:
                 # send SIGTERM to the server process
                 self._server_p.terminate()
                 self._closed = True
                 logger.info("ota proxy server closed")
+
+                if cleanup_cache:
+                    import shutil
+
+                    shutil.rmtree(proxy_srv_cfg.BASE_DIR, ignore_errors=True)
 
 
 class OtaClientStub:
@@ -136,8 +146,11 @@ class OtaClientStub:
         response = v2.UpdateResponse()
 
         # start ota proxy server
+        # check current ota_status, if the status is not SUCCESS,
+        # always assume there is an interrupted ota update, thus reuse the cache if possible
+        _init_cache = self._ota_client.get_ota_status() != OtaStatus.SUCCESS
         if proxy_cfg.enable_local_ota_proxy:
-            self._ota_proxy.start(enable_cache=True)
+            self._ota_proxy.start(enable_cache=True, init_cache=_init_cache)
 
         # secondary ecus
         tasks = []
@@ -342,8 +355,12 @@ class OtaClientStub:
                 logger.error(f"timeout local ota update {update_request=}")
         finally:
             # always close the local proxy server
+            # only cleanup cache if update is successful
+            _, _status = self._ota_client.status()
+            # TODO: better way to do the following check?
+            _cleanup = _status["update_progress"]["phase"] == OtaClientUpdatePhase.POST_PROCESSING.name
             if proxy_cfg.enable_local_ota_proxy:
-                self._ota_proxy.stop()
+                self._ota_proxy.stop(cleanup_cache=_cleanup)
 
     async def _get_subecu_status(
         self,

@@ -48,17 +48,11 @@ class App:
                 )
             self._lock.release()
 
-    def stop(self, cleanup: bool = True):
+    def stop(self):
         if self._lock.acquire(blocking=False):
             if self.started:
                 logger.info("stopping ota http proxy app...")
                 self._ota_cache.close()
-
-                if cleanup:
-                    import shutil
-
-                    shutil.rmtree(cfg.BASE_DIR, ignore_errors=True)
-
                 logger.info("shutdown server completed")
             self._lock.release()
 
