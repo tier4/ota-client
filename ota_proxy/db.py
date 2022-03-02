@@ -57,19 +57,12 @@ class OTACacheDB:
         self._connect_db(init)
 
     @contextmanager
-    def _general_query(
-        self,
-        query: str,
-        query_param: List[Any],
-        multiple_query: bool = True,
-        init: bool = False,
-    ):
+    def _general_query(self, query: str, query_param: List[Any], init: bool = False):
         if not init and self._closed:
             raise sqlite3.OperationalError("connect is closed")
 
         cur = self._con.cursor()
-        if multiple_query:
-            query_param = [(p,) for p in query_param]
+        if len(query_param) > 1:
             cur.executemany(query, query_param)
         else:
             cur.execute(query, query_param)
@@ -87,7 +80,7 @@ class OTACacheDB:
 
     def _init_table(self):
         logger.debug("init sqlite database...")
-        with self._general_query(self.INIT_DB, (), multiple_query=False, init=True):
+        with self._general_query(self.INIT_DB, (), init=True):
             self._con.commit()
 
     def _connect_db(self, init: bool):
@@ -101,19 +94,20 @@ class OTACacheDB:
         with self._general_query(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
             (self.TABLE_NAME,),
-            multiple_query=False,
             init=True,
         ) as cur:
             if cur.fetchone() is None:
                 self._init_table()
 
     def remove_url_by_hash(self, *hash: str):
+        hash = [(h,) for h in hash]
         with self._wlock, self._general_query(
             f"DELETE FROM {self.TABLE_NAME} WHERE hash=?", hash
         ):
             self._con.commit()
 
     def remove_urls(self, *urls: str):
+        urls = [(u,) for u in urls]
         with self._wlock, self._general_query(
             f"DELETE FROM {self.TABLE_NAME} WHERE url=?", urls
         ):
@@ -124,19 +118,16 @@ class OTACacheDB:
         with self._wlock, self._general_query(
             f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES (?,?,?,?,?)",
             rows,
-            multiple_query=False,
         ):
             self._con.commit()
 
     def lookup_url(self, url: str) -> CacheMeta:
         with self._general_query(
-            f"SELECT * FROM {self.TABLE_NAME} WHERE url=?", (url,), multiple_query=False
+            f"SELECT * FROM {self.TABLE_NAME} WHERE url=?", (url,)
         ) as cur:
             return CacheMeta.row_to_meta(cur.fetchone())
 
     def lookup_all(self) -> CacheMeta:
-        with self._general_query(
-            f"SELECT * FROM {self.TABLE_NAME}", (), multiple_query=False
-        ) as cur:
+        with self._general_query(f"SELECT * FROM {self.TABLE_NAME}", ()) as cur:
             for row in cur.fetchall():
                 yield CacheMeta.row_to_meta(row)
