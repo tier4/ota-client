@@ -57,11 +57,10 @@ def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
 
 
 class OtaProxyWrapper:
-    def __init__(self, init: bool):
+    def __init__(self):
         self._lock = Lock()
         self._closed = True
         self._server_p: Process = None
-        self._init_cache = init
 
     @staticmethod
     def _start_server(enable_cache: bool, init_cache: bool):
@@ -72,7 +71,7 @@ class OtaProxyWrapper:
             cache_enabled=enable_cache,
             upper_proxy=proxy_cfg.upper_ota_proxy,
             enable_https=proxy_cfg.gateway,
-            init_cache=init_cache
+            init_cache=init_cache,
         )
         uvicorn.run(
             app,
@@ -358,7 +357,10 @@ class OtaClientStub:
             # only cleanup cache if update is successful
             _, _status = self._ota_client.status()
             # TODO: better way to do the following check?
-            _cleanup = _status["update_progress"]["phase"] == OtaClientUpdatePhase.POST_PROCESSING.name
+            _cleanup = (
+                _status["update_progress"]["phase"]
+                == OtaClientUpdatePhase.POST_PROCESSING.name
+            )
             if proxy_cfg.enable_local_ota_proxy:
                 self._ota_proxy.stop(cleanup_cache=_cleanup)
 
