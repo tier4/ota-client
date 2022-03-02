@@ -7,7 +7,7 @@ from threading import Event, Lock, Condition
 from multiprocessing import Process
 
 import otaclient_v2_pb2 as v2
-from ota_error import OtaError, OtaErrorRecoverable, OtaErrorUnrecoverable
+from ota_error import OtaError, OtaErrorRecoverable
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from proxy_info import proxy_cfg
