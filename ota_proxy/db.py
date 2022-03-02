@@ -21,6 +21,9 @@ class _CacheMetaMixin:
 
     @classmethod
     def row_to_meta(cls, row: Dict[str, Any]):
+        if not row:
+            return
+
         res = cls()
         for k in cls._cols:
             setattr(res, k, row[k])
@@ -40,6 +43,7 @@ def make_cachemeta_cls(name: str):
 CacheMeta = make_cachemeta_cls("CacheMeta")
 # fix the issue of pickling dynamically generated dataclass
 CacheMeta.__module__ = __name__
+
 
 class OTACacheDB:
     TABLE_NAME = cfg.TABLE_NAME
