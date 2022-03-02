@@ -7,7 +7,7 @@ from threading import Event, Lock, Condition
 from multiprocessing import Process
 
 import otaclient_v2_pb2 as v2
-from ota_error import OtaError, OtaErrorRecoverable, OtaErrorUnrecoverable
+from ota_error import OtaError, OtaErrorRecoverable
 from ota_client import OtaClient
 from ota_client_call import OtaClientCall
 from proxy_info import proxy_cfg
@@ -320,20 +320,14 @@ class OtaClientStub:
         # pulling subECU status
         # NOTE: the method will block until all the subECUs' status are as expected
         try:
-            asyncio.run(
-                self._ensure_subecu_status(
-                    timeout=server_cfg.WAITING_SUBECU_READY_TIMEOUT
-                )
-            )
+            asyncio.run(self._ensure_subecu_status())
             # all subECUs are updated, now the ota_client can reboot
             logger.info("all subECUs are updated ready, set post_update_event")
             # signal the local updator to do post-update
             post_update_event.set()
 
             logger.debug("wait for local ota update to finish...")
-            exp = _future.exception(timeout=server_cfg.LOCAL_OTA_UPDATE_TIMEOUT)
-            if exp:
-                raise exp
+            _future.result()
         except Exception as e:
             logger.exception("_ensure_subecu_status")
             if isinstance(e, OtaError):
@@ -546,21 +540,9 @@ class OtaClientStub:
                     )
                 """
 
-    async def _ensure_subecu_status(self, timeout: float):
+    async def _ensure_subecu_status(self):
         """
         loop pulling the status of subecu, return only when all subECU are in SUCCESS condition
         raise exception when timeout reach or any of the subECU is unavailable
         """
-
-        t = asyncio.create_task(self._loop_pulling_subecu_status())
-        try:
-            await asyncio.wait_for(t, timeout=timeout)
-        except Exception as e:
-            logger.exception("_loop_pulling_subecu_status")
-            if isinstance(e, asyncio.TimeoutError):
-                raise OtaErrorUnrecoverable(
-                    "failed to wait for all subECU to finish update on time"
-                )
-            else:
-                # other OtaException
-                raise
+        await self._loop_pulling_subecu_status()
