@@ -115,6 +115,52 @@ class _Bucket(OrderedDict):
             return hash_list
 
 
+class Buckets:
+    def __init__(self):
+        self._bsize_list = cfg.BUCKET_FILE_SIZE_LIST
+        self._buckets: Dict[_Bucket] = dict()  # dict[file_size_target]_Bucket
+
+        for s in self._bsize_list:
+            self._buckets[s] = _Bucket(s)
+
+    def _bin_search(self, file_size: int) -> int:
+        if file_size < 0:
+            raise ValueError(f"invalid file size {file_size}")
+
+        s, e = 0, len(self._bsize_list) - 1
+        target_size = None
+
+        if file_size >= self._bsize_list[-1]:
+            target_size = self._bsize_list[-1]
+        else:
+            idx = None
+            while True:
+                if abs(e - s) <= 1:
+                    idx = s
+                    break
+
+                if file_size <= self._bsize_list[(s + e) // 2]:
+                    e = (s + e) // 2
+                elif file_size > self._bsize_list[(s + e) // 2]:
+                    s = (s + e) // 2
+            target_size = self._bsize_list[idx]
+
+        if target_size is None:
+            raise ValueError(f"invalid file size {file_size}")
+        return target_size
+
+    def get_bucket(self, file_size: int) -> _Bucket:
+        try:
+            target_size = self._bin_search(file_size)
+        except ValueError:
+            return
+
+        return self._buckets[target_size]
+
+    def __getitem__(self, bucket_size: int) -> _Bucket:
+        return self._buckets[bucket_size]
+
+
 class OTAFile:
     def __init__(
         self,
@@ -329,6 +375,8 @@ class OTACache:
 
         if cache_enabled:
             self._cache_enabled = True
+            self._bsize_list = cfg.BUCKET_FILE_SIZE_LIST
+            self._buckets = Buckets()
 
             # prepare cache dire
             if init:
@@ -356,8 +404,6 @@ class OTACache:
             self._session = aiohttp.ClientSession(
                 auto_decompress=False, raise_for_status=True
             )
-
-            self._init_buckets()
         else:
             self._cache_enabled = False
 
@@ -407,16 +453,10 @@ class OTACache:
 
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
-    def _init_buckets(self):
-        self._buckets: Dict[_Bucket] = dict()  # dict[file_size_target]_Bucket
-
-        for s in cfg.BUCKET_FILE_SIZE_LIST:
-            self._buckets[s] = _Bucket(s)
-
     def _commit_cache(self, m: db.CacheMeta):
         logger.debug(f"commit cache for {m.url}...")
-        bs = self._find_target_bucket_size(m.size)
-        self._buckets[bs].add_entry(m.hash)
+        bucket = self._buckets.get_bucket(m.size)
+        bucket.add_entry(m.hash)
 
         # register to the database
         self._db.insert_urls(m)
@@ -457,33 +497,8 @@ class OTACache:
         # always remember to remove url in the on_going_cache_list!
         self._on_going_caching.unregister(meta.url)
 
-    def _find_target_bucket_size(self, file_size: int) -> int:
-        if file_size < 0:
-            raise ValueError(f"invalid file size {file_size}")
-
-        s, e = 0, len(cfg.BUCKET_FILE_SIZE_LIST) - 1
-        target_size = None
-
-        if file_size >= cfg.BUCKET_FILE_SIZE_LIST[-1]:
-            target_size = cfg.BUCKET_FILE_SIZE_LIST[-1]
-        else:
-            idx = None
-            while True:
-                if abs(e - s) <= 1:
-                    idx = s
-                    break
-
-                if file_size <= cfg.BUCKET_FILE_SIZE_LIST[(s + e) // 2]:
-                    e = (s + e) // 2
-                elif file_size > cfg.BUCKET_FILE_SIZE_LIST[(s + e) // 2]:
-                    s = (s + e) // 2
-            target_size = cfg.BUCKET_FILE_SIZE_LIST[idx]
-
-        return target_size
-
     def _ensure_free_space(self, size: int) -> bool:
-        bs = self._find_target_bucket_size(size)
-        bucket: _Bucket = self._buckets[bs]
+        bucket = self._buckets.get_bucket(size)
 
         # first check the current bucket
         hash_list = bucket.reserve_space(size)
@@ -493,9 +508,7 @@ class OTACache:
 
         else:  # if current bucket is not enough, check higher bucket
             entry_to_clear = None
-            for bs in cfg.BUCKET_FILE_SIZE_LIST[
-                cfg.BUCKET_FILE_SIZE_LIST.index(bs) + 1 :
-            ]:
+            for bs in self._bsize_list[self._bsize_list.index(bs) + 1 :]:
                 bucket = self._buckets[bs]
                 entry_to_clear = bucket.popleft()
 
@@ -511,8 +524,7 @@ class OTACache:
         return False
 
     def _promote_cache_entry(self, cache_meta: db.CacheMeta):
-        bs = self._find_target_bucket_size(cache_meta.size)
-        bucket: _Bucket = self._buckets[bs]
+        bucket = self._buckets.get_bucket(cache_meta.size)
         bucket.warm_up_entry(cache_meta.hash)
 
     def _open_fp_by_cache(self, meta: db.CacheMeta) -> BinaryIO:
@@ -591,7 +603,6 @@ class OTACache:
                 fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
 
                 # NOTE: remember to remove the url after cache comitted!
-                # TODO: make this an atomic operation
                 # try to cache the file if no other same on-going caching
                 if self._on_going_caching.register(url):
                     res = OTAFile(
