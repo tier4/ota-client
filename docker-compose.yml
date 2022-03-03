@@ -25,6 +25,7 @@ services:
     container_name: ota-client
     volumes:
       - ./app:/ota-client/app:ro
+      - ./ota_proxy:/ota-client/ota_proxy:ro
       - ./tests:/ota-client/tests:ro
       - ./aws-iot-log-server:/ota-client/aws-iot-log-server:ro
     depends_on:
