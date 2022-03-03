@@ -4,9 +4,11 @@ import grpc
 import json
 from unittest.mock import ANY
 
+from pytest_mock import MockerFixture
+
 
 @pytest.fixture
-def start_service_with_ota_client_mock(mocker):
+def start_service_with_ota_client_mock(mocker: MockerFixture):
     from ota_client_service import (
         OtaClientServiceV2,
         service_start,
@@ -20,6 +22,7 @@ def start_service_with_ota_client_mock(mocker):
     mocker.patch("ota_client_stub.OtaClient", return_value=ota_client_mock)
 
     ota_client_stub = OtaClientStub()
+    mocker.patch.object(ota_client_stub, "_ensure_subecu_status")
 
     ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
 
