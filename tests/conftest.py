@@ -1,10 +1,10 @@
 import pytest
 import sys
-import os
+
+from pathlib import Path
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="session")
 def pythonpath():
-    sys.path.append(
-        os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../app/")
-    )
+    _base_dir = Path(__file__).absolute().parent.parent
+    sys.path.extend([str(_base_dir), str(_base_dir / "app")])
