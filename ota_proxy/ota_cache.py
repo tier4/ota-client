@@ -10,7 +10,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from queue import Queue
 from hashlib import sha256
 from threading import Lock, Event
-from typing import Dict, List, Union, Tuple, BinaryIO
+from typing import Dict, Union, Tuple, BinaryIO
 from pathlib import Path
 from os import urandom
 
@@ -498,7 +498,8 @@ class OTACache:
         self._on_going_caching.unregister(meta.url)
 
     def _ensure_free_space(self, size: int) -> bool:
-        bucket = self._buckets.get_bucket(size)
+        target_size = self._buckets._bin_search(size)
+        bucket = self._buckets[target_size]
 
         # first check the current bucket
         hash_list = bucket.reserve_space(size)
@@ -508,7 +509,7 @@ class OTACache:
 
         else:  # if current bucket is not enough, check higher bucket
             entry_to_clear = None
-            for bs in self._bsize_list[self._bsize_list.index(bs) + 1 :]:
+            for bs in self._bsize_list[self._bsize_list.index(target_size) + 1 :]:
                 bucket = self._buckets[bs]
                 entry_to_clear = bucket.popleft()
 
