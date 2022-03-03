@@ -37,23 +37,18 @@ def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
 
 
 class _RegisterDict(dict):
-    def __init__(self):
-        self._lock = Lock()
-
     def register(self, url: str) -> bool:
-        with self._lock:
-            if url in self:
-                return False
-            else:
-                self[url] = None
-                return True
+        if url in self:
+            return False
+        else:
+            self[url] = None
+            return True
 
     def unregister(self, url: str):
-        with self._lock:
-            try:
-                del self[url]
-            except KeyError:
-                pass
+        try:
+            del self[url]
+        except KeyError:
+            pass
 
 
 class _Bucket(OrderedDict):
