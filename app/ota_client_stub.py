@@ -2,13 +2,13 @@ import asyncio
 import grpc
 from typing import Tuple
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock, Condition
 from multiprocessing import Process
 from ota_status import OtaStatus
 
 import otaclient_v2_pb2 as v2
-from ota_error import OtaError, OtaErrorRecoverable
+from ota_error import OtaErrorRecoverable
 from ota_client import OtaClient, OtaClientUpdatePhase
 from ota_client_call import OtaClientCall
 from proxy_info import proxy_cfg
@@ -351,7 +351,7 @@ class OtaClientStub:
 
             logger.debug("wait for local ota update to finish...")
             _future.result()
-        except Exception as e:
+        except Exception:
             logger.exception("_ensure_subecu_status")
             self._ota_proxy.stop()
 
