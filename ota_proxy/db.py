@@ -127,7 +127,7 @@ class OTACacheDB:
 
     def insert_urls(self, *cache_meta: CacheMeta):
         rows = [m.to_tuple() for m in cache_meta]
-        _row_shape = ",".join(['?']*CacheMeta.len())
+        _row_shape = ",".join(["?"] * CacheMeta.len())
         with self._wlock, self._general_query(
             f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES ({_row_shape})",
             rows,

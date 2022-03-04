@@ -133,7 +133,7 @@ class Buckets:
 
                 if file_size <= self._bsize_list[(s + e) // 2]:
                     e = (s + e) // 2
-                elif file_size > self._bsize_list[(s + e) // 2]:
+                else:
                     s = (s + e) // 2
             target_size = self._bsize_list[idx]
 
@@ -145,7 +145,7 @@ class Buckets:
         try:
             target_size = self._bin_search(file_size)
         except ValueError:
-            return
+            raise ValueError(f"invalid file size {file_size}")
 
         return self._buckets[target_size]
 
@@ -361,7 +361,6 @@ class OTACache:
 
         self._base_dir.mkdir(exist_ok=True, parents=True)
         _event = Event()
-        _event.set()
         self._scrub_finished_event = _event
         self._cache_helper = OTACacheHelper(_event)
 
