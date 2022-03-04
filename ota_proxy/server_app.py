@@ -54,6 +54,7 @@ class App:
                 logger.info("stopping ota http proxy app...")
                 self._ota_cache.close()
                 logger.info("shutdown server completed")
+                self.started = False
             self._lock.release()
 
     @staticmethod
