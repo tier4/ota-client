@@ -147,7 +147,7 @@ class OtaClientStub:
         # start ota proxy server
         # check current ota_status, if the status is not SUCCESS,
         # always assume there is an interrupted ota update, thus reuse the cache if possible
-        _init_cache = self._ota_client.get_ota_status() != OtaStatus.SUCCESS
+        _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
         if proxy_cfg.enable_local_ota_proxy:
             self._ota_proxy.start(enable_cache=True, init_cache=_init_cache)
 
