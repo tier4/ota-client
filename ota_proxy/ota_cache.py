@@ -372,6 +372,8 @@ class OTACache:
             # prepare cache dire
             if init:
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
+                # if init, we also have to set the scrub_finished_event
+                self._scrub_finished_event.set()
                 self._base_dir.mkdir(exist_ok=True, parents=True)
             else:
                 # scrub the cache folder in the background

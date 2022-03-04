@@ -17,7 +17,7 @@ class _CacheMetaMixin:
     _cols = cfg.COLUMNS
 
     @classmethod
-    def len(cls) -> int:
+    def shape(cls) -> int:
         return len(cls._cols)
 
     def to_tuple(self) -> Tuple[Any]:
@@ -127,7 +127,7 @@ class OTACacheDB:
 
     def insert_urls(self, *cache_meta: CacheMeta):
         rows = [m.to_tuple() for m in cache_meta]
-        _row_shape = ",".join(["?"] * CacheMeta.len())
+        _row_shape = ",".join(["?"] * CacheMeta.shape())
         with self._wlock, self._general_query(
             f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES ({_row_shape})",
             rows,
