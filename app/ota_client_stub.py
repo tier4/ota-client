@@ -334,25 +334,26 @@ class OtaClientStub:
             # all subECUs are updated, now the ota_client can reboot
             logger.info("all subECUs are updated ready")
 
-            logger.debug("wait for local ota update to finish...")
-            _future.result()
-
             # always close the local proxy server
-            # only cleanup cache if update is successful
-            _, _status = self._ota_client.status()
-            # TODO: better way to do the following check?
-            _cleanup = (
-                _status["update_progress"]["phase"]
-                == OtaClientUpdatePhase.POST_PROCESSING.name
-            )
             if proxy_cfg.enable_local_ota_proxy:
+                # only cleanup cache if update is successful
+                _, _status = self._ota_client.status()
+                # TODO: better way to do the following check?
+                _cleanup = (
+                    _status["update_progress"]["phase"]
+                    == OtaClientUpdatePhase.POST_PROCESSING.name
+                )
+                logger.debug("cleanup ota-cache on successful ota-update...")
                 self._ota_proxy.stop(cleanup_cache=_cleanup)
 
-            # wait for subecus and cleanup finished,
             # signal the local updator to prepare for rebooting
             post_update_event.set()
+
+            logger.debug("wait for local ota update to finish...")
+            _future.result()
         except Exception as e:
             logger.exception("_ensure_subecu_status")
+            self._ota_proxy.stop()
 
     async def _get_subecu_status(
         self,
