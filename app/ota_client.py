@@ -503,6 +503,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             url, cookies, metadata.get_persistent_info(), self._mount_point
         )
 
+        # standby slot preparation finished, set phase to POST_PROCESSING
+        logger.info("update finished, entering post-update...")
+        self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
+
         # finish update, we reset the downloader's proxy setting,
         # although it is not needed actually
         self._download.cleanup_proxy()
@@ -511,20 +515,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # wait for all subECUs before reboot itself
         if post_update_event:
             logger.info("waiting for all subECUs to become ready...")
+            # NOTE: timeout setting is removed
             if post_update_event.wait():
                 logger.info("all subECUs are ready")
-            else:
-                # upper caller timeout, failed to wait for all subECU to get ready
-                # raise an exception about this and report to the caller agent
-                #
-                # NOTE: this may cause the local ECU to be updated multiple
-                # times if any of a subECU keeps failing
-                msg = "cannot ensure all subECUs' are ready, abort current local ota update..."
-                logger.error(msg)
-                raise OtaErrorRecoverable(msg)
 
-        logger.info("update finished, entering post-update...")
-        self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
+        logger.debug("leaving update, prepare to reboot...")
         self.leave_update()
 
     def _rollback(self):

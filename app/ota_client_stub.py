@@ -133,8 +133,6 @@ class OtaClientStub:
             self._ota_proxy = OtaProxyWrapper()
 
     def __del__(self):
-        if proxy_cfg.enable_local_ota_proxy:
-            self._ota_proxy.stop()
         self._executor.shutdown()
 
     def host_addr(self):
@@ -334,19 +332,11 @@ class OtaClientStub:
         try:
             asyncio.run(self._ensure_subecu_status())
             # all subECUs are updated, now the ota_client can reboot
-            logger.info("all subECUs are updated ready, set post_update_event")
-            # signal the local updator to do post-update
-            post_update_event.set()
+            logger.info("all subECUs are updated ready")
 
             logger.debug("wait for local ota update to finish...")
             _future.result()
-        except Exception as e:
-            logger.exception("_ensure_subecu_status")
-            if isinstance(e, OtaError):
-                logger.error(f"ota update failed: {e!r}")
-            elif isinstance(e, TimeoutError):
-                logger.error(f"timeout local ota update {update_request=}")
-        finally:
+
             # always close the local proxy server
             # only cleanup cache if update is successful
             _, _status = self._ota_client.status()
@@ -357,6 +347,12 @@ class OtaClientStub:
             )
             if proxy_cfg.enable_local_ota_proxy:
                 self._ota_proxy.stop(cleanup_cache=_cleanup)
+
+            # wait for subecus and cleanup finished,
+            # signal the local updator to prepare for rebooting
+            post_update_event.set()
+        except Exception as e:
+            logger.exception("_ensure_subecu_status")
 
     async def _get_subecu_status(
         self,
