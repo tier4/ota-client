@@ -36,19 +36,16 @@ def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
         return ""
 
 
-class _RegisterDict(dict):
+class _Register(set):
     def register(self, url: str) -> bool:
         if url in self:
             return False
         else:
-            self[url] = None
+            self.add(url)
             return True
 
     def unregister(self, url: str):
-        try:
-            del self[url]
-        except KeyError:
-            pass
+        self.discard(url)
 
 
 class _Bucket(OrderedDict):
@@ -359,7 +356,7 @@ class OTACache:
 
         self._storage_below_hard_limit_event = Event()
         self._storage_below_soft_limit_event = Event()
-        self._on_going_caching = _RegisterDict()
+        self._on_going_caching = _Register()
         self._upper_proxy: str = ""
 
         self._base_dir.mkdir(exist_ok=True, parents=True)
