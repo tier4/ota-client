@@ -308,7 +308,7 @@ class OtaClientStub:
         """
         # dispatch the local update to threadpool
         self._executor.submit(
-            self._ota_client.update, entry.version, entry.url, entry.cookies, fsm
+            self._ota_client.update, entry.version, entry.url, entry.cookies, fsm=fsm
         )
 
         # FIXME:
