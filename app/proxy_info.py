@@ -19,10 +19,11 @@ local_server: Tuple[str, int]
 """
 
 # if no proxy_info.yaml presented,
-# we should treat the ecu as main ecu,
+# we should treat the ecu as main ecu(as gateway),
 # and enable ota_proxy without upper proxy
 DEFUALT_PROXY_INFO = """
 enable_ota_proxy: true
+gateway: true
 """
 
 
