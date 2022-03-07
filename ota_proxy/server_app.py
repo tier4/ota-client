@@ -19,10 +19,11 @@ __all__ = "App"
 class App:
     def __init__(
         self,
-        cache_enabled=False,
+        *,
         upper_proxy: str = None,
-        enable_https: bool = False,
-        init_cache: bool = True,
+        cache_enabled=False,
+        enable_https=False,
+        init_cache=True,
     ):
         self.cache_enabled = cache_enabled
         self.upper_proxy = upper_proxy
