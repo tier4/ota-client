@@ -52,6 +52,7 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
 class Downloader:
     CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
     RETRY_COUNT = 5
+    BACKOFF_MAX = 10
 
     def __init__(self):
         from requests.adapters import HTTPAdapter
@@ -68,7 +69,7 @@ class Downloader:
         # NOTE: for urllib3 version below 2.0, we have to change Retry class' DEFAULT_BACKOFF_MAX,
         # to configure the backoff max, set the value to the instance will not work as increment() method
         # will create a new instance of Retry on every try without inherit the change to instance's DEFAULT_BACKOFF_MAX
-        Retry.DEFAULT_BACKOFF_MAX = 10
+        Retry.DEFAULT_BACKOFF_MAX = self.BACKOFF_MAX
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
             raise_on_status=True,
@@ -113,36 +114,50 @@ class Downloader:
         url = self._path_to_url(url_base, path)
 
         error_count = 0
-        try:
-            response = self._session.get(url, stream=True, timeout=10, cookies=cookies)
-            response.raise_for_status()
 
-            raw_r = response.raw
-            if raw_r.retries:
-                error_count = len(raw_r.retries.history)
-        except requests.exceptions.HTTPError:
-            msg = f"requests error: status_code={response.status_code},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.Timeout as e:
-            msg = f"requests timeout: {e},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.ConnectionError as e:
-            msg = f"requests connection error: {e},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.ChunkedEncodingError:
-            msg = f"requests ChunkedEncodingError: {url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.RequestException as e:
-            # all unspecific errors go here
-            msg = f"requests failed: {e!r}"
-            raise OtaErrorRecoverable(msg)
+        while True:
+            try:
+                response = self._session.get(
+                    url, stream=True, timeout=10, cookies=cookies
+                )
+                response.raise_for_status()
 
-        # prepare hash
-        hash_f = sha256()
-        with open(dst, "wb") as f:
-            for data in response.iter_content(chunk_size=self.CHUNK_SIZE):
-                hash_f.update(data)
-                f.write(data)
+                raw_r = response.raw
+                if raw_r.retries:
+                    error_count += len(raw_r.retries.history)
+
+                # prepare hash
+                hash_f = sha256()
+                with open(dst, "wb") as f:
+                    try:
+                        for data in response.iter_content(chunk_size=self.CHUNK_SIZE):
+                            hash_f.update(data)
+                            f.write(data)
+                        break
+                    except Exception:  # catch all exceptions
+                        error_count += 1
+                        if error_count > self.RETRY_COUNT:
+                            logger.exception("error: iter_content")
+                            raise
+                        time.sleep(self.BACKOFF_MAX)
+                        continue
+
+            except requests.exceptions.HTTPError:
+                msg = f"requests error: status_code={response.status_code},{url=} ({error_count})"
+                raise OtaErrorRecoverable(msg)
+            except requests.exceptions.Timeout as e:
+                msg = f"requests timeout: {e},{url=} ({error_count})"
+                raise OtaErrorRecoverable(msg)
+            except requests.exceptions.ConnectionError as e:
+                msg = f"requests connection error: {e},{url=} ({error_count})"
+                raise OtaErrorRecoverable(msg)
+            except requests.exceptions.ChunkedEncodingError:
+                msg = f"requests ChunkedEncodingError: {url=} ({error_count})"
+                raise OtaErrorRecoverable(msg)
+            except requests.exceptions.RequestException as e:
+                # all unspecific errors go here
+                msg = f"requests failed: {e!r}"
+                raise OtaErrorRecoverable(msg)
 
         calc_digest = hash_f.hexdigest()
         if digest and calc_digest != digest:
