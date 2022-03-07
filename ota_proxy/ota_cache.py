@@ -341,6 +341,7 @@ class OTACacheHelper:
 class OTACache:
     def __init__(
         self,
+        *,
         cache_enabled: bool,
         init: bool,
         upper_proxy: str = None,
@@ -539,6 +540,8 @@ class OTACache:
         url_parsed = url_parsed._replace(path=quote(url_parsed.path))
         if self._enable_https:
             url_parsed = url_parsed._replace(scheme="https")
+        else:
+            url_parsed = url_parsed._replace(scheme="http")
 
         url = url_parsed.geturl()
 
@@ -564,7 +567,7 @@ class OTACache:
 
     # exposed API
     async def retrieve_file(
-        self, url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
+        self, url: str, /, cookies: Dict[str, str], extra_headers: Dict[str, str]
     ) -> OTAFile:
         if self._closed:
             raise ValueError("ota cache pool is closed")
