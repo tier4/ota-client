@@ -429,10 +429,6 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         """
         logger.debug("[update] entering...")
 
-        proxy = proxy_cfg.get_proxy_for_local_ota()
-        if proxy:
-            self._download.configure_proxy(proxy)
-
         try:
             cookies = json.loads(cookies_json)
             self._update(version, url_base, cookies, fsm=fsm)
@@ -536,6 +532,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         if fsm:
             with fsm.proceed(fsm._P2, expect=fsm._START):
                 logger.debug("ota_client: signal ota_stub that pre_update finished")
+
+        proxy = proxy_cfg.get_proxy_for_local_ota()
+        if proxy:
+            self._download.configure_proxy(proxy)
 
         # pre-update
         self.enter_update(version)
