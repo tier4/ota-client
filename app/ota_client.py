@@ -6,7 +6,7 @@ import re
 import os
 import time
 import json
-from typing import Any, Dict, Union
+from typing import Any, Dict, Tuple, Union
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -314,6 +314,89 @@ class OtaClientStatistics(object):
             self._lock.release()
 
 
+class OtaStateSync:
+    # states definition
+    _START, _S1, _S2, _END = (
+        "start",
+        "pre_update_finished",
+        "apply_update_finished",
+        "end",
+    )
+    # participators definition
+    _P1, _P2 = "ota_service", "ota_client"
+    # which participator can start the fsm
+    _STARTER = _P1
+
+    __slots__ = ("_start", "_s1", "_s2", "_end", "_map")
+
+    def __init__(self):
+        self._start = Event()
+        self._s1 = Event()
+        self._s2 = Event()
+        self._end = Event()
+
+        self._map = {
+            self._START: self._start,
+            self._S1: self._s1,
+            self._S2: self._s2,
+            self._END: self._end,
+        }
+
+    def start(self, caller: str):
+        if caller != self._STARTER:
+            raise RuntimeError(
+                f"unexpected {caller=} start status machine, expect {self._P1}"
+            )
+
+        if not self._start.is_set():
+            self._start.set()
+
+    def _state_selector(self, caller, *, state) -> Tuple[Event, Event, str]:
+        """logic of state machine"""
+        cur_event, next_event, next_state = None, None, None
+        # ota_client finishes pre_update procedure,
+        # signal ota_service to send update requests to all subecus
+        if state == self._START and caller == self._P2:
+            cur_event = self._start
+            next_event = self._s1
+            next_state = self._S1
+        # ota_client finishes local update,
+        # signal ota_service to cleanup after all subecus are ready
+        elif state == self._S1 and caller == self._P2:
+            cur_event = self._s1
+            next_event = self._s2
+            next_state = self._S2
+        # ota_service finishes cleaning up,
+        # signal ota_client to reboot
+        elif state == self._S2 and caller == self._P1:
+            cur_event = self._s2
+            next_event = self._end
+            next_state = self._END
+        else:
+            raise RuntimeError(f"unexpected {caller=} or {state=}")
+
+        return cur_event, next_event, next_state
+
+    def wait_on(self, state: str, *, timeout: float = None) -> bool:
+        return self._map[state].wait(timeout=timeout)
+
+    @contextmanager
+    def proceed(self, caller, *, expect, timeout: float = None) -> int:
+        _wait_on, _next, _next_state = self._state_selector(caller, state=expect)
+
+        if not _wait_on.wait(timeout=timeout):
+            raise TimeoutError(f"timeout waiting state={expect}")
+
+        try:
+            yield _next_state
+        finally:
+            # after finish working, switch state
+            if not _next.is_set():
+                _next.set()
+            else:
+                raise RuntimeError(f"expect {_next_state=} not being set yet")
+
+
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
@@ -338,9 +421,12 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         url_base,
         cookies_json: str,
         *,
-        pre_update_event: Event = None,
-        post_update_event: Event = None,
+        fsm: OtaStateSync = None,
     ):
+        """
+        main entry of the ota update logic
+        exceptions are captured and recorded here
+        """
         logger.debug("[update] entering...")
 
         proxy = proxy_cfg.get_proxy_for_local_ota()
@@ -349,13 +435,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 
         try:
             cookies = json.loads(cookies_json)
-            self._update(
-                version,
-                url_base,
-                cookies,
-                pre_update_event=pre_update_event,
-                post_update_event=post_update_event,
-            )
+            self._update(version, url_base, cookies, fsm=fsm)
             return self._result_ok()
         except OtaErrorBusy:  # there is an on-going update
             # not setting ota_status
@@ -371,9 +451,6 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self.set_ota_status(OtaStatus.FAILURE)
             self.store_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
-        finally:
-            if pre_update_event:
-                pre_update_event.set()
 
     def rollback(self):
         try:
@@ -431,8 +508,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         url_base,
         cookies,
         *,
-        pre_update_event: Event = None,
-        post_update_event: Event = None,
+        fsm: OtaStateSync,
     ):
         logger.info(f"{version=},{url_base=},{cookies=}")
         """
@@ -456,8 +532,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self._update_start_time = int(time.time() * 1000)
             self._failure_reason = ""
             self._statistics.clear()
-        if pre_update_event:
-            pre_update_event.set()
+
+        if fsm:
+            with fsm.proceed(fsm._P2, expect=fsm._START):
+                logger.debug("ota_client: signal ota_stub that pre_update finished")
 
         # pre-update
         self.enter_update(version)
@@ -511,15 +589,15 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # although it is not needed actually
         self._download.cleanup_proxy()
 
-        # leave update
-        # wait for all subECUs before reboot itself
-        if post_update_event:
-            logger.info("waiting for all subECUs to become ready...")
-            # NOTE: timeout setting is removed
-            if post_update_event.wait():
-                logger.info("all subECUs are ready")
+        if fsm:
+            with fsm.proceed(fsm._P2, expect=fsm._S1):
+                logger.debug(
+                    "ota_client: signal ota_service that local update finished"
+                )
 
-        logger.debug("leaving update, prepare to reboot...")
+        logger.debug("leaving update, wait on ota_service and then reboot...")
+        if fsm:
+            fsm.wait_on(fsm._END)
         self.leave_update()
 
     def _rollback(self):

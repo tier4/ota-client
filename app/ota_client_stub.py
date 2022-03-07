@@ -3,13 +3,13 @@ import grpc
 from typing import Tuple
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event, Lock, Condition
+from threading import Lock, Condition
 from multiprocessing import Process
 from ota_status import OtaStatus
 
 import otaclient_v2_pb2 as v2
 from ota_error import OtaErrorRecoverable
-from ota_client import OtaClient, OtaClientUpdatePhase
+from ota_client import OtaClient, OtaStateSync
 from ota_client_call import OtaClientCall
 from proxy_info import proxy_cfg
 from ecu_info import EcuInfo
@@ -94,8 +94,7 @@ class OtaProxyWrapper:
                     f"ota proxy server started(pid={self._server_p.pid}, {enable_cache=})"
                     f"{proxy_cfg}"
                 )
-            else:
-                raise Exception("server already started")
+        # sliently return if the server already started
 
     def stop(self, cleanup_cache=False):
         from ota_proxy.config import config as proxy_srv_cfg
@@ -132,9 +131,6 @@ class OtaClientStub:
         if proxy_cfg.enable_local_ota_proxy:
             self._ota_proxy = OtaProxyWrapper()
 
-    def __del__(self):
-        self._executor.shutdown()
-
     def host_addr(self):
         return self._ecu_info.get_ecu_ip_addr()
 
@@ -170,22 +166,23 @@ class OtaClientStub:
         logger.info(f"{entry=}")
 
         if entry:
-            # dispatch update requst to ota_client only
-            pre_update_event = Event()
+            # init state machine(P1: ota_service, P2: ota_client)
+            ota_sfsm = OtaStateSync()
+            ota_sfsm.start(caller=ota_sfsm._P1)
 
+            # dispatch update requst to ota_client only
             loop = asyncio.get_running_loop()
             loop.run_in_executor(
                 self._executor,
                 partial(
                     self._update_executor,
                     entry,
-                    request,
-                    pre_update_event=pre_update_event,
+                    fsm=ota_sfsm,
                 ),
             )
 
             # wait until pre-update initializing finished or error occured.
-            if pre_update_event.wait(timeout=server_cfg.PRE_UPDATE_TIMEOUT):
+            if ota_sfsm.wait_on(ota_sfsm._S1, timeout=server_cfg.PRE_UPDATE_TIMEOUT):
                 logger.debug("finish pre-update initializing")
                 main_ecu = response.ecu.add()
                 main_ecu.ecu_id = entry.ecu_id
@@ -302,58 +299,43 @@ class OtaClientStub:
                 return request
         return None
 
-    def _update_executor(
-        self, entry, update_request: v2.UpdateRequest, *, pre_update_event: Event
-    ):
+    def _update_executor(self, entry, *, fsm: OtaStateSync):
         """
         entry for local ota update
 
         NOTE: no exceptions will be raised as there is no upper caller after the update is dispatched.
         exceptions will only be recorded by logger. Use status API to query the status of the update.
         """
-        post_update_event = Event()
-
         # dispatch the local update to threadpool
-        _future = self._executor.submit(
-            self._ota_client.update,
-            entry.version,
-            entry.url,
-            entry.cookies,
-            pre_update_event=pre_update_event,
-            post_update_event=post_update_event,
+        self._executor.submit(
+            self._ota_client.update, entry.version, entry.url, entry.cookies, fsm
         )
 
         # FIXME:
         # If update returns "busy", it means that update was called during
         # update, so the subsequent process should not be performed.
 
-        # pulling subECU status
-        # NOTE: the method will block until all the subECUs' status are as expected
+        # wait for local ota update and all subecus to finish update, and then do cleanup
+        # NOTE: the failure of ota_client side update will not reflect immediately here,
+        # however it is not a problem as we will track the update state via status API.
         try:
-            asyncio.run(self._ensure_subecu_status())
-            # all subECUs are updated, now the ota_client can reboot
-            logger.info("all subECUs are updated ready")
+            with fsm.proceed(
+                fsm._P1, expect=fsm._S2, timeout=server_cfg.LOCAL_OTA_UPDATE_TIMEOUT
+            ):
+                # ensure all subecus state
+                asyncio.run(self._ensure_subecu_status())
+                logger.info("all subECUs are updated and become ready")
 
-            # always close the local proxy server
-            if proxy_cfg.enable_local_ota_proxy:
-                # only cleanup cache if update is successful
-                _, _status = self._ota_client.status()
-                # TODO: better way to do the following check?
-                _cleanup = (
-                    _status["update_progress"]["phase"]
-                    == OtaClientUpdatePhase.POST_PROCESSING.name
-                )
-                logger.debug("cleanup ota-cache on successful ota-update...")
-                self._ota_proxy.stop(cleanup_cache=_cleanup)
+                if proxy_cfg.enable_local_ota_proxy:
+                    # NOTE: the following lines can only be reached when the whole update
+                    # (including local update and all subecus update) are successful,
+                    # so we don't need to do extra check, and can safely clear the cache here.
+                    logger.debug("cleanup ota-cache on successful ota-update...")
+                    self._ota_proxy.stop(cleanup_cache=True)
 
-            # signal the local updator to prepare for rebooting
-            post_update_event.set()
-
-            logger.debug("wait for local ota update to finish...")
-            _future.result()
-        except Exception:
-            logger.exception("_ensure_subecu_status")
-            self._ota_proxy.stop()
+                logger.debug("finish cleanup, signal ota_client to reboot...")
+        except TimeoutError:
+            logger.exception("ota_client failed to finish update")
 
     async def _get_subecu_status(
         self,
@@ -521,7 +503,7 @@ class OtaClientStub:
                 )
         return True, keep_pulling
 
-    async def _loop_pulling_subecu_status(self):
+    async def _ensure_subecu_status(self):
         """
         loop pulling subECUs' status recursively, until all the subECUs are in certain status
         """
@@ -555,10 +537,3 @@ class OtaClientStub:
                         f"failed to contact subECUs: {failed_ecu_list}"
                     )
                 """
-
-    async def _ensure_subecu_status(self):
-        """
-        loop pulling the status of subecu, return only when all subECU are in SUCCESS condition
-        raise exception when timeout reach or any of the subECU is unavailable
-        """
-        await self._loop_pulling_subecu_status()
