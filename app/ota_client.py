@@ -53,6 +53,7 @@ class Downloader:
     CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
     RETRY_COUNT = 5
     BACKOFF_MAX = 10
+    BACKOFF_FACTOR = 1
 
     def __init__(self):
         from requests.adapters import HTTPAdapter
@@ -73,7 +74,7 @@ class Downloader:
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
             raise_on_status=True,
-            backoff_factor=1,
+            backoff_factor=self.BACKOFF_FACTOR,
             # retry on common server side errors and non-critical client side errors
             status_forcelist={413, 429, 500, 502, 503, 504},
             allowed_methods=["GET"],
@@ -108,6 +109,10 @@ class Downloader:
         quoted_path = quote_from_bytes(bytes(relative_path))
         return urljoin(base, quoted_path)
 
+    def _get_backoff_time(self, error_count):
+        backoff_value = self.BACKOFF_FACTOR * (2 ** (error_count - 1))
+        return min(self.BACKOFF_MAX, backoff_value)
+
     def __call__(
         self, url_base: str, path: str, dst: Path, digest: str, cookies: Dict[str, str]
     ) -> int:
@@ -139,7 +144,8 @@ class Downloader:
                         if error_count > self.RETRY_COUNT:
                             logger.exception("error: iter_content")
                             raise
-                        time.sleep(self.BACKOFF_MAX)
+                        backoff = self._get_backoff_time(error_count)
+                        time.sleep(backoff)
                         continue
 
             except requests.exceptions.HTTPError:
