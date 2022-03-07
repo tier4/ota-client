@@ -2,10 +2,11 @@ import os
 import pytest
 import json
 import shutil
+from pytest_mock import MockerFixture
 import requests
 import requests_mock
 from pathlib import Path
-from threading import Thread, Event
+from threading import Thread
 
 test_dir = Path(__file__).parent
 
@@ -85,10 +86,10 @@ enable_ota_proxy: false
 """
 
 
-def test_ota_client_update(mocker, tmp_path):
+def test_ota_client_update(mocker: MockerFixture, tmp_path: Path):
     import ota_client
     import proxy_info
-    from ota_client import OtaClientFailureType
+    from ota_client import OtaClientFailureType, OtaStateSync
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
@@ -173,7 +174,7 @@ def test_ota_client_update(mocker, tmp_path):
     mocker.patch.object(OtaPartitionFile, "_mount_cmd", return_value=0)
 
     # patch GrubControl
-    def mock__get_uuid(dummy1, device):
+    def mock__get_uuid(_, device):
         if device == "sdx3":
             return "01234567-0123-0123-0123-0123456789ab"
         if device == "sdx4":
@@ -189,9 +190,25 @@ def test_ota_client_update(mocker, tmp_path):
     )
     # test start
     ota_client_instance = ota_client.OtaClient()
-    ota_client_instance.update(
-        "123.x", "http://ota-server:8080/ota-server", json.dumps({"test": "my-cookie"})
+
+    ota_fsm = OtaStateSync()
+    ota_fsm.start(caller=ota_fsm._P1)
+
+    _update_thread = Thread(
+        target=ota_client_instance.update,
+        args=(
+            "123.x",
+            "http://ota-server:8080/ota-server",
+            json.dumps({"test": "my-cookie"}),
+        ),
+        kwargs={"fsm": ota_fsm},
     )
+    _update_thread.start()
+
+    assert ota_fsm.wait_on(ota_fsm._S2)
+    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._S2) as next_state:
+        assert next_state == ota_fsm._END
+    _update_thread.join()
 
     result, status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
@@ -267,7 +284,7 @@ def test_ota_client_update(mocker, tmp_path):
 def test_ota_client_update_multiple_call(mocker, tmp_path):
     import ota_client
     import proxy_info
-    from ota_client import OtaClientFailureType
+    from ota_client import OtaClientFailureType, OtaStateSync
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from grub_control import GrubControl
     from configs import create_config
@@ -351,7 +368,7 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     mocker.patch.object(OtaPartitionFile, "_mount_cmd", return_value=0)
 
     # patch GrubControl
-    def mock__get_uuid(dummy1, device):
+    def mock__get_uuid(_, device):
         if device == "sdx3":
             return "01234567-0123-0123-0123-0123456789ab"
         if device == "sdx4":
@@ -369,21 +386,25 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     ota_client_instance._failure_type = OtaClientFailureType.UNRECOVERABLE
     ota_client_instance._failure_reason = "fuga"
 
-    event = Event()
-
     # This test makes sure that event is set and failure type and reason are cleared.
-    event.clear()
-    th1 = Thread(
+
+    # p1: ota_service, p2: ota_client
+    _main_fsm = OtaStateSync()
+    _main_fsm.start(caller=_main_fsm._P1)
+
+    _main_update_thread = Thread(
         target=ota_client_instance.update,
         args=(
             "123.x",
             "http://ota-server:8080/ota-server",
-            json.dumps({"test": "my-cookie"}),
+            json.dumps({"test": "main-thread"}),
         ),
-        kwargs={"pre_update_event": event},
+        kwargs={"fsm": _main_fsm},
     )
-    th1.start()
-    event.wait()
+    _main_update_thread.start()
+    # wait for ota_client to do update up to S2 state
+    assert _main_fsm.wait_on(_main_fsm._S2)
+    # not transit to the _END state now to block the main update thread
 
     result, status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
@@ -393,17 +414,38 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     assert status["version"] == "a.b.c"
 
     # This request fails since ota status is UPDATING and returns immediately.
+    _thread2_fsm = OtaStateSync()
+    _thread2_fsm.start(caller=_thread2_fsm._P1)
+
+    class _Wrapper:
+        def __init__(self, func):
+            self._failure = None
+            self._func = func
+
+        def __call__(self, *args, **kwargs):
+            self._failure = self._func(*args, **kwargs)
+
+        def result(self):
+            return self._failure
+
+    _wrapped_t = _Wrapper(ota_client_instance.update)
     th2 = Thread(
-        target=ota_client_instance.update,
+        target=_wrapped_t,
         args=(
             "123.x",
             "http://ota-server:8080/ota-server",
-            json.dumps({"test": "my-cookie"}),
+            json.dumps({"test": "thread2"}),
         ),
-        kwargs={"pre_update_event": event},
+        kwargs={"fsm": _thread2_fsm},
     )
     th2.start()
-    event.wait()
+    # ensure that the overlapping update doesn't happend,
+    # the state machine will never reach to state S1(pre_update finished)
+    assert not _thread2_fsm.wait_on(_thread2_fsm._S1, timeout=3)
+
+    th2.join()
+    # expect the above illegal update return a recoverable failure
+    assert _wrapped_t.result() == OtaClientFailureType.RECOVERABLE
 
     result, status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
@@ -412,32 +454,21 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     assert status["failure_type"] == "NO_FAILURE"  # make sure failure_type is unchanged
     assert status["version"] == "a.b.c"
 
-    th2.join()
-    th1.join()
+    # let the main update thread finish its job
+    with _main_fsm.proceed(_main_fsm._P1, expect=_main_fsm._S2) as next_state:
+        assert next_state == _main_fsm._END
+    _main_update_thread.join()
 
-    # This test makes sure that:
-    # event is set if an error occured,
-    # and failure type/reason are set.
-    event.clear()
-    th = Thread(
-        target=ota_client_instance.update,
-        args=(
-            "123.x",
-            "http://ota-server:8080/ota-server",
-            "illegal json string",
-        ),
-        kwargs={"pre_update_event": event},
-    )
-    th.start()
-    event.wait()  # event should be set even if error.
-
+    # ensure no errors
     result, status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
-    assert status["status"] == "FAILURE"
-    assert status["failure_reason"].startswith("Expecting value:")  # json error
-    assert status["failure_type"] == "RECOVERABLE"  # failure type is set as RECOVERABLE
+    assert status["status"] == "UPDATING"
+    assert (
+        status["update_progress"]["phase"] == "POST_PROCESSING"
+    )  # ensure post_processing
+    assert status["failure_reason"] == ""  # make sure failure_reason is unchanged
+    assert status["failure_type"] == "NO_FAILURE"  # make sure failure_type is unchanged
     assert status["version"] == "a.b.c"
-    th.join()
 
 
 @pytest.mark.parametrize(
@@ -545,7 +576,7 @@ def test_ota_client_update_regular_download_error(
     mocker.patch.object(OtaPartitionFile, "_mount_cmd", return_value=0)
 
     # patch GrubControl
-    def mock__get_uuid(dummy1, device):
+    def mock__get_uuid(_, device):
         if device == "sdx3":
             return "01234567-0123-0123-0123-0123456789ab"
         if device == "sdx4":
@@ -691,7 +722,7 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     mocker.patch.object(OtaPartitionFile, "_mount_cmd", return_value=0)
 
     # patch GrubControl
-    def mock__get_uuid(dummy1, device):
+    def mock__get_uuid(_, device):
         if device == "sdx3":
             return "01234567-0123-0123-0123-0123456789ab"
         if device == "sdx4":
@@ -710,7 +741,7 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     # mock__grub_mkconfig_cmd is more sophisticated.
     mocker.patch.object(GrubControl, "_count_menuentry", return_value=1)
 
-    def mock__grub_mkconfig_cmd(dummy1, outfile):
+    def mock__grub_mkconfig_cmd(_, outfile):
         # TODO: depend on the outfile, grub.cfg with vmlinuz-ota entry should be output.
         salt = " "  # to make the data different from grub_cfg_wo_submenu
         outfile.write_text(grub_cfg_wo_submenu + salt)
@@ -874,7 +905,7 @@ def test_ota_client_update_post_process(mocker, tmp_path):
     # mock__grub_mkconfig_cmd is more sophisticated.
     mocker.patch.object(GrubControl, "_count_menuentry", return_value=1)
 
-    def mock__grub_mkconfig_cmd(dummy1, outfile):
+    def mock__grub_mkconfig_cmd(_, outfile):
         # TODO: depend on the outfile, grub.cfg with vmlinuz-ota entry should be output.
         outfile.write_text(grub_cfg_wo_submenu)
 
