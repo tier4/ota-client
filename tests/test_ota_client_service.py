@@ -1,4 +1,3 @@
-import os
 import pytest
 import grpc
 import json
@@ -8,7 +7,24 @@ from pytest_mock import MockerFixture
 
 
 @pytest.fixture
-def start_service_with_ota_client_mock(mocker: MockerFixture):
+def mocked_update():
+    from ota_client import OtaClientFailureType, OtaStateSync
+
+    def _update(version, url, cookies, fsm: OtaStateSync):
+        """simulate the state changes in ota_client update"""
+        with fsm.proceed(fsm._P2, expect=fsm._START) as next_state:
+            assert next_state == fsm._S1
+        with fsm.proceed(fsm._P2, expect=fsm._S1) as next_state:
+            assert next_state == fsm._S2
+
+        assert fsm.wait_on(fsm._END)
+        return OtaClientFailureType.NO_FAILURE
+
+    return _update
+
+
+@pytest.fixture
+def start_service_with_ota_client_mock(mocker: MockerFixture, mocked_update):
     from ota_client_service import (
         OtaClientServiceV2,
         service_start,
@@ -19,6 +35,8 @@ def start_service_with_ota_client_mock(mocker: MockerFixture):
     import otaclient_v2_pb2_grpc as v2_grpc
 
     ota_client_mock = mocker.Mock(spec=OtaClient)
+    ota_client_mock.update.side_effect = mocked_update
+
     mocker.patch("ota_client_stub.OtaClient", return_value=ota_client_mock)
 
     ota_client_stub = OtaClientStub()
@@ -35,6 +53,7 @@ def start_service_with_ota_client_mock(mocker: MockerFixture):
 
     yield ota_client_mock, ota_client_stub
 
+    ota_client_stub.stop()
     service_stop(server)
 
 
@@ -44,12 +63,6 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
     from ota_client import OtaClientFailureType
 
     ota_client_mock, _ = start_service_with_ota_client_mock
-
-    def mock_update(version, url, cookies, pre_update_event, post_update_event):
-        pre_update_event.set()
-        return OtaClientFailureType.NO_FAILURE
-
-    ota_client_mock.update.side_effect = mock_update
 
     with grpc.insecure_channel("localhost:50051") as channel:
         request = v2.UpdateRequest()
@@ -68,11 +81,7 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
         assert response == response_exp
 
     ota_client_mock.update.assert_called_once_with(
-        "1.2.3.a",
-        "https://foo.bar.com/ota-data",
-        '{"test": "my data"}',
-        pre_update_event=ANY,
-        post_update_event=ANY,
+        "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}', ANY
     )
 
 
@@ -180,12 +189,6 @@ def test_ota_client_service_update_with_secondary(
 
     ota_client_mock, ota_client_stub = start_service_with_ota_client_mock
 
-    def mock_update(version, url, cookies, pre_update_event, post_update_event):
-        pre_update_event.set()
-        return OtaClientFailureType.NO_FAILURE
-
-    ota_client_mock.update.side_effect = mock_update
-
     mocker.patch.object(
         ota_client_stub._ecu_info,
         "get_secondary_ecus",
@@ -228,11 +231,7 @@ def test_ota_client_service_update_with_secondary(
         assert response == response_exp
 
     ota_client_mock.update.assert_called_once_with(
-        "1.2.3.a",
-        "https://foo.bar.com/ota-data",
-        '{"test": "my data"}',
-        pre_update_event=ANY,
-        post_update_event=ANY,
+        "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}', ANY
     )
 
 
