@@ -24,7 +24,7 @@ def mocked_update():
 
 
 @pytest.fixture
-def start_service_with_ota_client_mock(mocker: MockerFixture, mocked_update):
+def start_service_with_ota_client_mock(mocker: MockerFixture, proxy_cfg, mocked_update):
     from ota_client_service import (
         OtaClientServiceV2,
         service_start,
@@ -38,6 +38,7 @@ def start_service_with_ota_client_mock(mocker: MockerFixture, mocked_update):
     ota_client_mock.update.side_effect = mocked_update
 
     mocker.patch("ota_client_stub.OtaClient", return_value=ota_client_mock)
+    mocker.patch("ota_client_stub.proxy_cfg", proxy_cfg)
 
     ota_client_stub = OtaClientStub()
     mocker.patch.object(ota_client_stub, "_ensure_subecu_status")
@@ -53,7 +54,6 @@ def start_service_with_ota_client_mock(mocker: MockerFixture, mocked_update):
 
     yield ota_client_mock, ota_client_stub
 
-    ota_client_stub.stop()
     service_stop(server)
 
 

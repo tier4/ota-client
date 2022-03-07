@@ -8,3 +8,17 @@ from pathlib import Path
 def pythonpath():
     _base_dir = Path(__file__).absolute().parent.parent
     sys.path.extend([str(_base_dir), str(_base_dir / "app")])
+
+# not enable proxy when doing test
+DEFUALT_PROXY_INFO = """
+enable_ota_proxy: false
+"""
+
+@pytest.fixture(scope="session")
+def proxy_cfg():
+    import tempfile
+    import proxy_info
+
+    with tempfile.NamedTemporaryFile() as f:
+        Path(f.name).write_text(DEFUALT_PROXY_INFO)
+        return proxy_info.ProxyInfo(proxy_info_file=f.name)
