@@ -81,7 +81,7 @@ def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
         assert response == response_exp
 
     ota_client_mock.update.assert_called_once_with(
-        "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}', ANY
+        "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}', fsm=ANY
     )
 
 
@@ -231,7 +231,7 @@ def test_ota_client_service_update_with_secondary(
         assert response == response_exp
 
     ota_client_mock.update.assert_called_once_with(
-        "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}', ANY
+        "1.2.3.a", "https://foo.bar.com/ota-data", '{"test": "my data"}', fsm=ANY
     )
 
 
