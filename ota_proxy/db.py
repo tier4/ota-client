@@ -57,7 +57,7 @@ class OTACacheDB:
         + ")"
     )
 
-    def __init__(self, db_file: str, init = False):
+    def __init__(self, db_file: str, init=False):
         logger.debug("init database...")
         self._db_file = db_file
         self._wlock = Lock()
@@ -66,9 +66,7 @@ class OTACacheDB:
         self._connect_db(init)
 
     @contextmanager
-    def _general_query(
-        self, query: str, query_param: List[Any], /, *, init= False
-    ):
+    def _general_query(self, query: str, query_param: List[Any], /, *, init=False):
         if not init and self._closed:
             raise sqlite3.OperationalError("connect is closed")
 
