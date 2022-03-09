@@ -12,7 +12,6 @@ from functools import partial
 from hashlib import sha256
 from os import urandom
 from pathlib import Path
-from queue import Queue
 from threading import Lock, Event
 from typing import Dict, Iterator, Union, Tuple
 
@@ -180,7 +179,7 @@ class OTAFile:
         # prepare for data streaming
         if store_cache:
             self._hash_f = sha256()
-            self._queue = Queue()
+            self._queue: janus.Queue[int] = janus.Queue()
 
     def background_write_cache(self, callback):
         if not self._store_cache or not self._storage_below_hard_limit:
@@ -189,27 +188,31 @@ class OTAFile:
             callback(self)
             return
 
+        _queue = self._queue.sync_q
         try:
             logger.debug(f"start to cache for {self.meta.url}...")
             self.temp_fpath = self._base_dir / f"tmp_{urandom(16).hex()}"
 
             with open(self.temp_fpath, "wb") as dst_f:
-                while not self.finished.is_set() or not self._queue.empty():
+                while not self.finished.is_set() or not _queue.empty():
                     if not self._storage_below_hard_limit.is_set():
                         # reach storage hard limit, abort caching
                         logger.debug(
                             f"not enough free space during caching url={self.meta.url}, abort"
                         )
-                        break
+                        # close the queue to indicate the streaming coro
+                        # to stop streaming to the caching thread
+                        self._queue.close()
+                    else:
+                        try:
+                            data = _queue.get(timeout=360)
+                        except Exception:
+                            # streaming coro might be dead, abort
+                            logger.error(f"timeout caching for {self.meta.url}, abort")
+                            break
 
-                    try:
-                        data = self._queue.get(timeout=360)
-                    except Exception:
-                        logger.error(f"timeout caching for {self.meta.url}, abort")
-                        break
-
-                    self._hash_f.update(data)
-                    self.meta.size += dst_f.write(data)
+                        self._hash_f.update(data)
+                        self.meta.size += dst_f.write(data)
 
             # post caching
             if self.finished.is_set() and self.meta.size > 0:  # not caching 0 size file
@@ -222,6 +225,7 @@ class OTAFile:
                 logger.debug(f"successfully cached {self.meta.url}")
             # NOTE: if queue is empty but self._finished is not set,
             # it may indicate that an unfinished caching might happen
+
         finally:
             # always remember to call callback
             callback(self)
@@ -230,17 +234,16 @@ class OTAFile:
         if self.finished:
             raise ValueError("file is closed")
 
+        _queue = self._queue.async_q
         async for chunk in self._fp:
             # to caching thread
-            self._queue.put_nowait(chunk)
+            if not self._queue.closed:
+                _queue.put_nowait(chunk)
             # to uvicorn thread
             yield chunk
 
-        # stream finished, cleanup
+        # stream finished
         self.finished.set()
-        if self._store_cache:
-            # send sentinel to caching thread to indicate EOF
-            self._queue.put_nowait(b"")
 
 
 class OTACacheHelper:
@@ -507,7 +510,7 @@ class OTACache:
         if fpath.is_file():
 
             async def _fp():
-                async with aiofiles.open(fpath, "rb") as f:
+                async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
                     while True:
                         data = await f.read(self._chunk_size)
                         if data:
@@ -544,13 +547,14 @@ class OTACache:
         # NOTE: output cachemeta doesn't have hash and size set yet
         # NOTE.2: store the original unquoted url into the CacheMeta
         meta = db.CacheMeta(
-            url=raw_url, hash=None, content_encoding=None, content_type=None, size=0
+            url=raw_url,
+            hash=None,
+            size=0,
+            content_encoding=response.headers.get("content-encoding", ""),
+            content_type=response.headers.get(
+                "content-type", "application/octet-stream"
+            ),
         )
-
-        meta.content_type = response.headers.get(
-            "content-type", "application/octet-stream"
-        )
-        meta.content_encoding = response.headers.get("content-encoding", "")
 
         # return an iterator of fp and a new CacheMeta instance
         async def _fp():
