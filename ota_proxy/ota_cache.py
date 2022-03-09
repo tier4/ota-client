@@ -1,18 +1,20 @@
 import asyncio
-from functools import partial
+import aiofiles
 import aiohttp
+import janus
 import subprocess
 import shlex
 import shutil
 import time
 from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from queue import Queue
+from functools import partial
 from hashlib import sha256
-from threading import Lock, Event
-from typing import Dict, Union, Tuple, BinaryIO
-from pathlib import Path
 from os import urandom
+from pathlib import Path
+from queue import Queue
+from threading import Lock, Event
+from typing import Dict, Iterator, Union, Tuple
 
 from . import db
 from .config import config as cfg
@@ -157,9 +159,10 @@ class OTAFile:
     def __init__(
         self,
         url: str,
-        fp: Union[aiohttp.ClientResponse, BinaryIO],
         meta: db.CacheMeta,
-        store_cache: bool = False,
+        fp: Iterator[bytes],
+        *,
+        store_cache=False,
         below_hard_limit_event: Event = None,
     ):
         logger.debug(f"new OTAFile request: {url}")
@@ -168,17 +171,10 @@ class OTAFile:
         self._storage_below_hard_limit = below_hard_limit_event
         # NOTE: for new cache entry meta, the hash and size are not set yet
         self.meta = meta
-
-        # data stream
-        self._remote = False
-        if isinstance(fp, aiohttp.ClientResponse):
-            self._remote = True
-
         self._fp = fp
-        self._queue = None
 
         # life cycle
-        self.finished = False
+        self.finished: Event = Event()
         self.cached_success = False
 
         # prepare for data streaming
@@ -196,74 +192,55 @@ class OTAFile:
         try:
             logger.debug(f"start to cache for {self.meta.url}...")
             self.temp_fpath = self._base_dir / f"tmp_{urandom(16).hex()}"
-            self._dst_fp = open(self.temp_fpath, "wb")
 
-            while not self.finished or not self._queue.empty():
-                if not self._storage_below_hard_limit.is_set():
-                    # reach storage hard limit, abort caching
-                    logger.debug(
-                        f"not enough free space during caching url={self.meta.url}, abort"
-                    )
-                    break
+            with open(self.temp_fpath, "wb") as dst_f:
+                while not self.finished.is_set() or not self._queue.empty():
+                    if not self._storage_below_hard_limit.is_set():
+                        # reach storage hard limit, abort caching
+                        logger.debug(
+                            f"not enough free space during caching url={self.meta.url}, abort"
+                        )
+                        break
 
-                try:
-                    data = self._queue.get(timeout=360)
-                except Exception:
-                    logger.error(f"timeout caching for {self.meta.url}, abort")
-                    break
+                    try:
+                        data = self._queue.get(timeout=360)
+                    except Exception:
+                        logger.error(f"timeout caching for {self.meta.url}, abort")
+                        break
 
-                self._hash_f.update(data)
-                self.meta.size += self._dst_fp.write(data)
+                    self._hash_f.update(data)
+                    self.meta.size += dst_f.write(data)
 
-            self._dst_fp.close()
-            if self.finished and self.meta.size > 0:  # not caching 0 size file
+            # post caching
+            if self.finished.is_set() and self.meta.size > 0:  # not caching 0 size file
                 # rename the file to the hash value
                 hash = self._hash_f.hexdigest()
 
                 self.meta.hash = hash
                 self.temp_fpath.rename(self._base_dir / hash)
                 self.cached_success = True
-                logger.debug(f"successfully cache {self.meta.url}")
-            # NOTE: if queue is empty but self._finished is not set
-            # an unfinished caching might happen
+                logger.debug(f"successfully cached {self.meta.url}")
+            # NOTE: if queue is empty but self._finished is not set,
+            # it may indicate that an unfinished caching might happen
         finally:
-            # commit the cache via callback
-            self._dst_fp.close()
+            # always remember to call callback
             callback(self)
 
-    def __aiter__(self):
-        return self
-
-    async def _get_chunk(self) -> bytes:
-        if self._remote:
-            return await self._fp.content.read(cfg.CHUNK_SIZE)
-        else:
-            return self._fp.read(cfg.CHUNK_SIZE)
-
-    async def __anext__(self) -> bytes:
+    async def get_chunks(self) -> Iterator[bytes]:
         if self.finished:
             raise ValueError("file is closed")
 
-        chunk = await self._get_chunk()
-        if len(chunk) == 0:  # stream finished
-            self.finished = True
-            # finish the background cache writing
-            if self._store_cache:
-                self._queue.put_nowait(b"")
+        async for chunk in self._fp:
+            # to caching thread
+            self._queue.put_nowait(chunk)
+            # to uvicorn thread
+            yield chunk
 
-            # cleanup
-            if not self._remote:
-                self._fp.close()
-            else:
-                self._fp.release()
-
-            raise StopAsyncIteration
-        else:
-            # stream the contents to background caching task non-blockingly
-            if self._store_cache:
-                self._queue.put_nowait(chunk)
-
-            return chunk
+        # stream finished, cleanup
+        self.finished.set()
+        if self._store_cache:
+            # send sentinel to caching thread to indicate EOF
+            self._queue.put_nowait(b"")
 
 
 class OTACacheHelper:
@@ -348,6 +325,7 @@ class OTACache:
         enable_https: bool = False,
     ):
         logger.debug(f"init ota cache({cache_enabled=}, {init=}, {upper_proxy=})")
+        self._chunk_size = cfg.CHUNK_SIZE
 
         self._base_dir = Path(cfg.BASE_DIR)
         self._closed = False
@@ -522,16 +500,28 @@ class OTACache:
         bucket = self._buckets.get_bucket(cache_meta.size)
         bucket.warm_up_entry(cache_meta.hash)
 
-    def _open_fp_by_cache(self, meta: db.CacheMeta) -> BinaryIO:
+    async def _open_fp_by_cache(self, meta: db.CacheMeta) -> Iterator[bytes]:
         hash: str = meta.hash
         fpath = self._base_dir / hash
 
         if fpath.is_file():
-            return open(fpath, "rb")
+
+            async def _fp():
+                async with aiofiles.open(fpath, "rb") as f:
+                    while True:
+                        data = await f.read(self._chunk_size)
+                        if data:
+                            yield data
+                        else:
+                            break
+
+            return _fp()
+        else:
+            return None
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
-    ) -> Tuple[aiohttp.ClientResponse, db.CacheMeta]:
+    ) -> Tuple[Iterator[bytes], db.CacheMeta]:
         from urllib.parse import quote, urlparse
 
         url_parsed = urlparse(raw_url)
@@ -562,8 +552,18 @@ class OTACache:
         )
         meta.content_encoding = response.headers.get("content-encoding", "")
 
-        # return the raw response and a new CacheMeta instance
-        return response, meta
+        # return an iterator of fp and a new CacheMeta instance
+        async def _fp():
+            while True:
+                data = await response.content.read(self._chunk_size)
+                if data:
+                    yield data
+                else:
+                    break
+
+            response.release()
+
+        return _fp(), meta
 
     # exposed API
     async def retrieve_file(
@@ -577,7 +577,7 @@ class OTACache:
         if not self._cache_enabled or not self._scrub_finished_event.is_set():
             # case 1: not using cache, directly download file
             fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
-            res = OTAFile(url=url, fp=fp, meta=meta)
+            res = OTAFile(url, meta, fp)
         else:
             no_cache_available = True
 
@@ -603,9 +603,9 @@ class OTACache:
                 # try to cache the file if no other same on-going caching
                 if self._on_going_caching.register(url):
                     res = OTAFile(
-                        url=url,
-                        fp=fp,
-                        meta=meta,
+                        url,
+                        meta,
+                        fp,
                         store_cache=True,
                         below_hard_limit_event=self._storage_below_hard_limit_event,
                     )
@@ -630,6 +630,6 @@ class OTACache:
 
                 fp = self._open_fp_by_cache(cache_meta)
                 # use cache
-                res = OTAFile(url=url, fp=fp, meta=cache_meta)
+                res = OTAFile(url, cache_meta, fp)
 
         return res

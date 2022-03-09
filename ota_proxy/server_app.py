@@ -147,7 +147,7 @@ class App:
             await self._init_response(HTTPStatus.OK, headers, send)
 
             # stream the response to the client
-            async for chunk in f:
+            async for chunk in f.get_chunks():
                 await self._send_chunk(chunk, True, send)
             # finish the streaming by send a 0 len payload
             await self._send_chunk(b"", False, send)
