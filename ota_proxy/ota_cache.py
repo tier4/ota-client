@@ -342,9 +342,7 @@ class OTACache:
         self._upper_proxy: str = ""
 
         self._base_dir.mkdir(exist_ok=True, parents=True)
-        _event = Event()
-        self._scrub_finished_event = _event
-        self._cache_helper = OTACacheHelper(_event)
+        self._scrub_finished_event = Event()
 
         if cache_enabled:
             self._cache_enabled = True
@@ -359,7 +357,9 @@ class OTACache:
                 self._base_dir.mkdir(exist_ok=True, parents=True)
             else:
                 # scrub the cache folder in the background
-                self._executor.submit(self._cache_helper.scrub_cache)
+                # NOTE: the _cache_helper is only used once here
+                _cache_helper = OTACacheHelper(self._scrub_finished_event)
+                self._executor.submit(_cache_helper.scrub_cache)
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
