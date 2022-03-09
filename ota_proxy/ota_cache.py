@@ -231,14 +231,16 @@ class OTAFile:
             callback(self)
 
     async def get_chunks(self) -> Iterator[bytes]:
-        if self.finished:
-            raise ValueError("file is closed")
+        if self.finished.is_set():
+            raise RuntimeError("file is closed")
 
-        _queue = self._queue.async_q
         async for chunk in self._fp:
             # to caching thread
-            if not self._queue.closed:
-                _queue.put_nowait(chunk)
+            if self._store_cache:
+                _queue = self._queue.async_q
+                if not self._queue.closed:
+                    _queue.put_nowait(chunk)
+
             # to uvicorn thread
             yield chunk
 
@@ -279,8 +281,6 @@ class OTACacheHelper:
         return meta, False
 
     def scrub_cache(self):
-        from os import cpu_count
-
         logger.debug("start to scrub the cache entries...")
         self._event.clear()
 
@@ -288,11 +288,11 @@ class OTACacheHelper:
         # NOTE: pre-add database file into the set
         # to prevent db file being deleted
         valid_cache_entry = {Path(cfg.DB_FILE).name}
-        with ProcessPoolExecutor(max_workers=cpu_count() * 2 // 3) as pool:
+        with ProcessPoolExecutor() as pool:
             res_list = pool.map(
                 partial(self._check_entry, str(self._base_dir)),
                 self._db.lookup_all(),
-                chunksize=128,
+                chunksize=20,
             )
 
             for meta, valid in res_list:
@@ -519,8 +519,6 @@ class OTACache:
                             break
 
             return _fp()
-        else:
-            return None
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
@@ -632,7 +630,7 @@ class OTACache:
                 logger.debug(f"use cache for {url=}")
                 self._promote_cache_entry(cache_meta)
 
-                fp = self._open_fp_by_cache(cache_meta)
+                fp = await self._open_fp_by_cache(cache_meta)
                 # use cache
                 res = OTAFile(url, cache_meta, fp)
 
