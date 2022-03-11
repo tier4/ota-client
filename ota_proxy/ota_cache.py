@@ -259,8 +259,9 @@ class OTACacheHelper:
     def __init__(self, event: Event):
         self._base_dir = Path(cfg.BASE_DIR)
         self._db = db.OTACacheDB(cfg.DB_FILE)
-
+        self._excutor = ProcessPoolExecutor()
         self._event = event
+        self._closed = False
 
     @staticmethod
     def _check_entry(base_dir: str, meta: db.CacheMeta) -> Union[db.CacheMeta, bool]:
@@ -284,6 +285,9 @@ class OTACacheHelper:
         return meta, False
 
     def scrub_cache(self):
+        if self._closed:
+            return
+
         logger.debug("start to scrub the cache entries...")
         self._event.clear()
 
@@ -291,19 +295,18 @@ class OTACacheHelper:
         # NOTE: pre-add database file into the set
         # to prevent db file being deleted
         valid_cache_entry = {Path(cfg.DB_FILE).name}
-        with ProcessPoolExecutor() as pool:
-            res_list = pool.map(
-                partial(self._check_entry, str(self._base_dir)),
-                self._db.lookup_all(),
-                chunksize=20,
-            )
+        res_list = self._excutor.map(
+            partial(self._check_entry, str(self._base_dir)),
+            self._db.lookup_all(),
+            chunksize=256
+        )
 
-            for meta, valid in res_list:
-                if not valid:
-                    logger.debug(f"invalid db entry found: {meta.url}")
-                    dangling_db_entry.append(meta.url)
-                else:
-                    valid_cache_entry.add(meta.hash)
+        for meta, valid in res_list:
+            if not valid:
+                logger.debug(f"invalid db entry found: {meta.url}")
+                dangling_db_entry.append(meta.url)
+            else:
+                valid_cache_entry.add(meta.hash)
 
         # delete the invalid entry from the database
         self._db.remove_urls(*dangling_db_entry)
@@ -317,7 +320,10 @@ class OTACacheHelper:
                 f = self._base_dir / entry.name
                 f.unlink(missing_ok=True)
 
+        # cleanup
         self._event.set()
+        self._excutor.shutdown(wait=True)
+        self._closed = True
         logger.debug("scrub finished")
 
 
@@ -633,7 +639,7 @@ class OTACache:
                     fp, meta = await self._open_fp_by_requests(
                         url, cookies, extra_headers
                     )
-                    res = OTAFile(url=url, fp=fp, meta=meta)
+                    res = OTAFile(url, meta, fp)
             else:
                 # case 3: use cache
                 logger.debug(f"use cache for {url=}")
