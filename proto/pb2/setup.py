@@ -10,7 +10,9 @@ def get_version():
 
 
 def get_git_hash():
-    result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], stdout=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], stdout=subprocess.PIPE, text=True
+    )
     return result.stdout.strip()
 
 
@@ -26,5 +28,5 @@ setup(
     packages=find_packages(),
     description="ota client protobuf package",
     url="https://github.com/tier4/ota-client",
-    author="Tier4 FMS Development Team"
+    author="Tier4 FMS Development Team",
 )
