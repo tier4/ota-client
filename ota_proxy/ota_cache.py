@@ -175,6 +175,7 @@ class OTAFile:
         # life cycle
         self.finished: Event = Event()
         self.cached_success = False
+        self._cache_aborted: Event = Event()
 
         # prepare for data streaming
         if store_cache:
@@ -199,22 +200,22 @@ class OTAFile:
                         logger.debug(
                             f"not enough free space during caching url={self.meta.url}, abort"
                         )
-                        # close the queue to indicate the streaming coro
+                        # signal the streaming coro
                         # to stop streaming to the caching thread
-                        self._queue.close()
+                        self._cache_aborted.set()
                     else:
                         try:
-                            data = _queue.get(timeout=360)
+                            data = _queue.get(timeout=720)
+                            self._hash_f.update(data)
+                            self.meta.size += dst_f.write(data)
                         except Exception:
                             # streaming coro might be dead, abort
                             logger.error(f"timeout caching for {self.meta.url}, abort")
+                            self._cache_aborted.set()
                             break
 
-                        self._hash_f.update(data)
-                        self.meta.size += dst_f.write(data)
-
             # post caching
-            if self.finished.is_set():
+            if self.finished.is_set() and not self._cache_aborted.is_set():
                 # rename the file to the hash value
                 hash = self._hash_f.hexdigest()
                 self.meta.hash = hash
@@ -241,7 +242,7 @@ class OTAFile:
             # to caching thread
             if self._store_cache:
                 _queue = self._queue.async_q
-                if not self._queue.closed:
+                if not self._cache_aborted.is_set():
                     _queue.put_nowait(chunk)
 
             # to uvicorn thread
