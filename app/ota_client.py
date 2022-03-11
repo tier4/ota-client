@@ -49,9 +49,39 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
     return file_sha256(filename) == filehash
 
 
+def _retry(retry, backoff_factor, backoff_max, func):
+    """simple retrier"""
+    from functools import wraps
+
+    @wraps(func)
+    def _wrapper(*args, **kwargs):
+        _retry_count = 0
+        try:
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except Exception:
+                    _retry_count += 1
+                    if _retry_count > retry:
+                        raise
+                    else:
+                        _backoff_time = float(
+                            min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
+                        )
+                        time.sleep(_backoff_time)
+        except Exception as e:
+            # currently all exceptions lead to OtaErrorRecoverable
+            raise OtaErrorRecoverable(f"{e!r}") from None
+
+    return _wrapper
+
+
 class Downloader:
-    CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
+    CHUNK_SIZE = 256 * 1024  # 256KB
     RETRY_COUNT = 5
+    BACKOFF_FACTOR = 1
+    OUTER_BACKOFF_FACTOR = 0.1
+    BACKOFF_MAX = 10
 
     def __init__(self):
         from requests.adapters import HTTPAdapter
@@ -68,11 +98,11 @@ class Downloader:
         # NOTE: for urllib3 version below 2.0, we have to change Retry class' DEFAULT_BACKOFF_MAX,
         # to configure the backoff max, set the value to the instance will not work as increment() method
         # will create a new instance of Retry on every try without inherit the change to instance's DEFAULT_BACKOFF_MAX
-        Retry.DEFAULT_BACKOFF_MAX = 10
+        Retry.DEFAULT_BACKOFF_MAX = self.BACKOFF_MAX
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
             raise_on_status=True,
-            backoff_factor=1,
+            backoff_factor=self.BACKOFF_FACTOR,
             # retry on common server side errors and non-critical client side errors
             status_forcelist={413, 429, 500, 502, 503, 504},
             allowed_methods=["GET"],
@@ -107,48 +137,36 @@ class Downloader:
         quoted_path = quote_from_bytes(bytes(relative_path))
         return urljoin(base, quoted_path)
 
+    @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def __call__(
         self, url_base: str, path: str, dst: Path, digest: str, cookies: Dict[str, str]
     ) -> int:
         url = self._path_to_url(url_base, path)
 
-        error_count = 0
         try:
+            error_count = 0
             response = self._session.get(url, stream=True, timeout=10, cookies=cookies)
             response.raise_for_status()
 
             raw_r = response.raw
             if raw_r.retries:
                 error_count = len(raw_r.retries.history)
-        except requests.exceptions.HTTPError:
-            msg = f"requests error: status_code={response.status_code},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.Timeout as e:
-            msg = f"requests timeout: {e},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.ConnectionError as e:
-            msg = f"requests connection error: {e},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.ChunkedEncodingError:
-            msg = f"requests ChunkedEncodingError: {url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.RequestException as e:
-            # all unspecific errors go here
-            msg = f"requests failed: {e!r}"
-            raise OtaErrorRecoverable(msg)
 
-        # prepare hash
-        hash_f = sha256()
-        with open(dst, "wb") as f:
-            for data in response.iter_content(chunk_size=self.CHUNK_SIZE):
-                hash_f.update(data)
-                f.write(data)
+            # prepare hash
+            hash_f = sha256()
+            with open(dst, "wb") as f:
+                for data in response.iter_content(chunk_size=self.CHUNK_SIZE):
+                    hash_f.update(data)
+                    f.write(data)
 
-        calc_digest = hash_f.hexdigest()
-        if digest and calc_digest != digest:
-            raise OtaErrorRecoverable(
-                f"hash error: act={calc_digest}, exp={digest}, {url=}"
-            )
+            calc_digest = hash_f.hexdigest()
+            if digest and calc_digest != digest:
+                raise ValueError(
+                    f"hash check failed: act={calc_digest}, exp={digest}, {url=}"
+                )
+        except Exception as e:
+            # rewrap the exception with url
+            raise type(e)(f"request failed for {url=}: {e}") from None
 
         return error_count
 

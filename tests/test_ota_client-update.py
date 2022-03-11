@@ -472,25 +472,25 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "error_injection, failure_reason_startswith",
+    "error_injection, failure_reason_has",
     [
-        ({"status_code": 403}, "requests error: status_code=403"),
+        ({"status_code": 403}, "403"),
         (
             {"exc": requests.exceptions.ConnectTimeout},
-            "requests timeout:",
+            "ConnectTimeout",
         ),
         (
             {"exc": requests.exceptions.ReadTimeout},
-            "requests timeout:",
+            "ReadTimeout",
         ),
         (
             {"exc": requests.exceptions.ChunkedEncodingError},
-            "requests ChunkedEncodingError:",
+            "ChunkedEncodingError",
         ),
     ],
 )
 def test_ota_client_update_regular_download_error(
-    mocker, tmp_path, error_injection, failure_reason_startswith
+    mocker: MockerFixture, tmp_path, error_injection, failure_reason_has
 ):
     import ota_client
     import proxy_info
@@ -610,7 +610,7 @@ def test_ota_client_update_regular_download_error(
     assert status["status"] == "FAILURE"
     assert status["failure_type"] == "RECOVERABLE"
     failure_reason = status["failure_reason"]
-    assert failure_reason.startswith(failure_reason_startswith)
+    assert failure_reason.find(failure_reason_has) != -1
     assert status["version"] == "a.b.c"
     assert status["failure_type"] == "RECOVERABLE"
 
