@@ -783,7 +783,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 downloader=self._download,
             )
 
-            with Pool() as pool:
+            _max_workder = min(3, os.cpu_count())
+            with Pool(processes=_max_workder) as pool:
                 hardlink_dict = dict()  # sha256hash[tuple[reginf, event]
 
                 # imap_unordered return a lazy iterator without blocking
