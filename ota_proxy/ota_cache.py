@@ -272,7 +272,7 @@ class OTACacheHelper:
             with open(f, "rb") as fp:
                 while True:
                     data = fp.read(cfg.CHUNK_SIZE)
-                    if data:
+                    if len(data) > 0:
                         hash_f.update(data)
                     else:
                         break
@@ -298,7 +298,7 @@ class OTACacheHelper:
         res_list = self._excutor.map(
             partial(self._check_entry, str(self._base_dir)),
             self._db.lookup_all(),
-            chunksize=256
+            chunksize=256,
         )
 
         for meta, valid in res_list:
@@ -526,7 +526,7 @@ class OTACache:
                 async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
                     while True:
                         data = await f.read(self._chunk_size)
-                        if data:
+                        if len(data) > 0:
                             yield data
                         else:
                             break
@@ -571,7 +571,7 @@ class OTACache:
         async def _fp():
             while True:
                 data = await response.content.read(self._chunk_size)
-                if data:
+                if len(data) > 0:
                     yield data
                 else:
                     break
