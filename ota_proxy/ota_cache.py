@@ -181,12 +181,11 @@ class OTAFile:
             self._hash_f = sha256()
             self._queue: janus.Queue[int] = janus.Queue()
 
-    def background_write_cache(self, callback):
+    def background_write_cache(self):
         if not self._store_cache or not self._storage_below_hard_limit:
             # call callback function even we don't cache anything
             # as we need to cleanup the status
-            callback(self)
-            return
+            return self
 
         _queue = self._queue.sync_q
         try:
@@ -215,20 +214,24 @@ class OTAFile:
                         self.meta.size += dst_f.write(data)
 
             # post caching
-            if self.finished.is_set() and self.meta.size > 0:  # not caching 0 size file
+            if self.finished.is_set():
                 # rename the file to the hash value
                 hash = self._hash_f.hexdigest()
-
                 self.meta.hash = hash
-                self.temp_fpath.rename(self._base_dir / hash)
                 self.cached_success = True
-                logger.debug(f"successfully cached {self.meta.url}")
+
+                # for 0 size file, register the entry only
+                # but if the 0 size file doesn't exist, create one
+                if self.meta.size > 0 or not (self._base_dir / hash).is_file():
+                    logger.debug(f"successfully cached {self.meta.url}")
+                    self.temp_fpath.rename(self._base_dir / hash)
+                else:
+                    self.temp_fpath.unlink(missing_ok=True)
             # NOTE: if queue is empty but self._finished is not set,
             # it may indicate that an unfinished caching might happen
 
         finally:
-            # always remember to call callback
-            callback(self)
+            return self
 
     async def get_chunks(self) -> Iterator[bytes]:
         if self.finished.is_set():
@@ -436,7 +439,7 @@ class OTACache:
         # register to the database
         self._db.insert_urls(m)
 
-    def _register_cache_callback(self, f: OTAFile):
+    def _register_cache_callback(self, fut: asyncio.Future):
         """
         the callback for finishing up caching
 
@@ -447,6 +450,7 @@ class OTACache:
         we will first try reserving free space, if fails,
         then we delete the already cached file.
         """
+        f: OTAFile = fut.result()
 
         meta = f.meta
         if f.cached_success:
@@ -466,7 +470,10 @@ class OTACache:
         else:
             # cache failed,
             # cleanup dangling cache file
-            logger.debug(f"cache for {meta.url=} failed, cleanup")
+            if meta.size == 0:
+                logger.debug(f"skip caching 0 size file {meta.url=}")
+            else:
+                logger.debug(f"cache for {meta.url=} failed, cleanup")
             Path(f.temp_fpath).unlink(missing_ok=True)
 
         # always remember to remove url in the on_going_cache_list!
@@ -614,13 +621,15 @@ class OTACache:
 
                     # dispatch the background cache writing to executor
                     loop = asyncio.get_running_loop()
-                    loop.run_in_executor(
-                        self._executor,
-                        res.background_write_cache,
-                        self._register_cache_callback,
+                    fut = loop.run_in_executor(
+                        self._executor, res.background_write_cache
                     )
+                    fut.add_done_callback(self._register_cache_callback)
                 else:
                     # failed to get the chance to cache
+                    logger.debug(
+                        f"failed to get the chance to cache..., directly download {url=}"
+                    )
                     fp, meta = await self._open_fp_by_requests(
                         url, cookies, extra_headers
                     )
