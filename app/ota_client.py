@@ -145,7 +145,7 @@ class Downloader:
 
         try:
             error_count = 0
-            response = self._session.get(url, stream=True, timeout=10, cookies=cookies)
+            response = self._session.get(url, stream=True, cookies=cookies)
             response.raise_for_status()
 
             raw_r = response.raw
