@@ -38,11 +38,21 @@ $ python3 -m grpc_tools.protoc -I./proto --python_out=app --grpc_python_out=app 
 3. After build, whl file is generated in proto/whl directory.
 
 ### how to install protobuf whl
+You can install protobuf whl with pip command.
 
 ```bash
-
+$ pip3 install https://raw.githubusercontent.com/tier4/ota-client/main/proto/whl/otaclient_pb2-xxxxxx-py3-none-any.whl
 ```
 
+If you use requirement.txt, you can add protobuf whl as follows.
+
+```bash
+(snip)
+https://raw.githubusercontent.com/tier4/ota-client/main/proto/whl/otaclient_pb2-xxxx-py3-none-any.whl
+(snip)
+```
+
+### how to import protobuf package
 ```bash
 $ python3
 Python 3.8.10 (default, Nov 26 2021, 20:14:08)
