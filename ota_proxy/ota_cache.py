@@ -338,7 +338,7 @@ class OTACache:
     ):
         logger.debug(f"init ota cache({cache_enabled=}, {init=}, {upper_proxy=})")
         self._chunk_size = cfg.CHUNK_SIZE
-
+        self._remote_chunk_size = cfg.REMOTE_CHUNK_SIZE
         self._base_dir = Path(cfg.BASE_DIR)
         self._closed = False
         self._cache_enabled = cache_enabled
@@ -570,7 +570,7 @@ class OTACache:
         # return an iterator of fp and a new CacheMeta instance
         async def _fp():
             while True:
-                data = await response.content.read(self._chunk_size)
+                data = await response.content.read(self._remote_chunk_size)
                 if len(data) > 0:
                     yield data
                 else:
