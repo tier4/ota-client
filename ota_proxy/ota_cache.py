@@ -368,7 +368,7 @@ class OTACache:
                 # scrub the cache folder in the background
                 # NOTE: the _cache_helper is only used once here
                 _cache_helper = OTACacheHelper(self._scrub_finished_event)
-                self._executor.submit(_cache_helper.scrub_cache)
+                _cache_helper.scrub_cache()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
