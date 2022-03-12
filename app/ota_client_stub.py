@@ -141,6 +141,8 @@ class OtaClientStub:
         # start ota proxy server
         # check current ota_status, if the status is not SUCCESS,
         # always assume there is an interrupted ota update, thus reuse the cache if possible
+        # NOTE: now the cache scrubing will block the ota_proxy start,
+        # to ensure the proxy is fully ready before sending update requests to the subecus
         _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
         if proxy_cfg.enable_local_ota_proxy:
             self._ota_proxy.start(enable_cache=True, init_cache=_init_cache)
@@ -318,28 +320,24 @@ class OtaClientStub:
         # wait for local ota update and all subecus to finish update, and then do cleanup
         # NOTE: the failure of ota_client side update will not reflect immediately here,
         # however it is not a problem as we will track the update state via status API.
-        try:
-            with fsm.proceed(
-                fsm._P1, expect=fsm._S2, timeout=server_cfg.LOCAL_OTA_UPDATE_TIMEOUT
-            ):
-                # ensure all subecus state
-                asyncio.run(self._ensure_subecu_status())
-                logger.info("all subECUs are updated and become ready")
+        with fsm.proceed(fsm._P1, expect=fsm._S2):
+            # ensure all subecus state
+            asyncio.run(self._ensure_subecu_status())
+            logger.info("all subECUs are updated and become ready")
 
-                if proxy_cfg.enable_local_ota_proxy:
-                    # NOTE: the following lines can only be reached when the whole update
-                    # (including local update and all subecus update) are successful,
-                    # so we don't need to do extra check, and can safely clear the cache here.
-                    logger.debug("cleanup ota-cache on successful ota-update...")
-                    self._ota_proxy.stop(cleanup_cache=True)
+            if proxy_cfg.enable_local_ota_proxy:
+                # NOTE: the following lines can only be reached when the whole update
+                # (including local update and all subecus update) are successful,
+                # so we don't need to do extra check, and can safely clear the cache here.
+                logger.info("cleanup ota-cache on successful ota-update...")
+                self._ota_proxy.stop(cleanup_cache=True)
 
-                logger.debug("finish cleanup, signal ota_client to reboot...")
-        except TimeoutError:
-            logger.exception("ota_client failed to finish update")
+            logger.info("finish cleanup, signal ota_client to reboot...")
 
     async def _get_subecu_status(
         self,
         response: v2.StatusResponse,
+        *,
         failed_ecu: list = None,  # output
     ) -> bool:
         """
@@ -373,6 +371,7 @@ class OtaClientStub:
             done, pending = await asyncio.wait(
                 tasks, timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT
             )
+
             for t in done:
                 ecu_id = t.get_name()
 
@@ -381,7 +380,7 @@ class OtaClientStub:
                     # exception raised from the task
                     failed_ecu.append(ecu_id)
 
-                    logger.warning(f"{ecu_id} is UNAVAILABLE: {exp!r}")
+                    logger.debug(f"{ecu_id} currently is UNAVAILABLE")
                     if isinstance(exp, grpc.RpcError):
                         if exp.code() == grpc.StatusCode.UNAVAILABLE:
                             # request was not received.
@@ -439,7 +438,9 @@ class OtaClientStub:
             e["ecu_id"]: v2.FAILURE for e in self._ecu_info.get_secondary_ecus()
         }
 
-        all_subecus_reachable = await self._get_subecu_status(response, failed_ecu_list)
+        all_subecus_reachable = await self._get_subecu_status(
+            response, failed_ecu=failed_ecu_list
+        )
 
         if not all_subecus_reachable:
             return False, False
