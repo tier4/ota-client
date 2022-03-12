@@ -77,7 +77,7 @@ def _retry(retry, backoff_factor, backoff_max, func):
 
 
 class Downloader:
-    CHUNK_SIZE = 256 * 1024  # 256KB
+    CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
     RETRY_COUNT = 5
     BACKOFF_FACTOR = 1
     OUTER_BACKOFF_FACTOR = 0.1
