@@ -13,7 +13,7 @@ from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from threading import Lock, Event
-from typing import Dict, Iterator, Union, Tuple
+from typing import Dict, AsyncIterator, Union, Tuple
 
 from . import db
 from .config import config as cfg
@@ -159,7 +159,7 @@ class OTAFile:
         self,
         url: str,
         meta: db.CacheMeta,
-        fp: Iterator[bytes],
+        fp: AsyncIterator[bytes],
         *,
         store_cache=False,
         below_hard_limit_event: Event = None,
@@ -173,7 +173,9 @@ class OTAFile:
         self._fp = fp
 
         # life cycle
-        self.finished: Event = Event()
+        self.closed: Event = (
+            Event()
+        )  # whether the fp finishes its work(successful or not)
         self.cached_success = False
         self._cache_aborted: Event = Event()
 
@@ -194,7 +196,7 @@ class OTAFile:
             self.temp_fpath = self._base_dir / f"tmp_{urandom(16).hex()}"
 
             with open(self.temp_fpath, "wb") as dst_f:
-                while not self.finished.is_set() or not _queue.empty():
+                while not self.closed.is_set() or not _queue.empty():
                     if not self._storage_below_hard_limit.is_set():
                         # reach storage hard limit, abort caching
                         logger.debug(
@@ -203,6 +205,7 @@ class OTAFile:
                         # signal the streaming coro
                         # to stop streaming to the caching thread
                         self._cache_aborted.set()
+                        self._queue.close()
                     else:
                         try:
                             data = _queue.get(timeout=720)
@@ -212,10 +215,11 @@ class OTAFile:
                             # streaming coro might be dead, abort
                             logger.error(f"timeout caching for {self.meta.url}, abort")
                             self._cache_aborted.set()
+                            self._queue.close()
                             break
 
             # post caching
-            if self.finished.is_set() and not self._cache_aborted.is_set():
+            if self.closed.is_set() and not self._cache_aborted.is_set():
                 # rename the file to the hash value
                 hash = self._hash_f.hexdigest()
                 self.meta.hash = hash
@@ -234,22 +238,24 @@ class OTAFile:
         finally:
             return self
 
-    async def get_chunks(self) -> Iterator[bytes]:
-        if self.finished.is_set():
+    async def get_chunks(self) -> AsyncIterator[bytes]:
+        if self.closed.is_set():
             raise RuntimeError("file is closed")
 
-        async for chunk in self._fp:
-            # to caching thread
-            if self._store_cache:
-                _queue = self._queue.async_q
-                if not self._cache_aborted.is_set():
-                    _queue.put_nowait(chunk)
+        try:
+            async for chunk in self._fp:
+                # to caching thread
+                if self._store_cache:
+                    _queue = self._queue.async_q
+                    if not self._cache_aborted.is_set():
+                        _queue.put_nowait(chunk)
 
-            # to uvicorn thread
-            yield chunk
+                # to uvicorn thread
+                yield chunk
 
-        # stream finished
-        self.finished.set()
+        finally:
+            # always close the file if get_chunk finished
+            self.closed.set()
 
 
 class OTACacheHelper:
@@ -517,7 +523,7 @@ class OTACache:
         bucket = self._buckets.get_bucket(cache_meta.size)
         bucket.warm_up_entry(cache_meta.hash)
 
-    async def _open_fp_by_cache(self, meta: db.CacheMeta) -> Iterator[bytes]:
+    async def _open_fp_by_cache(self, meta: db.CacheMeta) -> AsyncIterator[bytes]:
         hash: str = meta.hash
         fpath = self._base_dir / hash
 
@@ -538,7 +544,7 @@ class OTACache:
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
-    ) -> Tuple[Iterator[bytes], db.CacheMeta]:
+    ) -> Tuple[AsyncIterator[bytes], db.CacheMeta]:
         """
         NOTE: call next on the return generator to get the meta
         """
