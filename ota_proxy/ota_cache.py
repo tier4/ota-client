@@ -13,7 +13,7 @@ from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from threading import Lock, Event
-from typing import Dict, AsyncIterator, Union, Tuple
+from typing import Dict, AsyncGenerator, Union
 
 from . import db
 from .config import config as cfg
@@ -159,7 +159,7 @@ class OTAFile:
         self,
         url: str,
         meta: db.CacheMeta,
-        fp: AsyncIterator[bytes],
+        fp: AsyncGenerator,
         *,
         store_cache=False,
         below_hard_limit_event: Event = None,
@@ -208,7 +208,7 @@ class OTAFile:
                         self._queue.close()
                     else:
                         try:
-                            data = _queue.get(timeout=720)
+                            data = _queue.get(timeout=16)
                             self._hash_f.update(data)
                             self.meta.size += dst_f.write(data)
                         except Exception:
@@ -238,7 +238,7 @@ class OTAFile:
         finally:
             return self
 
-    async def get_chunks(self) -> AsyncIterator[bytes]:
+    async def get_chunks(self) -> AsyncGenerator:
         if self.closed.is_set():
             raise RuntimeError("file is closed")
 
@@ -305,7 +305,7 @@ class OTACacheHelper:
         res_list = self._excutor.map(
             partial(self._check_entry, str(self._base_dir)),
             self._db.lookup_all(),
-            chunksize=256,
+            chunksize=128,
         )
 
         for meta, valid in res_list:
@@ -523,7 +523,7 @@ class OTACache:
         bucket = self._buckets.get_bucket(cache_meta.size)
         bucket.warm_up_entry(cache_meta.hash)
 
-    async def _open_fp_by_cache(self, meta: db.CacheMeta) -> AsyncIterator[bytes]:
+    async def _open_fp_by_cache(self, meta: db.CacheMeta) -> AsyncGenerator:
         hash: str = meta.hash
         fpath = self._base_dir / hash
 
@@ -544,7 +544,7 @@ class OTACache:
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
-    ) -> Tuple[AsyncIterator[bytes], db.CacheMeta]:
+    ) -> AsyncGenerator:
         """
         NOTE: call next on the return generator to get the meta
         """
@@ -599,7 +599,7 @@ class OTACache:
         if not self._cache_enabled or not self._scrub_finished_event.is_set():
             # case 1: not using cache, directly download file
             fp = await self._open_fp_by_requests(url, cookies, extra_headers)
-            meta = next(fp)
+            meta = await fp.__anext__()
             res = OTAFile(url, meta, fp)
         else:
             no_cache_available = True
@@ -621,7 +621,7 @@ class OTACache:
                 # case 2: download and cache new file
                 logger.debug(f"try to download and cache {url=}")
                 fp = await self._open_fp_by_requests(url, cookies, extra_headers)
-                meta = next(fp)
+                meta = await fp.__anext__()
 
                 # NOTE: remember to remove the url after cache comitted!
                 # try to cache the file if no other same on-going caching
@@ -646,7 +646,7 @@ class OTACache:
                         f"failed to get the chance to cache..., directly download {url=}"
                     )
                     fp = await self._open_fp_by_requests(url, cookies, extra_headers)
-                    meta = next(fp)
+                    meta = await fp.__anext__()
                     res = OTAFile(url, meta, fp)
             else:
                 # case 3: use cache
