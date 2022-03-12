@@ -533,10 +533,15 @@ class OTACache:
                             break
 
             return _fp()
+        else:
+            raise ValueError(f"cache entry {hash} doesn't exist!")
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
     ) -> Tuple[Iterator[bytes], db.CacheMeta]:
+        """
+        NOTE: call next on the return generator to get the meta
+        """
         from urllib.parse import quote, urlparse
 
         url_parsed = urlparse(raw_url)
@@ -550,36 +555,31 @@ class OTACache:
 
         url = url_parsed.geturl()
 
-        response = await self._session.get(
-            url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
-        )
-        response.raise_for_status()
-
-        # assembling output cachemeta
-        # NOTE: output cachemeta doesn't have hash and size set yet
-        # NOTE.2: store the original unquoted url into the CacheMeta
-        meta = db.CacheMeta(
-            url=raw_url,
-            hash=None,
-            size=0,
-            content_encoding=response.headers.get("content-encoding", ""),
-            content_type=response.headers.get(
-                "content-type", "application/octet-stream"
-            ),
-        )
-
-        # return an iterator of fp and a new CacheMeta instance
+        ###### wrap the request inside a generator ######
         async def _fp():
-            while True:
-                data = await response.content.read(self._remote_chunk_size)
-                if len(data) > 0:
+            async with self._session.get(
+                url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
+            ) as response:
+                # assembling output cachemeta
+                # NOTE: output cachemeta doesn't have hash and size set yet
+                # NOTE.2: store the original unquoted url into the CacheMeta
+                yield db.CacheMeta(
+                    url=raw_url,
+                    hash=None,
+                    size=0,
+                    content_encoding=response.headers.get("content-encoding", ""),
+                    content_type=response.headers.get(
+                        "content-type", "application/octet-stream"
+                    ),
+                )
+
+                async for data in response.content.iter_chunked(
+                    self._remote_chunk_size
+                ):
                     yield data
-                else:
-                    break
 
-            response.release()
-
-        return _fp(), meta
+        # return the generator
+        return _fp()
 
     # exposed API
     async def retrieve_file(
@@ -592,7 +592,8 @@ class OTACache:
         # NOTE: disable caching when scrubbing is on-going
         if not self._cache_enabled or not self._scrub_finished_event.is_set():
             # case 1: not using cache, directly download file
-            fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
+            fp = await self._open_fp_by_requests(url, cookies, extra_headers)
+            meta = next(fp)
             res = OTAFile(url, meta, fp)
         else:
             no_cache_available = True
@@ -613,7 +614,8 @@ class OTACache:
             if no_cache_available:
                 # case 2: download and cache new file
                 logger.debug(f"try to download and cache {url=}")
-                fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
+                fp = await self._open_fp_by_requests(url, cookies, extra_headers)
+                meta = next(fp)
 
                 # NOTE: remember to remove the url after cache comitted!
                 # try to cache the file if no other same on-going caching
@@ -637,9 +639,8 @@ class OTACache:
                     logger.debug(
                         f"failed to get the chance to cache..., directly download {url=}"
                     )
-                    fp, meta = await self._open_fp_by_requests(
-                        url, cookies, extra_headers
-                    )
+                    fp = await self._open_fp_by_requests(url, cookies, extra_headers)
+                    meta = next(fp)
                     res = OTAFile(url, meta, fp)
             else:
                 # case 3: use cache
