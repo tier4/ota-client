@@ -156,6 +156,25 @@ class Buckets:
 
 
 class OTAFile:
+    """File descriptor for data streaming.
+
+    Instance of OTAFile wraps meta data for specific URL,
+    along with a file descriptor(a AsyncGenerator) that can be used
+    to yield chunks of data from.
+    Instance of OTAFile is requested by the upper uvicorn app,
+    and being created and passed to app by OTACache instance.
+    Check OTACache.retreive_file for details.
+
+    Attributes:
+        url str: target resource's URL.
+        meta db.CacheMeta: meta data of the resource indicated by URL.
+        fp AsyncGenerator: an AsyncGenerator of opened resource, by opening
+            local cached file or remote resource.
+        store_cache bool: whether to cache with opened file descriptor, default is False.
+        below_hard_limit_event Event: a Event instance that can be used to check whether
+            local storage space is enough for caching.
+    """
+
     def __init__(
         self,
         url: str,
@@ -459,15 +478,21 @@ class OTACache:
         self._db.insert_urls(m)
 
     def _register_cache_callback(self, fut: asyncio.Future):
-        """
-        the callback for finishing up caching
+        """The callback for finishing up caching.
 
-        NOTE:
-        1. if the free space is used up duing caching,
-        the caching will terminate immediately.
-        2. if the free space is used up after cache writing finished,
-        we will first try reserving free space, if fails,
-        then we delete the already cached file.
+        All caching should end up here, whether caching is successful or not.
+
+        If caching is successful, and the space usage is reaching soft limit,
+        we will try to ensure free space for already cached file.
+        (No need to consider reaching hard limit, as the caching will be interrupted
+        in half way and f.cached_success will be False.) If space cannot be ensured,
+        the cached file will be delete.
+
+        If caching fails, the unfinished cached file will be cleanup.
+
+
+        Args:
+            fut asyncio.Future: the Future object of excution of caching.
         """
         f: OTAFile = fut.result()
 
@@ -597,6 +622,33 @@ class OTACache:
     async def retrieve_file(
         self, url: str, /, cookies: Dict[str, str], extra_headers: Dict[str, str]
     ) -> OTAFile:
+        """Exposed API to retrieve a file descriptor.
+
+        This method retrieves a file descriptor for incoming client request.
+        Upper uvicorn app can use this file descriptor to yield chunks of data,
+        and stream chunks to the on-calling ota_client.
+
+        Args:
+            url str
+            cookies Dict[str, str]: cookies in the incoming client request.
+            extra_headers Dict[str, str]: headers in the incoming client request.
+                Currently Cookies and Authorization headers are used.
+
+        Returns:
+            OTAFile: An instance of OTAFile that wraps a file descriptor representing
+            the requested resources. It provides get_chunks API for streaming data.
+            See documents of OTAFile.get_chunks for details.
+
+        Example usage:
+            1. Open a file descriptor and prepare meta data of URL
+                by _open_fp_by_cache or _open_fp_by_request.
+            2. (If request remote file and store_cache=True) Register the instance's
+                background_write_cache method to the thread pool to caching file
+                when file is being downloading.
+                Also remember to register the callback to commit/flush the cache.
+            3. Pass the instance to upper uvicorn app,
+                and then app can retrieve sequences of data chunks via get_chunks API.
+        """
         if self._closed:
             raise ValueError("ota cache pool is closed")
 
