@@ -15,7 +15,7 @@ from multiprocessing import Pool, Manager
 from threading import Event, Lock
 from functools import partial
 from enum import Enum, unique
-from urllib.parse import urljoin, quote_from_bytes
+from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
 from ota_metadata import OtaMetadata
@@ -91,6 +91,7 @@ class Downloader:
         session = requests.Session()
 
         # cleanup proxy if any
+        self._proxy_set = False
         proxies = {"http": "", "https": ""}
         session.proxies.update(proxies)
 
@@ -116,14 +117,19 @@ class Downloader:
 
     def configure_proxy(self, proxy: str):
         # configure proxy
+        self._proxy_set = True
         proxies = {"http": proxy, "https": ""}
         self._session.proxies.update(proxies)
 
     def cleanup_proxy(self):
+        self._proxy_set = False
         self.configure_proxy("")
 
-    @staticmethod
-    def _path_to_url(base: str, p: Union[Path, str]) -> str:
+    def _path_to_url(self, base: str, p: Union[Path, str]) -> str:
+        # regulate base url, add suffix / to it if not existed
+        if not base.endswith("/"):
+            base = f"{base}/"
+
         if isinstance(p, str):
             p = Path(p)
 
@@ -135,7 +141,14 @@ class Downloader:
             pass
 
         quoted_path = quote_from_bytes(bytes(relative_path))
-        return urljoin(base, quoted_path)
+
+        # switch scheme if needed
+        _url_parsed = urlparse(urljoin(base, quoted_path))
+        # unconditionally set scheme to HTTP if proxy is applied
+        if self._proxy_set:
+            _url_parsed = _url_parsed._replace(scheme="http")
+
+        return _url_parsed.geturl()
 
     @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def __call__(
@@ -600,20 +613,17 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         )
 
         # standby slot preparation finished, set phase to POST_PROCESSING
-        logger.info("update finished, entering post-update...")
+        logger.info("[update] update finished, entering post-update...")
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
 
-        # finish update, we reset the downloader's proxy setting,
-        # although it is not needed actually
+        # finish update, we reset the downloader's proxy setting
         self._download.cleanup_proxy()
 
         if fsm:
             with fsm.proceed(fsm._P2, expect=fsm._S1):
-                logger.debug(
-                    "ota_client: signal ota_service that local update finished"
-                )
+                logger.debug("[update] signal ota_service that local update finished")
 
-        logger.debug("leaving update, wait on ota_service and then reboot...")
+        logger.debug("[update] leaving update, wait on ota_service and then reboot...")
         if fsm:
             fsm.wait_on(fsm._END)
         self.leave_update()
