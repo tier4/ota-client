@@ -571,6 +571,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         proxy = proxy_cfg.get_proxy_for_local_ota()
         if proxy:
             self._download.configure_proxy(proxy)
+            # FIX: wait for local ota cache scrubing finish
+            # ota_proxy will not be functional before
+            t = 16
+            logger.info(f"sleep for {t}secs to wait for ota cache scrubbing...")
+            time.sleep(t)
 
         # pre-update
         self.enter_update(version)
