@@ -17,6 +17,31 @@ __all__ = "App"
 
 
 class App:
+    """The ASGI application for ota_proxy server passed to unvicorn.
+
+    The App will initialize an instance of OTACache on its initializing.
+    It is responsible for requets proxy between ota_client(local or subECUs),
+    streaming data between OTACache and ota_clients.
+
+    NOTE:
+        1. This App only support plain HTTP request proxy(CONNECT method is not supported).
+        2. It seems that uvicorn will not interrupt the App running even the client closes connection.
+
+    Attributes:
+        upper_proxy str: the upper proxy that ota_cache uses to send out request, default is None
+        cache_enabled bool: when set to False, ota_cache will only relay requested data, default is False.
+        enable_https bool: whether the ota_cache should send out the requests with HTTPS,
+            default is False. NOTE: scheme change is applied unconditionally
+        init_cache bool: whether to clear the existed cache, default is True
+
+    Example usage:
+        # initialize an instance of the App:
+        app = App(cache_enabled=True, init_cache=False, enable_https=False)
+        # load the app with uvicorn, and start uvicorn
+        # NOTE: lifespan must be set to "on" for properly close the ota_proxy server
+        uvicorn.run(app, host="0.0.0.0", port=8082, log_level="debug", lifespan="on")
+    """
+
     def __init__(
         self,
         *,
@@ -37,6 +62,12 @@ class App:
         self._lock = Lock()
 
     def start(self):
+        """Inits and starts the OTACache instance.
+
+        OTACache will be initialized and launched in the background.
+        NOTE: if there are multiple calls on this method, only one call will be executed,
+        other calls will be ignored sliently
+        """
         if self._lock.acquire(blocking=False):
             if not self.started:
                 logger.info("start ota http proxy app...")
@@ -50,6 +81,11 @@ class App:
             self._lock.release()
 
     def stop(self):
+        """Closes the OTACache instance.
+
+        NOTE: if there are multiple calls on this method, only one call will be executed,
+        other calls will be ignored sliently
+        """
         if self._lock.acquire(blocking=False):
             if self.started:
                 logger.info("stopping ota http proxy app...")
@@ -60,8 +96,16 @@ class App:
 
     @staticmethod
     def parse_raw_cookies(cookies_bytes: bytes) -> Dict[str, str]:
-        """
-        parse raw cookies bytes into dict
+        """Parses raw cookies bytes into dict.
+
+        Converts an input raw cookies string in bytes into a dict.
+
+        Args:
+            cookies_bytes bytes: raw cookies string in bytes
+                i.e.: b"cookie_pair_key=cookie_pair_value"
+
+        Returns:
+            Dict[str, str]: dict represented cookies
         """
         cookie_pairs: List[str] = cookies_bytes.decode().split(";")
         res = dict()
@@ -72,6 +116,7 @@ class App:
         return res
 
     async def _respond_with_error(self, status: HTTPStatus, msg: str, send):
+        """Helper method for sending errors back to client"""
         await send(
             {
                 "type": "http.response.start",
@@ -84,12 +129,26 @@ class App:
         await send({"type": "http.response.body", "body": msg.encode("utf8")})
 
     async def _send_chunk(self, data: bytes, more: bool, send):
+        """Helper method for sending data chunks to client
+
+        Args:
+            data bytes
+            more bool: whether there will be a next chunk or not
+            send: ASGI send method
+        """
         if more:
             await send({"type": "http.response.body", "body": data, "more_body": True})
         else:
             await send({"type": "http.response.body", "body": b""})
 
     async def _init_response(self, status: HTTPStatus, headers: dict, send):
+        """Helper method for constructing and sending HTTP response back to client
+
+        Args:
+            status HTTPStatus
+            headers dict: headers in the response
+            send: ASGI send method
+        """
         await send(
             {
                 "type": "http.response.start",
@@ -99,6 +158,16 @@ class App:
         )
 
     async def _pull_data_and_send(self, url: str, scope, send):
+        """Streaming data between OTACache instance and ota_client
+
+        Retrieves file descriptor from OTACache instance,
+        yields chunks from file descriptor and streams chunks back to ota_client.
+
+        Args:
+            url str: URL requested by ota_client
+            scope: ASGI scope for current request
+            send: ASGI send method
+        """
         # pass cookies and other headers needed for proxy into the ota_cache module
         cookies_dict: Dict[str, str] = dict()
         extra_headers: Dict[str, str] = dict()
@@ -159,9 +228,7 @@ class App:
             )
 
     async def app(self, scope, send):
-        """
-        the real entry for the server app
-        """
+        """The real entry for the ota_proxy."""
         from urllib.parse import urlparse
 
         assert scope["type"] == "http"
@@ -183,8 +250,11 @@ class App:
         await self._pull_data_and_send(url, scope, send)
 
     async def __call__(self, scope, receive, send):
-        """
-        the entrance of the asgi app
+        """The entrance of the ASGI application.
+
+        This method directly handles the income requests.
+        It filters requests, hands valid requests over to the app entry,
+        and handles lifespan protocol to start/stop server properly.
         """
         if scope["type"] == "lifespan":
             # handling lifespan protocol
