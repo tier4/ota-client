@@ -49,6 +49,9 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
     return file_sha256(filename) == filehash
 
 
+_ExceptionWrapper = type("_ExceptionWrapper", (Exception,), dict())
+
+
 def _retry(retry, backoff_factor, backoff_max, func):
     """simple retrier"""
     from functools import wraps
@@ -60,7 +63,7 @@ def _retry(retry, backoff_factor, backoff_max, func):
             while True:
                 try:
                     return func(*args, **kwargs)
-                except Exception:
+                except _ExceptionWrapper:
                     _retry_count += 1
                     if _retry_count > retry:
                         raise
@@ -69,9 +72,10 @@ def _retry(retry, backoff_factor, backoff_max, func):
                             min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
                         )
                         time.sleep(_backoff_time)
-        except Exception as e:
+        except _ExceptionWrapper as e:
+            _inner_e = e.__cause__
             # currently all exceptions lead to OtaErrorRecoverable
-            raise OtaErrorRecoverable(f"{e!r}") from None
+            raise OtaErrorRecoverable(f"{_inner_e!r}") from None
 
     return _wrapper
 
@@ -80,7 +84,7 @@ class Downloader:
     CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
     RETRY_COUNT = 5
     BACKOFF_FACTOR = 1
-    OUTER_BACKOFF_FACTOR = 0.1
+    OUTER_BACKOFF_FACTOR = 0.01
     BACKOFF_MAX = 10
 
     def __init__(self):
@@ -179,7 +183,7 @@ class Downloader:
                 )
         except Exception as e:
             # rewrap the exception with url
-            raise type(e)(f"request failed for {url=}: {e}") from None
+            raise _ExceptionWrapper(f"request failed for {url=}: {e}") from e
 
         return error_count
 
