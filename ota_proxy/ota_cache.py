@@ -186,8 +186,6 @@ class OTAFile:
     ):
         logger.debug(f"new OTAFile request: {url}")
 
-        self.backoff_max = self.BACKOFF_MAX
-        self.backoff_factor = self.BACKOFF_FACTOR
         self._base_dir = Path(cfg.BASE_DIR)
         self._store_cache = store_cache
         self._storage_below_hard_limit = below_hard_limit_event
@@ -231,9 +229,9 @@ class OTAFile:
                     else:
                         try:
                             data = _queue.get(timeout=16)
-
-                            self._hash_f.update(data)
-                            self.meta.size += dst_f.write(data)
+                            if len(data) > 0:
+                                self._hash_f.update(data)
+                                self.meta.size += dst_f.write(data)
                         except Exception:
                             # abort caching due to potential dead streaming coro
                             logger.error(
