@@ -22,6 +22,16 @@ class OTAFileCacheControl(enum.Enum):
     header = "Ota-File-Cache-Control"
     header_lower = "ota-file-cache-control"
 
+    @classmethod
+    def parse_raw_to_set(cls, input: str) -> set:
+        return set(input.split(","))
+
+    @classmethod
+    def add_to(cls, target: str, input: "OTAFileCacheControl") -> str:
+        _policies_set = cls.parse_raw_to_set(target)
+        _policies_set.add(input.value)
+        return ",".join(_policies_set)
+
 
 @dataclass(frozen=True)
 class ColField:

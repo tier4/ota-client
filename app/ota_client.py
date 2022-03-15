@@ -23,6 +23,7 @@ from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
 from configs import config as cfg
+from ota_proxy.config import OTAFileCacheControl
 from proxy_info import proxy_cfg
 import log_util
 
@@ -58,24 +59,44 @@ def _retry(retry, backoff_factor, backoff_max, func):
 
     @wraps(func)
     def _wrapper(*args, **kwargs):
-        _retry_count = 0
+        _retry_count, _retry_cache = 0, False
         try:
             while True:
                 try:
+                    if _retry_cache:
+                        # add a Ota-File-Cache-Control header to indicate ota_proxy
+                        # to re-cache the possible corrupted file.
+                        # modify header if needed and inject it into kwargs
+                        _cache_policies = OTAFileCacheControl.add_to(
+                            kwargs["headers"].get(OTAFileCacheControl.header_lower, ""),
+                            OTAFileCacheControl.retry_caching.value,
+                        )
+                        kwargs["headers"].update(
+                            {OTAFileCacheControl.header_lower: _cache_policies}
+                        )
+
+                    # inject headers
                     return func(*args, **kwargs)
-                except _ExceptionWrapper:
+                except _ExceptionWrapper as e:
+                    # unwrap exception
+                    _inner_e = e.__cause__
                     _retry_count += 1
+
                     if _retry_count > retry:
-                        raise
+                        raise _inner_e
                     else:
+                        # special case: hash calculation error detected,
+                        # might indicate corrupted cached files
+                        if isinstance(_inner_e, ValueError):
+                            _retry_cache = True
+
                         _backoff_time = float(
                             min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
                         )
                         time.sleep(_backoff_time)
-        except _ExceptionWrapper as e:
-            _inner_e = e.__cause__
+        except Exception as e:
             # currently all exceptions lead to OtaErrorRecoverable
-            raise OtaErrorRecoverable(f"{_inner_e!r}") from None
+            raise OtaErrorRecoverable(f"{e!r}") from None
 
     return _wrapper
 
@@ -156,13 +177,23 @@ class Downloader:
 
     @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def __call__(
-        self, url_base: str, path: str, dst: Path, digest: str, cookies: Dict[str, str]
+        self,
+        url_base: str,
+        path: str,
+        dst: Path,
+        digest: str,
+        cookies: Dict[str, str],
+        headers: Dict[str, str] = None,
     ) -> int:
         url = self._path_to_url(url_base, path)
+        if not headers:
+            headers = dict()
 
         try:
             error_count = 0
-            response = self._session.get(url, stream=True, cookies=cookies)
+            response = self._session.get(
+                url, stream=True, cookies=cookies, headers=headers
+            )
             response.raise_for_status()
 
             raw_r = response.raw
@@ -178,9 +209,9 @@ class Downloader:
 
             calc_digest = hash_f.hexdigest()
             if digest and calc_digest != digest:
-                raise ValueError(
-                    f"hash check failed: act={calc_digest}, exp={digest}, {url=}"
-                )
+                msg = f"hash check failed detected: act={calc_digest}, exp={digest}, {url=}"
+                logger.error(msg)
+                raise ValueError(msg)
         except Exception as e:
             # rewrap the exception with url
             raise _ExceptionWrapper(f"request failed for {url=}: {e}") from e
@@ -573,6 +604,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self._download.configure_proxy(proxy)
             # FIX: wait for local ota cache scrubing finish
             # ota_proxy will not be functional before
+            # TODO: implement a state from this on state machgine
             t = 16
             logger.info(f"sleep for {t}secs to wait for ota cache scrubbing...")
             time.sleep(t)
@@ -665,12 +697,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching metadata
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                },
             )
             metadata.verify(open(file_name).read())
             logger.info("done")
@@ -678,7 +714,17 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_metadata(self, url_base, cookies: Dict[str, str]):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
-            self._download(url_base, "metadata.jwt", file_name, None, cookies=cookies)
+            # NOTE: do not use cache when fetching metadata
+            self._download(
+                url_base,
+                "metadata.jwt",
+                file_name,
+                None,
+                cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                },
+            )
 
             metadata = OtaMetadata(open(file_name, "r").read())
             certificate_info = metadata.get_certificate_info()
@@ -689,12 +735,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_directory(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching dir list
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                },
             )
             self._create_directories(file_name, standby_path)
             logger.info("done")
@@ -702,12 +752,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching symlink list
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                },
             )
             self._create_symbolic_links(file_name, standby_path)
             logger.info("done")
@@ -715,12 +769,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching regular files list
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                },
             )
             url_rootfsdir = urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
@@ -729,12 +787,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching persist files list
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                },
             )
             self._copy_persistent_files(file_name, standby_path)
             logger.info("done")
