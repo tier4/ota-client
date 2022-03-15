@@ -1,5 +1,26 @@
+import enum
 from logging import INFO
 from dataclasses import dataclass, field
+
+
+class OTAFileCacheControl(enum.Enum):
+    """Custom header for ota file caching control policies.
+
+    format:
+        OTA-File-Cache-Control: <d1>[, <d2>[, ...]]
+    directives:
+        retry_cache: indicates that ota_proxy should clear cache entry for <URL>
+            and retry caching
+        no_cache: indicates that ota_proxy should not use cache for <URL>
+        use_cache: implicitly applied default value, conflicts with no_cache directive
+    """
+
+    use_cache = 0
+    no_cache = 1
+    retry_caching = 2
+
+    header = "OTA-File-Cache-Control"
+    header_lower = "ota-file-cache-control"
 
 
 @dataclass(frozen=True)
@@ -12,7 +33,7 @@ class ColField:
 class Config:
     BASE_DIR: str = "/ota-cache"
     CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
-    REMOTE_CHUNK_SIZE: int = 1 * 1024 * 1024  # 4MB
+    REMOTE_CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
     DISK_USE_LIMIT_SOTF_P = 60  # in p%
     DISK_USE_LIMIT_HARD_P = 70  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
