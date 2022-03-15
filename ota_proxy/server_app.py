@@ -5,7 +5,7 @@ from typing import Dict, List
 import aiohttp
 
 from . import ota_cache
-from .config import config as cfg
+from .config import OTAFileCacheControl, config as cfg
 
 import logging
 
@@ -102,7 +102,7 @@ class App:
 
         Args:
             cookies_bytes bytes: raw cookies string in bytes
-                i.e.: b"cookie_pair_key=cookie_pair_value"
+                i.e.: b"cpk0=cpv0;cpk1=cpv1;cpk2=cpv2"
 
         Returns:
             Dict[str, str]: dict represented cookies
@@ -172,15 +172,31 @@ class App:
         cookies_dict: Dict[str, str] = dict()
         extra_headers: Dict[str, str] = dict()
         # currently we only need cookie and/or authorization header
+        # also parse OTA-File-Cache-Control header
+        ota_cache_control_policies = set()
         for header in scope["headers"]:
             if header[0] == b"cookie":
                 cookies_dict = self.parse_raw_cookies(header[1])
             elif header[0] == b"authorization":
                 extra_headers["Authorization"] = header[1].decode()
+            # custome header for ota_file, see retrieve_file and OTACache for details
+            elif header[0] == OTAFileCacheControl.header_lower:
+                try:
+                    for p in header[1].decode().split(","):
+                        ota_cache_control_policies.add(OTAFileCacheControl[p])
+                except KeyError:
+                    await self._respond_with_error(
+                        HTTPStatus.BAD_REQUEST,
+                        f"bad OTA-File-Cache-Control headers: {header[1]}",
+                        send,
+                    )
+                    return
 
         f: ota_cache.OTAFile = None
         try:
-            f = await self._ota_cache.retrieve_file(url, cookies_dict, extra_headers)
+            f = await self._ota_cache.retrieve_file(
+                url, cookies_dict, extra_headers, ota_cache_control_policies
+            )
         except aiohttp.ClientResponseError as e:
             await self._respond_with_error(e.status, e.message, send)
             return

@@ -13,10 +13,10 @@ from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from threading import Lock, Event
-from typing import Dict, AsyncGenerator, Union
+from typing import Dict, AsyncGenerator, Set, Union
 
 from . import db
-from .config import config as cfg
+from .config import OTAFileCacheControl, config as cfg
 
 
 import logging
@@ -618,7 +618,12 @@ class OTACache:
 
     # exposed API
     async def retrieve_file(
-        self, url: str, /, cookies: Dict[str, str], extra_headers: Dict[str, str]
+        self,
+        url: str,
+        /,
+        cookies: Dict[str, str],
+        extra_headers: Dict[str, str],
+        cache_control_policies: Set[OTAFileCacheControl],
     ) -> OTAFile:
         """Exposed API to retrieve a file descriptor.
 
@@ -638,21 +643,33 @@ class OTACache:
             See documents of OTAFile.get_chunks for details.
 
         Example usage:
-            1. Open a file descriptor and prepare meta data of URL
+            a. Open a file descriptor and prepare meta data of URL
                 by _open_fp_by_cache or _open_fp_by_request.
-            2. (If request remote file and store_cache=True) Register the instance's
+            b. (If request remote file and store_cache=True) Register the instance's
                 background_write_cache method to the thread pool to caching file
                 when file is being downloading.
                 Also remember to register the callback to commit/flush the cache.
-            3. Pass the instance to upper uvicorn app,
+            c. Pass the instance to upper uvicorn app,
                 and then app can retrieve sequences of data chunks via get_chunks API.
         """
         if self._closed:
             raise ValueError("ota cache pool is closed")
 
+        # default cache control policy:
+        retry_cache, use_cache = False, True
+        # parse input policies
+        if OTAFileCacheControl.retry_caching in cache_control_policies:
+            retry_cache = True
+            logger.warning(f"client indicates that cache for {url=} is invalid")
+        if OTAFileCacheControl.no_cache in cache_control_policies:
+            use_cache = False
+
         res = None
-        # NOTE: disable caching when scrubbing is on-going
-        if not self._cache_enabled or not self._scrub_finished_event.is_set():
+        if (
+            not self._cache_enabled  # ota_proxy is configured to not cache anything
+            or not use_cache  # ota_client send request with no_cache policy
+            or not self._scrub_finished_event.is_set()  # cache scrub is on-going
+        ):
             # case 1: not using cache, directly download file
             fp = await self._open_fp_by_requests(url, cookies, extra_headers)
             meta = await fp.__anext__()
@@ -661,12 +678,20 @@ class OTACache:
             no_cache_available = True
 
             cache_meta = self._db.lookup_url(url)
+            cache_path: Path = self._base_dir / cache_meta.hash
+
             if cache_meta:  # cache hit
                 logger.debug(f"cache hit for {url=}\n, {cache_meta=}")
-                path = self._base_dir / cache_meta.hash
-                if not path.is_file():
+                # clear the cache entry if the ota_client instructs so
+                if retry_cache:
+                    logger.warning(
+                        f"retry_cache: try to clear entry for {cache_meta=}.."
+                    )
+                    cache_path.unlink(missing_ok=True)
+
+                if not cache_path.is_file():
                     # invalid cache entry found in the db, cleanup it
-                    logger.error(f"dangling cache entry found: \n{cache_meta=}")
+                    logger.error(f"dangling cache entry found: {cache_meta=}")
                     self._db.remove_urls(url)
                 else:
                     no_cache_available = False
