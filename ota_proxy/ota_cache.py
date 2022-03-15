@@ -590,6 +590,11 @@ class OTACache:
 
         url = url_parsed.geturl()
 
+        # if there is no upper_ota_proxy,
+        # trim the custom headers away
+        if self._enable_https:
+            extra_headers.pop(OTAFileCacheControl.header, None)
+
         ###### wrap the request inside a generator ######
         async def _fp():
             async with self._session.get(

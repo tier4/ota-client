@@ -180,10 +180,13 @@ class App:
             elif header[0] == b"authorization":
                 extra_headers["Authorization"] = header[1].decode()
             # custome header for ota_file, see retrieve_file and OTACache for details
-            elif header[0] == OTAFileCacheControl.header_lower:
+            elif header[0] == OTAFileCacheControl.header_lower.value.encode():
                 try:
-                    for p in header[1].decode().split(","):
-                        ota_cache_control_policies.add(OTAFileCacheControl[p])
+                    ota_cache_control_policies = OTAFileCacheControl.parse_to_enum_set(
+                        header[1].decode()
+                    )
+                    # also preserved the headers
+                    extra_headers[OTAFileCacheControl.header] = header[1].decode()
                 except KeyError:
                     await self._respond_with_error(
                         HTTPStatus.BAD_REQUEST,

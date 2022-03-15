@@ -23,12 +23,21 @@ class OTAFileCacheControl(enum.Enum):
     header_lower = "ota-file-cache-control"
 
     @classmethod
-    def parse_raw_to_set(cls, input: str) -> set:
+    def parse_to_value_set(cls, input: str) -> "set[str]":
         return set(input.split(","))
 
     @classmethod
+    def parse_to_enum_set(cls, input: str) -> "set[OTAFileCacheControl]":
+        _policies_set = cls.parse_to_value_set(input)
+        res = set()
+        for p in _policies_set:
+            res.add(OTAFileCacheControl[p])
+
+        return res
+
+    @classmethod
     def add_to(cls, target: str, input: "OTAFileCacheControl") -> str:
-        _policies_set = cls.parse_raw_to_set(target)
+        _policies_set = cls.parse_to_value_set(target)
         _policies_set.add(input.value)
         return ",".join(_policies_set)
 
