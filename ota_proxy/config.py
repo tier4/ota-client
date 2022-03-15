@@ -7,7 +7,7 @@ class OTAFileCacheControl(enum.Enum):
     """Custom header for ota file caching control policies.
 
     format:
-        OTA-File-Cache-Control: <d1>[, <d2>[, ...]]
+        Ota-File-Cache-Control: <d1>[, <d2>[, ...]]
     directives:
         retry_cache: indicates that ota_proxy should clear cache entry for <URL>
             and retry caching
@@ -19,7 +19,7 @@ class OTAFileCacheControl(enum.Enum):
     no_cache = 1
     retry_caching = 2
 
-    header = "OTA-File-Cache-Control"
+    header = "Ota-File-Cache-Control"
     header_lower = "ota-file-cache-control"
 
 
