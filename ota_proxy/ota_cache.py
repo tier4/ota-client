@@ -13,7 +13,7 @@ from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from threading import Lock, Event
-from typing import Dict, AsyncGenerator, Set, Union
+from typing import Dict, AsyncGenerator, List, Set, Union
 
 from . import db
 from .config import OTAFileCacheControl, config as cfg
@@ -573,7 +573,7 @@ class OTACache:
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
-    ) -> AsyncGenerator:
+    ) -> List[AsyncGenerator, db.CacheMeta]:
         """
         NOTE: call next on the return generator to get the meta
         """
@@ -618,8 +618,12 @@ class OTACache:
                 ):
                     yield data
 
-        # return the generator
-        return _fp()
+        # start the fp
+        res = _fp()
+        meta = await res.__anext__()
+
+        # return the generator and the meta
+        return _fp(), meta
 
     # exposed API
     async def retrieve_file(
@@ -676,8 +680,7 @@ class OTACache:
             or not self._scrub_finished_event.is_set()  # cache scrub is on-going
         ):
             # case 1: not using cache, directly download file
-            fp = await self._open_fp_by_requests(url, cookies, extra_headers)
-            meta = await fp.__anext__()
+            fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
             res = OTAFile(url, meta, fp)
         else:
             no_cache_available = True
@@ -706,8 +709,7 @@ class OTACache:
             if no_cache_available:
                 # case 2: download and cache new file
                 logger.debug(f"try to download and cache {url=}")
-                fp = await self._open_fp_by_requests(url, cookies, extra_headers)
-                meta = await fp.__anext__()
+                fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
 
                 # NOTE: remember to remove the url after cache comitted!
                 # try to cache the file if no other same on-going caching
@@ -731,8 +733,9 @@ class OTACache:
                     logger.debug(
                         f"failed to get the chance to cache..., directly download {url=}"
                     )
-                    fp = await self._open_fp_by_requests(url, cookies, extra_headers)
-                    meta = await fp.__anext__()
+                    fp, meta = await self._open_fp_by_requests(
+                        url, cookies, extra_headers
+                    )
                     res = OTAFile(url, meta, fp)
             else:
                 # case 3: use cache
