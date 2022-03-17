@@ -203,24 +203,24 @@ class App:
             )
         except aiohttp.ClientResponseError as e:
             await self._respond_with_error(e.status, e.message, send)
-            return
+            raise
         except aiohttp.ClientConnectionError:
             await self._respond_with_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 "failed to connect to remote server",
                 send,
             )
-            return
+            raise
         except aiohttp.ClientError as e:
             await self._respond_with_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
             )
-            return
+            raise
         except Exception as e:
             await self._respond_with_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR, f"{e!r}", send
             )
-            return
+            raise
 
         # parse response
         # NOTE: currently only record content_type and content_encoding
@@ -246,6 +246,7 @@ class App:
                 f"failed to retrieve file for {url=}",
                 send,
             )
+            raise ValueError(f"failed to retrieve {url=} from ota_cache")
 
     async def app(self, scope, send):
         """The real entry for the ota_proxy."""

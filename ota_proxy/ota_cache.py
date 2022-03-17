@@ -687,10 +687,11 @@ class OTACache:
             no_cache_available = True
 
             cache_meta = self._db.lookup_url(url)
-            cache_path: Path = self._base_dir / cache_meta.hash
 
             if cache_meta:  # cache hit
                 logger.debug(f"cache hit for {url=}\n, {cache_meta=}")
+
+                cache_path: Path = self._base_dir / cache_meta.hash
                 # clear the cache entry if the ota_client instructs so
                 if retry_cache:
                     logger.warning(
