@@ -415,8 +415,12 @@ class OTACache:
             # we cache the contents as its original form, and send
             # to the client with proper headers to indicate the client to
             # compress the payload by their own
+            # NOTE 2: disable aiohttp default timeout(5mins)
+            # this timeout will be applied to the whole request, including downloading,
+            # preventing large files to be downloaded.
+            timeout = aiohttp.ClientTimeout(total=None)
             self._session = aiohttp.ClientSession(
-                auto_decompress=False, raise_for_status=True
+                auto_decompress=False, raise_for_status=True, timeout=timeout
             )
         else:
             self._cache_enabled = False
