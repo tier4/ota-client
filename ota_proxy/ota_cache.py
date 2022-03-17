@@ -13,7 +13,7 @@ from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from threading import Lock, Event
-from typing import Dict, AsyncGenerator, List, Set, Union
+from typing import Dict, AsyncGenerator, Set, Tuple, Union
 
 from . import db
 from .config import OTAFileCacheControl, config as cfg
@@ -573,7 +573,7 @@ class OTACache:
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
-    ) -> List[AsyncGenerator, db.CacheMeta]:
+    ) -> Tuple[AsyncGenerator, db.CacheMeta]:
         """
         NOTE: call next on the return generator to get the meta
         """

@@ -68,11 +68,13 @@ def _retry(retry, backoff_factor, backoff_max, func):
                         # to re-cache the possible corrupted file.
                         # modify header if needed and inject it into kwargs
                         _cache_policies = OTAFileCacheControl.add_to(
-                            kwargs["headers"].get(OTAFileCacheControl.header_lower, ""),
+                            kwargs["headers"].get(
+                                OTAFileCacheControl.header_lower.value, ""
+                            ),
                             OTAFileCacheControl.retry_caching.value,
                         )
                         kwargs["headers"].update(
-                            {OTAFileCacheControl.header_lower: _cache_policies}
+                            {OTAFileCacheControl.header_lower.value: _cache_policies}
                         )
 
                     # inject headers
@@ -96,7 +98,7 @@ def _retry(retry, backoff_factor, backoff_max, func):
                         time.sleep(_backoff_time)
         except Exception as e:
             # currently all exceptions lead to OtaErrorRecoverable
-            raise OtaErrorRecoverable(f"{e!r}") from None
+            raise OtaErrorRecoverable(f"{e!r}")
 
     return _wrapper
 
@@ -705,7 +707,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 list_info["hash"],
                 cookies=cookies,
                 headers={
-                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
             metadata.verify(open(file_name).read())
@@ -722,7 +724,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 None,
                 cookies=cookies,
                 headers={
-                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
 
@@ -743,7 +745,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 list_info["hash"],
                 cookies=cookies,
                 headers={
-                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
             self._create_directories(file_name, standby_path)
@@ -760,7 +762,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 list_info["hash"],
                 cookies=cookies,
                 headers={
-                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
             self._create_symbolic_links(file_name, standby_path)
@@ -777,7 +779,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 list_info["hash"],
                 cookies=cookies,
                 headers={
-                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
             url_rootfsdir = urljoin(url_base, f"{rootfsdir}/")
@@ -795,7 +797,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 list_info["hash"],
                 cookies=cookies,
                 headers={
-                    OTAFileCacheControl.header_lower: OTAFileCacheControl.no_cache.value
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
             self._copy_persistent_files(file_name, standby_path)
