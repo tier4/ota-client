@@ -182,11 +182,12 @@ class App:
             # custome header for ota_file, see retrieve_file and OTACache for details
             elif header[0] == OTAFileCacheControl.header_lower.value.encode():
                 try:
+                    # NOTE: this statement can check over the received directives
                     ota_cache_control_policies = OTAFileCacheControl.parse_to_enum_set(
                         header[1].decode()
                     )
-                    # also preserved the headers
-                    extra_headers[OTAFileCacheControl.header] = header[1].decode()
+                    # also preserved the raw headers value string
+                    extra_headers[OTAFileCacheControl.header.value] = header[1].decode()
                 except KeyError:
                     await self._respond_with_error(
                         HTTPStatus.BAD_REQUEST,

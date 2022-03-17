@@ -593,7 +593,7 @@ class OTACache:
         # if there is no upper_ota_proxy,
         # trim the custom headers away
         if self._enable_https:
-            extra_headers.pop(OTAFileCacheControl.header, None)
+            extra_headers.pop(OTAFileCacheControl.header.value, None)
 
         ###### wrap the request inside a generator ######
         async def _fp():
@@ -671,6 +671,7 @@ class OTACache:
             retry_cache = True
             logger.warning(f"client indicates that cache for {url=} is invalid")
         if OTAFileCacheControl.no_cache in cache_control_policies:
+            logger.info(f"client indicates that do not cache for {url=}")
             use_cache = False
 
         res = None
