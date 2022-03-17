@@ -15,9 +15,9 @@ class OTAFileCacheControl(enum.Enum):
         use_cache: implicitly applied default value, conflicts with no_cache directive
     """
 
-    use_cache = 0
-    no_cache = 1
-    retry_caching = 2
+    use_cache = "use_cache"
+    no_cache = "no_cache"
+    retry_caching = "retry_caching"
 
     header = "Ota-File-Cache-Control"
     header_lower = "ota-file-cache-control"
