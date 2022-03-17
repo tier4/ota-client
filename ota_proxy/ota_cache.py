@@ -296,6 +296,8 @@ class OTAFile:
             # if any exception happens, signal the caching coro
             if self._store_cache:
                 self._cache_aborted.set()
+
+            raise
         finally:
             # always close the file if get_chunk finished
             self.closed.set()
