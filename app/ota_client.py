@@ -22,8 +22,7 @@ from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
-from configs import config as cfg
-from ota_proxy.config import OTAFileCacheControl
+from configs import OTAFileCacheControl, config as cfg
 from proxy_info import proxy_cfg
 import log_util
 
@@ -67,15 +66,16 @@ def _retry(retry, backoff_factor, backoff_max, func):
                         # add a Ota-File-Cache-Control header to indicate ota_proxy
                         # to re-cache the possible corrupted file.
                         # modify header if needed and inject it into kwargs
-                        _cache_policies = OTAFileCacheControl.add_to(
-                            kwargs["headers"].get(
-                                OTAFileCacheControl.header_lower.value, ""
-                            ),
-                            OTAFileCacheControl.retry_caching.value,
-                        )
-                        kwargs["headers"].update(
-                            {OTAFileCacheControl.header_lower.value: _cache_policies}
-                        )
+                        if "headers" in kwargs:
+                            kwargs["headers"].update(
+                                {
+                                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
+                                }
+                            )
+                        else:
+                            kwargs["headers"] = {
+                                OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
+                            }
 
                     # inject headers
                     return func(*args, **kwargs)
@@ -607,7 +607,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             # FIX: wait for local ota cache scrubing finish
             # ota_proxy will not be functional before
             # TODO: implement a state from this on state machgine
-            t = 16
+            t = 32
             logger.info(f"sleep for {t}secs to wait for ota cache scrubbing...")
             time.sleep(t)
 
