@@ -85,7 +85,7 @@ def _retry(retry, backoff_factor, backoff_max, func):
                     _retry_count += 1
 
                     if _retry_count > retry:
-                        raise _inner_e
+                        raise
                     else:
                         # special case: hash calculation error detected,
                         # might indicate corrupted cached files
@@ -96,9 +96,13 @@ def _retry(retry, backoff_factor, backoff_max, func):
                             min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
                         )
                         time.sleep(_backoff_time)
-        except Exception as e:
+        except _ExceptionWrapper as e:
             # currently all exceptions lead to OtaErrorRecoverable
-            raise OtaErrorRecoverable(f"{e!r}")
+            _inner_e = e.__cause__
+            _url = e.args[0]
+            raise OtaErrorRecoverable(
+                f"failed after {_retry_count} tries for {_url}: {_inner_e!r}"
+            )
 
     return _wrapper
 
@@ -216,7 +220,7 @@ class Downloader:
                 raise ValueError(msg)
         except Exception as e:
             # rewrap the exception with url
-            raise _ExceptionWrapper(f"request failed for {url=}: {e}") from e
+            raise _ExceptionWrapper(url) from e
 
         return error_count
 
