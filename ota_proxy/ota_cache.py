@@ -623,7 +623,7 @@ class OTACache:
         meta = await res.__anext__()
 
         # return the generator and the meta
-        return _fp(), meta
+        return res, meta
 
     # exposed API
     async def retrieve_file(
