@@ -175,6 +175,9 @@ class OTAFile:
             local storage space is enough for caching.
     """
 
+    BACKOFF_MAX: int = 16
+    BACKOFF_FACTOR: int = 0.1
+
     def __init__(
         self,
         url: str,
@@ -186,6 +189,8 @@ class OTAFile:
     ):
         logger.debug(f"new OTAFile request: {url}")
 
+        self.backoff_max = self.BACKOFF_MAX
+        self.backoff_factor = self.BACKOFF_FACTOR
         self._base_dir = Path(cfg.BASE_DIR)
         self._store_cache = store_cache
         self._storage_below_hard_limit = below_hard_limit_event
@@ -205,6 +210,11 @@ class OTAFile:
             self._hash_f = sha256()
             self._queue: janus.Queue[bytes] = janus.Queue()
 
+    def _get_backoff(self, n):
+        if n < 0:
+            raise ValueError
+        return min(self.backoff_max, self.backoff_factor * (2 ** (n - 1)))
+
     def background_write_cache(self):
         if not self._store_cache or not self._storage_below_hard_limit:
             # call callback function even we don't cache anything
@@ -217,6 +227,7 @@ class OTAFile:
             self.temp_fpath = self._base_dir / f"tmp_{urandom(16).hex()}"
 
             with open(self.temp_fpath, "wb") as dst_f:
+                err_count = 0
                 while not self.closed.is_set() or not _queue.empty():
                     if not self._storage_below_hard_limit.is_set():
                         # reach storage hard limit, abort caching
@@ -228,18 +239,24 @@ class OTAFile:
                         self._cache_aborted.set()
                     else:
                         try:
-                            data = _queue.get(timeout=16)
+                            _timout = self._get_backoff(err_count)
+                            data = _queue.get(timeout=_timout)
+
+                            err_count = 0
                             if len(data) > 0:
                                 self._hash_f.update(data)
                                 self.meta.size += dst_f.write(data)
                         except Exception:
-                            # abort caching due to potential dead streaming coro
-                            logger.error(
-                                f"failed to cache {self.meta.url}: timeout getting data from queue"
-                            )
-                            self._cache_aborted.set()
+                            if _timout >= self.BACKOFF_MAX:
+                                # abort caching due to potential dead streaming coro
+                                logger.error(
+                                    f"failed to cache {self.meta.url}: timeout getting data from queue"
+                                )
+                                self._cache_aborted.set()
 
-                            break
+                                break
+                            else:
+                                err_count += 1
 
             # post caching
             if self.closed.is_set() and not self._cache_aborted.is_set():
