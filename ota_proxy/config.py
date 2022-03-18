@@ -72,6 +72,8 @@ class Config:
         1 * 1024 * 1024 * 1024,  # 1GiB
     )  # Bytes
     DB_FILE = f"{BASE_DIR}/cache_db"
+    # this file contain the current running ota_proxy's pid
+    SENTINEL_FILE = f"{BASE_DIR}/scrub_finished"
 
     LOG_LEVEL = INFO
 

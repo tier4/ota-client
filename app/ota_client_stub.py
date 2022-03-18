@@ -1,16 +1,19 @@
 import asyncio
 import grpc
+import time
 from typing import Tuple
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock, Condition
 from multiprocessing import Process
-from ota_status import OtaStatus
+from pathlib import Path
 
 import otaclient_v2_pb2 as v2
+from ota_status import OtaStatus
 from ota_error import OtaErrorRecoverable
 from ota_client import OtaClient, OtaStateSync
 from ota_client_call import OtaClientCall
+from ota_proxy import config as ota_proxy_cfg
 from proxy_info import proxy_cfg
 from ecu_info import EcuInfo
 
@@ -67,6 +70,10 @@ class OtaProxyWrapper:
         import uvicorn
         from ota_proxy import App
 
+        # always remove old sentinel file
+        _sentinel_file = Path(ota_proxy_cfg.SENTINEL_FILE)
+        _sentinel_file.unlink(missing_ok=True)
+
         app = App(
             cache_enabled=enable_cache,
             upper_proxy=proxy_cfg.upper_ota_proxy,
@@ -81,7 +88,7 @@ class OtaProxyWrapper:
             lifespan="on",
         )
 
-    def start(self, enable_cache=False, init_cache=True):
+    def start(self, enable_cache=False, init_cache=True) -> int:
         with self._lock:
             if self._closed:
                 self._server_p = Process(
@@ -94,6 +101,8 @@ class OtaProxyWrapper:
                     f"ota proxy server started(pid={self._server_p.pid}, {enable_cache=})"
                     f"{proxy_cfg}"
                 )
+
+                return self._server_p.pid
         # sliently return if the server already started
 
     def stop(self, cleanup_cache=False):
@@ -138,14 +147,31 @@ class OtaClientStub:
         logger.info(f"{request=}")
         response = v2.UpdateResponse()
 
+        # init state machine(P1: ota_service, P2: ota_client)
+        ota_sfsm = OtaStateSync()
+        ota_sfsm.start(caller=ota_sfsm._P1)
+
         # start ota proxy server
         # check current ota_status, if the status is not SUCCESS,
         # always assume there is an interrupted ota update, thus reuse the cache if possible
         # NOTE: now the cache scrubing will block the ota_proxy start,
         # to ensure the proxy is fully ready before sending update requests to the subecus
-        _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
-        if proxy_cfg.enable_local_ota_proxy:
-            self._ota_proxy.start(enable_cache=True, init_cache=_init_cache)
+        # NOTE 2: signal ota_client after ota_proxy launched
+        with ota_sfsm.proceed(ota_sfsm._P1, expect=ota_sfsm._START) as _next:
+            if proxy_cfg.enable_local_ota_proxy:
+                _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
+                self._ota_proxy.start(enable_cache=True, init_cache=_init_cache)
+
+                # wait for ota_proxy to finish initializing
+                # by query the sentinel file
+                while True:
+                    ota_proxy_sentinel_file = Path(ota_proxy_cfg.SENTINEL_FILE)
+                    if ota_proxy_sentinel_file.is_file():
+                        break
+                    else:
+                        time.sleep(1)
+
+            assert _next == ota_sfsm._S0
 
         # secondary ecus
         tasks = []
@@ -168,10 +194,6 @@ class OtaClientStub:
         logger.info(f"{entry=}")
 
         if entry:
-            # init state machine(P1: ota_service, P2: ota_client)
-            ota_sfsm = OtaStateSync()
-            ota_sfsm.start(caller=ota_sfsm._P1)
-
             # dispatch update requst to ota_client only
             loop = asyncio.get_running_loop()
             loop.run_in_executor(
@@ -320,7 +342,7 @@ class OtaClientStub:
         # wait for local ota update and all subecus to finish update, and then do cleanup
         # NOTE: the failure of ota_client side update will not reflect immediately here,
         # however it is not a problem as we will track the update state via status API.
-        with fsm.proceed(fsm._P1, expect=fsm._S2):
+        with fsm.proceed(fsm._P1, expect=fsm._S2) as _next:
             # ensure all subecus state
             asyncio.run(self._ensure_subecu_status())
             logger.info("all subECUs are updated and become ready")
@@ -333,6 +355,7 @@ class OtaClientStub:
                 self._ota_proxy.stop(cleanup_cache=True)
 
             logger.info("finish cleanup, signal ota_client to reboot...")
+            assert _next == fsm._END
 
     async def _get_subecu_status(
         self,

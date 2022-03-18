@@ -389,6 +389,10 @@ class OTACache:
         enable_https: bool = False,
     ):
         logger.debug(f"init ota cache({cache_enabled=}, {init=}, {upper_proxy=})")
+        # remove old sentinel file
+        _sentinel_file = Path(cfg.SENTINEL_FILE)
+        _sentinel_file.unlink(missing_ok=True)
+
         self._chunk_size = cfg.CHUNK_SIZE
         self._remote_chunk_size = cfg.REMOTE_CHUNK_SIZE
         self._base_dir = Path(cfg.BASE_DIR)
@@ -422,6 +426,9 @@ class OTACache:
                 _cache_helper = OTACacheHelper(self._scrub_finished_event)
                 _cache_helper.scrub_cache()
 
+            # create sentinel file that indicate the finish of cache scrubbing
+            _sentinel_file.write_text("")
+
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
@@ -440,11 +447,15 @@ class OTACache:
             # NOTE 2: disable aiohttp default timeout(5mins)
             # this timeout will be applied to the whole request, including downloading,
             # preventing large files to be downloaded.
-            timeout = aiohttp.ClientTimeout(total=None)
+            timeout = aiohttp.ClientTimeout(total=None, sock_read=1)
             self._session = aiohttp.ClientSession(
                 auto_decompress=False, raise_for_status=True, timeout=timeout
             )
         else:
+            # even cache is not enabled,
+            # we still need to create sentinel file to signal ota_client
+            self._base_dir.mkdir(exist_ok=True, parents=True)
+            _sentinel_file.write_text("")
             self._cache_enabled = False
 
     def close(self):
