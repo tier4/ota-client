@@ -194,6 +194,10 @@ def test_ota_client_update(mocker: MockerFixture, tmp_path: Path):
     ota_fsm = OtaStateSync()
     ota_fsm.start(caller=ota_fsm._P1)
 
+    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._START) as _next:
+        # simulate the local ota_proxy initialization
+        assert _next == ota_fsm._S0
+
     _update_thread = Thread(
         target=ota_client_instance.update,
         args=(
@@ -392,6 +396,10 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     _main_fsm = OtaStateSync()
     _main_fsm.start(caller=_main_fsm._P1)
 
+    with _main_fsm.proceed(_main_fsm._P1, expect=_main_fsm._START) as _next:
+        # simulate the local ota_proxy initialization
+        assert _next == _main_fsm._S0
+
     _main_update_thread = Thread(
         target=ota_client_instance.update,
         args=(
@@ -416,6 +424,10 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     # This request fails since ota status is UPDATING and returns immediately.
     _thread2_fsm = OtaStateSync()
     _thread2_fsm.start(caller=_thread2_fsm._P1)
+
+    with _thread2_fsm.proceed(_thread2_fsm._P1, expect=_thread2_fsm._START) as _next:
+        # simulate the local ota_proxy initialization
+        assert _next == _thread2_fsm._S0
 
     class _Wrapper:
         def __init__(self, func):
@@ -494,7 +506,7 @@ def test_ota_client_update_regular_download_error(
 ):
     import ota_client
     import proxy_info
-    from ota_client import OtaClientFailureType
+    from ota_client import OtaClientFailureType, OtaStateSync
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
@@ -593,17 +605,33 @@ def test_ota_client_update_regular_download_error(
     # test start
     ota_client_instance = ota_client.OtaClient()
 
-    with requests_mock.Mocker(real_http=True) as m:
-        m.register_uri(
-            "GET",
-            "http://ota-server:8080/ota-server/data/usr/bin/kill",
-            **error_injection,
-        )
-        ota_client_instance.update(
-            "123.x",
-            "http://ota-server:8080/ota-server",
-            json.dumps({"test": "my-cookie"}),
-        )
+    ota_fsm = OtaStateSync()
+    ota_fsm.start(caller=ota_fsm._P1)
+
+    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._START) as _next:
+        # simulate the local ota_proxy initialization
+        assert _next == ota_fsm._S0
+
+    def _background_update():
+        with requests_mock.Mocker(real_http=True) as m:
+            m.register_uri(
+                "GET",
+                "http://ota-server:8080/ota-server/data/usr/bin/kill",
+                **error_injection,
+            )
+
+            ota_client_instance.update(
+                "123.x",
+                "http://ota-server:8080/ota-server",
+                json.dumps({"test": "my-cookie"}),
+                fsm=ota_fsm,
+            )
+
+    _update_thread = Thread(target=_background_update)
+    _update_thread.start()
+
+    # wait for update method to failed
+    _update_thread.join()
 
     result, status = ota_client_instance.status()
     assert result == OtaClientFailureType.NO_FAILURE
@@ -638,6 +666,7 @@ def test_ota_client_update_regular_download_error(
 def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     import ota_client
     import proxy_info
+    from ota_client import OtaStateSync
     from grub_ota_partition import OtaPartition, OtaPartitionFile
     from ota_status import OtaStatus
     from grub_control import GrubControl
@@ -751,6 +780,13 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     # test start
     ota_client_instance = ota_client.OtaClient()
 
+    ota_fsm = OtaStateSync()
+    ota_fsm.start(caller=ota_fsm._P1)
+
+    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._START) as _next:
+        # simulate the local ota_proxy initialization
+        assert _next == ota_fsm._S0
+
     # make sure grub.cfg is not created yet in standby boot partition
     assert not (boot_dir / "ota-partition.sdx4" / "grub.cfg").is_file()
 
@@ -766,9 +802,23 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
         == grub_cfg_wo_submenu + " "
     )
 
-    ota_client_instance.update(
-        "123.x", "http://ota-server:8080/ota-server", json.dumps({"test": "my-cookie"})
+    # start the update in another thread
+    _update_thread = Thread(
+        target=ota_client_instance.update,
+        args=(
+            "123.x",
+            "http://ota-server:8080/ota-server",
+            json.dumps({"test": "my-cookie"}),
+        ),
+        kwargs={"fsm": ota_fsm},
     )
+    _update_thread.start()
+
+    # finish up state machine
+    assert ota_fsm.wait_on(ota_fsm._S2)
+    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._S2) as next_state:
+        assert next_state == ota_fsm._END
+    _update_thread.join()
 
     # make sure boot ota-partition is NOT switched
     assert os.readlink(boot_dir / "ota-partition") == "ota-partition.sdx3"

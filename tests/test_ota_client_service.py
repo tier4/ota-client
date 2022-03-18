@@ -10,9 +10,9 @@ from pytest_mock import MockerFixture
 def mocked_update():
     from ota_client import OtaClientFailureType, OtaStateSync
 
-    def _update(version, url, cookies, fsm: OtaStateSync):
+    def _update(*args, fsm: OtaStateSync):
         """simulate the state changes in ota_client update"""
-        with fsm.proceed(fsm._P2, expect=fsm._START) as next_state:
+        with fsm.proceed(fsm._P2, expect=fsm._S0) as next_state:
             assert next_state == fsm._S1
         with fsm.proceed(fsm._P2, expect=fsm._S1) as next_state:
             assert next_state == fsm._S2
@@ -60,7 +60,6 @@ def start_service_with_ota_client_mock(mocker: MockerFixture, proxy_cfg, mocked_
 def test_ota_client_service_update(mocker, start_service_with_ota_client_mock):
     import otaclient_v2_pb2 as v2
     import otaclient_v2_pb2_grpc as v2_grpc
-    from ota_client import OtaClientFailureType
 
     ota_client_mock, _ = start_service_with_ota_client_mock
 
