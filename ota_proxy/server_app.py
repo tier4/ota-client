@@ -24,12 +24,14 @@ class App:
     streaming data between OTACache and ota_clients.
 
     NOTE:
-        1. This App only support plain HTTP request proxy(CONNECT method is not supported).
-        2. It seems that uvicorn will not interrupt the App running even the client closes connection.
+        a. This App only support plain HTTP request proxy(CONNECT method is not supported).
+
+        b. It seems that uvicorn will not interrupt the App running even the client closes connection.
 
     Attributes:
         kwargs dict[str, Any]: App doesn't use any of the kwargs,
-            these kwargs will be passed through to ota_cache directly for initializing
+            these kwargs will be passed through to ota_cache directly for initializing.
+            Check ota_cache.OTACache for details.
 
     Example usage:
         # initialize an instance of the App:

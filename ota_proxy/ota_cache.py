@@ -14,6 +14,7 @@ from os import urandom
 from pathlib import Path
 from threading import Lock, Event
 from typing import Dict, AsyncGenerator, Set, Tuple, Union
+from typing_extensions import Self
 
 from . import db
 from .config import OTAFileCacheControl, config as cfg
@@ -58,6 +59,11 @@ class _Register(set):
 
 
 class _Bucket(OrderedDict):
+    """Bucket used in the Buckets class.
+
+    The instance of _Bucket maintains its own cache entries list in LRU flavour.
+    """
+
     def __init__(self, size: int):
         super().__init__()
         self._base_dir = Path(cfg.BASE_DIR)
@@ -65,10 +71,6 @@ class _Bucket(OrderedDict):
         self.size = size
 
     def add_entry(self, key):
-        """
-        newly added item will be added to the last(right)
-        this method can also be used to warm up an entry
-        """
         self[key] = None
 
     def warm_up_entry(self, key):
@@ -85,6 +87,15 @@ class _Bucket(OrderedDict):
             return
 
     def reserve_space(self, size: int) -> list:
+        """Reserves space by cleanup old cache entries in LRU flavour.
+
+        Args:
+            size int: the size of file we want to reserve space for.
+
+        Returns:
+            A list of hashes of entries to be cleaned in this bucket.
+        """
+
         enough_space = False
         with self._lock:
             hash_list, files_list = [], []
@@ -117,6 +128,13 @@ class _Bucket(OrderedDict):
 
 
 class Buckets:
+    """Manges LRU cache buckets by file size.
+
+    Serveral buckets are created according to predefined file size threshould.
+    Each bucket will maintain the cache entries of that bucket's size definition,
+    LRU is applied on per-bucket scale.
+    """
+
     def __init__(self):
         self._bsize_list = cfg.BUCKET_FILE_SIZE_LIST
         self._buckets: Dict[_Bucket] = dict()  # dict[file_size_target]_Bucket
@@ -173,7 +191,7 @@ class OTAFile:
     Check OTACache.retreive_file for details.
 
     Attributes:
-        url str: target resource's URL.
+        url str: requested resource's URL.
         meta db.CacheMeta: meta data of the resource indicated by URL.
         fp AsyncGenerator: an AsyncGenerator of opened resource, by opening
             local cached file or remote resource.
@@ -222,7 +240,22 @@ class OTAFile:
             raise ValueError
         return min(self.backoff_max, self.backoff_factor * (2 ** (n - 1)))
 
-    def background_write_cache(self):
+    def background_write_cache(self) -> Self:
+        """Caching files on to the local disk in the background thread.
+
+        When OTAFile instance initialized and launched,
+        a jansus.Queue is opened between this method and the wrapped fp generator.
+        This method will receive data chunks from the queue, calculate the hash,
+        and cache the data chunks onto the disk.
+        Backoff retry is applied here to allow delays of data chunks arrived in the queue.
+
+        This method should be called when the OTAFile instance is created.
+        A callback method should be register when the caching task is dispatched.
+        Check OTACache.retrieve_file for callback registeration details.
+
+        Returns:
+            The OTAFile instance itself for cache entry registeration on callback.
+        """
         if not self._store_cache or not self._storage_below_hard_limit:
             # call callback function even we don't cache anything
             # as we need to cleanup the status
@@ -311,7 +344,7 @@ class OTAFile:
 
 
 class OTACacheHelper:
-    """Helper class to scrub ota caches"""
+    """Helper class to scrub ota caches."""
 
     def __init__(self):
         self._base_dir = Path(cfg.BASE_DIR)
@@ -384,7 +417,15 @@ class OTACacheHelper:
 class OTACache:
     """Maintain caches for ota update.
 
-    Args:
+    Instance of this class handles the request from the upper caller,
+    proxying the requests to the remote ota files server, caching the ota files
+    and streaming data back to the upper caller. If cache is available for specific URL,
+    it will stream the data from local caches.
+    It wraps local cache(by open cache file) or remote resourecs(by open connection to the remote)
+    into a file descriptor(an instance of OTAFile), the upper caller(instance of server_app)
+    then can yield data chunks from the file descriptor and stream data chunks back to ota_client.
+
+    Attributes:
         scrub_cache_event multiprocessing.Event: an Event instance for signaling the upper caller
             that the cache scrub finished and ota_cache is ready to handle requests.
         upper_proxy str: the upper proxy that ota_cache uses to send out request, default is None
@@ -471,6 +512,11 @@ class OTACache:
             self._cache_enabled = False
 
     def close(self):
+        """Shutdowns OTACache instance.
+
+        NOTE: cache folder cleanup on successful ota update is not
+        performed by the OTACache.
+        """
         logger.debug("shutdown ota-cache...")
         if self._cache_enabled and not self._closed:
             self._closed = True
@@ -480,6 +526,17 @@ class OTACache:
         logger.info("shutdown ota-cache completed")
 
     def _background_check_free_space(self):
+        """Constantly checks the usage of disk where cache folder residented.
+
+        This method calls "df --output=pcent <cache_folder>" to query the disk usage.
+        There are 2 types of threshold defined here, hard limit and soft limit:
+        1. soft limit:
+            When disk usage reaching soft limit, OTACache will reserve free space(size of the entry)
+            for newly cached entry by deleting old cached entries in LRU flavour.
+            If the reservation of free space failed, the newly cached entry will be deleted.
+        2. hard limit:
+            When disk usage reaching hard limit, OTACache will stop caching any new entries.
+        """
         while not self._closed:
             try:
                 cmd = f"df --output=pcent {self._base_dir}"
@@ -517,6 +574,7 @@ class OTACache:
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
     def _commit_cache(self, m: db.CacheMeta):
+        """Commits the cache entry(CacheMeta) to the db."""
         logger.debug(f"commit cache for {m.url}...")
         bucket = self._buckets.get_bucket(m.size)
         bucket.add_entry(m.hash)
@@ -528,18 +586,16 @@ class OTACache:
         """The callback for finishing up caching.
 
         All caching should end up here, whether caching is successful or not.
-
         If caching is successful, and the space usage is reaching soft limit,
         we will try to ensure free space for already cached file.
         (No need to consider reaching hard limit, as the caching will be interrupted
-        in half way and f.cached_success will be False.) If space cannot be ensured,
-        the cached file will be delete.
-
+        in half way and f.cached_success will be False.)
+        If space cannot be ensured, the cached file will be delete.
         If caching fails, the unfinished cached file will be cleanup.
 
-
         Args:
-            fut asyncio.Future: the Future object of excution of caching.
+            fut asyncio.Future: the Future object of excution of caching,
+                we can retrieve the target instance of OTAFile from it.
         """
         f: OTAFile = fut.result()
 
@@ -571,6 +627,14 @@ class OTACache:
         self._on_going_caching.unregister(meta.url)
 
     def _ensure_free_space(self, size: int) -> bool:
+        """Reserves free space of <size> for newly cached file in LRU flavour.
+
+        Args:
+            size int: size of the target file.
+
+        Returns:
+            A bool indicates the reservation is successful or not.
+        """
         target_size = self._buckets._bin_search(size)
         bucket = self._buckets[target_size]
 
@@ -598,10 +662,22 @@ class OTACache:
         return False
 
     def _promote_cache_entry(self, cache_meta: db.CacheMeta):
+        """Warms up accessed cache entry in the bucket."""
         bucket = self._buckets.get_bucket(cache_meta.size)
         bucket.warm_up_entry(cache_meta.hash)
 
     async def _open_fp_by_cache(self, meta: db.CacheMeta) -> AsyncGenerator:
+        """Opens file descriptor by opening local cached entry.
+
+        Args:
+            meta CacheMeta: meta for target file that queried from the db.
+
+        Returns:
+            An AsyncGenerator that can be yield data chunks from.
+
+        Raises:
+            FileNotFoundError: Raised if the file indicates by the meta doesn't exist.
+        """
         hash: str = meta.hash
         fpath = self._base_dir / hash
 
@@ -618,13 +694,25 @@ class OTACache:
 
             return _fp()
         else:
-            raise ValueError(f"cache entry {hash} doesn't exist!")
+            raise FileNotFoundError(f"cache entry {hash} doesn't exist!")
 
     async def _open_fp_by_requests(
         self, raw_url: str, cookies: Dict[str, str], extra_headers: Dict[str, str]
     ) -> Tuple[AsyncGenerator, db.CacheMeta]:
-        """
-        NOTE: call next on the return generator to get the meta
+        """Opens file descriptor by opening connection to the remote OTA file server.
+
+        Args:
+            raw_url str: raw url that extracted from the client request, it will be parsed
+                and adjusted(currently only scheme might be changed).
+            cookies Dict[str, str]: cookies that extracted from the client request,
+                we also need to pass these to the remote server.
+            extra_headers Dict[str, str]: same as above.
+
+        Returns:
+            An AsyncGenerator and the generated meta from the response of remote server.
+
+        Raises:
+            Any errors that happen during open/handling the connection to the remote server.
         """
         from urllib.parse import quote, urlparse
 
