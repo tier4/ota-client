@@ -102,9 +102,6 @@ class OTACacheDB:
         self._con = sqlite3.connect(self._db_file, check_same_thread=False)
         self._con.row_factory = sqlite3.Row
 
-        # enable WAL mode
-        self._con.execute("PRAGMA journal_mode=WAL")
-
         # check if the table exists
         with self._general_query(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
