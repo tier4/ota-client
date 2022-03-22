@@ -319,8 +319,17 @@ class OTAFile:
             return self
 
     async def get_chunks(self) -> AsyncGenerator:
+        """API for caller to yield data chunks from.
+
+        This method yields data chunks from selves' file descriptor,
+        and then streams data chunks to upper caller and caching thread(if cache is enabled)
+        similar to the linux command tee does.
+
+        Returns:
+            An AsyncGenerator for upper caller to yield data chunks from.
+        """
         if self.closed.is_set():
-            raise RuntimeError("file is closed")
+            raise ValueError("file is closed")
 
         try:
             async for chunk in self._fp:
