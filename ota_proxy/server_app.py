@@ -28,11 +28,8 @@ class App:
         2. It seems that uvicorn will not interrupt the App running even the client closes connection.
 
     Attributes:
-        upper_proxy str: the upper proxy that ota_cache uses to send out request, default is None
-        cache_enabled bool: when set to False, ota_cache will only relay requested data, default is False.
-        enable_https bool: whether the ota_cache should send out the requests with HTTPS,
-            default is False. NOTE: scheme change is applied unconditionally
-        init_cache bool: whether to clear the existed cache, default is True
+        kwargs dict[str, Any]: App doesn't use any of the kwargs,
+            these kwargs will be passed through to ota_cache directly for initializing
 
     Example usage:
         # initialize an instance of the App:
@@ -42,22 +39,9 @@ class App:
         uvicorn.run(app, host="0.0.0.0", port=8082, log_level="debug", lifespan="on")
     """
 
-    def __init__(
-        self,
-        *,
-        upper_proxy: str = None,
-        cache_enabled=False,
-        enable_https=False,
-        init_cache=True,
-    ):
-        self.cache_enabled = cache_enabled
-        self.upper_proxy = upper_proxy
-        self.enable_https = enable_https
-        self.init_cache = init_cache
-        logger.debug(
-            f"init ota-proxy({cache_enabled=}, {init_cache=}, {enable_https=}, {upper_proxy=})"
-        )
-
+    def __init__(self, **kwargs):
+        # passthrough all kwargs to the ota_cache initializing
+        self._kwargs = kwargs
         self.started = False
         self._lock = Lock()
 
@@ -68,16 +52,11 @@ class App:
         NOTE: if there are multiple calls on this method, only one call will be executed,
         other calls will be ignored sliently
         """
-        if self._lock.acquire(blocking=False):
-            if not self.started:
-                logger.info("start ota http proxy app...")
-                self.started = True
-                self._ota_cache = ota_cache.OTACache(
-                    upper_proxy=self.upper_proxy,
-                    cache_enabled=self.cache_enabled,
-                    init=self.init_cache,
-                    enable_https=self.enable_https,
-                )
+        if self._lock.acquire(blocking=False) and not self.started:
+            logger.info("start ota http proxy app...")
+            self.started = True
+            self._ota_cache = ota_cache.OTACache(**self._kwargs)
+
             self._lock.release()
 
     def stop(self):
@@ -86,12 +65,12 @@ class App:
         NOTE: if there are multiple calls on this method, only one call will be executed,
         other calls will be ignored sliently
         """
-        if self._lock.acquire(blocking=False):
-            if self.started:
-                logger.info("stopping ota http proxy app...")
-                self._ota_cache.close()
-                logger.info("shutdown server completed")
-                self.started = False
+        if self._lock.acquire(blocking=False) and self.started:
+            logger.info("stopping ota http proxy app...")
+            self._ota_cache.close()
+            logger.info("shutdown server completed")
+            self.started = False
+
             self._lock.release()
 
     @staticmethod

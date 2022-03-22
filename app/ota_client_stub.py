@@ -1,19 +1,17 @@
 import asyncio
 import grpc
-import time
-from typing import Tuple
-from functools import partial
+import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock, Condition
+from functools import partial
 from multiprocessing import Process
-from pathlib import Path
+from threading import Lock, Condition
+from typing import Tuple
 
 import otaclient_v2_pb2 as v2
 from ota_status import OtaStatus
 from ota_error import OtaErrorRecoverable
 from ota_client import OtaClient, OtaStateSync
 from ota_client_call import OtaClientCall
-from ota_proxy import config as ota_proxy_cfg
 from proxy_info import proxy_cfg
 from ecu_info import EcuInfo
 
@@ -64,24 +62,23 @@ class OtaProxyWrapper:
         self._lock = Lock()
         self._closed = True
         self._server_p: Process = None
+        # an event for ota_cache to signal ota_service that
+        # cache scrub finished.
+        self._scrub_cache_event = multiprocessing.Event()
 
     @staticmethod
-    def _start_server(enable_cache: bool, init_cache: bool):
+    def _start_server(enable_cache: bool, init_cache: bool, *, scrub_cache_event):
         import uvicorn
         from ota_proxy import App
 
-        # always remove old sentinel file
-        _sentinel_file = Path(ota_proxy_cfg.SENTINEL_FILE)
-        _sentinel_file.unlink(missing_ok=True)
-
-        app = App(
-            cache_enabled=enable_cache,
-            upper_proxy=proxy_cfg.upper_ota_proxy,
-            enable_https=proxy_cfg.gateway,
-            init_cache=init_cache,
-        )
         uvicorn.run(
-            app,
+            App(
+                cache_enabled=enable_cache,
+                upper_proxy=proxy_cfg.upper_ota_proxy,
+                enable_https=proxy_cfg.gateway,
+                init_cache=init_cache,
+                scrub_cache_event=scrub_cache_event,
+            ),
             host=proxy_cfg.host,
             port=proxy_cfg.port,
             log_level="error",
@@ -92,7 +89,9 @@ class OtaProxyWrapper:
         with self._lock:
             if self._closed:
                 self._server_p = Process(
-                    target=self._start_server, args=(enable_cache, init_cache)
+                    target=self._start_server,
+                    args=(enable_cache, init_cache),
+                    kwargs={"scrub_cache_event": self._scrub_cache_event},
                 )
                 self._server_p.start()
 
@@ -104,6 +103,9 @@ class OtaProxyWrapper:
 
                 return self._server_p.pid
         # sliently return if the server already started
+
+    def wait_on_ota_cache(self, timeout: float = None):
+        self._scrub_cache_event.wait(timeout=timeout)
 
     def stop(self, cleanup_cache=False):
         from ota_proxy.config import config as proxy_srv_cfg
@@ -162,14 +164,8 @@ class OtaClientStub:
                 _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
                 self._ota_proxy.start(enable_cache=True, init_cache=_init_cache)
 
-                # wait for ota_proxy to finish initializing
-                # by query the sentinel file
-                while True:
-                    ota_proxy_sentinel_file = Path(ota_proxy_cfg.SENTINEL_FILE)
-                    if ota_proxy_sentinel_file.is_file():
-                        break
-                    else:
-                        time.sleep(1)
+                # wait for ota_cache to finish initializing
+                self._ota_proxy.wait_on_ota_cache()
 
             assert _next == ota_sfsm._S0
 

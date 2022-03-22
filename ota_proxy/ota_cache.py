@@ -39,6 +39,13 @@ def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
 
 
 class _Register(set):
+    """A simple register to maintain on-going a set of on-going cache entries.
+
+    NOTE: With GIL, set instance will not be corrupted by multi-threading access/update,
+    and the only edge condition by dirty read is the multi caching to the same URL.
+    Considering the performance lost and what edge condition may happen, no lock is used here.
+    """
+
     def register(self, url: str) -> bool:
         if url in self:
             return False
@@ -304,15 +311,12 @@ class OTAFile:
 
 
 class OTACacheHelper:
-    """
-    a helper bundle to maintain ota-cache
-    """
+    """Helper class to scrub ota caches"""
 
-    def __init__(self, event: Event):
+    def __init__(self):
         self._base_dir = Path(cfg.BASE_DIR)
         self._db = db.OTACacheDB(cfg.DB_FILE)
         self._excutor = ProcessPoolExecutor()
-        self._event = event
         self._closed = False
 
     @staticmethod
@@ -341,7 +345,6 @@ class OTACacheHelper:
             return
 
         logger.debug("start to scrub the cache entries...")
-        self._event.clear()
 
         dangling_db_entry = []
         # NOTE: pre-add database file into the set
@@ -373,25 +376,38 @@ class OTACacheHelper:
                 f.unlink(missing_ok=True)
 
         # cleanup
-        self._event.set()
         self._excutor.shutdown(wait=True)
         self._closed = True
-        logger.debug("scrub finished")
+        logger.debug("cache scrub finished")
 
 
 class OTACache:
+    """Maintain caches for ota update.
+
+    Args:
+        scrub_cache_event multiprocessing.Event: an Event instance for signaling the upper caller
+            that the cache scrub finished and ota_cache is ready to handle requests.
+        upper_proxy str: the upper proxy that ota_cache uses to send out request, default is None
+        cache_enabled bool: when set to False, ota_cache will only relay requested data, default is False.
+        enable_https bool: whether the ota_cache should send out the requests with HTTPS,
+            default is False. NOTE: scheme change is applied unconditionally
+        init_cache bool: whether to clear the existed cache, default is True
+    """
+
     def __init__(
         self,
         *,
+        scrub_cache_event,
         cache_enabled: bool,
-        init: bool,
+        init_cache: bool,
         upper_proxy: str = None,
         enable_https: bool = False,
     ):
-        logger.debug(f"init ota cache({cache_enabled=}, {init=}, {upper_proxy=})")
-        # remove old sentinel file
-        _sentinel_file = Path(cfg.SENTINEL_FILE)
-        _sentinel_file.unlink(missing_ok=True)
+        logger.debug(
+            f"init ota_cache({cache_enabled=}, {init_cache=}, {upper_proxy=}, {enable_https=})"
+        )
+        # event to signal upper caller that scrub finished
+        self._scrub_cache_event = scrub_cache_event
 
         self._chunk_size = cfg.CHUNK_SIZE
         self._remote_chunk_size = cfg.REMOTE_CHUNK_SIZE
@@ -407,7 +423,6 @@ class OTACache:
         self._upper_proxy: str = ""
 
         self._base_dir.mkdir(exist_ok=True, parents=True)
-        self._scrub_finished_event = Event()
 
         if cache_enabled:
             self._cache_enabled = True
@@ -415,24 +430,22 @@ class OTACache:
             self._buckets = Buckets()
 
             # prepare cache dire
-            if init:
+            if init_cache:
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
                 # if init, we also have to set the scrub_finished_event
-                self._scrub_finished_event.set()
                 self._base_dir.mkdir(exist_ok=True, parents=True)
             else:
                 # scrub the cache folder in the background
                 # NOTE: the _cache_helper is only used once here
-                _cache_helper = OTACacheHelper(self._scrub_finished_event)
+                _cache_helper = OTACacheHelper()
                 _cache_helper.scrub_cache()
 
-            # create sentinel file that indicate the finish of cache scrubbing
-            _sentinel_file.write_text("")
+            # signal the finish of cache scrubbing
+            self._scrub_cache_event.set()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
-            # connect to db
             self._db = db.OTACacheDB(cfg.DB_FILE)
 
             if upper_proxy:
@@ -453,9 +466,8 @@ class OTACache:
             )
         else:
             # even cache is not enabled,
-            # we still need to create sentinel file to signal ota_client
-            self._base_dir.mkdir(exist_ok=True, parents=True)
-            _sentinel_file.write_text("")
+            # we still need to signal upper caller that cache scrub finished
+            self._scrub_cache_event.set()
             self._cache_enabled = False
 
     def close(self):
@@ -715,7 +727,6 @@ class OTACache:
         if (
             not self._cache_enabled  # ota_proxy is configured to not cache anything
             or not use_cache  # ota_client send request with no_cache policy
-            or not self._scrub_finished_event.is_set()  # cache scrub is on-going
         ):
             # case 1: not using cache, directly download file
             fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
