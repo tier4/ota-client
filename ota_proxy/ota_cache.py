@@ -14,7 +14,6 @@ from os import urandom
 from pathlib import Path
 from threading import Lock, Event
 from typing import Dict, AsyncGenerator, Set, Tuple, Union
-from typing_extensions import Self
 
 from . import db
 from .config import OTAFileCacheControl, config as cfg
@@ -240,7 +239,7 @@ class OTAFile:
             raise ValueError
         return min(self.backoff_max, self.backoff_factor * (2 ** (n - 1)))
 
-    def background_write_cache(self) -> Self:
+    def background_write_cache(self):
         """Caching files on to the local disk in the background thread.
 
         When OTAFile instance initialized and launched,
