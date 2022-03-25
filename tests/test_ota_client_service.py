@@ -12,9 +12,9 @@ def mocked_update():
 
     def _update(*args, fsm: OtaStateSync):
         """simulate the state changes in ota_client update"""
-        with fsm.proceed(fsm._P2, expect=fsm._S0) as next_state:
+        with fsm.proceed(fsm._P2_ota_client, expect=fsm._S0) as next_state:
             assert next_state == fsm._S1
-        with fsm.proceed(fsm._P2, expect=fsm._S1) as next_state:
+        with fsm.proceed(fsm._P2_ota_client, expect=fsm._S1) as next_state:
             assert next_state == fsm._S2
 
         assert fsm.wait_on(fsm._END)

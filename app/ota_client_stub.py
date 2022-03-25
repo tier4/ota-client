@@ -151,7 +151,7 @@ class OtaClientStub:
 
         # init state machine(P1: ota_service, P2: ota_client)
         ota_sfsm = OtaStateSync()
-        ota_sfsm.start(caller=ota_sfsm._P1)
+        ota_sfsm.start(caller=ota_sfsm._P1_ota_service)
 
         # start ota proxy server
         # check current ota_status, if the status is not SUCCESS,
@@ -159,7 +159,9 @@ class OtaClientStub:
         # NOTE: now the cache scrubing will block the ota_proxy start,
         # to ensure the proxy is fully ready before sending update requests to the subecus
         # NOTE 2: signal ota_client after ota_proxy launched
-        with ota_sfsm.proceed(ota_sfsm._P1, expect=ota_sfsm._START) as _next:
+        with ota_sfsm.proceed(
+            ota_sfsm._P1_ota_service, expect=ota_sfsm._START
+        ) as _next:
             if proxy_cfg.enable_local_ota_proxy:
                 _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
                 self._ota_proxy.start(enable_cache=True, init_cache=_init_cache)
@@ -338,7 +340,7 @@ class OtaClientStub:
         # wait for local ota update and all subecus to finish update, and then do cleanup
         # NOTE: the failure of ota_client side update will not reflect immediately here,
         # however it is not a problem as we will track the update state via status API.
-        with fsm.proceed(fsm._P1, expect=fsm._S2) as _next:
+        with fsm.proceed(fsm._P1_ota_service, expect=fsm._S2) as _next:
             # ensure all subecus state
             asyncio.run(self._ensure_subecu_status())
             logger.info("all subECUs are updated and become ready")

@@ -192,9 +192,9 @@ def test_ota_client_update(mocker: MockerFixture, tmp_path: Path):
     ota_client_instance = ota_client.OtaClient()
 
     ota_fsm = OtaStateSync()
-    ota_fsm.start(caller=ota_fsm._P1)
+    ota_fsm.start(caller=ota_fsm._P1_ota_service)
 
-    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._START) as _next:
+    with ota_fsm.proceed(ota_fsm._P1_ota_service, expect=ota_fsm._START) as _next:
         # simulate the local ota_proxy initialization
         assert _next == ota_fsm._S0
 
@@ -210,7 +210,7 @@ def test_ota_client_update(mocker: MockerFixture, tmp_path: Path):
     _update_thread.start()
 
     assert ota_fsm.wait_on(ota_fsm._S2)
-    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._S2) as next_state:
+    with ota_fsm.proceed(ota_fsm._P1_ota_service, expect=ota_fsm._S2) as next_state:
         assert next_state == ota_fsm._END
     _update_thread.join()
 
@@ -394,9 +394,9 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
 
     # p1: ota_service, p2: ota_client
     _main_fsm = OtaStateSync()
-    _main_fsm.start(caller=_main_fsm._P1)
+    _main_fsm.start(caller=_main_fsm._P1_ota_service)
 
-    with _main_fsm.proceed(_main_fsm._P1, expect=_main_fsm._START) as _next:
+    with _main_fsm.proceed(_main_fsm._P1_ota_service, expect=_main_fsm._START) as _next:
         # simulate the local ota_proxy initialization
         assert _next == _main_fsm._S0
 
@@ -423,9 +423,11 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
 
     # This request fails since ota status is UPDATING and returns immediately.
     _thread2_fsm = OtaStateSync()
-    _thread2_fsm.start(caller=_thread2_fsm._P1)
+    _thread2_fsm.start(caller=_thread2_fsm._P1_ota_service)
 
-    with _thread2_fsm.proceed(_thread2_fsm._P1, expect=_thread2_fsm._START) as _next:
+    with _thread2_fsm.proceed(
+        _thread2_fsm._P1_ota_service, expect=_thread2_fsm._START
+    ) as _next:
         # simulate the local ota_proxy initialization
         assert _next == _thread2_fsm._S0
 
@@ -467,7 +469,9 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
     assert status["version"] == "a.b.c"
 
     # let the main update thread finish its job
-    with _main_fsm.proceed(_main_fsm._P1, expect=_main_fsm._S2) as next_state:
+    with _main_fsm.proceed(
+        _main_fsm._P1_ota_service, expect=_main_fsm._S2
+    ) as next_state:
         assert next_state == _main_fsm._END
     _main_update_thread.join()
 
@@ -606,9 +610,9 @@ def test_ota_client_update_regular_download_error(
     ota_client_instance = ota_client.OtaClient()
 
     ota_fsm = OtaStateSync()
-    ota_fsm.start(caller=ota_fsm._P1)
+    ota_fsm.start(caller=ota_fsm._P1_ota_service)
 
-    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._START) as _next:
+    with ota_fsm.proceed(ota_fsm._P1_ota_service, expect=ota_fsm._START) as _next:
         # simulate the local ota_proxy initialization
         assert _next == ota_fsm._S0
 
@@ -781,9 +785,9 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     ota_client_instance = ota_client.OtaClient()
 
     ota_fsm = OtaStateSync()
-    ota_fsm.start(caller=ota_fsm._P1)
+    ota_fsm.start(caller=ota_fsm._P1_ota_service)
 
-    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._START) as _next:
+    with ota_fsm.proceed(ota_fsm._P1_ota_service, expect=ota_fsm._START) as _next:
         # simulate the local ota_proxy initialization
         assert _next == ota_fsm._S0
 
@@ -816,7 +820,7 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
 
     # finish up state machine
     assert ota_fsm.wait_on(ota_fsm._S2)
-    with ota_fsm.proceed(ota_fsm._P1, expect=ota_fsm._S2) as next_state:
+    with ota_fsm.proceed(ota_fsm._P1_ota_service, expect=ota_fsm._S2) as next_state:
         assert next_state == ota_fsm._END
     _update_thread.join()
 

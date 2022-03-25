@@ -49,7 +49,8 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
     return file_sha256(filename) == filehash
 
 
-_ExceptionWrapper = type("_ExceptionWrapper", (Exception,), dict())
+class _ExceptionWrapper(Exception):
+    pass
 
 
 def _retry(retry, backoff_factor, backoff_max, func):
@@ -640,7 +641,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self._download.configure_proxy(proxy)
             # wait for local ota cache scrubing finish
 
-        with fsm.proceed(fsm._P2, expect=fsm._S0) as _next:
+        with fsm.proceed(fsm._P2_ota_client, expect=fsm._S0) as _next:
             logger.debug("ota_client: signal ota_stub that pre_update finished")
             assert _next == fsm._S1
 
@@ -695,11 +696,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # finish update, we reset the downloader's proxy setting
         self._download.cleanup_proxy()
 
-        with fsm.proceed(fsm._P2, expect=fsm._S1) as _next:
+        with fsm.proceed(fsm._P2_ota_client, expect=fsm._S1) as _next:
             assert _next == fsm._S2
             logger.debug("[update] signal ota_service that local update finished")
 
-        logger.debug("[update] leaving update, wait on ota_service and then reboot...")
+        logger.info("[update] leaving update, wait on ota_service and then reboot...")
         fsm.wait_on(fsm._END)
         self.leave_update()
 
