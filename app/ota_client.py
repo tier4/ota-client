@@ -389,6 +389,22 @@ class OtaClientStatistics:
 class OtaStateSync:
     """State machine that synchronzing ota_service and ota_client.
 
+    States switch:
+        START -> S0, caller P1_ota_service:
+            ota_service start the ota_proxy,
+            wait for ota_proxy to finish initializing(scrub cache),
+            and then signal ota_client
+        S0 -> S1, caller P2_ota_client:
+            ota_client wait for ota_proxy finish intializing,
+            and then finishes pre_update procedure,
+            signal ota_service to send update requests to all subecus
+        S1 -> S2, caller P2_ota_client:
+            ota_client finishes local update,
+            signal ota_service to cleanup after all subecus are ready
+        S2 -> END
+            ota_service finishes cleaning up,
+            signal ota_client to reboot
+
     Typical usage:
     a. wait on specific state
         fsm: OtaStateSync
@@ -409,29 +425,19 @@ class OtaStateSync:
         "_S2",  # apply_update_finished
         "_END",  # end
     )
-    _STATE_LIST = ["_START", "_S0", "_S1", "_S2", "_END"]
+    _STATE_LIST = [_START, _S0, _S1, _S2, _END]
     # participators definition
-    _P1, _P2 = "ota_service", "ota_client"
+    _P1_ota_service, _P2_ota_client = "ota_service", "ota_client"
     # which participator can start the fsm
-    _STARTER = _P1
+    _STARTER = _P1_ota_service
 
     # input: (<expected_state>, <caller>)
     # output: (<next_state>)
     _STATE_SWITCH = {
-        # ota_service start the ota_proxy,
-        # wait for ota_proxy to finish initializing(scrub cache),
-        # and then signal ota_client
-        (_START, _P1): _S0,
-        # ota_client wait for ota_proxy finish intializing,
-        # and then finishes pre_update procedure,
-        # signal ota_service to send update requests to all subecus
-        (_S0, _P2): _S1,
-        # ota_client finishes local update,
-        # signal ota_service to cleanup after all subecus are ready
-        (_S1, _P2): _S2,
-        # ota_service finishes cleaning up,
-        # signal ota_client to reboot
-        (_S2, _P1): _END,
+        (_START, _P1_ota_service): _S0,
+        (_S0, _P2_ota_client): _S1,
+        (_S1, _P2_ota_client): _S2,
+        (_S2, _P1_ota_service): _END,
     }
     ######## end of state machine definition ########
 
