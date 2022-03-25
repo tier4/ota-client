@@ -897,9 +897,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                         staging_storage[f"errors_{_suffix}"] += st.get("errors", 0)
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
-        reginf_list_raw_lines = open(list_file).readlines()
+        with open(list_file, "r") as f:
+            regular_files_num = len(f.readlines())
         # NOTE: check _OtaStatisticsStorage for available attributes
-        self._statistics.set("total_regular_files", len(reginf_list_raw_lines))
+        self._statistics.set("total_regular_files", regular_files_num)
 
         with Manager() as manager:
             error_queue = manager.Queue()
@@ -928,38 +929,37 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 downloader=self._download,
             )
 
-            _max_workder = min(3, os.cpu_count())
-            with Pool(processes=_max_workder) as pool:
+            # NOTE: temporary limit the max worker to not greater than 3
+            with Pool(processes=min(3, os.cpu_count())) as pool:
                 hardlink_dict = dict()  # sha256hash[tuple[reginf, event]
 
-                # imap_unordered return a lazy iterator without blocking
-                reginf_list = pool.imap_unordered(RegularInf, reginf_list_raw_lines)
-                for reginf in reginf_list:
-                    if reginf.nlink >= 2:
-                        prev_reginf, event = hardlink_dict.setdefault(
-                            reginf.sha256hash, (reginf, manager.Event())
-                        )
+                with open(list_file, "r") as f:
+                    for reginf in map(RegularInf, f):
+                        if reginf.nlink >= 2:
+                            prev_reginf, event = hardlink_dict.setdefault(
+                                reginf.sha256hash, (reginf, manager.Event())
+                            )
 
-                        # multiprocessing.apply_async
-                        # input args:
-                        #   func, args: list, kwargs: dict, *, callback, error_callback
-                        # output:
-                        #   async_result
-                        pool.apply_async(
-                            _create_regfile_func,
-                            (reginf, prev_reginf),
-                            {"hardlink_event": event},
-                            error_callback=error_callback,
-                        )
-                    else:
-                        pool.apply_async(
-                            _create_regfile_func,
-                            (reginf,),
-                            error_callback=error_callback,
-                        )
+                            # multiprocessing.apply_async
+                            # input args:
+                            #   func, args: list, kwargs: dict, *, callback, error_callback
+                            # output:
+                            #   async_result
+                            pool.apply_async(
+                                _create_regfile_func,
+                                (reginf, prev_reginf),
+                                {"hardlink_event": event},
+                                error_callback=error_callback,
+                            )
+                        else:
+                            pool.apply_async(
+                                _create_regfile_func,
+                                (reginf,),
+                                error_callback=error_callback,
+                            )
 
                 pool.close()
-                while len(processed_list) < len(reginf_list_raw_lines):
+                while len(processed_list) < regular_files_num:
                     self._set_statistics(processed_list)
 
                     if not error_queue.empty():
