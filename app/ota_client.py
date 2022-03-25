@@ -231,12 +231,14 @@ class _BaseInf:
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
     )
 
+    __slots__ = ["mode", "uid", "gid", "_left"]
+
     @staticmethod
     def de_escape(s: str) -> str:
         return s.replace(r"'\''", r"'")
 
     def __init__(self, info: str):
-        match_res: re.Match = self._base_pattern.match(info.strip("\n"))
+        match_res: re.Match = self._base_pattern.match(info.strip())
         assert match_res is not None
         self.mode = int(match_res.group("mode"), 8)
         self.uid = int(match_res.group("uid"))
@@ -246,44 +248,51 @@ class _BaseInf:
 
 
 class DirectoryInf(_BaseInf):
-    """
-    Directory file information class
-    """
+    """Directory file information class."""
+
+    __slots__ = ["path"]
 
     def __init__(self, info):
         super().__init__(info)
         self.path = Path(self.de_escape(self._left[1:-1]))
 
+        del self._left
+
 
 class SymbolicLinkInf(_BaseInf):
-    """
-    Symbolik link information class
-    """
+    """Symbolik link information class."""
 
     _pattern = re.compile(r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'")
+
+    __slots__ = ["slink", "srcpath"]
 
     def __init__(self, info):
         super().__init__(info)
         res = self._pattern.match(self._left)
         assert res is not None
+        del self._left
+
         self.slink = Path(self.de_escape(res.group("link")))
         self.srcpath = Path(self.de_escape(res.group("target")))
 
 
 class RegularInf(_BaseInf):
-    """
-    Regular file information class
-    """
+    """Regular file information class."""
 
     _pattern = re.compile(
         r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)',?(?P<size>\d+)?"
     )
+
+    __slots__ = ["nlink", "sha256hash", "path", "size"]
 
     def __init__(self, info):
         super().__init__(info)
 
         res = self._pattern.match(self._left)
         assert res is not None
+
+        del self._left
+
         self.nlink = int(res.group("nlink"))
         self.sha256hash = res.group("hash")
         self.path = Path(self.de_escape(res.group("path")))
@@ -296,6 +305,8 @@ class PersistentInf(_BaseInf):
     """
     Persistent file information class
     """
+
+    __slots__ = ["path"]
 
     def __init__(self, info: str):
         self.path = Path(self.de_escape(info[1:-1]))
