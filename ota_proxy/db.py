@@ -1,9 +1,11 @@
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import make_dataclass
+from contextlib import contextmanager
 from pathlib import Path
 from threading import Lock
 
 import logging
+from typing import Any, Dict, List, Tuple
 
 from .config import config as cfg
 
@@ -11,41 +13,76 @@ logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
 
 
-@dataclass
-class CacheMeta:
-    url: str
-    hash: str
-    size: int
-    content_type: str
-    content_encoding: str
+class _CacheMetaMixin:
+    _cols = cfg.COLUMNS
 
-    def to_tuple(self) -> tuple:
-        return (
-            self.url,
-            self.hash,
-            self.size,
-            self.content_type,
-            self.content_encoding,
-        )
+    @classmethod
+    def shape(cls) -> int:
+        return len(cls._cols)
+
+    def to_tuple(self) -> Tuple[Any]:
+        return tuple([getattr(self, k) for k in self._cols])
+
+    @classmethod
+    def row_to_meta(cls, row: Dict[str, Any]):
+        if not row:
+            return
+
+        res = cls()
+        for k in cls._cols:
+            setattr(res, k, row[k])
+
+        return res
+
+
+def make_cachemeta_cls(name: str):
+    # set default value of each field as field type's zero value
+    return make_dataclass(
+        name,
+        [(k, v.col_type, v.col_type()) for k, v in cfg.COLUMNS.items()],
+        bases=(_CacheMetaMixin,),
+    )
+
+
+CacheMeta = make_cachemeta_cls("CacheMeta")
+# fix the issue of pickling dynamically generated dataclass
+CacheMeta.__module__ = __name__
 
 
 class OTACacheDB:
-    TABLE_NAME: str = "ota_cache"
-    COLUMNS: dict = {
-        "url": 0,
-        "hash": 1,
-        "size": 2,
-        "content_type": 3,
-        "content_encoding": 4,
-    }
+    TABLE_NAME = cfg.TABLE_NAME
+    INIT_DB: str = (
+        f"CREATE TABLE {cfg.TABLE_NAME}("
+        + ", ".join([f"{k} {v.col_def}" for k, v in cfg.COLUMNS.items()])
+        + ")"
+    )
 
-    def __init__(self, db_file: str, init: bool = False):
+    def __init__(self, db_file: str, init=False):
         logger.debug("init database...")
         self._db_file = db_file
         self._wlock = Lock()
         self._closed = False
 
         self._connect_db(init)
+
+    @contextmanager
+    def _general_query(self, query: str, query_param: List[Any], /, *, init=False):
+        if not init and self._closed:
+            raise sqlite3.OperationalError("connect is closed")
+
+        _query_method = query.strip().split(" ")[0]
+
+        cur = self._con.cursor()
+        _query_handler = cur.execute
+        if _query_method in {"INSERT", "DELETE"}:
+            _query_handler = cur.executemany
+
+        _query_handler(query, query_param)
+
+        try:
+            yield cur
+        finally:
+            cur.close()
 
     def close(self):
         logger.debug("closing db...")
@@ -55,91 +92,55 @@ class OTACacheDB:
 
     def _init_table(self):
         logger.debug("init sqlite database...")
-        cur = self._con.cursor()
-
-        # create the table
-        cur.execute(
-            f"""CREATE TABLE {self.TABLE_NAME}(
-                    url text UNIQUE PRIMARY KEY, 
-                    hash text NOT NULL, 
-                    size real NOT NULL,
-                    content_type text, 
-                    content_encoding text)"""
-        )
-
-        self._con.commit()
-        cur.close()
+        with self._general_query(self.INIT_DB, (), init=True):
+            self._con.commit()
 
     def _connect_db(self, init: bool):
         if init:
-            # remove the old db file if needed
             Path(self._db_file).unlink(missing_ok=True)
 
         self._con = sqlite3.connect(self._db_file, check_same_thread=False)
+        self._con.row_factory = sqlite3.Row
 
         # check if the table exists
-        cur = self._con.cursor()
-        cur.execute(
+        with self._general_query(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
             (self.TABLE_NAME,),
-        )
-        if cur.fetchone() is None:
-            self._init_table()
+            init=True,
+        ) as cur:
+            if cur.fetchone() is None:
+                self._init_table()
 
     def remove_url_by_hash(self, *hash: str):
-        if self._closed:
-            raise sqlite3.OperationalError("connect is closed")
-
-        hash_list = [(h,) for h in hash]
-        with self._wlock:
-            cur = self._con.cursor()
-            cur.executemany(f"DELETE FROM {self.TABLE_NAME} WHERE hash=?", hash_list)
-
+        hash = [(h,) for h in hash]
+        with self._wlock, self._general_query(
+            f"DELETE FROM {self.TABLE_NAME} WHERE hash=?", hash
+        ):
             self._con.commit()
-            cur.close()
-        return
 
     def remove_urls(self, *urls: str):
-        if self._closed:
-            raise sqlite3.OperationalError("connect is closed")
-
-        url_list = [(u,) for u in urls]
-        with self._wlock:
-            cur = self._con.cursor()
-            cur.executemany(f"DELETE FROM {self.TABLE_NAME} WHERE url=?", url_list)
-
+        urls = [(u,) for u in urls]
+        with self._wlock, self._general_query(
+            f"DELETE FROM {self.TABLE_NAME} WHERE url=?", urls
+        ):
             self._con.commit()
-            cur.close()
 
     def insert_urls(self, *cache_meta: CacheMeta):
-        if self._closed:
-            raise sqlite3.OperationalError("connect is closed")
-
         rows = [m.to_tuple() for m in cache_meta]
-        with self._wlock:
-            cur = self._con.cursor()
-            cur.executemany(
-                f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES (?,?,?,?,?)", rows
-            )
-
+        _row_shape = ",".join(["?"] * CacheMeta.shape())
+        with self._wlock, self._general_query(
+            f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES ({_row_shape})",
+            rows,
+        ):
             self._con.commit()
-            cur.close()
 
     def lookup_url(self, url: str) -> CacheMeta:
-        if self._closed:
-            raise sqlite3.OperationalError("connect is closed")
+        with self._general_query(
+            f"SELECT * FROM {self.TABLE_NAME} WHERE url=?", (url,)
+        ) as cur:
+            return CacheMeta.row_to_meta(cur.fetchone())
 
-        cur = self._con.cursor()
-        cur.execute(f"SELECT * FROM {self.TABLE_NAME} WHERE url=?", (url,))
-        row = cur.fetchone()
-        if not row:
-            return
-
-        res = CacheMeta(
-            url=row[self.COLUMNS["url"]],
-            hash=row[self.COLUMNS["hash"]],
-            size=row[self.COLUMNS["size"]],
-            content_type=row[self.COLUMNS["content_type"]],
-            content_encoding=row[self.COLUMNS["content_encoding"]],
-        )
-        return res
+    def lookup_all(self) -> CacheMeta:
+        with self._general_query(f"SELECT * FROM {self.TABLE_NAME}", ()) as cur:
+            for row in cur.fetchall():
+                yield CacheMeta.row_to_meta(row)

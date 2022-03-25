@@ -6,7 +6,7 @@ import re
 import os
 import time
 import json
-from typing import Any, Dict, Union
+from typing import Any, Dict, Tuple, Union
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -15,14 +15,14 @@ from multiprocessing import Pool, Manager
 from threading import Event, Lock
 from functools import partial
 from enum import Enum, unique
-from urllib.parse import urljoin, quote_from_bytes
+from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
 from ota_metadata import OtaMetadata
 from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
-from configs import config as cfg
+from configs import OTAFileCacheControl, config as cfg
 from proxy_info import proxy_cfg
 import log_util
 
@@ -49,9 +49,71 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
     return file_sha256(filename) == filehash
 
 
+class _ExceptionWrapper(Exception):
+    pass
+
+
+def _retry(retry, backoff_factor, backoff_max, func):
+    """simple retrier"""
+    from functools import wraps
+
+    @wraps(func)
+    def _wrapper(*args, **kwargs):
+        _retry_count, _retry_cache = 0, False
+        try:
+            while True:
+                try:
+                    if _retry_cache:
+                        # add a Ota-File-Cache-Control header to indicate ota_proxy
+                        # to re-cache the possible corrupted file.
+                        # modify header if needed and inject it into kwargs
+                        if "headers" in kwargs:
+                            kwargs["headers"].update(
+                                {
+                                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
+                                }
+                            )
+                        else:
+                            kwargs["headers"] = {
+                                OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
+                            }
+
+                    # inject headers
+                    return func(*args, **kwargs)
+                except _ExceptionWrapper as e:
+                    # unwrap exception
+                    _inner_e = e.__cause__
+                    _retry_count += 1
+
+                    if _retry_count > retry:
+                        raise
+                    else:
+                        # special case: hash calculation error detected,
+                        # might indicate corrupted cached files
+                        if isinstance(_inner_e, ValueError):
+                            _retry_cache = True
+
+                        _backoff_time = float(
+                            min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
+                        )
+                        time.sleep(_backoff_time)
+        except _ExceptionWrapper as e:
+            # currently all exceptions lead to OtaErrorRecoverable
+            _inner_e = e.__cause__
+            _url = e.args[0]
+            raise OtaErrorRecoverable(
+                f"failed after {_retry_count} tries for {_url}: {_inner_e!r}"
+            )
+
+    return _wrapper
+
+
 class Downloader:
-    CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
+    CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
     RETRY_COUNT = 5
+    BACKOFF_FACTOR = 1
+    OUTER_BACKOFF_FACTOR = 0.01
+    BACKOFF_MAX = 10
 
     def __init__(self):
         from requests.adapters import HTTPAdapter
@@ -61,6 +123,7 @@ class Downloader:
         session = requests.Session()
 
         # cleanup proxy if any
+        self._proxy_set = False
         proxies = {"http": "", "https": ""}
         session.proxies.update(proxies)
 
@@ -68,11 +131,11 @@ class Downloader:
         # NOTE: for urllib3 version below 2.0, we have to change Retry class' DEFAULT_BACKOFF_MAX,
         # to configure the backoff max, set the value to the instance will not work as increment() method
         # will create a new instance of Retry on every try without inherit the change to instance's DEFAULT_BACKOFF_MAX
-        Retry.DEFAULT_BACKOFF_MAX = 10
+        Retry.DEFAULT_BACKOFF_MAX = self.BACKOFF_MAX
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
             raise_on_status=True,
-            backoff_factor=1,
+            backoff_factor=self.BACKOFF_FACTOR,
             # retry on common server side errors and non-critical client side errors
             status_forcelist={413, 429, 500, 502, 503, 504},
             allowed_methods=["GET"],
@@ -86,14 +149,19 @@ class Downloader:
 
     def configure_proxy(self, proxy: str):
         # configure proxy
+        self._proxy_set = True
         proxies = {"http": proxy, "https": ""}
         self._session.proxies.update(proxies)
 
     def cleanup_proxy(self):
+        self._proxy_set = False
         self.configure_proxy("")
 
-    @staticmethod
-    def _path_to_url(base: str, p: Union[Path, str]) -> str:
+    def _path_to_url(self, base: str, p: Union[Path, str]) -> str:
+        # regulate base url, add suffix / to it if not existed
+        if not base.endswith("/"):
+            base = f"{base}/"
+
         if isinstance(p, str):
             p = Path(p)
 
@@ -105,50 +173,55 @@ class Downloader:
             pass
 
         quoted_path = quote_from_bytes(bytes(relative_path))
-        return urljoin(base, quoted_path)
 
+        # switch scheme if needed
+        _url_parsed = urlparse(urljoin(base, quoted_path))
+        # unconditionally set scheme to HTTP if proxy is applied
+        if self._proxy_set:
+            _url_parsed = _url_parsed._replace(scheme="http")
+
+        return _url_parsed.geturl()
+
+    @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def __call__(
-        self, url_base: str, path: str, dst: Path, digest: str, cookies: Dict[str, str]
+        self,
+        url_base: str,
+        path: str,
+        dst: Path,
+        digest: str,
+        cookies: Dict[str, str],
+        headers: Dict[str, str] = None,
     ) -> int:
         url = self._path_to_url(url_base, path)
+        if not headers:
+            headers = dict()
 
-        error_count = 0
         try:
-            response = self._session.get(url, stream=True, timeout=10, cookies=cookies)
+            error_count = 0
+            response = self._session.get(
+                url, stream=True, cookies=cookies, headers=headers
+            )
             response.raise_for_status()
 
             raw_r = response.raw
             if raw_r.retries:
                 error_count = len(raw_r.retries.history)
-        except requests.exceptions.HTTPError:
-            msg = f"requests error: status_code={response.status_code},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.Timeout as e:
-            msg = f"requests timeout: {e},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.ConnectionError as e:
-            msg = f"requests connection error: {e},{url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.ChunkedEncodingError:
-            msg = f"requests ChunkedEncodingError: {url=} ({error_count})"
-            raise OtaErrorRecoverable(msg)
-        except requests.exceptions.RequestException as e:
-            # all unspecific errors go here
-            msg = f"requests failed: {e!r}"
-            raise OtaErrorRecoverable(msg)
 
-        # prepare hash
-        hash_f = sha256()
-        with open(dst, "wb") as f:
-            for data in response.iter_content(chunk_size=self.CHUNK_SIZE):
-                hash_f.update(data)
-                f.write(data)
+            # prepare hash
+            hash_f = sha256()
+            with open(dst, "wb") as f:
+                for data in response.iter_content(chunk_size=self.CHUNK_SIZE):
+                    hash_f.update(data)
+                    f.write(data)
 
-        calc_digest = hash_f.hexdigest()
-        if digest and calc_digest != digest:
-            raise OtaErrorRecoverable(
-                f"hash error: act={calc_digest}, exp={digest}, {url=}"
-            )
+            calc_digest = hash_f.hexdigest()
+            if digest and calc_digest != digest:
+                msg = f"hash check failed detected: act={calc_digest}, exp={digest}, {url=}"
+                logger.error(msg)
+                raise ValueError(msg)
+        except Exception as e:
+            # rewrap the exception with url
+            raise _ExceptionWrapper(url) from e
 
         return error_count
 
@@ -276,7 +349,7 @@ class _OtaClientStatisticsStorage:
         setattr(self, key, value)
 
 
-class OtaClientStatistics(object):
+class OtaClientStatistics:
     def __init__(self):
         self._lock = Lock()
         self._slot = _OtaClientStatisticsStorage()
@@ -314,6 +387,122 @@ class OtaClientStatistics(object):
             self._lock.release()
 
 
+class OtaStateSync:
+    """State machine that synchronzing ota_service and ota_client.
+
+    States switch:
+        START -> S0, caller P1_ota_service:
+            ota_service start the ota_proxy,
+            wait for ota_proxy to finish initializing(scrub cache),
+            and then signal ota_client
+        S0 -> S1, caller P2_ota_client:
+            ota_client wait for ota_proxy finish intializing,
+            and then finishes pre_update procedure,
+            signal ota_service to send update requests to all subecus
+        S1 -> S2, caller P2_ota_client:
+            ota_client finishes local update,
+            signal ota_service to cleanup after all subecus are ready
+        S2 -> END
+            ota_service finishes cleaning up,
+            signal ota_client to reboot
+
+    Typical usage:
+    a. wait on specific state
+        fsm: OtaStateSync
+        fsm.wait_on(fsm._S0, timeout=6)
+    b. expect <state>, and doing something to switch to next state
+        fsm: OtaStateSync
+        with fsm.proceed(fsm._P1, expect=fsm._START) as _next:
+            # do something here...
+            print(f"done! switch to next state {_next}")
+    """
+
+    ######## state machine definition ########
+    # states definition
+    _START, _S0, _S1, _S2, _END = (
+        "_START",  # start
+        "_S0",  # cache_scrub_finished
+        "_S1",  # pre_update_finished
+        "_S2",  # apply_update_finished
+        "_END",  # end
+    )
+    _STATE_LIST = [_START, _S0, _S1, _S2, _END]
+    # participators definition
+    _P1_ota_service, _P2_ota_client = "ota_service", "ota_client"
+    # which participator can start the fsm
+    _STARTER = _P1_ota_service
+
+    # input: (<expected_state>, <caller>)
+    # output: (<next_state>)
+    _STATE_SWITCH = {
+        (_START, _P1_ota_service): _S0,
+        (_S0, _P2_ota_client): _S1,
+        (_S1, _P2_ota_client): _S2,
+        (_S2, _P1_ota_service): _END,
+    }
+    ######## end of state machine definition ########
+
+    def __init__(self):
+        """Init the state machine.
+
+        Init Event for every state.
+        Lower state name is the attribute name for state's Event.
+            <state_name> -> <state_event>
+            _S1 -> self._s1
+        """
+        for state_name in self._STATE_LIST:
+            _state_event = Event()
+            # create new state event
+            setattr(self, state_name.lower(), _state_event)
+
+    def start(self, caller: str):
+        if caller != self._STARTER:
+            raise RuntimeError(
+                f"unexpected {caller=} starts status machine, expect {self._STARTER}"
+            )
+
+        _start_state: Event = getattr(self, self._START.lower())
+        if not _start_state.is_set():
+            _start_state.set()
+
+    def _state_selector(self, caller, *, state: str) -> Tuple[Event, Event, str]:
+        _input = (state, caller)
+        if _input in self._STATE_SWITCH:
+            cur_event = getattr(self, state.lower())
+            next_state = self._STATE_SWITCH[_input]
+            next_event = getattr(self, next_state.lower())
+            return cur_event, next_event, next_state
+        else:
+            raise RuntimeError(f"unexpected {caller=} or {state=}")
+
+    def wait_on(self, state: str, *, timeout: float = None) -> bool:
+        """Wait on expected state."""
+        _wait_on: Event = getattr(self, state.lower())
+        return _wait_on.wait(timeout=timeout)
+
+    @contextmanager
+    def proceed(self, caller, *, expect, timeout: float = None) -> int:
+        """State switching logic.
+
+        This method support context protocol, run the state switching functions
+        within with statement.
+        """
+        _wait_on, _next, _next_state = self._state_selector(caller, state=expect)
+
+        if not _wait_on.wait(timeout=timeout):
+            raise TimeoutError(f"timeout waiting state={expect}")
+
+        try:
+            # yield the next state to the caller
+            yield _next_state
+        finally:
+            # after finish state switching functions, switch state
+            if not _next.is_set():
+                _next.set()
+            else:
+                raise RuntimeError(f"expect {_next_state=} not being set yet")
+
+
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
@@ -338,24 +527,17 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         url_base,
         cookies_json: str,
         *,
-        pre_update_event: Event = None,
-        post_update_event: Event = None,
+        fsm: OtaStateSync,
     ):
+        """
+        main entry of the ota update logic
+        exceptions are captured and recorded here
+        """
         logger.debug("[update] entering...")
-
-        proxy = proxy_cfg.get_proxy_for_local_ota()
-        if proxy:
-            self._download.configure_proxy(proxy)
 
         try:
             cookies = json.loads(cookies_json)
-            self._update(
-                version,
-                url_base,
-                cookies,
-                pre_update_event=pre_update_event,
-                post_update_event=post_update_event,
-            )
+            self._update(version, url_base, cookies, fsm=fsm)
             return self._result_ok()
         except OtaErrorBusy:  # there is an on-going update
             # not setting ota_status
@@ -371,9 +553,6 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self.set_ota_status(OtaStatus.FAILURE)
             self.store_standby_ota_status(OtaStatus.FAILURE)
             return self._result_unrecoverable(e)
-        finally:
-            if pre_update_event:
-                pre_update_event.set()
 
     def rollback(self):
         try:
@@ -431,8 +610,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         url_base,
         cookies,
         *,
-        pre_update_event: Event = None,
-        post_update_event: Event = None,
+        fsm: OtaStateSync,
     ):
         logger.info(f"{version=},{url_base=},{cookies=}")
         """
@@ -456,8 +634,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             self._update_start_time = int(time.time() * 1000)
             self._failure_reason = ""
             self._statistics.clear()
-        if pre_update_event:
-            pre_update_event.set()
+
+        proxy = proxy_cfg.get_proxy_for_local_ota()
+        if proxy:
+            fsm.wait_on(fsm._S0)
+            self._download.configure_proxy(proxy)
+            # wait for local ota cache scrubing finish
+
+        with fsm.proceed(fsm._P2_ota_client, expect=fsm._S0) as _next:
+            logger.debug("ota_client: signal ota_stub that pre_update finished")
+            assert _next == fsm._S1
 
         # pre-update
         self.enter_update(version)
@@ -503,28 +689,19 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             url, cookies, metadata.get_persistent_info(), self._mount_point
         )
 
-        # finish update, we reset the downloader's proxy setting,
-        # although it is not needed actually
+        # standby slot preparation finished, set phase to POST_PROCESSING
+        logger.info("[update] update finished, entering post-update...")
+        self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
+
+        # finish update, we reset the downloader's proxy setting
         self._download.cleanup_proxy()
 
-        # leave update
-        # wait for all subECUs before reboot itself
-        if post_update_event:
-            logger.info("waiting for all subECUs to become ready...")
-            if post_update_event.wait():
-                logger.info("all subECUs are ready")
-            else:
-                # upper caller timeout, failed to wait for all subECU to get ready
-                # raise an exception about this and report to the caller agent
-                #
-                # NOTE: this may cause the local ECU to be updated multiple
-                # times if any of a subECU keeps failing
-                msg = "cannot ensure all subECUs' are ready, abort current local ota update..."
-                logger.error(msg)
-                raise OtaErrorRecoverable(msg)
+        with fsm.proceed(fsm._P2_ota_client, expect=fsm._S1) as _next:
+            assert _next == fsm._S2
+            logger.debug("[update] signal ota_service that local update finished")
 
-        logger.info("update finished, entering post-update...")
-        self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
+        logger.info("[update] leaving update, wait on ota_service and then reboot...")
+        fsm.wait_on(fsm._END)
         self.leave_update()
 
     def _rollback(self):
@@ -555,12 +732,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _verify_metadata(self, url_base, cookies, list_info, metadata):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching metadata
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                },
             )
             metadata.verify(open(file_name).read())
             logger.info("done")
@@ -568,7 +749,17 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_metadata(self, url_base, cookies: Dict[str, str]):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
-            self._download(url_base, "metadata.jwt", file_name, None, cookies=cookies)
+            # NOTE: do not use cache when fetching metadata
+            self._download(
+                url_base,
+                "metadata.jwt",
+                file_name,
+                None,
+                cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                },
+            )
 
             metadata = OtaMetadata(open(file_name, "r").read())
             certificate_info = metadata.get_certificate_info()
@@ -579,12 +770,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_directory(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching dir list
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                },
             )
             self._create_directories(file_name, standby_path)
             logger.info("done")
@@ -592,12 +787,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_symlink(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching symlink list
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                },
             )
             self._create_symbolic_links(file_name, standby_path)
             logger.info("done")
@@ -605,12 +804,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching regular files list
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                },
             )
             url_rootfsdir = urljoin(url_base, f"{rootfsdir}/")
             self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
@@ -619,12 +822,16 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
+            # NOTE: do not use cache when fetching persist files list
             self._download(
                 url_base,
                 list_info["file"],
                 file_name,
                 list_info["hash"],
                 cookies=cookies,
+                headers={
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                },
             )
             self._copy_persistent_files(file_name, standby_path)
             logger.info("done")
@@ -710,7 +917,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 downloader=self._download,
             )
 
-            with Pool() as pool:
+            _max_workder = min(3, os.cpu_count())
+            with Pool(processes=_max_workder) as pool:
                 hardlink_dict = dict()  # sha256hash[tuple[reginf, event]
 
                 # imap_unordered return a lazy iterator without blocking

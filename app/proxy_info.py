@@ -9,24 +9,51 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+# Example proxy_info.yaml(for subecu)
 """
-proxy_info.yaml:
-# version 1
-gateway: bool
-enable_ota_proxy: bool
-upper_ota_proxy: str
-local_server: Tuple[str, int]
+# gateway: false
+enable_ota_proxy: true
+local_server: ["0.0.0.0", 8082]
+upper_ota_proxy: "http://10.0.0.2:8082"
 """
 
-# if no proxy_info.yaml presented,
-# we should treat the ecu as main ecu,
-# and enable ota_proxy without upper proxy
+
+###### Example proxy_info.yaml for different scenario ######
+##                       mainecu                          ##
+# for mainecu, proxy_info.yaml is not needed, the following
+# DEFAULT_PROXY_INFO will be used.
+# we should treat the ecu with no proxy_info.yaml
+# as main ecu(as gateway), and enable ota_proxy without upper proxy.
 DEFUALT_PROXY_INFO = """
 enable_ota_proxy: true
+gateway: true
 """
+
+##                        subecu                           ##
+"""
+# gateway option should not be presented, or set to false
+gateway: false
+enable_ota_proxy: true
+# upper ota proxy must be an HTTP URL
+upper_ota_proxy: <upper_ota_proxy_URL: str>
+# the listen_addr of local_ota_proxy, 
+# if not presented, default to ["0.0.0.0", 8082]
+local_server: [<ipaddr: str>, <port: int>]
+"""
+######
 
 
 class ProxyInfo:
+    """Ota proxy configuration.
+
+    Attributes:
+        enable_local_ota_proxy: whether to launch a local ota_proxy server
+        host, port: (only valid when enable_local_ota_proxy==true) the listen address of the local ota_proxy
+        gateway: (only valid when enable_local_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
+            sends out the requests
+        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain)
+    """
+
     def __init__(self, proxy_info_file: str = cfg.PROXY_INFO_FILE):
         proxy_info_file_path = Path(proxy_info_file)
         if proxy_info_file_path.is_file():
