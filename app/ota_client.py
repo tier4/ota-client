@@ -231,59 +231,76 @@ class _BaseInf:
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
     )
 
+    __slots__ = ["mode", "uid", "gid", "_left"]
+
     @staticmethod
     def de_escape(s: str) -> str:
         return s.replace(r"'\''", r"'")
 
     def __init__(self, info: str):
-        match_res: re.Match = self._base_pattern.match(info.strip("\n"))
+        match_res: re.Match = self._base_pattern.match(info.strip())
         assert match_res is not None
+
         self.mode = int(match_res.group("mode"), 8)
         self.uid = int(match_res.group("uid"))
         self.gid = int(match_res.group("gid"))
-
         self._left: str = match_res.group("left_over")
 
 
 class DirectoryInf(_BaseInf):
-    """
-    Directory file information class
-    """
+    """Directory file information class."""
+
+    __slots__ = ["path"]
 
     def __init__(self, info):
-        super().__init__(info)
+        try:
+            super().__init__(info)
+        except (ValueError, AssertionError) as e:
+            raise ValueError(f"invalid input {info=}: {e}")
+
         self.path = Path(self.de_escape(self._left[1:-1]))
+
+        del self._left
 
 
 class SymbolicLinkInf(_BaseInf):
-    """
-    Symbolik link information class
-    """
+    """Symbolik link information class."""
 
     _pattern = re.compile(r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'")
 
+    __slots__ = ["slink", "srcpath"]
+
     def __init__(self, info):
-        super().__init__(info)
-        res = self._pattern.match(self._left)
-        assert res is not None
+        try:
+            super().__init__(info)
+            res = self._pattern.match(self._left)
+            assert res is not None
+        except (ValueError, AssertionError) as e:
+            raise ValueError(f"invalid input {info=}: {e}")
+
         self.slink = Path(self.de_escape(res.group("link")))
         self.srcpath = Path(self.de_escape(res.group("target")))
 
+        del self._left
+
 
 class RegularInf(_BaseInf):
-    """
-    Regular file information class
-    """
+    """Regular file information class."""
 
     _pattern = re.compile(
         r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)',?(?P<size>\d+)?"
     )
 
-    def __init__(self, info):
-        super().__init__(info)
+    __slots__ = ["nlink", "sha256hash", "path", "size"]
 
-        res = self._pattern.match(self._left)
-        assert res is not None
+    def __init__(self, info):
+        try:
+            super().__init__(info)
+            res = self._pattern.match(self._left)
+            assert res is not None
+        except (ValueError, AssertionError) as e:
+            raise ValueError(f"invalid input {info=}: {e}")
+
         self.nlink = int(res.group("nlink"))
         self.sha256hash = res.group("hash")
         self.path = Path(self.de_escape(res.group("path")))
@@ -291,14 +308,16 @@ class RegularInf(_BaseInf):
         size = res.group("size")
         self.size = None if size is None else int(size)
 
+        del self._left
 
-class PersistentInf(_BaseInf):
-    """
-    Persistent file information class
-    """
+
+class PersistentInf:
+    """Persistent file information class."""
+
+    __slots__ = ["path"]
 
     def __init__(self, info: str):
-        self.path = Path(self.de_escape(info[1:-1]))
+        self.path = Path(_BaseInf.de_escape(info[1:-1]))
 
 
 @unique
@@ -886,9 +905,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                         staging_storage[f"errors_{_suffix}"] += st.get("errors", 0)
 
     def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
-        reginf_list_raw_lines = open(list_file).readlines()
+        with open(list_file, "r") as f:
+            regular_files_num = len(f.readlines())
         # NOTE: check _OtaStatisticsStorage for available attributes
-        self._statistics.set("total_regular_files", len(reginf_list_raw_lines))
+        self._statistics.set("total_regular_files", regular_files_num)
 
         with Manager() as manager:
             error_queue = manager.Queue()
@@ -917,38 +937,37 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 downloader=self._download,
             )
 
-            _max_workder = min(3, os.cpu_count())
-            with Pool(processes=_max_workder) as pool:
+            # NOTE: temporary limit the max worker to not greater than 3
+            with Pool(processes=min(3, os.cpu_count())) as pool:
                 hardlink_dict = dict()  # sha256hash[tuple[reginf, event]
 
-                # imap_unordered return a lazy iterator without blocking
-                reginf_list = pool.imap_unordered(RegularInf, reginf_list_raw_lines)
-                for reginf in reginf_list:
-                    if reginf.nlink >= 2:
-                        prev_reginf, event = hardlink_dict.setdefault(
-                            reginf.sha256hash, (reginf, manager.Event())
-                        )
+                with open(list_file, "r") as f:
+                    for reginf in map(RegularInf, f):
+                        if reginf.nlink >= 2:
+                            prev_reginf, event = hardlink_dict.setdefault(
+                                reginf.sha256hash, (reginf, manager.Event())
+                            )
 
-                        # multiprocessing.apply_async
-                        # input args:
-                        #   func, args: list, kwargs: dict, *, callback, error_callback
-                        # output:
-                        #   async_result
-                        pool.apply_async(
-                            _create_regfile_func,
-                            (reginf, prev_reginf),
-                            {"hardlink_event": event},
-                            error_callback=error_callback,
-                        )
-                    else:
-                        pool.apply_async(
-                            _create_regfile_func,
-                            (reginf,),
-                            error_callback=error_callback,
-                        )
+                            # multiprocessing.apply_async
+                            # input args:
+                            #   func, args: list, kwargs: dict, *, callback, error_callback
+                            # output:
+                            #   async_result
+                            pool.apply_async(
+                                _create_regfile_func,
+                                (reginf, prev_reginf),
+                                {"hardlink_event": event},
+                                error_callback=error_callback,
+                            )
+                        else:
+                            pool.apply_async(
+                                _create_regfile_func,
+                                (reginf,),
+                                error_callback=error_callback,
+                            )
 
                 pool.close()
-                while len(processed_list) < len(reginf_list_raw_lines):
+                while len(processed_list) < regular_files_num:
                     self._set_statistics(processed_list)
 
                     if not error_queue.empty():
