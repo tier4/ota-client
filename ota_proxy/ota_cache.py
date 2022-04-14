@@ -1,7 +1,6 @@
 import asyncio
 import aiofiles
 import aiohttp
-import janus
 import subprocess
 import shlex
 import shutil
@@ -12,6 +11,7 @@ from functools import partial
 from hashlib import sha256
 from os import urandom
 from pathlib import Path
+from queue import Queue
 from threading import Lock, Event
 from typing import Dict, AsyncGenerator, Set, Tuple, Union
 
@@ -199,8 +199,8 @@ class OTAFile:
             local storage space is enough for caching.
     """
 
-    BACKOFF_MAX: int = 16
-    BACKOFF_FACTOR: int = 0.1
+    BACKOFF_MAX: int = 6
+    BACKOFF_FACTOR: int = 0.001
 
     def __init__(
         self,
@@ -232,7 +232,7 @@ class OTAFile:
         # prepare for data streaming
         if store_cache:
             self._hash_f = sha256()
-            self._queue: janus.Queue[bytes] = janus.Queue()
+            self._queue: Queue = Queue()
 
     def _get_backoff(self, n):
         if n < 0:
@@ -243,7 +243,7 @@ class OTAFile:
         """Caching files on to the local disk in the background thread.
 
         When OTAFile instance initialized and launched,
-        a jansus.Queue is opened between this method and the wrapped fp generator.
+        a queue is opened between this method and the wrapped fp generator.
         This method will receive data chunks from the queue, calculate the hash,
         and cache the data chunks onto the disk.
         Backoff retry is applied here to allow delays of data chunks arrived in the queue.
@@ -260,14 +260,13 @@ class OTAFile:
             # as we need to cleanup the status
             return self
 
-        _queue = self._queue.sync_q
         try:
             logger.debug(f"start to cache for {self.meta.url}...")
             self.temp_fpath = self._base_dir / f"tmp_{urandom(16).hex()}"
 
             with open(self.temp_fpath, "wb") as dst_f:
                 err_count = 0
-                while not self.closed.is_set() or not _queue.empty():
+                while not self.closed.is_set() or not self._queue.empty():
                     if not self._storage_below_hard_limit.is_set():
                         # reach storage hard limit, abort caching
                         logger.debug(
@@ -279,7 +278,7 @@ class OTAFile:
                     else:
                         try:
                             _timout = self._get_backoff(err_count)
-                            data = _queue.get(timeout=_timout)
+                            data = self._queue.get(timeout=_timout)
 
                             err_count = 0
                             if len(data) > 0:
@@ -334,9 +333,8 @@ class OTAFile:
             async for chunk in self._fp:
                 # to caching thread
                 if self._store_cache:
-                    _queue = self._queue.async_q
                     if not self._cache_aborted.is_set():
-                        await _queue.put(chunk)
+                        await self._queue.put_nowait(chunk)
 
                 # to uvicorn thread
                 yield chunk
