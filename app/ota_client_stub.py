@@ -71,9 +71,12 @@ class OtaProxyWrapper:
         import uvicorn
         from ota_proxy import App
 
+        # 20220413: Temporarily disable cache on ota-proxy
+        # to reduce performance bottleneck before the fix comes.
+        # Now ota_proxy will become a pure proxy server without cache
         uvicorn.run(
             App(
-                cache_enabled=enable_cache,
+                cache_enabled=False,
                 upper_proxy=proxy_cfg.upper_ota_proxy,
                 enable_https=proxy_cfg.gateway,
                 init_cache=init_cache,

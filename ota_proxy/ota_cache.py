@@ -473,6 +473,18 @@ class OTACache:
 
         self._base_dir.mkdir(exist_ok=True, parents=True)
 
+        # NOTE: we configure aiohttp to not decompress the contents,
+        # we cache the contents as its original form, and send
+        # to the client with proper headers to indicate the client to
+        # compress the payload by their own
+        # NOTE 2: disable aiohttp default timeout(5mins)
+        # this timeout will be applied to the whole request, including downloading,
+        # preventing large files to be downloaded.
+        timeout = aiohttp.ClientTimeout(total=None, sock_read=1)
+        self._session = aiohttp.ClientSession(
+            auto_decompress=False, raise_for_status=True, timeout=timeout
+        )
+
         if cache_enabled:
             self._cache_enabled = True
             self._bsize_list = cfg.BUCKET_FILE_SIZE_LIST
@@ -502,17 +514,6 @@ class OTACache:
                 self._upper_proxy = upper_proxy
                 self._enable_https = False
 
-            # NOTE: we configure aiohttp to not decompress the contents,
-            # we cache the contents as its original form, and send
-            # to the client with proper headers to indicate the client to
-            # compress the payload by their own
-            # NOTE 2: disable aiohttp default timeout(5mins)
-            # this timeout will be applied to the whole request, including downloading,
-            # preventing large files to be downloaded.
-            timeout = aiohttp.ClientTimeout(total=None, sock_read=1)
-            self._session = aiohttp.ClientSession(
-                auto_decompress=False, raise_for_status=True, timeout=timeout
-            )
         else:
             # even cache is not enabled,
             # we still need to signal upper caller that cache scrub finished
