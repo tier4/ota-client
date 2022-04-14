@@ -505,7 +505,8 @@ class OTACache:
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
-            self._db = db.OTACacheDB(cfg.DB_FILE)
+            # NOTE: type hint proxy class as its target class
+            self._db: db.OTACacheDB = db.DBProxy(cfg.DB_FILE)
 
             if upper_proxy:
                 # if upper proxy presented, we must disable https

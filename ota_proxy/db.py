@@ -166,6 +166,9 @@ class DBProxy:
         # 1 thread is enough according to small scale test
         self._db_executor = ThreadPoolExecutor(max_workers=1, initializer=_initializer)
 
+    def close(self):
+        self._db_executor.shutdown(wait=True)
+
     def __getattr__(self, key: str):
         """Passthrough method call by dot operator to threadpool."""
 
