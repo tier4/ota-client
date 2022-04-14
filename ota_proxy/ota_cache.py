@@ -13,7 +13,7 @@ from os import urandom
 from pathlib import Path
 from queue import Queue
 from threading import Lock, Event
-from typing import Dict, AsyncGenerator, Set, Tuple, Union
+from typing import Callable, Dict, AsyncGenerator, Set, Tuple, Union
 
 from . import db
 from .config import OTAFileCacheControl, config as cfg
@@ -239,7 +239,7 @@ class OTAFile:
             raise ValueError
         return min(self.backoff_max, self.backoff_factor * (2 ** (n - 1)))
 
-    def background_write_cache(self):
+    def background_write_cache(self, callback: "Callable[[OTAFile,], None]"):
         """Caching files on to the local disk in the background thread.
 
         When OTAFile instance initialized and launched,
@@ -258,7 +258,7 @@ class OTAFile:
         if not self._store_cache or not self._storage_below_hard_limit:
             # call callback function even we don't cache anything
             # as we need to cleanup the status
-            return self
+            callback(self)
 
         try:
             logger.debug(f"start to cache for {self.meta.url}...")
@@ -314,7 +314,8 @@ class OTAFile:
             # it may indicate that an unfinished caching might happen
 
         finally:
-            return self
+            # NOTE: always remember to call callback
+            callback(self)
 
     async def get_chunks(self) -> AsyncGenerator:
         """API for caller to yield data chunks from.
@@ -590,7 +591,7 @@ class OTACache:
         # register to the database
         self._db.insert_urls(m)
 
-    def _register_cache_callback(self, fut: asyncio.Future):
+    def _register_cache_callback(self, f: OTAFile):
         """The callback for finishing up caching.
 
         All caching should end up here, whether caching is successful or not.
@@ -605,8 +606,6 @@ class OTACache:
             fut asyncio.Future: the Future object of excution of caching,
                 we can retrieve the target instance of OTAFile from it.
         """
-        f: OTAFile = fut.result()
-
         meta = f.meta
         if f.cached_success:
             logger.debug(
@@ -863,8 +862,10 @@ class OTACache:
 
                 # dispatch the background cache writing to executor
                 loop = asyncio.get_running_loop()
-                fut = loop.run_in_executor(self._executor, res.background_write_cache)
-                fut.add_done_callback(self._register_cache_callback)
+                fut = loop.run_in_executor(
+                    self._executor,
+                    partial(res.background_write_cache, self._register_cache_callback),
+                )
                 return res
 
             # case 2.2: failed to get the chance to cache, still query file from remote
