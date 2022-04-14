@@ -1,13 +1,15 @@
 import sqlite3
-from dataclasses import make_dataclass
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import make_dataclass
 from pathlib import Path
 from threading import Lock
-
-import logging
 from typing import Any, Dict, List, Tuple
 
 from .config import config as cfg
+
+import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
@@ -144,3 +146,37 @@ class OTACacheDB:
         with self._general_query(f"SELECT * FROM {self.TABLE_NAME}", ()) as cur:
             for row in cur.fetchall():
                 yield CacheMeta.row_to_meta(row)
+
+
+class DBProxy:
+    """A proxy class for OTACacheDB that dispatches all requests into a threadpool."""
+
+    def __init__(self, db_f: str, init=False):
+        """Init the database connecting thread pool."""
+        self._thread_local = threading.local()
+        OTACacheDB(db_f, init=init)  # only for initializing db
+
+        def _initializer():
+            """Init a db connection for each thread worker"""
+            self._thread_local.db = OTACacheDB(db_f, init=False)
+
+        # 1 thread is enough according to small scale test
+        self._db_executor = ThreadPoolExecutor(max_workers=1, initializer=_initializer)
+
+    def __getattr__(self, key: str):
+        """Passthrough method call by dot operator to threadpool."""
+
+        def _outer(*args, **kwargs):
+            def _inner():
+                _db = self._thread_local.db
+                _attr = getattr(_db, key)
+                if not callable(_attr):
+                    raise AttributeError
+
+                return _attr(*args, **kwargs)
+
+            # inner is dispatched to the db connection threadpool
+            fut = self._db_executor.submit(_inner)
+            return fut.result()
+
+        return _outer
