@@ -249,11 +249,11 @@ class OTAFile:
         Backoff retry is applied here to allow delays of data chunks arrived in the queue.
 
         This method should be called when the OTAFile instance is created.
-        A callback method should be register when the caching task is dispatched.
-        Check OTACache.retrieve_file for callback registeration details.
+        A callback method should be assigned when this method is called.
 
-        Returns:
-            The OTAFile instance itself for cache entry registeration on callback.
+        Args:
+            callback Callable[[OTAFile,], None]:
+                a callback function to do post-caching jobs
         """
         if not self._store_cache or not self._storage_below_hard_limit:
             # call callback function even we don't cache anything
@@ -458,7 +458,6 @@ class OTACache:
         self._scrub_cache_event = scrub_cache_event
 
         self._chunk_size = cfg.CHUNK_SIZE
-        self._remote_chunk_size = cfg.REMOTE_CHUNK_SIZE
         self._base_dir = Path(cfg.BASE_DIR)
         self._closed = False
         self._cache_enabled = cache_enabled
@@ -757,9 +756,7 @@ class OTACache:
                     ),
                 )
 
-                async for data in response.content.iter_chunked(
-                    self._remote_chunk_size
-                ):
+                async for data, _ in response.content.iter_chunks():
                     yield data
 
         # start the fp
