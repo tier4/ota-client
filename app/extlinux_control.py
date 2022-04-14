@@ -461,7 +461,7 @@ class CBootControlMixin(BootControlInterface):
         unneeded_files_set = dst_dir_files_set - src_dir_files_set
 
         # copy the /boot folder from standby slot to boot dev unconditionally
-        _cmd = f"cp -rdp {src_dir} {dst_dir}"
+        _cmd = f"cp -rdpT {src_dir} {dst_dir}"
         try:
             _subprocess_call(_cmd, raise_exception=True)
         except Exception as e:
