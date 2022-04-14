@@ -335,7 +335,7 @@ class OTAFile:
                 # to caching thread
                 if self._store_cache:
                     if not self._cache_aborted.is_set():
-                        await self._queue.put_nowait(chunk)
+                        self._queue.put_nowait(chunk)
 
                 # to uvicorn thread
                 yield chunk
