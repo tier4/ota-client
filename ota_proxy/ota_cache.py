@@ -858,10 +858,8 @@ class OTACache:
                 )
 
                 # dispatch the background cache writing to executor
-                loop = asyncio.get_running_loop()
-                fut = loop.run_in_executor(
-                    self._executor,
-                    partial(res.background_write_cache, self._register_cache_callback),
+                self._executor.submit(
+                    res.background_write_cache, self._register_cache_callback
                 )
                 return res
 
