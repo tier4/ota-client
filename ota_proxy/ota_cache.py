@@ -1,7 +1,6 @@
 import asyncio
 import aiofiles
 import aiohttp
-import janus
 import subprocess
 import shlex
 import shutil
@@ -12,8 +11,9 @@ from functools import partial
 from hashlib import sha256
 from os import urandom
 from pathlib import Path
+from queue import Queue
 from threading import Lock, Event
-from typing import Dict, AsyncGenerator, Set, Tuple, Union
+from typing import Callable, Dict, AsyncGenerator, Set, Tuple, Union
 
 from . import db
 from .config import OTAFileCacheControl, config as cfg
@@ -199,8 +199,8 @@ class OTAFile:
             local storage space is enough for caching.
     """
 
-    BACKOFF_MAX: int = 16
-    BACKOFF_FACTOR: int = 0.1
+    BACKOFF_MAX: int = 6
+    BACKOFF_FACTOR: int = 0.001
 
     def __init__(
         self,
@@ -232,42 +232,41 @@ class OTAFile:
         # prepare for data streaming
         if store_cache:
             self._hash_f = sha256()
-            self._queue: janus.Queue[bytes] = janus.Queue()
+            self._queue: Queue = Queue()
 
     def _get_backoff(self, n):
         if n < 0:
             raise ValueError
         return min(self.backoff_max, self.backoff_factor * (2 ** (n - 1)))
 
-    def background_write_cache(self):
+    def background_write_cache(self, callback: "Callable[[OTAFile,], None]"):
         """Caching files on to the local disk in the background thread.
 
         When OTAFile instance initialized and launched,
-        a jansus.Queue is opened between this method and the wrapped fp generator.
+        a queue is opened between this method and the wrapped fp generator.
         This method will receive data chunks from the queue, calculate the hash,
         and cache the data chunks onto the disk.
         Backoff retry is applied here to allow delays of data chunks arrived in the queue.
 
         This method should be called when the OTAFile instance is created.
-        A callback method should be register when the caching task is dispatched.
-        Check OTACache.retrieve_file for callback registeration details.
+        A callback method should be assigned when this method is called.
 
-        Returns:
-            The OTAFile instance itself for cache entry registeration on callback.
+        Args:
+            callback Callable[[OTAFile,], None]:
+                a callback function to do post-caching jobs
         """
         if not self._store_cache or not self._storage_below_hard_limit:
             # call callback function even we don't cache anything
             # as we need to cleanup the status
-            return self
+            callback(self)
 
-        _queue = self._queue.sync_q
         try:
             logger.debug(f"start to cache for {self.meta.url}...")
             self.temp_fpath = self._base_dir / f"tmp_{urandom(16).hex()}"
 
             with open(self.temp_fpath, "wb") as dst_f:
                 err_count = 0
-                while not self.closed.is_set() or not _queue.empty():
+                while not self.closed.is_set() or not self._queue.empty():
                     if not self._storage_below_hard_limit.is_set():
                         # reach storage hard limit, abort caching
                         logger.debug(
@@ -279,7 +278,7 @@ class OTAFile:
                     else:
                         try:
                             _timout = self._get_backoff(err_count)
-                            data = _queue.get(timeout=_timout)
+                            data = self._queue.get(timeout=_timout)
 
                             err_count = 0
                             if len(data) > 0:
@@ -315,7 +314,8 @@ class OTAFile:
             # it may indicate that an unfinished caching might happen
 
         finally:
-            return self
+            # NOTE: always remember to call callback
+            callback(self)
 
     async def get_chunks(self) -> AsyncGenerator:
         """API for caller to yield data chunks from.
@@ -334,9 +334,8 @@ class OTAFile:
             async for chunk in self._fp:
                 # to caching thread
                 if self._store_cache:
-                    _queue = self._queue.async_q
                     if not self._cache_aborted.is_set():
-                        await _queue.put(chunk)
+                        self._queue.put_nowait(chunk)
 
                 # to uvicorn thread
                 yield chunk
@@ -459,7 +458,6 @@ class OTACache:
         self._scrub_cache_event = scrub_cache_event
 
         self._chunk_size = cfg.CHUNK_SIZE
-        self._remote_chunk_size = cfg.REMOTE_CHUNK_SIZE
         self._base_dir = Path(cfg.BASE_DIR)
         self._closed = False
         self._cache_enabled = cache_enabled
@@ -507,7 +505,8 @@ class OTACache:
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
-            self._db = db.OTACacheDB(cfg.DB_FILE)
+            # NOTE: type hint proxy class as its target class
+            self._db: db.OTACacheDB = db.DBProxy(cfg.DB_FILE)
 
             if upper_proxy:
                 # if upper proxy presented, we must disable https
@@ -591,7 +590,7 @@ class OTACache:
         # register to the database
         self._db.insert_urls(m)
 
-    def _register_cache_callback(self, fut: asyncio.Future):
+    def _register_cache_callback(self, f: OTAFile):
         """The callback for finishing up caching.
 
         All caching should end up here, whether caching is successful or not.
@@ -606,8 +605,6 @@ class OTACache:
             fut asyncio.Future: the Future object of excution of caching,
                 we can retrieve the target instance of OTAFile from it.
         """
-        f: OTAFile = fut.result()
-
         meta = f.meta
         if f.cached_success:
             logger.debug(
@@ -759,9 +756,7 @@ class OTACache:
                     ),
                 )
 
-                async for data in response.content.iter_chunked(
-                    self._remote_chunk_size
-                ):
+                async for data, _ in response.content.iter_chunks():
                     yield data
 
         # start the fp
@@ -820,77 +815,65 @@ class OTACache:
             logger.info(f"client indicates that do not cache for {url=}")
             use_cache = False
 
-        res = None
+        # case 1: not using cache, directly download file
         if (
             not self._cache_enabled  # ota_proxy is configured to not cache anything
             or not use_cache  # ota_client send request with no_cache policy
         ):
-            # case 1: not using cache, directly download file
             fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
-            res = OTAFile(url, meta, fp)
-        else:
-            no_cache_available = True
+            return OTAFile(url, meta, fp)
 
-            cache_meta = self._db.lookup_url(url)
+        # cache enabled, lookup the database
+        no_cache_available = True
+        cache_meta = self._db.lookup_url(url)
+        if cache_meta:  # cache hit
+            logger.debug(f"cache hit for {url=}\n, {cache_meta=}")
 
-            if cache_meta:  # cache hit
-                logger.debug(f"cache hit for {url=}\n, {cache_meta=}")
+            cache_path: Path = self._base_dir / cache_meta.hash
+            # clear the cache entry if the ota_client instructs so
+            if retry_cache:
+                logger.warning(f"retry_cache: try to clear entry for {cache_meta=}..")
+                cache_path.unlink(missing_ok=True)
 
-                cache_path: Path = self._base_dir / cache_meta.hash
-                # clear the cache entry if the ota_client instructs so
-                if retry_cache:
-                    logger.warning(
-                        f"retry_cache: try to clear entry for {cache_meta=}.."
-                    )
-                    cache_path.unlink(missing_ok=True)
-
-                if not cache_path.is_file():
-                    # invalid cache entry found in the db, cleanup it
-                    logger.error(f"dangling cache entry found: {cache_meta=}")
-                    self._db.remove_urls(url)
-                else:
-                    no_cache_available = False
-
-            # check whether we should use cache, not use cache,
-            # or download and cache the new file
-            if no_cache_available:
-                # case 2: download and cache new file
-                logger.debug(f"try to download and cache {url=}")
-                fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
-
-                # NOTE: remember to remove the url after cache comitted!
-                # try to cache the file if no other same on-going caching
-                if self._on_going_caching.register(url):
-                    res = OTAFile(
-                        url,
-                        meta,
-                        fp,
-                        store_cache=True,
-                        below_hard_limit_event=self._storage_below_hard_limit_event,
-                    )
-
-                    # dispatch the background cache writing to executor
-                    loop = asyncio.get_running_loop()
-                    fut = loop.run_in_executor(
-                        self._executor, res.background_write_cache
-                    )
-                    fut.add_done_callback(self._register_cache_callback)
-                else:
-                    # failed to get the chance to cache
-                    logger.debug(
-                        f"failed to get the chance to cache..., directly download {url=}"
-                    )
-                    fp, meta = await self._open_fp_by_requests(
-                        url, cookies, extra_headers
-                    )
-                    res = OTAFile(url, meta, fp)
+            if not cache_path.is_file():
+                # invalid cache entry found in the db, cleanup it
+                logger.error(f"dangling cache entry found: {cache_meta=}")
+                self._db.remove_urls(url)
             else:
-                # case 3: use cache
-                logger.debug(f"use cache for {url=}")
-                self._promote_cache_entry(cache_meta)
+                no_cache_available = False
 
-                fp = await self._open_fp_by_cache(cache_meta)
-                # use cache
-                res = OTAFile(url, cache_meta, fp)
+        # case 2: no valid cache entry presented, try to cache the requested file
+        if no_cache_available:
+            logger.debug(f"try to download and cache {url=}")
+            fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
 
-        return res
+            # case 2.1: download and cache new file
+            if self._on_going_caching.register(url):
+                res = OTAFile(
+                    url,
+                    meta,
+                    fp,
+                    store_cache=True,
+                    below_hard_limit_event=self._storage_below_hard_limit_event,
+                )
+
+                # dispatch the background cache writing to executor
+                self._executor.submit(
+                    res.background_write_cache, self._register_cache_callback
+                )
+                return res
+
+            # case 2.2: failed to get the chance to cache, still query file from remote
+            logger.debug(
+                f"failed to get the chance to cache..., directly download {url=}"
+            )
+            fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
+            return OTAFile(url, meta, fp)
+
+        # case 3: cache is available and valid, use cache
+        logger.debug(f"use cache for {url=}")
+        self._promote_cache_entry(cache_meta)
+
+        fp = await self._open_fp_by_cache(cache_meta)
+        # use cache
+        return OTAFile(url, cache_meta, fp)
