@@ -1,0 +1,15 @@
+ecus:
+- main: true
+  name: autoware
+  status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
+  version: 123.456
+
+- name: perception1
+  status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
+  version: abc.def
+
+- name: perception2
+  status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
+  version: abc.def
+
+
