@@ -1,33 +1,39 @@
 import time
-
-from ota_status import OtaStatus
 import otaclient_v2_pb2 as v2
 
 
 class Ecu:
     TOTAL_REGULAR_FILES = 123456789
     TOTAL_REGULAR_FILE_SIZE = 987654321
-    TIME_TO_UPDATE_MS = 60 * 1 * 1000
+    TIME_TO_UPDATE_MS = 60 * 0.2 * 1000
 
     def __init__(self, is_main, name, status, version):
         self._is_main = is_main
         self._name = name
         self._version = version
+        self._version_to_update = None
         self._status = v2.Status()
+        self._status.status = v2.StatusOta.Value(status)
         self._update_time = None
 
-    def update(self, response):
-        ecu = response.ecu.add()
+    def reset(self, status, version):
+        return Ecu(
+            is_main=self._is_main, name=self._name, status=status, version=version
+        )
+
+    def update(self, response_ecu, version):
+        ecu = response_ecu
         ecu.ecu_id = self._name
         ecu.result = v2.FailureType.NO_FAILURE
 
         # update status
         self._status = v2.Status()  # reset
         self._status.status = v2.StatusOta.UPDATING
+        self._version_to_update = version
         self._update_time = time.time()
 
-    def status(self, response):
-        ecu = response.ecu.add()
+    def status(self, response_ecu):
+        ecu = response_ecu
         ecu.ecu_id = self._name
         ecu.result = v2.FailureType.NO_FAILURE
 

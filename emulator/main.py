@@ -1,3 +1,4 @@
+import time
 import path_loader  # noqa
 
 from pathlib import Path
@@ -8,8 +9,10 @@ from ota_client_service import (
     OtaClientServiceV2,
     service_start,
     service_wait_for_termination,
+    service_stop,
 )
 import otaclient_v2_pb2_grpc as v2_grpc
+import otaclient_v2_pb2 as v2
 
 from configs import config as cfg
 from configs import server_cfg
@@ -29,6 +32,8 @@ DEFAULT_ECUS = [
 def main(config):
     logger.info("started")
 
+    server = None
+
     try:
         ecu_config = yaml.safe_load(config.read_text())["ecus"]
     except Exception as e:
@@ -46,18 +51,42 @@ def main(config):
         )
         ecus.append(e)
     logger.info(ecus)
-    ota_client_stub = OtaClientStub(ecus)
-    ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
 
-    server = service_start(
-        f"{ota_client_stub.host_addr()}:{server_cfg.SERVER_PORT}",
-        [
-            {"grpc": v2_grpc, "instance": ota_client_service_v2},
-        ],
-    )
+    def terminate(export_ecus):
+        nonlocal ecus
+        ecus = []
+        logger.info(f"{server=}")
+        service_stop(server)
+        for ecu in export_ecus:
+            version = (
+                ecu._version_to_update
+                if ecu._version_to_update is not None
+                else ecu._version
+            )
+            status = ecu._status.status
+            status = (
+                "SUCCESS"
+                if status == v2.StatusOta.Value("UPDATING")
+                else v2.StatusOta.Name(status)
+            )
+            e = ecu.reset(status, version)
+            ecus.append(e)
 
-    service_wait_for_termination(server)
-    logger.info("done")
+    while True:
+        ota_client_stub = OtaClientStub(ecus, terminate)
+        ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
+
+        logger.info("starting grpc server.")
+        server = service_start(
+            f"localhost:{server_cfg.SERVER_PORT}",
+            [
+                {"grpc": v2_grpc, "instance": ota_client_service_v2},
+            ],
+        )
+
+        service_wait_for_termination(server)
+        logger.info("restarting. wait 10s.")
+        time.sleep(1)
 
 
 if __name__ == "__main__":

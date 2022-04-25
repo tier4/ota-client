@@ -1,6 +1,4 @@
 import os
-import sys
-import time
 from threading import Timer, Thread
 
 from pathlib import Path
@@ -16,23 +14,17 @@ logger = log_util.get_logger(
 )
 
 
-def export_and_exit():
-    os.kill(os.getpid(), 9)
-
-
 class OtaClientStub:
-    def __init__(self, ecus: list):
+    def __init__(self, ecus: list, terminate=None):
         # check if all the names are unique
         names = [ecu._name for ecu in ecus]
         assert len(names) == len(set(names))
         # check if only one ecu is main
-        mains = [ecu._is_main for ecu in ecus if ecu._is_main]
+        mains = [ecu for ecu in ecus if ecu._is_main]
         assert len(mains) == 1
 
         self._ecus = ecus
-
-    def host_addr(self):
-        return "localhost"
+        self._terminate = terminate
 
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
         logger.info(f"{request=}")
@@ -41,8 +33,9 @@ class OtaClientStub:
         for ecu in self._ecus:
             entry = OtaClientStub._find_request(request.ecu, ecu._name)
             if entry:
-                logger.info(ecu)
-                ecu.update(response)
+                logger.info(f"{ecu=}, {entry.version=}")
+                response_ecu = response.ecu.add()
+                ecu.update(response_ecu, entry.version)
 
         logger.info(f"{response=}")
         return response
@@ -57,11 +50,25 @@ class OtaClientStub:
         logger.info(f"{request=}")
         response = v2.StatusResponse()
 
+        reboot = False
+
         for ecu in self._ecus:
-            ecu.status(response)
+            response_ecu = response.ecu.add()
+            ecu.status(response_ecu)
             response.available_ecu_ids.extend([ecu._name])
+            if (
+                ecu._is_main
+                and response_ecu.status.progress.phase
+                == v2.StatusProgressPhase.PERSISTENT
+                # all sub ecus are SUCCESS
+            ):
+                reboot = True
 
         logger.info(f"{response=}")
+
+        if reboot:
+            self._terminate(self._ecus)
+
         return response
 
     @staticmethod
