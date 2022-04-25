@@ -57,6 +57,7 @@ def main(config):
     )
 
     service_wait_for_termination(server)
+    logger.info("done")
 
 
 if __name__ == "__main__":
