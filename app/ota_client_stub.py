@@ -181,7 +181,8 @@ class OtaClientStub:
                 tasks.append(
                     asyncio.create_task(
                         self._ota_client_call.update(request, secondary["ip_addr"]),
-                        name=secondary["ecu_id"],  # register the task name with sub_ecu id
+                        # register the task name with sub_ecu id
+                        name=secondary["ecu_id"],
                     )
                 )
 
