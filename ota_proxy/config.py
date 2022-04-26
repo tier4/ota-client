@@ -1,6 +1,7 @@
 import enum
 from logging import INFO
 from dataclasses import dataclass, field
+from typing import List
 
 
 class OTAFileCacheControl(enum.Enum):
@@ -59,33 +60,47 @@ class Config:
     DISK_USE_LIMIT_SOTF_P = 60  # in p%
     DISK_USE_LIMIT_HARD_P = 70  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
-    BUCKET_FILE_SIZE_LIST = (
-        0,
-        10 * 1024,  # 10KiB
-        100 * 1024,  # 100KiB
-        500 * 1024,  # 500KiB
-        1 * 1024 * 1024,  # 1MiB
-        5 * 1024 * 1024,  # 5MiB
-        10 * 1024 * 1024,  # 10MiB
-        100 * 1024 * 1024,  # 100MiB
-        1 * 1024 * 1024 * 1024,  # 1GiB
-    )  # Bytes
+    # value is the largest numbers of files that
+    # might need to be deleted for the bucket to hold a new entry
+    # if we have to reserve space for this file.
+    BUCKET_FILE_SIZE_DICT = {
+        0: 0,  # not filtered
+        2 * 1024: 1,  # 2KiB
+        3 * 1024: 1,
+        4 * 1024: 1,
+        5 * 1024: 1,
+        8 * 1024: 2,
+        16 * 1024: 2,  # 16KiB
+        32 * 1024: 8,
+        256 * 1024: 16,  # 256KiB
+        4 * (1024 ** 2): 2,  # 4MiB
+        8 * (1024 ** 2): 32,  # 8MiB
+        256 * (1024 ** 2): 2,
+        512 * (1024 ** 2): 0,  # not filtered
+    }
     DB_FILE = f"{BASE_DIR}/cache_db"
-    # this file contain the current running ota_proxy's pid
-    SENTINEL_FILE = f"{BASE_DIR}/scrub_finished"
 
     LOG_LEVEL = INFO
 
-    # db config
+    # DB configuration/setup
+    # ota-cache table
     TABLE_NAME: str = "ota_cache"
     COLUMNS: dict = field(
         default_factory=lambda: {
-            "url": ColField(str, "text UNIQUE PRIMARY KEY"),
-            "hash": ColField(str, "text NOT NULL"),
-            "size": ColField(int, "real NOT NULL"),
-            "content_type": ColField(str, "text"),
-            "content_encoding": ColField(str, "text"),
+            "url": ColField(str, "TEXT UNIQUE NOT NULL PRIMARY KEY"),
+            "bucket": ColField(int, "INTEGER NOT NULL"),
+            "last_access": ColField(float, "REAL NOT NULL"),
+            "hash": ColField(str, "TEXT NOT NULL"),
+            "size": ColField(int, "INTEGER NOT NULL"),
+            "content_type": ColField(str, "TEXT"),
+            "content_encoding": ColField(str, "TEXT"),
         }
+    )
+
+    OTA_CACHE_IDX: List[str] = field(
+        default_factory=lambda: [
+            f"CREATE INDEX bucket_last_access_idx ON ota_cache(bucket, last_access)",
+        ]
     )
 
 
