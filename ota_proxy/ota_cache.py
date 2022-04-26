@@ -1,19 +1,18 @@
-import asyncio
 import aiofiles
 import aiohttp
 import subprocess
 import shlex
 import shutil
 import time
-from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from datetime import datetime
 from functools import partial
 from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from queue import Queue
-from threading import Lock, Event
-from typing import Callable, Dict, AsyncGenerator, Set, Tuple, Union
+from threading import Event
+from typing import Callable, Dict, AsyncGenerator, List, Set, Tuple, Union
 
 from . import db
 from .config import OTAFileCacheControl, config as cfg
@@ -57,126 +56,92 @@ class _Register(set):
         self.discard(url)
 
 
-class _Bucket(OrderedDict):
-    """Bucket used in the Buckets class.
-
-    The instance of _Bucket maintains its own cache entries list in LRU flavour.
-    """
-
-    def __init__(self, size: int):
-        super().__init__()
-        self._base_dir = Path(cfg.BASE_DIR)
-        self._lock = Lock()
-        self.size = size
-
-    def add_entry(self, key):
-        self[key] = None
-
-    def warm_up_entry(self, key):
-        try:
-            self.move_to_end(key)
-        except KeyError:
-            return
-
-    def popleft(self) -> str:
-        try:
-            res, _ = self.popitem(last=False)
-            return res
-        except KeyError:
-            return
-
-    def reserve_space(self, size: int) -> list:
-        """Reserves space by cleanup old cache entries in LRU flavour.
-
-        Args:
-            size int: the size of file we want to reserve space for.
-
-        Returns:
-            A list of hashes of entries to be cleaned in this bucket.
-        """
-
-        enough_space = False
-        with self._lock:
-            hash_list, files_list = [], []
-            space_available = 0
-            for h in self:
-                if space_available >= size:
-                    break
-                else:
-                    f: Path = Path(self._base_dir) / h
-                    if f.is_file():
-                        space_available += f.stat().st_size
-                        hash_list.append(h)
-                        files_list.append(f)
-                    else:
-                        # deal with dangling cache by telling the caller also
-                        # delete the dangling entry from the database
-                        hash_list.append(h)
-                        logger.warning(f"dangling cache entry found: {h}")
-
-            if space_available >= size:
-                enough_space = True
-                # we can reserve enough space from current bucket
-                for h in hash_list:
-                    del self[h]
-
-        if enough_space:
-            for f in files_list:
-                f.unlink(missing_ok=True)
-            return hash_list
-
-
-class Buckets:
+class LRUCacheHelper:
     """Manges LRU cache buckets by file size.
 
     Serveral buckets are created according to predefined file size threshould.
     Each bucket will maintain the cache entries of that bucket's size definition,
     LRU is applied on per-bucket scale.
+
+    NOTE: currently file that has size larger than 256MiB or smaller that 1KiB will always be saved.
     """
 
     def __init__(self):
-        self._bsize_list = cfg.BUCKET_FILE_SIZE_LIST
-        self._buckets: Dict[_Bucket] = dict()  # dict[file_size_target]_Bucket
-
-        for s in self._bsize_list:
-            self._buckets[s] = _Bucket(s)
+        self._db: db.OTACacheDB = db.DBProxy(cfg.DB_FILE)
+        self._bsize_list = list(cfg.BUCKET_FILE_SIZE_DICT.keys())
+        self._bsize_dict = cfg.BUCKET_FILE_SIZE_DICT
 
     def _bin_search(self, file_size: int) -> int:
+        """Left-closed and right-opened"""
         if file_size < 0:
             raise ValueError(f"invalid file size {file_size}")
 
         s, e = 0, len(self._bsize_list) - 1
-        target_size = None
-
-        if file_size >= self._bsize_list[-1]:
-            target_size = self._bsize_list[-1]
-        else:
-            idx = None
+        if file_size < self._bsize_list[-1]:
             while True:
                 if abs(e - s) <= 1:
-                    idx = s
                     break
 
-                if file_size <= self._bsize_list[(s + e) // 2]:
-                    e = (s + e) // 2
+                mid = (s + e) // 2
+                if file_size < self._bsize_list[mid]:
+                    e = mid
                 else:
-                    s = (s + e) // 2
-            target_size = self._bsize_list[idx]
+                    s = mid
 
-        if target_size is None:
-            raise ValueError(f"invalid file size {file_size}")
+            target_size = self._bsize_list[s]
+        else:
+            target_size = self._bsize_list[-1]
+
         return target_size
 
-    def get_bucket(self, file_size: int) -> _Bucket:
-        try:
-            target_size = self._bin_search(file_size)
-        except ValueError:
-            raise ValueError(f"invalid file size {file_size}")
+    def commit_entry(self, entry: db.CacheMeta):
+        # update the CacheMeta
+        entry.bucket = self._bin_search(entry.size)
+        entry.last_access = datetime.now().timestamp()
 
-        return self._buckets[target_size]
+        if self._db.insert_entry(entry) != 1:
+            logger.error(f"failed to add entry to db: {entry=}")
+        else:
+            logger.debug(f"successfully commit entry to db: {entry=}")
 
-    def __getitem__(self, bucket_size: int) -> _Bucket:
-        return self._buckets[bucket_size]
+    def lookup_entry(self, url: str) -> db.CacheMeta:
+        return self._db.lookup_url(url)
+
+    def remove_entry(self, *, url: str = None, _hash: str = None) -> bool:
+        if url is not None and self._db.remove_entries_by_urls(url) == 1:
+            return True
+
+        if _hash is not None and self._db.remove_entries_by_hashes(_hash) == 1:
+            return True
+
+        return False
+
+    def rotate_cache(self, size: int) -> Union[List[str], None]:
+        """
+        Args:
+            size int: the size of file that we want to reserve space for
+
+        Returns:
+            A list of hashes that needed to be cleaned.
+        """
+        # NOTE: currently file size >= 256MiB or file size < 1KiB
+        # will be saved without cache rotating.
+        if size >= self._bsize_list[-1] or size < self._bsize_list[1]:
+            return True
+
+        _cur_bucket_size = self._bin_search(size)
+        _cur_bucket_idx = self._bsize_list.index(_cur_bucket_size)
+
+        # first check the upper bucket
+        for _bucket_size in self._bsize_list[_cur_bucket_idx + 1 :]:
+            res = self._db.rotate_cache(_bucket_size, self._bsize_dict[_bucket_size])
+            if res:
+                return res
+
+        # if failed, check current
+        return self._db.rotate_cache(
+            _cur_bucket_size, self._bsize_dict[_cur_bucket_size]
+        )
 
 
 class OTAFile:
