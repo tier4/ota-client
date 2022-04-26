@@ -319,12 +319,14 @@ class OTAFile:
             self.closed.set()
 
 
-class OTACacheHelper:
+class OTACacheScrubHelper:
     """Helper class to scrub ota caches."""
 
+    DB_FILE: str = cfg.DB_FILE
+    BASE_DIR: str = cfg.BASE_DIR
+
     def __init__(self):
-        self._base_dir = Path(cfg.BASE_DIR)
-        self._db = db.OTACacheDB(cfg.DB_FILE)
+        self._db = db.OTACacheDB(self.DB_FILE)
         self._excutor = ProcessPoolExecutor()
         self._closed = False
 
@@ -349,18 +351,32 @@ class OTACacheHelper:
         f.unlink(missing_ok=True)
         return meta, False
 
-    def scrub_cache(self):
+    def _close(self):
+        if not self._closed:
+            self._excutor.shutdown(wait=True)
+            self._db.close()
+            self._closed = True
+
+    def __call__(self):
+        """Main entry for scrubbing cache folder."""
         if self._closed:
             return
 
         logger.debug("start to scrub the cache entries...")
-
+        try:
         dangling_db_entry = []
-        # NOTE: pre-add database file into the set
-        # to prevent db file being deleted
-        valid_cache_entry = {Path(cfg.DB_FILE).name}
+            # NOTE: pre-add db related files into the set
+            # to prevent db related files being deleted
+            # NOTE 2: cache_db related files: <cache_db>, <cache_db>-shm, <cache_db>-wal, <cache>-journal
+            db_file = Path(self.DB_FILE).name
+            valid_cache_entry = {
+                db_file,
+                f"{db_file}-shm",
+                f"{db_file}-wal",
+                f"{db_file}-journal",
+            }
         res_list = self._excutor.map(
-            partial(self._check_entry, str(self._base_dir)),
+                partial(self._check_entry, self.BASE_DIR),
             self._db.lookup_all(),
             chunksize=128,
         )
@@ -373,21 +389,23 @@ class OTACacheHelper:
                 valid_cache_entry.add(meta.hash)
 
         # delete the invalid entry from the database
-        self._db.remove_urls(*dangling_db_entry)
+            self._db.remove_entries_by_urls(*dangling_db_entry)
 
         # loop over all files under cache folder,
         # if entry's hash is not presented in the valid_cache_entry set,
         # we treat it as dangling cache entry and delete it
-        for entry in self._base_dir.glob("*"):
+            _base_dir_path = Path(self.BASE_DIR)
+            for entry in _base_dir_path.glob("*"):
             if entry.name not in valid_cache_entry:
                 logger.debug(f"dangling cache entry found: {entry.name}")
-                f = self._base_dir / entry.name
+                    f = _base_dir_path / entry.name
                 f.unlink(missing_ok=True)
 
-        # cleanup
-        self._excutor.shutdown(wait=True)
-        self._closed = True
         logger.debug("cache scrub finished")
+        except Exception as e:
+            logger.error(f"failed to finish scrub cache folder: {e!r}")
+        finally:
+            self._close()
 
 
 class OTACache:
@@ -463,13 +481,9 @@ class OTACache:
                 # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
             else:
-                # scrub the cache folder in the background
-                # NOTE: the _cache_helper is only used once here
-                _cache_helper = OTACacheHelper()
-                _cache_helper.scrub_cache()
-
-            # signal the finish of cache scrubbing
-            self._scrub_cache_event.set()
+                # scrub the cache folder
+                _scrub_cache = OTACacheScrubHelper()
+                _scrub_cache()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
