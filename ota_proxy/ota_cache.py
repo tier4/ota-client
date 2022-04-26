@@ -834,7 +834,6 @@ class OTACache:
             logger.debug(
                 f"failed to get the chance to cache..., directly download {url=}"
             )
-            fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
             return OTAFile(url, meta, fp)
 
         # case 3: cache is available and valid, use cache
