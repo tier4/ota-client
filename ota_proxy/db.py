@@ -1,11 +1,9 @@
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from dataclasses import make_dataclass
 from datetime import datetime
 from pathlib import Path
-from threading import Lock
 from typing import Any, Dict, List, Tuple, Union
 
 from .config import config as cfg
@@ -70,39 +68,6 @@ class OTACacheDB:
     def close(self):
         self._con.close()
 
-    @contextmanager
-    def _general_query(
-        self, query: str, query_param: List[Any], /, *, is_multiple=True
-    ):
-        cur = self._con.cursor()
-        _query_handler = cur.executemany if is_multiple else cur.execute
-
-        # NOTE: no need to commit by ourselves as we are in autocommit mode now
-        try:
-            try:
-                _query_handler(query, query_param)
-                yield cur
-            except sqlite3.Error as e:
-                logger.debug(f"db {query=} error: {e!r}")
-                raise e
-        finally:
-            # cleanup
-            cur.close()
-
-    @contextmanager
-    def _transaction(self):
-        # We must issue a "BEGIN" explicitly when running in auto-commit mode.
-        self._con.execute("BEGIN")
-        cur = self._con.cursor()
-        try:
-            yield cur
-            self._con.commit()
-        except sqlite3.Error:
-            self._con.rollback()
-            raise
-        finally:
-            cur.close()
-
     def _connect_db(self, init: bool):
         if init:
             Path(self._db_file).unlink(missing_ok=True)
@@ -115,70 +80,75 @@ class OTACacheDB:
         self._con.row_factory = sqlite3.Row
 
         # check if the table exists/check whether the db file is valid
-        with self._transaction() as cur:
-            cur.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (self.TABLE_NAME,),
-            )
+        try:
+            with self._con as con:
+                cur = con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (self.TABLE_NAME,),
+                )
 
             if cur.fetchone() is None:
                 logger.warning(f"{self.TABLE_NAME} not found, init db...")
                 # create ota_cache table
-                cur.execute(self.INIT_OTA_CACHE, ())
+                con.execute(self.INIT_OTA_CACHE, ())
 
                 # create indices
                 for idx in self.OTA_CACHE_IDX:
-                    cur.execute(idx, ())
+                    con.execute(idx, ())
 
-        # enable WAL mode
-        self._con.execute("PRAGMA journal_mode=WAL;")
+            # enable WAL mode
+            con.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.Error as e:
+            logger.debug(f"init db failed: {e!r}")
+            raise e
 
     def remove_entries_by_hashes(self, *hashes: str) -> int:
         _hashes = [(h,) for h in hashes]
-        with self._general_query(
-            f"DELETE FROM {self.TABLE_NAME} WHERE hash=?", _hashes
-        ) as cur:
+        with self._con as con:
+            cur = con.executemany(
+                f"DELETE FROM {self.TABLE_NAME} WHERE hash=?", _hashes
+            )
+
             return cur.rowcount
 
     def remove_entries_by_urls(self, *urls: str) -> int:
         _urls = [(u,) for u in urls]
-        with self._general_query(
-            f"DELETE FROM {self.TABLE_NAME} WHERE url=?", _urls
-        ) as cur:
+        with self._con as con:
+            cur = con.executemany(f"DELETE FROM {self.TABLE_NAME} WHERE url=?", _urls)
             return cur.rowcount
 
     def insert_entry(self, *cache_meta: CacheMeta) -> int:
         rows = [m.to_tuple() for m in cache_meta]
-        with self._general_query(
-            f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES ({self.ROW_SHAPE})",
-            rows,
-        ) as cur:
+        with self._con as con:
+            cur = con.executemany(
+                f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES ({self.ROW_SHAPE})",
+                rows,
+            )
             return cur.rowcount
 
     def lookup_url(self, url: str) -> CacheMeta:
-        with self._general_query(
-            f"SELECT * FROM {self.TABLE_NAME} WHERE url=?", (url,), is_multiple=False
-        ) as cur:
+        with self._con as con:
+            cur = con.execute(
+                f"SELECT * FROM {self.TABLE_NAME} WHERE url=?",
+                (url,),
+            )
             row = cur.fetchone()
 
-        if row:
-            # warm up the cache(update last_access timestamp) here
-            res = CacheMeta.row_to_meta(row)
-            with self._general_query(
-                f"UPDATE {self.TABLE_NAME} SET last_access=? WHERE url=?",
-                (datetime.now().timestamp(), res.url),
-                is_multiple=False,
-            ):
-                pass
+            if row:
+                # warm up the cache(update last_access timestamp) here
+                res = CacheMeta.row_to_meta(row)
+                cur = con.execute(
+                    f"UPDATE {self.TABLE_NAME} SET last_access=? WHERE url=?",
+                    (datetime.now().timestamp(), res.url),
+                )
 
-            return res
-        else:
-            return
+                return res
+            else:
+                return
 
     def lookup_all(self) -> List[CacheMeta]:
-        with self._general_query(
-            f"SELECT * FROM {self.TABLE_NAME}", (), is_multiple=False
-        ) as cur:
+        with self._con as con:
+            cur = con.execute(f"SELECT * FROM {self.TABLE_NAME}", ())
             return [CacheMeta.row_to_meta(row) for row in cur.fetchall()]
 
     def rotate_cache(self, bucket: int, num: int) -> Union[str, None]:
@@ -193,45 +163,42 @@ class OTACacheDB:
                 or None if no enough entries for space reserving.
         """
         # first, check whether we have required number of entries in the bucket
-        with self._general_query(
-            f"SELECT COUNT(*) FROM {self.TABLE_NAME} WHERE bucket=? ORDER BY last_access LIMIT ?",
-            (bucket, num),
-            is_multiple=False,
-        ) as cur:
+        with self._con as con:
+            cur = con.execute(
+                f"SELECT COUNT(*) FROM {self.TABLE_NAME} WHERE bucket=? ORDER BY last_access LIMIT ?",
+                (bucket, num),
+            )
             _count = cur.fetchone()[0]
 
-        # NOTE: if we can upgrade to sqlite3 >= 3.35,
-        # use RETURNING clause instead of using 2 queries as below
+            # NOTE: if we can upgrade to sqlite3 >= 3.35,
+            # use RETURNING clause instead of using 2 queries as below
 
-        # if we have enough entries for space reserving
-        if _count >= num:
-            # first select those entries
-            with self._general_query(
-                (
-                    f"SELECT * FROM {self.TABLE_NAME} "
-                    "WHERE bucket=? "
-                    "ORDER BY last_access "
-                    "LIMIT ?"
-                ),
-                (bucket, num),
-                is_multiple=False,
-            ) as cur:
+            # if we have enough entries for space reserving
+            if _count >= num:
+                # first select those entries
+                cur = con.execute(
+                    (
+                        f"SELECT * FROM {self.TABLE_NAME} "
+                        "WHERE bucket=? "
+                        "ORDER BY last_access "
+                        "LIMIT ?"
+                    ),
+                    (bucket, num),
+                )
                 _rows = cur.fetchall()
 
-            # and then delete those entries with same conditions
-            with self._general_query(
-                (
-                    f"DELETE FROM {self.TABLE_NAME} "
-                    "WHERE bucket=? "
-                    "ORDER BY last_access "
-                    "LIMIT ?"
-                ),
-                (bucket, num),
-                is_multiple=False,
-            ):
-                pass
+                # and then delete those entries with same conditions
+                con.execute(
+                    (
+                        f"DELETE FROM {self.TABLE_NAME} "
+                        "WHERE bucket=? "
+                        "ORDER BY last_access "
+                        "LIMIT ?"
+                    ),
+                    (bucket, num),
+                )
 
-            return [row["hash"] for row in _rows]
+                return [row["hash"] for row in _rows]
 
 
 class DBProxy:
