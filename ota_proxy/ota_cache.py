@@ -136,7 +136,7 @@ class LRUCacheHelper:
         # NOTE: currently file size >= 512MiB or file size < 1KiB
         # will be saved without cache rotating.
         if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
-            return True
+            return []
 
         _cur_bucket_size = self._bin_search(size)
         _cur_bucket_idx = self.BSIZE_LIST.index(_cur_bucket_size)
@@ -262,7 +262,7 @@ class OTAFile:
                         except Exception:
                             if _timout >= self.PIPE_READ_BACKOFF_MAX:
                                 # abort caching due to potential dead streaming coro
-                                logger.error(
+                                logger.warning(
                                     f"failed to cache {self.meta.url}: timeout getting data from queue"
                                 )
                                 self._cache_aborted.set()
@@ -368,7 +368,7 @@ class OTACacheScrubHelper:
         if self._closed:
             return
 
-        logger.debug("start to scrub the cache entries...")
+        logger.info("start to scrub the cache entries...")
         try:
             dangling_db_entry = []
             # NOTE: pre-add db related files into the set
@@ -403,11 +403,11 @@ class OTACacheScrubHelper:
             _base_dir_path = Path(self.BASE_DIR)
             for entry in _base_dir_path.glob("*"):
                 if entry.name not in valid_cache_entry:
-                    logger.debug(f"dangling cache entry found: {entry.name}")
+                    logger.warning(f"dangling cache entry found: {entry.name}")
                     f = _base_dir_path / entry.name
                     f.unlink(missing_ok=True)
 
-            logger.debug("cache scrub finished")
+            logger.info("cache scrub finished")
         except Exception as e:
             logger.error(f"failed to finish scrub cache folder: {e!r}")
         finally:
@@ -580,11 +580,10 @@ class OTACache:
             A bool indicates whether the space reserving is successful or not.
         """
         _hashes = self._lru_helper.rotate_cache(size)
-        logger.debug(
-            f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
-        )
+        logger.debug(f"rotate on bucket({size=}), {_hashes=}")
         if _hashes is not None:
-            self._executor.submit(self._cache_entries_cleanup, _hashes)
+            if _hashes:
+                self._executor.submit(self._cache_entries_cleanup, _hashes)
             return True
         else:
             return False
