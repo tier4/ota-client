@@ -1,15 +1,31 @@
 ecus:
-- main: true
-  name: autoware
+- main: true # main ecu or not. only one ecu should be main.
+  name: autoware # should be unique
   status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
-  version: 123.456
+  version: 123.456  # current version
+  time_to_update: 20 # in second
 
-- name: perception1
+- name: perception1 # should be unique
   status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
-  version: abc.def
+  version: abc.def  # current version
+  time_to_update: 30 # in second
 
-- name: perception2
-  status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
-  version: abc.def
+#- name: perception2
+#  status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
+#  version: abc.def
+#  time_to_update: 60 # in second
 
+#- name: perception3
+#  status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
+#  version: abc.def
+#  time_to_update: 60 # in second
 
+#- name: perception4
+#  status: INITIALIZED # INITIALIZED | SUCCESS | FAILURE | UPDATING | NO_CONNECTION
+#  version: abc.def
+#  time_to_update: 60 # in second
+
+#
+# global setting
+#
+restart_time: 3 # in second

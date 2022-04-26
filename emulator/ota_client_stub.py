@@ -1,4 +1,3 @@
-import os
 from threading import Timer, Thread
 
 from pathlib import Path
@@ -24,6 +23,7 @@ class OtaClientStub:
         assert len(mains) == 1
 
         self._ecus = ecus
+        self._main_ecu = mains[0]
         self._terminate = terminate
 
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
@@ -50,24 +50,18 @@ class OtaClientStub:
         logger.info(f"{request=}")
         response = v2.StatusResponse()
 
-        reboot = False
-
         for ecu in self._ecus:
             response_ecu = response.ecu.add()
             ecu.status(response_ecu)
             response.available_ecu_ids.extend([ecu._name])
-            if (
-                ecu._is_main
-                and response_ecu.status.progress.phase
-                == v2.StatusProgressPhase.PERSISTENT
-                # all sub ecus are SUCCESS
-            ):
-                reboot = True
 
-        logger.info(f"{response=}")
+        logger.debug(f"{response=}")
 
-        if reboot:
-            self._terminate(self._ecus)
+        if self._sub_ecus_success_and_main_ecu_phase_persistent(response.ecu):
+            self._main_ecu.change_to_success()
+            for index, ecu in enumerate(self._ecus):
+                self._ecus[index] = ecu.reset()  # create new ecu instances
+            self._terminate()
 
         return response
 
@@ -83,3 +77,16 @@ class OtaClientStub:
 
     def _status(self, ecu, response):
         ecu.status(response)
+
+    def _sub_ecus_success_and_main_ecu_phase_persistent(self, response_ecu):
+        for ecu in response_ecu:
+            if ecu.ecu_id == self._main_ecu._name:
+                if (
+                    ecu.status.status != v2.StatusOta.UPDATING
+                    or ecu.status.progress.phase != v2.StatusProgressPhase.PERSISTENT
+                ):
+                    return False
+            else:
+                if ecu.status.status != v2.StatusOta.SUCCESS:
+                    return False
+        return True

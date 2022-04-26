@@ -29,16 +29,19 @@ DEFAULT_ECUS = [
 ]
 
 
-def main(config):
+def main(config_file):
     logger.info("started")
 
     server = None
 
     try:
-        ecu_config = yaml.safe_load(config.read_text())["ecus"]
+        config = yaml.safe_load(config_file.read_text())
+        ecu_config = config["ecus"]
     except Exception as e:
         logger.warning(e)
-        logger.warning(f"{config} couldn't be parsed. Default config is used instead.")
+        logger.warning(
+            f"{config_file} couldn't be parsed. Default config is used instead."
+        )
         ecu_config = DEFAULT_ECUS
     ecus = []
     logger.info(ecu_config)
@@ -48,29 +51,14 @@ def main(config):
             name=ecu.get("name", "autoware"),
             status=ecu.get("status", "INITIALIZED"),
             version=str(ecu.get("version", "")),
+            time_to_update=int(ecu.get("time_to_update")),
         )
         ecus.append(e)
     logger.info(ecus)
 
-    def terminate(export_ecus):
-        nonlocal ecus
-        ecus = []
+    def terminate():
         logger.info(f"{server=}")
         service_stop(server)
-        for ecu in export_ecus:
-            version = (
-                ecu._version_to_update
-                if ecu._version_to_update is not None
-                else ecu._version
-            )
-            status = ecu._status.status
-            status = (
-                "SUCCESS"
-                if status == v2.StatusOta.Value("UPDATING")
-                else v2.StatusOta.Name(status)
-            )
-            e = ecu.reset(status, version)
-            ecus.append(e)
 
     while True:
         ota_client_stub = OtaClientStub(ecus, terminate)
@@ -85,8 +73,9 @@ def main(config):
         )
 
         service_wait_for_termination(server)
-        logger.info("restarting. wait 10s.")
-        time.sleep(1)
+        restart_time = config.get("restart_time", 10)
+        logger.info(f"restarting. wait {restart_time}s.")
+        time.sleep(restart_time)
 
 
 if __name__ == "__main__":
