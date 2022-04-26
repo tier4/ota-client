@@ -57,90 +57,94 @@ class _Register(set):
 
 
 class LRUCacheHelper:
-    """Manges LRU cache buckets by file size.
+    """A helper class that provides API for accessing/managing cache entries in db.
 
     Serveral buckets are created according to predefined file size threshould.
     Each bucket will maintain the cache entries of that bucket's size definition,
     LRU is applied on per-bucket scale.
 
-    NOTE: currently file that has size larger than 256MiB or smaller that 1KiB will always be saved.
+    NOTE: currently entry that has size larger than 512MiB or smaller that 1KiB will always be saved.
     """
+
+    BSIZE_LIST = list(cfg.BUCKET_FILE_SIZE_DICT.keys())
+    BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
     def __init__(self):
         self._db: db.OTACacheDB = db.DBProxy(cfg.DB_FILE)
-        self._bsize_list = list(cfg.BUCKET_FILE_SIZE_DICT.keys())
-        self._bsize_dict = cfg.BUCKET_FILE_SIZE_DICT
 
     def _bin_search(self, file_size: int) -> int:
-        """Left-closed and right-opened"""
+        """NOTE: The interval is Left-closed and right-opened."""
         if file_size < 0:
             raise ValueError(f"invalid file size {file_size}")
 
-        s, e = 0, len(self._bsize_list) - 1
-        if file_size < self._bsize_list[-1]:
+        s, e = 0, len(self.BSIZE_LIST) - 1
+        if file_size < self.BSIZE_LIST[-1]:
             while True:
                 if abs(e - s) <= 1:
                     break
 
                 mid = (s + e) // 2
-                if file_size < self._bsize_list[mid]:
+                if file_size < self.BSIZE_LIST[mid]:
                     e = mid
                 else:
                     s = mid
 
-            target_size = self._bsize_list[s]
+            target_size = self.BSIZE_LIST[s]
         else:
-            target_size = self._bsize_list[-1]
+            target_size = self.BSIZE_LIST[-1]
 
         return target_size
 
     def commit_entry(self, entry: db.CacheMeta):
-        # update the CacheMeta
+        """Commit cache entry meta to the database."""
+        # populate bucket and last_access column
         entry.bucket = self._bin_search(entry.size)
         entry.last_access = datetime.now().timestamp()
 
         if self._db.insert_entry(entry) != 1:
-            logger.error(f"failed to add entry to db: {entry=}")
+            logger.warning(f"db: failed to add {entry=}")
         else:
-            logger.debug(f"successfully commit entry to db: {entry=}")
+            logger.debug(f"db: commit {entry=} successfully")
 
     def lookup_entry(self, url: str) -> db.CacheMeta:
         return self._db.lookup_url(url)
 
     def remove_entry(self, *, url: str = None, _hash: str = None) -> bool:
-        if url is not None and self._db.remove_entries_by_urls(url) == 1:
+        """Remove one entry from database by url or hash."""
+        if url and self._db.remove_entries_by_urls(url) == 1:
             return True
 
-        if _hash is not None and self._db.remove_entries_by_hashes(_hash) == 1:
+        if _hash and self._db.remove_entries_by_hashes(_hash) == 1:
             return True
 
         return False
 
     def rotate_cache(self, size: int) -> Union[List[str], None]:
-        """
+        """Wrapper method for calling the database LRU cache rotating method.
+
         Args:
             size int: the size of file that we want to reserve space for
 
         Returns:
             A list of hashes that needed to be cleaned.
         """
-        # NOTE: currently file size >= 256MiB or file size < 1KiB
+        # NOTE: currently file size >= 512MiB or file size < 1KiB
         # will be saved without cache rotating.
-        if size >= self._bsize_list[-1] or size < self._bsize_list[1]:
+        if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
             return True
 
         _cur_bucket_size = self._bin_search(size)
-        _cur_bucket_idx = self._bsize_list.index(_cur_bucket_size)
+        _cur_bucket_idx = self.BSIZE_LIST.index(_cur_bucket_size)
 
         # first check the upper bucket
-        for _bucket_size in self._bsize_list[_cur_bucket_idx + 1 :]:
-            res = self._db.rotate_cache(_bucket_size, self._bsize_dict[_bucket_size])
+        for _bucket_size in self.BSIZE_LIST[_cur_bucket_idx + 1 :]:
+            res = self._db.rotate_cache(_bucket_size, self.BSIZE_DICT[_bucket_size])
             if res:
                 return res
 
-        # if failed, check current
+        # if cannot find one entry at any upper bucket, check current bucket
         return self._db.rotate_cache(
-            _cur_bucket_size, self._bsize_dict[_cur_bucket_size]
+            _cur_bucket_size, self.BSIZE_DICT[_cur_bucket_size]
         )
 
 
