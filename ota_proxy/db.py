@@ -75,7 +75,7 @@ class OTACacheDB:
         self._con = sqlite3.connect(
             self._db_file,
             check_same_thread=True,  # one thread per connection in the threadpool
-            isolation_level=None,  # enable autocommit mode
+            # isolation_level=None,  # enable autocommit mode
         )
         self._con.row_factory = sqlite3.Row
 
@@ -87,17 +87,25 @@ class OTACacheDB:
                     (self.TABLE_NAME,),
                 )
 
-            if cur.fetchone() is None:
-                logger.warning(f"{self.TABLE_NAME} not found, init db...")
-                # create ota_cache table
-                con.execute(self.INIT_OTA_CACHE, ())
+                if cur.fetchone() is None:
+                    logger.warning(f"{self.TABLE_NAME} not found, init db...")
+                    # create ota_cache table
+                    con.execute(self.INIT_OTA_CACHE, ())
 
-                # create indices
-                for idx in self.OTA_CACHE_IDX:
-                    con.execute(idx, ())
+                    # create indices
+                    for idx in self.OTA_CACHE_IDX:
+                        con.execute(idx, ())
 
-            # enable WAL mode
-            con.execute("PRAGMA journal_mode=WAL;")
+                ### db performance tunning
+                # enable WAL mode
+                con.execute("PRAGMA journal_mode = WAL;")
+                # set synchronous mode
+                con.execute("PRAGMA synchronous = normal;")
+                # set temp_store to memory
+                con.execute("PRAGMA temp_store = memory;")
+                # enable mmap (size in bytes)
+                mmap_size = 128 * 1024 * 1024  # 128MiB
+                con.execute(f"PRAGMA mmap_size = {mmap_size};")
         except sqlite3.Error as e:
             logger.debug(f"init db failed: {e!r}")
             raise e
