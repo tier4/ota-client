@@ -104,7 +104,7 @@ class OTACacheDB:
                 # set temp_store to memory
                 con.execute("PRAGMA temp_store = memory;")
                 # enable mmap (size in bytes)
-                mmap_size = 128 * 1024 * 1024  # 128MiB
+                mmap_size = 64 * 1024 * 1024  # 64MiB
                 con.execute(f"PRAGMA mmap_size = {mmap_size};")
         except sqlite3.Error as e:
             logger.debug(f"init db failed: {e!r}")
