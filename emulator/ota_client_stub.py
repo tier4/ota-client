@@ -60,8 +60,8 @@ class OtaClientStub:
         if self._sub_ecus_success_and_main_ecu_phase_persistent(response.ecu):
             self._main_ecu.change_to_success()
             for index, ecu in enumerate(self._ecus):
-                self._ecus[index] = ecu.reset()  # create new ecu instances
-            self._terminate()
+                self._ecus[index] = ecu.create()  # create new ecu instances
+            self._terminate(self._main_ecu._time_to_restart)
 
         return response
 

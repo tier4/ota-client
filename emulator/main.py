@@ -52,13 +52,16 @@ def main(config_file):
             status=ecu.get("status", "INITIALIZED"),
             version=str(ecu.get("version", "")),
             time_to_update=int(ecu.get("time_to_update")),
+            restart_time=config.get("restart_time"),
         )
         ecus.append(e)
     logger.info(ecus)
 
-    def terminate():
+    def terminate(restart_time):
         logger.info(f"{server=}")
         service_stop(server)
+        logger.info(f"restarting. wait {restart_time}s.")
+        time.sleep(restart_time)
 
     while True:
         ota_client_stub = OtaClientStub(ecus, terminate)
@@ -73,9 +76,6 @@ def main(config_file):
         )
 
         service_wait_for_termination(server)
-        restart_time = config.get("restart_time", 10)
-        logger.info(f"restarting. wait {restart_time}s.")
-        time.sleep(restart_time)
 
 
 if __name__ == "__main__":

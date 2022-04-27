@@ -13,8 +13,17 @@ class Ecu:
     TOTAL_REGULAR_FILES = 123456789
     TOTAL_REGULAR_FILE_SIZE = 987654321
     TIME_TO_UPDATE = 60 * 5
+    TIME_TO_RESTART = 10
 
-    def __init__(self, is_main, name, status, version, time_to_update=TIME_TO_UPDATE):
+    def __init__(
+        self,
+        is_main,
+        name,
+        status,
+        version,
+        time_to_update=TIME_TO_UPDATE,
+        time_to_restart=TIME_TO_RESTART,
+    ):
         self._is_main = is_main
         self._name = name
         self._version = version
@@ -22,15 +31,17 @@ class Ecu:
         self._status = v2.Status()
         self._status.status = v2.StatusOta.Value(status)
         self._update_time = None
-        self._time_to_update_ms = time_to_update * 1000
+        self._time_to_update = time_to_update
+        self._time_to_restart = time_to_restart
 
-    def reset(self):
+    def create(self):
         return Ecu(
             is_main=self._is_main,
             name=self._name,
             status=v2.StatusOta.Name(self._status.status),
             version=self._version,
-            time_to_update=self._time_to_update_ms // 1000,
+            time_to_update=self._time_to_update,
+            time_to_restart=self._time_to_restart,
         )
 
     def change_to_success(self):
@@ -57,15 +68,21 @@ class Ecu:
         ecu.ecu_id = self._name
         ecu.result = v2.FailureType.NO_FAILURE
 
-        progress_rate = (
-            0
-            if self._update_time is None
-            else (time.time() - self._update_time) * 1000 / self._time_to_update_ms
-        )
+        try:
+            elapsed = time.time() - self._update_time
+            progress_rate = elapsed / self._time_to_update
+        except TypeError:  # when self._update_time is None
+            elapsed = 0
+            progress_rate = 0
 
-        if self._is_main or progress_rate <= 1.2:
+        # Main ecu waits for all sub ecu sucesss, while sub ecu transitions to
+        # success by itself. This code is intended to mimic that.
+        # The actual ecu updates, restarts and then transitions to success.
+        # In this code, after starting update and after time_to_update +
+        # time_to_restart elapsed, it transitions to success.
+        if self._is_main or elapsed < (self._time_to_update + self._time_to_restart):
             ecu.status.progress.CopyFrom(self._progress_rate_to_progress(progress_rate))
-        else:
+        else:  # sub ecu and elapsed time exceeds (time_to_update + time_to_restart).
             self.change_to_success()
 
         ecu.status.status = self._status.status
@@ -104,20 +121,18 @@ class Ecu:
                 - progress.file_size_processed_link
             )
 
-            progress.elapsed_time_copy.FromMilliseconds(
-                int(self._time_to_update_ms * rate * 0.4)
+            progress.elapsed_time_copy.FromSeconds(
+                int(self._time_to_update * rate * 0.4)
             )
-            progress.elapsed_time_link.FromMilliseconds(
-                int(self._time_to_update_ms * rate * 0.01)
+            progress.elapsed_time_link.FromSeconds(
+                int(self._time_to_update * rate * 0.01)
             )
-            progress.elapsed_time_download.FromMilliseconds(
-                int(self._time_to_update_ms * rate * 0.6)
+            progress.elapsed_time_download.FromSeconds(
+                int(self._time_to_update * rate * 0.6)
             )
             progress.errors_download = int(rate * 0.1)
             progress.total_regular_file_size = self.TOTAL_REGULAR_FILE_SIZE
-            progress.total_elapsed_time.FromMilliseconds(
-                int(self._time_to_update_ms * rate)
-            )
+            progress.total_elapsed_time.FromSeconds(int(self._time_to_update * rate))
         else:
             progress.phase = v2.StatusProgressPhase.PERSISTENT
             progress.total_regular_files = self.TOTAL_REGULAR_FILES
@@ -139,16 +154,10 @@ class Ecu:
                 - progress.file_size_processed_link
             )
 
-            progress.elapsed_time_copy.FromMilliseconds(
-                int(self._time_to_update_ms * 0.4)
-            )
-            progress.elapsed_time_link.FromMilliseconds(
-                int(self._time_to_update_ms * 0.01)
-            )
-            progress.elapsed_time_download.FromMilliseconds(
-                int(self._time_to_update_ms * 0.6)
-            )
+            progress.elapsed_time_copy.FromSeconds(int(self._time_to_update * 0.4))
+            progress.elapsed_time_link.FromSeconds(int(self._time_to_update * 0.01))
+            progress.elapsed_time_download.FromSeconds(int(self._time_to_update * 0.6))
             progress.errors_download = int(rate * 0.1)
             progress.total_regular_file_size = self.TOTAL_REGULAR_FILE_SIZE
-            progress.total_elapsed_time.FromMilliseconds(int(self._time_to_update_ms))
+            progress.total_elapsed_time.FromSeconds(self._time_to_update)
         return progress
