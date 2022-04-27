@@ -82,10 +82,10 @@ class Ecu:
         # The actual ecu updates, restarts and then transitions to success.
         # In this code, after starting update and after time_to_update +
         # time_to_restart elapsed, it transitions to success.
-        if self._is_main or should_restart:
-            ecu.status.progress.CopyFrom(self._progress_rate_to_progress(progress_rate))
-        else:  # sub ecu and elapsed time exceeds (time_to_update + time_to_restart).
+        if not self._is_main and should_restart:
             self.change_to_success()
+        else:
+            ecu.status.progress.CopyFrom(self._progress_rate_to_progress(progress_rate))
 
         ecu.status.status = self._status.status
         ecu.status.failure = v2.FailureType.NO_FAILURE
