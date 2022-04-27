@@ -52,7 +52,7 @@ def main(config_file):
             status=ecu.get("status", "INITIALIZED"),
             version=str(ecu.get("version", "")),
             time_to_update=int(ecu.get("time_to_update")),
-            restart_time=config.get("restart_time"),
+            time_to_restart=config.get("time_to_restart"),
         )
         ecus.append(e)
     logger.info(ecus)
