@@ -11,7 +11,7 @@ from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from queue import Queue
-from threading import Event
+from multiprocessing import Event
 from typing import Callable, Dict, AsyncGenerator, List, Set, Tuple, Union
 
 from . import db
@@ -438,6 +438,7 @@ class OTACache:
         *,
         cache_enabled: bool,
         init_cache: bool,
+        scrub_cache_event: Event,
         upper_proxy: str = None,
         enable_https: bool = False,
     ):
@@ -484,6 +485,8 @@ class OTACache:
                 # scrub the cache folder
                 _scrub_cache = OTACacheScrubHelper()
                 _scrub_cache()
+                # signal ota_client that cache scrubing is done
+                scrub_cache_event.set()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
@@ -497,6 +500,8 @@ class OTACache:
                 self._enable_https = False
 
         else:
+            # even if we don't enable caching, we still need to signal ota_client
+            scrub_cache_event.set()
             self._cache_enabled = False
 
     def close(self):
