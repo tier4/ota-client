@@ -51,8 +51,8 @@ def main(config_file):
             name=ecu.get("name", "autoware"),
             status=ecu.get("status", "INITIALIZED"),
             version=str(ecu.get("version", "")),
-            time_to_update=int(ecu.get("time_to_update")),
-            time_to_restart=config.get("time_to_restart"),
+            time_to_update=ecu.get("time_to_update"),
+            time_to_restart=ecu.get("time_to_restart"),
         )
         ecus.append(e)
     logger.info(ecus)

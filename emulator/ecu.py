@@ -71,16 +71,18 @@ class Ecu:
         try:
             elapsed = time.time() - self._update_time
             progress_rate = elapsed / self._time_to_update
+            should_restart = elapsed > (self._time_to_update + self._time_to_restart)
         except TypeError:  # when self._update_time is None
             elapsed = 0
             progress_rate = 0
+            should_restart = False
 
         # Main ecu waits for all sub ecu sucesss, while sub ecu transitions to
         # success by itself. This code is intended to mimic that.
         # The actual ecu updates, restarts and then transitions to success.
         # In this code, after starting update and after time_to_update +
         # time_to_restart elapsed, it transitions to success.
-        if self._is_main or elapsed < (self._time_to_update + self._time_to_restart):
+        if self._is_main or should_restart:
             ecu.status.progress.CopyFrom(self._progress_rate_to_progress(progress_rate))
         else:  # sub ecu and elapsed time exceeds (time_to_update + time_to_restart).
             self.change_to_success()
