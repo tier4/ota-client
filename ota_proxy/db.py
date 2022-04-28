@@ -104,7 +104,7 @@ class OTACacheDB:
                 # set temp_store to memory(commented out due to too much memory consumption)
                 # con.execute("PRAGMA temp_store = memory;")
                 # enable mmap (size in bytes)
-                mmap_size = 64 * 1024 * 1024  # 64MiB
+                mmap_size = 32 * 1024 * 1024  # 32MiB
                 con.execute(f"PRAGMA mmap_size = {mmap_size};")
         except sqlite3.Error as e:
             logger.debug(f"init db failed: {e!r}")
@@ -222,25 +222,43 @@ class DBProxy:
             self._thread_local.db = OTACacheDB(db_f, init=False)
 
         # 1 thread is enough according to small scale test
-        self._db_executor = ThreadPoolExecutor(max_workers=1, initializer=_initializer)
+        self._db_executor = ThreadPoolExecutor(max_workers=3, initializer=_initializer)
 
     def close(self):
         self._db_executor.shutdown(wait=True)
 
-    def __getattr__(self, key: str):
-        """Passthrough method call by dot operator to threadpool."""
+    def _proxy_helper(self, key, *args, **kwargs):
+        _db = self._thread_local.db
+        _attr = getattr(_db, key)
+        if not callable(_attr):
+            raise AttributeError
 
-        def _outer(*args, **kwargs):
-            def _inner():
-                _db = self._thread_local.db
-                _attr = getattr(_db, key)
-                if not callable(_attr):
-                    raise AttributeError
+        return _attr(*args, **kwargs)
 
-                return _attr(*args, **kwargs)
+    def remove_entries_by_hashes(self, *hashes: str) -> int:
+        fut = self._db_executor.submit(
+            self._proxy_helper, "remove_entries_by_hashes", *hashes
+        )
+        return fut.result()
 
-            # inner is dispatched to the db connection threadpool
-            fut = self._db_executor.submit(_inner)
-            return fut.result()
+    def remove_entries_by_urls(self, *urls: str) -> int:
+        fut = self._db_executor.submit(
+            self._proxy_helper, "remove_entries_by_urls", *urls
+        )
+        return fut.result()
 
-        return _outer
+    def insert_entry(self, *cache_meta: CacheMeta) -> int:
+        fut = self._db_executor.submit(self._proxy_helper, "insert_entry", *cache_meta)
+        return fut.result()
+
+    def lookup_url(self, url: str) -> CacheMeta:
+        fut = self._db_executor.submit(self._proxy_helper, "lookup_url", url)
+        return fut.result()
+
+    def lookup_all(self) -> List[CacheMeta]:
+        fut = self._db_executor.submit(self._proxy_helper, "lookup_all")
+        return fut.result()
+
+    def rotate_cache(self, bucket: int, num: int) -> Union[str, None]:
+        fut = self._db_executor.submit(self._proxy_helper, "rotate_cache", bucket, num)
+        return fut.result()
