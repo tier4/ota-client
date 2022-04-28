@@ -73,10 +73,10 @@ class Config:
         16 * 1024: 2,  # 16KiB
         32 * 1024: 8,
         256 * 1024: 16,  # 256KiB
-        4 * (1024 ** 2): 2,  # 4MiB
-        8 * (1024 ** 2): 32,  # 8MiB
-        256 * (1024 ** 2): 2,
-        512 * (1024 ** 2): 0,  # not filtered
+        4 * (1024**2): 2,  # 4MiB
+        8 * (1024**2): 32,  # 8MiB
+        256 * (1024**2): 2,
+        512 * (1024**2): 0,  # not filtered
     }
     DB_FILE = f"{BASE_DIR}/cache_db"
 
@@ -99,7 +99,7 @@ class Config:
 
     OTA_CACHE_IDX: List[str] = field(
         default_factory=lambda: [
-            f"CREATE INDEX bucket_last_access_idx ON ota_cache(bucket, last_access)",
+            "CREATE INDEX bucket_last_access_idx ON ota_cache(bucket, last_access)",
         ]
     )
 
