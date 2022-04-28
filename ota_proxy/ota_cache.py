@@ -701,6 +701,32 @@ class OTACache:
             logger.exception(f"failed on callback for {meta=}")
 
     ###### create fp ######
+    async def _local_fp_stream(self, fpath: Path, tracker: OngoingCacheTracker):
+        async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
+            retry_count = 0
+            while True:
+                data = await f.read(self._chunk_size)
+                if len(data) > 0:
+                    retry_count = 0
+                    yield data
+                else:
+                    if tracker.cache_done.is_set():
+                        if tracker._is_failed:
+                            raise ValueError(f"corrupted cache on {tracker.fn}")
+                        break
+
+                    _wait = get_backoff(
+                        retry_count,
+                        self.CACHE_STREAM_BACKOFF_FACTOR,
+                        self.CACHE_STREAM_TIMEOUT_MAX,
+                    )
+                    if _wait < self.CACHE_STREAM_TIMEOUT_MAX:
+                        await asyncio.sleep(_wait)
+                        retry_count += 1
+                    else:
+                        # timeout on streaming cache entry
+                        raise TimeoutError(f"timeout streaming on {tracker.fn}")
+
     async def _open_fp_by_cache_streaming(self, tracker: OngoingCacheTracker):
         # wait for writer to become ready
         try:
@@ -711,34 +737,16 @@ class OTACache:
             raise TimeoutError(f"timeout waiting for {tracker.fn}") from None
 
         fpath = self._base_dir / tracker.fn
+        return self._local_fp_stream(fpath, tracker)
 
-        async def _fp():
-            async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
-                retry_count = 0
-                while True:
-                    data = await f.read(self._chunk_size)
-                    if len(data) > 0:
-                        retry_count = 0
-                        yield data
-                    else:
-                        if tracker.cache_done.is_set():
-                            if tracker._is_failed:
-                                raise ValueError(f"corrupted cache on {tracker.fn}")
-                            break
-
-                        _wait = get_backoff(
-                            retry_count,
-                            self.CACHE_STREAM_BACKOFF_FACTOR,
-                            self.CACHE_STREAM_TIMEOUT_MAX,
-                        )
-                        if _wait < self.CACHE_STREAM_TIMEOUT_MAX:
-                            await asyncio.sleep(_wait)
-                            retry_count += 1
-                        else:
-                            # timeout on streaming cache entry
-                            raise TimeoutError(f"timeout streaming on {tracker.fn}")
-
-        return _fp()
+    async def _local_fp(self, fpath: Path):
+        async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
+            while True:
+                data = await f.read(self._chunk_size)
+                if len(data) > 0:
+                    yield data
+                else:
+                    break
 
     async def _open_fp_by_cache(
         self, meta: db.CacheMeta
@@ -758,19 +766,35 @@ class OTACache:
         fpath = self._base_dir / hash
 
         if fpath.is_file():
-
-            async def _fp():
-                async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
-                    while True:
-                        data = await f.read(self._chunk_size)
-                        if len(data) > 0:
-                            yield data
-                        else:
-                            break
-
-            return _fp()
+            return self._local_fp(fpath)
         else:
             raise FileNotFoundError(f"cache entry {hash} doesn't exist!")
+
+    async def _remote_fp(
+        self,
+        url: str,
+        raw_url: str,
+        cookies: Dict[str, str],
+        extra_headers: Dict[str, str],
+    ):
+        async with self._session.get(
+            url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
+        ) as response:
+            # assembling output cachemeta
+            # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
+            # NOTE.2: store the original unquoted url into the CacheMeta
+            # NOTE.3: hash, and size will be assigned at background_write_cache method
+            # NOTE.4: bucket and last_access will be assigned at commit_entry method
+            yield db.CacheMeta(
+                url=raw_url,
+                content_encoding=response.headers.get("content-encoding", ""),
+                content_type=response.headers.get(
+                    "content-type", "application/octet-stream"
+                ),
+            )
+
+            async for data, _ in response.content.iter_chunks():
+                yield data
 
     async def _open_fp_by_requests(
         self,
@@ -810,30 +834,9 @@ class OTACache:
         if self._enable_https:
             extra_headers.pop(OTAFileCacheControl.header.value, None)
 
-        ###### wrap the request inside a generator ######
-        async def _fp():
-            async with self._session.get(
-                url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
-            ) as response:
-                # assembling output cachemeta
-                # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
-                # NOTE.2: store the original unquoted url into the CacheMeta
-                # NOTE.3: hash, and size will be assigned at background_write_cache method
-                # NOTE.4: bucket and last_access will be assigned at commit_entry method
-                yield db.CacheMeta(
-                    url=raw_url,
-                    content_encoding=response.headers.get("content-encoding", ""),
-                    content_type=response.headers.get(
-                        "content-type", "application/octet-stream"
-                    ),
-                )
-
-                async for data, _ in response.content.iter_chunks():
-                    yield data
-
         # start the fp
         try:
-            res = _fp()
+            res = self._remote_fp(url, raw_url, cookies, extra_headers)
             meta = await res.__anext__()
 
             if tracker is not None:
