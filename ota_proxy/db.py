@@ -221,7 +221,7 @@ class DBProxy:
             """Init a db connection for each thread worker"""
             self._thread_local.db = OTACacheDB(db_f, init=False)
 
-        # 1 thread is enough according to small scale test
+        # use 3 workers for requests handling
         self._db_executor = ThreadPoolExecutor(max_workers=3, initializer=_initializer)
 
     def close(self):
