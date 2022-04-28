@@ -1,8 +1,7 @@
+import aiohttp
 from http import HTTPStatus
 from threading import Lock
 from typing import Dict, List
-
-import aiohttp
 
 from . import ota_cache
 from .config import OTAFileCacheControl, config as cfg
@@ -177,36 +176,12 @@ class App:
                     )
                     return
 
-        f: ota_cache.OTAFile = None
         try:
-            f = await self._ota_cache.retrieve_file(
+            fp, meta = await self._ota_cache.retrieve_file(
                 url, cookies_dict, extra_headers, ota_cache_control_policies
             )
-        except aiohttp.ClientResponseError as e:
-            await self._respond_with_error(e.status, e.message, send)
-            raise
-        except aiohttp.ClientConnectionError:
-            await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                "failed to connect to remote server",
-                send,
-            )
-            raise
-        except aiohttp.ClientError as e:
-            await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
-            )
-            raise
-        except Exception as e:
-            await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, f"{e!r}", send
-            )
-            raise
 
-        # parse response
-        # NOTE: currently only record content_type and content_encoding
-        if f:
-            meta = f.meta
+            # NOTE: currently only record content_type and content_encoding
             headers = []
             if meta.content_type:
                 headers.append([b"Content-Type", meta.content_type.encode()])
@@ -217,17 +192,30 @@ class App:
             await self._init_response(HTTPStatus.OK, headers, send)
 
             # stream the response to the client
-            async for chunk in f.get_chunks():
+            async for chunk in fp:
                 await self._send_chunk(chunk, True, send)
             # finish the streaming by send a 0 len payload
             await self._send_chunk(b"", False, send)
-        else:
+        except aiohttp.ClientResponseError as e:
+            await self._respond_with_error(e.status, e.message, send)
+            logger.exception(f"request for {url=} failed")
+        except aiohttp.ClientConnectionError:
             await self._respond_with_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                f"failed to retrieve file for {url=}",
+                "failed to connect to remote server",
                 send,
             )
-            raise ValueError(f"failed to retrieve {url=} from ota_cache")
+            logger.exception(f"request for {url=} failed")
+        except aiohttp.ClientError as e:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
+            )
+            logger.exception(f"request for {url=} failed")
+        except Exception as e:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, f"failed on retrieve fp: {e!r}", send
+            )
+            logger.exception(f"request for {url=} failed")
 
     async def app(self, scope, send):
         """The real entry for the ota_proxy."""
