@@ -176,10 +176,8 @@ class App:
                     )
                     return
 
+        respond_started = False
         try:
-            # prepare the response to the client
-            await self._init_response(HTTPStatus.OK, headers, send)
-
             fp, meta = await self._ota_cache.retrieve_file(
                 url, cookies_dict, extra_headers, ota_cache_control_policies
             )
@@ -190,6 +188,10 @@ class App:
                 headers.append([b"Content-Type", meta.content_type.encode()])
             if meta.content_encoding:
                 headers.append([b"Content-Encoding", meta.content_encoding.encode()])
+
+            # prepare the response to the client
+            await self._init_response(HTTPStatus.OK, headers, send)
+            respond_started = True
 
             # stream the response to the client
             async for chunk in fp:
@@ -212,10 +214,16 @@ class App:
             )
             logger.exception(f"request for {url=} failed")
         except Exception as e:
-            await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, f"failed on retrieve fp: {e!r}", send
-            )
-            logger.exception(f"request for {url=} failed")
+            # exceptions rather than aiohttp error indicates
+            # internal errors of ota_cache,
+            logger.exception(f"request for {url=} failed from ota_cache")
+            # terminate the transmission
+            if respond_started:
+                await send({"type": "http.response.body", "body": b""})
+            else:
+                await self._respond_with_error(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, f"internal error: {e!r}", send
+                )
 
     async def app(self, scope, send):
         """The real entry for the ota_proxy."""
