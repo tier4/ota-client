@@ -101,8 +101,8 @@ class OTACacheDB:
                 con.execute("PRAGMA journal_mode = WAL;")
                 # set synchronous mode
                 con.execute("PRAGMA synchronous = normal;")
-                # set temp_store to memory
-                con.execute("PRAGMA temp_store = memory;")
+                # set temp_store to memory(commented out due to too much memory consumption)
+                # con.execute("PRAGMA temp_store = memory;")
                 # enable mmap (size in bytes)
                 mmap_size = 64 * 1024 * 1024  # 64MiB
                 con.execute(f"PRAGMA mmap_size = {mmap_size};")
