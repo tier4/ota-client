@@ -104,8 +104,8 @@ class OTACacheDB:
                 # set temp_store to memory(commented out due to too much memory consumption)
                 # con.execute("PRAGMA temp_store = memory;")
                 # enable mmap (size in bytes)
-                mmap_size = 32 * 1024 * 1024  # 32MiB
-                con.execute(f"PRAGMA mmap_size = {mmap_size};")
+                # mmap_size = 32 * 1024 * 1024  # 32MiB
+                # con.execute(f"PRAGMA mmap_size = {mmap_size};")
         except sqlite3.Error as e:
             logger.debug(f"init db failed: {e!r}")
             raise e
@@ -222,7 +222,7 @@ class DBProxy:
             self._thread_local.db = OTACacheDB(db_f, init=False)
 
         # use 3 workers for requests handling
-        self._db_executor = ThreadPoolExecutor(max_workers=3, initializer=_initializer)
+        self._db_executor = ThreadPoolExecutor(max_workers=6, initializer=_initializer)
 
     def close(self):
         self._db_executor.shutdown(wait=True)
