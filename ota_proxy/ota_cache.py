@@ -374,7 +374,7 @@ class OTAFile:
             # if any exception happens, signal the caching thread
             self._cache_tee_aborted.set()
 
-            logger.exception(f"cache tee failed")
+            logger.exception("cache tee failed")
             raise e from None
         finally:
             # always close the file if get_chunk finished
