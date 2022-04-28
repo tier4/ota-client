@@ -177,6 +177,9 @@ class App:
                     return
 
         try:
+            # prepare the response to the client
+            await self._init_response(HTTPStatus.OK, headers, send)
+
             fp, meta = await self._ota_cache.retrieve_file(
                 url, cookies_dict, extra_headers, ota_cache_control_policies
             )
@@ -187,9 +190,6 @@ class App:
                 headers.append([b"Content-Type", meta.content_type.encode()])
             if meta.content_encoding:
                 headers.append([b"Content-Encoding", meta.content_encoding.encode()])
-
-            # prepare the response to the client
-            await self._init_response(HTTPStatus.OK, headers, send)
 
             # stream the response to the client
             async for chunk in fp:
