@@ -24,6 +24,72 @@ logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
 
 
+class OngoingCacheTracker:
+    def __init__(self, fn: str, ref_holder: Any):
+        self.fn = fn
+        self.writer_ready = asyncio.Event()
+        self.cache_done = Event()
+        self._is_failed = False
+        self._ref_holer = ref_holder
+
+    async def writer_on_ready(self, meta):
+        """Register meta to the Tracker and get ready."""
+        self.meta = meta
+        self.writer_ready.set()
+
+    def writer_on_finish(self):
+        """NOTE: must ensure cache entry is committed into the database
+            before calling this function!
+        NOTE 2: this method is cross-thread method
+        """
+        if not self.cache_done.is_set():
+            self.cache_done.set()
+            del self._ref_holer
+
+    def writer_on_failed(self):
+        """NOTE: this method is cross-thread method"""
+        logger.warning(f"writer failed on {self.fn}, abort...")
+        self._is_failed = True
+
+        if not self.cache_done.is_set():
+            self.cache_done.set()
+            del self._ref_holer
+
+
+class CachingTracker:
+    def __init__(self, base_dir: str):
+        self._base_dir = Path(base_dir)
+        self._lock = Lock()
+        self._url_ref_dict: Dict[bytes, asyncio.Event] = weakref.WeakValueDictionary()
+        self._ref_tracker_dict: Dict[
+            asyncio.Event, OngoingCacheTracker
+        ] = weakref.WeakKeyDictionary()
+
+    def _finalizer(self, fn: str):
+        # cleanup(unlink) the tmp file
+        (self._base_dir / fn).unlink(missing_ok=True)
+
+    async def get_tracker(self, url: str) -> Tuple[OngoingCacheTracker, bool]:
+        _ref = self._url_ref_dict.get(url)
+        if _ref:
+            await _ref.wait()  # wait for writer to fully initialized
+            _tracker = self._ref_tracker_dict[_ref]
+            return _tracker, False
+        else:
+            _tmp_fn = f"tmp_{urandom(16).hex()}"
+
+            _ref = asyncio.Event()
+            self._url_ref_dict[url] = _ref
+
+            _tracker = OngoingCacheTracker(_tmp_fn, _ref)
+            self._ref_tracker_dict[_ref] = _tracker
+            # cleanup tmp file when _tracker is gc.
+            weakref.finalize(_tracker, self._finalizer, _tmp_fn)
+
+            _ref.set()
+            return _tracker, True
+
+
 def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
     try:
         return (
