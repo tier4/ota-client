@@ -544,6 +544,8 @@ class OTACache:
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
                 # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
+                # init only
+                db.OTACacheDB(cfg.DB_FILE, init=True)
             else:
                 # scrub the cache folder
                 _scrub_cache = OTACacheScrubHelper()
@@ -706,12 +708,12 @@ class OTACache:
                 logger.debug(f"cache for {meta.url=} failed, cleanup")
                 Path(f.temp_fpath).unlink(missing_ok=True)
                 tracker.writer_on_failed()
-        except Exception:
+        except Exception as e:
             tracker.writer_on_failed()
-            logger.exception(f"failed on callback for {meta=}")
+            logger.exception(f"failed on callback for {meta=}: {e!r}")
 
     ###### create fp ######
-    async def _local_fp_stream(self, fpath: Path, tracker: OngoingCacheTracker):
+    async def _local_fp_stream(self, fpath, tracker):
         async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
             retry_count = 0
             while True:
@@ -749,7 +751,7 @@ class OTACache:
         fpath = self._base_dir / tracker.fn
         return self._local_fp_stream(fpath, tracker)
 
-    async def _local_fp(self, fpath: Path):
+    async def _local_fp(self, fpath):
         async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
             while True:
                 data = await f.read(self._chunk_size)
@@ -758,9 +760,7 @@ class OTACache:
                 else:
                     break
 
-    async def _open_fp_by_cache(
-        self, meta: db.CacheMeta
-    ) -> AsyncGenerator[bytes, None]:
+    async def _open_fp_by_cache(self, _hash: str) -> AsyncGenerator[bytes, None]:
         """Opens file descriptor by opening local cached entry.
 
         Args:
@@ -772,21 +772,13 @@ class OTACache:
         Raises:
             FileNotFoundError: Raised if the file indicates by the meta doesn't exist.
         """
-        hash: str = meta.hash
-        fpath = self._base_dir / hash
-
+        fpath = self._base_dir / _hash
         if fpath.is_file():
             return self._local_fp(fpath)
         else:
-            raise FileNotFoundError(f"cache entry {hash} doesn't exist!")
+            raise FileNotFoundError(f"cache entry {_hash} doesn't exist!")
 
-    async def _remote_fp(
-        self,
-        url: str,
-        raw_url: str,
-        cookies: Dict[str, str],
-        extra_headers: Dict[str, str],
-    ):
+    async def _remote_fp(self, url, raw_url, cookies, extra_headers):
         async with self._session.get(
             url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
         ) as response:
@@ -981,6 +973,6 @@ class OTACache:
         # case 3: cache is available and valid, use cache
         else:
             logger.debug(f"use cache for {url=}")
-            fp = await self._open_fp_by_cache(meta_db_entry)
+            fp = await self._open_fp_by_cache(meta_db_entry.hash)
             # use cache
             return fp, meta_db_entry
