@@ -347,6 +347,8 @@ class OTAFile:
             # NOTE: if queue is empty but self._finished is not set,
             # it may indicate that an unfinished caching might happen
 
+        except Exception as e:
+            logger.debug(f"failed on writing cache for {tracker.fn}: {e!r}")
         finally:
             # NOTE: always remember to call callback
             callback(self, tracker)
