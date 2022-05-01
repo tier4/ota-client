@@ -3,6 +3,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import make_dataclass
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Union
 
@@ -209,56 +210,46 @@ class OTACacheDB:
                 return [row["hash"] for row in _rows]
 
 
+def _proxy_wrapper(attr_n):
+    def _wrapped(self, *args, **kwargs):
+        # get the handler from underlaying db connector
+        def _inner():
+            _db = self._thread_local.db
+            f = partial(getattr(_db, attr_n), *args, **kwargs)
+            return f()
+
+        # inner is dispatched to the db connection threadpool
+        fut = self._executor.submit(_inner)
+        return fut.result()
+
+    return _wrapped
+
+
+def _proxy_cls_factory(cls, *, target):
+    for attr_n, attr in target.__dict__.items():
+        if not attr_n.startswith("_") and callable(attr):
+            # override method
+            setattr(cls, attr_n, _proxy_wrapper(attr_n))
+
+    return cls
+
+
+@partial(_proxy_cls_factory, target=OTACacheDB)
 class DBProxy:
     """A proxy class for OTACacheDB that dispatches all requests into a threadpool."""
 
-    def __init__(self, db_f: str, init=False):
+    def __init__(self, db_f: str):
         """Init the database connecting thread pool."""
         self._thread_local = threading.local()
-        OTACacheDB(db_f, init=init)  # only for initializing db
 
         def _initializer():
             """Init a db connection for each thread worker"""
             self._thread_local.db = OTACacheDB(db_f, init=False)
 
-        # use 3 workers for requests handling
-        self._db_executor = ThreadPoolExecutor(max_workers=6, initializer=_initializer)
+        self._executor = ThreadPoolExecutor(max_workers=3, initializer=_initializer)
 
     def close(self):
-        self._db_executor.shutdown(wait=True)
+        self._executor.shutdown(wait=True)
 
-    def _proxy_helper(self, key, *args, **kwargs):
-        _db = self._thread_local.db
-        _attr = getattr(_db, key)
-        if not callable(_attr):
-            raise AttributeError
 
-        return _attr(*args, **kwargs)
-
-    def remove_entries_by_hashes(self, *hashes: str) -> int:
-        fut = self._db_executor.submit(
-            self._proxy_helper, "remove_entries_by_hashes", *hashes
-        )
-        return fut.result()
-
-    def remove_entries_by_urls(self, *urls: str) -> int:
-        fut = self._db_executor.submit(
-            self._proxy_helper, "remove_entries_by_urls", *urls
-        )
-        return fut.result()
-
-    def insert_entry(self, *cache_meta: CacheMeta) -> int:
-        fut = self._db_executor.submit(self._proxy_helper, "insert_entry", *cache_meta)
-        return fut.result()
-
-    def lookup_url(self, url: str) -> CacheMeta:
-        fut = self._db_executor.submit(self._proxy_helper, "lookup_url", url)
-        return fut.result()
-
-    def lookup_all(self) -> List[CacheMeta]:
-        fut = self._db_executor.submit(self._proxy_helper, "lookup_all")
-        return fut.result()
-
-    def rotate_cache(self, bucket: int, num: int) -> Union[str, None]:
-        fut = self._db_executor.submit(self._proxy_helper, "rotate_cache", bucket, num)
-        return fut.result()
+del _proxy_wrapper, _proxy_cls_factory
