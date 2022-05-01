@@ -339,7 +339,7 @@ class OTAFile:
                     # NOTE: hardlink to new file name,
                     # tmp file cleanup will be conducted by CachingTracker
                     try:
-                    self.temp_fpath.link_to(self._base_dir / _hash)
+                        self.temp_fpath.link_to(self._base_dir / _hash)
                     except FileExistsError:
                         # this might caused by entry with same file contents
                         logger.debug(f"entry {_hash} existed, ignored")
@@ -531,7 +531,7 @@ class OTACache:
         # NOTE 2: disable aiohttp default timeout(5mins)
         # this timeout will be applied to the whole request, including downloading,
         # preventing large files to be downloaded.
-        timeout = aiohttp.ClientTimeout(total=None, connect=1, sock_read=1)
+        timeout = aiohttp.ClientTimeout(total=None, sock_read=1)
         self._session = aiohttp.ClientSession(
             auto_decompress=False, raise_for_status=True, timeout=timeout
         )
@@ -636,11 +636,11 @@ class OTACache:
             A bool indicates whether the cleanup is successful or not.
         """
         try:
-        for entry_hash in entry_hashes:
-            # remove cache entry
-            f = self._base_dir / entry_hash
-            f.unlink(missing_ok=True)
-        return True
+            for entry_hash in entry_hashes:
+                # remove cache entry
+                f = self._base_dir / entry_hash
+                f.unlink(missing_ok=True)
+            return True
         except Exception as e:
             logger.debug(f"exp on entries({entry_hashes=}) cleanup: {e!r}")
             return False
