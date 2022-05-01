@@ -83,6 +83,8 @@ class OtaProxyWrapper:
             port=proxy_cfg.port,
             log_level="error",
             lifespan="on",
+            workers=1,
+            limit_concurrency=32,
         )
 
     def start(self, enable_cache=False, init_cache=True) -> int:
