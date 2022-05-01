@@ -101,11 +101,11 @@ class OTACacheDB:
                 con.execute("PRAGMA journal_mode = WAL;")
                 # set synchronous mode
                 con.execute("PRAGMA synchronous = normal;")
-                # set temp_store to memory(commented out due to too much memory consumption)
-                # con.execute("PRAGMA temp_store = memory;")
+                # set temp_store to memory
+                con.execute("PRAGMA temp_store = memory;")
                 # enable mmap (size in bytes)
-                # mmap_size = 32 * 1024 * 1024  # 32MiB
-                # con.execute(f"PRAGMA mmap_size = {mmap_size};")
+                mmap_size = 16 * 1024 * 1024  # 16MiB
+                con.execute(f"PRAGMA mmap_size = {mmap_size};")
         except sqlite3.Error as e:
             logger.debug(f"init db failed: {e!r}")
             raise e
