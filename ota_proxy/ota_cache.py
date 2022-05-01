@@ -338,7 +338,11 @@ class OTAFile:
                     logger.debug(f"successfully cached {self.meta.url}")
                     # NOTE: hardlink to new file name,
                     # tmp file cleanup will be conducted by CachingTracker
+                    try:
                     self.temp_fpath.link_to(self._base_dir / _hash)
+                    except FileExistsError:
+                        # this might caused by entry with same file contents
+                        logger.debug(f"entry {_hash} existed, ignored")
 
             # NOTE: if queue is empty but self._finished is not set,
             # it may indicate that an unfinished caching might happen
