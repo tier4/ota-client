@@ -495,8 +495,8 @@ class OTACache:
         init_cache bool: whether to clear the existed cache, default is True
     """
 
-    CACHE_STREAM_BACKOFF_FACTOR: float = 0.01
-    CACHE_STREAM_TIMEOUT_MAX: float = 0.1
+    CACHE_STREAM_BACKOFF_FACTOR: float = 0.1
+    CACHE_STREAM_TIMEOUT_MAX: float = 3
 
     def __init__(
         self,
@@ -713,7 +713,7 @@ class OTACache:
             logger.exception(f"failed on callback for {meta=}: {e!r}")
 
     ###### create fp ######
-    async def _local_fp_stream(self, fpath, tracker):
+    async def _local_fp_stream(self, fpath, tracker: OngoingCacheTracker):
         async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
             retry_count = 0
             while True:
