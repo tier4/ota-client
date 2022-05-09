@@ -722,22 +722,23 @@ class OTACache:
                     retry_count = 0
                     yield data
                 else:
-                    if tracker.cache_done.is_set():
-                        if tracker._is_failed:
-                            raise ValueError(f"corrupted cache on {tracker.fn}")
-                        break
-
                     _wait = get_backoff(
                         retry_count,
                         self.CACHE_STREAM_BACKOFF_FACTOR,
                         self.CACHE_STREAM_TIMEOUT_MAX,
                     )
+
                     if _wait < self.CACHE_STREAM_TIMEOUT_MAX:
                         await asyncio.sleep(_wait)
                         retry_count += 1
                     else:
-                        # timeout on streaming cache entry
-                        raise TimeoutError(f"timeout streaming on {tracker.fn}")
+                        if tracker.cache_done.is_set():
+                            if tracker._is_failed:
+                                raise ValueError(f"corrupted cache on {tracker.fn}")
+                            break
+                        else:
+                            # timeout on streaming cache entry
+                            raise TimeoutError(f"timeout streaming on {tracker.fn}")
 
     async def _open_fp_by_cache_streaming(self, tracker: OngoingCacheTracker):
         # wait for writer to become ready
