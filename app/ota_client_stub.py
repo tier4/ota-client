@@ -183,7 +183,8 @@ class OtaClientStub:
                 tasks.append(
                     asyncio.create_task(
                         self._ota_client_call.update(request, secondary["ip_addr"]),
-                        name=secondary,  # register the task name with sub_ecu id
+                        # register the task name with sub_ecu id
+                        name=secondary["ecu_id"],
                     )
                 )
 
@@ -238,6 +239,7 @@ class OtaClientStub:
             for t in done:
                 exp = t.exception()
                 if exp is not None:
+                    ecu_id = t.get_name()
                     logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
                     sub_ecu = response.ecu.add()
                     sub_ecu.ecu_id = ecu_id
