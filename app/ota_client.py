@@ -564,32 +564,34 @@ class _CreateRegularStatsCollector:
         *,
         interval=1,
     ) -> None:
-        self.done_event = threading.Event()
+        self.abort_event = threading.Event()
         self.last_error = None
         self._que = Queue()
         self._store = store
         self._se = se
         self._interval = interval
 
-    def collector(self):
+    def collector(self, total_num: int):
         _staging: List[_CreateRegularStats] = []
         _cur_time = time.time()
         while True:
-            if not self.done_event.is_set() or not self._que.empty():
+            if self.abort_event.is_set():
+                logger.error(f"abort event is set, collector exits")
+                break
+
+            if self._store.get_processed_num() < total_num:
                 try:
                     sts = self._que.get_nowait()
                     _staging.append(sts)
                 except queue.Empty:
                     # if no new stats available, wait <_interval> time
                     time.sleep(self._interval)
-                    continue
-            elif not _staging:
-                # collector.done is called,
-                # and all pending sts are processed
+            else:
+                # all sts are processed
                 break
 
             # collect stats every <_interval> seconds
-            if time.time() - _cur_time > self._interval:
+            if _staging and time.time() - _cur_time > self._interval:
                 with self._store.acquire_staging_storage() as staging_storage:
                     staging_storage.regular_files_processed += len(_staging)
 
@@ -621,7 +623,9 @@ class _CreateRegularStatsCollector:
             self._se.release()
         except Exception as e:
             self.last_error = e
-            self.done_event.set()
+            # if any task raises exception,
+            # interrupt the background collector
+            self.abort_event.set()
             raise
 
 
@@ -1089,7 +1093,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             max_workers=self.MAX_DOWNLOAD_WORKERS
         ) as pool:
             # fire up background collector
-            _collector_fut = pool.submit(_collector.collector)
+            _collector_fut = pool.submit(_collector.collector, total_files_num)
 
             for l in f:
                 entry = RegularInf(l)
@@ -1105,22 +1109,23 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 )
                 fut.add_done_callback(_collector.callback)
 
+            # loop detect exception
+            logger.info("all create_regular_files tasks dispatched")
             while self._statistics.get_processed_num() < total_files_num:
                 # if done_event is set before all tasks finished,
                 # it means exception happened
                 time.sleep(self.COLLECT_INTERVAL)
-                if _collector.done_event.is_set():
+                if _collector.abort_event.is_set():
                     _last_error = _collector.last_error
                     logger.error(
-                        f"create_regular_files failed: {_collector.last_error!r}"
+                        f"create_regular_files failed, last error: {_collector.last_error!r}"
                     )
                     raise _last_error from None
-                else:
-                    logger.debug("all create_regular_files tasks completed")
-                    break
 
-            # shutdown and wait for collector
-            _collector.done()
+            # wait for collector
+            logger.info(
+                "all create_regular_files tasks completed, wait for stats collector"
+            )
             _collector_fut.result()
 
     @staticmethod
