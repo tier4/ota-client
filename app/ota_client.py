@@ -395,6 +395,9 @@ class OtaClientStatistics:
         """
         return self._slot.copy()
 
+    def get_processed_num(self) -> int:
+        return self._slot.regular_files_processed
+
     def set(self, attr: str, value):
         """
         set a single attr in the slot
@@ -1098,14 +1101,19 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 )
                 fut.add_done_callback(_collector.callback)
 
-            # if done_event is set before we set in the main thread,
-            # it means exception happened
-            if _collector.done_event.is_set():
-                _last_error = _collector.last_error
-                logger.error(f"create_regular_files failed: {_collector.last_error!r}")
-                raise _last_error from None
-            else:
-                logger.debug("all create_regular_files tasks completed")
+            while self._statistics.get_processed_num() < total_files_num:
+                # if done_event is set before all tasks finished,
+                # it means exception happened
+                time.sleep(self.COLLECT_INTERVAL)
+                if _collector.done_event.is_set():
+                    _last_error = _collector.last_error
+                    logger.error(
+                        f"create_regular_files failed: {_collector.last_error!r}"
+                    )
+                    raise _last_error from None
+                else:
+                    logger.debug("all create_regular_files tasks completed")
+                    break
 
             # shutdown and wait for collector
             _collector.done()
