@@ -1,20 +1,29 @@
 import dataclasses
-import tempfile
+import json
+import os
+import queue
+import re
 import requests
 import shutil
-import re
-import os
+import tempfile
+import threading
 import time
-import json
-from typing import Any, Dict, Tuple, Union
+import weakref
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    Future,
+    wait as concurrent_futures_wait,
+)
 from contextlib import contextmanager
-from hashlib import sha256
-from pathlib import Path
-from json.decoder import JSONDecodeError
-from multiprocessing import Pool, Manager
-from threading import Event, Lock
-from functools import partial
+from dataclasses import dataclass
 from enum import Enum, unique
+from functools import partial
+from hashlib import sha256
+from json.decoder import JSONDecodeError
+from pathlib import Path
+from queue import Queue
+from threading import Event, Lock
+from typing import Any, Dict, List, Tuple, TypeVar, Union
 from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
