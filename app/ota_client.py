@@ -649,6 +649,7 @@ class _HardlinkTracker:
 
     def writer_on_failed(self):
         self._failed.set()
+        self._ref_holder.clear()
 
     def subscribe(self) -> Path:
         # wait for writer
@@ -1177,14 +1178,15 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     )
                     processed.op = "download"
 
-                    if is_hardlink and _is_writer:
-                        # writer indicates that the first copy of hardlink is ready
-                        _hardlink_tracker.writer_done()
+                if is_hardlink and _is_writer:
+                    # writer indicates that the first copy of hardlink is ready
+                    _hardlink_tracker.writer_done()
             except Exception:
                 # signal all subscribers to abort
                 if is_hardlink and _is_writer:
                     _hardlink_tracker.writer_on_failed()
-                    raise
+
+                raise
 
         processed.size = dst.stat().st_size
 
