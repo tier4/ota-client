@@ -624,11 +624,9 @@ class _CreateRegularStatsCollector:
             self.done_event.set()
             raise
 
-    def done(self):
-        self.done_event.set()
 
-
-_WeakRef = TypeVar("_WeakRef")
+class _WeakRef:
+    pass
 
 
 class _HardlinkTracker:
@@ -645,9 +643,15 @@ class _HardlinkTracker:
     def writer_done(self):
         self._first_copy_ready.set()
 
+    def writer_on_failed(self):
+        self._failed.set()
+
     def subscribe(self) -> Path:
         # wait for writer
         while True:
+            if self._failed.is_set():
+                raise ValueError(f"writer failed on path={self.first_copy_path}")
+
             if self._first_copy_ready.is_set():
                 break
             time.sleep(self.POLLINTERVAL)
@@ -664,27 +668,27 @@ class _HardlinkTracker:
 
 class _HardlinkRegister:
     def __init__(self):
-        self._hash_ref_dict: Dict[str, Event] = weakref.WeakValueDictionary()
+        self._lock = Lock()
+        self._hash_ref_dict: Dict[str, _WeakRef] = weakref.WeakValueDictionary()
         self._ref_tracker_dict: Dict[
-            Event, _HardlinkTracker
+            _WeakRef, _HardlinkTracker
         ] = weakref.WeakKeyDictionary()
 
     def get_tracker(
         self, hash_in: str, path: Path, nlink: int
     ) -> "Tuple[_HardlinkTracker, bool]":
-        _ref = self._hash_ref_dict.get(hash_in)
-        if _ref:
-            _ref.wait()  # wait for writer to fully intialized
-            _tracker = self._ref_tracker_dict[_ref]
-            return _tracker, False
-        else:
-            _ref = Event()
-            _tracker = _HardlinkTracker(path, _ref, nlink - 1)
+        with self._lock:
+            _ref = self._hash_ref_dict.get(hash_in)
+            if _ref:
+                _tracker = self._ref_tracker_dict[_ref]
+                return _tracker, False
+            else:
+                _ref = _WeakRef()
+                _tracker = _HardlinkTracker(path, _ref, nlink - 1)
 
-            self._hash_ref_dict[hash_in] = _ref
-            self._ref_tracker_dict[_ref] = _tracker
-            _ref.set()
-            return _tracker, True
+                self._hash_ref_dict[hash_in] = _ref
+                self._ref_tracker_dict[_ref] = _tracker
+                return _tracker, True
 
 
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
@@ -1153,23 +1157,29 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 
         # case 2: normal file or first copy of hardlink file
         else:
-            if reginf.path.is_file() and verify_file(
-                reginf.path, reginf.sha256hash, reginf.size
-            ):
-                # copy file from active bank if hash is the same
-                shutil.copy(reginf.path, dst)
-                processed.op = "copy"
-            else:
-                processed.errors = downloader(
-                    reginf.path,
-                    dst,
-                    reginf.sha256hash,
-                )
-                processed.op = "download"
+            try:
+                if reginf.path.is_file() and verify_file(
+                    reginf.path, reginf.sha256hash, reginf.size
+                ):
+                    # copy file from active bank if hash is the same
+                    shutil.copy(reginf.path, dst)
+                    processed.op = "copy"
+                else:
+                    processed.errors = downloader(
+                        reginf.path,
+                        dst,
+                        reginf.sha256hash,
+                    )
+                    processed.op = "download"
 
-            if is_hardlink and _is_writer:
-                # writer indicates that the first copy of hardlink is ready
-                _hardlink_tracker.writer_done()
+                    if is_hardlink and _is_writer:
+                        # writer indicates that the first copy of hardlink is ready
+                        _hardlink_tracker.writer_done()
+            except Exception:
+                # signal all subscribers to abort
+                if is_hardlink and _is_writer:
+                    _hardlink_tracker.writer_on_failed()
+                    raise
 
         processed.size = dst.stat().st_size
 
