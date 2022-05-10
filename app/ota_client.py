@@ -1082,9 +1082,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             max_workers=self.MAX_DOWNLOAD_WORKERS
         ) as pool:
             # fire up background collector
-            pool.submit(_collector.collector)
+            _collector_fut = pool.submit(_collector.collector)
 
-            futs = []
             for l in f:
                 entry = RegularInf(l)
                 _se.acquire()
@@ -1098,23 +1097,19 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     downloader=downloader,
                 )
                 fut.add_done_callback(_collector.callback)
-                futs.append(fut)
 
-            logger.debug("all create_regular_files tasks are dispatched")
-
-            concurrent_futures_wait(futs, return_when=FIRST_EXCEPTION)
             # if done_event is set before we set in the main thread,
             # it means exception happened
             if _collector.done_event.is_set():
-                _collector.done_event.wait()  # wait for exception to be recorded
                 _last_error = _collector.last_error
                 logger.error(f"create_regular_files failed: {_collector.last_error!r}")
                 raise _last_error from None
             else:
                 logger.debug("all create_regular_files tasks completed")
 
-            # shutdown collector
+            # shutdown and wait for collector
             _collector.done()
+            _collector_fut.result()
 
     @staticmethod
     def _create_regular_file(
