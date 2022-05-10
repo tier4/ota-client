@@ -10,6 +10,7 @@ import threading
 import time
 import weakref
 from concurrent.futures import (
+    FIRST_EXCEPTION,
     ThreadPoolExecutor,
     Future,
     wait as concurrent_futures_wait,
@@ -556,6 +557,7 @@ class _CreateRegularStatsCollector:
         interval=1,
     ) -> None:
         self.done_event = threading.Event()
+        self.last_error = None
         self._que = Queue()
         self._store = store
         self._se = se
@@ -610,7 +612,8 @@ class _CreateRegularStatsCollector:
 
             self._se.release()
         except Exception as e:
-            logger.error(f"failed to create regular file: {e!r}")
+            self.last_error = e
+            self.done_event.set()
             raise
 
     def done(self):
@@ -1094,8 +1097,17 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 
             logger.debug("all create_regular_files tasks are dispatched")
 
-            concurrent_futures_wait(futs)
-            logger.debug("all create_regular_files tasks completed")
+            concurrent_futures_wait(futs, return_when=FIRST_EXCEPTION)
+            # if done_event is set before we set in the main thread,
+            # it means exception happened
+            if _collector.done_event.is_set():
+                _collector.done_event.wait()  # wait for exception to be recorded
+                _last_error = _collector.last_error
+                logger.error(f"create_regular_files failed: {_collector.last_error!r}")
+                raise _last_error from None
+            else:
+                logger.debug("all create_regular_files tasks completed")
+
             # shutdown collector
             _collector.done()
 
