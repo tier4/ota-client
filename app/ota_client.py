@@ -685,7 +685,7 @@ class _HardlinkRegister:
 
 
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
-    MAX_CONCURRENT_DOWNLOAD_TASKS = 16384
+    MAX_CONCURRENT_DOWNLOAD_TASKS = 2048
     MAX_DOWNLOAD_WORKERS = 7
     COLLECT_INTERVAL = 1  # sec
 
