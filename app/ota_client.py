@@ -192,12 +192,13 @@ class Downloader:
         return _url_parsed.geturl()
 
     @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
-    def __call__(
+    def download(
         self,
-        url_base: str,
         path: str,
         dst: Path,
         digest: str,
+        *,
+        url_base: str,
         cookies: Dict[str, str],
         headers: Dict[str, str] = None,
     ) -> int:
@@ -547,7 +548,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._statistics = OtaClientStatistics()
 
         # downloader
-        self._download = Downloader()
+        self._downloader = Downloader()
 
     def update(
         self,
@@ -666,7 +667,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         proxy = proxy_cfg.get_proxy_for_local_ota()
         if proxy:
             fsm.wait_on(fsm._S0)
-            self._download.configure_proxy(proxy)
+            self._downloader.configure_proxy(proxy)
             # wait for local ota cache scrubing finish
 
         with fsm.proceed(fsm._P2_ota_client, expect=fsm._S0) as _next:
@@ -722,7 +723,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
 
         # finish update, we reset the downloader's proxy setting
-        self._download.cleanup_proxy()
+        self._downloader.cleanup_proxy()
 
         with fsm.proceed(fsm._P2_ota_client, expect=fsm._S1) as _next:
             assert _next == fsm._S2
@@ -761,11 +762,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching metadata
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -778,11 +779,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
             # NOTE: do not use cache when fetching metadata
-            self._download(
-                url_base,
+            self._downloader.download(
                 "metadata.jwt",
                 file_name,
                 None,
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -799,11 +800,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching dir list
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -816,11 +817,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching symlink list
-            self._download(
-                url_base,
+            self._downloader(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -833,11 +834,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching regular files list
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
-                file_name,
+                regulars_txt_file,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -851,11 +852,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching persist files list
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
