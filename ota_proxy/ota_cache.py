@@ -496,7 +496,7 @@ class OTACache:
     """
 
     CACHE_STREAM_BACKOFF_FACTOR: float = 0.1
-    CACHE_STREAM_TIMEOUT_MAX: float = 3
+    CACHE_STREAM_TIMEOUT_MAX: float = 1
 
     def __init__(
         self,
@@ -715,27 +715,38 @@ class OTACache:
     ###### create fp ######
     async def _local_fp_stream(self, fpath, tracker: OngoingCacheTracker):
         async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
-            retry_count = 0
+            retry_count, done = 0, False
             while True:
                 data = await f.read(self._chunk_size)
                 if len(data) > 0:
                     retry_count = 0
                     yield data
                 else:
-                    _wait = get_backoff(
-                        retry_count,
-                        self.CACHE_STREAM_BACKOFF_FACTOR,
-                        self.CACHE_STREAM_TIMEOUT_MAX,
-                    )
+                    # if writer indicates caching finished
+                    if tracker.cache_done.is_set():
+                        if tracker._is_failed:
+                            raise ValueError(f"corrupted cache on {tracker.fn}")
 
-                    if _wait < self.CACHE_STREAM_TIMEOUT_MAX:
-                        await asyncio.sleep(_wait)
-                        retry_count += 1
+                        # sleep and retry read data to ensure
+                        # no data chunk is missed
+                        if not done:
+                            await asyncio.sleep(0.01)
+                            done = True
+                            continue
+
+                        # stream finish, break out
+                        break
+                    # writer blocked, retry
                     else:
-                        if tracker.cache_done.is_set():
-                            if tracker._is_failed:
-                                raise ValueError(f"corrupted cache on {tracker.fn}")
-                            break
+                        _wait = get_backoff(
+                            retry_count,
+                            self.CACHE_STREAM_BACKOFF_FACTOR,
+                            self.CACHE_STREAM_TIMEOUT_MAX,
+                        )
+
+                        if _wait < self.CACHE_STREAM_TIMEOUT_MAX:
+                            await asyncio.sleep(_wait)
+                            retry_count += 1
                         else:
                             # timeout on streaming cache entry
                             raise TimeoutError(f"timeout streaming on {tracker.fn}")
