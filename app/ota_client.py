@@ -957,7 +957,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching symlink list
-            self._downloader(
+            self._downloader.download(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
@@ -991,11 +991,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             # create a bounded downloader that pre-loads some options
             boot_standby_path = self.get_standby_boot_partition_path()
             _downloader = partial(
-                self._downloader,
+                self._downloader.download,
                 url_base=url_rootfsdir,
                 cookies=cookies,
-                standby_path=standby_path,
-                boot_standby_path=boot_standby_path,
             )
 
             self._create_regular_files(
