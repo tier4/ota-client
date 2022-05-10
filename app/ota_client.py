@@ -564,14 +564,19 @@ class _CreateRegularStatsCollector:
     def collector(self):
         _staging: List[_CreateRegularStats] = []
         _cur_time = time.time()
-        while not self.done_event.is_set() or not self._que.empty():
-            try:
-                sts = self._que.get_nowait()
-                _staging.append(sts)
-            except queue.Empty:
-                # if no new stats available, wait <_interval> time
-                time.sleep(self._interval)
-                continue
+        while True:
+            if not self.done_event.is_set() or not self._que.empty():
+                try:
+                    sts = self._que.get_nowait()
+                    _staging.append(sts)
+                except queue.Empty:
+                    # if no new stats available, wait <_interval> time
+                    time.sleep(self._interval)
+                    continue
+            elif not _staging:
+                # collector.done is called,
+                # and all pending sts are processed
+                break
 
             # collect stats every <_interval> seconds
             if time.time() - _cur_time > self._interval:
@@ -653,11 +658,13 @@ class _HardlinkRegister:
             Event, _HardlinkTracker
         ] = weakref.WeakKeyDictionary()
 
-    def get_tracker(self, hash_in: str, path: Path, nlink: int):
+    def get_tracker(
+        self, hash_in: str, path: Path, nlink: int
+    ) -> "Tuple[_HardlinkTracker, bool]":
         _ref = self._hash_ref_dict.get(hash_in)
         if _ref:
             _ref.wait()  # wait for writer to fully intialized
-            _tracker = self._ref_tracker_dict
+            _tracker = self._ref_tracker_dict[_ref]
             return _tracker, False
         else:
             _ref = Event()
@@ -665,6 +672,7 @@ class _HardlinkRegister:
 
             self._hash_ref_dict[hash_in] = _ref
             self._ref_tracker_dict[_ref] = _tracker
+            _ref.set()
             return _tracker, True
 
 
