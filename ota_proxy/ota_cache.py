@@ -505,6 +505,7 @@ class OTACache:
         init_cache: bool,
         upper_proxy: str = None,
         enable_https: bool = False,
+        scrub_cache_event: "Event" = None,
     ):
         logger.debug(
             f"init ota_cache({cache_enabled=}, {init_cache=}, {upper_proxy=}, {enable_https=})"
@@ -550,6 +551,8 @@ class OTACache:
                 # scrub the cache folder
                 _scrub_cache = OTACacheScrubHelper()
                 _scrub_cache()
+                if scrub_cache_event:
+                    scrub_cache_event.set()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)

@@ -252,4 +252,4 @@ class DBProxy:
         self._executor.shutdown(wait=True)
 
 
-del _proxy_wrapper, _proxy_cls_factory
+del _proxy_cls_factory
