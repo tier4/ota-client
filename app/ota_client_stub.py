@@ -84,7 +84,7 @@ class OtaProxyWrapper:
             log_level="error",
             lifespan="on",
             workers=1,
-            limit_concurrency=32,
+            limit_concurrency=64,
         )
 
     def start(self, enable_cache=False, init_cache=True) -> int:
