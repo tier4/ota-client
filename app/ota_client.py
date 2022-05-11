@@ -9,12 +9,7 @@ import tempfile
 import threading
 import time
 import weakref
-from concurrent.futures import (
-    FIRST_EXCEPTION,
-    ThreadPoolExecutor,
-    Future,
-    wait as concurrent_futures_wait,
-)
+from concurrent.futures import ThreadPoolExecutor, Future
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum, unique
@@ -24,7 +19,7 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock
-from typing import Any, Dict, List, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Tuple, Union
 from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
@@ -576,7 +571,7 @@ class _CreateRegularStatsCollector:
         _cur_time = time.time()
         while True:
             if self.abort_event.is_set():
-                logger.error(f"abort event is set, collector exits")
+                logger.error("abort event is set, collector exits")
                 break
 
             if self._store.get_processed_num() < total_num:
