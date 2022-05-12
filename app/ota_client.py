@@ -1134,6 +1134,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         downloader,
     ) -> _RegularStats:
         # thread_time for multithreading function
+        # NOTE: for multithreading implementation,
+        # when a thread is sleeping, the GIL will be released
+        # and other thread will take the place to execute,
+        # so we use time.thread_time here.
         begin_time = time.thread_time()
 
         processed = _RegularStats()
