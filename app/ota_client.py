@@ -537,7 +537,7 @@ class OtaStateSync:
 
 
 @dataclass
-class _CreateRegularStats:
+class _RegularStats:
     """processed_list have dictionaries as follows:
     {"size": int}  # file size
     {"elapsed": int}  # elapsed time in seconds
@@ -555,7 +555,6 @@ class _CreateRegularStatsCollector:
     def __init__(
         self,
         store: OtaClientStatistics,
-        se: threading.Semaphore,
         *,
         interval=1,
     ) -> None:
@@ -563,11 +562,10 @@ class _CreateRegularStatsCollector:
         self.last_error = None
         self._que = Queue()
         self._store = store
-        self._se = se
         self._interval = interval
 
     def collector(self, total_num: int):
-        _staging: List[_CreateRegularStats] = []
+        _staging: List[_RegularStats] = []
         _cur_time = time.time()
         while True:
             if self.abort_event.is_set():
@@ -607,15 +605,15 @@ class _CreateRegularStatsCollector:
 
                 _cur_time = time.time()
 
-    def callback(self, fut: Future):
+    def callback(self, fut: Future, *, se: threading.Semaphore):
         """Callback for create regular files
         sts will also being put into que from this callback
         """
         try:
-            sts: _CreateRegularStats = fut.result()
+            sts: _RegularStats = fut.result()
             self._que.put_nowait(sts)
 
-            self._se.release()
+            se.release()
         except Exception as e:
             self.last_error = e
             # if any task raises exception,
@@ -1082,8 +1080,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         _se = threading.Semaphore(self.MAX_CONCURRENT_DOWNLOAD_TASKS)
         # collector that records stats from tasks and update ota-update status
         _collector = _CreateRegularStatsCollector(
-            self._statistics, _se, interval=self.COLLECT_INTERVAL
+            self._statistics, interval=self.COLLECT_INTERVAL
         )
+        # bounded callback function
+        _callback_f = partial(_collector.callback, se=_se)
 
         with open(regulars_file, "r") as f, ThreadPoolExecutor(
             max_workers=self.MAX_DOWNLOAD_WORKERS
@@ -1103,7 +1103,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     hardlink_register=_hardlink_register,
                     downloader=downloader,
                 )
-                fut.add_done_callback(_collector.callback)
+                fut.add_done_callback(_callback_f)
 
             # loop detect exception
             logger.info("all create_regular_files tasks dispatched")
@@ -1132,11 +1132,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         boot_standby_path: Path,
         hardlink_register: _HardlinkRegister,
         downloader,
-    ) -> _CreateRegularStats:
+    ) -> _RegularStats:
         # thread_time for multithreading function
         begin_time = time.thread_time()
 
-        processed = _CreateRegularStats()
+        processed = _RegularStats()
         if str(reginf.path).startswith("/boot"):
             dst = boot_standby_path / reginf.path.relative_to("/boot")
         else:
