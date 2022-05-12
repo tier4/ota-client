@@ -605,13 +605,13 @@ class OTACache:
                 # 0: Use%
                 # 1: 33%
                 current_used_p = int(current_used_p.splitlines()[-1].strip(" %"))
-                if current_used_p < cfg.DISK_USE_LIMIT_SOTF_P:
+                if current_used_p < cfg.DISK_USE_LIMIT_SOFT_P:
                     logger.debug(f"storage usage below soft limit: {current_used_p}")
                     # below soft limit, normal caching mode
                     self._storage_below_soft_limit_event.set()
                     self._storage_below_hard_limit_event.set()
                 elif (
-                    current_used_p >= cfg.DISK_USE_LIMIT_SOTF_P
+                    current_used_p >= cfg.DISK_USE_LIMIT_SOFT_P
                     and current_used_p < cfg.DISK_USE_LIMIT_HARD_P
                 ):
                     logger.info(f"storage usage below hard limit: {current_used_p}")
