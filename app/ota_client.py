@@ -1,20 +1,25 @@
 import dataclasses
-import tempfile
+import json
+import os
+import queue
+import re
 import requests
 import shutil
-import re
-import os
+import tempfile
+import threading
 import time
-import json
-from typing import Any, Dict, Tuple, Union
+import weakref
+from concurrent.futures import ThreadPoolExecutor, Future
 from contextlib import contextmanager
-from hashlib import sha256
-from pathlib import Path
-from json.decoder import JSONDecodeError
-from multiprocessing import Pool, Manager
-from threading import Event, Lock
-from functools import partial
+from dataclasses import dataclass
 from enum import Enum, unique
+from functools import partial
+from hashlib import sha256
+from json.decoder import JSONDecodeError
+from pathlib import Path
+from queue import Queue
+from threading import Event, Lock
+from typing import Any, Dict, List, Tuple, Union
 from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
@@ -183,18 +188,24 @@ class Downloader:
         return _url_parsed.geturl()
 
     @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
-    def __call__(
+    def download(
         self,
-        url_base: str,
         path: str,
         dst: Path,
         digest: str,
+        *,
+        url_base: str,
         cookies: Dict[str, str],
         headers: Dict[str, str] = None,
     ) -> int:
         url = self._path_to_url(url_base, path)
         if not headers:
             headers = dict()
+
+        # specially deal with empty file
+        if digest == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855":
+            dst.write_bytes(b"")
+            return 0
 
         try:
             error_count = 0
@@ -379,6 +390,9 @@ class OtaClientStatistics:
         """
         return self._slot.copy()
 
+    def get_processed_num(self) -> int:
+        return self._slot.regular_files_processed
+
     def set(self, attr: str, value):
         """
         set a single attr in the slot
@@ -522,7 +536,164 @@ class OtaStateSync:
                 raise RuntimeError(f"expect {_next_state=} not being set yet")
 
 
+@dataclass
+class _RegularStats:
+    """processed_list have dictionaries as follows:
+    {"size": int}  # file size
+    {"elapsed": int}  # elapsed time in seconds
+    {"op": str}  # operation. "copy", "link" or "download"
+    {"errors": int}  # number of errors that occurred when downloading.
+    """
+
+    op: str = ""
+    size: int = 0
+    elapsed: int = 0
+    errors: int = 0
+
+
+class _CreateRegularStatsCollector:
+    def __init__(
+        self,
+        store: OtaClientStatistics,
+        *,
+        interval=1,
+    ) -> None:
+        self.abort_event = threading.Event()
+        self.last_error = None
+        self._que = Queue()
+        self._store = store
+        self._interval = interval
+
+    def collector(self, total_num: int):
+        _staging: List[_RegularStats] = []
+        _cur_time = time.time()
+        while True:
+            if self.abort_event.is_set():
+                logger.error("abort event is set, collector exits")
+                break
+
+            if self._store.get_processed_num() < total_num:
+                try:
+                    sts = self._que.get_nowait()
+                    _staging.append(sts)
+                except queue.Empty:
+                    # if no new stats available, wait <_interval> time
+                    time.sleep(self._interval)
+            else:
+                # all sts are processed
+                break
+
+            # collect stats every <_interval> seconds
+            if _staging and time.time() - _cur_time > self._interval:
+                with self._store.acquire_staging_storage() as staging_storage:
+                    staging_storage.regular_files_processed += len(_staging)
+
+                    for st in _staging:
+                        _suffix = st.op
+                        if _suffix in {"copy", "link", "download"}:
+                            staging_storage[f"files_processed_{_suffix}"] += 1
+                            staging_storage[f"file_size_processed_{_suffix}"] += st.size
+                            staging_storage[f"elapsed_time_{_suffix}"] += int(
+                                st.elapsed * 1000
+                            )
+
+                            if _suffix == "download":
+                                staging_storage[f"errors_{_suffix}"] += st.errors
+
+                    # cleanup already collected stats
+                    _staging.clear()
+
+                _cur_time = time.time()
+
+    def callback(self, fut: Future, *, se: threading.Semaphore):
+        """Callback for create regular files
+        sts will also being put into que from this callback
+        """
+        try:
+            sts: _RegularStats = fut.result()
+            self._que.put_nowait(sts)
+
+            se.release()
+        except Exception as e:
+            self.last_error = e
+            # if any task raises exception,
+            # interrupt the background collector
+            self.abort_event.set()
+            raise
+
+
+class _WeakRef:
+    pass
+
+
+class _HardlinkTracker:
+    POLLINTERVAL = 0.1
+
+    def __init__(self, first_copy_path: Path, ref: _WeakRef, count: int):
+        self._first_copy_ready = Event()
+        self._failed = Event()
+        # hold <count> refs to ref
+        self._ref_holder: List[_WeakRef] = [ref for _ in range(count)]
+
+        self.first_copy_path = first_copy_path
+
+    def writer_done(self):
+        self._first_copy_ready.set()
+
+    def writer_on_failed(self):
+        self._failed.set()
+        self._ref_holder.clear()
+
+    def subscribe(self) -> Path:
+        # wait for writer
+        while True:
+            if self._failed.is_set():
+                raise ValueError(f"writer failed on path={self.first_copy_path}")
+
+            if self._first_copy_ready.is_set():
+                break
+            time.sleep(self.POLLINTERVAL)
+
+        try:
+            self._ref_holder.pop()
+        except IndexError:
+            # it won't happen generally as this tracker will be gc
+            # after the ref holder holds no more ref.
+            pass
+
+        return self.first_copy_path
+
+
+class _HardlinkRegister:
+    def __init__(self):
+        self._lock = Lock()
+        self._hash_ref_dict: Dict[str, _WeakRef] = weakref.WeakValueDictionary()
+        self._ref_tracker_dict: Dict[
+            _WeakRef, _HardlinkTracker
+        ] = weakref.WeakKeyDictionary()
+
+    def get_tracker(
+        self, hash_in: str, path: Path, nlink: int
+    ) -> "Tuple[_HardlinkTracker, bool]":
+        with self._lock:
+            _ref = self._hash_ref_dict.get(hash_in)
+            if _ref:
+                _tracker = self._ref_tracker_dict[_ref]
+                return _tracker, False
+            else:
+                _ref = _WeakRef()
+                _tracker = _HardlinkTracker(path, _ref, nlink - 1)
+
+                self._hash_ref_dict[hash_in] = _ref
+                self._ref_tracker_dict[_ref] = _tracker
+                return _tracker, True
+
+
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
+    MAX_CONCURRENT_DOWNLOAD_TASKS = 2048
+    MAX_DOWNLOAD_WORKERS = 7
+    COLLECT_INTERVAL = 1  # sec
+
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
         self._failure_type = OtaClientFailureType.NO_FAILURE
@@ -538,7 +709,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._statistics = OtaClientStatistics()
 
         # downloader
-        self._download = Downloader()
+        self._downloader = Downloader()
 
     def update(
         self,
@@ -657,7 +828,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         proxy = proxy_cfg.get_proxy_for_local_ota()
         if proxy:
             fsm.wait_on(fsm._S0)
-            self._download.configure_proxy(proxy)
+            self._downloader.configure_proxy(proxy)
             # wait for local ota cache scrubing finish
 
         with fsm.proceed(fsm._P2_ota_client, expect=fsm._S0) as _next:
@@ -713,7 +884,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._update_phase = OtaClientUpdatePhase.POST_PROCESSING
 
         # finish update, we reset the downloader's proxy setting
-        self._download.cleanup_proxy()
+        self._downloader.cleanup_proxy()
 
         with fsm.proceed(fsm._P2_ota_client, expect=fsm._S1) as _next:
             assert _next == fsm._S2
@@ -752,11 +923,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching metadata
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -769,11 +940,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / "metadata.jwt"
             # NOTE: do not use cache when fetching metadata
-            self._download(
-                url_base,
+            self._downloader.download(
                 "metadata.jwt",
                 file_name,
                 None,
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -790,11 +961,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching dir list
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -807,11 +978,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching symlink list
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -822,31 +993,47 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 
     def _process_regular(self, url_base, cookies, list_info, rootfsdir, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
-            file_name = Path(d) / list_info["file"]
+            regulars_txt_file = Path(d) / list_info["file"]
+
+            # download the regulars.txt
             # NOTE: do not use cache when fetching regular files list
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
-                file_name,
+                regulars_txt_file,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
             url_rootfsdir = urljoin(url_base, f"{rootfsdir}/")
-            self._create_regular_files(url_rootfsdir, cookies, file_name, standby_path)
+
+            # create a bounded downloader that pre-loads some options
+            boot_standby_path = self.get_standby_boot_partition_path()
+            _downloader = partial(
+                self._downloader.download,
+                url_base=url_rootfsdir,
+                cookies=cookies,
+            )
+
+            self._create_regular_files(
+                regulars_txt_file,
+                standby_path=standby_path,
+                boot_standby_path=boot_standby_path,
+                downloader=_downloader,
+            )
             logger.info("done")
 
     def _process_persistent(self, url_base, cookies, list_info, standby_path):
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             file_name = Path(d) / list_info["file"]
             # NOTE: do not use cache when fetching persist files list
-            self._download(
-                url_base,
+            self._downloader.download(
                 list_info["file"],
                 file_name,
                 list_info["hash"],
+                url_base=url_base,
                 cookies=cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -873,177 +1060,142 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
             slink.symlink_to(slinkf.srcpath)
             os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
 
-    def _set_statistics(self, sts):
-        """
-        thread-safe modify statistics storage
+    def _create_regular_files(
+        self,
+        regulars_file: Path,
+        *,
+        standby_path: Path,
+        boot_standby_path: Path,
+        downloader,
+    ):
+        # get total number of regular_files
+        with open(regulars_file, "r") as f:
+            total_files_num = len(f.readlines())
 
-        st format:
-            {"size": int}  # file size
-            {"elapsed": int}  # elapsed time in seconds
-            {"op": str}  # operation. "copy", "link" or "download"
-            {"errors": int}  # number of errors that occurred when downloading.
-        """
-        all_processed = len(sts)
-        with self._statistics.acquire_staging_storage() as staging_storage:
-            # NOTE: "files_processed" key and "total_files" key should be presented!
-            already_processed = staging_storage.regular_files_processed
-            if already_processed >= staging_storage.total_regular_files:
-                return
-
-            staging_storage.regular_files_processed += all_processed - already_processed
-            for st in sts[already_processed:all_processed]:
-                _suffix = st.get("op")
-                if _suffix in {"copy", "link", "download"}:
-                    staging_storage[f"files_processed_{_suffix}"] += 1
-                    staging_storage[f"file_size_processed_{_suffix}"] += st.get(
-                        "size", 0
-                    )
-                    staging_storage[f"elapsed_time_{_suffix}"] += int(
-                        st.get("elapsed", 0) * 1000
-                    )
-                    if _suffix == "download":
-                        staging_storage[f"errors_{_suffix}"] += st.get("errors", 0)
-
-    def _create_regular_files(self, url_base: str, cookies, list_file, standby_path):
-        with open(list_file, "r") as f:
-            regular_files_num = len(f.readlines())
         # NOTE: check _OtaStatisticsStorage for available attributes
-        self._statistics.set("total_regular_files", regular_files_num)
+        self._statistics.set("total_regular_files", total_files_num)
 
-        with Manager() as manager:
-            error_queue = manager.Queue()
-            # NOTE: manager.Value doesn't work properly.
-            """
-            processed_list have dictionaries as follows:
-            {"size": int}  # file size
-            {"elapsed": int}  # elapsed time in seconds
-            {"op": str}  # operation. "copy", "link" or "download"
-            {"errors": int}  # number of errors that occurred when downloading.
-            """
-            processed_list = manager.list()
+        _hardlink_register = _HardlinkRegister()
+        # maximum allowd concurrent tasks
+        _se = threading.Semaphore(self.MAX_CONCURRENT_DOWNLOAD_TASKS)
+        # collector that records stats from tasks and update ota-update status
+        _collector = _CreateRegularStatsCollector(
+            self._statistics, interval=self.COLLECT_INTERVAL
+        )
+        # bounded callback function
+        _callback_f = partial(_collector.callback, se=_se)
 
-            def error_callback(e):
-                error_queue.put(e)
+        with open(regulars_file, "r") as f, ThreadPoolExecutor(
+            max_workers=self.MAX_DOWNLOAD_WORKERS
+        ) as pool:
+            # fire up background collector
+            _collector_fut = pool.submit(_collector.collector, total_files_num)
 
-            boot_standby_path = self.get_standby_boot_partition_path()
-            # bind the required options before we use this method
-            _create_regfile_func = partial(
-                self._create_regular_file,
-                url_base=url_base,
-                cookies=cookies,
-                standby_path=standby_path,
-                processed_list=processed_list,
-                boot_standby_path=boot_standby_path,
-                downloader=self._download,
+            for l in f:
+                entry = RegularInf(l)
+                _se.acquire()
+
+                fut = pool.submit(
+                    self._create_regular_file,
+                    entry,
+                    standby_path=standby_path,
+                    boot_standby_path=boot_standby_path,
+                    hardlink_register=_hardlink_register,
+                    downloader=downloader,
+                )
+                fut.add_done_callback(_callback_f)
+
+            # loop detect exception
+            logger.info("all create_regular_files tasks dispatched")
+            while self._statistics.get_processed_num() < total_files_num:
+                # if done_event is set before all tasks finished,
+                # it means exception happened
+                time.sleep(self.COLLECT_INTERVAL)
+                if _collector.abort_event.is_set():
+                    _last_error = _collector.last_error
+                    logger.error(
+                        f"create_regular_files failed, last error: {_collector.last_error!r}"
+                    )
+                    raise _last_error from None
+
+            # wait for collector
+            logger.info(
+                "all create_regular_files tasks completed, wait for stats collector"
             )
+            _collector_fut.result()
 
-            # NOTE: temporary limit the max worker to not greater than 3
-            with Pool(processes=min(3, os.cpu_count())) as pool:
-                hardlink_dict = dict()  # sha256hash[tuple[reginf, event]
-
-                with open(list_file, "r") as f:
-                    for reginf in map(RegularInf, f):
-                        if reginf.nlink >= 2:
-                            prev_reginf, event = hardlink_dict.setdefault(
-                                reginf.sha256hash, (reginf, manager.Event())
-                            )
-
-                            # multiprocessing.apply_async
-                            # input args:
-                            #   func, args: list, kwargs: dict, *, callback, error_callback
-                            # output:
-                            #   async_result
-                            pool.apply_async(
-                                _create_regfile_func,
-                                (reginf, prev_reginf),
-                                {"hardlink_event": event},
-                                error_callback=error_callback,
-                            )
-                        else:
-                            pool.apply_async(
-                                _create_regfile_func,
-                                (reginf,),
-                                error_callback=error_callback,
-                            )
-
-                pool.close()
-                while len(processed_list) < regular_files_num:
-                    self._set_statistics(processed_list)
-
-                    if not error_queue.empty():
-                        error = error_queue.get()
-                        pool.terminate()
-                        raise error
-                    time.sleep(2)  # set pulling interval to 2 seconds
-
-                # final statistics record
-                self._set_statistics(processed_list)
-
-    # NOTE:
-    # _create_regular_file should be static to be used from pool.apply_async,
-    # since self._lock can't be pickled.
     @staticmethod
     def _create_regular_file(
         reginf: RegularInf,
-        prev_reginf: RegularInf = None,
         *,
-        # required options
-        url_base: str,
-        cookies: dict,
         standby_path: Path,
-        processed_list: list,
         boot_standby_path: Path,
-        # for hardlink file
-        hardlink_event=None,
+        hardlink_register: _HardlinkRegister,
         downloader,
-    ):
-        processed = {}
-        begin_time = time.time()
-        ishardlink = reginf.nlink >= 2
-        hardlink_first_copy = (
-            prev_reginf is not None and prev_reginf.path == reginf.path
-        )
+    ) -> _RegularStats:
+        # thread_time for multithreading function
+        # NOTE: for multithreading implementation,
+        # when a thread is sleeping, the GIL will be released
+        # and other thread will take the place to execute,
+        # so we use time.thread_time here.
+        begin_time = time.thread_time()
 
+        processed = _RegularStats()
         if str(reginf.path).startswith("/boot"):
             dst = boot_standby_path / reginf.path.relative_to("/boot")
         else:
             dst = standby_path / reginf.path.relative_to("/")
 
-        if ishardlink and not hardlink_first_copy:
+        # if is_hardlink file, get a tracker from the register
+        is_hardlink = reginf.nlink >= 2
+        if is_hardlink:
+            _hardlink_tracker, _is_writer = hardlink_register.get_tracker(
+                reginf.sha256hash, reginf.path, reginf.nlink
+            )
+
+        # case 1: is hardlink and this thread is subscriber
+        if is_hardlink and not _is_writer:
             # wait until the first copy is ready
-            hardlink_event.wait()
-            (standby_path / prev_reginf.path.relative_to("/")).link_to(dst)
-            processed["op"] = "link"
-            processed["errors"] = 0
-        else:  # normal file or first copy of hardlink file
-            if reginf.path.is_file() and verify_file(
-                reginf.path, reginf.sha256hash, reginf.size
-            ):
-                # copy file from active bank if hash is the same
-                shutil.copy(reginf.path, dst)
-                processed["op"] = "copy"
-                processed["errors"] = 0
-            else:
-                processed["errors"] = downloader(
-                    url_base,
-                    reginf.path,
-                    dst,
-                    reginf.sha256hash,
-                    cookies=cookies,
-                )
-                processed["op"] = "download"
+            prev_reginf_path = _hardlink_tracker.subscribe()
+            (standby_path / prev_reginf_path.relative_to("/")).link_to(dst)
+            processed.op = "link"
 
-        processed["size"] = dst.stat().st_size
+        # case 2: normal file or first copy of hardlink file
+        else:
+            try:
+                if reginf.path.is_file() and verify_file(
+                    reginf.path, reginf.sha256hash, reginf.size
+                ):
+                    # copy file from active bank if hash is the same
+                    shutil.copy(reginf.path, dst)
+                    processed.op = "copy"
+                else:
+                    processed.errors = downloader(
+                        reginf.path,
+                        dst,
+                        reginf.sha256hash,
+                    )
+                    processed.op = "download"
 
+                if is_hardlink and _is_writer:
+                    # writer indicates that the first copy of hardlink is ready
+                    _hardlink_tracker.writer_done()
+            except Exception:
+                # signal all subscribers to abort
+                if is_hardlink and _is_writer:
+                    _hardlink_tracker.writer_on_failed()
+
+                raise
+
+        processed.size = dst.stat().st_size
+
+        # set file permission as RegInf says
         os.chown(dst, reginf.uid, reginf.gid)
         os.chmod(dst, reginf.mode)
 
-        end_time = time.time()
-        processed["elapsed"] = end_time - begin_time
+        processed.elapsed = time.thread_time() - begin_time
 
-        processed_list.append(processed)
-        if ishardlink and hardlink_first_copy:
-            hardlink_event.set()  # first copy of hardlink file is ready
+        return processed
 
     def _copy_persistent_files(self, list_file, standby_path):
         copy_tree = CopyTree(
