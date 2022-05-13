@@ -551,8 +551,12 @@ class OTACache:
                 # scrub the cache folder
                 _scrub_cache = OTACacheScrubHelper()
                 _scrub_cache()
-                if scrub_cache_event:
-                    scrub_cache_event.set()
+
+            # set scrub_cache_event after init/scrub cache
+            # TODO: passthrough the exception to the ota_client process
+            # if the init/scrub failed
+            if scrub_cache_event:
+                scrub_cache_event.set()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
@@ -569,6 +573,9 @@ class OTACache:
 
         else:
             self._cache_enabled = False
+            # event cache is not set, still remember to set the scrub_cache_event!!!
+            if scrub_cache_event:
+                scrub_cache_event.set()
 
     def close(self):
         """Shutdowns OTACache instance.
