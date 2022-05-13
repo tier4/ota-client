@@ -57,8 +57,8 @@ class ColField:
 class Config:
     BASE_DIR: str = "/ota-cache"
     CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
-    DISK_USE_LIMIT_SOFT_P = 60  # in p%
-    DISK_USE_LIMIT_HARD_P = 70  # in p%
+    DISK_USE_LIMIT_SOFT_P = 70  # in p%
+    DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
     # value is the largest numbers of files that
     # might need to be deleted for the bucket to hold a new entry
