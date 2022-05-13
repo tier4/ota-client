@@ -220,6 +220,10 @@ class OtaClientStub:
                 main_ecu = response.ecu.add()
                 main_ecu.ecu_id = entry.ecu_id
                 main_ecu.result = v2.FAILURE
+        # NOTE(20220513): is it illegal that ecu itself is not requested to update
+        # but its subecus do, but currently we just log errors for it
+        else:
+            logger.warning("entries in update request doesn't include this ecu")
 
         # wait for all sub ecu acknowledge ota update requests
         if len(tasks):  # if we have sub ecu to update
