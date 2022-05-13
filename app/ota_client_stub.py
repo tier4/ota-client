@@ -84,7 +84,7 @@ class OtaProxyWrapper:
             log_level="error",
             lifespan="on",
             workers=1,
-            limit_concurrency=64,
+            limit_concurrency=256,
         )
 
     def start(self, enable_cache=False, init_cache=True) -> int:
@@ -104,7 +104,8 @@ class OtaProxyWrapper:
                 )
 
                 return self._server_p.pid
-        # sliently return if the server already started
+            else:
+                logger.warning("try to launch ota-proxy again")
 
     def wait_on_ota_cache(self, timeout: float = None):
         self._scrub_cache_event.wait(timeout=timeout)
@@ -220,6 +221,10 @@ class OtaClientStub:
                 main_ecu = response.ecu.add()
                 main_ecu.ecu_id = entry.ecu_id
                 main_ecu.result = v2.FAILURE
+        # NOTE(20220513): is it illegal that ecu itself is not requested to update
+        # but its subecus do, but currently we just log errors for it
+        else:
+            logger.warning("entries in update request doesn't include this ecu")
 
         # wait for all sub ecu acknowledge ota update requests
         if len(tasks):  # if we have sub ecu to update

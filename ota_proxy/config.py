@@ -57,8 +57,8 @@ class ColField:
 class Config:
     BASE_DIR: str = "/ota-cache"
     CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
-    DISK_USE_LIMIT_SOFT_P = 60  # in p%
-    DISK_USE_LIMIT_HARD_P = 70  # in p%
+    DISK_USE_LIMIT_SOFT_P = 70  # in p%
+    DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
     # value is the largest numbers of files that
     # might need to be deleted for the bucket to hold a new entry
@@ -84,7 +84,9 @@ class Config:
 
     # DB configuration/setup
     # ota-cache table
-    TABLE_NAME: str = "ota_cache"
+    # NOTE: use table name to keep track of table scheme version
+    TABLE_DEFINITION_VERSION = "v2"
+    TABLE_NAME: str = f"ota_cache_{TABLE_DEFINITION_VERSION}"
     COLUMNS: dict = field(
         default_factory=lambda: {
             "url": ColField(str, "TEXT UNIQUE NOT NULL PRIMARY KEY"),
@@ -97,10 +99,8 @@ class Config:
         }
     )
 
-    OTA_CACHE_IDX: List[str] = field(
-        default_factory=lambda: [
-            "CREATE INDEX bucket_last_access_idx ON ota_cache(bucket, last_access)",
-        ]
+    BUCKET_LAST_ACCESS_IDX: str = (
+        f"CREATE INDEX bucket_last_access_idx ON {TABLE_NAME}(bucket, last_access)"
     )
 
 
