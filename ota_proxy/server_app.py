@@ -151,6 +151,7 @@ class App:
         # pass cookies and other headers needed for proxy into the ota_cache module
         cookies_dict: Dict[str, str] = dict()
         extra_headers: Dict[str, str] = dict()
+
         # currently we only need cookie and/or authorization header
         # also parse OTA-File-Cache-Control header
         ota_cache_control_policies = set()
@@ -169,12 +170,10 @@ class App:
                     # also preserved the raw headers value string
                     extra_headers[OTAFileCacheControl.header.value] = header[1].decode()
                 except KeyError:
-                    await self._respond_with_error(
-                        HTTPStatus.BAD_REQUEST,
-                        f"bad OTA-File-Cache-Control headers: {header[1]}",
-                        send,
+                    logger.debug(
+                        f"{url=}: "
+                        f"ignore bad OTA-File-Cache-Control headers: {header[1]}"
                     )
-                    return
 
         respond_started = False
         try:
