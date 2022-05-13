@@ -950,40 +950,47 @@ class OTACache:
 
         # case 2: no valid cache entry presented, try to cache the requested file
         if no_cache_available:
-            logger.debug(f"try to download and cache {url=}")
+            logger.debug(f"no cache entry for {url=}")
 
-            # case 2.1: download and cache new file
-            _tracker, is_writer = await self._on_going_caching.get_tracker(url)
-            if is_writer:
-                _remote_fp, meta = await self._open_fp_by_requests(
-                    url, cookies, extra_headers, _tracker
-                )
-
-                ota_file = OTAFile(
-                    _remote_fp,
-                    meta,
-                    below_hard_limit_event=self._storage_below_hard_limit_event,
-                )
-
-                # NOTE: bind the tracker to the callback function
-                self._executor.submit(
-                    ota_file.background_write_cache,
-                    _tracker,
-                    self._register_cache_callback,
-                )
-
-                fp = ota_file.get_chunks()
+            # case 2.1: reache storage hardlimit, directly download file without caching it
+            if not self._storage_below_hard_limit_event.is_set():
+                fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
                 return fp, meta
 
-            # case 2.2: respond by cache streaming
+            # case 2.2: normal caching
             else:
-                # if this tracker is failed, drop it
-                if _tracker._is_failed:
-                    raise ValueError(f"cache corrupted on {_tracker.fn}, abort")
+                # case 2.2.1: download and cache new file
+                _tracker, is_writer = await self._on_going_caching.get_tracker(url)
+                if is_writer:
+                    _remote_fp, meta = await self._open_fp_by_requests(
+                        url, cookies, extra_headers, _tracker
+                    )
 
-                logger.debug(f"enable cache streaming for {url=}")
-                fp = await self._open_fp_by_cache_streaming(_tracker)
-                return fp, _tracker.meta
+                    ota_file = OTAFile(
+                        _remote_fp,
+                        meta,
+                        below_hard_limit_event=self._storage_below_hard_limit_event,
+                    )
+
+                    # NOTE: bind the tracker to the callback function
+                    self._executor.submit(
+                        ota_file.background_write_cache,
+                        _tracker,
+                        self._register_cache_callback,
+                    )
+
+                    fp = ota_file.get_chunks()
+                    return fp, meta
+
+                # case 2.2.2: respond by cache streaming
+                else:
+                    # if this tracker is failed, drop it
+                    if _tracker._is_failed:
+                        raise ValueError(f"cache corrupted on {_tracker.fn}, abort")
+
+                    logger.debug(f"enable cache streaming for {url=}")
+                    fp = await self._open_fp_by_cache_streaming(_tracker)
+                    return fp, _tracker.meta
 
         # case 3: cache is available and valid, use cache
         else:
