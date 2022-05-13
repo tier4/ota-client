@@ -84,7 +84,9 @@ class Config:
 
     # DB configuration/setup
     # ota-cache table
-    TABLE_NAME: str = "ota_cache"
+    # NOTE: use table name to keep track of table scheme version
+    TABLE_DEFINITION_VERSION = "v2"
+    TABLE_NAME: str = f"ota_cache_{TABLE_DEFINITION_VERSION}"
     COLUMNS: dict = field(
         default_factory=lambda: {
             "url": ColField(str, "TEXT UNIQUE NOT NULL PRIMARY KEY"),
