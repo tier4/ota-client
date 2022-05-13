@@ -105,7 +105,7 @@ class OtaProxyWrapper:
 
                 return self._server_p.pid
             else:
-                logger.warning(f"try to launch ota-proxy again")
+                logger.warning("try to launch ota-proxy again")
 
     def wait_on_ota_cache(self, timeout: float = None):
         self._scrub_cache_event.wait(timeout=timeout)
