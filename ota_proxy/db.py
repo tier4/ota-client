@@ -58,7 +58,9 @@ class OTACacheDB:
         + ", ".join([f"{k} {v.col_def}" for k, v in cfg.COLUMNS.items()])
         + ")"
     )
-    OTA_CACHE_IDX: List[str] = cfg.OTA_CACHE_IDX
+    OTA_CACHE_IDX: List[str] = [
+        cfg.BUCKET_LAST_ACCESS_IDX,
+    ]
     ROW_SHAPE = ",".join(["?"] * CacheMeta.shape())
 
     def __init__(self, db_file: str, init=False):

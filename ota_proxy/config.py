@@ -99,10 +99,8 @@ class Config:
         }
     )
 
-    OTA_CACHE_IDX: List[str] = field(
-        default_factory=lambda: [
-            "CREATE INDEX bucket_last_access_idx ON ota_cache(bucket, last_access)",
-        ]
+    BUCKET_LAST_ACCESS_IDX: str = (
+        f"CREATE INDEX bucket_last_access_idx ON {TABLE_NAME}(bucket, last_access)"
     )
 
 
