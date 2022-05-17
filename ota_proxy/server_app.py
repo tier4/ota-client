@@ -1,3 +1,4 @@
+import asyncio
 import aiohttp
 from http import HTTPStatus
 from threading import Lock
@@ -40,39 +41,22 @@ class App:
         uvicorn.run(app, host="0.0.0.0", port=8082, log_level="debug", lifespan="on")
     """
 
-    def __init__(self, **kwargs):
-        # passthrough all kwargs to the ota_cache initializing
-        self._kwargs = kwargs
-        self.started = False
-        self._lock = Lock()
+    def __init__(self, ota_cache: ota_cache.OTACache):
+        self._lock = asyncio.Lock()
+        self._closed = True
+        self._ota_cache = ota_cache
 
-    def start(self):
-        """Inits and starts the OTACache instance.
+    async def start(self):
+        async with self._lock:
+            if self._closed:
+                self._closed = False
+                await self._ota_cache.start()
 
-        OTACache will be initialized and launched in the background.
-        NOTE: if there are multiple calls on this method, only one call will be executed,
-        other calls will be ignored sliently
-        """
-        if self._lock.acquire(blocking=False) and not self.started:
-            logger.info("start ota http proxy app...")
-            self.started = True
-            self._ota_cache = ota_cache.OTACache(**self._kwargs)
-
-            self._lock.release()
-
-    def stop(self):
-        """Closes the OTACache instance.
-
-        NOTE: if there are multiple calls on this method, only one call will be executed,
-        other calls will be ignored sliently
-        """
-        if self._lock.acquire(blocking=False) and self.started:
-            logger.info("stopping ota http proxy app...")
-            self._ota_cache.close()
-            logger.info("shutdown server completed")
-            self.started = False
-
-            self._lock.release()
+    async def stop(self):
+        async with self._lock:
+            if not self._closed:
+                self._closed = True
+                await self._ota_cache.close()
 
     @staticmethod
     def parse_raw_cookies(cookies_bytes: bytes) -> Dict[str, str]:
@@ -259,10 +243,10 @@ class App:
             while True:
                 message = await receive()
                 if message["type"] == "lifespan.startup":
-                    self.start()
+                    await self.start()
                     await send({"type": "lifespan.startup.complete"})
                 elif message["type"] == "lifespan.shutdown":
-                    self.stop()
+                    await self.stop()
                     await send({"type": "lifespan.shutdown.complete"})
                     return
         else:
