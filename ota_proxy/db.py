@@ -162,7 +162,7 @@ class OTACacheDB:
             cur = con.execute(f"SELECT * FROM {self.TABLE_NAME}", ())
             return [CacheMeta.row_to_meta(row) for row in cur.fetchall()]
 
-    def rotate_cache(self, bucket: int, num: int) -> Union[str, None]:
+    def rotate_cache(self, bucket: int, num: int) -> Union[List[str], None]:
         """Rotate cache entries in LRU flavour.
 
         Args:
@@ -179,13 +179,15 @@ class OTACacheDB:
                 f"SELECT COUNT(*) FROM {self.TABLE_NAME} WHERE bucket=? ORDER BY last_access LIMIT ?",
                 (bucket, num),
             )
-            _count = cur.fetchone()[0]
+            _raw_res = cur.fetchone()
+            if _raw_res is None:
+                return
 
             # NOTE: if we can upgrade to sqlite3 >= 3.35,
             # use RETURNING clause instead of using 2 queries as below
 
             # if we have enough entries for space reserving
-            if _count >= num:
+            if _raw_res[0] >= num:
                 # first select those entries
                 cur = con.execute(
                     (
