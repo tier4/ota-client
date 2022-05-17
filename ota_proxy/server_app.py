@@ -29,15 +29,16 @@ class App:
         b. It seems that uvicorn will not interrupt the App running even the client closes connection.
 
     Attributes:
-        kwargs dict[str, Any]: App doesn't use any of the kwargs,
-            these kwargs will be passed through to ota_cache directly for initializing.
-            Check ota_cache.OTACache for details.
+        ota_cache: initialized but not yet launched ota_cache instance
 
     Example usage:
+
         # initialize an instance of the App:
-        app = App(cache_enabled=True, init_cache=False, enable_https=False)
+        _ota_cache = OTACache(cache_enabled=True, init_cache=False, enable_https=False)
+        app = App(_ota_cache)
+
         # load the app with uvicorn, and start uvicorn
-        # NOTE: lifespan must be set to "on" for properly close the ota_proxy server
+        # NOTE: lifespan must be set to "on" for properly launching/closing ota_cache instance
         uvicorn.run(app, host="0.0.0.0", port=8082, log_level="debug", lifespan="on")
     """
 
@@ -47,12 +48,14 @@ class App:
         self._ota_cache = ota_cache
 
     async def start(self):
+        """Start the ota_cache instance."""
         async with self._lock:
             if self._closed:
                 self._closed = False
                 await self._ota_cache.start()
 
     async def stop(self):
+        """Stop the ota_cache instance."""
         async with self._lock:
             if not self._closed:
                 self._closed = True
@@ -182,6 +185,7 @@ class App:
                 await self._send_chunk(chunk, True, send)
             # finish the streaming by send a 0 len payload
             await self._send_chunk(b"", False, send)
+
         except aiohttp.ClientResponseError as e:
             await self._respond_with_error(e.status, e.message, send)
             logger.exception(f"request for {url=} failed")
@@ -199,8 +203,11 @@ class App:
             logger.exception(f"request for {url=} failed")
         except Exception as e:
             # exceptions rather than aiohttp error indicates
-            # internal errors of ota_cache,
-            logger.exception(f"request for {url=} failed from ota_cache")
+            # internal errors of ota_cache
+            logger.exception(
+                f"request for {url=} failed due to ota_cache internal error"
+            )
+
             # terminate the transmission
             if respond_started:
                 await send({"type": "http.response.body", "body": b""})
