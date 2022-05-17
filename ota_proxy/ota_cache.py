@@ -196,7 +196,7 @@ class LRUCacheHelper:
             size int: the size of file that we want to reserve space for
 
         Returns:
-            A list of hashes that needed to be cleaned.
+            A list of hashes that needed to be cleaned, or None if no enough entries.
         """
         # NOTE: currently file size >= 512MiB or file size < 1KiB
         # will be saved without cache rotating.
@@ -674,13 +674,14 @@ class OTACache:
             A bool indicates whether the space reserving is successful or not.
         """
         _hashes = self._lru_helper.rotate_cache(size)
-        logger.debug(
-            f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
-        )
-        if _hashes is not None:
+        if _hashes:
+            logger.debug(
+                f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
+            )
             self._executor.submit(self._cache_entries_cleanup, _hashes)
             return True
         else:
+            logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
     def _register_cache_callback(self, f: OTAFile, tracker: OngoingCacheTracker):
