@@ -15,6 +15,8 @@ from ota_client_call import OtaClientCall
 from proxy_info import proxy_cfg
 from ecu_info import EcuInfo
 
+from ota_proxy import ota_cache
+
 from configs import config as cfg
 from configs import server_cfg
 import log_util
@@ -71,23 +73,29 @@ class OtaProxyWrapper:
         import uvicorn
         from ota_proxy import App
 
+        _ota_cache = ota_cache.OTACache(
+            cache_enabled=enable_cache,
+            upper_proxy=proxy_cfg.upper_ota_proxy,
+            enable_https=proxy_cfg.gateway,
+            init_cache=init_cache,
+            scrub_cache_event=scrub_cache_event,
+        )
+
+        # NOTE: explicitly set loop and http options
+        # to prevent using wrong libs
+        # NOTE 2: http=="httptools" will break ota_proxy
         uvicorn.run(
-            App(
-                cache_enabled=enable_cache,
-                upper_proxy=proxy_cfg.upper_ota_proxy,
-                enable_https=proxy_cfg.gateway,
-                init_cache=init_cache,
-                scrub_cache_event=scrub_cache_event,
-            ),
+            App(_ota_cache),
             host=proxy_cfg.host,
             port=proxy_cfg.port,
             log_level="error",
             lifespan="on",
-            workers=1,
-            limit_concurrency=256,
+            loop="asyncio",
+            http="h11",
         )
 
     def start(self, enable_cache=False, init_cache=True) -> int:
+        """Launch ota_proxy as a separate process."""
         with self._lock:
             if self._closed:
                 self._server_p = Process(
@@ -108,9 +116,14 @@ class OtaProxyWrapper:
                 logger.warning("try to launch ota-proxy again")
 
     def wait_on_ota_cache(self, timeout: float = None):
+        """Wait on ota_cache to finish initializing."""
         self._scrub_cache_event.wait(timeout=timeout)
 
     def stop(self, cleanup_cache=False):
+        """Shutdown ota_proxy.
+
+        NOTE: cache folder cleanup is done here.
+        """
         from ota_proxy.config import config as proxy_srv_cfg
 
         with self._lock:
