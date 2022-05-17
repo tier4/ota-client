@@ -242,20 +242,24 @@ class Downloader:
         return error_count
 
 
+def de_escape(s: str) -> str:
+    return s.replace(r"'\''", r"'")
+
+
+@dataclass
 class _BaseInf:
-    _base_pattern = re.compile(
+    mode: int
+    uid: int
+    gid: int
+    _left: str = field(init=False, compare=False, repr=False)
+
+    _base_pattern: ClassVar[re.Pattern] = re.compile(
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
     )
 
-    __slots__ = ["mode", "uid", "gid", "_left"]
-
-    @staticmethod
-    def de_escape(s: str) -> str:
-        return s.replace(r"'\''", r"'")
-
     def __init__(self, info: str):
         match_res: re.Match = self._base_pattern.match(info.strip())
-        assert match_res is not None
+        assert match_res is not None, f"match base_inf failed: {info}"
 
         self.mode = int(match_res.group("mode"), 8)
         self.uid = int(match_res.group("uid"))
@@ -263,77 +267,81 @@ class _BaseInf:
         self._left: str = match_res.group("left_over")
 
 
+@dataclass
 class DirectoryInf(_BaseInf):
     """Directory file information class."""
 
-    __slots__ = ["path"]
+    path: Path
 
     def __init__(self, info):
-        try:
-            super().__init__(info)
-        except (ValueError, AssertionError) as e:
-            raise ValueError(f"invalid input {info=}: {e}")
-
-        self.path = Path(self.de_escape(self._left[1:-1]))
+        super().__init__(info)
+        self.path = Path(de_escape(self._left[1:-1]))
 
         del self._left
 
 
+@dataclass
 class SymbolicLinkInf(_BaseInf):
     """Symbolik link information class."""
 
-    _pattern = re.compile(r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'")
+    slink: Path
+    srcpath: Path
 
-    __slots__ = ["slink", "srcpath"]
-
-    def __init__(self, info):
-        try:
-            super().__init__(info)
-            res = self._pattern.match(self._left)
-            assert res is not None
-        except (ValueError, AssertionError) as e:
-            raise ValueError(f"invalid input {info=}: {e}")
-
-        self.slink = Path(self.de_escape(res.group("link")))
-        self.srcpath = Path(self.de_escape(res.group("target")))
-
-        del self._left
-
-
-class RegularInf(_BaseInf):
-    """Regular file information class."""
-
-    _pattern = re.compile(
-        r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)',?(?P<size>\d+)?"
+    _pattern: ClassVar[re.Pattern] = re.compile(
+        r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
     )
 
-    __slots__ = ["nlink", "sha256hash", "path", "size"]
-
     def __init__(self, info):
-        try:
-            super().__init__(info)
-            res = self._pattern.match(self._left)
-            assert res is not None
-        except (ValueError, AssertionError) as e:
-            raise ValueError(f"invalid input {info=}: {e}")
+        super().__init__(info)
+        res = self._pattern.match(self._left)
+        assert res is not None, f"match symlink failed: {info}"
 
-        self.nlink = int(res.group("nlink"))
-        self.sha256hash = res.group("hash")
-        self.path = Path(self.de_escape(res.group("path")))
-        # make sure that size might be None
-        size = res.group("size")
-        self.size = None if size is None else int(size)
+        self.slink = Path(de_escape(res.group("link")))
+        self.srcpath = Path(de_escape(res.group("target")))
 
         del self._left
 
 
+@dataclass
 class PersistentInf:
     """Persistent file information class."""
 
-    __slots__ = ["path"]
+    path: Path
 
     def __init__(self, info: str):
-        self.path = Path(_BaseInf.de_escape(info[1:-1]))
+        self.path = Path(de_escape(info[1:-1]))
+
+
+@dataclass
+class RegularInf:
+    mode: int
+    uid: int
+    gid: int
+    nlink: int
+    sha256hash: str
+    size: int
+    _path: Path
+
+    _reginf_pa: ClassVar[re.Pattern] = re.compile(
+        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'(,(?P<size>\d+))?"
+    )
+
+    def __init__(self, _input: str):
+        _ma = self._reginf_pa.match(_input)
+        assert _ma is not None, f"matching reg_inf failed for {_input}"
+
+        self.mode = int(_ma.group("mode"), 8)
+        self.uid = int(_ma.group("uid"))
+        self.gid = int(_ma.group("gid"))
+        self.nlink = int(_ma.group("nlink"))
+        self.sha256hash = _ma.group("hash")
+        self._path = de_escape(_ma.group("path"))
+        _size = _ma.group("size")
+        self.size = int(_size) if _size is not None else None
+
+    @property
+    def path(self) -> Path:
+        return Path(self._path)
 
 
 @unique
