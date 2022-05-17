@@ -19,7 +19,7 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
@@ -119,6 +119,7 @@ class Downloader:
     BACKOFF_FACTOR = 1
     OUTER_BACKOFF_FACTOR = 0.01
     BACKOFF_MAX = 10
+    MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
 
     def __init__(self):
         from requests.adapters import HTTPAdapter
@@ -145,7 +146,11 @@ class Downloader:
             status_forcelist={413, 429, 500, 502, 503, 504},
             allowed_methods=["GET"],
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        adapter = HTTPAdapter(
+            pool_connections=self.MAX_CONCURRENT_DOWNLOAD,
+            pool_maxsize=self.MAX_CONCURRENT_DOWNLOAD,
+            max_retries=retry_strategy,
+        )
         session.mount("https://", adapter)
         session.mount("http://", adapter)
 
@@ -556,10 +561,12 @@ class _CreateRegularStatsCollector:
         self,
         store: OtaClientStatistics,
         *,
+        max_concurrency_tasks: int,
         interval=1,
     ) -> None:
         self.abort_event = threading.Event()
         self.last_error = None
+        self.se = threading.Semaphore(max_concurrency_tasks)
         self._que = Queue()
         self._store = store
         self._interval = interval
@@ -605,7 +612,7 @@ class _CreateRegularStatsCollector:
 
                 _cur_time = time.time()
 
-    def callback(self, fut: Future, *, se: threading.Semaphore):
+    def callback(self, fut: Future):
         """Callback for create regular files
         sts will also being put into que from this callback
         """
@@ -613,7 +620,7 @@ class _CreateRegularStatsCollector:
             sts: _RegularStats = fut.result()
             self._que.put_nowait(sts)
 
-            se.release()
+            self.se.release()
         except Exception as e:
             self.last_error = e
             # if any task raises exception,
@@ -646,12 +653,10 @@ class _HardlinkTracker:
 
     def subscribe(self) -> Path:
         # wait for writer
-        while True:
+        while not self._first_copy_ready.is_set():
             if self._failed.is_set():
                 raise ValueError(f"writer failed on path={self.first_copy_path}")
 
-            if self._first_copy_ready.is_set():
-                break
             time.sleep(self.POLLINTERVAL)
 
         try:
@@ -690,8 +695,8 @@ class _HardlinkRegister:
 
 
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
-    MAX_CONCURRENT_DOWNLOAD_TASKS = 2048
-    MAX_DOWNLOAD_WORKERS = 7
+    MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
+    MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
     COLLECT_INTERVAL = 1  # sec
 
     def __init__(self):
@@ -1076,24 +1081,22 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._statistics.set("total_regular_files", total_files_num)
 
         _hardlink_register = _HardlinkRegister()
-        # maximum allowd concurrent tasks
-        _se = threading.Semaphore(self.MAX_CONCURRENT_DOWNLOAD_TASKS)
         # collector that records stats from tasks and update ota-update status
         _collector = _CreateRegularStatsCollector(
-            self._statistics, interval=self.COLLECT_INTERVAL
+            self._statistics,
+            interval=self.COLLECT_INTERVAL,
+            max_concurrency_tasks=self.MAX_CONCURRENT_TASKS,
         )
-        # bounded callback function
-        _callback_f = partial(_collector.callback, se=_se)
+        # limit the cocurrent downloading tasks
+        _download_se = threading.Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
 
-        with open(regulars_file, "r") as f, ThreadPoolExecutor(
-            max_workers=self.MAX_DOWNLOAD_WORKERS
-        ) as pool:
+        with open(regulars_file, "r") as f, ThreadPoolExecutor() as pool:
             # fire up background collector
             _collector_fut = pool.submit(_collector.collector, total_files_num)
 
             for l in f:
                 entry = RegularInf(l)
-                _se.acquire()
+                _collector.se.acquire()
 
                 fut = pool.submit(
                     self._create_regular_file,
@@ -1102,8 +1105,9 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     boot_standby_path=boot_standby_path,
                     hardlink_register=_hardlink_register,
                     downloader=downloader,
+                    download_limiter=_download_se,
                 )
-                fut.add_done_callback(_callback_f)
+                fut.add_done_callback(_collector.callback)
 
             # loop detect exception
             logger.info("all create_regular_files tasks dispatched")
@@ -1131,7 +1135,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         standby_path: Path,
         boot_standby_path: Path,
         hardlink_register: _HardlinkRegister,
-        downloader,
+        downloader: Callable,
+        download_limiter: threading.Semaphore,
     ) -> _RegularStats:
         # thread_time for multithreading function
         # NOTE: for multithreading implementation,
@@ -1170,19 +1175,24 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     shutil.copy(reginf.path, dst)
                     processed.op = "copy"
                 else:
-                    processed.errors = downloader(
-                        reginf.path,
-                        dst,
-                        reginf.sha256hash,
-                    )
-                    processed.op = "download"
+                    # limit the concurrent downloading tasks
+                    with download_limiter:
+                        if True:
+                            processed.errors = downloader(
+                                reginf.path,
+                                dst,
+                                reginf.sha256hash,
+                            )
+                            processed.op = "download"
 
+                # when first copy is ready(by copy or download),
+                # inform the subscriber
                 if is_hardlink and _is_writer:
-                    # writer indicates that the first copy of hardlink is ready
                     _hardlink_tracker.writer_done()
             except Exception:
-                # signal all subscribers to abort
                 if is_hardlink and _is_writer:
+                    # signal all subscribers to abort
+
                     _hardlink_tracker.writer_on_failed()
 
                 raise

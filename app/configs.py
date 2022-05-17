@@ -95,6 +95,10 @@ class _BaseConfig:
     )
     MOUNT_POINT: str = "/mnt/standby"
 
+    # ota-update download setting
+    MAX_CONCURRENT_DOWNLOAD: int = 16
+    MAX_CONCURRENT_TASKS: int = 128
+
 
 @dataclass
 class GrubControlConfig(_BaseConfig):
