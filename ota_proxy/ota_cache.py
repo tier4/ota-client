@@ -507,20 +507,37 @@ class OTACache:
         enable_https: bool = False,
         scrub_cache_event: "Event" = None,
     ):
+        """Init ota_cache instance with configurations."""
         logger.debug(
             f"init ota_cache({cache_enabled=}, {init_cache=}, {upper_proxy=}, {enable_https=})"
         )
-        self._closed = False
+        self._closed = True
 
         self._chunk_size = cfg.CHUNK_SIZE
         self._base_dir = Path(cfg.BASE_DIR)
         self._cache_enabled = cache_enabled
+        self._init_cache = init_cache
         self._enable_https = enable_https
-        self._executor = ThreadPoolExecutor()
+        self._executor = ThreadPoolExecutor(thread_name_prefix="ota_cache_executor")
 
         self._storage_below_hard_limit_event = Event()
         self._storage_below_soft_limit_event = Event()
-        self._upper_proxy: str = ""
+        self._upper_proxy: str = upper_proxy
+
+        self._scrub_cache_event = scrub_cache_event
+
+    async def start(self):
+        """Start the ota_cache instance."""
+        # silently ignore multi launching of ota_cache
+        if not self._closed:
+            logger.warning("multiple launching of ota_cache detected, ignored")
+            return
+
+        # label as started
+        self._closed = False
+
+        # get current event loop
+        self._loop = asyncio.get_running_loop()
 
         # ensure base dir
         self._base_dir.mkdir(exist_ok=True, parents=True)
@@ -537,11 +554,9 @@ class OTACache:
             auto_decompress=False, raise_for_status=True, timeout=timeout
         )
 
-        if cache_enabled:
-            self._cache_enabled = True
-
+        if self._cache_enabled:
             # prepare cache dir
-            if init_cache:
+            if self._init_cache:
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
                 # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
@@ -552,12 +567,6 @@ class OTACache:
                 _scrub_cache = OTACacheScrubHelper()
                 _scrub_cache()
 
-            # set scrub_cache_event after init/scrub cache
-            # TODO: passthrough the exception to the ota_client process
-            # if the init/scrub failed
-            if scrub_cache_event:
-                scrub_cache_event.set()
-
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
@@ -566,18 +575,23 @@ class OTACache:
             # init cache streaming provider
             self._on_going_caching = OngoingCachingRegister(cfg.BASE_DIR)
 
-            if upper_proxy:
-                # if upper proxy presented, we must disable https
-                self._upper_proxy = upper_proxy
+            if self._upper_proxy:
+                # if upper proxy presented, force disable https
                 self._enable_https = False
 
         else:
             self._cache_enabled = False
             # event cache is not set, still remember to set the scrub_cache_event!!!
-            if scrub_cache_event:
-                scrub_cache_event.set()
 
-    def close(self):
+        # set scrub_cache_event after init/scrub cache
+        # TODO: passthrough the exception to the ota_client process
+        # if the init/scrub failed
+        if self._scrub_cache_event:
+            self._scrub_cache_event.set()
+
+        logger.debug(f"ota_cache started")
+
+    async def close(self):
         """Shutdowns OTACache instance.
 
         NOTE: cache folder cleanup on successful ota update is not
@@ -586,8 +600,9 @@ class OTACache:
         logger.debug("shutdown ota-cache...")
         if self._cache_enabled and not self._closed:
             self._closed = True
-            self._executor.shutdown(wait=True)
+            await self._session.close()
             self._lru_helper.close()
+            self._executor.shutdown(wait=True)
 
         logger.info("shutdown ota-cache completed")
 
