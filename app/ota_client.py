@@ -11,7 +11,7 @@ import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor, Future
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, unique
 from functools import partial
 from hashlib import sha256
@@ -19,7 +19,7 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, ClassVar, Dict, List, Tuple, Union
 from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
@@ -114,11 +114,11 @@ def _retry(retry, backoff_factor, backoff_max, func):
 
 
 class Downloader:
-    CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
-    RETRY_COUNT = 5
+    CHUNK_SIZE = cfg.CHUNK_SIZE
+    RETRY_COUNT = cfg.DOWNLOAD_RETRY
     BACKOFF_FACTOR = 1
     OUTER_BACKOFF_FACTOR = 0.01
-    BACKOFF_MAX = 10
+    BACKOFF_MAX = cfg.DOWNLOAD_BACKOFF_MAX
     MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
 
     def __init__(self):
@@ -697,7 +697,7 @@ class _HardlinkRegister:
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
     MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
-    COLLECT_INTERVAL = 1  # sec
+    COLLECT_INTERVAL = cfg.STATS_COLLECT_INTERVAL  # sec
 
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
