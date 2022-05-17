@@ -536,9 +536,6 @@ class OTACache:
         # label as started
         self._closed = False
 
-        # get current event loop
-        self._loop = asyncio.get_running_loop()
-
         # ensure base dir
         self._base_dir.mkdir(exist_ok=True, parents=True)
 
