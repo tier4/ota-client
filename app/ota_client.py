@@ -1190,13 +1190,12 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 else:
                     # limit the concurrent downloading tasks
                     with download_limiter:
-                        if True:
-                            processed.errors = downloader(
-                                reginf.path,
-                                dst,
-                                reginf.sha256hash,
-                            )
-                            processed.op = "download"
+                        processed.errors = downloader(
+                            reginf.path,
+                            dst,
+                            reginf.sha256hash,
+                        )
+                        processed.op = "download"
 
                 # when first copy is ready(by copy or download),
                 # inform the subscriber
