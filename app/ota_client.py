@@ -19,7 +19,7 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock
-from typing import Any, Callable, ClassVar, Dict, List, Tuple, Union
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
@@ -319,7 +319,7 @@ class RegularInf:
     gid: int
     nlink: int
     sha256hash: str
-    size: int
+    size: Optional[int]
     _path: Path
 
     _reginf_pa: ClassVar[re.Pattern] = re.compile(
@@ -398,32 +398,24 @@ class OtaClientStatistics:
         self._slot = _OtaClientStatisticsStorage()
 
     def get_snapshot(self):
-        """
-        return a copy of statistics storage
-        """
+        """Return a copy of statistics storage."""
         return self._slot.copy()
 
     def get_processed_num(self) -> int:
         return self._slot.regular_files_processed
 
     def set(self, attr: str, value):
-        """
-        set a single attr in the slot
-        """
+        """Set a single attr in the slot."""
         with self._lock:
             setattr(self._slot, attr, value)
 
     def clear(self):
-        """
-        clear the storage slot and reset to empty
-        """
+        """Clear the storage slot and reset to empty."""
         self._slot = _OtaClientStatisticsStorage()
 
     @contextmanager
     def acquire_staging_storage(self):
-        """
-        acquire a staging storage for updating the slot atomically and thread-safely
-        """
+        """Acquire a staging storage for updating the slot atomically and thread-safely."""
         try:
             self._lock.acquire()
             staging_slot: _OtaClientStatisticsStorage = self._slot.copy()
