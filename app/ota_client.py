@@ -565,21 +565,30 @@ class _RegularStats:
 
 
 class _CreateRegularStatsCollector:
+    COLLECT_INTERVAL = cfg.STATS_COLLECT_INTERVAL
+
     def __init__(
         self,
         store: OtaClientStatistics,
         *,
+        total_regular_num: int,
         max_concurrency_tasks: int,
-        interval=1,
     ) -> None:
-        self.abort_event = threading.Event()
-        self.last_error = None
-        self.se = threading.Semaphore(max_concurrency_tasks)
         self._que = Queue()
         self._store = store
-        self._interval = interval
 
-    def collector(self, total_num: int):
+        self.abort_event = threading.Event()
+        self.finished_event = threading.Event()
+        self.last_error = None
+        self.se = threading.Semaphore(max_concurrency_tasks)
+        self.total_regular_num = total_regular_num
+
+    def acquire_se(self):
+        """Acquire se for dispatching task to threadpool,
+        block if concurrency limit is reached."""
+        self.se.acquire()
+
+    def collector(self):
         _staging: List[_RegularStats] = []
         _cur_time = time.time()
         while True:
@@ -587,19 +596,20 @@ class _CreateRegularStatsCollector:
                 logger.error("abort event is set, collector exits")
                 break
 
-            if self._store.get_processed_num() < total_num:
+            if self._store.get_processed_num() < self.total_regular_num:
                 try:
                     sts = self._que.get_nowait()
                     _staging.append(sts)
                 except queue.Empty:
                     # if no new stats available, wait <_interval> time
-                    time.sleep(self._interval)
+                    time.sleep(self.COLLECT_INTERVAL)
             else:
                 # all sts are processed
+                self.finished_event.set()
                 break
 
             # collect stats every <_interval> seconds
-            if _staging and time.time() - _cur_time > self._interval:
+            if _staging and time.time() - _cur_time > self.COLLECT_INTERVAL:
                 with self._store.acquire_staging_storage() as staging_storage:
                     staging_storage.regular_files_processed += len(_staging)
 
@@ -635,6 +645,24 @@ class _CreateRegularStatsCollector:
             # interrupt the background collector
             self.abort_event.set()
             raise
+
+    def wait(self):
+        """Waits until all regular files have been processed
+        and detect any exceptions raised by background workers.
+
+        Raise:
+            Last error happens among worker threads.
+        """
+        # loop detect exception
+        while not self.finished_event.is_set():
+            # if done_event is set before all tasks finished,
+            # it means exception happened
+            time.sleep(self.COLLECT_INTERVAL)
+            if self.abort_event.is_set():
+                logger.error(
+                    f"create_regular_files failed, last error: {self.last_error!r}"
+                )
+                raise self.last_error from None
 
 
 class _WeakRef:
@@ -705,7 +733,6 @@ class _HardlinkRegister:
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
     MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
     MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
-    COLLECT_INTERVAL = cfg.STATS_COLLECT_INTERVAL  # sec
 
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
@@ -1079,7 +1106,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         *,
         standby_path: Path,
         boot_standby_path: Path,
-        downloader,
+        downloader: Callable,
     ):
         # get total number of regular_files
         with open(regulars_file, "r") as f:
@@ -1092,7 +1119,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # collector that records stats from tasks and update ota-update status
         _collector = _CreateRegularStatsCollector(
             self._statistics,
-            interval=self.COLLECT_INTERVAL,
+            total_regular_num=total_files_num,
             max_concurrency_tasks=self.MAX_CONCURRENT_TASKS,
         )
         # limit the cocurrent downloading tasks
@@ -1100,11 +1127,11 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
 
         with open(regulars_file, "r") as f, ThreadPoolExecutor() as pool:
             # fire up background collector
-            _collector_fut = pool.submit(_collector.collector, total_files_num)
+            pool.submit(_collector.collector)
 
             for l in f:
                 entry = RegularInf(l)
-                _collector.se.acquire()
+                _collector.acquire_se()
 
                 fut = pool.submit(
                     self._create_regular_file,
@@ -1117,24 +1144,10 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                 )
                 fut.add_done_callback(_collector.callback)
 
-            # loop detect exception
-            logger.info("all create_regular_files tasks dispatched")
-            while self._statistics.get_processed_num() < total_files_num:
-                # if done_event is set before all tasks finished,
-                # it means exception happened
-                time.sleep(self.COLLECT_INTERVAL)
-                if _collector.abort_event.is_set():
-                    _last_error = _collector.last_error
-                    logger.error(
-                        f"create_regular_files failed, last error: {_collector.last_error!r}"
-                    )
-                    raise _last_error from None
+            logger.info("all create_regular_files tasks dispatched, wait for collector")
 
             # wait for collector
-            logger.info(
-                "all create_regular_files tasks completed, wait for stats collector"
-            )
-            _collector_fut.result()
+            _collector.wait()
 
     @staticmethod
     def _create_regular_file(
