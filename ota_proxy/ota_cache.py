@@ -373,19 +373,18 @@ class OTAFile:
 
 
 class OTACacheScrubHelper:
-    """Helper class to scrub ota caches."""
+    """Helper to scrub ota caches."""
 
     DB_FILE: str = cfg.DB_FILE
     BASE_DIR: str = cfg.BASE_DIR
 
     def __init__(self):
         self._db = db.OTACacheDB(self.DB_FILE)
+        self._base_dir = Path(self.BASE_DIR)
         self._excutor = ProcessPoolExecutor()
-        self._closed = False
 
-    @staticmethod
-    def _check_entry(base_dir: str, meta: db.CacheMeta) -> Union[db.CacheMeta, bool]:
-        f = Path(base_dir) / meta.hash
+    def _check_entry(self, meta: db.CacheMeta) -> Union[db.CacheMeta, bool]:
+        f = self._base_dir / meta.hash
         if f.is_file():
             hash_f = sha256()
             # calculate file's hash and check against meta
@@ -404,17 +403,8 @@ class OTACacheScrubHelper:
         f.unlink(missing_ok=True)
         return meta, False
 
-    def _close(self):
-        if not self._closed:
-            self._excutor.shutdown(wait=True)
-            self._db.close()
-            self._closed = True
-
-    def __call__(self):
+    def scrub_cache(self):
         """Main entry for scrubbing cache folder."""
-        if self._closed:
-            return
-
         logger.info("start to scrub the cache entries...")
         try:
             dangling_db_entry = []
@@ -447,18 +437,18 @@ class OTACacheScrubHelper:
             # loop over all files under cache folder,
             # if entry's hash is not presented in the valid_cache_entry set,
             # we treat it as dangling cache entry and delete it
-            _base_dir_path = Path(self.BASE_DIR)
-            for entry in _base_dir_path.glob("*"):
+            for entry in self._base_dir.glob("*"):
                 if entry.name not in valid_cache_entry:
                     logger.warning(f"dangling cache entry found: {entry.name}")
-                    f = _base_dir_path / entry.name
+                    f = self._base_dir / entry.name
                     f.unlink(missing_ok=True)
 
             logger.info("cache scrub finished")
         except Exception as e:
             logger.error(f"failed to finish scrub cache folder: {e!r}")
         finally:
-            self._close()
+            self._db.close()
+            self._excutor.shutdown(wait=True)
 
 
 class OTACache:
@@ -547,7 +537,7 @@ class OTACache:
             else:
                 # scrub the cache folder
                 _scrub_cache = OTACacheScrubHelper()
-                _scrub_cache()
+                _scrub_cache.scrub_cache()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
