@@ -657,15 +657,11 @@ class OTACache:
         Return:
             A bool indicates whether the cleanup is successful or not.
         """
-        try:
-            for entry_hash in entry_hashes:
-                # remove cache entry
-                f = self._base_dir / entry_hash
-                f.unlink(missing_ok=True)
-            return True
-        except Exception as e:
-            logger.debug(f"exp on entries({entry_hashes=}) cleanup: {e!r}")
-            return False
+        for entry_hash in entry_hashes:
+            # remove cache entry
+            f = self._base_dir / entry_hash
+            f.unlink(missing_ok=True)
+        return True
 
     def _reserve_space(self, size: int) -> bool:
         """A helper that calls lru_helper's rotate_cache method.
