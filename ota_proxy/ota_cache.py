@@ -1,8 +1,6 @@
 import asyncio
 import aiofiles
 import aiohttp
-import subprocess
-import shlex
 import shutil
 import time
 import weakref
@@ -104,19 +102,6 @@ class OngoingCachingRegister:
 
             _ref.set()
             return _tracker, True
-
-
-def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
-    try:
-        return (
-            subprocess.check_output(shlex.split(cmd), stderr=subprocess.DEVNULL)
-            .decode()
-            .strip()
-        )
-    except subprocess.CalledProcessError:
-        if raise_exception:
-            raise
-        return ""
 
 
 class LRUCacheHelper:
@@ -606,7 +591,7 @@ class OTACache:
     def _background_check_free_space(self):
         """Constantly checks the usage of disk where cache folder residented.
 
-        This method calls "df --output=pcent <cache_folder>" to query the disk usage.
+        This method keep loop querying the disk usage.
         There are 2 types of threshold defined here, hard limit and soft limit:
         1. soft limit:
             When disk usage reaching soft limit, OTACache will reserve free space(size of the entry)
@@ -617,13 +602,8 @@ class OTACache:
         """
         while not self._closed:
             try:
-                cmd = f"df --output=pcent {self._base_dir}"
-                current_used_p = _subprocess_check_output(cmd, raise_exception=True)
-
-                # expected output:
-                # 0: Use%
-                # 1: 33%
-                current_used_p = int(current_used_p.splitlines()[-1].strip(" %"))
+                disk_usage = shutil.disk_usage(self._base_dir)
+                current_used_p = disk_usage.used / disk_usage.total
                 if current_used_p < cfg.DISK_USE_LIMIT_SOFT_P:
                     logger.debug(f"storage usage below soft limit: {current_used_p}")
                     # below soft limit, normal caching mode
@@ -639,13 +619,15 @@ class OTACache:
                     self._storage_below_soft_limit_event.clear()
                     self._storage_below_hard_limit_event.set()
                 else:
-                    logger.info(f"storage usage reach hard limit: {current_used_p}")
+                    logger.warning(f"storage usage reach hard limit: {current_used_p}")
                     # reach hard limit
                     # totally disable caching
                     self._storage_below_soft_limit_event.clear()
                     self._storage_below_hard_limit_event.clear()
-            except Exception as e:
-                logger.warning(f"background free space check failed: {e!r}")
+            except FileNotFoundError:
+                logger.error(
+                    f"background free space check failed as cache folder disappeared"
+                )
                 self._storage_below_soft_limit_event.clear()
                 self._storage_below_hard_limit_event.clear()
 
