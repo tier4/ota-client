@@ -262,7 +262,7 @@ def _proxy_wrapper(attr_n: str) -> Callable:
     return _wrapped
 
 
-def _proxy_cls_factory(cls, wrapper, *, target):
+def _proxy_cls_factory(cls, *, wrapper, target):
     """A proxy class factory that wraps all public methods with <wrapper>.
 
     Args:
@@ -281,7 +281,7 @@ def _proxy_cls_factory(cls, wrapper, *, target):
     return cls
 
 
-@partial(_proxy_cls_factory, _proxy_wrapper, target=OTACacheDB)
+@partial(_proxy_cls_factory, wrapper=_proxy_wrapper, target=OTACacheDB)
 class DBProxy:
     """A proxy class for OTACacheDB that dispatches all requests into a threadpool."""
 
