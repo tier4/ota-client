@@ -1,7 +1,7 @@
 import enum
 from logging import INFO
 from dataclasses import dataclass, field
-from typing import Dict, Protocol, Tuple, TypeVar, Set
+from typing import Dict, Protocol, Tuple, Type, TypeVar, Set
 
 _T = TypeVar("_T")
 
@@ -51,7 +51,7 @@ class OTAFileCacheControl(enum.Enum):
 
 @dataclass(frozen=True)
 class ColField:
-    col_type: type
+    col_type: Type
     col_def: str
 
 
@@ -89,7 +89,7 @@ class Config:
     # NOTE: use table name to keep track of table scheme version
     TABLE_DEFINITION_VERSION = "v2"
     TABLE_NAME: str = f"ota_cache_{TABLE_DEFINITION_VERSION}"
-    COLUMNS: dict = field(
+    COLUMNS: Dict[str, ColField] = field(
         default_factory=lambda: {
             "url": ColField(str, "TEXT UNIQUE NOT NULL PRIMARY KEY"),
             "bucket": ColField(int, "INTEGER NOT NULL"),
