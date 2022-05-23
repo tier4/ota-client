@@ -2,7 +2,6 @@ import dataclasses
 import json
 import os
 import queue
-import re
 import requests
 import shutil
 import tempfile
@@ -11,7 +10,7 @@ import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor, Future
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, unique
 from functools import partial
 from hashlib import sha256
@@ -19,11 +18,17 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock
-from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
-from ota_metadata import OtaMetadata
+from ota_metadata import (
+    OtaMetadata,
+    RegularInf,
+    DirectoryInf,
+    SymbolicLinkInf,
+    PersistentInf,
+)
 from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
@@ -240,108 +245,6 @@ class Downloader:
             raise _ExceptionWrapper(url) from e
 
         return error_count
-
-
-def de_escape(s: str) -> str:
-    return s.replace(r"'\''", r"'")
-
-
-@dataclass
-class _BaseInf:
-    mode: int
-    uid: int
-    gid: int
-    _left: str = field(init=False, compare=False, repr=False)
-
-    _base_pattern: ClassVar[re.Pattern] = re.compile(
-        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
-    )
-
-    def __init__(self, info: str):
-        match_res: re.Match = self._base_pattern.match(info.strip())
-        assert match_res is not None, f"match base_inf failed: {info}"
-
-        self.mode = int(match_res.group("mode"), 8)
-        self.uid = int(match_res.group("uid"))
-        self.gid = int(match_res.group("gid"))
-        self._left: str = match_res.group("left_over")
-
-
-@dataclass
-class DirectoryInf(_BaseInf):
-    """Directory file information class."""
-
-    path: Path
-
-    def __init__(self, info):
-        super().__init__(info)
-        self.path = Path(de_escape(self._left[1:-1]))
-
-        del self._left
-
-
-@dataclass
-class SymbolicLinkInf(_BaseInf):
-    """Symbolik link information class."""
-
-    slink: Path
-    srcpath: Path
-
-    _pattern: ClassVar[re.Pattern] = re.compile(
-        r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
-    )
-
-    def __init__(self, info):
-        super().__init__(info)
-        res = self._pattern.match(self._left)
-        assert res is not None, f"match symlink failed: {info}"
-
-        self.slink = Path(de_escape(res.group("link")))
-        self.srcpath = Path(de_escape(res.group("target")))
-
-        del self._left
-
-
-@dataclass
-class PersistentInf:
-    """Persistent file information class."""
-
-    path: Path
-
-    def __init__(self, info: str):
-        self.path = Path(de_escape(info[1:-1]))
-
-
-@dataclass
-class RegularInf:
-    mode: int
-    uid: int
-    gid: int
-    nlink: int
-    sha256hash: str
-    size: Optional[int]
-    _path: Path
-
-    _reginf_pa: ClassVar[re.Pattern] = re.compile(
-        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'(,(?P<size>\d+))?"
-    )
-
-    def __init__(self, _input: str):
-        _ma = self._reginf_pa.match(_input)
-        assert _ma is not None, f"matching reg_inf failed for {_input}"
-
-        self.mode = int(_ma.group("mode"), 8)
-        self.uid = int(_ma.group("uid"))
-        self.gid = int(_ma.group("gid"))
-        self.nlink = int(_ma.group("nlink"))
-        self.sha256hash = _ma.group("hash")
-        self._path = de_escape(_ma.group("path"))
-        _size = _ma.group("size")
-        self.size = int(_size) if _size is not None else None
-
-    @property
-    def path(self) -> Path:
-        return Path(self._path)
 
 
 @unique
@@ -706,10 +609,20 @@ class _HardlinkRegister:
         ] = weakref.WeakKeyDictionary()
 
     def get_tracker(
-        self, hash_in: str, path: Path, nlink: int
+        self, _identifier: str, path: Path, nlink: int
     ) -> "Tuple[_HardlinkTracker, bool]":
+        """Get a hardlink tracker from the register.
+
+        Args:
+            _identifier: a string that can identify a group of hardlink file.
+            path: path that the caller wants to save file to.
+            nlink: number of hard links in this hardlink group.
+
+        Returns:
+            A hardlink tracker and a bool to indicates whether the caller is the writer or not.
+        """
         with self._lock:
-            _ref = self._hash_ref_dict.get(hash_in)
+            _ref = self._hash_ref_dict.get(_identifier)
             if _ref:
                 _tracker = self._ref_tracker_dict[_ref]
                 return _tracker, False
@@ -717,7 +630,7 @@ class _HardlinkRegister:
                 _ref = _WeakRef()
                 _tracker = _HardlinkTracker(path, _ref, nlink - 1)
 
-                self._hash_ref_dict[hash_in] = _ref
+                self._hash_ref_dict[_identifier] = _ref
                 self._ref_tracker_dict[_ref] = _tracker
                 return _tracker, True
 
@@ -1167,8 +1080,15 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # if is_hardlink file, get a tracker from the register
         is_hardlink = reginf.nlink >= 2
         if is_hardlink:
+            # NOTE(20220523): for regulars.txt that support hardlink group,
+            #   use inode to identify the hardlink group.
+            #   otherwise, use hash to identify the same hardlink file.
+            _identifier = reginf.sha256hash
+            if reginf.inode:
+                _identifier = reginf.inode
+
             _hardlink_tracker, _is_writer = hardlink_register.get_tracker(
-                reginf.sha256hash, reginf.path, reginf.nlink
+                _identifier, reginf.path, reginf.nlink
             )
 
         # case 1: is hardlink and this thread is subscriber

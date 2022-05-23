@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-
-import re
 import pytest
 import base64
 from pathlib import Path
-from OpenSSL import crypto
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -180,3 +177,136 @@ def test_ota_metadata_with_verify_certificate_exception(mocker, payload_str, tmp
         assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
     else:
         assert metadata.get_total_regular_file_size() is None
+
+
+# try to include as any special characters as possible
+@pytest.mark.parametrize(
+    "_input,mode,uid, gid,nlink,  _hash,  path,  size, inode",
+    (
+        # version 3: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode]]
+        (
+            r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',1234,12345678",
+            int("0644", 8),
+            1000,
+            1000,
+            3,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            r"/aaa\,',233/to/file",
+            1234,
+            "12345678",
+        ),
+        # version 2: mode,uid,gid,link number,sha256sum,'path/to/file'[,size]
+        (
+            r"0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa,'\'',233/to/file',1234",
+            int("0644", 8),
+            1000,
+            1000,
+            1,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            r"/aaa,',233/to/file",
+            1234,
+            None,
+        ),
+        # version 1: mode,uid,gid,link number,sha256sum,'path/to/file'
+        (
+            r"0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa,'\'',233/to/file'",
+            int("0644", 8),
+            1000,
+            1000,
+            1,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            r"/aaa,',233/to/file",
+            None,
+            None,
+        ),
+    ),
+)
+def test_RegularInf(
+    _input: str,
+    mode: int,
+    uid: int,
+    gid: int,
+    nlink: int,
+    _hash: str,
+    path: str,
+    size: int,
+    inode: str,
+):
+    from ota_metadata import RegularInf
+
+    entry = RegularInf(_input)
+    assert entry.mode == mode
+    assert entry.uid == uid
+    assert entry.gid == gid
+    assert entry.nlink == nlink
+    assert entry.sha256hash == _hash
+    assert str(entry.path) == path
+    assert entry.size == size
+    assert entry.inode == inode
+
+
+@pytest.mark.parametrize(
+    "_input, mode, uid, gid, path",
+    (
+        (
+            r"0755,0,0,'/usr/lib/python3/aaa,'\''bbb'",
+            int("0755", 8),
+            0,
+            0,
+            r"/usr/lib/python3/aaa,'bbb",
+        ),
+    ),
+)
+def test_DirectoryInf(_input: str, mode: int, uid: int, gid: int, path: str):
+    from ota_metadata import DirectoryInf
+
+    entry = DirectoryInf(_input)
+
+    assert entry.mode == mode
+    assert entry.uid == uid
+    assert entry.gid == gid
+    assert str(entry.path) == path
+
+
+@pytest.mark.parametrize(
+    "_input, mode, uid, gid, link, target",
+    (
+        # ensure ' are escaped and (,') will not break path parsing
+        (
+            r"0777,0,0,'/var/lib/ieee-data/iab.csv','../../ieee-data/'\'','\''iab.csv'",
+            int("0777", 8),
+            0,
+            0,
+            r"/var/lib/ieee-data/iab.csv",
+            r"../../ieee-data/','iab.csv",
+        ),
+    ),
+)
+def test_SymbolicLinkInf(
+    _input: str, mode: int, uid: int, gid: int, link: str, target: str
+):
+    from ota_metadata import SymbolicLinkInf
+
+    entry = SymbolicLinkInf(_input)
+
+    assert entry.mode == mode
+    assert entry.uid == uid
+    assert entry.gid == gid
+    assert str(entry.slink) == link
+    assert str(entry.srcpath) == target
+
+
+@pytest.mark.parametrize(
+    "_input, path",
+    (
+        (
+            r"'/etc/net'\''plan'",
+            r"/etc/net'plan",
+        ),
+    ),
+)
+def test_PersistentInf(_input: str, path: str):
+    from ota_metadata import PersistentInf
+
+    entry = PersistentInf(_input)
+    assert str(entry.path) == path
