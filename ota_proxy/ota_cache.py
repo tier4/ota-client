@@ -20,12 +20,13 @@ from typing import (
     List,
     Set,
     Tuple,
+    TypeVar,
     Union,
 )
 from urllib.parse import quote, urlparse
 
 
-from . import db
+from .db import CacheMeta, OTACacheDB, DBProxy
 from .config import OTAFileCacheControl, config as cfg
 
 import logging
@@ -34,19 +35,28 @@ logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
 
 
-def get_backoff(n: int, factor: float, _max: float):
+def get_backoff(n: int, factor: float, _max: float) -> float:
     return min(_max, factor * (2 ** (n - 1)))
 
 
+_WEAKREF = TypeVar("_WEAKREF")
+
+
 class OngoingCacheTracker:
-    def __init__(self, fn: str, ref_holder: Any):
+    """A tracker for an on-going cache entry.
+
+    This entry will disappear automatically when writer finished
+    caching and commit the cache to the database.
+    """
+
+    def __init__(self, fn: str, ref_holder: _WEAKREF):
         self.fn = fn
         self.writer_ready = asyncio.Event()
         self.cache_done = Event()
         self._is_failed = False
         self._ref_holer = ref_holder
 
-    async def writer_on_ready(self, meta):
+    async def writer_on_ready(self, meta: CacheMeta):
         """Register meta to the Tracker and get ready."""
         self.meta = meta
         self.writer_ready.set()
@@ -125,7 +135,7 @@ class LRUCacheHelper:
     BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
     def __init__(self):
-        self._db: db.OTACacheDB = db.DBProxy(cfg.DB_FILE)
+        self._db: OTACacheDB = DBProxy(cfg.DB_FILE)
         self._closed = False
 
     def _bin_search(self, file_size: int) -> int:
@@ -155,7 +165,7 @@ class LRUCacheHelper:
         if not self._closed:
             self._db.close()
 
-    def commit_entry(self, entry: db.CacheMeta) -> bool:
+    def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
         entry.bucket = self._bin_search(entry.size)
@@ -168,7 +178,7 @@ class LRUCacheHelper:
             logger.debug(f"db: commit {entry=} successfully")
             return True
 
-    def lookup_entry(self, url: str) -> db.CacheMeta:
+    def lookup_entry(self, url: str) -> CacheMeta:
         return self._db.lookup_url(url)
 
     def remove_entry(self, *, url: str = None, _hash: str = None) -> bool:
@@ -214,7 +224,7 @@ class OTAFile:
     """File descriptor for data streaming.
 
     Instance of OTAFile wraps meta data for specific URL,
-    along with a file descriptor(a AsyncGenerator) that can be used
+    along with a file descriptor(an AsyncGenerator) that can be used
     to yield chunks of data from.
     Instance of OTAFile is requested by the upper uvicorn app,
     and being created and passed to app by OTACache instance.
@@ -223,7 +233,7 @@ class OTAFile:
     Attributes:
         fp: an AsyncGenerator of opened resource, by opening
             local cached file or remote resource.
-        meta db.CacheMeta: meta data of the resource indicated by URL.
+        meta CacheMeta: meta data of the resource indicated by URL.
         below_hard_limit_event Event: a Event instance that can be used to check whether
             local storage space is enough for caching.
     """
@@ -234,7 +244,7 @@ class OTAFile:
     def __init__(
         self,
         fp: AsyncGenerator[bytes, None],
-        meta: db.CacheMeta,
+        meta: CacheMeta,
         *,
         below_hard_limit_event: Event = None,
     ):
@@ -254,7 +264,7 @@ class OTAFile:
     def background_write_cache(
         self,
         tracker: OngoingCacheTracker,
-        callback: "Callable[[OTAFile,OngoingCacheTracker], None]",
+        callback: Callable[["OTAFile", OngoingCacheTracker], None],
     ):
         """Caching files on to the local disk in the background thread.
 
@@ -387,12 +397,12 @@ class OTACacheScrubHelper:
     BASE_DIR: str = cfg.BASE_DIR
 
     def __init__(self):
-        self._db = db.OTACacheDB(self.DB_FILE)
+        self._db = OTACacheDB(self.DB_FILE)
         self._base_dir = Path(self.BASE_DIR)
         self._excutor = ProcessPoolExecutor()
 
     @staticmethod
-    def _check_entry(base_dir: Path, meta: db.CacheMeta) -> Union[db.CacheMeta, bool]:
+    def _check_entry(base_dir: Path, meta: CacheMeta) -> Union[CacheMeta, bool]:
         f = base_dir / meta.hash
         if f.is_file():
             hash_f = sha256()
@@ -413,7 +423,10 @@ class OTACacheScrubHelper:
         return meta, False
 
     def scrub_cache(self):
-        """Main entry for scrubbing cache folder."""
+        """Main entry for scrubbing cache folder.
+
+        OTACacheScrubHelper instance will close itself after finishing scrubing.
+        """
         logger.info("start to scrub the cache entries...")
         try:
             dangling_db_entry = []
@@ -544,7 +557,7 @@ class OTACache:
                 # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
                 # init only
-                db.OTACacheDB(cfg.DB_FILE, init=True)
+                OTACacheDB(cfg.DB_FILE, init=True)
             else:
                 # scrub the cache folder
                 _scrub_cache = OTACacheScrubHelper()
@@ -599,6 +612,9 @@ class OTACache:
             If the reservation of free space failed, the newly cached entry will be deleted.
         2. hard limit:
             When disk usage reaching hard limit, OTACache will stop caching any new entries.
+
+        Raises:
+            Raises FileNotFoundError if the cache folder somehow disappears during checking.
         """
         while not self._closed:
             try:
@@ -649,7 +665,7 @@ class OTACache:
     def _reserve_space(self, size: int) -> bool:
         """A helper that calls lru_helper's rotate_cache method.
 
-        Return:
+        Returns:
             A bool indicates whether the space reserving is successful or not.
         """
         _hashes = self._lru_helper.rotate_cache(size)
@@ -713,7 +729,9 @@ class OTACache:
                 # case 4: cache failed, cleanup dangling cache file
                 logger.debug(f"cache for {meta.url=} failed, cleanup")
                 Path(f.temp_fpath).unlink(missing_ok=True)
+
                 tracker.writer_on_failed()
+
         except Exception as e:
             tracker.writer_on_failed()
             logger.exception(f"failed on callback for {meta=}: {e!r}")
@@ -853,7 +871,7 @@ class OTACache:
             # NOTE.2: store the original unquoted url into the CacheMeta
             # NOTE.3: hash, and size will be assigned at background_write_cache method
             # NOTE.4: bucket and last_access will be assigned at commit_entry method
-            yield db.CacheMeta(
+            yield CacheMeta(
                 url=raw_url,
                 content_encoding=response.headers.get("content-encoding", ""),
                 content_type=response.headers.get(
@@ -870,7 +888,7 @@ class OTACache:
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
         tracker: OngoingCacheTracker = None,
-    ) -> "Tuple[AsyncGenerator[bytes, None], db.CacheMeta]":
+    ) -> "Tuple[AsyncGenerator[bytes, None], CacheMeta]":
         """Open file descriptor by opening connection to the remote OTA file server.
 
         Args:
@@ -930,7 +948,7 @@ class OTACache:
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
         cache_control_policies: Set[OTAFileCacheControl],
-    ) -> "Tuple[AsyncGenerator[bytes, None], db.CacheMeta]":
+    ) -> Tuple[AsyncGenerator[bytes, None], CacheMeta]:
         """Exposed API to retrieve a file descriptor.
 
         This method retrieves a file descriptor for incoming client request.
