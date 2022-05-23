@@ -5,9 +5,9 @@ from dataclasses import make_dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Dict, List, Tuple, TypeVar, Union, Callable
+from typing import Dict, List, Tuple, Type, TypeVar, Union, Callable
 
-from .config import config as cfg
+from .config import CacheMetaProtocol, config as cfg
 
 import logging
 
@@ -28,14 +28,14 @@ class _CacheMetaMixin:
         return tuple([getattr(self, k) for k in self._cols])
 
     @classmethod
-    def row_to_meta(cls, row: Dict[str, _T]) -> "CacheMeta":
+    def row_to_meta(cls, row: Dict[str, _T]) -> CacheMetaProtocol:
         """Convert a row in dict to CacheMeta instance.
 
         Args:
-            row: raw dict comes from query result
+            row: raw dict comes from query result.
 
         Return:
-            A instance of CacheMeta
+            A instance of CacheMeta.
         """
         if not row:
             return
@@ -47,8 +47,11 @@ class _CacheMetaMixin:
         return res
 
 
-def make_cachemeta_cls(name: str):
-    """Dynamically create dataclass from CacheMeta scheme defined in config."""
+def _make_cachemeta_cls(name: str) -> Type[CacheMetaProtocol]:
+    """Dynamically create dataclass from CacheMeta scheme defined in config.
+
+    The generated class is aligned with the CacheMetaProtocol.
+    """
 
     # set default value of each field as field type's zero value
     return make_dataclass(
@@ -58,9 +61,11 @@ def make_cachemeta_cls(name: str):
     )
 
 
-CacheMeta = make_cachemeta_cls("CacheMeta")
+_CacheMeta = _make_cachemeta_cls("_CacheMeta")
 # fix the issue of pickling dynamically generated dataclass
-CacheMeta.__module__ = __name__
+_CacheMeta.__module__ = __name__
+# type alias
+CacheMeta: Type[CacheMetaProtocol] = _CacheMeta
 
 
 class OTACacheDB:
@@ -262,7 +267,16 @@ def _proxy_wrapper(attr_n: str) -> Callable:
     return _wrapped
 
 
-def _proxy_cls_factory(cls, *, wrapper, target):
+_GENERIC_CLS = TypeVar("_GENERIC_CLS")
+_WRAPPED_CLS = TypeVar("_WRAPPED_CLS")
+
+
+def _proxy_cls_factory(
+    cls: Type[_GENERIC_CLS],
+    *,
+    wrapper: Callable[[str], Callable],
+    target: Type[_GENERIC_CLS],
+) -> Type[_WRAPPED_CLS]:
     """A proxy class factory that wraps all public methods with <wrapper>.
 
     Args:
@@ -299,4 +313,5 @@ class DBProxy:
         self._executor.shutdown(wait=True)
 
 
-del _proxy_cls_factory, _proxy_wrapper
+# cleanup namespace
+del _make_cachemeta_cls, _proxy_cls_factory, _proxy_wrapper
