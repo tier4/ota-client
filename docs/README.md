@@ -3,10 +3,8 @@
 ## Overview
 
 This OTA client is a client software to perform over-the-air updates for linux devices.
-To enable updating of software at any layer (kernel, kernel module, user library, user application), the OTA client targets the entire rootfs for updating.
-The OTA client compares the files in its own storage with the files to be updated and downloads only those files that have delta, so the download size can be reduced even if the entire rootfs is to be updated.
-The OTA client downloads a list from the OTA server that contains the file paths and the hash values of the files, etc., to be updated, and compares them with the files in its own storage and if there is a match, that file is used to update the rootfs.
-Therefore, this delta download mechanism does not require any specific server implementation, nor does it require the server to keep a delta for each version of the rootfs.
+To enable updating of software at any layer (kernel, kernel module, user library, user application), the OTA client targets the entire rootfs for updating.  
+When the OTA client receives an update request, it downloads a list from the OTA server that contains the file paths and the hash values of the files, etc., to be updated, and compares them with the files in its own storage and if there is a match, that file is used to update the rootfs. By this delta mechanism, it is possible to reduce the download size even if the entire rootfs is targeted and this mechanism does not require any specific server implementation, nor does it require the server to keep a delta for each version of the rootfs.
 
 ## Feature
 
@@ -29,7 +27,7 @@ OTA client is licensed under the Apache License, Version 2.0.
 
 ### Requirements
 
-- boot loader
+- supported boot loader
   - GRUB
   - [CBoot](https://docs.nvidia.com/jetson/archives/l4t-archived/l4t-3271/index.html#page/Tegra%20Linux%20Driver%20Package%20Development%20Guide/bootflow_jetson_xavier.html#wwpID0E0JB0HA)
 
@@ -154,6 +152,8 @@ TODO
 TODO
 
 ## requests
+
+リクエストはECUへのリストをリストで渡し、そのレスポンスがECUのリストで返ります。
 
 ### status
 
