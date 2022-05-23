@@ -609,10 +609,20 @@ class _HardlinkRegister:
         ] = weakref.WeakKeyDictionary()
 
     def get_tracker(
-        self, hash_in: str, path: Path, nlink: int
+        self, _identifier: str, path: Path, nlink: int
     ) -> "Tuple[_HardlinkTracker, bool]":
+        """Get a hardlink tracker from the register.
+
+        Args:
+            _identifier: a string that can identify a group of hardlink file.
+            path: path that the caller wants to save file to.
+            nlink: number of hard links in this hardlink group.
+
+        Returns:
+            A hardlink tracker and a bool to indicates whether the caller is the writer or not.
+        """
         with self._lock:
-            _ref = self._hash_ref_dict.get(hash_in)
+            _ref = self._hash_ref_dict.get(_identifier)
             if _ref:
                 _tracker = self._ref_tracker_dict[_ref]
                 return _tracker, False
@@ -620,7 +630,7 @@ class _HardlinkRegister:
                 _ref = _WeakRef()
                 _tracker = _HardlinkTracker(path, _ref, nlink - 1)
 
-                self._hash_ref_dict[hash_in] = _ref
+                self._hash_ref_dict[_identifier] = _ref
                 self._ref_tracker_dict[_ref] = _tracker
                 return _tracker, True
 
@@ -1070,8 +1080,15 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # if is_hardlink file, get a tracker from the register
         is_hardlink = reginf.nlink >= 2
         if is_hardlink:
+            # NOTE(20220523): for regulars.txt that support hardlink group,
+            #   use inode to identify the hardlink group.
+            #   otherwise, use hash to identify the same hardlink file.
+            _identifier = reginf.sha256hash
+            if reginf.inode:
+                _identifier = reginf.inode
+
             _hardlink_tracker, _is_writer = hardlink_register.get_tracker(
-                reginf.sha256hash, reginf.path, reginf.nlink
+                _identifier, reginf.path, reginf.nlink
             )
 
         # case 1: is hardlink and this thread is subscriber
