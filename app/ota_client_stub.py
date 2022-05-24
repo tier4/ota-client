@@ -15,8 +15,6 @@ from ota_client_call import OtaClientCall
 from proxy_info import proxy_cfg
 from ecu_info import EcuInfo
 
-from ota_proxy import ota_cache
-
 from configs import config as cfg
 from configs import server_cfg
 import log_util
@@ -71,9 +69,9 @@ class OtaProxyWrapper:
     @staticmethod
     def _start_server(enable_cache: bool, init_cache: bool, *, scrub_cache_event):
         import uvicorn
-        from ota_proxy import App
+        from ota_proxy import App, OTACache
 
-        _ota_cache = ota_cache.OTACache(
+        _ota_cache = OTACache(
             cache_enabled=enable_cache,
             upper_proxy=proxy_cfg.upper_ota_proxy,
             enable_https=proxy_cfg.gateway,
