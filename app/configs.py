@@ -95,6 +95,14 @@ class _BaseConfig:
     )
     MOUNT_POINT: str = "/mnt/standby"
 
+    # ota-client behavior setting
+    CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
+    DOWNLOAD_RETRY: int = 5
+    DOWNLOAD_BACKOFF_MAX: int = 10 # seconds
+    MAX_CONCURRENT_DOWNLOAD: int = 8
+    MAX_CONCURRENT_TASKS: int = 1024
+    STATS_COLLECT_INTERVAL: int = 1 # second
+
 
 @dataclass
 class GrubControlConfig(_BaseConfig):

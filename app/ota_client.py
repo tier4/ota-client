@@ -2,7 +2,6 @@ import dataclasses
 import json
 import os
 import queue
-import re
 import requests
 import shutil
 import tempfile
@@ -19,11 +18,17 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 from urllib.parse import quote_from_bytes, urlparse, urljoin
 
 from ota_client_interface import OtaClientInterface
-from ota_metadata import OtaMetadata
+from ota_metadata import (
+    OtaMetadata,
+    RegularInf,
+    DirectoryInf,
+    SymbolicLinkInf,
+    PersistentInf,
+)
 from ota_status import OtaStatus, OtaStatusControlMixin
 from ota_error import OtaErrorUnrecoverable, OtaErrorRecoverable, OtaErrorBusy
 from copy_tree import CopyTree
@@ -114,11 +119,12 @@ def _retry(retry, backoff_factor, backoff_max, func):
 
 
 class Downloader:
-    CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
-    RETRY_COUNT = 5
+    CHUNK_SIZE = cfg.CHUNK_SIZE
+    RETRY_COUNT = cfg.DOWNLOAD_RETRY
     BACKOFF_FACTOR = 1
     OUTER_BACKOFF_FACTOR = 0.01
-    BACKOFF_MAX = 10
+    BACKOFF_MAX = cfg.DOWNLOAD_BACKOFF_MAX
+    MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
 
     def __init__(self):
         from requests.adapters import HTTPAdapter
@@ -145,7 +151,11 @@ class Downloader:
             status_forcelist={413, 429, 500, 502, 503, 504},
             allowed_methods=["GET"],
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        adapter = HTTPAdapter(
+            pool_connections=self.MAX_CONCURRENT_DOWNLOAD,
+            pool_maxsize=self.MAX_CONCURRENT_DOWNLOAD,
+            max_retries=retry_strategy,
+        )
         session.mount("https://", adapter)
         session.mount("http://", adapter)
 
@@ -237,100 +247,6 @@ class Downloader:
         return error_count
 
 
-class _BaseInf:
-    _base_pattern = re.compile(
-        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
-    )
-
-    __slots__ = ["mode", "uid", "gid", "_left"]
-
-    @staticmethod
-    def de_escape(s: str) -> str:
-        return s.replace(r"'\''", r"'")
-
-    def __init__(self, info: str):
-        match_res: re.Match = self._base_pattern.match(info.strip())
-        assert match_res is not None
-
-        self.mode = int(match_res.group("mode"), 8)
-        self.uid = int(match_res.group("uid"))
-        self.gid = int(match_res.group("gid"))
-        self._left: str = match_res.group("left_over")
-
-
-class DirectoryInf(_BaseInf):
-    """Directory file information class."""
-
-    __slots__ = ["path"]
-
-    def __init__(self, info):
-        try:
-            super().__init__(info)
-        except (ValueError, AssertionError) as e:
-            raise ValueError(f"invalid input {info=}: {e}")
-
-        self.path = Path(self.de_escape(self._left[1:-1]))
-
-        del self._left
-
-
-class SymbolicLinkInf(_BaseInf):
-    """Symbolik link information class."""
-
-    _pattern = re.compile(r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'")
-
-    __slots__ = ["slink", "srcpath"]
-
-    def __init__(self, info):
-        try:
-            super().__init__(info)
-            res = self._pattern.match(self._left)
-            assert res is not None
-        except (ValueError, AssertionError) as e:
-            raise ValueError(f"invalid input {info=}: {e}")
-
-        self.slink = Path(self.de_escape(res.group("link")))
-        self.srcpath = Path(self.de_escape(res.group("target")))
-
-        del self._left
-
-
-class RegularInf(_BaseInf):
-    """Regular file information class."""
-
-    _pattern = re.compile(
-        r"(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)',?(?P<size>\d+)?"
-    )
-
-    __slots__ = ["nlink", "sha256hash", "path", "size"]
-
-    def __init__(self, info):
-        try:
-            super().__init__(info)
-            res = self._pattern.match(self._left)
-            assert res is not None
-        except (ValueError, AssertionError) as e:
-            raise ValueError(f"invalid input {info=}: {e}")
-
-        self.nlink = int(res.group("nlink"))
-        self.sha256hash = res.group("hash")
-        self.path = Path(self.de_escape(res.group("path")))
-        # make sure that size might be None
-        size = res.group("size")
-        self.size = None if size is None else int(size)
-
-        del self._left
-
-
-class PersistentInf:
-    """Persistent file information class."""
-
-    __slots__ = ["path"]
-
-    def __init__(self, info: str):
-        self.path = Path(_BaseInf.de_escape(info[1:-1]))
-
-
 @unique
 class OtaClientFailureType(Enum):
     NO_FAILURE = 0
@@ -385,32 +301,24 @@ class OtaClientStatistics:
         self._slot = _OtaClientStatisticsStorage()
 
     def get_snapshot(self):
-        """
-        return a copy of statistics storage
-        """
+        """Return a copy of statistics storage."""
         return self._slot.copy()
 
     def get_processed_num(self) -> int:
         return self._slot.regular_files_processed
 
     def set(self, attr: str, value):
-        """
-        set a single attr in the slot
-        """
+        """Set a single attr in the slot."""
         with self._lock:
             setattr(self._slot, attr, value)
 
     def clear(self):
-        """
-        clear the storage slot and reset to empty
-        """
+        """Clear the storage slot and reset to empty."""
         self._slot = _OtaClientStatisticsStorage()
 
     @contextmanager
     def acquire_staging_storage(self):
-        """
-        acquire a staging storage for updating the slot atomically and thread-safely
-        """
+        """Acquire a staging storage for updating the slot atomically and thread-safely."""
         try:
             self._lock.acquire()
             staging_slot: _OtaClientStatisticsStorage = self._slot.copy()
@@ -552,19 +460,30 @@ class _RegularStats:
 
 
 class _CreateRegularStatsCollector:
+    COLLECT_INTERVAL = cfg.STATS_COLLECT_INTERVAL
+
     def __init__(
         self,
         store: OtaClientStatistics,
         *,
-        interval=1,
+        total_regular_num: int,
+        max_concurrency_tasks: int,
     ) -> None:
-        self.abort_event = threading.Event()
-        self.last_error = None
         self._que = Queue()
         self._store = store
-        self._interval = interval
 
-    def collector(self, total_num: int):
+        self.abort_event = threading.Event()
+        self.finished_event = threading.Event()
+        self.last_error = None
+        self.se = threading.Semaphore(max_concurrency_tasks)
+        self.total_regular_num = total_regular_num
+
+    def acquire_se(self):
+        """Acquire se for dispatching task to threadpool,
+        block if concurrency limit is reached."""
+        self.se.acquire()
+
+    def collector(self):
         _staging: List[_RegularStats] = []
         _cur_time = time.time()
         while True:
@@ -572,19 +491,20 @@ class _CreateRegularStatsCollector:
                 logger.error("abort event is set, collector exits")
                 break
 
-            if self._store.get_processed_num() < total_num:
+            if self._store.get_processed_num() < self.total_regular_num:
                 try:
                     sts = self._que.get_nowait()
                     _staging.append(sts)
                 except queue.Empty:
                     # if no new stats available, wait <_interval> time
-                    time.sleep(self._interval)
+                    time.sleep(self.COLLECT_INTERVAL)
             else:
                 # all sts are processed
+                self.finished_event.set()
                 break
 
             # collect stats every <_interval> seconds
-            if _staging and time.time() - _cur_time > self._interval:
+            if _staging and time.time() - _cur_time > self.COLLECT_INTERVAL:
                 with self._store.acquire_staging_storage() as staging_storage:
                     staging_storage.regular_files_processed += len(_staging)
 
@@ -605,7 +525,7 @@ class _CreateRegularStatsCollector:
 
                 _cur_time = time.time()
 
-    def callback(self, fut: Future, *, se: threading.Semaphore):
+    def callback(self, fut: Future):
         """Callback for create regular files
         sts will also being put into que from this callback
         """
@@ -613,13 +533,31 @@ class _CreateRegularStatsCollector:
             sts: _RegularStats = fut.result()
             self._que.put_nowait(sts)
 
-            se.release()
+            self.se.release()
         except Exception as e:
             self.last_error = e
             # if any task raises exception,
             # interrupt the background collector
             self.abort_event.set()
             raise
+
+    def wait(self):
+        """Waits until all regular files have been processed
+        and detect any exceptions raised by background workers.
+
+        Raise:
+            Last error happens among worker threads.
+        """
+        # loop detect exception
+        while not self.finished_event.is_set():
+            # if done_event is set before all tasks finished,
+            # it means exception happened
+            time.sleep(self.COLLECT_INTERVAL)
+            if self.abort_event.is_set():
+                logger.error(
+                    f"create_regular_files failed, last error: {self.last_error!r}"
+                )
+                raise self.last_error from None
 
 
 class _WeakRef:
@@ -646,12 +584,10 @@ class _HardlinkTracker:
 
     def subscribe(self) -> Path:
         # wait for writer
-        while True:
+        while not self._first_copy_ready.is_set():
             if self._failed.is_set():
                 raise ValueError(f"writer failed on path={self.first_copy_path}")
 
-            if self._first_copy_ready.is_set():
-                break
             time.sleep(self.POLLINTERVAL)
 
         try:
@@ -673,10 +609,20 @@ class _HardlinkRegister:
         ] = weakref.WeakKeyDictionary()
 
     def get_tracker(
-        self, hash_in: str, path: Path, nlink: int
+        self, _identifier: str, path: Path, nlink: int
     ) -> "Tuple[_HardlinkTracker, bool]":
+        """Get a hardlink tracker from the register.
+
+        Args:
+            _identifier: a string that can identify a group of hardlink file.
+            path: path that the caller wants to save file to.
+            nlink: number of hard links in this hardlink group.
+
+        Returns:
+            A hardlink tracker and a bool to indicates whether the caller is the writer or not.
+        """
         with self._lock:
-            _ref = self._hash_ref_dict.get(hash_in)
+            _ref = self._hash_ref_dict.get(_identifier)
             if _ref:
                 _tracker = self._ref_tracker_dict[_ref]
                 return _tracker, False
@@ -684,15 +630,14 @@ class _HardlinkRegister:
                 _ref = _WeakRef()
                 _tracker = _HardlinkTracker(path, _ref, nlink - 1)
 
-                self._hash_ref_dict[hash_in] = _ref
+                self._hash_ref_dict[_identifier] = _ref
                 self._ref_tracker_dict[_ref] = _tracker
                 return _tracker, True
 
 
 class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
-    MAX_CONCURRENT_DOWNLOAD_TASKS = 2048
-    MAX_DOWNLOAD_WORKERS = 7
-    COLLECT_INTERVAL = 1  # sec
+    MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
+    MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
 
     def __init__(self):
         self._lock = Lock()  # NOTE: can't be referenced from pool.apply_async target.
@@ -1066,7 +1011,7 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         *,
         standby_path: Path,
         boot_standby_path: Path,
-        downloader,
+        downloader: Callable,
     ):
         # get total number of regular_files
         with open(regulars_file, "r") as f:
@@ -1076,24 +1021,22 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         self._statistics.set("total_regular_files", total_files_num)
 
         _hardlink_register = _HardlinkRegister()
-        # maximum allowd concurrent tasks
-        _se = threading.Semaphore(self.MAX_CONCURRENT_DOWNLOAD_TASKS)
         # collector that records stats from tasks and update ota-update status
         _collector = _CreateRegularStatsCollector(
-            self._statistics, interval=self.COLLECT_INTERVAL
+            self._statistics,
+            total_regular_num=total_files_num,
+            max_concurrency_tasks=self.MAX_CONCURRENT_TASKS,
         )
-        # bounded callback function
-        _callback_f = partial(_collector.callback, se=_se)
+        # limit the cocurrent downloading tasks
+        _download_se = threading.Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
 
-        with open(regulars_file, "r") as f, ThreadPoolExecutor(
-            max_workers=self.MAX_DOWNLOAD_WORKERS
-        ) as pool:
+        with open(regulars_file, "r") as f, ThreadPoolExecutor() as pool:
             # fire up background collector
-            _collector_fut = pool.submit(_collector.collector, total_files_num)
+            pool.submit(_collector.collector)
 
             for l in f:
                 entry = RegularInf(l)
-                _se.acquire()
+                _collector.acquire_se()
 
                 fut = pool.submit(
                     self._create_regular_file,
@@ -1102,27 +1045,14 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     boot_standby_path=boot_standby_path,
                     hardlink_register=_hardlink_register,
                     downloader=downloader,
+                    download_limiter=_download_se,
                 )
-                fut.add_done_callback(_callback_f)
+                fut.add_done_callback(_collector.callback)
 
-            # loop detect exception
-            logger.info("all create_regular_files tasks dispatched")
-            while self._statistics.get_processed_num() < total_files_num:
-                # if done_event is set before all tasks finished,
-                # it means exception happened
-                time.sleep(self.COLLECT_INTERVAL)
-                if _collector.abort_event.is_set():
-                    _last_error = _collector.last_error
-                    logger.error(
-                        f"create_regular_files failed, last error: {_collector.last_error!r}"
-                    )
-                    raise _last_error from None
+            logger.info("all create_regular_files tasks dispatched, wait for collector")
 
             # wait for collector
-            logger.info(
-                "all create_regular_files tasks completed, wait for stats collector"
-            )
-            _collector_fut.result()
+            _collector.wait()
 
     @staticmethod
     def _create_regular_file(
@@ -1131,7 +1061,8 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         standby_path: Path,
         boot_standby_path: Path,
         hardlink_register: _HardlinkRegister,
-        downloader,
+        downloader: Callable,
+        download_limiter: threading.Semaphore,
     ) -> _RegularStats:
         # thread_time for multithreading function
         # NOTE: for multithreading implementation,
@@ -1149,8 +1080,15 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
         # if is_hardlink file, get a tracker from the register
         is_hardlink = reginf.nlink >= 2
         if is_hardlink:
+            # NOTE(20220523): for regulars.txt that support hardlink group,
+            #   use inode to identify the hardlink group.
+            #   otherwise, use hash to identify the same hardlink file.
+            _identifier = reginf.sha256hash
+            if reginf.inode:
+                _identifier = reginf.inode
+
             _hardlink_tracker, _is_writer = hardlink_register.get_tracker(
-                reginf.sha256hash, reginf.path, reginf.nlink
+                _identifier, reginf.path, reginf.nlink
             )
 
         # case 1: is hardlink and this thread is subscriber
@@ -1170,19 +1108,23 @@ class _BaseOtaClient(OtaStatusControlMixin, OtaClientInterface):
                     shutil.copy(reginf.path, dst)
                     processed.op = "copy"
                 else:
-                    processed.errors = downloader(
-                        reginf.path,
-                        dst,
-                        reginf.sha256hash,
-                    )
-                    processed.op = "download"
+                    # limit the concurrent downloading tasks
+                    with download_limiter:
+                        processed.errors = downloader(
+                            reginf.path,
+                            dst,
+                            reginf.sha256hash,
+                        )
+                        processed.op = "download"
 
+                # when first copy is ready(by copy or download),
+                # inform the subscriber
                 if is_hardlink and _is_writer:
-                    # writer indicates that the first copy of hardlink is ready
                     _hardlink_tracker.writer_done()
             except Exception:
-                # signal all subscribers to abort
                 if is_hardlink and _is_writer:
+                    # signal all subscribers to abort
+
                     _hardlink_tracker.writer_on_failed()
 
                 raise

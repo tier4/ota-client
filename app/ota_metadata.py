@@ -2,13 +2,16 @@
 
 import base64
 import json
+import re
+from dataclasses import dataclass, field
 from OpenSSL import crypto
 from pathlib import Path
 from pprint import pformat
-import re
 from functools import partial
 from ota_error import OtaErrorRecoverable
 from configs import config as cfg
+from typing import ClassVar, Optional
+
 import log_util
 
 logger = log_util.get_logger(
@@ -222,3 +225,130 @@ class OtaMetadata:
 
         logger.error(f"certificate {certificate} could not be verified")
         raise OtaErrorRecoverable(f"certificate {certificate} could not be verified")
+
+
+# meta files entry classes
+
+
+def de_escape(s: str) -> str:
+    return s.replace(r"'\''", r"'")
+
+
+@dataclass
+class _BaseInf:
+    """Base class for dir, symlink, persist entry."""
+
+    mode: int
+    uid: int
+    gid: int
+    _left: str = field(init=False, compare=False, repr=False)
+
+    _base_pattern: ClassVar[re.Pattern] = re.compile(
+        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
+    )
+
+    def __init__(self, info: str):
+        match_res: re.Match = self._base_pattern.match(info.strip())
+        assert match_res is not None, f"match base_inf failed: {info}"
+
+        self.mode = int(match_res.group("mode"), 8)
+        self.uid = int(match_res.group("uid"))
+        self.gid = int(match_res.group("gid"))
+        self._left: str = match_res.group("left_over")
+
+
+@dataclass
+class DirectoryInf(_BaseInf):
+    """Directory file information class for dirs.txt.
+    format: mode,uid,gid,'dir/name'
+    """
+
+    path: Path
+
+    def __init__(self, info):
+        super().__init__(info)
+        self.path = Path(de_escape(self._left[1:-1]))
+
+        del self._left
+
+
+@dataclass
+class SymbolicLinkInf(_BaseInf):
+    """Symbolik link information class for symlinks.txt.
+
+    format: mode,uid,gid,'path/to/link','path/to/target'
+    example:
+    """
+
+    slink: Path
+    srcpath: Path
+
+    _pattern: ClassVar[re.Pattern] = re.compile(
+        r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
+    )
+
+    def __init__(self, info):
+        super().__init__(info)
+        res = self._pattern.match(self._left)
+        assert res is not None, f"match symlink failed: {info}"
+
+        self.slink = Path(de_escape(res.group("link")))
+        self.srcpath = Path(de_escape(res.group("target")))
+
+        del self._left
+
+
+@dataclass
+class PersistentInf:
+    """Persistent file information class for persists.txt
+
+    format: 'path'
+    """
+
+    path: Path
+
+    def __init__(self, info: str):
+        self.path = Path(de_escape(info[1:-1]))
+
+
+@dataclass
+class RegularInf:
+    """RegularInf scheme for regulars.txt.
+
+    format: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode]]
+    example: 0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'path/to/file',1234,12345678
+
+    NOTE: size and inode sections are both optional, if inode exists, size must exist.
+    """
+
+    mode: int
+    uid: int
+    gid: int
+    nlink: int
+    sha256hash: str
+    path: Path
+    size: Optional[int] = None
+    inode: Optional[str] = None
+
+    _reginf_pa: ClassVar[re.Pattern] = re.compile(
+        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'(,(?P<size>\d+)(,(?P<inode>\d+))?)?"
+    )
+
+    def __init__(self, _input: str):
+        _ma = self._reginf_pa.match(_input)
+        assert _ma is not None, f"matching reg_inf failed for {_input}"
+
+        self.mode = int(_ma.group("mode"), 8)
+        self.uid = int(_ma.group("uid"))
+        self.gid = int(_ma.group("gid"))
+        self.nlink = int(_ma.group("nlink"))
+        self.sha256hash = _ma.group("hash")
+        self.path = Path(de_escape(_ma.group("path")))
+
+        _size = _ma.group("size")
+        if _size:
+            self.size = int(_size)
+            # ensure that size exists before parsing inode
+            # it's OK to skip checking of inode,
+            # as un-existed inode will be matched to None
+            self.inode = _ma.group("inode")
