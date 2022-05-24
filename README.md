@@ -61,3 +61,9 @@ Type "help", "copyright", "credits" or "license" for more information.
 >>> from otaclient_pb2.v2 import otaclient_pb2
 >>> from otaclient_pb2.v2 import otaclient_pb2_grpc
 ```
+
+### How to generate docs/SERVICES.md
+
+```bash
+docker run --rm -v $(pwd)/docs:/out -v $(pwd)/proto:/protos pseudomuto/protoc-gen-doc --doc_opt=markdown,SERVICES.md
+```

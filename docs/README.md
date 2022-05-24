@@ -14,7 +14,8 @@ When the OTA client receives an update request, it downloads a list from the OTA
 - No specific server implementation is required. The server that supports HTTP GET is only required.
   - TLS connection is also required.
 - Delta management is not required for server side.
-- All files are verified and used.
+- To restrict access to the server, cookie can be used.
+- All files to be updated are verified by the hash included in the metadata, and the metadata is also verified by X.509 certificate locally installed.
 - Transfer data is encrypted by TLS
 - Multiple ECU support
 - By the internal proxy cache mechanism, the cache can be used for the download requests to the same file from multiple ECU.
@@ -32,7 +33,7 @@ OTA client is licensed under the Apache License, Version 2.0.
   - [CBoot](https://docs.nvidia.com/jetson/archives/l4t-archived/l4t-3271/index.html#page/Tegra%20Linux%20Driver%20Package%20Development%20Guide/bootflow_jetson_xavier.html#wwpID0E0JB0HA)
 
 - runtime
-  - python3.8
+  - python3.8 (or higher)
 
 ### Partitioning
 
@@ -131,7 +132,7 @@ proxy_info.yml is the setting file for OTA internal proxy configuration.
 
 ##### The default setting
 
-If proxy_info.yml doesn’t exist, the default setting is used as follows:
+If proxy_info.yml doesn't exist, the default setting is used as follows:
 
 - enable_ota_proxy
   - true
@@ -151,10 +152,6 @@ TODO
 
 TODO
 
-## requests
+## Services
 
-リクエストはECUへのリストをリストで渡し、そのレスポンスがECUのリストで返ります。
-
-### status
-
-### update
+[Services](SERVICES.md)
