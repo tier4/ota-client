@@ -34,7 +34,7 @@ service OtaClientService {
    * Main ECU merges the responses as UpdateResponse.
    * After requesting `Update` and if the OTA status is `UPDATING`, the request is successful.
    * Note that if the child ECU doesn't respond, the grandchild response is not
-   * contained by `UpdateResponse`.
+   * included by `UpdateResponse`.
    */
   rpc Update (UpdateRequest) returns (UpdateResponse) {}
 
