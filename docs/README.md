@@ -2,7 +2,7 @@
 
 ## Overview
 
-This OTA client is a client software to perform over-the-air updates for linux devices.
+This OTA client is a client software to perform over-the-air software updates for linux devices.
 To enable updating of software at any layer (kernel, kernel module, user library, user application), the OTA client targets the entire rootfs for updating.  
 When the OTA client receives an update request, it downloads a list from the OTA server that contains the file paths and the hash values of the files, etc., to be updated, and compares them with the files in its own storage and if there is a match, that file is used to update the rootfs. By this delta mechanism, it is possible to reduce the download size even if the entire rootfs is targeted and this mechanism does not require any specific server implementation, nor does it require the server to keep a delta for each version of the rootfs.
 
@@ -11,6 +11,7 @@ When the OTA client receives an update request, it downloads a list from the OTA
 - Rootfs updating
 - Delta updating
 - Redundant configuration with A/B partition update
+- Arbitrary files can be copied from A to B partition. This can be used to take over individual files.
 - No specific server implementation is required. The server that supports HTTP GET is only required.
   - TLS connection is also required.
 - Delta management is not required for server side.
@@ -42,8 +43,7 @@ TODO
 ### Configurations
 
 OTA client can update a single ECU or multiple ECUs and is installed for each ECU.
-There two types of ECU, Main ECU - receives user request, Secondary ECUs - receives request from Main ECU. One or multiple Secondary ECUs can also have Secondary ECUs.
-Note that if only one ECU is updated, there is not Secondary ECUs.
+There are two types of ECU, Main ECU - receives user request, Secondary ECUs - receive request from Main ECU. One or multiple Secondary ECUs can also have Secondary ECUs.
 
 #### ecu\_info.yml
 
@@ -72,7 +72,7 @@ ecu_info.yml is the setting file for ECU configuration.
 
 - secondaries (array, optional)
 
-  This field specifies list of secondary ECUs information.  
+  This field specifies list of **directly connected** secondary ECUs information.  
   If this field is not specified, it is treated as if secondary ecu doesn't exist.
 
   - ecu_id (string, required)
@@ -82,17 +82,14 @@ ecu_info.yml is the setting file for ECU configuration.
     IP address of secondary ECU.
 
 - available_ecu_ids (optional)
-  This field specifies a list of ECU id which indicates the target ECU of the ota update.  
-  Only the main ECU should have this information.  
-  If this field doesn't exist, ecu_id value is used as this value.  
 
-  NOTE: The difference between secondaries and available_ecu_ids:  
-  `secondaries` field is the information for listing children's ECUs, not for
-  listing grandchildren. `available_ecu_ids` filed is the information for listing
-  all ECUs. If the child ecu has its own children, and if that child doesn't
-  respond to the parent's request, the grandchildren's information can't be
-  retrieved by the request. That is the reason why available_ecu_ids field is
-  needed.
+  This field specifies a list of all ECU ids, including directly connected, indirectly connected and itself.
+  Only the main ECU should have this information.  
+  If this field is not specified, value of `ecu_id` is used as this value.
+
+  NOTE: The difference between secondaries and available_ecu_ids:
+
+  `secondaries` lists the directly connected children ECUs, available_ecu_ids consists of all children ECU ids(including directly connected, indirectly connected and itself).
 
 ##### The default setting
 
@@ -106,7 +103,12 @@ If ecu_info.yml doesn't exist, the default setting is used as follows:
 
 #### proxy\_info.yml
 
-proxy_info.yml is the setting file for OTA internal proxy configuration.
+proxy_info.yml is the setting file for OTA proxy configuration.
+
+OTA proxy is the software integrated into the ota client that access the ota server on behalf of the ota client.
+Whether ota proxy access the ota server directly or indirectly depends on the configuration.
+
+See [OTA proxy](../ota_proxy/README.md) more details.
 
 ##### File path
 
@@ -116,19 +118,26 @@ proxy_info.yml is the setting file for OTA internal proxy configuration.
 
 - enable_ota_proxy (string, optional)
 
-  This field specifies whether ota proxy is used or not.  
-  If this field is not specified, ota proxy is not used, it means ota client connects to ota server directly.
+  This field specifies whether ota client uses ota proxy or not.
+  If this field is not specified, ota client doesn't use ota proxy, it means ota client connects to ota server directly. If the ota proxy is enabled, the ota client requests the ota proxy.
+
+  The configuration for ota proxy are as follows.
 
 - gateway (string, optional if enable_ota_proxy is true otherwise not required)
 
-  When the `enable_ota_proxy` field is true, this field specifies whether the ota proxy requests the ota server with HTTPS or HTTP. If true, HTTPS is used otherwise HTTP is used.  
+  When the `enable_ota_proxy` field is true, this field specifies whether the ota proxy requests the ota server directly with HTTPS or HTTP. If it is true, HTTPS is used otherwise HTTP is used.
   If this field is not specified, HTTP is used.
+  Note that if the ECU can't access to the ota server directly, the value should be set to false.
 
 - upper_ota_proxy (string, optional if enable_ota_proxy is true otherwise not required)
 
-  This field specifies the ota proxy address.
-  To specify the ota proxy address, `http://192.168.20.11:8082` notation is used.
-  If this field is not specified, "localhost" is used for accessing ota proxy.
+  When the `enable_ota_proxy` field is true, this field specifies the upper ota proxy address to be accessed by the ota proxy.
+  To specify the upper ota proxy address, `http://192.168.20.11:8082` notation is used.
+  If this field is not specified, the **ota proxy**(not ota client) requests ota server directly.
+
+- local_server
+
+  TODO
 
 ##### The default setting
 
