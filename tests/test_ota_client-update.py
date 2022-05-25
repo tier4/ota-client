@@ -147,7 +147,7 @@ def test_ota_client_update(mocker: MockerFixture, tmp_path: Path):
     # mock cfg
     mocker.patch.object(cfg, "MOUNT_POINT", tmp_path / "mnt" / "standby")
     mocker.patch.object(cfg, "PROXY_INFO_FILE", str(proxy_info_file))
-    proxy_cfg = proxy_info.ProxyInfo(proxy_info_file=proxy_info_file)
+    proxy_cfg = proxy_info.parse_proxy_info(proxy_info_file=proxy_info_file)
     mocker.patch.object(ota_client, "proxy_cfg", proxy_cfg)
 
     # file path patch
@@ -344,7 +344,7 @@ def test_ota_client_update_multiple_call(mocker, tmp_path):
 
     # proxy info
     mocker.patch.object(cfg, "PROXY_INFO_FILE", str(proxy_info_file))
-    proxy_cfg = proxy_info.ProxyInfo(proxy_info_file=proxy_info_file)
+    proxy_cfg = proxy_info.parse_proxy_info(proxy_info_file=proxy_info_file)
 
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
@@ -563,7 +563,7 @@ def test_ota_client_update_regular_download_error(
 
     proxy_info_file = boot_dir / "proxy_info.yaml"
     proxy_info_file.write_text(DEFUALT_PROXY_INFO)
-    proxy_cfg = proxy_info.ProxyInfo(proxy_info_file=proxy_info_file)
+    proxy_cfg = proxy_info.parse_proxy_info(proxy_info_file=proxy_info_file)
 
     # file path patch
     mocker.patch.object(OtaPartition, "BOOT_DIR", boot_dir)
@@ -725,7 +725,7 @@ def test_ota_client_update_with_initialize_boot_partition(mocker, tmp_path):
     # proxy info setup
     proxy_info_file = boot_dir / "proxy_info.yaml"
     proxy_info_file.write_text(DEFUALT_PROXY_INFO)
-    proxy_cfg = proxy_info.ProxyInfo(proxy_info_file=proxy_info_file)
+    proxy_cfg = proxy_info.parse_proxy_info(proxy_info_file=proxy_info_file)
     mocker.patch.object(ota_client, "proxy_cfg", proxy_cfg)
 
     # file path patch

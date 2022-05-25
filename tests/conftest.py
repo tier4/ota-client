@@ -23,4 +23,4 @@ def proxy_cfg():
 
     with tempfile.NamedTemporaryFile() as f:
         Path(f.name).write_text(DEFUALT_PROXY_INFO)
-        return proxy_info.ProxyInfo(proxy_info_file=f.name)
+        return proxy_info.parse_proxy_info(proxy_info_file=f.name)
