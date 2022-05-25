@@ -72,7 +72,9 @@ class ProxyInfo:
         proxy_info_file_path = Path(proxy_info_file)
         _proxy_info_dict: Dict[str, Any] = dict()
         if proxy_info_file_path.is_file():
-            _proxy_info_dict = yaml.safe_load(proxy_info_file_path.read_text())
+            _loaded = yaml.safe_load(proxy_info_file_path.read_text())
+            if _loaded:  # filter out empty yaml
+                _proxy_info_dict = _loaded
 
         # load options
         # NOTE: if option is not presented,
