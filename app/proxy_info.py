@@ -1,5 +1,5 @@
 from dataclasses import dataclass, fields
-from typing import Any, ClassVar, Dict, Type
+from typing import Any, Dict
 import yaml
 from pathlib import Path
 
@@ -20,6 +20,7 @@ logger = log_util.get_logger(
 """
 enable_ota_proxy: true
 gateway: true
+enable_ota_proxy_cache: true
 """
 
 ##                        subecu                           ##

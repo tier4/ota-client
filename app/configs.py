@@ -3,8 +3,6 @@ import platform
 from dataclasses import dataclass, field
 from logging import INFO
 
-from typing import Tuple
-
 
 class OTAFileCacheControl(enum.Enum):
     """Custom header for ota file caching control policies.
