@@ -1,3 +1,5 @@
+from dataclasses import dataclass, fields
+from typing import Any, ClassVar, Dict, Type
 import yaml
 from pathlib import Path
 
@@ -9,22 +11,13 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
-# Example proxy_info.yaml(for subecu)
-"""
-# gateway: false
-enable_ota_proxy: true
-local_server: ["0.0.0.0", 8082]
-upper_ota_proxy: "http://10.0.0.2:8082"
-"""
-
-
 ###### Example proxy_info.yaml for different scenario ######
 ##                       mainecu                          ##
 # for mainecu, proxy_info.yaml is not needed, the following
 # DEFAULT_PROXY_INFO will be used.
 # we should treat the ecu with no proxy_info.yaml
 # as main ecu(as gateway), and enable ota_proxy without upper proxy.
-DEFUALT_PROXY_INFO = """
+"""
 enable_ota_proxy: true
 gateway: true
 """
@@ -43,37 +36,46 @@ local_server: [<ipaddr: str>, <port: int>]
 ######
 
 
+@dataclass
 class ProxyInfo:
     """Ota proxy configuration.
 
     Attributes:
-        enable_local_ota_proxy: whether to launch a local ota_proxy server
-        host, port: (only valid when enable_local_ota_proxy==true) the listen address of the local ota_proxy
-        gateway: (only valid when enable_local_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
+        enable_ota_proxy: whether to launch a local ota_proxy server
+        gateway: (only valid when enable_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
             sends out the requests
+        ota_proxy_listen_addr
+        ota_proxy_listen_port
         upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain)
     """
 
-    def __init__(self, proxy_info_file: str = cfg.PROXY_INFO_FILE):
+    enable_ota_proxy: bool = True
+    gateway: bool = True
+    upper_ota_proxy: str = None
+    ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
+    ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
+
+    @classmethod
+    def parse_proxy_info(
+        cls, proxy_info_file: str = cfg.PROXY_INFO_FILE
+    ) -> "ProxyInfo":
         proxy_info_file_path = Path(proxy_info_file)
+        _proxy_info_dict: Dict[str, Any] = dict()
         if proxy_info_file_path.is_file():
-            proxy_info: dict = yaml.safe_load(proxy_info_file_path.read_text())
-        else:
-            proxy_info: dict = yaml.safe_load(DEFUALT_PROXY_INFO)
+            _proxy_info_dict = yaml.safe_load(proxy_info_file_path.read_text())
 
-        self.enable_local_ota_proxy: bool = proxy_info.get("enable_ota_proxy", False)
-        self.upper_ota_proxy: str = proxy_info.get("upper_ota_proxy")
+        # load options
+        # NOTE: if option is not presented,
+        # this option will be set to the default value
+        for _field in fields(cls):
+            _proxy_info_dict.setdefault(_field.name, _field.default)
 
-        if self.enable_local_ota_proxy:
-            self.gateway: bool = proxy_info.get("gateway", False)
-            self.host, self.port = proxy_info.get(
-                "local_server", server_cfg.OTA_PROXY_SERVER_ADDR
-            )
+        return cls(**_proxy_info_dict)
 
     def get_proxy_for_local_ota(self) -> str:
-        if self.enable_local_ota_proxy:
+        if self.enable_ota_proxy:
             # if local proxy is enabled, local ota client also uses it
-            return f"http://{self.host}:{self.port}"
+            return f"http://{self.ota_proxy_listen_addr}:{self.ota_proxy_listen_port}"
         elif self.upper_ota_proxy:
             # else we directly use the upper proxy
             return self.upper_ota_proxy
@@ -83,3 +85,7 @@ class ProxyInfo:
 
 
 proxy_cfg = ProxyInfo()
+
+if __name__ == "__main__":
+    proxy_cfg = ProxyInfo.parse_proxy_info("./proxy_info.yaml")
+    logger.info(f"{proxy_cfg!r}, {proxy_cfg.get_proxy_for_local_ota()=}")
