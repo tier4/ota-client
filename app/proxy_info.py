@@ -24,19 +24,19 @@ gateway: true
 
 ##                        subecu                           ##
 """
-# gateway option should not be presented, or set to false
+# gateway must be false for subECU
 gateway: false
 
-enable_ota_proxy: true
-
-# upper ota proxy must be an HTTP URL
-upper_ota_proxy: <upper_ota_proxy_URL: str>
+# not mandatory if subECU doesn't have child ECU
+enable_ota_proxy: false
 
 # if subecu doens't have child, it doesn't need to enable ota_proxy cache
 enable_ota_proxy_cache: false
 
-# the listen_addr of local_ota_proxy, 
-# if not presented, default to ["0.0.0.0", 8082]
+# upper ota proxy must be an HTTP URL
+upper_ota_proxy: <upper_ota_proxy_URL: str>
+
+# the listen_addr of local_ota_proxy, if not presented, default to 0.0.0.0:8082
 ota_proxy_listen_addr: "0.0.0.0"
 ota_proxy_listen_port: 8082
 """
@@ -47,14 +47,15 @@ ota_proxy_listen_port: 8082
 class ProxyInfo:
     """OTA-proxy configuration.
 
+    NOTE: all the default values are for mainECU!
     Attributes:
         enable_ota_proxy: whether to launch a local ota_proxy server, default is True.
         gateway: (only valid when enable_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
             sends out the requests, default is True.
         enable_ota_proxy_cache: enable cache mechanism on ota-proxy, default is True.
-        ota_proxy_listen_addr
-        ota_proxy_listen_port
-        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain).
+        ota_proxy_listen_addr: default is "0.0.0.0".
+        ota_proxy_listen_port: default is 8082.
+        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain), default is None(no upper proxy).
     """
 
     enable_ota_proxy: bool = True
