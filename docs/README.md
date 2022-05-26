@@ -85,7 +85,7 @@ ecu_info.yml is the setting file for ECU configuration.
 
   This field specifies a list of all ECU ids, including directly connected, indirectly connected and itself.
   Only the main ECU should have this information.  
-  If this field is not specified, value of `ecu_id` is used as this value.
+  If this field is not specified, value of `ecu_id` is used as this value.  
 
   NOTE: The difference between secondaries and available_ecu_ids:
 
@@ -116,28 +116,40 @@ See [OTA proxy](../ota_proxy/README.md) more details.
 
 ##### Entries
 
-- enable_ota_proxy (string, optional)
+- enable_local_ota_proxy (boolean, optional)
 
-  This field specifies whether ota client uses ota proxy or not.
-  If this field is not specified, ota client doesn't use ota proxy, it means ota client connects to ota server directly. If the ota proxy is enabled, the ota client requests the ota proxy.
+  This field specifies whether ota client uses local ota proxy or not.
+  If this field is not specified, ota client doesn't use local ota proxy, it means ota client connects to ota server directly. If the local ota proxy is enabled, the ota client requests the local ota proxy.
 
-  The configuration for ota proxy are as follows.
+The configuration for local ota proxy are as follows.
 
-- gateway (string, optional if enable_ota_proxy is true otherwise not required)
+- gateway (boolean, optional if `enable_local_ota_proxy` is true otherwise not required)
 
-  When the `enable_ota_proxy` field is true, this field specifies whether the ota proxy requests the ota server directly with HTTPS or HTTP. If it is true, HTTPS is used otherwise HTTP is used.
-  If this field is not specified, HTTP is used.
+  When the `enable_local_ota_proxy` field is true, this field specifies whether the **local ota proxy** requests the ota server directly with HTTPS or HTTP. If it is true, HTTPS is used otherwise HTTP is used.  
+  If this field is not specified, HTTP is used.  
   Note that if the ECU can't access to the ota server directly, the value should be set to false.
 
-- upper_ota_proxy (string, optional if enable_ota_proxy is true otherwise not required)
+- upper_ota_proxy (string, optional if `enable_local_ota_proxy` is true otherwise not required)
 
-  When the `enable_ota_proxy` field is true, this field specifies the upper ota proxy address to be accessed by the ota proxy.
+  When the `enable_local_ota_proxy` field is true, this field specifies the upper ota proxy address to be accessed by the local ota proxy.  
   To specify the upper ota proxy address, `http://192.168.20.11:8082` notation is used.
-  If this field is not specified, the **ota proxy**(not ota client) requests ota server directly.
+  If this field is not specified, the **local ota proxy** requests ota server directly.
 
-- local_server
+- enable_local_ota_proxy_cache (boolean, optional if `enable_local_ota_proxy` is true otherwise not required)
 
-  TODO
+  When the `enable_local_ota_proxy` field is true, this field specifies whether the local ota proxy uses the local cache or not. If it is true, the local cache is used otherwise not used.  
+  If this field is not specified, the local cache is used.
+
+- local_ota_proxy_listen_addr (string, optional if `enable_local_ota_proxy` is true otherwise not required)
+
+  When the `enable_local_ota_proxy` field is true, this field specifies the listen address for local ota proxy.  
+  If this field is not specified, "0.0.0.0" is used.
+
+
+- local_ota_proxy_listen_port (integer, optional if `enable_local_ota_proxy` is true otherwise not required)
+
+  When the `enable_local_ota_proxy` field is true, this field specifies the listen port for local ota proxy.  
+  If this field is not specified, 8082 is used.
 
 ##### The default setting
 
