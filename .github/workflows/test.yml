@@ -69,6 +69,8 @@ jobs:
     runs-on: ubuntu-20.04
     timeout-minutes: 3
     steps:
+      - name: Checkout commit
+        uses: actions/checkout@v2
       - name: markdownlint-cli
         uses: nosborn/github-action-markdown-cli@v3.0.1
         with:
