@@ -26,8 +26,28 @@ package OtaClientV2;
 // The OTA Client service definition.
 // Style Guide: https://developers.google.com/protocol-buffers/docs/style#message_and_field_names
 service OtaClientService {
+  /*
+   * `Update` service requests OTA client to start updating.
+   * The OTA client of each ECU retrieves the request that matches its own ECU
+   * id and starts it. Requests to each ECU included in the `UpdateRequest` are
+   * handled by that respective ECU and returns the response to the parent ECU.
+   * Main ECU merges the responses as UpdateResponse.
+   * After requesting `Update` and if the OTA status is `UPDATING`, the request is successful.
+   * Note that if the child ECU doesn't respond, the grandchild response is not
+   * included by `UpdateResponse`.
+   */
   rpc Update (UpdateRequest) returns (UpdateResponse) {}
+
+  /*
+   * NOT YET
+   */
   rpc Rollback (RollbackRequest) returns (RollbackResponse) {}
+
+  /*
+   * `Status` service requests OTA client to retrieve OTA client status.
+   * Note that if the child ECU doesn't respond, the grandchild response is not
+   * contained by `StatusResponse`.
+   */
   rpc Status (StatusRequest) returns (StatusResponse) {}
 }
 
@@ -46,10 +66,10 @@ enum FailureType {
 
 // Request
 message UpdateRequestEcu {
-  string ecu_id = 1;
-  string version = 2;
-  string url = 3;
-  string cookies = 4; // json
+  string ecu_id = 1; // ECU id to update. OTA client pickups the entry that matches their own ECU id and this ECU id.
+  string version = 2; // version to update. Any version string can be used. When the update is done successfully, the OTA client saves this version as the current version.
+  string url = 3; // OTA server URL.
+  string cookies = 4; // cookie entries with JSON notation.
 }
 
 message UpdateRequest {
@@ -58,8 +78,8 @@ message UpdateRequest {
 
 // Response
 message UpdateResponseEcu {
-  string ecu_id = 1;
-  FailureType result = 2;
+  string ecu_id = 1; // EUC id responded
+  FailureType result = 2; // result
 }
 
 message UpdateResponse {
@@ -118,37 +138,37 @@ enum StatusProgressPhase {
 
 message StatusProgress {
   StatusProgressPhase phase = 1;
-  uint64 total_regular_files = 2;
-  uint64 regular_files_processed = 3;
-  uint64 files_processed_copy = 4;
-  uint64 files_processed_link = 5;
-  uint64 files_processed_download = 6;
-  uint64 file_size_processed_copy = 7;
-  uint64 file_size_processed_link = 8;
-  uint64 file_size_processed_download = 9;
-  google.protobuf.Duration elapsed_time_copy = 10;
-  google.protobuf.Duration elapsed_time_link = 11;
-  google.protobuf.Duration elapsed_time_download = 12;
-  uint64 errors_download = 13;
-  uint64 total_regular_file_size = 14;
-  google.protobuf.Duration total_elapsed_time = 15;
+  uint64 total_regular_files = 2; // number of total regular file
+  uint64 regular_files_processed = 3; // number of the regular file processed
+  uint64 files_processed_copy = 4; // number of the regular file processed by copy
+  uint64 files_processed_link = 5; // number of the regular file processed by hard-link
+  uint64 files_processed_download = 6; // number of the regular file processed by download
+  uint64 file_size_processed_copy = 7; // total file size of the regular file processed by copy
+  uint64 file_size_processed_link = 8; // total file size of the regular file processed by hard-link
+  uint64 file_size_processed_download = 9; // total file size of the regular file processed by download
+  google.protobuf.Duration elapsed_time_copy = 10; // total elapsed time by copy
+  google.protobuf.Duration elapsed_time_link = 11; // total elapsed time by hard-link
+  google.protobuf.Duration elapsed_time_download = 12; // total elapsed time by download
+  uint64 errors_download = 13; // total number of download error
+  uint64 total_regular_file_size = 14; // total regular file size
+  google.protobuf.Duration total_elapsed_time = 15; // total elapsed time
 }
 
 message Status {
   StatusOta status = 1;
   FailureType failure = 2;
-  string failure_reason = 3;
-  string version = 4;
-  StatusProgress progress = 5;
+  string failure_reason = 3; // failure reason string
+  string version = 4; // current version string
+  StatusProgress progress = 5; // status is UPDATING, this field is valid.
 }
 
 message StatusResponseEcu {
-  string ecu_id = 1;
+  string ecu_id = 1; // ECU id respond
   FailureType result = 2;
   Status status = 3;
 }
 
 message StatusResponse {
   repeated StatusResponseEcu ecu = 1;
-  repeated string available_ecu_ids = 2;
+  repeated string available_ecu_ids = 2; // list of available ECU (see ecu_info.yml)
 }
