@@ -1,7 +1,8 @@
 # ota-proxy
 # Introduction
-Internal ECUs are not allowed to directly connect to the Internet, so ota-proxy is introduced to allow internal ECUs to apply ota update.
-
+For environment that internal ECUs are not allowed to directly connect to the Internet for security reason, 
+ota-proxy is introduced to allow internal ECUs to apply ota update. Ota-proxy can also be used as a cached 
+proxy server to serve multiple ECUs' update simultaneously.
 
 # Features
 1. **HTTP proxy for files downloading**: ota-proxy implements standard HTTP proxy mechanism to allow normal HTTP proxy requests from the ota-client.
