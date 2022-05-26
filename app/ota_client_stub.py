@@ -170,7 +170,7 @@ class OtaClientStub:
             if proxy_cfg.enable_local_ota_proxy:
                 _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
                 self._ota_proxy.start(
-                    enable_cache=proxy_cfg.local_ota_proxy_enable_cache,
+                    enable_cache=proxy_cfg.enable_local_ota_proxy_cache,
                     init_cache=_init_cache,
                 )
 

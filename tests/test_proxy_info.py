@@ -14,7 +14,7 @@ PERCEPTION_ECU_PROXY_INFO: str = """
 gateway: false
 enable_local_ota_proxy: true
 upper_ota_proxy: "http://10.0.0.1:8082"
-local_ota_proxy_enable_cache: false
+enable_local_ota_proxy_cache: false
 """
 EMPTY_PROXY_INFO: str = ""
 
@@ -23,7 +23,7 @@ FULL_PROXY_INFO: str = """
 enable_local_ota_proxy: false
 gateway: false
 upper_ota_proxy: "http://10.0.0.1:8082"
-local_ota_proxy_enable_cache: false
+enable_local_ota_proxy_cache: false
 local_ota_proxy_listen_addr: "10.0.0.2"
 local_ota_proxy_listen_port: 2808
 """
@@ -32,7 +32,7 @@ local_ota_proxy_listen_port: 2808
 _DEFAULT: Dict[str, Any] = {
     "enable_local_ota_proxy": True,
     "gateway": True,
-    "local_ota_proxy_enable_cache": True,
+    "enable_local_ota_proxy_cache": True,
     "upper_ota_proxy": None,
     "local_ota_proxy_listen_addr": "0.0.0.0",
     "local_ota_proxy_listen_port": 8082,
@@ -60,7 +60,7 @@ _DEFAULT: Dict[str, Any] = {
                     "enable_local_ota_proxy": True,
                     "gateway": False,
                     "upper_ota_proxy": "http://10.0.0.1:8082",
-                    "local_ota_proxy_enable_cache": False,
+                    "enable_local_ota_proxy_cache": False,
                 },
             },
         ),
@@ -70,7 +70,7 @@ _DEFAULT: Dict[str, Any] = {
             {
                 "enable_local_ota_proxy": False,
                 "gateway": False,
-                "local_ota_proxy_enable_cache": False,
+                "enable_local_ota_proxy_cache": False,
                 "upper_ota_proxy": "http://10.0.0.1:8082",
                 "local_ota_proxy_listen_addr": "10.0.0.2",
                 "local_ota_proxy_listen_port": 2808,

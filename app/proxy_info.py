@@ -57,7 +57,7 @@ class ProxyInfo:
         enable_local_ota_proxy: whether to launch a local ota_proxy server, default is True.
         gateway: (only valid when enable_local_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
             sends out the requests, default is True.
-        local_ota_proxy_enable_cache: enable cache mechanism on ota-proxy, default is True.
+        enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy, default is True.
         local_ota_proxy_listen_addr: default is "0.0.0.0".
         local_ota_proxy_listen_port: default is 8082.
         upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain), default is None(no upper proxy).
@@ -66,7 +66,7 @@ class ProxyInfo:
     enable_local_ota_proxy: bool = True
     gateway: bool = True
     # to be compatible with mainECU
-    local_ota_proxy_enable_cache: bool = True
+    enable_local_ota_proxy_cache: bool = True
     upper_ota_proxy: str = None
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
     local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
