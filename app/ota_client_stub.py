@@ -78,8 +78,8 @@ class OtaProxyWrapper:
                 init_cache=init_cache,
                 scrub_cache_event=scrub_cache_event,
             ),
-            host=proxy_cfg.ota_proxy_listen_addr,
-            port=proxy_cfg.ota_proxy_listen_port,
+            host=proxy_cfg.local_ota_proxy_listen_addr,
+            port=proxy_cfg.local_ota_proxy_listen_port,
             log_level="error",
             lifespan="on",
             workers=1,
@@ -144,7 +144,7 @@ class OtaClientStub:
         self._cached_if_subecu_ready: bool = None
 
         # ota proxy server
-        if proxy_cfg.enable_ota_proxy:
+        if proxy_cfg.enable_local_ota_proxy:
             self._ota_proxy = OtaProxyWrapper()
 
     def host_addr(self):
@@ -167,10 +167,10 @@ class OtaClientStub:
         with ota_sfsm.proceed(
             ota_sfsm._P1_ota_service, expect=ota_sfsm._START
         ) as _next:
-            if proxy_cfg.enable_ota_proxy:
+            if proxy_cfg.enable_local_ota_proxy:
                 _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
                 self._ota_proxy.start(
-                    enable_cache=proxy_cfg.enable_ota_proxy_cache,
+                    enable_cache=proxy_cfg.local_ota_proxy_enable_cache,
                     init_cache=_init_cache,
                 )
 
@@ -359,7 +359,7 @@ class OtaClientStub:
             asyncio.run(self._ensure_subecu_status())
             logger.info("all subECUs are updated and become ready")
 
-            if proxy_cfg.enable_ota_proxy:
+            if proxy_cfg.enable_local_ota_proxy:
                 # NOTE: the following lines can only be reached when the whole update
                 # (including local update and all subecus update) are successful,
                 # so we don't need to do extra check, and can safely clear the cache here.
