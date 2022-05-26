@@ -12,7 +12,7 @@ def pythonpath():
 
 # not enable proxy when doing test
 DEFUALT_PROXY_INFO = """
-enable_ota_proxy: false
+enable_local_ota_proxy: false
 """
 
 
@@ -23,4 +23,4 @@ def proxy_cfg():
 
     with tempfile.NamedTemporaryFile() as f:
         Path(f.name).write_text(DEFUALT_PROXY_INFO)
-        return proxy_info.ProxyInfo(proxy_info_file=f.name)
+        return proxy_info.parse_proxy_info(proxy_info_file=f.name)
