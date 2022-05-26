@@ -3,8 +3,6 @@ import platform
 from dataclasses import dataclass, field
 from logging import INFO
 
-from typing import Tuple
-
 
 class OTAFileCacheControl(enum.Enum):
     """Custom header for ota file caching control policies.
@@ -61,7 +59,8 @@ class OtaClientServerConfig:
     LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 10
 
     # proxy server
-    OTA_PROXY_SERVER_ADDR: Tuple[str, int] = ("0.0.0.0", 8082)
+    OTA_PROXY_LISTEN_ADDRESS: str = "0.0.0.0"
+    OTA_PROXY_LISTEN_PORT: int = 8082
 
 
 @dataclass

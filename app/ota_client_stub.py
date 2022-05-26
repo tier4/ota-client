@@ -15,8 +15,7 @@ from ota_client_call import OtaClientCall
 from proxy_info import proxy_cfg
 from ecu_info import EcuInfo
 
-from configs import config as cfg
-from configs import server_cfg
+from configs import server_cfg, config as cfg
 import log_util
 
 logger = log_util.get_logger(
@@ -79,21 +78,24 @@ class OtaProxyWrapper:
                 init_cache=init_cache,
                 scrub_cache_event=scrub_cache_event,
             ),
-            host=proxy_cfg.host,
-            port=proxy_cfg.port,
+            host=proxy_cfg.local_ota_proxy_listen_addr,
+            port=proxy_cfg.local_ota_proxy_listen_port,
             log_level="error",
             lifespan="on",
             workers=1,
             limit_concurrency=256,
         )
 
-    def start(self, enable_cache=False, init_cache=True) -> int:
+    def start(self, enable_cache, init_cache) -> int:
         with self._lock:
             if self._closed:
                 self._server_p = Process(
                     target=self._start_server,
-                    args=(enable_cache, init_cache),
-                    kwargs={"scrub_cache_event": self._scrub_cache_event},
+                    kwargs={
+                        "enable_cache": enable_cache,
+                        "init_cache": init_cache,
+                        "scrub_cache_event": self._scrub_cache_event,
+                    },
                 )
                 self._server_p.start()
 
@@ -167,7 +169,10 @@ class OtaClientStub:
         ) as _next:
             if proxy_cfg.enable_local_ota_proxy:
                 _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
-                self._ota_proxy.start(enable_cache=True, init_cache=_init_cache)
+                self._ota_proxy.start(
+                    enable_cache=proxy_cfg.enable_local_ota_proxy_cache,
+                    init_cache=_init_cache,
+                )
 
                 # wait for ota_cache to finish initializing
                 self._ota_proxy.wait_on_ota_cache()
