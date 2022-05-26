@@ -161,7 +161,7 @@ The configuration for local ota proxy are as follows.
 
 If proxy_info.yml doesn't exist, the default setting is used as follows:
 
-- enable_ota_proxy
+- enable_local_ota_proxy
   - true
 
 - gateway
@@ -181,4 +181,4 @@ TODO
 
 ## Services
 
-[Services](SERVICES.md)
+About ota client services, see [Services](SERVICES.md).
