@@ -1,6 +1,7 @@
-from dataclasses import dataclass, fields
-from typing import Any, Dict
 import yaml
+import warnings
+from dataclasses import dataclass, fields
+from typing import Any, ClassVar, Dict
 from pathlib import Path
 
 from configs import config as cfg
@@ -106,6 +107,16 @@ def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
     # this option will be set to the default value
     _proxy_info_dict: Dict[str, Any] = dict()
     for _field in fields(ProxyInfo):
+        _option = _loaded.get(_field.name)
+        if not isinstance(_option, _field.type):
+            if _option is not None:
+                logger.warning(
+                    f"{_field.name} contains invalid value={_option}, ignored and set to default={_field.default}"
+                )
+            _proxy_info_dict[_field.name] = _field.default
+            continue
+
+        _proxy_info_dict[_field.name] = _option
 
     # maintain compatiblity with old proxy_info format
     for old, new in ProxyInfo._compatibility.items():

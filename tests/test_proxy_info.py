@@ -28,6 +28,18 @@ local_ota_proxy_listen_addr: "10.0.0.2"
 local_ota_proxy_listen_port: 2808
 """
 
+# corrupted yaml files that contains invalid value
+# all fields are asigned with invalid value,
+# invalid field should be replaced by default value.
+CORRUPTED_PROXY_INFO: str = """
+enable_local_ota_proxy: dafef
+gateway: 123
+upper_ota_proxy: true
+enable_local_ota_proxy_cache: adfaea
+local_ota_proxy_listen_addr: 123
+local_ota_proxy_listen_port: "2808"
+"""
+
 # check ProxyInfo for detail
 _DEFAULT: Dict[str, Any] = {
     "enable_local_ota_proxy": True,
@@ -76,6 +88,7 @@ _DEFAULT: Dict[str, Any] = {
                 "local_ota_proxy_listen_port": 2808,
             },
         ),
+        (CORRUPTED_PROXY_INFO, _DEFAULT),
     ),
 )
 def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: Dict[str, Any]):
