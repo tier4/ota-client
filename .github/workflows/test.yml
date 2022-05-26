@@ -76,7 +76,7 @@ jobs:
         with:
           files: .
           config_file: .markdownlint.yaml
-          #ignore_files: examples/ignore/*
+          ignore_files: .markdownlintignore
           #ignore_path: examples/.markdownlintignore
           #rules: examples/rules/custom.js
 
