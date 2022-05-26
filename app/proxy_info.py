@@ -71,6 +71,13 @@ class ProxyInfo:
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
     local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
 
+    # for maintaining compatibility, will be removed in the future
+    # Dict[str, str]: <old_option_name> -> <new_option_name>
+    # 20220526: "enable_ota_proxy" -> "enable_local_ota_proxy"
+    _compatibility: ClassVar[Dict[str, str]] = {
+        "enable_ota_proxy": "enable_local_ota_proxy"
+    }
+
     def get_proxy_for_local_ota(self) -> str:
         if self.enable_local_ota_proxy:
             # if local proxy is enabled, local ota client also uses it
@@ -99,7 +106,18 @@ def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
     # this option will be set to the default value
     _proxy_info_dict: Dict[str, Any] = dict()
     for _field in fields(ProxyInfo):
-        _proxy_info_dict[_field.name] = _loaded.get(_field.name, _field.default)
+
+    # maintain compatiblity with old proxy_info format
+    for old, new in ProxyInfo._compatibility.items():
+        if old in _loaded:
+            warnings.warn(
+                "'enable_ota_proxy' is replaced by 'enable_local_ota_proxy', "
+                "and the support for 'enable_ota_proxy' option might be dropped in the future "
+                "please use 'enable_local_ota_proxy' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            _proxy_info_dict[new] = _loaded[old]
 
     return ProxyInfo(**_proxy_info_dict)
 
