@@ -81,17 +81,23 @@ class ProxyInfo:
 
 def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
     proxy_info_file_path = Path(proxy_info_file)
-    _proxy_info_dict: Dict[str, Any] = dict()
-    if proxy_info_file_path.is_file():
+
+    _loaded: Dict[str, Any]
+    try:
         _loaded = yaml.safe_load(proxy_info_file_path.read_text())
-        if _loaded:  # filter out empty yaml
-            _proxy_info_dict = _loaded
+        assert isinstance(_loaded, Dict)
+    except (FileNotFoundError, AssertionError):
+        logger.warning(
+            f"failed to load {proxy_info_file=} or config file corrupted, use default config"
+        )
+        _loaded = dict()
 
     # load options
     # NOTE: if option is not presented,
     # this option will be set to the default value
+    _proxy_info_dict: Dict[str, Any] = dict()
     for _field in fields(ProxyInfo):
-        _proxy_info_dict.setdefault(_field.name, _field.default)
+        _proxy_info_dict[_field.name] = _loaded.get(_field.name, _field.default)
 
     return ProxyInfo(**_proxy_info_dict)
 
