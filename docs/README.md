@@ -125,12 +125,12 @@ See [OTA proxy](../ota_proxy/README.md) more details.
 
   This field specifies the upper ota proxy address to be accessed by the ota client or local ota proxy.
 
-  | `enable_local_ota_proxy` | `upper_ota_proxy` | who accesses    | where?               |
-  | :---:                    | :---:             | :---:           | :---:                |
-  | true                     | set               | local ota proxy | `upper_ota_proxy`.   |
-  | true                     | not set           | local ota proxy | ota server directly. |
-  | false                    | set               | ota client      | `upper_ota_proxy`.   |
-  | false                    | not set           | ota client      | ota server directly. |
+  | `enable_local_ota_proxy` | `upper_ota_proxy` | who accesses    | where?              |
+  | :---:                    | :---:             | :---:           | :---:               |
+  | true                     | set               | local ota proxy | `upper_ota_proxy`   |
+  | true                     | not set           | local ota proxy | ota server directly |
+  | false                    | set               | ota client      | `upper_ota_proxy`   |
+  | false                    | not set           | ota client      | ota server directly |
 
   To specify the upper ota proxy address, `http://192.168.20.11:8082` notation is used.
 
