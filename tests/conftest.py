@@ -12,7 +12,7 @@ def pythonpath():
 
 # not enable proxy when doing test
 DEFUALT_PROXY_INFO = """
-enable_ota_proxy: false
+enable_local_ota_proxy: false
 """
 
 

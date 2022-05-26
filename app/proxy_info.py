@@ -18,28 +18,32 @@ logger = log_util.get_logger(
 # we should treat the ecu with no proxy_info.yaml
 # as main ecu(as gateway), and enable ota_proxy without upper proxy.
 """
-enable_ota_proxy: true
+enable_local_ota_proxy: true
 gateway: true
-enable_ota_proxy_cache: true
+enable_local_ota_proxy_cache: true
 """
 
-##                        subecu                           ##
+##                        internal ecu                    ##
+# for internal ecu that doesn't have direct internet connection,
+# the following is the template configuration for it.
 """
-# gateway must be false for subECU
+# internal ecu is not the gateway for the local network.
 gateway: false
 
-# not mandatory if subECU doesn't have child ECU
-enable_ota_proxy: false
+# set to false if internal ECU doesn't have child ECU to serve.
+enable_local_ota_proxy: false
 
-# if subecu doens't have child, it doesn't need to enable ota_proxy cache
-enable_ota_proxy_cache: false
+# typically, we can only enable ota cache on the gateway ECU.
+enable_local_ota_proxy_cache: false
 
-# upper ota proxy must be an HTTP URL
+# for internal ECU, upper_ota_proxy is required, 
+# internal ECU will use this proxy to request for ota update.
+# upper ota proxy must be an HTTP URL.
 upper_ota_proxy: <upper_ota_proxy_URL: str>
 
 # the listen_addr of local_ota_proxy, if not presented, default to 0.0.0.0:8082
-ota_proxy_listen_addr: "0.0.0.0"
-ota_proxy_listen_port: 8082
+local_ota_proxy_listen_addr: "0.0.0.0"
+local_ota_proxy_listen_port: 8082
 """
 ######
 
@@ -50,27 +54,27 @@ class ProxyInfo:
 
     NOTE: all the default values are for mainECU!
     Attributes:
-        enable_ota_proxy: whether to launch a local ota_proxy server, default is True.
-        gateway: (only valid when enable_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
+        enable_local_ota_proxy: whether to launch a local ota_proxy server, default is True.
+        gateway: (only valid when enable_local_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
             sends out the requests, default is True.
-        enable_ota_proxy_cache: enable cache mechanism on ota-proxy, default is True.
-        ota_proxy_listen_addr: default is "0.0.0.0".
-        ota_proxy_listen_port: default is 8082.
+        local_ota_proxy_enable_cache: enable cache mechanism on ota-proxy, default is True.
+        local_ota_proxy_listen_addr: default is "0.0.0.0".
+        local_ota_proxy_listen_port: default is 8082.
         upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain), default is None(no upper proxy).
     """
 
-    enable_ota_proxy: bool = True
+    enable_local_ota_proxy: bool = True
     gateway: bool = True
     # to be compatible with mainECU
-    enable_ota_proxy_cache: bool = True
+    local_ota_proxy_enable_cache: bool = True
     upper_ota_proxy: str = None
-    ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
-    ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
+    local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
+    local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
 
     def get_proxy_for_local_ota(self) -> str:
-        if self.enable_ota_proxy:
+        if self.enable_local_ota_proxy:
             # if local proxy is enabled, local ota client also uses it
-            return f"http://{self.ota_proxy_listen_addr}:{self.ota_proxy_listen_port}"
+            return f"http://{self.local_ota_proxy_listen_addr}:{self.local_ota_proxy_listen_port}"
         elif self.upper_ota_proxy:
             # else we directly use the upper proxy
             return self.upper_ota_proxy
@@ -80,11 +84,9 @@ class ProxyInfo:
 
 
 def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
-    proxy_info_file_path = Path(proxy_info_file)
-
     _loaded: Dict[str, Any]
     try:
-        _loaded = yaml.safe_load(proxy_info_file_path.read_text())
+        _loaded = yaml.safe_load(Path(proxy_info_file).read_text())
         assert isinstance(_loaded, Dict)
     except (FileNotFoundError, AssertionError):
         logger.warning(

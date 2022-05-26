@@ -7,35 +7,35 @@ from typing import Any, Dict
 logger = logging.getLogger(__name__)
 
 MAINECU_PROXY_INFO: str = """
-enable_ota_proxy: true
+enable_local_ota_proxy: true
 gateway: true
 """
 PERCEPTION_ECU_PROXY_INFO: str = """
 gateway: false
-enable_ota_proxy: true
+enable_local_ota_proxy: true
 upper_ota_proxy: "http://10.0.0.1:8082"
-enable_ota_proxy_cache: false
+local_ota_proxy_enable_cache: false
 """
 EMPTY_PROXY_INFO: str = ""
 
 # define all options as opposite to the default value
 FULL_PROXY_INFO: str = """
-enable_ota_proxy: false
+enable_local_ota_proxy: false
 gateway: false
 upper_ota_proxy: "http://10.0.0.1:8082"
-enable_ota_proxy_cache: false
-ota_proxy_listen_addr: "10.0.0.2"
-ota_proxy_listen_port: 2808
+local_ota_proxy_enable_cache: false
+local_ota_proxy_listen_addr: "10.0.0.2"
+local_ota_proxy_listen_port: 2808
 """
 
 # check ProxyInfo for detail
 _DEFAULT: Dict[str, Any] = {
-    "enable_ota_proxy": True,
+    "enable_local_ota_proxy": True,
     "gateway": True,
-    "enable_ota_proxy_cache": True,
+    "local_ota_proxy_enable_cache": True,
     "upper_ota_proxy": None,
-    "ota_proxy_listen_addr": "0.0.0.0",
-    "ota_proxy_listen_port": 8082,
+    "local_ota_proxy_listen_addr": "0.0.0.0",
+    "local_ota_proxy_listen_port": 8082,
 }
 
 
@@ -47,7 +47,7 @@ _DEFAULT: Dict[str, Any] = {
             {
                 **_DEFAULT,
                 **{
-                    "enable_ota_proxy": True,
+                    "enable_local_ota_proxy": True,
                     "gateway": True,
                 },
             },
@@ -57,10 +57,10 @@ _DEFAULT: Dict[str, Any] = {
             {
                 **_DEFAULT,
                 **{
-                    "enable_ota_proxy": True,
+                    "enable_local_ota_proxy": True,
                     "gateway": False,
                     "upper_ota_proxy": "http://10.0.0.1:8082",
-                    "enable_ota_proxy_cache": False,
+                    "local_ota_proxy_enable_cache": False,
                 },
             },
         ),
@@ -68,12 +68,12 @@ _DEFAULT: Dict[str, Any] = {
         (
             FULL_PROXY_INFO,
             {
-                "enable_ota_proxy": False,
+                "enable_local_ota_proxy": False,
                 "gateway": False,
-                "enable_ota_proxy_cache": False,
+                "local_ota_proxy_enable_cache": False,
                 "upper_ota_proxy": "http://10.0.0.1:8082",
-                "ota_proxy_listen_addr": "10.0.0.2",
-                "ota_proxy_listen_port": 2808,
+                "local_ota_proxy_listen_addr": "10.0.0.2",
+                "local_ota_proxy_listen_port": 2808,
             },
         ),
     ),
