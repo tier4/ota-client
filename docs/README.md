@@ -121,6 +121,19 @@ See [OTA proxy](../ota_proxy/README.md) more details.
   This field specifies whether ota client uses local ota proxy or not.
   If this field is not specified, ota client doesn't use local ota proxy, it means ota client connects to ota server directly. If the local ota proxy is enabled, the ota client requests the local ota proxy.
 
+- upper_ota_proxy (string, optional)
+
+  This field specifies the upper ota proxy address to be accessed by the ota client or local ota proxy.
+
+  | `enable_local_ota_proxy` | `upper_ota_proxy` | who accesses    | where?               |
+  | :---:                    | :---:             | :---:           | :---:                |
+  | true                     | set               | local ota proxy | `upper_ota_proxy`.   |
+  | true                     | not set           | local ota proxy | ota server directly. |
+  | false                    | set               | ota client      | `upper_ota_proxy`.   |
+  | false                    | not set           | ota client      | ota server directly. |
+
+  To specify the upper ota proxy address, `http://192.168.20.11:8082` notation is used.
+
 The configuration for local ota proxy are as follows.
 
 - gateway (boolean, optional if `enable_local_ota_proxy` is true otherwise not required)
@@ -128,12 +141,6 @@ The configuration for local ota proxy are as follows.
   When the `enable_local_ota_proxy` field is true, this field specifies whether the **local ota proxy** requests the ota server directly with HTTPS or HTTP. If it is true, HTTPS is used otherwise HTTP is used.  
   If this field is not specified, HTTP is used.  
   Note that if the ECU can't access to the ota server directly, the value should be set to false.
-
-- upper_ota_proxy (string, optional if `enable_local_ota_proxy` is true otherwise not required)
-
-  When the `enable_local_ota_proxy` field is true, this field specifies the upper ota proxy address to be accessed by the local ota proxy.  
-  To specify the upper ota proxy address, `http://192.168.20.11:8082` notation is used.
-  If this field is not specified, the **local ota proxy** requests ota server directly.
 
 - enable_local_ota_proxy_cache (boolean, optional if `enable_local_ota_proxy` is true otherwise not required)
 
