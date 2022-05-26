@@ -8,5 +8,3 @@ This tool can be used to develop software which requests ota-client.
 ```bash
 python main.py --config config.yml
 ```
-
-
