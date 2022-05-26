@@ -122,9 +122,9 @@ def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
     for old, new in ProxyInfo._compatibility.items():
         if old in _loaded:
             warnings.warn(
-                "'enable_ota_proxy' is replaced by 'enable_local_ota_proxy', "
-                "and the support for 'enable_ota_proxy' option might be dropped in the future "
-                "please use 'enable_local_ota_proxy' instead.",
+                f"option field '{old}' is replaced by '{new}', "
+                f"and the support for '{old}' option might be dropped in the future. "
+                f"please use '{new}' instead.",
                 DeprecationWarning,
                 stacklevel=2,
             )
