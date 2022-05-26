@@ -66,12 +66,12 @@ class OtaProxyWrapper:
         self._scrub_cache_event = multiprocessing.Event()
 
     @staticmethod
-    def _start_server(enable_cache: bool, init_cache: bool, *, scrub_cache_event):
+    def _start_server_process(init_cache: bool, *, scrub_cache_event):
         import uvicorn
         from ota_proxy import App, OTACache
 
         _ota_cache = OTACache(
-            cache_enabled=enable_cache,
+            cache_enabled=proxy_cfg.enable_local_ota_proxy_cache,
             upper_proxy=proxy_cfg.upper_ota_proxy,
             enable_https=proxy_cfg.gateway,
             init_cache=init_cache,
@@ -91,14 +91,13 @@ class OtaProxyWrapper:
             http="h11",
         )
 
-    def start(self, enable_cache, init_cache) -> int:
+    def start(self, init_cache) -> int:
         """Launch ota_proxy as a separate process."""
         with self._lock:
             if self._closed:
                 self._server_p = Process(
-                    target=self._start_server,
+                    target=self._start_server_process,
                     kwargs={
-                        "enable_cache": enable_cache,
                         "init_cache": init_cache,
                         "scrub_cache_event": self._scrub_cache_event,
                     },
@@ -107,8 +106,8 @@ class OtaProxyWrapper:
 
                 self._closed = False
                 logger.info(
-                    f"ota proxy server started(pid={self._server_p.pid}, {enable_cache=})"
-                    f"{proxy_cfg}"
+                    f"ota proxy server started(pid={self._server_p.pid})"
+                    f"{proxy_cfg=}"
                 )
 
                 return self._server_p.pid
@@ -180,10 +179,7 @@ class OtaClientStub:
         ) as _next:
             if proxy_cfg.enable_local_ota_proxy:
                 _init_cache = self._ota_client.get_ota_status() == OtaStatus.SUCCESS
-                self._ota_proxy.start(
-                    enable_cache=proxy_cfg.enable_local_ota_proxy_cache,
-                    init_cache=_init_cache,
-                )
+                self._ota_proxy.start(_init_cache)
 
                 # wait for ota_cache to finish initializing
                 self._ota_proxy.wait_on_ota_cache()
