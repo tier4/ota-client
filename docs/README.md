@@ -35,29 +35,58 @@ OTA client is licensed under the Apache License, Version 2.0.
 
 - runtime
   - python3.8 (or higher)
+  - pip
+  - setuptools
 
 ### Partitioning
 
-TODO
+For the GRUB system, the disk is partitioned as follows:
+
+```bash
+$ sudo fdisk -l /dev/sda
+Disk /dev/sda: 128 GiB, 137438953472 bytes, 268435456 sectors
+Disk model: VBOX HARDDISK   
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: dos
+Disk identifier: 0x6cf681a1
+
+Device     Boot     Start       End   Sectors  Size Id Type
+/dev/sda1  *         2048   2000895   1998848  976M 83 Linux
+/dev/sda2         2000896 135217151 133216256 63.5G 83 Linux
+/dev/sda3       135217152 268433407 133216256 63.5G 83 Linux
+
+$ lsblk /dev/sda
+NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+sda      8:0    0  128G  0 disk 
+├─sda1   8:1    0  976M  0 part /boot
+├─sda2   8:2    0 63.5G  0 part /
+└─sda3   8:3    0 63.5G  0 part 
+```
+
+In this example, A(=active) partition is sda2 and B(=standby) partition is sda3.
+And `/boot` partition is shared by A/B partitions.
+Note that the disk and the sector size depend on the system.
 
 ### Configurations
 
 OTA client can update a single ECU or multiple ECUs and is installed for each ECU.
 There are two types of ECU, Main ECU - receives user request, Secondary ECUs - receive request from Main ECU. One or multiple Secondary ECUs can also have Secondary ECUs.
 
-#### ecu\_info.yml
+#### ecu\_info.yaml
 
-ecu_info.yml is the setting file for ECU configuration.
+ecu_info.yaml is the setting file for ECU configuration.
 
 ##### File path
 
-/boot/ota/ecu_info.yml
+/boot/ota/ecu_info.yaml
 
 ##### Entries
 
 - format_version (string, required)
 
-  This field specifies the ecu_info.yml format.  
+  This field specifies the ecu_info.yaml format.  
   Currently this field is not used but `1` should be specified for future use.
 
 - ecu_id (string, required)
@@ -93,7 +122,7 @@ ecu_info.yml is the setting file for ECU configuration.
 
 ##### The default setting
 
-If ecu_info.yml doesn't exist, the default setting is used as follows:
+If ecu_info.yaml doesn't exist, the default setting is used as follows:
 
 - format_version
   - 1
@@ -101,9 +130,9 @@ If ecu_info.yml doesn't exist, the default setting is used as follows:
 - ecu_id
   - "autoware"
 
-#### proxy\_info.yml
+#### proxy\_info.yaml
 
-proxy_info.yml is the setting file for OTA proxy configuration.
+proxy_info.yaml is the setting file for OTA proxy configuration.
 
 OTA proxy is the software integrated into the ota client that access the ota server on behalf of the ota client.
 Whether ota proxy access the ota server directly or indirectly depends on the configuration.
@@ -112,7 +141,7 @@ See [OTA proxy](../ota_proxy/README.md) more details.
 
 ##### File path
 
-/boot/ota/proxy_info.yml
+/boot/ota/proxy_info.yaml
 
 ##### Entries
 
@@ -159,7 +188,7 @@ The configuration for local ota proxy are as follows.
 
 ##### The default setting
 
-If proxy_info.yml doesn't exist, the default setting is used as follows:
+If proxy_info.yaml doesn't exist, the default setting is used as follows:
 
 - enable_local_ota_proxy
   - true
@@ -167,17 +196,123 @@ If proxy_info.yml doesn't exist, the default setting is used as follows:
 - gateway
   - true
 
-### apt and requirements.txt
+### python packages installation
 
-TODO
+```bash
+sudo python3.8 -m pip install -r app/requirements.txt
+```
 
-## OTA server setup
+Note that ota client is run with super user privileges so `sudo` is required for the above command.
 
-TODO
+## OTA image generation
 
-### OTA image generation
+It is not the OTA client's responsibility to prepare an OTA image, but this section describes how to create an OTA image with docker.
 
-TODO
+### Preparation
+
+Create an empty working directory and clone the following two repositories.
+
+```bash
+cd $(mktemp -d)
+git clone https://github.com/tier4/ota-client
+git clone https://github.com/tier4/ota-metadata
+```
+
+### OTA image sign and verification key generation
+
+OTA image is signed by the OTA image server side and verified by OTA client to make sure the image is legitimate.
+This section describes how to generate sign and verification key with sample generation script.
+
+```bash
+bash ota-client/tests/keys/gen_certs.sh
+```
+
+Note that the above script is a sample, so some setting might need to be changed for each product.
+
+The keys to be created are as follows:
+
+| file name | install location   |description |
+| ---:      | ---:               | --- |
+| root.pem  | OTA client local   | Root certificate.<br> This file should be installed to the ota-client/certs directory. |
+| interm.pem| OTA client local   | Intermediate certificate.<br> This file should be installed to the ota-client/certs directory. |
+| sign.pem  | OTA image server   | Certificate file to verify OTA image.<br> This file is downloaded from OTA server and verified with root and intermediate certificate. |
+| sign.key  | OTA image generator | Key to sign OTA image.<br> This is only required by the ota server when signing an OTA image. |
+
+### Dockerfile
+
+The Dockerfile need to be prepared as follows:
+
+```Dockerfile
+FROM ubuntu:20.04
+SHELL ["/bin/bash", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+ARG KERNEL_VERSION="5.8.0-53-generic"
+
+RUN \
+    apt-get update && apt-get install -y --no-install-recommends \
+    sudo ubuntu-minimal openssh-server \
+    ubuntu-desktop-minimal \
+    fonts-ubuntu \
+    systemd-coredump vim git \
+    grub-efi-amd64 \
+    linux-image-${KERNEL_VERSION} linux-headers-${KERNEL_VERSION} linux-modules-extra-${KERNEL_VERSION} \
+    apt-utils python3-pip usbutils \
+    gcc libc6-dev \
+    dirmngr rsyslog gpg-agent initramfs-tools
+
+RUN git clone https://github.com/tier4/ota-client
+WORKDIR /ota-client
+RUN python3 -m pip install -r app/requirements.txt
+# install certificates to verify sign.pem
+RUN mkdir certs
+COPY root.pem certs/0.root.pem
+COPY interm.pem certs/0.interm.pem
+
+# add ota-client user
+RUN useradd -m ota-client -s /bin/bash && \
+    echo ota-client:ota-client | chpasswd && \
+    gpasswd -a ota-client sudo
+```
+
+### Metadata generation
+
+Build the docker image with Dockerfile created above and export rootfs image from the docker instance.
+
+```bash
+docker build -t ota-image .
+docker create -it --rm --name ota-image ota-image
+docker export ota-image > ota-image.tar
+mkdir rootfs
+sudo tar xf ota-image.tar -C rootfs
+```
+
+Note: `sudo` is required to extract `ota-image.tar` since some privileged files need to be created.
+
+Generate metadata and sign against rootfs exported above.
+
+```bash
+sudo python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
+    --target-dir rootfs \
+    --ignore-file ota-metadata/metadata/ignore.txt
+cp ota-metadata/metadata/persistents.txt .
+sudo python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
+    --sign-key sign.key \
+    --cert-file sign.pem \
+    --persistent-file persistents.txt \
+    --rootfs-directory rootfs
+sudo chown -R $(whoami) rootfs
+```
+
+Created metadata are as follows:
+
+- `metadata.jwt`
+- `dirs.txt`
+- `symlinks.txt`
+- `regulars.txt`
+- `total_regular_size.txt`
+- `persistents.txt`
+
+The OTA image consists of metadata above, `sign.pen` and `rootfs` directory and can be served by the OTA server.
 
 ## Services
 
