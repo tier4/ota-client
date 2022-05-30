@@ -1,7 +1,9 @@
 import enum
 from logging import INFO
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, Protocol, Tuple, Type, TypeVar, Set
+
+_T = TypeVar("_T")
 
 
 class OTAFileCacheControl(enum.Enum):
@@ -28,11 +30,11 @@ class OTAFileCacheControl(enum.Enum):
     header_lower = "ota-file-cache-control"
 
     @classmethod
-    def parse_to_value_set(cls, input: str) -> "set[str]":
+    def parse_to_value_set(cls, input: str) -> Set[str]:
         return set(input.split(","))
 
     @classmethod
-    def parse_to_enum_set(cls, input: str) -> "set[OTAFileCacheControl]":
+    def parse_to_enum_set(cls, input: str) -> Set["OTAFileCacheControl"]:
         _policies_set = cls.parse_to_value_set(input)
         res = set()
         for p in _policies_set:
@@ -49,7 +51,7 @@ class OTAFileCacheControl(enum.Enum):
 
 @dataclass(frozen=True)
 class ColField:
-    col_type: type
+    col_type: Type
     col_def: str
 
 
@@ -87,7 +89,7 @@ class Config:
     # NOTE: use table name to keep track of table scheme version
     TABLE_DEFINITION_VERSION = "v2"
     TABLE_NAME: str = f"ota_cache_{TABLE_DEFINITION_VERSION}"
-    COLUMNS: dict = field(
+    COLUMNS: Dict[str, ColField] = field(
         default_factory=lambda: {
             "url": ColField(str, "TEXT UNIQUE NOT NULL PRIMARY KEY"),
             "bucket": ColField(int, "INTEGER NOT NULL"),
@@ -102,6 +104,32 @@ class Config:
     BUCKET_LAST_ACCESS_IDX: str = (
         f"CREATE INDEX bucket_last_access_idx ON {TABLE_NAME}(bucket, last_access)"
     )
+
+
+class CacheMetaProtocol(Protocol):
+    """Definition for CacheMeta class.
+
+    Check Config.COLUMNS for details.
+    """
+
+    url: str
+    bucket: int
+    last_access: float
+    hash: str
+    size: int
+    content_type: str
+    content_encoding: str
+
+    @classmethod
+    def shape(cls) -> str:
+        ...
+
+    def to_tuple(self) -> Tuple[_T]:
+        ...
+
+    @classmethod
+    def row_to_meta(cls, row: Dict[str, _T]) -> "CacheMetaProtocol":
+        ...
 
 
 config = Config()

@@ -1,8 +1,6 @@
 import asyncio
 import aiofiles
 import aiohttp
-import subprocess
-import shlex
 import shutil
 import time
 import weakref
@@ -22,12 +20,13 @@ from typing import (
     List,
     Set,
     Tuple,
+    TypeVar,
     Union,
 )
 from urllib.parse import quote, urlparse
 
 
-from . import db
+from .db import CacheMeta, OTACacheDB, DBProxy
 from .config import OTAFileCacheControl, config as cfg
 
 import logging
@@ -36,19 +35,28 @@ logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
 
 
-def get_backoff(n: int, factor: float, _max: float):
+def get_backoff(n: int, factor: float, _max: float) -> float:
     return min(_max, factor * (2 ** (n - 1)))
 
 
+_WEAKREF = TypeVar("_WEAKREF")
+
+
 class OngoingCacheTracker:
-    def __init__(self, fn: str, ref_holder: Any):
+    """A tracker for an on-going cache entry.
+
+    This entry will disappear automatically when writer finished
+    caching and commit the cache to the database.
+    """
+
+    def __init__(self, fn: str, ref_holder: _WEAKREF):
         self.fn = fn
         self.writer_ready = asyncio.Event()
         self.cache_done = Event()
         self._is_failed = False
         self._ref_holer = ref_holder
 
-    async def writer_on_ready(self, meta):
+    async def writer_on_ready(self, meta: CacheMeta):
         """Register meta to the Tracker and get ready."""
         self.meta = meta
         self.writer_ready.set()
@@ -73,6 +81,13 @@ class OngoingCacheTracker:
 
 
 class OngoingCachingRegister:
+    """A tracker register class that provides cache streaming
+        on same requested file from multiple caller.
+
+    This tracker is implemented based on provider/subscriber model,
+        with weakref to automatically cleanup finished sessions.
+    """
+
     def __init__(self, base_dir: str):
         self._base_dir = Path(base_dir)
         self._lock = Lock()
@@ -106,19 +121,6 @@ class OngoingCachingRegister:
             return _tracker, True
 
 
-def _subprocess_check_output(cmd: str, *, raise_exception=False) -> str:
-    try:
-        return (
-            subprocess.check_output(shlex.split(cmd), stderr=subprocess.DEVNULL)
-            .decode()
-            .strip()
-        )
-    except subprocess.CalledProcessError:
-        if raise_exception:
-            raise
-        return ""
-
-
 class LRUCacheHelper:
     """A helper class that provides API for accessing/managing cache entries in db.
 
@@ -126,14 +128,14 @@ class LRUCacheHelper:
     Each bucket will maintain the cache entries of that bucket's size definition,
     LRU is applied on per-bucket scale.
 
-    NOTE: currently entry that has size larger than 512MiB or smaller that 1KiB will always be saved.
+    NOTE: currently entry that has size larger than 512MiB or smaller that 1KiB will skip LRU rotate.
     """
 
     BSIZE_LIST = list(cfg.BUCKET_FILE_SIZE_DICT.keys())
     BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
     def __init__(self):
-        self._db: db.OTACacheDB = db.DBProxy(cfg.DB_FILE)
+        self._db: OTACacheDB = DBProxy(cfg.DB_FILE)
         self._closed = False
 
     def _bin_search(self, file_size: int) -> int:
@@ -163,7 +165,7 @@ class LRUCacheHelper:
         if not self._closed:
             self._db.close()
 
-    def commit_entry(self, entry: db.CacheMeta) -> bool:
+    def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
         entry.bucket = self._bin_search(entry.size)
@@ -176,7 +178,7 @@ class LRUCacheHelper:
             logger.debug(f"db: commit {entry=} successfully")
             return True
 
-    def lookup_entry(self, url: str) -> db.CacheMeta:
+    def lookup_entry(self, url: str) -> CacheMeta:
         return self._db.lookup_url(url)
 
     def remove_entry(self, *, url: str = None, _hash: str = None) -> bool:
@@ -196,7 +198,7 @@ class LRUCacheHelper:
             size int: the size of file that we want to reserve space for
 
         Returns:
-            A list of hashes that needed to be cleaned.
+            A list of hashes that needed to be cleaned, or None if no enough entries.
         """
         # NOTE: currently file size >= 512MiB or file size < 1KiB
         # will be saved without cache rotating.
@@ -222,7 +224,7 @@ class OTAFile:
     """File descriptor for data streaming.
 
     Instance of OTAFile wraps meta data for specific URL,
-    along with a file descriptor(a AsyncGenerator) that can be used
+    along with a file descriptor(an AsyncGenerator) that can be used
     to yield chunks of data from.
     Instance of OTAFile is requested by the upper uvicorn app,
     and being created and passed to app by OTACache instance.
@@ -231,7 +233,7 @@ class OTAFile:
     Attributes:
         fp: an AsyncGenerator of opened resource, by opening
             local cached file or remote resource.
-        meta db.CacheMeta: meta data of the resource indicated by URL.
+        meta CacheMeta: meta data of the resource indicated by URL.
         below_hard_limit_event Event: a Event instance that can be used to check whether
             local storage space is enough for caching.
     """
@@ -242,7 +244,7 @@ class OTAFile:
     def __init__(
         self,
         fp: AsyncGenerator[bytes, None],
-        meta: db.CacheMeta,
+        meta: CacheMeta,
         *,
         below_hard_limit_event: Event = None,
     ):
@@ -256,13 +258,13 @@ class OTAFile:
         self.closed = Event()
         # whether the fp finishes its work(successful or not)
         self.cached_success = False
-        self._cache_tee_aborted: Event = Event()
-        self._queue: Queue = Queue()
+        self._cache_tee_aborted = Event()
+        self._queue = Queue()
 
     def background_write_cache(
         self,
         tracker: OngoingCacheTracker,
-        callback: "Callable[[OTAFile,OngoingCacheTracker], None]",
+        callback: Callable[["OTAFile", OngoingCacheTracker], None],
     ):
         """Caching files on to the local disk in the background thread.
 
@@ -276,7 +278,8 @@ class OTAFile:
         A callback method should be assigned when this method is called.
 
         Args:
-            callback: a callback function to do post-caching jobs
+            tracker: an OngoingCacheTracker to sync status with subscriber.
+            callback: a callback function to do post-caching jobs.
         """
         # populate these 2 properties of CacheMeta in this method
         _hash, _size = "", 0
@@ -388,19 +391,19 @@ class OTAFile:
 
 
 class OTACacheScrubHelper:
-    """Helper class to scrub ota caches."""
+    """Helper to scrub ota caches."""
 
     DB_FILE: str = cfg.DB_FILE
     BASE_DIR: str = cfg.BASE_DIR
 
     def __init__(self):
-        self._db = db.OTACacheDB(self.DB_FILE)
+        self._db = OTACacheDB(self.DB_FILE)
+        self._base_dir = Path(self.BASE_DIR)
         self._excutor = ProcessPoolExecutor()
-        self._closed = False
 
     @staticmethod
-    def _check_entry(base_dir: str, meta: db.CacheMeta) -> Union[db.CacheMeta, bool]:
-        f = Path(base_dir) / meta.hash
+    def _check_entry(base_dir: Path, meta: CacheMeta) -> Union[CacheMeta, bool]:
+        f = base_dir / meta.hash
         if f.is_file():
             hash_f = sha256()
             # calculate file's hash and check against meta
@@ -419,17 +422,11 @@ class OTACacheScrubHelper:
         f.unlink(missing_ok=True)
         return meta, False
 
-    def _close(self):
-        if not self._closed:
-            self._excutor.shutdown(wait=True)
-            self._db.close()
-            self._closed = True
+    def scrub_cache(self):
+        """Main entry for scrubbing cache folder.
 
-    def __call__(self):
-        """Main entry for scrubbing cache folder."""
-        if self._closed:
-            return
-
+        OTACacheScrubHelper instance will close itself after finishing scrubing.
+        """
         logger.info("start to scrub the cache entries...")
         try:
             dangling_db_entry = []
@@ -444,7 +441,7 @@ class OTACacheScrubHelper:
                 f"{db_file}-journal",
             }
             res_list = self._excutor.map(
-                partial(self._check_entry, self.BASE_DIR),
+                partial(self._check_entry, self._base_dir),
                 self._db.lookup_all(),
                 chunksize=128,
             )
@@ -462,18 +459,18 @@ class OTACacheScrubHelper:
             # loop over all files under cache folder,
             # if entry's hash is not presented in the valid_cache_entry set,
             # we treat it as dangling cache entry and delete it
-            _base_dir_path = Path(self.BASE_DIR)
-            for entry in _base_dir_path.glob("*"):
+            for entry in self._base_dir.glob("*"):
                 if entry.name not in valid_cache_entry:
                     logger.warning(f"dangling cache entry found: {entry.name}")
-                    f = _base_dir_path / entry.name
+                    f = self._base_dir / entry.name
                     f.unlink(missing_ok=True)
 
             logger.info("cache scrub finished")
         except Exception as e:
             logger.error(f"failed to finish scrub cache folder: {e!r}")
         finally:
-            self._close()
+            self._db.close()
+            self._excutor.shutdown(wait=True)
 
 
 class OTACache:
@@ -483,6 +480,7 @@ class OTACache:
     proxying the requests to the remote ota files server, caching the ota files
     and streaming data back to the upper caller. If cache is available for specific URL,
     it will stream the data from local caches.
+
     It wraps local cache(by open cache file) or remote resourecs(by open connection to the remote)
     into a file descriptor(an instance of OTAFile), the upper caller(instance of server_app)
     then can yield data chunks from the file descriptor and stream data chunks back to ota_client.
@@ -491,8 +489,9 @@ class OTACache:
         upper_proxy str: the upper proxy that ota_cache uses to send out request, default is None
         cache_enabled bool: when set to False, ota_cache will only relay requested data, default is False.
         enable_https bool: whether the ota_cache should send out the requests with HTTPS,
-            default is False. NOTE: scheme change is applied unconditionally
-        init_cache bool: whether to clear the existed cache, default is True
+            default is False. NOTE: scheme change is applied unconditionally.
+        init_cache bool: whether to clear the existed cache, default is True.
+        scrub_cache_event: an multiprocessing.Event that sync status with the ota-client.
     """
 
     CACHE_STREAM_BACKOFF_FACTOR: float = 0.1
@@ -507,20 +506,34 @@ class OTACache:
         enable_https: bool = False,
         scrub_cache_event: "Event" = None,
     ):
-        logger.debug(
+        """Init ota_cache instance with configurations."""
+        logger.info(
             f"init ota_cache({cache_enabled=}, {init_cache=}, {upper_proxy=}, {enable_https=})"
         )
-        self._closed = False
+        self._closed = True
 
         self._chunk_size = cfg.CHUNK_SIZE
         self._base_dir = Path(cfg.BASE_DIR)
         self._cache_enabled = cache_enabled
+        self._init_cache = init_cache
         self._enable_https = enable_https
-        self._executor = ThreadPoolExecutor()
+        self._executor = ThreadPoolExecutor(thread_name_prefix="ota_cache_executor")
 
         self._storage_below_hard_limit_event = Event()
         self._storage_below_soft_limit_event = Event()
-        self._upper_proxy: str = ""
+        self._upper_proxy = upper_proxy
+
+        self._scrub_cache_event = scrub_cache_event
+
+    async def start(self):
+        """Start the ota_cache instance."""
+        # silently ignore multi launching of ota_cache
+        if not self._closed:
+            logger.warning("try to launch already launched ota_cache instance, ignored")
+            return
+
+        # label as started
+        self._closed = False
 
         # ensure base dir
         self._base_dir.mkdir(exist_ok=True, parents=True)
@@ -537,26 +550,18 @@ class OTACache:
             auto_decompress=False, raise_for_status=True, timeout=timeout
         )
 
-        if cache_enabled:
-            self._cache_enabled = True
-
+        if self._cache_enabled:
             # prepare cache dir
-            if init_cache:
+            if self._init_cache:
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
                 # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
                 # init only
-                db.OTACacheDB(cfg.DB_FILE, init=True)
+                OTACacheDB(cfg.DB_FILE, init=True)
             else:
                 # scrub the cache folder
                 _scrub_cache = OTACacheScrubHelper()
-                _scrub_cache()
-
-            # set scrub_cache_event after init/scrub cache
-            # TODO: passthrough the exception to the ota_client process
-            # if the init/scrub failed
-            if scrub_cache_event:
-                scrub_cache_event.set()
+                _scrub_cache.scrub_cache()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
@@ -566,18 +571,22 @@ class OTACache:
             # init cache streaming provider
             self._on_going_caching = OngoingCachingRegister(cfg.BASE_DIR)
 
-            if upper_proxy:
-                # if upper proxy presented, we must disable https
-                self._upper_proxy = upper_proxy
+            if self._upper_proxy:
+                # if upper proxy presented, force disable https
                 self._enable_https = False
 
         else:
             self._cache_enabled = False
-            # event cache is not set, still remember to set the scrub_cache_event!!!
-            if scrub_cache_event:
-                scrub_cache_event.set()
 
-    def close(self):
+        # set scrub_cache_event after init/scrub cache to signal the ota-client
+        # TODO: passthrough the exception to the ota_client process
+        #   if the init/scrub failed
+        if self._scrub_cache_event:
+            self._scrub_cache_event.set()
+
+        logger.debug(f"ota_cache started")
+
+    async def close(self):
         """Shutdowns OTACache instance.
 
         NOTE: cache folder cleanup on successful ota update is not
@@ -586,15 +595,16 @@ class OTACache:
         logger.debug("shutdown ota-cache...")
         if self._cache_enabled and not self._closed:
             self._closed = True
-            self._executor.shutdown(wait=True)
+            await self._session.close()
             self._lru_helper.close()
+            self._executor.shutdown(wait=True)
 
         logger.info("shutdown ota-cache completed")
 
     def _background_check_free_space(self):
         """Constantly checks the usage of disk where cache folder residented.
 
-        This method calls "df --output=pcent <cache_folder>" to query the disk usage.
+        This method keep loop querying the disk usage.
         There are 2 types of threshold defined here, hard limit and soft limit:
         1. soft limit:
             When disk usage reaching soft limit, OTACache will reserve free space(size of the entry)
@@ -602,18 +612,18 @@ class OTACache:
             If the reservation of free space failed, the newly cached entry will be deleted.
         2. hard limit:
             When disk usage reaching hard limit, OTACache will stop caching any new entries.
+
+        Raises:
+            Raises FileNotFoundError if the cache folder somehow disappears during checking.
         """
         while not self._closed:
             try:
-                cmd = f"df --output=pcent {self._base_dir}"
-                current_used_p = _subprocess_check_output(cmd, raise_exception=True)
-
-                # expected output:
-                # 0: Use%
-                # 1: 33%
-                current_used_p = int(current_used_p.splitlines()[-1].strip(" %"))
+                disk_usage = shutil.disk_usage(self._base_dir)
+                current_used_p = disk_usage.used / disk_usage.total * 100
                 if current_used_p < cfg.DISK_USE_LIMIT_SOFT_P:
-                    logger.debug(f"storage usage below soft limit: {current_used_p}")
+                    logger.debug(
+                        f"storage usage below soft limit: {current_used_p:.2f}%"
+                    )
                     # below soft limit, normal caching mode
                     self._storage_below_soft_limit_event.set()
                     self._storage_below_hard_limit_event.set()
@@ -621,69 +631,71 @@ class OTACache:
                     current_used_p >= cfg.DISK_USE_LIMIT_SOFT_P
                     and current_used_p < cfg.DISK_USE_LIMIT_HARD_P
                 ):
-                    logger.info(f"storage usage below hard limit: {current_used_p}")
+                    logger.info(
+                        f"storage usage below hard limit: {current_used_p:.2f}%"
+                    )
                     # reach soft limit but not reach hard limit
                     # space reservation will be triggered after new file cached
                     self._storage_below_soft_limit_event.clear()
                     self._storage_below_hard_limit_event.set()
                 else:
-                    logger.info(f"storage usage reach hard limit: {current_used_p}")
+                    logger.warning(
+                        f"storage usage reach hard limit: {current_used_p:.2f}%"
+                    )
                     # reach hard limit
                     # totally disable caching
                     self._storage_below_soft_limit_event.clear()
                     self._storage_below_hard_limit_event.clear()
-            except Exception as e:
-                logger.warning(f"background free space check failed: {e!r}")
+            except FileNotFoundError:
+                logger.error(
+                    f"background free space check failed as cache folder disappeared"
+                )
                 self._storage_below_soft_limit_event.clear()
                 self._storage_below_hard_limit_event.clear()
 
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
-    def _cache_entries_cleanup(self, entry_hashes: List[str]) -> bool:
-        """Cleanup entries indicated by entry_hashes list.
-
-        Return:
-            A bool indicates whether the cleanup is successful or not.
-        """
-        try:
-            for entry_hash in entry_hashes:
-                # remove cache entry
-                f = self._base_dir / entry_hash
-                f.unlink(missing_ok=True)
-            return True
-        except Exception as e:
-            logger.debug(f"exp on entries({entry_hashes=}) cleanup: {e!r}")
-            return False
+    def _cache_entries_cleanup(self, entry_hashes: List[str]):
+        """Cleanup entries indicated by entry_hashes list."""
+        for entry_hash in entry_hashes:
+            # remove cache entry
+            f = self._base_dir / entry_hash
+            f.unlink(missing_ok=True)
 
     def _reserve_space(self, size: int) -> bool:
         """A helper that calls lru_helper's rotate_cache method.
 
-        Return:
+        Returns:
             A bool indicates whether the space reserving is successful or not.
         """
         _hashes = self._lru_helper.rotate_cache(size)
-        logger.debug(
-            f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
-        )
-        if _hashes is not None:
+        if _hashes:
+            logger.debug(
+                f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
+            )
             self._executor.submit(self._cache_entries_cleanup, _hashes)
             return True
         else:
+            logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
     def _register_cache_callback(self, f: OTAFile, tracker: OngoingCacheTracker):
         """The callback for finishing up caching.
 
         All caching should end up here, whether caching is successful or not.
+
         If caching is successful, and the space usage is reaching soft limit,
         we will try to ensure free space for already cached file.
         (No need to consider reaching hard limit, as the caching will be interrupted
         in half way and f.cached_success will be False.)
+
         If space cannot be ensured, the cached file will be delete.
+
         If caching fails, the unfinished cached file will be cleanup.
 
         Args:
-            f: instance of OTAFile that registered with this callback
+            f: instance of OTAFile that registered with this callback.
+            tracker: for cache writer, to sync status between subscriber.
         """
         meta = f.meta
         try:
@@ -717,13 +729,31 @@ class OTACache:
                 # case 4: cache failed, cleanup dangling cache file
                 logger.debug(f"cache for {meta.url=} failed, cleanup")
                 Path(f.temp_fpath).unlink(missing_ok=True)
+
                 tracker.writer_on_failed()
+
         except Exception as e:
             tracker.writer_on_failed()
             logger.exception(f"failed on callback for {meta=}: {e!r}")
 
     ###### create fp ######
-    async def _local_fp_stream(self, fpath, tracker: OngoingCacheTracker):
+    async def _local_fp_stream(
+        self, fpath: Path, tracker: OngoingCacheTracker
+    ) -> AsyncGenerator[bytes, None]:
+        """Open a file descriptor from an on-going cache file.
+
+        Args:
+            fpath: path to the cache entry.
+            tracker: for subscriber to sync status with the provider(cache writer).
+
+        Returns:
+            An AsyncGenerator that can yield data chunks from.
+
+        Raises:
+            FileNotFoundError if cache entry doesn't exist,
+                or TimeoutError if subscriber timeout waiting for new data chunks
+                to arrive.
+        """
         async with aiofiles.open(fpath, "rb", executor=self._executor) as f:
             retry_count, done = 0, False
             while True:
@@ -746,6 +776,7 @@ class OTACache:
 
                         # stream finish, break out
                         break
+
                     # writer blocked, retry
                     else:
                         _wait = get_backoff(
@@ -761,14 +792,23 @@ class OTACache:
                             # timeout on streaming cache entry
                             raise TimeoutError(f"timeout streaming on {tracker.fn}")
 
-    async def _open_fp_by_cache_streaming(self, tracker: OngoingCacheTracker):
+    async def _open_fp_by_cache_streaming(
+        self, tracker: OngoingCacheTracker
+    ) -> AsyncGenerator[bytes, None]:
+        """Open file descriptor on an on-going cache file.
+
+        Args:
+            tracker: an instance of OngoingCacheTracker for subscriber
+                to get information about the requested on-going cache entry.
+
+        Returns:
+            An AsyncGenerator that can yield data chunks from.
+        """
+
         # wait for writer to become ready
-        try:
-            await asyncio.wait_for(
-                tracker.writer_ready.wait(), timeout=self.CACHE_STREAM_TIMEOUT_MAX
-            )
-        except asyncio.TimeoutError:
-            raise TimeoutError(f"timeout waiting for {tracker.fn}") from None
+        await asyncio.wait_for(
+            tracker.writer_ready.wait(), timeout=self.CACHE_STREAM_TIMEOUT_MAX
+        )
 
         fpath = self._base_dir / tracker.fn
         return self._local_fp_stream(fpath, tracker)
@@ -786,10 +826,10 @@ class OTACache:
         """Opens file descriptor by opening local cached entry.
 
         Args:
-            meta CacheMeta: meta for target file that queried from the db.
+            _hash: target cache entry's hash value.
 
         Returns:
-            An AsyncGenerator that can be yield data chunks from.
+            An AsyncGenerator that can yield data chunks from.
 
         Raises:
             FileNotFoundError: Raised if the file indicates by the meta doesn't exist.
@@ -800,7 +840,29 @@ class OTACache:
         else:
             raise FileNotFoundError(f"cache entry {_hash} doesn't exist!")
 
-    async def _remote_fp(self, url, raw_url, cookies, extra_headers):
+    async def _remote_fp(
+        self,
+        url: str,
+        raw_url: str,
+        cookies: Dict[str, str],
+        extra_headers: Dict[str, str],
+    ) -> AsyncGenerator[bytes, None]:
+        """Open a file descriptor to remote resource.
+
+        Args:
+            url: quoted url
+            raw_url: unquoted url
+            cookies: cookies that client passes in the request
+            extra_headers: other headers we need to pass to the remote
+                from the original request
+
+        Returns:
+            An AsyncGenerator that can yield data chunks from.
+
+        Raises:
+            Any exceptions that caused by connecting to the remote.
+        """
+
         async with self._session.get(
             url, proxy=self._upper_proxy, cookies=cookies, headers=extra_headers
         ) as response:
@@ -809,7 +871,7 @@ class OTACache:
             # NOTE.2: store the original unquoted url into the CacheMeta
             # NOTE.3: hash, and size will be assigned at background_write_cache method
             # NOTE.4: bucket and last_access will be assigned at commit_entry method
-            yield db.CacheMeta(
+            yield CacheMeta(
                 url=raw_url,
                 content_encoding=response.headers.get("content-encoding", ""),
                 content_type=response.headers.get(
@@ -826,8 +888,8 @@ class OTACache:
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
         tracker: OngoingCacheTracker = None,
-    ) -> "Tuple[AsyncGenerator[bytes, None], db.CacheMeta]":
-        """Opens file descriptor by opening connection to the remote OTA file server.
+    ) -> "Tuple[AsyncGenerator[bytes, None], CacheMeta]":
+        """Open file descriptor by opening connection to the remote OTA file server.
 
         Args:
             raw_url str: raw url that extracted from the client request, it will be parsed
@@ -835,6 +897,7 @@ class OTACache:
             cookies Dict[str, str]: cookies that extracted from the client request,
                 we also need to pass these to the remote server.
             extra_headers Dict[str, str]: same as above.
+            tracker: an OngoingCacheTracker that supports cache streaming on same requested file.
 
         Returns:
             An AsyncGenerator and the generated meta from the response of remote server.
@@ -868,15 +931,14 @@ class OTACache:
                 (self._base_dir / tracker.fn).write_bytes(b"")
                 # bind meta to tracker
                 await tracker.writer_on_ready(meta)
+
+            return res, meta
         except Exception as e:
             # signal other subscribers to drop this tracker
             if tracker is not None:
                 tracker.writer_on_failed()
 
             raise e from None
-
-        # return the generator and the meta
-        return res, meta
 
     ###### exposed API ######
     async def retrieve_file(
@@ -886,7 +948,7 @@ class OTACache:
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
         cache_control_policies: Set[OTAFileCacheControl],
-    ) -> "Tuple[AsyncGenerator[bytes, None], db.CacheMeta]":
+    ) -> Tuple[AsyncGenerator[bytes, None], CacheMeta]:
         """Exposed API to retrieve a file descriptor.
 
         This method retrieves a file descriptor for incoming client request.
@@ -898,20 +960,12 @@ class OTACache:
             cookies: cookies in the incoming client request.
             extra_headers: headers in the incoming client request.
                 Currently Cookies and Authorization headers are used.
+            cache_control_policies: OTA-FILE-CACHE-CONTROL headers that
+                controls how ota-proxy should handle the request.
 
         Returns:
             fp: a asyncio generator for upper server app to yield data chunks from
             meta: CacheMeta of requested file
-
-        Example usage:
-            a. Open a file descriptor and prepare meta data of URL
-                by _open_fp_by_cache or _open_fp_by_request.
-            b. (If request remote file and store_cache=True) Register the instance's
-                background_write_cache method to the thread pool to caching file
-                when file is being downloading.
-                Also remember to register the callback to commit/flush the cache.
-            c. Pass the instance to upper uvicorn app,
-                and then app can retrieve sequences of data chunks via get_chunks API.
         """
         if self._closed:
             raise ValueError("ota cache pool is closed")
@@ -930,6 +984,7 @@ class OTACache:
         if (
             not self._cache_enabled  # ota_proxy is configured to not cache anything
             or not use_cache  # ota_client send request with no_cache policy
+            or not self._storage_below_hard_limit_event.is_set()  # disable cache if space hardlimit is reached
         ):
             fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
             return fp, meta
@@ -959,45 +1014,38 @@ class OTACache:
         if no_cache_available:
             logger.debug(f"no cache entry for {url=}")
 
-            # case 2.1: reache storage hardlimit, directly download file without caching it
-            if not self._storage_below_hard_limit_event.is_set():
-                fp, meta = await self._open_fp_by_requests(url, cookies, extra_headers)
+            # case 2.1: download and cache new file
+            _tracker, is_writer = await self._on_going_caching.get_tracker(url)
+            if is_writer:
+                _remote_fp, meta = await self._open_fp_by_requests(
+                    url, cookies, extra_headers, _tracker
+                )
+
+                ota_file = OTAFile(
+                    _remote_fp,
+                    meta,
+                    below_hard_limit_event=self._storage_below_hard_limit_event,
+                )
+
+                # NOTE: bind the tracker to the callback function
+                self._executor.submit(
+                    ota_file.background_write_cache,
+                    _tracker,
+                    self._register_cache_callback,
+                )
+
+                fp = ota_file.get_chunks()
                 return fp, meta
 
-            # case 2.2: normal caching
+            # case 2.2: respond by cache streaming
             else:
-                # case 2.2.1: download and cache new file
-                _tracker, is_writer = await self._on_going_caching.get_tracker(url)
-                if is_writer:
-                    _remote_fp, meta = await self._open_fp_by_requests(
-                        url, cookies, extra_headers, _tracker
-                    )
+                # if this tracker is failed, drop it
+                if _tracker._is_failed:
+                    raise ValueError(f"cache corrupted on {_tracker.fn}, abort")
 
-                    ota_file = OTAFile(
-                        _remote_fp,
-                        meta,
-                        below_hard_limit_event=self._storage_below_hard_limit_event,
-                    )
-
-                    # NOTE: bind the tracker to the callback function
-                    self._executor.submit(
-                        ota_file.background_write_cache,
-                        _tracker,
-                        self._register_cache_callback,
-                    )
-
-                    fp = ota_file.get_chunks()
-                    return fp, meta
-
-                # case 2.2.2: respond by cache streaming
-                else:
-                    # if this tracker is failed, drop it
-                    if _tracker._is_failed:
-                        raise ValueError(f"cache corrupted on {_tracker.fn}, abort")
-
-                    logger.debug(f"enable cache streaming for {url=}")
-                    fp = await self._open_fp_by_cache_streaming(_tracker)
-                    return fp, _tracker.meta
+                logger.debug(f"enable cache streaming for {url=}")
+                fp = await self._open_fp_by_cache_streaming(_tracker)
+                return fp, _tracker.meta
 
         # case 3: cache is available and valid, use cache
         else:

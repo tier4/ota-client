@@ -5,28 +5,38 @@ from dataclasses import make_dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Type, TypeVar, Union, Callable
 
-from .config import config as cfg
+from .config import CacheMetaProtocol, config as cfg
 
 import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
 
+_T = TypeVar("_T")
+
 
 class _CacheMetaMixin:
     _cols = cfg.COLUMNS
 
     @classmethod
-    def shape(cls) -> int:
-        return len(cls._cols)
+    def shape(cls) -> str:
+        return ",".join(["?"] * len(cls._cols))
 
-    def to_tuple(self) -> Tuple[Any]:
+    def to_tuple(self) -> Tuple[_T]:
         return tuple([getattr(self, k) for k in self._cols])
 
     @classmethod
-    def row_to_meta(cls, row: Dict[str, Any]):
+    def row_to_meta(cls, row: Dict[str, _T]) -> CacheMetaProtocol:
+        """Convert a row in dict to CacheMeta instance.
+
+        Args:
+            row: raw dict comes from query result.
+
+        Return:
+            A instance of CacheMeta.
+        """
         if not row:
             return
 
@@ -37,7 +47,12 @@ class _CacheMetaMixin:
         return res
 
 
-def make_cachemeta_cls(name: str):
+def _make_cachemeta_cls(name: str) -> Type[CacheMetaProtocol]:
+    """Dynamically create dataclass from CacheMeta scheme defined in config.
+
+    The generated class is aligned with the CacheMetaProtocol.
+    """
+
     # set default value of each field as field type's zero value
     return make_dataclass(
         name,
@@ -46,14 +61,16 @@ def make_cachemeta_cls(name: str):
     )
 
 
-CacheMeta = make_cachemeta_cls("CacheMeta")
+_CacheMeta = _make_cachemeta_cls("_CacheMeta")
 # fix the issue of pickling dynamically generated dataclass
-CacheMeta.__module__ = __name__
+_CacheMeta.__module__ = __name__
+# type alias
+CacheMeta: Type[CacheMetaProtocol] = _CacheMeta
 
 
 class OTACacheDB:
     TABLE_NAME: str = cfg.TABLE_NAME
-    INIT_OTA_CACHE: str = (
+    CREATE_TABLE_STMT: str = (
         f"CREATE TABLE {TABLE_NAME}("
         + ", ".join([f"{k} {v.col_def}" for k, v in cfg.COLUMNS.items()])
         + ")"
@@ -61,7 +78,7 @@ class OTACacheDB:
     OTA_CACHE_IDX: List[str] = [
         cfg.BUCKET_LAST_ACCESS_IDX,
     ]
-    ROW_SHAPE = ",".join(["?"] * CacheMeta.shape())
+    ROW_SHAPE = CacheMeta.shape()
 
     def __init__(self, db_file: str, init=False):
         logger.debug("init database...")
@@ -72,6 +89,17 @@ class OTACacheDB:
         self._con.close()
 
     def _connect_db(self, init: bool):
+        """Connects to database(and initialize database if needed).
+
+        If database doesn't have required table, or init==True,
+        we will initialize the table here.
+
+        Args:
+            init: whether to init database table or not
+
+        Raise:
+            Raises sqlite3.Error if database init/configuration failed.
+        """
         if init:
             Path(self._db_file).unlink(missing_ok=True)
 
@@ -93,7 +121,7 @@ class OTACacheDB:
                 if cur.fetchone() is None:
                     logger.warning(f"{self.TABLE_NAME} not found, init db...")
                     # create ota_cache table
-                    con.execute(self.INIT_OTA_CACHE, ())
+                    con.execute(self.CREATE_TABLE_STMT, ())
 
                     # create indices
                     for idx in self.OTA_CACHE_IDX:
@@ -162,7 +190,7 @@ class OTACacheDB:
             cur = con.execute(f"SELECT * FROM {self.TABLE_NAME}", ())
             return [CacheMeta.row_to_meta(row) for row in cur.fetchall()]
 
-    def rotate_cache(self, bucket: int, num: int) -> Union[str, None]:
+    def rotate_cache(self, bucket: int, num: int) -> Union[List[str], None]:
         """Rotate cache entries in LRU flavour.
 
         Args:
@@ -179,13 +207,15 @@ class OTACacheDB:
                 f"SELECT COUNT(*) FROM {self.TABLE_NAME} WHERE bucket=? ORDER BY last_access LIMIT ?",
                 (bucket, num),
             )
-            _count = cur.fetchone()[0]
+            _raw_res = cur.fetchone()
+            if _raw_res is None:
+                return
 
             # NOTE: if we can upgrade to sqlite3 >= 3.35,
             # use RETURNING clause instead of using 2 queries as below
 
             # if we have enough entries for space reserving
-            if _count >= num:
+            if _raw_res[0] >= num:
                 # first select those entries
                 cur = con.execute(
                     (
@@ -212,7 +242,17 @@ class OTACacheDB:
                 return [row["hash"] for row in _rows]
 
 
-def _proxy_wrapper(attr_n):
+def _proxy_wrapper(attr_n: str) -> Callable:
+    """A wrapper helper that proxys method to threadpool.
+
+    Requires the object of the wrapped method to have
+    thread_local db connection(self._thread_local.db)
+    and threadpool(self._executor) defined.
+
+    Returns:
+        A wrapped callable.
+    """
+
     def _wrapped(self, *args, **kwargs):
         # get the handler from underlaying db connector
         def _inner():
@@ -227,16 +267,35 @@ def _proxy_wrapper(attr_n):
     return _wrapped
 
 
-def _proxy_cls_factory(cls, *, target):
+_GENERIC_CLS = TypeVar("_GENERIC_CLS")
+_WRAPPED_CLS = TypeVar("_WRAPPED_CLS")
+
+
+def _proxy_cls_factory(
+    cls: Type[_GENERIC_CLS],
+    *,
+    wrapper: Callable[[str], Callable],
+    target: Type[_GENERIC_CLS],
+) -> Type[_WRAPPED_CLS]:
+    """A proxy class factory that wraps all public methods with <wrapper>.
+
+    Args:
+        cls: input class
+        wrapper: proxy wrapper
+        target: which class to be proxied
+
+    Returns:
+        A new proxy class for <target>.
+    """
     for attr_n, attr in target.__dict__.items():
         if not attr_n.startswith("_") and callable(attr):
             # override method
-            setattr(cls, attr_n, _proxy_wrapper(attr_n))
+            setattr(cls, attr_n, wrapper(attr_n))
 
     return cls
 
 
-@partial(_proxy_cls_factory, target=OTACacheDB)
+@partial(_proxy_cls_factory, wrapper=_proxy_wrapper, target=OTACacheDB)
 class DBProxy:
     """A proxy class for OTACacheDB that dispatches all requests into a threadpool."""
 
@@ -254,4 +313,5 @@ class DBProxy:
         self._executor.shutdown(wait=True)
 
 
-del _proxy_cls_factory
+# cleanup namespace
+del _make_cachemeta_cls, _proxy_cls_factory, _proxy_wrapper
