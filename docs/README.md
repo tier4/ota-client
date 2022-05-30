@@ -152,7 +152,6 @@ The configuration for local ota proxy are as follows.
   When the `enable_local_ota_proxy` field is true, this field specifies the listen address for local ota proxy.  
   If this field is not specified, "0.0.0.0" is used.
 
-
 - local_ota_proxy_listen_port (integer, optional if `enable_local_ota_proxy` is true otherwise not required)
 
   When the `enable_local_ota_proxy` field is true, this field specifies the listen port for local ota proxy.  
@@ -162,7 +161,7 @@ The configuration for local ota proxy are as follows.
 
 If proxy_info.yml doesn't exist, the default setting is used as follows:
 
-- enable_ota_proxy
+- enable_local_ota_proxy
   - true
 
 - gateway
@@ -182,4 +181,4 @@ TODO
 
 ## Services
 
-[Services](SERVICES.md)
+About ota client services, see [Services](SERVICES.md).
