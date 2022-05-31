@@ -1,75 +1,30 @@
-# ota-client
+# OTA client
 
-## setup
+## Overview
 
-```bash
-sudo apt install -y python3.8 python3-setuptools
-sudo python3.8 -m pip install -U pip
-sudo python3.8 -m pip install -r app/requirements.txt
-```
+This OTA client is a client software to perform over-the-air software updates for linux devices.
+To enable updating of software at any layer (kernel, kernel module, user library, user application), the OTA client targets the entire rootfs for updating.  
+When the OTA client receives an update request, it downloads a list from the OTA server that contains the file paths and the hash values of the files, etc., to be updated, and compares them with the files in its own storage and if there is a match, that file is used to update the rootfs. By this delta mechanism, it is possible to reduce the download size even if the entire rootfs is targeted and this mechanism does not require any specific server implementation, nor does it require the server to keep a delta for each version of the rootfs.
 
-## run tests
+## Feature
 
-```bash
-docker-compose up --abort-on-container-exit
-```
+- Rootfs updating
+- Delta updating
+- Redundant configuration with A/B partition update
+- Arbitrary files can be copied from A to B partition. This can be used to take over individual files.
+- No specific server implementation is required. The server that supports HTTP GET is only required.
+  - TLS connection is also required.
+- Delta management is not required for server side.
+- To restrict access to the server, cookie can be used.
+- All files to be updated are verified by the hash included in the metadata, and the metadata is also verified by X.509 certificate locally installed.
+- Transfer data is encrypted by TLS
+- Multiple ECU support
+- By the internal proxy cache mechanism, the cache can be used for the download requests to the same file from multiple ECU.
 
-## run tests individually
+## License
 
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml run --rm client
-# python3 -m pytest tests --cov=app
-```
+OTA client is licensed under the Apache License, Version 2.0.
 
-## to update app/otaclient_v2_pb2\*py
+## Document
 
-```bash
-python3 -m grpc_tools.protoc -I./proto --python_out=app --grpc_python_out=app ./proto/otaclient_v2.proto
-```
-
-## to use protobuf whl
-
-### how to build protobuf whl
-
-1. Edit and update version in proto/VERSION.
-2. Build whl as follows:
-
-   ```bash
-   cd proto
-   make
-   ```
-
-3. After build, whl file is generated in proto/whl directory.
-
-### how to install protobuf whl
-
-You can install protobuf whl with pip command.
-
-```bash
-pip3 install https://raw.githubusercontent.com/tier4/ota-client/main/proto/whl/otaclient_pb2-xxxxxx-py3-none-any.whl
-```
-
-If you use requirement.txt, you can add protobuf whl as follows.
-
-```bash
-(snip)
-https://raw.githubusercontent.com/tier4/ota-client/main/proto/whl/otaclient_pb2-xxxx-py3-none-any.whl
-(snip)
-```
-
-### how to import protobuf package
-
-```bash
-$ python3
-Python 3.8.10 (default, Nov 26 2021, 20:14:08)
-[GCC 9.3.0] on linux
-Type "help", "copyright", "credits" or "license" for more information.
->>> from otaclient_pb2.v2 import otaclient_pb2
->>> from otaclient_pb2.v2 import otaclient_pb2_grpc
-```
-
-### How to generate docs/SERVICES.md
-
-```bash
-docker run --rm -v $(pwd)/docs:/out -v $(pwd)/proto:/protos pseudomuto/protoc-gen-doc --doc_opt=markdown,SERVICES.md
-```
+See [OTA client document](docs/README.md)

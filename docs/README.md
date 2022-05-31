@@ -95,7 +95,7 @@ ecu_info.yaml is the setting file for ECU configuration.
 
 - ip_addr (string, optional)
 
-  This field specifies this ota client's IP address.  
+  This field specifies this OTA client's IP address.  
   If this field is not specified, "localhost" is used.  
   NOTE: this IP address is used for the local server bind address.
 
@@ -134,8 +134,8 @@ If ecu_info.yaml doesn't exist, the default setting is used as follows:
 
 proxy_info.yaml is the setting file for OTA proxy configuration.
 
-OTA proxy is the software integrated into the ota client that access the ota server on behalf of the ota client.
-Whether ota proxy access the ota server directly or indirectly depends on the configuration.
+OTA proxy is the software integrated into the OTA client that access the OTA server on behalf of the OTA client.
+Whether OTA proxy access the OTA server directly or indirectly depends on the configuration.
 
 See [OTA proxy](../ota_proxy/README.md) more details.
 
@@ -147,43 +147,43 @@ See [OTA proxy](../ota_proxy/README.md) more details.
 
 - enable_local_ota_proxy (boolean, optional)
 
-  This field specifies whether ota client uses local ota proxy or not.
-  If this field is not specified, ota client doesn't use local ota proxy, it means ota client connects to ota server directly. If the local ota proxy is enabled, the ota client requests the local ota proxy.
+  This field specifies whether OTA client uses local OTA proxy or not.
+  If this field is not specified, OTA client doesn't use local OTA proxy, it means OTA client connects to OTA server directly. If the local OTA proxy is enabled, the OTA client requests the local OTA proxy.
 
 - upper_ota_proxy (string, optional)
 
-  This field specifies the upper ota proxy address to be accessed by the ota client or local ota proxy.
+  This field specifies the upper OTA proxy address to be accessed by the OTA client or local OTA proxy.
 
   | `enable_local_ota_proxy` | `upper_ota_proxy` | who accesses    | where?              |
   | :---:                    | :---:             | :---:           | :---:               |
-  | true                     | set               | local ota proxy | `upper_ota_proxy`   |
-  | true                     | not set           | local ota proxy | ota server directly |
-  | false                    | set               | ota client      | `upper_ota_proxy`   |
-  | false                    | not set           | ota client      | ota server directly |
+  | true                     | set               | local OTA proxy | `upper_ota_proxy`   |
+  | true                     | not set           | local OTA proxy | OTA server directly |
+  | false                    | set               | OTA client      | `upper_ota_proxy`   |
+  | false                    | not set           | OTA client      | OTA server directly |
 
-  To specify the upper ota proxy address, `http://192.168.20.11:8082` notation is used.
+  To specify the upper OTA proxy address, `http://192.168.20.11:8082` notation is used.
 
-The configuration for local ota proxy are as follows.
+The configuration for local OTA proxy are as follows.
 
 - gateway (boolean, optional if `enable_local_ota_proxy` is true otherwise not required)
 
-  When the `enable_local_ota_proxy` field is true, this field specifies whether the **local ota proxy** requests the ota server directly with HTTPS or HTTP. If it is true, HTTPS is used otherwise HTTP is used.  
+  When the `enable_local_ota_proxy` field is true, this field specifies whether the **local OTA proxy** requests the OTA server directly with HTTPS or HTTP. If it is true, HTTPS is used otherwise HTTP is used.  
   If this field is not specified, HTTP is used.  
-  Note that if the ECU can't access to the ota server directly, the value should be set to false.
+  Note that if the ECU can't access to the OTA server directly, the value should be set to false.
 
 - enable_local_ota_proxy_cache (boolean, optional if `enable_local_ota_proxy` is true otherwise not required)
 
-  When the `enable_local_ota_proxy` field is true, this field specifies whether the local ota proxy uses the local cache or not. If it is true, the local cache is used otherwise not used.  
+  When the `enable_local_ota_proxy` field is true, this field specifies whether the local OTA proxy uses the local cache or not. If it is true, the local cache is used otherwise not used.  
   If this field is not specified, the local cache is used.
 
 - local_ota_proxy_listen_addr (string, optional if `enable_local_ota_proxy` is true otherwise not required)
 
-  When the `enable_local_ota_proxy` field is true, this field specifies the listen address for local ota proxy.  
+  When the `enable_local_ota_proxy` field is true, this field specifies the listen address for local OTA proxy.  
   If this field is not specified, "0.0.0.0" is used.
 
 - local_ota_proxy_listen_port (integer, optional if `enable_local_ota_proxy` is true otherwise not required)
 
-  When the `enable_local_ota_proxy` field is true, this field specifies the listen port for local ota proxy.  
+  When the `enable_local_ota_proxy` field is true, this field specifies the listen port for local OTA proxy.  
   If this field is not specified, 8082 is used.
 
 ##### The default setting
@@ -202,7 +202,7 @@ If proxy_info.yaml doesn't exist, the default setting is used as follows:
 sudo python3.8 -m pip install -r app/requirements.txt
 ```
 
-Note that ota client is run with super user privileges so `sudo` is required for the above command.
+Note that OTA client is run with super user privileges so `sudo` is required for the above command.
 
 ## OTA image generation
 
@@ -236,7 +236,7 @@ The keys to be created are as follows:
 | root.pem  | OTA client local   | Root certificate.<br> This file should be installed to the ota-client/certs directory. |
 | interm.pem| OTA client local   | Intermediate certificate.<br> This file should be installed to the ota-client/certs directory. |
 | sign.pem  | OTA image server   | Certificate file to verify OTA image.<br> This file is downloaded from OTA server and verified with root and intermediate certificate. |
-| sign.key  | OTA image generator | Key to sign OTA image.<br> This is only required by the ota server when signing an OTA image. |
+| sign.key  | OTA image generator | Key to sign OTA image.<br> This is only required by the OTA server when signing an OTA image. |
 
 ### Dockerfile
 
@@ -314,6 +314,6 @@ Created metadata are as follows:
 
 The OTA image consists of metadata above, `sign.pen` and `rootfs` directory and can be served by the OTA server.
 
-## Services
+  ## Services
 
-About ota client services, see [Services](SERVICES.md).
+About OTA client services, see [Services](SERVICES.md).
