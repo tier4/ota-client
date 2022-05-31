@@ -18,7 +18,7 @@ When the OTA client receives an update request, it downloads a list from the OTA
 - To restrict access to the server, cookie can be used.
 - All files to be updated are verified by the hash included in the metadata, and the metadata is also verified by X.509 certificate locally installed.
 - Transfer data is encrypted by TLS
-- Multiple ECU support
+- Multiple ECU(Electronic Control Unit) support
 - By the internal proxy cache mechanism, the cache can be used for the download requests to the same file from multiple ECU.
 
 ## License

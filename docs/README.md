@@ -18,7 +18,7 @@ When the OTA client receives an update request, it downloads a list from the OTA
 - To restrict access to the server, cookie can be used.
 - All files to be updated are verified by the hash included in the metadata, and the metadata is also verified by X.509 certificate locally installed.
 - Transfer data is encrypted by TLS
-- Multiple ECU support
+- Multiple ECU(Electronic Control Unit) support
 - By the internal proxy cache mechanism, the cache can be used for the download requests to the same file from multiple ECU.
 
 ## License
@@ -67,7 +67,7 @@ sda      8:0    0  128G  0 disk
 
 In this example, A(=active) partition is sda2 and B(=standby) partition is sda3.
 And `/boot` partition is shared by A/B partitions.
-Note that the disk and the sector size depend on the system.
+Note that the disk and the sector size depend on the system, but the size of A and B should be the same, basically.
 
 ### Configurations
 
