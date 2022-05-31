@@ -228,7 +228,7 @@ def test_ota_client_update(mocker: MockerFixture, tmp_path: Path):
     TOTAL_FILES = 2499
     # NOTE: There is difference between github actins and local environment, so
     # approximate value is used.
-    TOTAL_FILE_SIZE_APPROX = 108700000
+    TOTAL_FILE_SIZE_APPROX = 109037780
     assert progress["total_regular_files"] == TOTAL_FILES
     assert progress["regular_files_processed"] == progress["total_regular_files"]
     assert (
