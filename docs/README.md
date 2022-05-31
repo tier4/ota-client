@@ -316,6 +316,6 @@ Created metadata are as follows:
 
 The OTA image consists of metadata above, `sign.pen` and `rootfs` directory and can be served by the OTA server.
 
-  ## Services
+## Services
 
 About OTA client services, see [Services](SERVICES.md).
