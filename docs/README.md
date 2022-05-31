@@ -231,12 +231,14 @@ Note that the above script is a sample, so some setting might need to be changed
 
 The keys to be created are as follows:
 
+<!-- markdownlint-disable no-inline-html -->
 | file name | install location   |description |
 | ---:      | ---:               | --- |
 | root.pem  | OTA client local   | Root certificate.<br> This file should be installed to the ota-client/certs directory. |
 | interm.pem| OTA client local   | Intermediate certificate.<br> This file should be installed to the ota-client/certs directory. |
 | sign.pem  | OTA image server   | Certificate file to verify OTA image.<br> This file is downloaded from OTA server and verified with root and intermediate certificate. |
 | sign.key  | OTA image generator | Key to sign OTA image.<br> This is only required by the OTA server when signing an OTA image. |
+<!-- markdownlint-enable no-inline-html -->
 
 ### Dockerfile
 
