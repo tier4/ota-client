@@ -74,6 +74,30 @@ Note that the disk and the sector size depend on the system, but the size of A a
 OTA client can update a single ECU or multiple ECUs and is installed for each ECU.
 There are two types of ECU, Main ECU - receives user request, Secondary ECUs - receive request from Main ECU. One or multiple Secondary ECUs can also have Secondary ECUs.
 
+The figure below shows an example ECU structure, that shows Main ECU and 6 Secondary ECUs(A~F).
+Secondary ECU A, B and C are connected to Main ECU, and D, E, F are connected to Secondary ECU A.
+
+```text
+  +----------------+    
+  |   OTA server   |
+  +----------------+    
+           |
+           |(internet)
+           |                
++----------+-------------------------------------------------------+
+|          |(internal ECU-to-ECU network)                          |
+| +----------------+     +----------------+     +----------------+ |
+| |    Main ECU    |--+--|Secondary ECU(A)|--+--|Secondary ECU(D)| |
+| +----------------+  |  +----------------+  |  +----------------+ |
+|                     |  +----------------+  |  +----------------+ |
+|                     +--|Secondary ECU(B)|  +--|Secondary ECU(E)| |
+|                     |  +----------------+  |  +----------------+ |
+|                     |  +----------------+  |  +----------------+ |
+|                     +--|Secondary ECU(C)|  +--|Secondary ECU(F)| |
+|                        +----------------+     +----------------+ |
++------------------------------------------------------------------+
+```
+
 #### ecu\_info.yaml
 
 ecu_info.yaml is the setting file for ECU configuration.
