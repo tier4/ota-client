@@ -1,43 +1,42 @@
-from ota_error import OtaErrorBusy
-from enum import Enum, unique
-from configs import config as cfg
-import log_util
+from pathlib import Path
+
+from app.common import read_from_file, write_to_file
+from app.configs import config as cfg
+from app.interface import OTAStatusHandlerProtocol, OtaStatus
+from app.ota_error import OtaErrorBusy
+from app import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
 
-@unique
-class OtaStatus(Enum):
-    INITIALIZED = 0
-    SUCCESS = 1
-    FAILURE = 2
-    UPDATING = 3
-    ROLLBACKING = 4
-    ROLLBACK_FAILURE = 5
+class OTAStatusHandler(OTAStatusHandlerProtocol):
+    def __init__(
+        self, *, standby_slot_status_file: Path, current_slot_status_file: Path
+    ) -> None:
+        self.standby_slot_status_file: Path = standby_slot_status_file
+        self.current_slot_status_file: Path = current_slot_status_file
+        self._live_ota_status: OtaStatus = None
 
+    def init_ota_status(self):
+        """Apply INITIALIZED status if ota_status is not configured yet."""
+        write_to_file(self.current_slot_status_file, OtaStatus.INITIALIZED.name)
 
-class OtaStatusControlMixin:
-    def _attributes_dependencies(self):
-        """
-        placeholder method
-        attributes that needed for this mixin to work
+    def get_current_ota_status(self) -> OtaStatus:
+        _status = read_from_file(self.current_slot_status_file)
+        return OtaStatus[_status.upper()]
 
-        these attributes will be initialized in OtaClient
-        """
-        self._ota_status: OtaStatus = None
+    def get_live_ota_status(self) -> OtaStatus:
+        return self._live_ota_status
 
-    def get_ota_status(self):
-        return self._ota_status
+    def set_live_ota_status(self, _status: OtaStatus):
+        self._ota_status = _status
 
-    def set_ota_status(self, ota_status):
-        logger.info(f"{ota_status=}")
-        self._ota_status = ota_status
+    def store_standby_ota_status(self, _status: OtaStatus):
+        write_to_file(self.standby_slot_status_file, _status.name)
 
-    def check_update_status(self):
-        logger.debug("check if ota_status is valid for updating...")
-        # check status
+    def request_update(self) -> None:
         if self._ota_status not in [
             OtaStatus.INITIALIZED,
             OtaStatus.SUCCESS,
@@ -46,8 +45,7 @@ class OtaStatusControlMixin:
         ]:
             raise OtaErrorBusy(f"status={self._ota_status} is illegal for update")
 
-    def check_rollback_status(self):
-        # check status
+    def request_rollback(self) -> None:
         if self._ota_status not in [
             OtaStatus.SUCCESS,
             OtaStatus.ROLLBACK_FAILURE,
