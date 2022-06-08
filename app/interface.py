@@ -1,7 +1,8 @@
 from abc import abstractmethod
+from email.generator import Generator
 from enum import Enum, unique, auto
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol, TypeVar
 
 
 # fmt: off
@@ -32,5 +33,19 @@ class OTAStatusHandlerProtocol(Protocol):
     def request_update(self) -> None: ...
     @abstractmethod
     def request_rollback(self) -> None: ...
+
+_STATS = TypeVar("_STATS")
+
+class OTAUpdateStatsCollectorProtocol(Protocol[_STATS]):
+    @abstractmethod
+    def get_snapshot(self) -> _STATS: ...
+    @abstractmethod
+    def set(self, _key: str, _value: Any): ...
+    @abstractmethod
+    def get(self, _key: str) -> Any: ...
+    @abstractmethod
+    def clear(self): ...
+    @abstractmethod
+    def staging_changes(self) -> Generator[_STATS, None, None]: ...
 
 # fmt: on
