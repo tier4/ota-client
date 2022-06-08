@@ -1,18 +1,19 @@
-#!/usr/bin/env python3
-
 import base64
 import json
+import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from OpenSSL import crypto
 from pathlib import Path
 from pprint import pformat
 from functools import partial
-from ota_error import OtaErrorRecoverable
-from configs import config as cfg
-from typing import ClassVar, Optional
+from typing import ClassVar, Optional, Union
 
-import log_util
+from app.ota_error import OtaErrorRecoverable
+from app.configs import config as cfg
+from app.common import verify_file
+from app import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -47,7 +48,7 @@ class OtaMetadata:
         self.__metadata_jwt = ota_metadata_jwt
         self.__metadata_dict = self._parse_metadata(ota_metadata_jwt)
         logger.info(f"metadata_dict={pformat(self.__metadata_dict)}")
-        self._certs_dir = OtaMetadata.CERTS_DIR
+        self._certs_dir = self.CERTS_DIR
         logger.info(f"certs_dir={self._certs_dir}")
 
     def verify(self, certificate: str):
@@ -271,6 +272,12 @@ class DirectoryInf(_BaseInf):
 
         del self._left
 
+    def mkdir2bank(self, dst_root: Path):
+        _target = dst_root / self.path.relative_to("/")
+        _target.mkdir(parents=True, exist_ok=True)
+        os.chmod(_target, self.mode)
+        os.chown(_target, self.uid, self.gid)
+
 
 @dataclass
 class SymbolicLinkInf(_BaseInf):
@@ -296,6 +303,15 @@ class SymbolicLinkInf(_BaseInf):
         self.srcpath = Path(de_escape(res.group("target")))
 
         del self._left
+
+    def link_at_bank(self, dst_root: Path):
+        if Path("/boot") in self.slink.parents:
+            raise ValueError("symbolic link in /boot directory is not supported")
+
+        _target = dst_root / self.slink.relative_to("/")
+        _target.symlink_to(self.srcpath)
+        # set the permission on the file itself
+        os.chown(_target, self.uid, self.gid, follow_symlinks=False)
 
 
 @dataclass
@@ -329,26 +345,95 @@ class RegularInf:
     path: Path
     size: Optional[int] = None
     inode: Optional[str] = None
+    _base_root: Optional[str] = None
 
     _reginf_pa: ClassVar[re.Pattern] = re.compile(
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'(,(?P<size>\d+)(,(?P<inode>\d+))?)?"
     )
 
-    def __init__(self, _input: str):
-        _ma = self._reginf_pa.match(_input)
+    @classmethod
+    def parse_reginf(cls, _input: str):
+        _ma = cls._reginf_pa.match(_input)
         assert _ma is not None, f"matching reg_inf failed for {_input}"
 
-        self.mode = int(_ma.group("mode"), 8)
-        self.uid = int(_ma.group("uid"))
-        self.gid = int(_ma.group("gid"))
-        self.nlink = int(_ma.group("nlink"))
-        self.sha256hash = _ma.group("hash")
-        self.path = Path(de_escape(_ma.group("path")))
+        mode = int(_ma.group("mode"), 8)
+        uid = int(_ma.group("uid"))
+        gid = int(_ma.group("gid"))
+        nlink = int(_ma.group("nlink"))
+        sha256hash = _ma.group("hash")
+        path = Path(de_escape(_ma.group("path")))
 
-        _size = _ma.group("size")
-        if _size:
-            self.size = int(_size)
+        # special treatment for /boot folder
+        # if this entry is under /boot folder, we should get the relative_path
+        # from /boot, otherwise from /.
+        _base_root = "/boot" if str(path).startswith("/boot") else "/"
+
+        size, inode = None, None
+        if _size := _ma.group("size"):
+            size = int(_size)
             # ensure that size exists before parsing inode
             # it's OK to skip checking of inode,
             # as un-existed inode will be matched to None
-            self.inode = _ma.group("inode")
+            inode = _ma.group("inode")
+
+        return cls(
+            mode=mode,
+            uid=uid,
+            gid=gid,
+            path=path,
+            nlink=nlink,
+            sha256hash=sha256hash,
+            size=size,
+            inode=inode,
+            _base_root=_base_root,
+        )
+
+    def __hash__(self) -> int:
+        """Only use path to distinguish unique RegularInf."""
+        return hash(self.path)
+
+    def __eq__(self, _other) -> bool:
+        return isinstance(_other, self.__class__) and self.path == _other.path
+
+    def exists(self, *, src_root: Path) -> bool:
+        _target = src_root / self.path.relative_to(self._base_root)
+        return _target.is_file()
+
+    def change_root(self, new_root: Path) -> Path:
+        return Path(new_root) / self.path.relative_to(self._base_root)
+
+    def verify_file(self, *, src_root: Path) -> bool:
+        return verify_file(self.change_root(src_root), self.sha256hash, self.size)
+
+    def copy2bank(self, dst_root: Path, /, *, src_root: Path):
+        """Copy file pointed by self to the dst bank."""
+        _src = self.change_root(src_root)
+        _dst = self.change_root(dst_root)
+        shutil.copy2(_src, _dst, follow_symlinks=False)
+        # still ensure permission on dst
+        os.chmod(_dst, self.mode)
+        os.chown(_dst, self.uid, self.gid)
+
+    def copy2dst(self, dst: Path, /, *, src_root: Path):
+        """Copy file pointed by self to the dst."""
+        _src = self.change_root(src_root)
+        shutil.copy2(_src, dst, follow_symlinks=False)
+        # still ensure permission on dst
+        os.chmod(dst, self.mode)
+        os.chown(dst, self.uid, self.gid)
+
+    def copy_from_src(self, src: Path, *, dst_root: Path):
+        """Copy file from src to dst pointed by regular_inf."""
+        _dst = self.change_root(dst_root)
+        shutil.copy2(src, _dst, follow_symlinks=False)
+        # still ensure permission on dst
+        os.chmod(_dst, self.mode)
+        os.chown(_dst, self.uid, self.gid)
+
+    def move_from_src(self, src: Path, *, dst_root: Path):
+        """Copy file from src to dst pointed by regular_inf."""
+        _dst = self.change_root(dst_root)
+        shutil.move(src, _dst)
+        # still ensure permission on dst
+        os.chmod(_dst, self.mode)
+        os.chown(_dst, self.uid, self.gid)
