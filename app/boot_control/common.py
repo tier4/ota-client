@@ -1,12 +1,75 @@
 r"""Shared utils for boot_controller."""
 import re
+from enum import auto, Enum
 from pathlib import Path
+from subprocess import CalledProcessError
+from typing import List
 
-from app.common import subprocess_check_output
+from app import log_util
+from app.configs import config as cfg
+from app.common import subprocess_call, subprocess_check_output
+
+
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
+
+
+class MountFailedReason(Enum):
+    SUCCESS = 0
+    PERMISSIONS_ERROR = 1
+    SYSTEM_ERROR = 2
+    INTERNAL_ERROR = 4
+    USER_INTERRUPT = 8
+    GENERIC_MOUNT_FAILURE = 32
+    # specific reason for generic mount failure
+    TARGET_NOT_FOUND = auto()
+    TARGET_ALREADY_MOUNTED = auto()
+    MOUNT_POINT_NOT_FOUND = auto()
+    BIND_MOUNT_ON_NON_DIR = auto()
+
+    @classmethod
+    def parse_failed_reason(cls, e: CalledProcessError) -> "MountFailedReason":
+        _reason = cls(e.returncode)
+        if _reason != cls.GENERIC_MOUNT_FAILURE:
+            return _reason
+
+        # if the return code is 32, determine the detailed reason
+        # of the mount failure
+        _error_msg = str(e.stderr)
+        if _error_msg.find("already mounted") != -1:
+            return cls.TARGET_ALREADY_MOUNTED
+        elif _error_msg.find("mount point does not exist") != -1:
+            return cls.MOUNT_POINT_NOT_FOUND
+        elif _error_msg.find("does not exist") != -1:
+            return cls.TARGET_NOT_FOUND
+        elif _error_msg.find("Not a directory") != -1:
+            return cls.BIND_MOUNT_ON_NON_DIR
+        else:
+            return cls.GENERIC_MOUNT_FAILURE
 
 
 class CMDHelperFuncs:
     """HelperFuncs bundle for wrapped linux cmd."""
+
+    @staticmethod
+    def _mount(
+        dev: str, mount_point: str, options: List[str] = None
+    ) -> MountFailedReason:
+        """
+        mount [-o option1[,option2, ...]]] <dev> <mount_point>
+        """
+        _option_str = ""
+        if options:
+            _option_str = f"-o {','.join(options)}"
+
+        _cmd = f"mount {_option_str} {dev} {mount_point}"
+        try:
+            subprocess_call(_cmd, raise_exception=True)
+        except CalledProcessError as e:
+            return MountFailedReason.parse_failed_reason(e)
+        finally:
+            return MountFailedReason.SUCCESS
 
     @staticmethod
     def _findfs(key: str, value: str) -> str:
@@ -97,3 +160,9 @@ class CMDHelperFuncs:
             (r,) = res
             return r
         raise ValueError(f"device is has unexpected partition layout, {family=}")
+
+    @classmethod
+    def mount(
+        cls, target: str, mount_point: str, options: List[str] = None
+    ) -> MountFailedReason:
+        return cls._mount(target, mount_point, options)
