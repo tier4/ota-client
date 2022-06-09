@@ -5,7 +5,7 @@ from pathlib import Path
 from functools import partial
 
 from app import log_util
-from app.boot_control.common import CMDCMDHelperFuncs, CMDHelperFuncs
+from app.boot_control.common import CMDHelperFuncs
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     read_from_file,
@@ -182,6 +182,9 @@ class _CBootControl:
     def get_current_rootfs_dev(self) -> str:
         return self.current_rootfs_dev
 
+    def get_current_boot_dev(self) -> str:
+        return self.current_boot_dev
+
     def get_standby_rootfs_dev(self) -> str:
         return self.standby_rootfs_dev
 
@@ -208,6 +211,8 @@ class _CBootControl:
 
     def switch_boot(self):
         slot = self.standby_slot
+
+        logger.info(f"switch boot to {slot=}")
         Nvbootctrl.set_active_boot_slot(slot)
 
     def is_current_slot_bootable(self) -> bool:
@@ -222,7 +227,7 @@ class _CBootControl:
     def reboot(cls):
         subprocess_call("reboot", raise_exception=True)
 
-    def update_extlinux_cfg(self, dst: Path, src: Path):
+    def update_extlinux_cfg(self, dst: Path, ref: Path):
         def _replace(ma: re.Match, repl: str):
             append_l: str = ma.group(0)
             if append_l.startswith("#"):
@@ -234,82 +239,156 @@ class _CBootControl:
             return res
 
         _repl_func = partial(_replace, repl=f"root={self.standby_slot_partuuid}")
-        dst.write_text(re.compile(r"\n\s*APPEND.*").sub(_repl_func, src.read_text()))
+        dst.write_text(re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text()))
 
 
 class _OTAStatusMixin:
-    current_slot_ota_status_file: Path
-    standby_slot_ota_status_file: Path
+    current_ota_status_dir: Path
+    standby_ota_status_dir: Path
+    ota_status: OTAStatusEnum
 
-    def store_standby_ota_status(self, _status: OTAStatusEnum):
-        write_to_file(self.standby_slot_ota_status_file, _status.name)
+    def _store_current_ota_status(self, _status: OTAStatusEnum):
+        write_to_file(self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
 
-    def store_current_ota_status(self, _status: OTAStatusEnum):
-        write_to_file(self.current_slot_ota_status_file, _status.name)
+    def _store_standby_ota_status(self, _status: OTAStatusEnum):
+        write_to_file(self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
 
-    def load_current_ota_status(self) -> OTAStatusEnum:
+    def _load_current_ota_status(self) -> OTAStatusEnum:
         try:
-            _status_str = read_from_file(self.current_slot_ota_status_file).upper()
+            _status_str = read_from_file(
+                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
+            ).upper()
             _status = OTAStatusEnum[_status_str]
         except KeyError:
             _status = OTAStatusEnum.INITIALIZED
-            write_to_file(self.current_slot_ota_status_file, _status.name)
+            write_to_file(
+                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+            )
         finally:
             return _status
 
+    def get_ota_status(self) -> OTAStatusEnum:
+        return self.ota_status
+
 
 class _SlotInUseMixin:
-    current_slot_ota_status_file: Path
-    standby_slot_ota_status_file: Path
+    current_ota_status_dir: Path
+    standby_ota_status_dir: Path
 
-    def store_current_slot_in_use(self, _slot: str):
-        write_to_file(self.current_slot_ota_status_file, _slot)
+    def _store_current_slot_in_use(self, _slot: str):
+        write_to_file(self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
 
-    def store_standby_slot_in_use(self, _slot: str):
-        write_to_file(self.standby_slot_ota_status_file, _slot)
+    def _store_standby_slot_in_use(self, _slot: str):
+        write_to_file(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
 
-    def load_current_slot_in_use(self) -> str:
-        return read_from_file(self.current_slot_ota_status_file, missing_ok=False)
+    def _load_current_slot_in_use(self) -> str:
+        return read_from_file(
+            self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, missing_ok=False
+        )
 
 
 class _VersionControlMixin:
-    version_file: Path
+    current_ota_status_dir: Path
+    standby_ota_status_dir: Path
 
-    def store_standby_version(self, _version: str):
-        write_to_file(self.version_file, _version)
+    def _store_standby_version(self, _version: str):
+        write_to_file(self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME, _version)
 
     def load_version(self) -> str:
-        read_from_file(self.version_file)
+        read_from_file(self.current_ota_status_dir / cfg.OTA_VERSION_FNAME)
+
+
+class _PrepareStandbyMixin:
+    standby_slot_path: Path
+    _cboot_control: _CBootControl
+
+    def _prepare_and_mount_standby(self, *, erase=False):
+        self.standby_slot_path.mkdir(parents=True, exist_ok=True)
+        standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()
+
+        # first try umount the dev
+        CMDHelperFuncs.umount_dev(standby_slot_dev)
+
+        # format the whole standby slot if needed
+        if erase:
+            logger.warning(f"perform mkfs.ext4 on standby slot({standby_slot_dev})")
+            CMDHelperFuncs.mkfs_ext4(standby_slot_dev)
+
+        # try to mount the standby dev
+        CMDHelperFuncs.mount(standby_slot_dev, self.standby_slot_path)
+
+        # create the ota-status folder unconditionally
+        _ota_status_dir = self.standby_slot_path / Path(cfg.OTA_STATUS_DIR).relative_to(
+            "/"
+        )
+        _ota_status_dir.mkdir(exist_ok=True, parents=True)
 
 
 class CBootController(
-    BootControllerProtocol, _SlotInUseMixin, _OTAStatusMixin, _VersionControlMixin
+    _PrepareStandbyMixin,
+    _SlotInUseMixin,
+    _OTAStatusMixin,
+    _VersionControlMixin,
+    BootControllerProtocol,
 ):
-    def __init__(self) -> None:
+    def __init__(self, *, erase_standby=False) -> None:
         self._cboot_control: _CBootControl = _CBootControl()
-        # get slot information
+        self._erase_standby = erase_standby
 
-        # TODO at L577
-        self.standby_extlinux_cfg: Path = self._mount_point / Path(
-            cfg.EXTLINUX_FILE
+        self.external_rootfs_enabled = self._cboot_control.is_external_rootfs_enabled()
+
+        # load paths
+        self.standby_slot_path = Path(cfg.MOUNT_POINT)
+        self.standby_slot_path.mkdir()
+
+        ## ota-status dir
+        ### current slot
+        self.current_ota_status_dir = Path(cfg.OTA_STATUS_DIR)
+        self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
+
+        ## standby slot
+        ### NOTE: not yet available before ota update starts
+        self.standby_ota_status_dir = self.standby_slot_path / Path(
+            cfg.OTA_STATUS_DIR
         ).relative_to("/")
 
-        # used only when rootfs on external storage is enabled
-        self._standby_boot_mount_point: Path = None
-
-        # current slot
-        self._ota_status_dir: Path = None
-        self.ota_status_file: Path = None
-        self._ota_version_file: Path = None
-        self._slot_in_use_file: Path = None
-
-        # standby slot
-        self._standby_ota_status_dir: Path = None
-        self._standby_ota_status_file: Path = None
-        self._standby_ota_version_file: Path = None
-        self._standby_slot_in_use_file: Path = None
+        # init ota-status
+        self.ota_status = self._init_boot_control()
 
     ###### private methods ######
+
+    def _init_boot_control(self) -> OTAStatusEnum:
+        """Init boot control and ota-status on start-up."""
+        _ota_status = self._load_current_ota_status()
+
+        if _ota_status == OTAStatusEnum.UPDATING:
+            _ota_status = self._finalize_update()
+        elif _ota_status == OTAStatusEnum.ROLLBACKING:
+            _ota_status = self._finalize_rollback()
+        elif _ota_status == OTAStatusEnum.SUCCESS:
+            # need to check whether it is negative SUCCESS
+            try:
+                current_slot = Nvbootctrl.get_current_slot()
+                slot_in_use = self._load_current_slot_in_use()
+
+                # cover the case that device reboot into unexpected slot
+                if current_slot != slot_in_use:
+                    logger.error(
+                        f"boot into old slot {current_slot}, "
+                        f"should boot into {slot_in_use}"
+                    )
+                    _ota_status = OTAStatusEnum.FAILURE
+
+            except FileNotFoundError:
+                # init slot_in_use file and ota_status file
+                self._store_current_slot_in_use(current_slot)
+                _ota_status = OTAStatusEnum.INITIALIZED
+
+        # FAILURE, INITIALIZED and ROLLBACK_FAILURE are remained as it
+
+        # store the ota_status to boot folder
+        self._store_current_ota_status(_ota_status)
+        return _ota_status
 
     def _is_switching_boot(self) -> bool:
         # evidence 1: nvbootctrl status
@@ -318,7 +397,7 @@ class CBootController(
 
         # evidence 2: ota_status
         # the newly updated/rollbacked slot should have ota-status as updating/rollback
-        _ota_status = self.load_current_ota_status() in [
+        _ota_status = self._load_current_ota_status() in [
             OTAStatusEnum.UPDATING,
             OTAStatusEnum.ROLLBACKING,
         ]
@@ -326,11 +405,13 @@ class CBootController(
         # evidence 3: slot in use
         # the slot_in_use file should have the same slot as current slot
         _is_slot_in_use = (
-            self.load_current_slot_in_use() == self._cboot_control.get_current_slot()
+            self._load_current_slot_in_use() == self._cboot_control.get_current_slot()
         )
 
-        logger.debug(
-            f"[checking result] nvboot: {_nvboot_res}, ota_status: {_ota_status}, slot_in_use: {_is_slot_in_use}"
+        logger.info(
+            f"[switch_boot detect result] nvboot: {_nvboot_res}, "
+            f"ota_status: {_ota_status}, "
+            f"slot_in_use: {_is_slot_in_use}"
         )
         return _nvboot_res and _ota_status and _is_slot_in_use
 
@@ -340,165 +421,123 @@ class CBootController(
             logger.debug("changes applied succeeded")
             # set the current slot(switched slot) as boot successful
             self._cboot_control.mark_current_slot_boot_successful()
-            self.store_current_ota_status(OTAStatusEnum.SUCCESS)
             return OTAStatusEnum.SUCCESS
         else:
             logger.warning("changes applied failed")
-            self.store_current_ota_status(OTAStatusEnum.FAILURE)
             return OTAStatusEnum.FAILURE
 
     _finalize_rollback = _finalize_update
 
-    def _mount_standby(self):
-        self._mount_point.mkdir(parents=True, exist_ok=True)
-        # try unmount mount point first
-        _subprocess_call(f"umount {self._mount_point}")
-
-        standby_rootfs_dev = self._cboot_control.get_standby_rootfs_dev()
-        cmd_mount = f"mount {standby_rootfs_dev} {self._mount_point}"
-        logger.debug(
-            f"mount rootfs partition: target={standby_rootfs_dev},mount_point={self._mount_point}"
-        )
-        _subprocess_call(cmd_mount, raise_exception=True)
-        # create new ota_status_dir on standby dev
-        self._standby_ota_status_dir.mkdir(parents=True, exist_ok=True)
-
-        # mount boot partition if rootfs on external is enabled
-        # NOTE: in this case, emmc slot is used as boot partition
-        if self._cboot_control.is_external_rootfs_enabled():
-            standby_boot_dev = self._cboot_control.get_standby_boot_dev()
-            # try unmount mount point first
-            _subprocess_call(f"umount {self._standby_boot_mount_point}")
-
-            self._standby_boot_mount_point.mkdir(parents=True, exist_ok=True)
-            cmd_mount = f"mount {standby_boot_dev} {self._standby_boot_mount_point}"
-            logger.debug(
-                f"mount boot partition: target:={standby_boot_dev},mount_point={self._standby_boot_mount_point}"
-            )
-            _subprocess_call(cmd_mount, raise_exception=True)
-
-    def _cleanup_standby_rootfs_parititon(self):
-        """
-        WARNING: apply mkfs.ext4 to standby bank
-        """
-        standby_dev = self._cboot_control.get_standby_rootfs_dev()
-        logger.warning(f"[_cleanup_standby] cleanup standby slot dev {standby_dev}")
-
-        # first try umount the dev
-        try:
-            _subprocess_call(f"umount -f {standby_dev}", raise_exception=True)
-        except subprocess.CalledProcessError as e:
-            # suppress target not mounted error
-            if e.returncode != 32:
-                logger.error(f"failed to umount standby bank {standby_dev}")
-                raise
-
-        # format the standby slot
-        try:
-            _subprocess_call(f"mkfs.ext4 -F {standby_dev}", raise_exception=True)
-        except subprocess.CalledProcessError:
-            logger.error(f"failed to cleanup standby bank {standby_dev}")
-            raise
-
     def _populate_boot_folder_to_separate_bootdev(self):
-        src_dir = self._mount_point / "boot"
-        dst_dir = self._standby_boot_mount_point / "boot"
+        # mount the actual standby_boot_dev now
+        _boot_dir_mount_point = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
+        _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
 
-        # first list unneeded files in the dst_dir
-        src_dir_files_set = {str(f.relative_to(src_dir)) for f in src_dir.glob("**/*")}
-        dst_dir_files_set = {str(f.relative_to(dst_dir)) for f in dst_dir.glob("**/*")}
-        unneeded_files_set = dst_dir_files_set - src_dir_files_set
+        CMDHelperFuncs.mount(
+            self._cboot_control.get_standby_boot_dev(),
+            _boot_dir_mount_point,
+        )
 
-        # copy the /boot folder from standby slot to boot dev unconditionally
-        _cmd = f"cp -rdpT {src_dir} {dst_dir}"
         try:
-            _subprocess_call(_cmd, raise_exception=True)
-        except Exception as e:
-            raise OtaErrorRecoverable(
-                f"failed to update /boot on standby bootdev: {e!r}"
-            )
+            actual_boot_dir = _boot_dir_mount_point / "boot"
+            actual_boot_dir.mkdir(exist_ok=True, parents=True)
 
-        # cleanup unused files in the dst_dir
-        for f in unneeded_files_set:
-            f = dst_dir / f
-            if f.is_dir():
-                shutil.rmtree(str(f), ignore_errors=True)
-            else:
-                f.unlink(missing_ok=True)
+            # prepare boot dir on standby rootfs
+            boot_dir_at_standby_slot = self.standby_slot_path / "boot"
+
+            # first list unneeded files in the dst_dir
+            src_dir_files_set = {
+                str(f.relative_to(boot_dir_at_standby_slot))
+                for f in boot_dir_at_standby_slot.glob("**/*")
+            }
+            dst_dir_files_set = {
+                str(f.relative_to(actual_boot_dir))
+                for f in actual_boot_dir.glob("**/*")
+            }
+            unneeded_files_set = dst_dir_files_set - src_dir_files_set
+
+            # copy the /boot folder from standby slot to boot dev unconditionally
+            _cmd = f"cp -rdpT {boot_dir_at_standby_slot} {actual_boot_dir}"
+            try:
+                subprocess_call(_cmd, raise_exception=True)
+            except Exception as e:
+                raise ValueError(f"failed to update /boot on standby bootdev: {e!r}")
+
+            # cleanup unused files in the dst_dir
+            for f in unneeded_files_set:
+                f = actual_boot_dir / f
+                if f.is_dir():
+                    shutil.rmtree(str(f), ignore_errors=True)
+                else:
+                    f.unlink(missing_ok=True)
+        finally:
+            try:
+                CMDHelperFuncs.umount_dev(_boot_dir_mount_point)
+            except subprocess.CalledProcessError as e:
+                _failure_msg = f"failed to umount boot dev: {e!r}"
+                logger.error(_failure_msg)
+                # no need to raise to the caller
 
     ###### public methods ######
 
-    def init_boot_control(self) -> OTAStatusEnum:
-        # init boot control
-        _ota_status = self.load_current_ota_status()
-
-        if _ota_status == OTAStatusEnum.UPDATING:
-            return self._finalize_update()
-        elif _ota_status == OTAStatusEnum.ROLLBACKING:
-            return self._finalize_rollback()
-        elif _ota_status == OTAStatusEnum.SUCCESS:
-            # need to check whether it is negative SUCCESS
-            current_slot = Nvbootctrl.get_current_slot()
-
-            try:
-                slot_in_use = self.load_current_slot_in_use()
-            except FileNotFoundError:
-                # init slot_in_use file and ota_status file
-                self.store_current_slot_in_use(current_slot)
-
-                _init_status = OTAStatusEnum.INITIALIZED
-                self.store_current_ota_status(_init_status)
-                return _init_status
-
-            # cover the case that device reboot into unexpected slot
-            if current_slot != slot_in_use:
-                logger.error(
-                    f"boot into old slot {current_slot}, should boot into {slot_in_use}"
-                )
-                _failure_status = OTAStatusEnum.FAILURE
-                self.store_current_ota_status(_failure_status)
-                return _failure_status
-
-            return _ota_status
-        else:
-            # failure or initialized
-            return _ota_status
+    def get_standby_slot_path(self) -> Path:
+        return self.standby_slot_path
 
     def pre_update(self, version: str):
-        logger.debug("entering pre-update...")
-        # setup updating
-        self._cboot_control.set_standby_slot_unbootable()
-        self._cleanup_standby_rootfs_parititon()  # TODO: move to slot_creating
-        self._mount_standby()  # TODO: move to slot_creating
+        try:
+            # setup updating
+            self._cboot_control.set_standby_slot_unbootable()
+            self._prepare_and_mount_standby(erase=self._erase_standby)
 
-        # store status to standby slot
-        self.store_standby_ota_status(OTAStatusEnum.UPDATING)
-        self.store_standby_version(version)
+            # store status to standby slot
+            self._store_standby_ota_status(OTAStatusEnum.UPDATING)
+            self._store_standby_version(version)
 
-        _target_slot = self._cboot_control.get_standby_slot()
-        self.store_current_slot_in_use(_target_slot)
-        self.store_standby_slot_in_use(_target_slot)
+            _target_slot = self._cboot_control.get_standby_slot()
+            self._store_current_slot_in_use(_target_slot)
+            self._store_standby_slot_in_use(_target_slot)
 
-        logger.info("pre-update setting finished")
+            logger.info("pre-update setting finished")
+
+        except Exception as e:
+            try:
+                # try to umount standby if possible
+                CMDHelperFuncs.umount_dev(self._cboot_control.get_standby_rootfs_dev)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"failed to umount standby slot: {e!r}")
+                return
+            finally:
+                _failure_msg = f"failed on pre_update: {e!r}"
+                logger.error(_failure_msg)
+                raise OtaErrorUnrecoverable(_failure_msg)
 
     def post_update(self):
         # TODO: deal with unexpected reboot during post_update
-        logger.debug("entering post-update...")
-        self._cboot_control.update_extlinux_cfg(
-            dst=self.standby_extlinux_cfg, src=self.standby_extlinux_cfg
-        )
-
-        if self._cboot_control.is_external_rootfs_enabled():
-            logger.debug(
-                "rootfs on external storage: updating the /boot folder in standby bootdev..."
+        try:
+            # update extlinux_cfg file
+            _extlinux_cfg = self.standby_slot_path / Path(
+                cfg.EXTLINUX_FILE
+            ).relative_to("/")
+            self._cboot_control.update_extlinux_cfg(
+                dst=_extlinux_cfg, ref=_extlinux_cfg
             )
-            self._populate_boot_folder_to_separate_bootdev()
 
-        logger.debug("switching boot...")
-        self._cboot_control.switch_boot()
+            if self._cboot_control.is_external_rootfs_enabled():
+                logger.info(
+                    "rootfs on external storage detected: "
+                    "updating the /boot folder in standby bootdev..."
+                )
+                self._populate_boot_folder_to_separate_bootdev()
 
-        logger.info("post update finished, rebooting...")
-        self._cboot_control.reboot()
+            self._cboot_control.switch_boot()
+
+            logger.info("post update finished, rebooting...")
+            self._cboot_control.reboot()
+
+        except subprocess.CalledProcessError as e:
+            _failure_msg = f"failed on post_update: {e!r}"
+            logger.error(_failure_msg)
+            raise OtaErrorRecoverable(_failure_msg)
 
     def post_rollback(self):
         self._cboot_control.switch_boot()
