@@ -15,6 +15,18 @@ logger = log_util.get_logger(
 )
 
 
+class BootControlError(Exception):
+    pass
+
+
+class BootControlExternalError(BootControlError):
+    """Error caused by calling external program."""
+
+
+class InternalError(BootControlError):
+    """Error caused by boot control internal logic."""
+
+
 class MountFailedReason(Enum):
     SUCCESS = 0
     PERMISSIONS_ERROR = 1
@@ -126,7 +138,7 @@ class CMDHelperFuncs:
         """
         mount_point = cls._findmnt(f"{dev} -o TARGET -n")
         if not mount_point:
-            raise ValueError(f"{dev} is not mounted")
+            raise BootControlExternalError(f"{dev} is not mounted")
 
         return mount_point
 
@@ -159,7 +171,9 @@ class CMDHelperFuncs:
         if len(res) == 1:
             (r,) = res
             return r
-        raise ValueError(f"device is has unexpected partition layout, {family=}")
+        raise BootControlExternalError(
+            f"device is has unexpected partition layout, {family=}"
+        )
 
     @classmethod
     def mount(
@@ -171,7 +185,7 @@ class CMDHelperFuncs:
                 f"failed to mount {target} on {mount_point}: {_failed_reason.name}"
             )
             logger.error(_failure_msg)
-            raise ValueError(_failure_msg)
+            raise BootControlExternalError(_failure_msg)
 
     @classmethod
     def umount_dev(cls, dev: str):
@@ -185,7 +199,7 @@ class CMDHelperFuncs:
 
             _failure_msg = f"failed to umount {dev}: {e!r}"
             logger.warning(_failure_msg)
-            raise ValueError(_failure_msg)
+            raise BootControlExternalError(_failure_msg)
 
     @classmethod
     def mkfs_ext4(cls, dev: str):
@@ -195,4 +209,4 @@ class CMDHelperFuncs:
         except CalledProcessError as e:
             _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
             logger.error(_failure_msg)
-            raise ValueError(_failure_msg)
+            raise BootControlExternalError(_failure_msg)

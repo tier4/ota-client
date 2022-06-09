@@ -5,7 +5,12 @@ from pathlib import Path
 from functools import partial
 
 from app import log_util
-from app.boot_control.common import CMDHelperFuncs
+from app.boot_control.common import (
+    BootControlError,
+    BootControlInternalError,
+    CMDHelperFuncs,
+    BootControlExternalError,
+)
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     read_from_file,
@@ -14,7 +19,6 @@ from app.common import (
     write_to_file,
 )
 from app.configs import config as cfg
-from app.ota_error import OtaErrorRecoverable, OtaErrorUnrecoverable
 from app.ota_status import OTAStatusEnum
 
 assert cfg.BOOTLOADER == "cboot"
@@ -64,7 +68,9 @@ class Nvbootctrl:
         ma = pa.search(subprocess_check_output("cat /proc/cmdline")).group("rdev")
 
         if ma is None:
-            raise OtaErrorUnrecoverable("rootfs detect failed or not PARTUUID method")
+            raise BootControlInternalError(
+                "rootfs detect failed or not PARTUUID method"
+            )
         uuid = ma.split("=")[-1]
 
         return Path(CMDHelperFuncs.get_dev_by_partuuid(uuid)).resolve(
@@ -114,7 +120,7 @@ class _CBootControl:
         # NOTE: only support r580 platform right now!
         # detect the chip id
         tegra_chip_id_f = Path("/sys/module/tegra_fuse/parameters/tegra_chip_id")
-        self.chip_id = read_from_file(tegra_chip_id_f).strip()
+        self.chip_id = read_from_file(tegra_chip_id_f)
         if self.chip_id == "" or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
             raise NotImplementedError(
                 f"unsupported platform found (chip_id: {self.chip_id}), abort"
@@ -160,12 +166,12 @@ class _CBootControl:
         # ensure rootfs is as expected
         if not Nvbootctrl.check_rootdev(self.current_rootfs_dev):
             msg = f"rootfs mismatch, expect {self.current_rootfs_dev} as rootfs"
-            raise RuntimeError(msg)
+            raise ValueError(msg)
         elif Nvbootctrl.check_rootdev(self.standby_rootfs_dev):
             msg = (
                 f"rootfs mismatch, expect {self.standby_rootfs_dev} as standby slot dev"
             )
-            raise RuntimeError(msg)
+            raise ValueError(msg)
 
         logger.info("dev info initializing completed")
         logger.info(
@@ -335,8 +341,6 @@ class CBootController(
         self._cboot_control: _CBootControl = _CBootControl()
         self._erase_standby = erase_standby
 
-        self.external_rootfs_enabled = self._cboot_control.is_external_rootfs_enabled()
-
         # load paths
         self.standby_slot_path = Path(cfg.MOUNT_POINT)
         self.standby_slot_path.mkdir()
@@ -461,7 +465,9 @@ class CBootController(
             try:
                 subprocess_call(_cmd, raise_exception=True)
             except Exception as e:
-                raise ValueError(f"failed to update /boot on standby bootdev: {e!r}")
+                raise BootControlInternalError(
+                    f"failed to update /boot on standby bootdev: {e!r}"
+                )
 
             # cleanup unused files in the dst_dir
             for f in unneeded_files_set:
@@ -473,7 +479,7 @@ class CBootController(
         finally:
             try:
                 CMDHelperFuncs.umount_dev(_boot_dir_mount_point)
-            except subprocess.CalledProcessError as e:
+            except BootControlExternalError as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
                 logger.error(_failure_msg)
                 # no need to raise to the caller
@@ -499,17 +505,16 @@ class CBootController(
 
             logger.info("pre-update setting finished")
 
-        except Exception as e:
+        except BootControlError as e:
             try:
                 # try to umount standby if possible
                 CMDHelperFuncs.umount_dev(self._cboot_control.get_standby_rootfs_dev)
-            except subprocess.CalledProcessError as e:
-                logger.error(f"failed to umount standby slot: {e!r}")
-                return
+            except BootControlExternalError as _e:
+                logger.error(f"failed to umount standby slot: {_e!r}")
             finally:
                 _failure_msg = f"failed on pre_update: {e!r}"
                 logger.error(_failure_msg)
-                raise OtaErrorUnrecoverable(_failure_msg)
+                raise
 
     def post_update(self):
         # TODO: deal with unexpected reboot during post_update
@@ -534,10 +539,10 @@ class CBootController(
             logger.info("post update finished, rebooting...")
             self._cboot_control.reboot()
 
-        except subprocess.CalledProcessError as e:
+        except BootControlError as e:
             _failure_msg = f"failed on post_update: {e!r}"
             logger.error(_failure_msg)
-            raise OtaErrorRecoverable(_failure_msg)
+            raise
 
     def post_rollback(self):
         self._cboot_control.switch_boot()
