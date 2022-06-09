@@ -3,7 +3,7 @@ import re
 from enum import auto, Enum
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List
+from typing import List, Union
 
 from app import log_util
 from app.configs import config as cfg
@@ -163,6 +163,36 @@ class CMDHelperFuncs:
 
     @classmethod
     def mount(
-        cls, target: str, mount_point: str, options: List[str] = None
-    ) -> MountFailedReason:
-        return cls._mount(target, mount_point, options)
+        cls, target: str, mount_point: Union[Path, str], options: List[str] = None
+    ):
+        _failed_reason = cls._mount(target, str(mount_point), options)
+        if _failed_reason != MountFailedReason.SUCCESS:
+            _failure_msg = (
+                f"failed to mount {target} on {mount_point}: {_failed_reason.name}"
+            )
+            logger.error(_failure_msg)
+            raise ValueError(_failure_msg)
+
+    @classmethod
+    def umount_dev(cls, dev: str):
+        try:
+            _cmd = f"umount -f {dev}"
+            subprocess_call(_cmd, raise_exception=True)
+        except CalledProcessError as e:
+            # ignore if target dev is not mounted
+            if e.returncode == 32 and str(e.stderr).find("not mounted") != -1:
+                return
+
+            _failure_msg = f"failed to umount {dev}: {e!r}"
+            logger.warning(_failure_msg)
+            raise ValueError(_failure_msg)
+
+    @classmethod
+    def mkfs_ext4(cls, dev: str):
+        try:
+            _cmd = f"mkfs.ext4 -F {dev}"
+            subprocess_call(_cmd, raise_exception=True)
+        except CalledProcessError as e:
+            _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
+            logger.error(_failure_msg)
+            raise ValueError(_failure_msg)
