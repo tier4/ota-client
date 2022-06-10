@@ -1,5 +1,7 @@
 r"""Utils that shared between modules are listed here."""
+import os
 import shlex
+import shutil
 import subprocess
 from hashlib import sha256
 from pathlib import Path
@@ -29,11 +31,14 @@ def verify_file(filename: Path, filehash: str, filesize) -> bool:
 
 
 # handled file read/write
-def read_from_file(path: Path) -> str:
+def read_from_file(path: Path, *, missing_ok=True) -> str:
     try:
         return path.read_text().strip()
-    except Exception:
-        return ""
+    except FileNotFoundError:
+        if missing_ok:
+            return ""
+
+        raise
 
 
 def write_to_file(path: Path, input: str):
@@ -62,3 +67,82 @@ def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> s
         if raise_exception:
             raise
         return default
+
+
+def copytree_identical(src: Path, dst: Path):
+    """Recursively copy from the src folder to dst folder.
+
+    This function populate files/dirs from the src to the dst,
+    and make sure the dst is identical to the src.
+
+    This function is different from shutil.copytree as follow:
+    1. it covers the case that the same path points to different
+        file type, in this case, the dst path will be clean and
+        new file/dir will be populated as the src.
+    2. it deals with the symlinks.
+    3. it will remove files that not presented in the src, and
+        unconditionally override files with same path, ensuring
+        that the dst will be identical with the src.
+    """
+    if not dst.is_dir():
+        raise FileNotFoundError(f"{dst} is not found or not a dir")
+
+    # phase1: populate files to the dst
+    for cur_dir, _, files in os.walk(src, topdown=True, followlinks=False):
+        _cur_dir = Path(cur_dir)
+        _cur_dir_on_dst = dst / _cur_dir.relative_to(src)
+
+        # if the current folder is not the top dir,
+        # cover the edge case that dst is not a dir.
+        if not _cur_dir == src and not _cur_dir_on_dst.is_dir():
+            # mismatch type, dst is a file or symlink or not existed,
+            # remove it and then make the dir
+            _cur_dir_on_dst.unlink(missing_ok=True)
+            _cur_dir_on_dst.mkdir()
+
+            _src_stat = _cur_dir.stat()
+            os.chmod(_cur_dir_on_dst, _src_stat.st_mode)
+            os.chown(
+                _cur_dir_on_dst,
+                _src_stat.st_uid,
+                _src_stat.st_gid,
+                follow_symlinks=False,
+            )
+
+        # populate files
+        for fname in files:
+            _src_f = _cur_dir / fname
+            _dst_f = _cur_dir_on_dst / fname
+
+            if _dst_f.is_symlink():
+                # check the symlink, if there are different,
+                # populate the new symlink
+                _src_symlink_target = os.readlink(_src_f)
+                if os.readlink(_dst_f) != _src_symlink_target:
+                    _dst_f.unlink(missing_ok=True)
+                    _dst_f.symlink_to(_src_symlink_target)
+
+                continue
+
+            # src and dst type mismatch, dst is a folder!
+            if _dst_f.is_dir():
+                shutil.rmtree(_dst_f, ignore_errors=True)
+
+            # finally populate the new file or override the dst file
+            shutil.copy2(_cur_dir / fname, _dst_f, follow_symlinks=False)
+
+    # phase2: remove unused files in the dst
+    for cur_dir, dirs, files in os.walk(dst, topdown=True, followlinks=False):
+        _cur_dir_on_dst = Path(cur_dir)
+        _cur_dir_on_src = src / _cur_dir_on_dst.relative_to(dst)
+
+        # remove unused dir
+        if not _cur_dir_on_src.is_dir():
+            shutil.rmtree(_cur_dir_on_dst, ignore_errors=True)
+            dirs.clear()  # stop iterate the subfolders of this dir
+            continue
+
+        for fname in files:
+            _src_f = _cur_dir_on_src / fname
+            if not (_src_f.is_file() or _src_f.is_symlink()):
+                (_cur_dir_on_dst / fname).unlink(missing_ok=True)
