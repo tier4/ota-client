@@ -75,11 +75,16 @@ def copytree_identical(src: Path, dst: Path):
     This function populate files/dirs from the src to the dst,
     and make sure the dst is identical to the src.
 
+    By updating the dst folder in-place, we can prevent the case
+    that the copy is interrupted and the dst is not yet fully populated.
+
     This function is different from shutil.copytree as follow:
     1. it covers the case that the same path points to different
         file type, in this case, the dst path will be clean and
         new file/dir will be populated as the src.
-    2. it deals with the symlinks.
+    2. it deals with the same symlinks by checking the link target,
+        re-generate the symlink if the dst symlink is not the same
+        as the src.
     3. it will remove files that not presented in the src, and
         unconditionally override files with same path, ensuring
         that the dst will be identical with the src.
@@ -92,16 +97,12 @@ def copytree_identical(src: Path, dst: Path):
         _cur_dir = Path(cur_dir)
         _cur_dir_on_dst = dst / _cur_dir.relative_to(src)
 
-        # if the current folder is not the top dir,
         # cover the edge case that dst is not a dir.
-        if not _cur_dir == src and not _cur_dir_on_dst.is_dir():
-            # mismatch type, dst is a file or symlink or not existed,
-            # remove it and then make the dir
+        if not _cur_dir_on_dst.is_dir():
             _cur_dir_on_dst.unlink(missing_ok=True)
-            _cur_dir_on_dst.mkdir()
 
             _src_stat = _cur_dir.stat()
-            os.chmod(_cur_dir_on_dst, _src_stat.st_mode)
+            _cur_dir_on_dst.mkdir(mode=_src_stat.st_mode, parents=True)
             os.chown(
                 _cur_dir_on_dst,
                 _src_stat.st_uid,
@@ -114,9 +115,8 @@ def copytree_identical(src: Path, dst: Path):
             _src_f = _cur_dir / fname
             _dst_f = _cur_dir_on_dst / fname
 
+            # check symlink, re-link if needed
             if _dst_f.is_symlink():
-                # check the symlink, if there are different,
-                # populate the new symlink
                 _src_symlink_target = os.readlink(_src_f)
                 if os.readlink(_dst_f) != _src_symlink_target:
                     _dst_f.unlink(missing_ok=True)
@@ -124,12 +124,19 @@ def copytree_identical(src: Path, dst: Path):
 
                 continue
 
-            # src and dst type mismatch, dst is a folder!
+            # src and dst type mismatch, dst is a folder
             if _dst_f.is_dir():
                 shutil.rmtree(_dst_f, ignore_errors=True)
 
             # finally populate the new file or override the dst file
-            shutil.copy2(_cur_dir / fname, _dst_f, follow_symlinks=False)
+            shutil.copy(_src_f, _dst_f, follow_symlinks=False)
+            _src_stat = _src_f.stat()
+            os.chown(
+                _dst_f,
+                _src_stat.st_uid,
+                _src_stat.st_gid,
+                follow_symlinks=False,
+            )
 
     # phase2: remove unused files in the dst
     for cur_dir, dirs, files in os.walk(dst, topdown=True, followlinks=False):
