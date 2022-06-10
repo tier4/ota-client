@@ -1,5 +1,4 @@
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from functools import partial
@@ -15,6 +14,7 @@ from app.boot_control.common import (
 )
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
+    copytree_identical,
     read_from_file,
     subprocess_call,
     subprocess_check_output,
@@ -408,48 +408,21 @@ class CBootController(
 
     def _populate_boot_folder_to_separate_bootdev(self):
         # mount the actual standby_boot_dev now
-        _boot_dir_mount_point = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
-        _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
-
-        CMDHelperFuncs.mount(
-            self._cboot_control.get_standby_boot_dev(),
-            _boot_dir_mount_point,
-        )
-
         try:
-            actual_boot_dir = _boot_dir_mount_point / "boot"
-            actual_boot_dir.mkdir(exist_ok=True, parents=True)
+            _boot_dir_mount_point = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
+            _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
 
-            # prepare boot dir on standby rootfs
-            boot_dir_at_standby_slot = self.standby_slot_path / "boot"
+            CMDHelperFuncs.mount(
+                self._cboot_control.get_standby_boot_dev(),
+                _boot_dir_mount_point,
+            )
 
-            # first list unneeded files in the dst_dir
-            src_dir_files_set = {
-                str(f.relative_to(boot_dir_at_standby_slot))
-                for f in boot_dir_at_standby_slot.glob("**/*")
-            }
-            dst_dir_files_set = {
-                str(f.relative_to(actual_boot_dir))
-                for f in actual_boot_dir.glob("**/*")
-            }
-            unneeded_files_set = dst_dir_files_set - src_dir_files_set
+            dst = _boot_dir_mount_point / "boot"
+            dst.mkdir(exist_ok=True, parents=True)
+            src = self.standby_slot_path / "boot"
 
-            # copy the /boot folder from standby slot to boot dev unconditionally
-            _cmd = f"cp -rdpT {boot_dir_at_standby_slot} {actual_boot_dir}"
-            try:
-                subprocess_call(_cmd, raise_exception=True)
-            except Exception as e:
-                raise BootControlInternalError(
-                    f"failed to update /boot on standby bootdev: {e!r}"
-                )
-
-            # cleanup unused files in the dst_dir
-            for f in unneeded_files_set:
-                f = actual_boot_dir / f
-                if f.is_dir():
-                    shutil.rmtree(str(f), ignore_errors=True)
-                else:
-                    f.unlink(missing_ok=True)
+            # copy the standby slot's boot folder to emmc boot dev
+            copytree_identical(src, dst)
         finally:
             try:
                 CMDHelperFuncs.umount_dev(_boot_dir_mount_point)
@@ -459,6 +432,7 @@ class CBootController(
                 # no need to raise to the caller
 
     ###### public methods ######
+    # also includes methods from OTAStatusMixin, VersionControlMixin
 
     def get_standby_slot_path(self) -> Path:
         return self.standby_slot_path
