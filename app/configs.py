@@ -125,19 +125,14 @@ class CBootControlConfig(_BaseConfig):
 
     BOOTLOADER: str = "cboot"
     CHIP_ID_MODEL_MAP: dict = field(default_factory=lambda: {0x19: "rqx_580"})
-    EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
-    SLOT_IN_USE_FILE: str = "/boot/ota-status/slot_in_use"
+    
+    # ota related status files are stored under OTA_STATUS_DIR
+    # include: status, slot_in_use, version
     OTA_STATUS_DIR: str = "/boot/ota-status"
-    KERNEL: str = "/boot/Image"
-    KERNEL_SIG: str = "/boot/Image.sig"
-    INITRD: str = "/boot/initrd"
-    INITRD_IMG_LINK: str = "/boot/initrd.img"
-    FDT: str = "/boot/tegra194-rqx-580.dtb"
-    FDT_HDR40: str = "/boot/tegra194-rqx-580-hdr40.dtbo"
+    SLOT_IN_USE_FNAME: str = "slot_in_use"
+
+    # mount point
     SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
-    EXTRA_CMDLINE: str = (
-        "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0"
-    )
 
 
 # helper function to detect platform

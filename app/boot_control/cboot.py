@@ -6,10 +6,12 @@ from functools import partial
 
 from app import log_util
 from app.boot_control.common import (
+    OTAStatusMixin,
     BootControlError,
     BootControlInternalError,
     CMDHelperFuncs,
     BootControlExternalError,
+    VersionControlMixin,
 )
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
@@ -111,11 +113,21 @@ class Nvbootctrl:
 
 
 class _CBootControl:
+    KERNEL: str = "/boot/Image"
+    KERNEL_SIG: str = "/boot/Image.sig"
+    INITRD: str = "/boot/initrd"
+    INITRD_IMG_LINK: str = "/boot/initrd.img"
+    FDT: str = "/boot/tegra194-rqx-580.dtb"
+    FDT_HDR40: str = "/boot/tegra194-rqx-580-hdr40.dtbo"
+    EXTRA_CMDLINE: str = (
+        "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0"
+    )
+
     def __init__(self):
-        self._linux = cfg.KERNEL
-        self._initrd = cfg.INITRD
-        self._fdt = cfg.FDT
-        self._cmdline_extra = cfg.EXTRA_CMDLINE
+        self._linux = self.KERNEL
+        self._initrd = self.INITRD
+        self._fdt = self.FDT
+        self._cmdline_extra = self.EXTRA_CMDLINE
 
         # NOTE: only support r580 platform right now!
         # detect the chip id
@@ -248,35 +260,6 @@ class _CBootControl:
         dst.write_text(re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text()))
 
 
-class _OTAStatusMixin:
-    current_ota_status_dir: Path
-    standby_ota_status_dir: Path
-    ota_status: OTAStatusEnum
-
-    def _store_current_ota_status(self, _status: OTAStatusEnum):
-        write_to_file(self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
-
-    def _store_standby_ota_status(self, _status: OTAStatusEnum):
-        write_to_file(self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
-
-    def _load_current_ota_status(self) -> OTAStatusEnum:
-        try:
-            _status_str = read_from_file(
-                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
-            ).upper()
-            _status = OTAStatusEnum[_status_str]
-        except KeyError:
-            _status = OTAStatusEnum.INITIALIZED
-            write_to_file(
-                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
-            )
-        finally:
-            return _status
-
-    def get_ota_status(self) -> OTAStatusEnum:
-        return self.ota_status
-
-
 class _SlotInUseMixin:
     current_ota_status_dir: Path
     standby_ota_status_dir: Path
@@ -291,17 +274,6 @@ class _SlotInUseMixin:
         return read_from_file(
             self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, missing_ok=False
         )
-
-
-class _VersionControlMixin:
-    current_ota_status_dir: Path
-    standby_ota_status_dir: Path
-
-    def _store_standby_version(self, _version: str):
-        write_to_file(self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME, _version)
-
-    def load_version(self) -> str:
-        read_from_file(self.current_ota_status_dir / cfg.OTA_VERSION_FNAME)
 
 
 class _PrepareStandbyMixin:
@@ -333,10 +305,12 @@ class _PrepareStandbyMixin:
 class CBootController(
     _PrepareStandbyMixin,
     _SlotInUseMixin,
-    _OTAStatusMixin,
-    _VersionControlMixin,
+    OTAStatusMixin,
+    VersionControlMixin,
     BootControllerProtocol,
 ):
+    EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
+
     def __init__(self, *, erase_standby=False) -> None:
         self._cboot_control: _CBootControl = _CBootControl()
         self._erase_standby = erase_standby
@@ -521,7 +495,7 @@ class CBootController(
         try:
             # update extlinux_cfg file
             _extlinux_cfg = self.standby_slot_path / Path(
-                cfg.EXTLINUX_FILE
+                self.EXTLINUX_FILE
             ).relative_to("/")
             self._cboot_control.update_extlinux_cfg(
                 dst=_extlinux_cfg, ref=_extlinux_cfg

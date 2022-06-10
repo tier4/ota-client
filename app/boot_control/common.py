@@ -7,7 +7,13 @@ from typing import List, Union
 
 from app import log_util
 from app.configs import config as cfg
-from app.common import subprocess_call, subprocess_check_output
+from app.common import (
+    read_from_file,
+    subprocess_call,
+    subprocess_check_output,
+    write_to_file,
+)
+from app.ota_status import OTAStatusEnum
 
 
 logger = log_util.get_logger(
@@ -23,7 +29,7 @@ class BootControlExternalError(BootControlError):
     """Error caused by calling external program."""
 
 
-class InternalError(BootControlError):
+class BootControlInternalError(BootControlError):
     """Error caused by boot control internal logic."""
 
 
@@ -210,3 +216,46 @@ class CMDHelperFuncs:
             _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
             logger.error(_failure_msg)
             raise BootControlExternalError(_failure_msg)
+
+
+###### helper mixins ######
+
+
+class OTAStatusMixin:
+    current_ota_status_dir: Path
+    standby_ota_status_dir: Path
+    ota_status: OTAStatusEnum
+
+    def _store_current_ota_status(self, _status: OTAStatusEnum):
+        write_to_file(self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
+
+    def _store_standby_ota_status(self, _status: OTAStatusEnum):
+        write_to_file(self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
+
+    def _load_current_ota_status(self) -> OTAStatusEnum:
+        try:
+            _status_str = read_from_file(
+                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
+            ).upper()
+            _status = OTAStatusEnum[_status_str]
+        except KeyError:
+            _status = OTAStatusEnum.INITIALIZED
+            write_to_file(
+                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+            )
+        finally:
+            return _status
+
+    def get_ota_status(self) -> OTAStatusEnum:
+        return self.ota_status
+
+
+class VersionControlMixin:
+    current_ota_status_dir: Path
+    standby_ota_status_dir: Path
+
+    def _store_standby_version(self, _version: str):
+        write_to_file(self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME, _version)
+
+    def load_version(self) -> str:
+        read_from_file(self.current_ota_status_dir / cfg.OTA_VERSION_FNAME)
