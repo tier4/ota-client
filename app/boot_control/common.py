@@ -1,9 +1,10 @@
 r"""Shared utils for boot_controller."""
 import re
+from abc import abstractmethod
 from enum import auto, Enum
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Union
+from typing import List, Protocol, Union
 
 from app import log_util
 from app.configs import config as cfg
@@ -19,6 +20,23 @@ from app.ota_status import OTAStatusEnum
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
+
+# fmt: off
+class BootControllerProtocol(Protocol):
+    @abstractmethod
+    def get_ota_status(self) -> OTAStatusEnum: ...
+    @abstractmethod
+    def get_standby_slot_path(self) -> Path: ...
+    @abstractmethod
+    def pre_update(self, version: str, *, erase_standby: bool): ...
+    @abstractmethod
+    def post_update(self): ...
+    @abstractmethod
+    def post_rollback(self): ...
+    @abstractmethod
+    def load_version(self) -> str: ...
+
+# fmt: on
 
 
 class BootControlError(Exception):

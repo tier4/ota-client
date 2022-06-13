@@ -1,11 +1,14 @@
 from pathlib import Path
 
 from app.boot_control._grub import OtaPartitionFile
-from app.boot_control.common import CMDHelperFuncs, OTAStatusMixin, VersionControlMixin
-from app.boot_control.interface import BootControllerProtocol
+from app.boot_control.common import (
+    CMDHelperFuncs,
+    OTAStatusMixin,
+    VersionControlMixin,
+    BootControllerProtocol,
+)
 from app.configs import config as cfg
 from app.ota_status import OTAStatusEnum
-from app.ota_error import OtaErrorUnrecoverable
 from app import log_util
 
 assert cfg.BOOTLOADER == "grub"

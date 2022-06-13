@@ -1,5 +1,5 @@
 from typing import Type
-from app.boot_control.interface import BootControllerProtocol
+from app.boot_control.common import BootControllerProtocol
 from app.configs import config as cfg
 
 _bootloader = cfg.BOOTLOADER
