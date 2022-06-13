@@ -2,7 +2,7 @@ from enum import unique, Enum
 
 
 @unique
-class OtaClientUpdatePhase(Enum):
+class OTAUpdatePhase(Enum):
     INITIAL = 0
     METADATA = 1
     DIRECTORY = 2

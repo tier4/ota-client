@@ -1,39 +1,12 @@
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from email.generator import Generator
-from enum import Enum, unique, auto
-from pathlib import Path
+from threading import Event
 from typing import Any, Protocol, TypeVar
+
+from app.ota_status import OTAStatusEnum
 
 
 # fmt: off
-@unique
-class OtaStatus(Enum):
-    INITIALIZED = 0
-    SUCCESS = auto()
-    FAILURE = auto()
-    UPDATING = auto()
-    ROLLBACKING = auto()
-    ROLLBACK_FAILURE = auto()
-
-class OTAStatusHandlerProtocol(Protocol):
-    standby_slot_status_file: Path
-    current_slot_status_file: Path
-
-    @abstractmethod
-    def init_ota_status(self): ...
-    @abstractmethod
-    def get_current_ota_status(self) -> OtaStatus: ...
-    @abstractmethod
-    def get_live_ota_status(self) -> OtaStatus: ...
-    @abstractmethod
-    def store_standby_ota_status(self, _status: OtaStatus): ...
-    @abstractmethod
-    def set_live_ota_status(self, _status: OtaStatus): ...
-    @abstractmethod
-    def request_update(self) -> None: ...
-    @abstractmethod
-    def request_rollback(self) -> None: ...
-
 _STATS = TypeVar("_STATS")
 
 class OTAUpdateStatsCollectorProtocol(Protocol[_STATS]):
@@ -47,5 +20,24 @@ class OTAUpdateStatsCollectorProtocol(Protocol[_STATS]):
     def clear(self): ...
     @abstractmethod
     def staging_changes(self) -> Generator[_STATS, None, None]: ...
+
+class OTAClientInterface(ABC):
+    def update(
+        self, 
+        version: str, 
+        url_base: str, 
+        cookies_json: str, 
+        *, 
+        pre_update_event: Event = None, post_update_event: Event = None) -> Any: ...
+
+    def rollback(self) -> Any: ...
+    def status(self) -> Any: ...
+
+    def get_ota_status(self) -> OTAStatusEnum: ...
+    def set_ota_status(self, _status: OTAStatusEnum): ...
+    def request_update(self) -> None: 
+        """Check whether current ota_status is legal for applying an OTA update."""
+    def request_rollback(self) -> None:
+        """Check whether current ota_status is legal for applying an OTA rollback."""
 
 # fmt: on
