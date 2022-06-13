@@ -36,116 +36,59 @@ class OTAUpdateFSM:
     """State machine that synchronzing ota_service and ota_client.
 
     States switch:
-        START -> S0, caller P1_ota_service:
-            ota_service start the ota_proxy,
-            wait for ota_proxy to finish initializing(scrub cache),
-            and then signal ota_client
-        S0 -> S1, caller P2_ota_client:
-            ota_client wait for ota_proxy finish intializing,
-            and then finishes pre_update procedure,
-            signal ota_service to send update requests to all subecus
-        S1 -> S2, caller P2_ota_client:
-            ota_client finishes local update,
-            signal ota_service to cleanup after all subecus are ready
-        S2 -> END
-            ota_service finishes cleaning up,
-            signal ota_client to reboot
-
-    Typical usage:
-    a. wait on specific state
-        fsm: OtaStateSync
-        fsm.wait_on(fsm._S0, timeout=6)
-    b. expect <state>, and doing something to switch to next state
-        fsm: OtaStateSync
-        with fsm.proceed(fsm._P1, expect=fsm._START) as _next:
-            # do something here...
-            print(f"done! switch to next state {_next}")
+    START -> S0, caller P1_ota_service:
+        ota_service start the ota_proxy,
+        wait for ota_proxy to finish initializing(scrub cache),
+        and then signal ota_client
+    S0 -> S1, caller P2_ota_client:
+        ota_client wait for ota_proxy finish intializing,
+        and then finishes pre_update procedure,
+        signal ota_service to send update requests to all subecus
+    S1 -> S2, caller P2_ota_client:
+        ota_client finishes local update,
+        signal ota_service to cleanup after all subecus are ready
+    S2 -> END
+        ota_service finishes cleaning up,
+        signal ota_client to reboot
     """
 
     ######## state machine definition ########
-    # states definition
     _START, _S0, _S1, _S2, _END = (
         "_START",  # start
-        "_S0",  # cache_scrub_finished
-        "_S1",  # pre_update_finished
-        "_S2",  # apply_update_finished
-        "_END",  # end
+        "_S0",  # stub ready
+        "_S1",  # ota_client enter update
+        "_S2",  # all subECUs are ready
     )
-    _STATE_LIST = [_START, _S0, _S1, _S2, _END]
-    # participators definition
-    _P1_ota_service, _P2_ota_client = "ota_service", "ota_client"
-    # which participator can start the fsm
-    _STARTER = _P1_ota_service
 
-    # input: (<expected_state>, <caller>)
-    # output: (<next_state>)
-    _STATE_SWITCH = {
-        (_START, _P1_ota_service): _S0,
-        (_S0, _P2_ota_client): _S1,
-        (_S1, _P2_ota_client): _S2,
-        (_S2, _P1_ota_service): _END,
-    }
-    ######## end of state machine definition ########
+    def __init__(self) -> None:
+        self._s0 = Event()
+        self._s1 = Event()
+        self._s2 = Event()
+        self.current: str = self._START
 
-    def __init__(self):
-        """Init the state machine.
-
-        Init Event for every state.
-        Lower state name is the attribute name for state's Event.
-            <state_name> -> <state_event>
-            _S1 -> self._s1
-        """
-        for state_name in self._STATE_LIST:
-            _state_event = Event()
-            # create new state event
-            setattr(self, state_name.lower(), _state_event)
-
-    def start(self, caller: str):
-        if caller != self._STARTER:
-            raise RuntimeError(
-                f"unexpected {caller=} starts status machine, expect {self._STARTER}"
-            )
-
-        _start_state: Event = getattr(self, self._START.lower())
-        if not _start_state.is_set():
-            _start_state.set()
-
-    def _state_selector(self, caller, *, state: str) -> Tuple[Event, Event, str]:
-        _input = (state, caller)
-        if _input in self._STATE_SWITCH:
-            cur_event = getattr(self, state.lower())
-            next_state = self._STATE_SWITCH[_input]
-            next_event = getattr(self, next_state.lower())
-            return cur_event, next_event, next_state
+    def stub_ready(self):
+        if self.current == self._START:
+            self.current = self._S0
+            self._s0.set()
         else:
-            raise RuntimeError(f"unexpected {caller=} or {state=}")
+            raise ValueError(f"expecting _START, but got {self.current=}")
 
-    def wait_on(self, state: str, *, timeout: float = None) -> bool:
-        """Wait on expected state."""
-        _wait_on: Event = getattr(self, state.lower())
-        return _wait_on.wait(timeout=timeout)
+    def client_wait_for_stub(self):
+        self._s0.wait()
 
-    @contextmanager
-    def proceed(self, caller, *, expect, timeout: float = None) -> int:
-        """State switching logic.
+    def client_enter_update(self):
+        self.current = self._S1
+        self._s1.set()
 
-        This method support context protocol, run the state switching functions
-        within with statement.
-        """
-        _wait_on, _next, _next_state = self._state_selector(caller, state=expect)
+    def stub_subecu_update_finished(self):
+        if self.current == self._S1:
+            self.current = self._S2
+            self._s2.set()
+        else:
+            raise ValueError(f"expecting _S1, but got {self.current=}")
 
-        if not _wait_on.wait(timeout=timeout):
-            raise TimeoutError(f"timeout waiting state={expect}")
-
-        try:
-            # yield the next state to the caller
-            yield _next_state
-        finally:
-            # after finish state switching functions, switch state
-            if not _next.is_set():
-                _next.set()
-            else:
-                raise RuntimeError(f"expect {_next_state=} not being set yet")
+    def client_wait_for_reboot(self):
+        self._s2.wait()
 
 
 class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
@@ -247,7 +190,7 @@ class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
 
             # configure proxy
             if proxy := proxy_cfg.get_proxy_for_local_ota():
-                fsm.wait_on(fsm._S0)
+                fsm.client_wait_for_stub()  # wait for stub to setup the proxy server
                 self._downloader.configure_proxy(proxy)
 
             # process metadata.jwt
@@ -279,13 +222,10 @@ class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
             raise OtaErrorBusy("another update request is on-going, abort")
 
         # finish pre-update configuration, enter update
+        fsm.client_enter_update()
         # TODO: configure whether to erase standby or not
         self.boot_controller.pre_update(version, erase_standby=True)
         self.set_live_ota_status(OTAStatusEnum.UPDATING)
-
-        with fsm.proceed(fsm._P2_ota_client, expect=fsm._S0) as _next:
-            logger.debug("ota_client: signal ota_stub that pre_update finished")
-            assert _next == fsm._S1
 
         # configure standby slot creator
         _update_meta = UpdateMeta(
@@ -306,15 +246,14 @@ class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
         _standby_slot_creator.create_standby_bank()
 
         # standby slot preparation finished, set phase to POST_PROCESSING
-        logger.info("[update] update finished, entering post-update...")
+        logger.info("[update] local update finished, entering post-update...")
         self.set_update_phase(OTAUpdatePhase.POST_PROCESSING)
 
-        with fsm.proceed(fsm._P2_ota_client, expect=fsm._S1) as _next:
-            assert _next == fsm._S2
-            logger.debug("[update] signal ota_service that local update finished")
-
-        logger.info("[update] leaving update, wait on ota_service and then reboot...")
-        fsm.wait_on(fsm._END)
+        logger.info(
+            "[update] leaving update, "
+            "wait on ota_service, apply post-update and reboot..."
+        )
+        fsm.client_wait_for_reboot()
         self.boot_controller.post_update()
 
     def _rollback(self):
