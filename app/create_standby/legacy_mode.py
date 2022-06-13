@@ -287,6 +287,11 @@ class LegacyMode(StandbySlotCreatorProtocol):
             # wait for collector
             _collector.wait()
 
+    ###### public API methods ######
+    @classmethod
+    def should_erase_standby_slot(cls) -> bool:
+        return True
+
     def create_standby_bank(self):
         """Exposed API for ota-client."""
         self.status_update(OtaClientUpdatePhase.DIRECTORY)

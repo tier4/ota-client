@@ -1,6 +1,5 @@
 r"""Common used helpers, classes and functions for different bank creating methods."""
 from abc import abstractmethod
-from http import cookies
 import os
 import queue
 import shutil
@@ -65,6 +64,12 @@ class StandbySlotCreatorProtocol(Protocol):
     @abstractmethod
     def create_standby_bank(self):
         ...
+
+    @abstractmethod
+    @classmethod
+    def should_erase_standby_slot(cls) -> bool:
+        """Tell whether standby slot should be erased
+        under this standby slot creating mode."""
 
 
 class _WeakRef:

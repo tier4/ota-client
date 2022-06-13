@@ -223,8 +223,10 @@ class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
 
         # finish pre-update configuration, enter update
         fsm.client_enter_update()
-        # TODO: configure whether to erase standby or not
-        self.boot_controller.pre_update(version, erase_standby=True)
+        # NOTE: erase standby slot or not based on the used StandbySlotCreator
+        self.boot_controller.pre_update(
+            version, erase_standby=StandbySlotCreator.should_erase_standby_slot()
+        )
         self.set_live_ota_status(OTAStatusEnum.UPDATING)
 
         # configure standby slot creator

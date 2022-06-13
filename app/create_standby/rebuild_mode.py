@@ -272,6 +272,11 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         return stats_list
 
+    ###### public API methods ######
+    @classmethod
+    def should_erase_standby_slot(cls) -> bool:
+        return True
+
     def create_standby_bank(self):
         try:
             # TODO(in the future): erase bank on create_standby_bank

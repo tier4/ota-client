@@ -51,6 +51,6 @@ def get_reference_slot(
     return res
 
 
-StandBySlotCreator: Type[StandbySlotCreatorProtocol] = get_standby_creator()
+StandbySlotCreator: Type[StandbySlotCreatorProtocol] = get_standby_creator()
 
-__All__ = ("StandBySlotCreator", "UpdateMeta", "get_reference_bank", "get_bank_creator")
+__all__ = ("StandBySlotCreator", "UpdateMeta", "get_reference_bank", "get_bank_creator")
