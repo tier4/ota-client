@@ -52,7 +52,7 @@ class OTAUpdateFSM:
     """
 
     ######## state machine definition ########
-    _START, _S0, _S1, _S2, _END = (
+    _START, _S0, _S1, _S2 = (
         "_START",  # start
         "_S0",  # stub ready
         "_S1",  # ota_client enter update

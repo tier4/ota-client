@@ -25,7 +25,7 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
 
         # load paths
         self.standby_slot_path = Path(cfg.MOUNT_POINT)
-        self.standby_slot_path.mkdir()
+        self.standby_slot_path.mkdir(exist_ok=True)
 
         ## ota-status dir
         ### current slot: /boot/ota-partition.<rootfs_dev_active>
@@ -42,7 +42,7 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
             Path(cfg.BOOT_DIR)
             / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._boot_control.get_standby_root_device()}"
         )
-        self._ota_status = self._init_boot_control()
+        self.ota_status = self._init_boot_control()
 
     def _finalize_update(self) -> OTAStatusEnum:
         if self._boot_control.is_switching_boot_partition_from_active_to_standby():
@@ -76,6 +76,9 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
 
     ###### public methods ######
     # also includes methods from OTAStatusMixin, VersionControlMixin
+
+    def get_standby_slot_path(self) -> Path:
+        return self.standby_slot_path
 
     def pre_update(self, version: str, *, erase_standby=False):
         try:

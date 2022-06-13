@@ -1,6 +1,9 @@
 import sys
 import os
 from pathlib import Path
+import _pathloader
+
+assert _pathloader
 
 from app.ota_client_stub import OtaClientStub
 from app.ota_client_service import (

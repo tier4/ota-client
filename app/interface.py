@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-from email.generator import Generator
 from threading import Event
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, Generator
 
 from app.ota_status import OTAStatusEnum
 

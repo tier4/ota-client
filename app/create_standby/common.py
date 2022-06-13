@@ -65,8 +65,8 @@ class StandbySlotCreatorProtocol(Protocol):
     def create_standby_bank(self):
         ...
 
-    @abstractmethod
     @classmethod
+    @abstractmethod
     def should_erase_standby_slot(cls) -> bool:
         """Tell whether standby slot should be erased
         under this standby slot creating mode."""
