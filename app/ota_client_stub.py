@@ -311,7 +311,8 @@ class OtaClientStub:
 
         prg = ecu.status.progress
         prg.CopyFrom(_statusprogress_msg_from_dict(status["update_progress"]))
-        prg.phase = v2.StatusProgressPhase.Value(status["update_progress"]["phase"])
+        if status["update_progress"]:  # skip if no update is on-going
+            prg.phase = v2.StatusProgressPhase.Value(status["update_progress"]["phase"])
 
         # available ecu ids
         available_ecu_ids = self._ecu_info.get_available_ecu_ids()

@@ -295,7 +295,7 @@ class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
         else:
             return {
                 "status": self.get_live_ota_status().name,
-                "failure_type": self.failure_type,
+                "failure_type": self.failure_type.name,
                 "failure_reason": self.failure_reason,
                 "version": self.boot_controller.load_version(),
                 "update_progress": {},
