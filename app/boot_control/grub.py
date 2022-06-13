@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.boot_control._grub import OtaPartitionFile
 from app.boot_control.common import (
+    BootControlExternalError,
     CMDHelperFuncs,
     OTAStatusMixin,
     VersionControlMixin,
@@ -77,21 +78,49 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
     # also includes methods from OTAStatusMixin, VersionControlMixin
 
     def pre_update(self, version: str, *, erase_standby=False):
-        self._store_standby_ota_status(OTAStatusEnum.UPDATING)
-        self._store_standby_version(version)
+        try:
+            self._store_standby_ota_status(OTAStatusEnum.UPDATING)
+            self._store_standby_version(version)
 
-        self._boot_control.cleanup_standby_boot_partition()
-        if erase_standby:
-            self._boot_control.mount_standby_root_partition_and_clean(
-                self.standby_slot_path
-            )
-        else:
-            # directly mount standby without cleaning up
-            self._mount_standby()
+            self._boot_control.cleanup_standby_boot_partition()
+            if erase_standby:
+                self._boot_control.mount_standby_root_partition_and_clean(
+                    self.standby_slot_path
+                )
+            else:
+                # directly mount standby without cleaning up
+                self._mount_standby()
+        except Exception as e:  # TODO: use BootControlError for any exceptions
+            # store failure status to the standby slot
+            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
+
+            try:
+                # try to umount standby if possible
+                CMDHelperFuncs.umount_dev(self._boot_control.get_standby_root_device())
+            except BootControlExternalError as _e:
+                logger.error(f"failed to umount standby slot: {_e!r}")
+            finally:
+                _failure_msg = f"failed on pre_update: {e!r}"
+                logger.error(_failure_msg)
+                raise e
 
     def post_update(self):
-        self._boot_control.update_fstab(self.standby_slot_path)
-        self._boot_control.create_custom_cfg_and_reboot()
+        try:
+            self._boot_control.update_fstab(self.standby_slot_path)
+            self._boot_control.create_custom_cfg_and_reboot()
+        except Exception as e:  # TODO: use BootControlError for any exceptions
+            # store failure status to the standby slot
+            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
+
+            try:
+                # try to umount standby if possible
+                CMDHelperFuncs.umount_dev(self._boot_control.get_standby_root_device())
+            except BootControlExternalError as _e:
+                logger.error(f"failed to umount standby slot: {_e!r}")
+            finally:
+                _failure_msg = f"failed on pre_update: {e!r}"
+                logger.error(_failure_msg)
+                raise e
 
     def post_rollback(self):
         self._boot_control.create_custom_cfg_and_reboot(rollback=True)

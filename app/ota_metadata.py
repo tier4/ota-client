@@ -8,7 +8,7 @@ from OpenSSL import crypto
 from pathlib import Path
 from pprint import pformat
 from functools import partial
-from typing import ClassVar, Optional, Union
+from typing import ClassVar, Optional
 
 from app.ota_error import OtaErrorRecoverable
 from app.configs import config as cfg

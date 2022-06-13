@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-import otaclient_v2_pb2 as otaclient__v2__pb2
+import app.otaclient_v2_pb2 as otaclient__v2__pb2
 
 
 class OtaClientServiceStub(object):
@@ -17,20 +17,20 @@ class OtaClientServiceStub(object):
             channel: A grpc.Channel.
         """
         self.Update = channel.unary_unary(
-                '/OtaClientV2.OtaClientService/Update',
-                request_serializer=otaclient__v2__pb2.UpdateRequest.SerializeToString,
-                response_deserializer=otaclient__v2__pb2.UpdateResponse.FromString,
-                )
+            "/OtaClientV2.OtaClientService/Update",
+            request_serializer=otaclient__v2__pb2.UpdateRequest.SerializeToString,
+            response_deserializer=otaclient__v2__pb2.UpdateResponse.FromString,
+        )
         self.Rollback = channel.unary_unary(
-                '/OtaClientV2.OtaClientService/Rollback',
-                request_serializer=otaclient__v2__pb2.RollbackRequest.SerializeToString,
-                response_deserializer=otaclient__v2__pb2.RollbackResponse.FromString,
-                )
+            "/OtaClientV2.OtaClientService/Rollback",
+            request_serializer=otaclient__v2__pb2.RollbackRequest.SerializeToString,
+            response_deserializer=otaclient__v2__pb2.RollbackResponse.FromString,
+        )
         self.Status = channel.unary_unary(
-                '/OtaClientV2.OtaClientService/Status',
-                request_serializer=otaclient__v2__pb2.StatusRequest.SerializeToString,
-                response_deserializer=otaclient__v2__pb2.StatusResponse.FromString,
-                )
+            "/OtaClientV2.OtaClientService/Status",
+            request_serializer=otaclient__v2__pb2.StatusRequest.SerializeToString,
+            response_deserializer=otaclient__v2__pb2.StatusResponse.FromString,
+        )
 
 
 class OtaClientServiceServicer(object):
@@ -41,98 +41,135 @@ class OtaClientServiceServicer(object):
     def Update(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
 
     def Rollback(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
 
     def Status(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
 
 
 def add_OtaClientServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'Update': grpc.unary_unary_rpc_method_handler(
-                    servicer.Update,
-                    request_deserializer=otaclient__v2__pb2.UpdateRequest.FromString,
-                    response_serializer=otaclient__v2__pb2.UpdateResponse.SerializeToString,
-            ),
-            'Rollback': grpc.unary_unary_rpc_method_handler(
-                    servicer.Rollback,
-                    request_deserializer=otaclient__v2__pb2.RollbackRequest.FromString,
-                    response_serializer=otaclient__v2__pb2.RollbackResponse.SerializeToString,
-            ),
-            'Status': grpc.unary_unary_rpc_method_handler(
-                    servicer.Status,
-                    request_deserializer=otaclient__v2__pb2.StatusRequest.FromString,
-                    response_serializer=otaclient__v2__pb2.StatusResponse.SerializeToString,
-            ),
+        "Update": grpc.unary_unary_rpc_method_handler(
+            servicer.Update,
+            request_deserializer=otaclient__v2__pb2.UpdateRequest.FromString,
+            response_serializer=otaclient__v2__pb2.UpdateResponse.SerializeToString,
+        ),
+        "Rollback": grpc.unary_unary_rpc_method_handler(
+            servicer.Rollback,
+            request_deserializer=otaclient__v2__pb2.RollbackRequest.FromString,
+            response_serializer=otaclient__v2__pb2.RollbackResponse.SerializeToString,
+        ),
+        "Status": grpc.unary_unary_rpc_method_handler(
+            servicer.Status,
+            request_deserializer=otaclient__v2__pb2.StatusRequest.FromString,
+            response_serializer=otaclient__v2__pb2.StatusResponse.SerializeToString,
+        ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'OtaClientV2.OtaClientService', rpc_method_handlers)
+        "OtaClientV2.OtaClientService", rpc_method_handlers
+    )
     server.add_generic_rpc_handlers((generic_handler,))
 
 
- # This class is part of an EXPERIMENTAL API.
+# This class is part of an EXPERIMENTAL API.
 class OtaClientService(object):
     """The OTA Client service definition.
     Style Guide: https://developers.google.com/protocol-buffers/docs/style#message_and_field_names
     """
 
     @staticmethod
-    def Update(request,
+    def Update(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
             target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Update',
+            "/OtaClientV2.OtaClientService/Update",
             otaclient__v2__pb2.UpdateRequest.SerializeToString,
             otaclient__v2__pb2.UpdateResponse.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
 
     @staticmethod
-    def Rollback(request,
+    def Rollback(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
             target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Rollback',
+            "/OtaClientV2.OtaClientService/Rollback",
             otaclient__v2__pb2.RollbackRequest.SerializeToString,
             otaclient__v2__pb2.RollbackResponse.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
 
     @staticmethod
-    def Status(request,
+    def Status(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
             target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Status',
+            "/OtaClientV2.OtaClientService/Status",
             otaclient__v2__pb2.StatusRequest.SerializeToString,
             otaclient__v2__pb2.StatusResponse.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )

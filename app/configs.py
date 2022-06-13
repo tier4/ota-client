@@ -96,6 +96,7 @@ class _BaseConfig:
 
     # ota-client behavior setting
     CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
+    LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024 # 4MB
     DOWNLOAD_RETRY: int = 5
     DOWNLOAD_BACKOFF_MAX: int = 10 # seconds
     MAX_CONCURRENT_DOWNLOAD: int = 8
@@ -104,6 +105,8 @@ class _BaseConfig:
 
     ## standby creation mode
     STANDBY_CREATION_MODE: Literal["legacy", "rebuild", "in-place", "auto"] = "auto"
+    OTA_TMP_STORE: str = "/var/tmp/ota-tmp"
+    META_FOLDER: str = "/opt/ota/image-meta"
 
 
 @dataclass

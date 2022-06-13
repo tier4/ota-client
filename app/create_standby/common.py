@@ -59,7 +59,7 @@ class StandbySlotCreatorProtocol(Protocol):
 
     update_meta: UpdateMeta
     stats_tracker: OTAUpdateStatsCollector
-    status_updator: Callable
+    update_phase_tracker: Callable
 
     @abstractmethod
     def create_standby_bank(self):
@@ -231,10 +231,6 @@ class CreateRegularStatsCollector:
 
                 _cur_time = time.time()
 
-            # logger.info(
-            #     f"{self._store.get_processed_num()=}, {self.total_regular_num=}, {self._store.get_snapshot()!r}"
-            # )
-
     def callback(self, fut: Future):
         """Callback for create regular files
         sts will also being put into que from this callback
@@ -366,7 +362,7 @@ class RegularDelta(Dict[str, RegularInfSet]):
         return _hash in self
 
 
-def create_regular_inf(fpath: Union[str, Path], *, root: Path) -> RegularInf:
+def create_regular_inf(fpath: Union[str, Path]) -> RegularInf:
     # create a new instance of path
     path = Path(fpath)
     stat = path.stat()

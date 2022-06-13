@@ -453,6 +453,9 @@ class CBootController(
             logger.info("pre-update setting finished")
 
         except BootControlError as e:
+            # store failure status to the standby slot
+            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
+
             try:
                 # try to umount standby if possible
                 CMDHelperFuncs.umount_dev(self._cboot_control.get_standby_rootfs_dev)
@@ -461,7 +464,7 @@ class CBootController(
             finally:
                 _failure_msg = f"failed on pre_update: {e!r}"
                 logger.error(_failure_msg)
-                raise
+                raise e
 
     def post_update(self):
         # TODO: deal with unexpected reboot during post_update
@@ -487,9 +490,18 @@ class CBootController(
             self._cboot_control.reboot()
 
         except BootControlError as e:
-            _failure_msg = f"failed on post_update: {e!r}"
-            logger.error(_failure_msg)
-            raise
+            # store failure status to the standby slot
+            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
+
+            try:
+                # try to umount standby if possible
+                CMDHelperFuncs.umount_dev(self._cboot_control.get_standby_rootfs_dev)
+            except BootControlExternalError as _e:
+                logger.error(f"failed to umount standby slot: {_e!r}")
+            finally:
+                _failure_msg = f"failed on pre_update: {e!r}"
+                logger.error(_failure_msg)
+                raise e
 
     def post_rollback(self):
         self._cboot_control.switch_boot()

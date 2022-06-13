@@ -1,11 +1,10 @@
 import json
 import tempfile
 import time
-from contextlib import contextmanager
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from threading import Event, Lock
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 from urllib.parse import urlparse
 from app.boot_control import BootController
 
@@ -185,6 +184,11 @@ class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
             if not self.request_update():
                 raise OtaErrorBusy(f"{self.live_ota_status=} is illegal for update")
 
+            # unconditionally regulate the url_base
+            _url_base = urlparse(url_base)
+            _path = f"{_url_base.path.rstrip('/')}/"
+            url = _url_base._replace(path=_path).geturl()
+
             # launch ota update statics collector
             self._ota_statics_collector = OTAUpdateStatsCollector()
 
@@ -202,11 +206,6 @@ class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
                 self._ota_statics_collector.set(
                     "total_regular_file_size", total_regular_file_size
                 )
-
-            # unconditionally regulate the url_base
-            _url_base = urlparse(url_base)
-            _path = f"{_url_base.path.rstrip('/')}/"
-            url = _url_base._replace(path=_path).geturl()
 
             # set ota status
             self.set_live_ota_status(OTAStatusEnum.UPDATING)
@@ -271,7 +270,7 @@ class OTAClient(LiveOTAStatusMixin, OTAClientInterface):
             # leave rollback
             self.boot_controller.post_rollback()
         else:
-            raise OtaErrorBusy(f"another rollback is on-going, abort")
+            raise OtaErrorBusy("another rollback is on-going, abort")
 
     def _status(self) -> Dict[str, Any]:
         # TODO: refactoring

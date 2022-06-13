@@ -5,7 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait as concurrent_futures_wait
 from pathlib import Path
 from threading import Semaphore
-from typing import Any, Callable, ClassVar, Dict, List
+from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
 
 from app.create_standby.common import (
@@ -21,10 +21,9 @@ from app.configs import OTAFileCacheControl, config as cfg
 from app.proxy_info import proxy_cfg
 from app.downloader import Downloader
 from app.update_stats import OTAUpdateStatsCollector
-from app.update_phase import OtaClientUpdatePhase
+from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
     DirectoryInf,
-    OtaMetadata,
     PersistentInf,
     SymbolicLinkInf,
 )
@@ -53,7 +52,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         *,
         update_meta: UpdateMeta,
         stats_tracker: OTAUpdateStatsCollector,
-        status_updator: Callable,
+        update_phase_tracker: Callable,
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
@@ -62,7 +61,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self.standby_slot = Path(update_meta.standby_slot)
         self.boot_dir = Path(update_meta.boot_dir)
         self.stats_tracker = stats_tracker
-        self.status_update: Callable = status_updator
+        self.update_phase_tracker: Callable = update_phase_tracker
 
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
@@ -111,7 +110,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         """NOTE: just copy from legacy mode"""
         from app.copy_tree import CopyTree
 
-        self.status_update(OtaClientUpdatePhase.PERSISTENT)
+        self.update_phase_tracker(OTAUpdatePhase.PERSISTENT)
         _passwd_file = Path(cfg.PASSWD_FILE)
         _group_file = Path(cfg.GROUP_FILE)
         _copy_tree = CopyTree(
@@ -132,7 +131,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _copy_tree.copy_with_parents(perinf.path, self.standby_slot)
 
     def _process_dirs(self):
-        self.status_update(OtaClientUpdatePhase.DIRECTORY)
+        self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
         with open(self._tmp_folder / "dirs.txt", "r") as f:
             for l in f:
                 DirectoryInf(l).mkdir2bank(self.standby_slot)
@@ -153,7 +152,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 SymbolicLinkInf(l).link_at_bank(self.standby_slot)
 
     def _process_regulars(self):
-        self.status_update(OtaClientUpdatePhase.REGULAR)
+        self.update_phase_tracker(OTAUpdatePhase.REGULAR)
 
         self._hardlink_register = HardlinkRegister()
         self._download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)

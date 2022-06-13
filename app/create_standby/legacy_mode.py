@@ -4,17 +4,16 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Semaphore
-from typing import Any, Callable, Dict, List
+from typing import Callable, List
 from urllib.parse import urljoin
 
 from app.configs import OTAFileCacheControl, config as cfg
 from app.copy_tree import CopyTree
 from app.downloader import Downloader
 from app.update_stats import OTAUpdateStatsCollector
-from app.update_phase import OtaClientUpdatePhase
+from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
     DirectoryInf,
-    OtaMetadata,
     PersistentInf,
     RegularInf,
     SymbolicLinkInf,
@@ -46,7 +45,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         *,
         update_meta: UpdateMeta,
         stats_tracker: OTAUpdateStatsCollector,
-        status_updator: Callable,
+        update_phase_tracker: Callable,
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
@@ -55,7 +54,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         self.boot_dir = Path(update_meta.boot_dir)
         self.reference_slot = Path(update_meta.reference_slot)
         self.stats_tracker = stats_tracker
-        self.status_update: Callable = status_updator
+        self.update_phase_tracker: Callable = update_phase_tracker
 
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
@@ -294,14 +293,14 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
     def create_standby_bank(self):
         """Exposed API for ota-client."""
-        self.status_update(OtaClientUpdatePhase.DIRECTORY)
+        self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
         self._process_directory()
 
-        self.status_update(OtaClientUpdatePhase.SYMLINK)
+        self.update_phase_tracker(OTAUpdatePhase.SYMLINK)
         self._process_symlink()
 
-        self.status_update(OtaClientUpdatePhase.REGULAR)
+        self.update_phase_tracker(OTAUpdatePhase.REGULAR)
         self._process_regular()
 
-        self.status_update(OtaClientUpdatePhase.PERSISTENT)
+        self.update_phase_tracker(OTAUpdatePhase.PERSISTENT)
         self._process_persistent()

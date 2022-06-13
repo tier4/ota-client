@@ -3,9 +3,9 @@ import stat
 import shutil
 from pathlib import Path
 
-import log_util
-from configs import config as cfg
-from ota_error import OtaErrorUnrecoverable
+from app import log_util
+from app.configs import config as cfg
+from app.ota_error import OtaErrorUnrecoverable
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

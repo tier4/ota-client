@@ -116,7 +116,7 @@ def copytree_identical(src: Path, dst: Path):
         if not _cur_dir_on_dst.is_dir():
             _cur_dir_on_dst.unlink(missing_ok=True)
             _cur_dir_on_dst.mkdir(parents=True)
-            copy_stat(_cur_dir_on_src, _cur_dir_on_dst)
+            copy_stat(_cur_dir, _cur_dir_on_dst)
 
         # populate files
         for fname in files:

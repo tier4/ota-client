@@ -1,7 +1,6 @@
 from enum import Enum, unique, auto
 
 from app.configs import config as cfg
-from app.ota_error import OtaErrorBusy
 from app import log_util
 
 logger = log_util.get_logger(

@@ -2,17 +2,17 @@ import sys
 import os
 from pathlib import Path
 
-from ota_client_stub import OtaClientStub
-from ota_client_service import (
+from app.ota_client_stub import OtaClientStub
+from app.ota_client_service import (
     OtaClientServiceV2,
     service_start,
     service_wait_for_termination,
 )
-import otaclient_v2_pb2_grpc as v2_grpc
+import app.otaclient_v2_pb2_grpc as v2_grpc
 
-from configs import config as cfg
-from configs import server_cfg
-import log_util
+from app import log_util
+from app.configs import config as cfg
+from app.configs import server_cfg
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

@@ -61,7 +61,8 @@ class OTAUpdateStatsCollector(OTAUpdateStatsCollectorProtocol):
         """Acquire a staging storage for updating the slot atomically and thread-safely."""
         try:
             self._lock.acquire()
-            yield staging_slot := self._store.copy()
+            staging_slot = self._store.copy()
+            yield self._store.copy()
         finally:
             self._store = staging_slot
             self._lock.release()

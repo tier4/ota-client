@@ -22,3 +22,5 @@ def get_boot_controller(bootloader: str) -> Type[BootControllerProtocol]:
 
 
 BootController: Type[BootControllerProtocol] = get_boot_controller(_bootloader)
+
+__all__ = ("BootController",)
