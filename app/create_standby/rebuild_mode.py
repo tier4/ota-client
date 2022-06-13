@@ -14,7 +14,8 @@ from app.create_standby.common import (
     RegularStats,
     RegularInfSet,
     DeltaGenerator,
-    BankCreatorProtocol,
+    StandbySlotCreatorProtocol,
+    UpdateMeta,
 )
 from app.configs import OTAFileCacheControl, config as cfg
 from app.proxy_info import proxy_cfg
@@ -35,7 +36,7 @@ logger = log_util.get_logger(
 )
 
 
-class RebuildMode(BankCreatorProtocol):
+class RebuildMode(StandbySlotCreatorProtocol):
     MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
     MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
     OTA_TMP_STORE = cfg.OTA_TMP_STORE
@@ -50,26 +51,22 @@ class RebuildMode(BankCreatorProtocol):
     def __init__(
         self,
         *,
-        cookies: Dict[str, Any],
-        metadata: OtaMetadata,
-        url_base: str,
-        new_root: str,
-        reference_root: str,
-        boot_dir: str,
+        update_meta: UpdateMeta,
         stats_tracker: OTAUpdateStatsCollector,
         status_updator: Callable,
     ) -> None:
-        self.cookies = cookies
-        self.metadata = metadata
-        self.url_base = url_base
-        self.reference_root = Path(reference_root)
-        self.new_root = Path(new_root)
-        self.boot_dir = Path(boot_dir)
+        self.cookies = update_meta.cookies
+        self.metadata = update_meta.metadata
+        self.url_base = update_meta.url_base
+        self.reference_slot = Path(update_meta.reference_slot)
+        self.standby_slot = Path(update_meta.standby_slot)
+        self.boot_dir = Path(update_meta.boot_dir)
         self.stats_tracker = stats_tracker
         self.status_update: Callable = status_updator
+
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
-        self.image_base_url = urljoin(url_base, f"{self.image_base_dir}/")
+        self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
 
         # temp storage
         self._tmp_storage = tempfile.TemporaryDirectory(dir=cfg.OTA_TMP_STORE)
@@ -100,7 +97,7 @@ class RebuildMode(BankCreatorProtocol):
         delta_calculator = DeltaGenerator(
             old_reg=Path(self.META_FOLDER) / "regulars.txt",
             new_reg=self._tmp_folder / "regulars.txt",
-            ref_root=self.reference_root,
+            ref_root=self.reference_slot,
         )
 
         (
@@ -120,8 +117,8 @@ class RebuildMode(BankCreatorProtocol):
         _copy_tree = CopyTree(
             src_passwd_file=_passwd_file,
             src_group_file=_group_file,
-            dst_passwd_file=self.new_root / _passwd_file.relative_to("/"),
-            dst_group_file=self.new_root / _group_file.relative_to("/"),
+            dst_passwd_file=self.standby_slot / _passwd_file.relative_to("/"),
+            dst_group_file=self.standby_slot / _group_file.relative_to("/"),
         )
 
         with open(self._tmp_folder / "persistents.txt", "r") as f:
@@ -132,13 +129,13 @@ class RebuildMode(BankCreatorProtocol):
                     or perinf.path.is_dir()
                     or perinf.path.is_symlink()
                 ):  # NOTE: not equivalent to perinf.path.exists()
-                    _copy_tree.copy_with_parents(perinf.path, self.new_root)
+                    _copy_tree.copy_with_parents(perinf.path, self.standby_slot)
 
     def _process_dirs(self):
         self.status_update(OtaClientUpdatePhase.DIRECTORY)
         with open(self._tmp_folder / "dirs.txt", "r") as f:
             for l in f:
-                DirectoryInf(l).mkdir2bank(self.new_root)
+                DirectoryInf(l).mkdir2bank(self.standby_slot)
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
@@ -153,7 +150,7 @@ class RebuildMode(BankCreatorProtocol):
     def _process_symlinks(self):
         with open(self._tmp_folder / "symlinks.txt", "r") as f:
             for l in f:
-                SymbolicLinkInf(l).link_at_bank(self.new_root)
+                SymbolicLinkInf(l).link_at_bank(self.standby_slot)
 
     def _process_regulars(self):
         self.status_update(OtaClientUpdatePhase.REGULAR)
@@ -175,7 +172,7 @@ class RebuildMode(BankCreatorProtocol):
                     pool.submit(
                         _pathset.collect_entries_to_be_recycled,
                         dst=self._tmp_folder,
-                        root=self.reference_root,
+                        root=self.reference_slot,
                     )
                 )
 
@@ -218,7 +215,7 @@ class RebuildMode(BankCreatorProtocol):
                     if _collected_entry is None:
                         raise FileNotFoundError
 
-                    _collected_entry.copy2dst(_first_copy, src_root=self.reference_root)
+                    _collected_entry.copy2dst(_first_copy, src_root=self.reference_slot)
                     _stat.op = "copy"
                 except FileNotFoundError:  # fallback to download from remote
                     _stat.op = "download"
@@ -235,7 +232,7 @@ class RebuildMode(BankCreatorProtocol):
 
             # special treatment on /boot folder
             _mount_point = (
-                self.new_root if not entry._base_root == "/boot" else self.boot_dir
+                self.standby_slot if not entry._base_root == "/boot" else self.boot_dir
             )
 
             # prepare this entry
@@ -276,15 +273,14 @@ class RebuildMode(BankCreatorProtocol):
         return stats_list
 
     def create_standby_bank(self):
-        # TODO(in the future): erase bank on create_standby_bank
-        self._prepare_meta_files()  # download meta and calculate
-        self._process_dirs()
-        self._process_regulars()
-        self._process_symlinks()
-        self._process_persistents()
-        self._save_meta()
-
         try:
+            # TODO(in the future): erase bank on create_standby_bank
+            self._prepare_meta_files()  # download meta and calculate
+            self._process_dirs()
+            self._process_regulars()
+            self._process_symlinks()
+            self._process_persistents()
+            self._save_meta()
+
+        finally:
             self._tmp_storage.cleanup()  # finally cleanup
-        except Exception:
-            logger.error(f"failed to cleanup tmp storage: {self._tmp_folder}")

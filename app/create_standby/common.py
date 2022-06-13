@@ -1,5 +1,6 @@
 r"""Common used helpers, classes and functions for different bank creating methods."""
 from abc import abstractmethod
+from http import cookies
 import os
 import queue
 import shutil
@@ -22,18 +23,30 @@ from typing import (
     Union,
 )
 
-from app._common import file_sha256
+from app.common import file_sha256
 from app.configs import config as cfg
 from app.ota_metadata import OtaMetadata, RegularInf
 from app import log_util
-from app.update_stats import OtaClientStatistics
+from app.update_stats import OTAUpdateStatsCollector
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
 
-class BankCreatorProtocol(Protocol):
+@dataclass
+class UpdateMeta:
+    """Meta info for standby slot creator to update slot."""
+
+    cookies: Dict[str, Any]  # cookies needed for requesting remote ota files
+    metadata: OtaMetadata  # meta data for the update request
+    url_base: str  # base url of the remote ota image
+    standby_slot: str  # path(mount point) to the standby slot
+    reference_slot: str  # path to the reference slot that we used to copy files from
+    boot_dir: str
+
+
+class StandbySlotCreatorProtocol(Protocol):
     """Protocol that describes bank creating.
     Attrs:
         cookies: authentication cookies used by ota_client to fetch files from the remote ota server.
@@ -45,13 +58,8 @@ class BankCreatorProtocol(Protocol):
         status_updator: inform which ota phase now.
     """
 
-    cookies: Dict[str, Any]
-    metadata: OtaMetadata
-    url_base: str
-    new_root: str
-    boot_dir: str
-    reference_root: str
-    stats_tracker: OtaClientStatistics
+    update_meta: UpdateMeta
+    stats_tracker: OTAUpdateStatsCollector
     status_updator: Callable
 
     @abstractmethod
@@ -157,7 +165,7 @@ class CreateRegularStatsCollector:
 
     def __init__(
         self,
-        store: OtaClientStatistics,
+        store: OTAUpdateStatsCollector,
         *,
         total_regular_num: int,
         max_concurrency_tasks: int,

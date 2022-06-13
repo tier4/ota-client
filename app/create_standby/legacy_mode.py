@@ -25,7 +25,8 @@ from app.create_standby.common import (
     HardlinkRegister,
     RegularStats,
     CreateRegularStatsCollector,
-    BankCreatorProtocol,
+    StandbySlotCreatorProtocol,
+    UpdateMeta,
 )
 
 from app import log_util
@@ -36,33 +37,29 @@ logger = log_util.get_logger(
 
 
 # implementation
-class LegacyMode(BankCreatorProtocol):
+class LegacyMode(StandbySlotCreatorProtocol):
     MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
     MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
 
     def __init__(
         self,
         *,
-        cookies: Dict[str, Any],
-        metadata: OtaMetadata,
-        url_base: str,
-        new_root: str,
-        reference_root: str,
-        boot_dir: str,
+        update_meta: UpdateMeta,
         stats_tracker: OTAUpdateStatsCollector,
         status_updator: Callable,
     ) -> None:
-        self.cookies = cookies
-        self.metadata = metadata
-        self.url_base = url_base
-        self.new_root = Path(new_root)
-        self.boot_dir = Path(boot_dir)
-        self.reference_root = Path(reference_root)
+        self.cookies = update_meta.cookies
+        self.metadata = update_meta.metadata
+        self.url_base = update_meta.url_base
+        self.standby_slot = Path(update_meta.standby_slot)
+        self.boot_dir = Path(update_meta.boot_dir)
+        self.reference_slot = Path(update_meta.reference_slot)
         self.stats_tracker = stats_tracker
         self.status_update: Callable = status_updator
+
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
-        self.image_base_url = urljoin(url_base, f"{self.image_base_dir}/")
+        self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
 
         # internal used vars
         self._passwd_file = Path(cfg.PASSWD_FILE)
@@ -94,7 +91,9 @@ class LegacyMode(BankCreatorProtocol):
             with open(f.name, "r") as dir_txt:
                 for line in dir_txt:
                     dirinf = DirectoryInf(line)
-                    target_path = self.new_root.joinpath(dirinf.path.relative_to("/"))
+                    target_path = self.standby_slot.joinpath(
+                        dirinf.path.relative_to("/")
+                    )
 
                     target_path.mkdir(mode=dirinf.mode, parents=True, exist_ok=True)
                     os.chown(target_path, dirinf.uid, dirinf.gid)
@@ -119,7 +118,7 @@ class LegacyMode(BankCreatorProtocol):
                 for line in symlink_txt:
                     # NOTE: symbolic link in /boot directory is not supported. We don't use it.
                     slinkf = SymbolicLinkInf(line)
-                    slink = self.new_root.joinpath(slinkf.slink.relative_to("/"))
+                    slink = self.standby_slot.joinpath(slinkf.slink.relative_to("/"))
                     slink.symlink_to(slinkf.srcpath)
                     os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
 
@@ -159,8 +158,8 @@ class LegacyMode(BankCreatorProtocol):
             copy_tree = CopyTree(
                 src_passwd_file=self._passwd_file,
                 src_group_file=self._group_file,
-                dst_passwd_file=self.new_root / self._passwd_file.relative_to("/"),
-                dst_group_file=self.new_root / self._group_file.relative_to("/"),
+                dst_passwd_file=self.standby_slot / self._passwd_file.relative_to("/"),
+                dst_group_file=self.standby_slot / self._group_file.relative_to("/"),
             )
 
             with open(f.name, "r") as persist_txt:
@@ -171,7 +170,7 @@ class LegacyMode(BankCreatorProtocol):
                         or perinf.path.is_dir()
                         or perinf.path.is_symlink()
                     ):  # NOTE: not equivalent to perinf.path.exists()
-                        copy_tree.copy_with_parents(perinf.path, self.new_root)
+                        copy_tree.copy_with_parents(perinf.path, self.standby_slot)
 
     def _create_regular_file(self, reginf: RegularInf) -> List[RegularStats]:
         # thread_time for multithreading function
@@ -185,7 +184,7 @@ class LegacyMode(BankCreatorProtocol):
         if str(reginf.path).startswith("/boot"):
             dst = self.boot_dir / reginf.path.relative_to("/boot")
         else:
-            dst = self.new_root / reginf.path.relative_to("/")
+            dst = self.standby_slot / reginf.path.relative_to("/")
 
         # if is_hardlink file, get a tracker from the register
         is_hardlink = reginf.nlink >= 2
@@ -205,17 +204,17 @@ class LegacyMode(BankCreatorProtocol):
         if is_hardlink and not _is_writer:
             # wait until the first copy is ready
             prev_reginf_path = _hardlink_tracker.subscribe()
-            (self.new_root / prev_reginf_path.relative_to("/")).link_to(dst)
+            (self.standby_slot / prev_reginf_path.relative_to("/")).link_to(dst)
             processed.op = "link"
 
         # case 2: normal file or first copy of hardlink file
         else:
             try:
                 if reginf.path.is_file() and reginf.verify_file(
-                    src_root=self.reference_root
+                    src_root=self.reference_slot
                 ):
                     # copy file from active bank if hash is the same
-                    reginf.copy2bank(self.new_root, src_root=self.reference_root)
+                    reginf.copy2bank(self.standby_slot, src_root=self.reference_slot)
                     processed.op = "copy"
                 else:
                     # limit the concurrent downloading tasks

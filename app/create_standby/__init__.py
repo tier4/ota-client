@@ -1,6 +1,6 @@
 from typing import Type
 
-from app.create_standby.common import BankCreatorProtocol
+from app.create_standby.common import StandbySlotCreatorProtocol, UpdateMeta
 from app.configs import config as cfg
 from app import log_util
 
@@ -22,7 +22,7 @@ _AUOTSELECTED_MODE = select_mode()
 
 def get_standby_creator(
     mode: str = _AUOTSELECTED_MODE,
-) -> Type[BankCreatorProtocol]:
+) -> Type[StandbySlotCreatorProtocol]:
     logger.info(f"use slot update {mode=}")
     if mode == "legacy":
         from app.create_standby.legacy_mode import LegacyMode
@@ -51,6 +51,6 @@ def get_reference_slot(
     return res
 
 
-StandByBankCreator: Type[BankCreatorProtocol] = get_standby_creator()
+StandBySlotCreator: Type[StandbySlotCreatorProtocol] = get_standby_creator()
 
-__All__ = ("StandByBankCreator", "get_reference_bank", "get_bank_creator")
+__All__ = ("StandBySlotCreator", "UpdateMeta", "get_reference_bank", "get_bank_creator")
