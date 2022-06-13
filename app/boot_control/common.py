@@ -276,4 +276,10 @@ class VersionControlMixin:
         write_to_file(self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME, _version)
 
     def load_version(self) -> str:
-        read_from_file(self.current_ota_status_dir / cfg.OTA_VERSION_FNAME)
+        _version = read_from_file(
+            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME, missing_ok=True
+        )
+        if not _version:
+            logger.warning("version file not found, return empty version string")
+
+        return _version
