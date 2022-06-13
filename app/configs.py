@@ -1,7 +1,7 @@
 import enum
-import platform
 from dataclasses import dataclass, field
 from logging import INFO
+from typing import Literal
 
 
 class OTAFileCacheControl(enum.Enum):
@@ -102,6 +102,9 @@ class _BaseConfig:
     MAX_CONCURRENT_TASKS: int = 1024
     STATS_COLLECT_INTERVAL: int = 1 # second
 
+    ## standby creation mode
+    STANDBY_CREATION_MODE: Literal["legacy", "rebuild", "in-place", "auto"] = "auto"
+
 
 @dataclass
 class GrubControlConfig(_BaseConfig):
@@ -137,15 +140,18 @@ class CBootControlConfig(_BaseConfig):
 
 # helper function to detect platform
 def _detect_bootloader():
-    if platform.machine() == "x86_64" or platform.processor == "x86_64":
+    import platform
+    machine, arch = platform.machine(), platform.processor()
+
+    if machine == "x86_64" or arch == "x86_64":
         return "grub"
-    elif platform.machine() == "aarch64" or platform.processor == "aarch64":
+    elif machine == "aarch64" or arch == "aarch64":
         return "cboot"
     else:
-        return ""
+        raise NotImplementedError(f"cannot auto detect the bootloader for this platform: {machine=}, {arch=}")
 
 
-def create_config(bootloader):
+def create_config(bootloader: str):
     if bootloader == "grub":
         return GrubControlConfig()
     elif bootloader == "cboot":
