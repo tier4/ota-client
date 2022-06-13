@@ -69,6 +69,21 @@ def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> s
         return default
 
 
+def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
+    """Copy file/dir permission bits and owner info from src to dst."""
+    _stat = Path(src).stat()
+    os.chown(dst, _stat.st_uid, _stat.st_gid)
+    os.chmod(dst, _stat.st_mode, follow_symlinks=False)
+
+
+def dst_symlink_as_src(src: Path, dst: Path):
+    """Make the dst a symlink link as src."""
+    if dst.is_symlink() or dst.is_file():
+        dst.unlink(missing_ok=True)
+
+    dst.symlink_to(os.readlink(src))
+
+
 def copytree_identical(src: Path, dst: Path):
     """Recursively copy from the src folder to dst folder.
 
@@ -100,43 +115,26 @@ def copytree_identical(src: Path, dst: Path):
         # cover the edge case that dst is not a dir.
         if not _cur_dir_on_dst.is_dir():
             _cur_dir_on_dst.unlink(missing_ok=True)
-
-            _src_stat = _cur_dir.stat()
-            _cur_dir_on_dst.mkdir(mode=_src_stat.st_mode, parents=True)
-            os.chown(
-                _cur_dir_on_dst,
-                _src_stat.st_uid,
-                _src_stat.st_gid,
-                follow_symlinks=False,
-            )
+            _cur_dir_on_dst.mkdir(parents=True)
+            copy_stat(_cur_dir_on_src, _cur_dir_on_dst)
 
         # populate files
         for fname in files:
             _src_f = _cur_dir / fname
             _dst_f = _cur_dir_on_dst / fname
 
-            # check symlink, re-link if needed
-            if _dst_f.is_symlink():
-                _src_symlink_target = os.readlink(_src_f)
-                if os.readlink(_dst_f) != _src_symlink_target:
-                    _dst_f.unlink(missing_ok=True)
-                    _dst_f.symlink_to(_src_symlink_target)
-
-                continue
-
             # src and dst type mismatch, dst is a folder
             if _dst_f.is_dir():
                 shutil.rmtree(_dst_f, ignore_errors=True)
 
+            # check symlink, re-link if needed
+            if _src_f.is_symlink():
+                dst_symlink_as_src(_src_f, _dst_f)
+                continue
+
             # finally populate the new file or override the dst file
             shutil.copy(_src_f, _dst_f, follow_symlinks=False)
-            _src_stat = _src_f.stat()
-            os.chown(
-                _dst_f,
-                _src_stat.st_uid,
-                _src_stat.st_gid,
-                follow_symlinks=False,
-            )
+            copy_stat(_src_f, _dst_f)
 
     # phase2: remove unused files in the dst
     for cur_dir, dirs, files in os.walk(dst, topdown=True, followlinks=False):
