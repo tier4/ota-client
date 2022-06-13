@@ -311,9 +311,8 @@ class CBootController(
 ):
     EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
 
-    def __init__(self, *, erase_standby=False) -> None:
+    def __init__(self) -> None:
         self._cboot_control: _CBootControl = _CBootControl()
-        self._erase_standby = erase_standby
 
         # load paths
         self.standby_slot_path = Path(cfg.MOUNT_POINT)
@@ -437,11 +436,11 @@ class CBootController(
     def get_standby_slot_path(self) -> Path:
         return self.standby_slot_path
 
-    def pre_update(self, version: str):
+    def pre_update(self, version: str, *, erase_stanby=False):
         try:
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
-            self._prepare_and_mount_standby(erase=self._erase_standby)
+            self._prepare_and_mount_standby(erase_stanby)
 
             # store status to standby slot
             self._store_standby_ota_status(OTAStatusEnum.UPDATING)
