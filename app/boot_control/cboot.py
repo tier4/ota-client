@@ -363,7 +363,7 @@ class CBootController(
 
         # FAILURE, INITIALIZED and ROLLBACK_FAILURE are remained as it
 
-        # store the ota_status to boot folder
+        # NOTE: only update the current ota_status at ota-client launching up!
         self._store_current_ota_status(_ota_status)
         return _ota_status
 

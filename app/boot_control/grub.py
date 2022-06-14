@@ -46,13 +46,11 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
 
     def _finalize_update(self) -> OTAStatusEnum:
         if self._boot_control.is_switching_boot_partition_from_active_to_standby():
-            self._store_current_ota_status(OTAStatusEnum.SUCCESS)
             self._boot_control.update_grub_cfg()
             # switch should be called last.
             self._boot_control.switch_boot_partition_from_active_to_standby()
             return OTAStatusEnum.SUCCESS
         else:
-            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
             return OTAStatusEnum.FAILURE
 
     _finalize_rollback = _finalize_update
@@ -66,6 +64,7 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
         elif _ota_status == OTAStatusEnum.ROLLBACKING:
             _ota_status = self._finalize_rollback()
 
+        # NOTE: only update the current ota_status at ota-client launching up!
         self._store_current_ota_status(_ota_status)
         return _ota_status
 

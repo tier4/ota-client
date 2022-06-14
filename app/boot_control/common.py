@@ -245,6 +245,7 @@ class OTAStatusMixin:
     ota_status: OTAStatusEnum
 
     def _store_current_ota_status(self, _status: OTAStatusEnum):
+        """NOTE: only update the current ota_status at ota-client launching up!"""
         write_to_file(self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
 
     def _store_standby_ota_status(self, _status: OTAStatusEnum):
