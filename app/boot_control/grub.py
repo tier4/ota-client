@@ -26,6 +26,9 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
         # load paths
         self.standby_slot_path = Path(cfg.MOUNT_POINT)
         self.standby_slot_path.mkdir(exist_ok=True)
+        self.standby_slot_dev = (
+            Path("/dev") / self._boot_control.get_standby_root_device()
+        )
 
         ## ota-status dir
         ### current slot: /boot/ota-partition.<rootfs_dev_active>
@@ -69,9 +72,7 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
         return _ota_status
 
     def _mount_standby(self):
-        CMDHelperFuncs.mount(
-            self._boot_control.get_standby_root_device(), self.standby_slot_path
-        )
+        CMDHelperFuncs.mount(str(self.standby_slot_dev), self.standby_slot_path)
 
     def _on_operation_failure(self, e: Exception):
         """Failure registering and cleanup at failure."""
@@ -79,7 +80,7 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
 
         try:
             logger.warning("on failure try to unmounting standby slot...")
-            CMDHelperFuncs.umount_dev(self._boot_control.get_standby_root_device())
+            CMDHelperFuncs.umount_dev(str(self.standby_slot_dev))
         finally:
             raise e
 
