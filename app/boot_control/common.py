@@ -44,11 +44,17 @@ class BootControlError(Exception):
 
 
 class BootControlExternalError(BootControlError):
-    """Error caused by calling external program."""
+    """Error caused by calling external program.
+
+    For ota-client, typically we map this Error as Recoverable.
+    """
 
 
 class BootControlInternalError(BootControlError):
-    """Error caused by boot control internal logic."""
+    """Error caused by boot control internal logic.
+
+    For ota-client, typically we map this Error as Unrecoverable.
+    """
 
 
 class MountFailedReason(Enum):

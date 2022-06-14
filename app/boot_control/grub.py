@@ -57,7 +57,6 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
 
     def _init_boot_control(self) -> OTAStatusEnum:
         _ota_status = self._load_current_ota_status()
-        logger.info(f"loaded ota_status: {_ota_status}")
 
         if _ota_status == OTAStatusEnum.UPDATING:
             _ota_status = self._finalize_update()
@@ -66,6 +65,7 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
 
         # NOTE: only update the current ota_status at ota-client launching up!
         self._store_current_ota_status(_ota_status)
+        logger.info(f"loaded ota_status: {_ota_status}")
         return _ota_status
 
     def _mount_standby(self):

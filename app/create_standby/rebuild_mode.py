@@ -9,6 +9,7 @@ from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
 
 from app.create_standby.common import (
+    CreateStandbySlotExternalError,
     HardlinkRegister,
     CreateRegularStatsCollector,
     RegularStats,
@@ -52,23 +53,24 @@ class RebuildMode(StandbySlotCreatorProtocol):
         *,
         update_meta: UpdateMeta,
         stats_tracker: OTAUpdateStatsCollector,
-        update_phase_tracker: Callable,
+        update_phase_tracker: "Callable[[OTAUpdatePhase], None]",
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
         self.url_base = update_meta.url_base
-        self.boot_dir = self.standby_slot / Path(cfg.BOOT_DIR).relative_to("/")
         self.stats_tracker = stats_tracker
-        self.update_phase_tracker: Callable = update_phase_tracker
+        self.update_phase_tracker = update_phase_tracker
 
         self.reference_slot = Path("/")
         self.standby_slot = Path(cfg.MOUNT_POINT)
+        self.boot_dir = self.standby_slot / Path(cfg.BOOT_DIR).relative_to("/")
 
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
         self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
 
         # temp storage
+        Path(cfg.OTA_TMP_STORE).mkdir(exist_ok=True)
         self._tmp_storage = tempfile.TemporaryDirectory(dir=cfg.OTA_TMP_STORE)
         self._tmp_folder = Path(self._tmp_storage.name)
 
@@ -279,13 +281,13 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def create_standby_bank(self):
         try:
-            # TODO(in the future): erase bank on create_standby_bank
             self._prepare_meta_files()  # download meta and calculate
             self._process_dirs()
             self._process_regulars()
             self._process_symlinks()
             self._process_persistents()
             self._save_meta()
-
+        except Exception as e:
+            raise CreateStandbySlotExternalError from e
         finally:
             self._tmp_storage.cleanup()  # finally cleanup

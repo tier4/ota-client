@@ -21,6 +21,7 @@ from app.ota_metadata import (
 from app.proxy_info import proxy_cfg
 
 from app.create_standby.common import (
+    CreateStandbySlotExternalError,
     HardlinkRegister,
     RegularStats,
     CreateRegularStatsCollector,
@@ -74,6 +75,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
             self._downloader.configure_proxy(proxy)
 
     def _process_directory(self):
+        self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
+
         list_info = self.metadata.get_directories_info()
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
             # NOTE: do not use cache when fetching dir list
@@ -100,6 +103,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     os.chmod(target_path, dirinf.mode)
 
     def _process_symlink(self):
+        self.update_phase_tracker(OTAUpdatePhase.SYMLINK)
+
         list_info = self.metadata.get_symboliclinks_info()
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
             # NOTE: do not use cache when fetching symlink list
@@ -141,6 +146,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
             self._create_regular_files(f.name)
 
     def _process_persistent(self):
+        self.update_phase_tracker(OTAUpdatePhase.PERSISTENT)
+
         list_info = self.metadata.get_persistent_info()
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
             # NOTE: do not use cache when fetching persist files list
@@ -294,14 +301,10 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
     def create_standby_bank(self):
         """Exposed API for ota-client."""
-        self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
-        self._process_directory()
-
-        self.update_phase_tracker(OTAUpdatePhase.SYMLINK)
-        self._process_symlink()
-
-        self.update_phase_tracker(OTAUpdatePhase.REGULAR)
-        self._process_regular()
-
-        self.update_phase_tracker(OTAUpdatePhase.PERSISTENT)
-        self._process_persistent()
+        try:
+            self._process_directory()
+            self._process_symlink()
+            self._process_regular()
+            self._process_persistent()
+        except Exception as e:
+            raise CreateStandbySlotExternalError from e

@@ -2,6 +2,7 @@ import re
 import subprocess
 from pathlib import Path
 from functools import partial
+from typing import Union
 
 from app import log_util
 from app.boot_control.common import (
@@ -49,15 +50,21 @@ class Nvbootctrl:
 
     # nvbootctrl
     @staticmethod
-    def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> str:
+    def _nvbootctrl(
+        arg: str, *, call_only=True, raise_exception=True
+    ) -> Union[str, None]:
         # NOTE: target is always set to rootfs
         _cmd = f"nvbootctrl -t rootfs {arg}"
         if call_only:
             subprocess_call(_cmd, raise_exception=raise_exception)
-        else:
+            return
+
+        try:
             return subprocess_check_output(
                 _cmd, raise_exception=raise_exception
             ).strip()
+        except subprocess.CalledProcessError as e:
+            raise BootControlExternalError from e
 
     @classmethod
     def check_rootdev(cls, dev: str) -> bool:
@@ -368,6 +375,7 @@ class CBootController(
 
         # NOTE: only update the current ota_status at ota-client launching up!
         self._store_current_ota_status(_ota_status)
+        logger.info(f"loaded ota_status: {_ota_status}")
         return _ota_status
 
     def _is_switching_boot(self) -> bool:

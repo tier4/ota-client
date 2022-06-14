@@ -33,6 +33,24 @@ logger = log_util.get_logger(
 )
 
 
+class CreateStandbySlotError(Exception):
+    pass
+
+
+class CreateStandbySlotExternalError(CreateStandbySlotError):
+    """Error caused by calling external program.
+
+    For ota-client, typically we map this Error as Recoverable.
+    """
+
+
+class CreateStandbySlotInternalError(CreateStandbySlotError):
+    """Error caused by internal logic.
+
+    For ota-client, typically we map this Error as Unrecoverable.
+    """
+
+
 @dataclass
 class UpdateMeta:
     """Meta info for standby slot creator to update slot."""
@@ -261,7 +279,7 @@ class CreateRegularStatsCollector:
                 logger.error(
                     f"create_regular_files failed, last error: {self.last_error!r}"
                 )
-                raise self.last_error from None
+                raise self.last_error
 
 
 class RegularInfSet(Set[RegularInf]):
@@ -397,7 +415,7 @@ class _RegularDeltaCollector:
             with self._lock:
                 self._store.add_entry(entry)
         except Exception:
-            pass
+            logger.exception(f"exception detected during regular generating")
 
 
 class DeltaGenerator:
