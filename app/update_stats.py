@@ -41,6 +41,9 @@ class OTAUpdateStatsCollector(OTAUpdateStatsCollectorProtocol):
         self._lock = Lock()
         self._store = OTAUpdateStats()
 
+    def get_processed_num(self) -> int:
+        return self._store.regular_files_processed
+
     def get_snapshot(self) -> OTAUpdateStats:
         """Return a copy of statistics storage."""
         return self._store.copy()
@@ -57,12 +60,12 @@ class OTAUpdateStatsCollector(OTAUpdateStatsCollectorProtocol):
         self._store = OTAUpdateStats()
 
     @contextmanager
-    def acquire_staging_storage(self) -> Generator[OTAUpdateStats, None, None]:
+    def staging_changes(self) -> Generator[OTAUpdateStats, None, None]:
         """Acquire a staging storage for updating the slot atomically and thread-safely."""
         try:
             self._lock.acquire()
             staging_slot = self._store.copy()
-            yield self._store.copy()
+            yield staging_slot
         finally:
             self._store = staging_slot
             self._lock.release()
