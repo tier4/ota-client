@@ -40,9 +40,6 @@ class UpdateMeta:
     cookies: Dict[str, Any]  # cookies needed for requesting remote ota files
     metadata: OtaMetadata  # meta data for the update request
     url_base: str  # base url of the remote ota image
-    standby_slot: str  # path(mount point) to the standby slot
-    reference_slot: str  # path to the reference slot that we used to copy files from
-    boot_dir: str
 
 
 class StandbySlotCreatorProtocol(Protocol):
@@ -211,7 +208,7 @@ class CreateRegularStatsCollector:
 
             # collect stats every <_interval> seconds
             if _staging and time.time() - _cur_time > self.COLLECT_INTERVAL:
-                with self._store.acquire_staging_storage() as staging_storage:
+                with self._store.staging_changes() as staging_storage:
                     staging_storage.regular_files_processed += len(_staging)
 
                     for st in _staging:
