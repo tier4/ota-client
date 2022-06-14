@@ -210,21 +210,17 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         for is_last, entry in _regs_set.iter_entries():
             _start = time.thread_time()
-            _stat = RegularStats()
+            _op, _errors = "", 0
 
             # prepare first copy for the hash group
             if not _first_copy_done:
-                _collected_entry = _regs_set.entry_to_be_collected
-                try:
-                    if _collected_entry is None:
-                        raise FileNotFoundError
-
+                if _collected_entry := _regs_set.entry_to_be_collected:
+                    _op = "copy"
                     _collected_entry.copy2dst(_first_copy, src_root=self.reference_slot)
-                    _stat.op = "copy"
-                except FileNotFoundError:  # fallback to download from remote
-                    _stat.op = "download"
+                else:
+                    _op = "download"
                     with self._download_se:  # limit on-going downloading
-                        _stat.errors = self._downloader.download(
+                        _errors = self._downloader.download(
                             entry.path,
                             _first_copy,
                             entry.sha256hash,
@@ -241,8 +237,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
             # prepare this entry
             if entry.nlink == 1:
-                if not _stat.op:
-                    _stat.op = "copy"
+                _op = _op if _op else "copy"
 
                 if is_last and not skip_cleanup:  # move the tmp entry to the dst
                     entry.move_from_src(_first_copy, dst_root=_mount_point)
@@ -262,7 +257,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 if _is_writer:
                     entry.copy_from_src(_first_copy, dst_root=_mount_point)
                 else:
-                    _stat.op = "link"
+                    _op = "link"
                     _src = _hardlink_tracker.subscribe_no_wait()
                     _src.link_to(_dst)
 
@@ -270,9 +265,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _first_copy.unlink(missing_ok=True)
 
             # finish up, collect stats
-            _stat.elapsed = time.thread_time() - _start
-            _stat.size = entry.size
-            stats_list.append(_stat)
+            stats_list.append(
+                RegularStats(
+                    op=_op,
+                    size=entry.size,
+                    elapsed=time.thread_time() - _start,
+                    errors=_errors,
+                )
+            )
 
         return stats_list
 
