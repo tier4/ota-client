@@ -415,7 +415,7 @@ class _RegularDeltaCollector:
             with self._lock:
                 self._store.add_entry(entry)
         except Exception:
-            logger.exception(f"exception detected during regular generating")
+            logger.exception(f"exception detected during regular generation")
 
 
 class DeltaGenerator:
@@ -468,9 +468,11 @@ class DeltaGenerator:
 
                         # skip files that over the max_filenum_per_folder
                         for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
-                            pool.submit(
-                                create_regular_inf, cur_dir / fname, root=self._ref_root
-                            ).add_done_callback(_collector.collect_callback)
+                            fpath = cur_dir / fname
+                            if fpath.is_file():  # only process regular file
+                                pool.submit(
+                                    create_regular_inf, fpath
+                                ).add_done_callback(_collector.collect_callback)
 
             skip_verify = True
 
