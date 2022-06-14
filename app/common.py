@@ -24,10 +24,10 @@ def file_sha256(filename: Union[str, str]) -> str:
         return m.hexdigest()
 
 
-def verify_file(filename: Path, filehash: str, filesize) -> bool:
-    if filesize and filename.stat().st_size != filesize:
+def verify_file(fpath: Path, fhash: str, fsize: int) -> bool:
+    if not fpath.is_file() or (fsize and fpath.stat().st_size != fsize):
         return False
-    return file_sha256(filename) == filehash
+    return file_sha256(fpath) == fhash
 
 
 # handled file read/write
