@@ -132,6 +132,8 @@ class CMDHelperFuncs:
         _cmd = f"blkid {args}"
         return subprocess_check_output(_cmd)
 
+    ###### derived helper methods ######
+
     @classmethod
     def get_partuuid_by_dev(cls, dev: str) -> str:
         args = f"{dev} -s PARTUUID"
@@ -188,13 +190,13 @@ class CMDHelperFuncs:
         """
         When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1p2 is returned.
         """
-        parent = cls.get_parent_dev(device)
-        family = cls.get_family_devs(parent)
+        family: List[str] = cls.get_family_devs(cls.get_parent_dev(device))
         partitions = {i.split("=")[-1].strip('"') for i in family[1:3]}
         res = partitions - {device}
         if len(res) == 1:
             (r,) = res
             return r
+
         raise BootControlExternalError(
             f"device is has unexpected partition layout, {family=}"
         )
@@ -274,7 +276,10 @@ class VersionControlMixin:
     standby_ota_status_dir: Path
 
     def _store_standby_version(self, _version: str):
-        write_to_file(self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME, _version)
+        try:
+            write_to_file(self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME, _version)
+        except FileNotFoundError as e:
+            raise BootControlExternalError from e
 
     def load_version(self) -> str:
         _version = read_from_file(

@@ -134,7 +134,7 @@ class _CBootControl:
         tegra_chip_id_f = Path("/sys/module/tegra_fuse/parameters/tegra_chip_id")
         self.chip_id = read_from_file(tegra_chip_id_f)
         if self.chip_id == "" or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
-            raise NotImplementedError(
+            raise BootControlInternalError from NotImplementedError(
                 f"unsupported platform found (chip_id: {self.chip_id}), abort"
             )
 
@@ -171,7 +171,7 @@ class _CBootControl:
                 self.standby_rootfs_dev
             )
         else:
-            raise NotImplementedError(
+            raise BootControlInternalError from NotImplementedError(
                 f"rootfs on {self.current_rootfs_dev} is not supported, abort"
             )
 
@@ -183,7 +183,7 @@ class _CBootControl:
             msg = (
                 f"rootfs mismatch, expect {self.standby_rootfs_dev} as standby slot dev"
             )
-            raise ValueError(msg)
+            raise BootControlInternalError(msg)
 
         logger.info("dev info initializing completed")
         logger.info(
@@ -243,7 +243,10 @@ class _CBootControl:
 
     @classmethod
     def reboot(cls):
-        subprocess_call("reboot", raise_exception=True)
+        try:
+            subprocess_call("reboot", raise_exception=True)
+        except subprocess.CalledProcessError as e:
+            raise BootControlExternalError from e
 
     def update_extlinux_cfg(self, dst: Path, ref: Path):
         def _replace(ma: re.Match, repl: str):
@@ -430,6 +433,16 @@ class CBootController(
                 logger.error(_failure_msg)
                 # no need to raise to the caller
 
+    def _on_operation_failure(self, e: BootControlError):
+        """Failure registering and cleanup at failure."""
+        self._store_standby_ota_status(OTAStatusEnum.FAILURE)
+
+        try:
+            logger.warning("on failure try to unmounting standby slot...")
+            CMDHelperFuncs.umount_dev(self._cboot_control.get_standby_rootfs_dev())
+        finally:
+            raise e
+
     ###### public methods ######
     # also includes methods from OTAStatusMixin, VersionControlMixin
 
@@ -453,18 +466,8 @@ class CBootController(
             logger.info("pre-update setting finished")
 
         except BootControlError as e:
-            # store failure status to the standby slot
-            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
-
-            try:
-                # try to umount standby if possible
-                CMDHelperFuncs.umount_dev(self._cboot_control.get_standby_rootfs_dev)
-            except BootControlExternalError as _e:
-                logger.error(f"failed to umount standby slot: {_e!r}")
-            finally:
-                _failure_msg = f"failed on pre_update: {e!r}"
-                logger.error(_failure_msg)
-                raise e
+            logger.error(f"failed on pre_update: {e!r}")
+            self._on_operation_failure(e)
 
     def post_update(self):
         # TODO: deal with unexpected reboot during post_update
@@ -490,19 +493,13 @@ class CBootController(
             self._cboot_control.reboot()
 
         except BootControlError as e:
-            # store failure status to the standby slot
-            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
-
-            try:
-                # try to umount standby if possible
-                CMDHelperFuncs.umount_dev(self._cboot_control.get_standby_rootfs_dev)
-            except BootControlExternalError as _e:
-                logger.error(f"failed to umount standby slot: {_e!r}")
-            finally:
-                _failure_msg = f"failed on pre_update: {e!r}"
-                logger.error(_failure_msg)
-                raise e
+            logger.error(f"failed on post_update: {e!r}")
+            self._on_operation_failure(e)
 
     def post_rollback(self):
-        self._cboot_control.switch_boot()
-        self._cboot_control.reboot()
+        try:
+            self._cboot_control.switch_boot()
+            self._cboot_control.reboot()
+        except BootControlError as e:
+            logger.error(f"failed on post_rollback: {e!r}")
+            self._on_operation_failure(e)
