@@ -51,12 +51,13 @@ class LegacyMode(StandbySlotCreatorProtocol):
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
         self.url_base = update_meta.url_base
-        self.boot_dir = self.standby_slot / Path(cfg.BOOT_DIR).relative_to("/")
+
         self.stats_tracker = stats_tracker
         self.update_phase_tracker: Callable = update_phase_tracker
 
         self.reference_slot = Path("/")
         self.standby_slot = Path(cfg.MOUNT_POINT)
+        self.boot_dir = self.standby_slot / Path(cfg.BOOT_DIR).relative_to("/")
 
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
@@ -128,6 +129,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
 
     def _process_regular(self):
+        self.update_phase_tracker(OTAUpdatePhase.REGULAR)
+
         list_info = self.metadata.get_regulars_info()
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
             # download the regulars.txt
@@ -258,11 +261,13 @@ class LegacyMode(StandbySlotCreatorProtocol):
         return [processed]
 
     def _create_regular_files(self, regulars_file: str):
+        logger.info("start to populate regular files...")
         # get total number of regular_files
         with open(regulars_file, "r") as f:
             total_files_num = len(f.readlines())
 
         # NOTE: check _OtaStatisticsStorage for available attributes
+        logger.info(f"total_regular_files={total_files_num}")
         self.stats_tracker.set("total_regular_files", total_files_num)
 
         self._hardlink_register = HardlinkRegister()
@@ -280,14 +285,13 @@ class LegacyMode(StandbySlotCreatorProtocol):
             pool.submit(_collector.collector)
 
             for l in f:
-                entry = RegularInf(l)
+                entry = RegularInf.parse_reginf(l)
                 _collector.acquire_se()
 
-                fut = pool.submit(
+                pool.submit(
                     self._create_regular_file,
                     entry,
-                )
-                fut.add_done_callback(_collector.callback)
+                ).add_done_callback(_collector.callback)
 
             logger.info("all create_regular_files tasks dispatched, wait for collector")
 

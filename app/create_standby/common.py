@@ -442,6 +442,7 @@ class DeltaGenerator:
         self._ref_root = ref_root
 
     def _calculate_current_bank_regulars(self) -> Tuple[bool, RegularDelta]:
+        logger.info("start to calculate current slot's")
         skip_verify, _rm = False, RegularDelta()
 
         if Path(self._old_reg).is_file():
@@ -476,11 +477,12 @@ class DeltaGenerator:
 
             skip_verify = True
 
-        logger.info(f"{len(_rm)=}")
+        logger.info(f"current slot regular files: {len(_rm)}")
 
         return skip_verify, _rm
 
     def calculate_delta(self) -> Tuple[RegularDelta, RegularDelta, RegularDelta, int]:
+        logger.info("start to calculating delta...")
         skip_verify, _rm = self._calculate_current_bank_regulars()
         _hold, _new = RegularDelta(), RegularDelta()
 
@@ -521,4 +523,7 @@ class DeltaGenerator:
                 # specially label this hash group
                 _hold.skip_cleanup(_hash)
 
+        logger.info(
+            f"delta calculation result: {len(_new)=}, {len(_hold)=}, {len(_rm)=}, total_num={count}"
+        )
         return _new, _hold, _rm, count

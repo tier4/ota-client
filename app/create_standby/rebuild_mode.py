@@ -82,6 +82,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             self._downloader.configure_proxy(proxy)
 
     def _prepare_meta_files(self):
+        self.update_phase_tracker(OTAUpdatePhase.METADATA)
         for fname, method in self.META_FILES.items():
             list_info = getattr(self.metadata, method)()
             self._downloader.download(
@@ -165,6 +166,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             max_concurrency_tasks=self.MAX_CONCURRENT_TASKS,
         )
         self.stats_tracker.set("total_regular_files", self.total_files_num)
+        logger.info(f"total_regular_files_num={self.total_files_num}")
 
         with ThreadPoolExecutor(thread_name_prefix="create_standby_bank") as pool:
             # collect recycled files from _rm
