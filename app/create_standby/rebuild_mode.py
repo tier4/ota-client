@@ -1,8 +1,12 @@
-import itertools
+from itertools import chain
 import shutil
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor, wait as concurrent_futures_wait
+from concurrent.futures import (
+    FIRST_EXCEPTION,
+    ThreadPoolExecutor,
+    wait as concurrent_futures_wait,
+)
 from pathlib import Path
 from threading import Semaphore
 from typing import Callable, ClassVar, Dict, List
@@ -10,6 +14,7 @@ from urllib.parse import urljoin
 
 from app.create_standby.common import (
     CreateStandbySlotExternalError,
+    CreateStandbySlotInternalError,
     HardlinkRegister,
     CreateRegularStatsCollector,
     RegularStats,
@@ -96,20 +101,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 },
             )
 
-        # TODO: hardcoded regulars.txt
-        delta_calculator = DeltaGenerator(
-            old_reg=Path(self.META_FOLDER) / "regulars.txt",
-            new_reg=self._tmp_folder / "regulars.txt",
-            ref_root=self.reference_slot,
-        )
-
-        (
-            self._new,
-            self._hold,
-            self._rm,
-            self.total_files_num,
-        ) = delta_calculator.calculate_delta()
-
     def _process_persistents(self):
         """NOTE: just copy from legacy mode"""
         from app.copy_tree import CopyTree
@@ -158,36 +149,33 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _process_regulars(self):
         self.update_phase_tracker(OTAUpdatePhase.REGULAR)
 
+        # TODO: hardcoded regulars.txt
+        # TODO 2: old_reg is not used currently
+        logger.info("generating delta...")
+        delta_calculator = DeltaGenerator(
+            old_reg=Path(self.META_FOLDER) / "regulars.txt",
+            new_reg=self._tmp_folder / "regulars.txt",
+            ref_root=self.reference_slot,
+            recycle_folder=None,  # TODO: recycle folder
+        )
+        delta_bundle = delta_calculator.get_delta()
+        logger.info(f"total_regular_files_num={delta_bundle.total_regular_nums}")
+
         self._hardlink_register = HardlinkRegister()
         self._download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
         _collector = CreateRegularStatsCollector(
             self.stats_tracker,
-            total_regular_num=self.total_files_num,
+            total_regular_num=delta_bundle.total_regular_nums,
             max_concurrency_tasks=self.MAX_CONCURRENT_TASKS,
         )
-        self.stats_tracker.set("total_regular_files", self.total_files_num)
-        logger.info(f"total_regular_files_num={self.total_files_num}")
+        self.stats_tracker.set("total_regular_files", delta_bundle.total_regular_nums)
 
+        # apply delta
         with ThreadPoolExecutor(thread_name_prefix="create_standby_bank") as pool:
-            # collect recycled files from _rm
-            futs = []
-            for _, _pathset in self._rm.items():
-                futs.append(
-                    pool.submit(
-                        _pathset.collect_entries_to_be_recycled,
-                        dst=self._tmp_folder,
-                        root=self.reference_slot,
-                    )
-                )
-
-            concurrent_futures_wait(futs)
-            del futs  # cleanup
-
-            # apply delta _hold and _new
             logger.info("start applying delta")
             pool.submit(_collector.collector)
-            for _hash, _regulars_set in itertools.chain(
-                self._hold.items(), self._new.items()
+            for _hash, _regulars_set in chain(
+                delta_bundle._hold.items(), delta_bundle._new.items()
             ):
                 _collector.acquire_se()
                 pool.submit(
@@ -197,38 +185,34 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 ).add_done_callback(_collector.callback)
 
             _collector.wait()
-            logger.info("apply done")
+            logger.info("delta apply done")
 
     def _apply_reginf_set(
         self, _hash: str, _regs_set: RegularInfSet
     ) -> List[RegularStats]:
         stats_list = []
-        skip_cleanup = _regs_set.skip_cleanup
 
-        _first_copy = self._tmp_folder / _hash
-        _first_copy_done = _first_copy.is_file()
+        _local_copy = self._tmp_folder / _hash
+        _local_copy_available = _local_copy.is_file()
+        _first_copy_prepared = _local_copy_available
 
         for is_last, entry in _regs_set.iter_entries():
             _start = time.thread_time()
-            _op, _errors = "", 0
+            _op, _errors = "copy", 0
 
             # prepare first copy for the hash group
-            if not _first_copy_done:
-                if _collected_entry := _regs_set.entry_to_be_collected:
-                    _op = "copy"
-                    _collected_entry.copy2dst(_first_copy, src_root=self.reference_slot)
-                else:
-                    _op = "download"
-                    with self._download_se:  # limit on-going downloading
-                        _errors = self._downloader.download(
-                            entry.path,
-                            _first_copy,
-                            entry.sha256hash,
-                            url_base=self.image_base_url,
-                            cookies=self.cookies,
-                        )
+            if not _local_copy_available:
+                _op = "download"
+                with self._download_se:  # limit on-going downloading
+                    _errors = self._downloader.download(
+                        entry.path,
+                        _local_copy,
+                        entry.sha256hash,
+                        url_base=self.image_base_url,
+                        cookies=self.cookies,
+                    )
 
-                _first_copy_done = True
+                _local_copy_available = True
 
             # special treatment on /boot folder
             _mount_point = (
@@ -237,12 +221,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
             # prepare this entry
             if entry.nlink == 1:
-                _op = _op if _op else "copy"
-
-                if is_last and not skip_cleanup:  # move the tmp entry to the dst
-                    entry.move_from_src(_first_copy, dst_root=_mount_point)
+                if is_last:  # move the tmp entry to the dst
+                    entry.move_from_src(_local_copy, dst_root=_mount_point)
                 else:  # copy from the tmp dir
-                    entry.copy_from_src(_first_copy, dst_root=_mount_point)
+                    entry.copy_from_src(_local_copy, dst_root=_mount_point)
             else:
                 # NOTE(20220523): for regulars.txt that support hardlink group,
                 #   use inode to identify the hardlink group.
@@ -255,14 +237,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 )
 
                 if _is_writer:
-                    entry.copy_from_src(_first_copy, dst_root=_mount_point)
+                    entry.copy_from_src(_local_copy, dst_root=_mount_point)
                 else:
                     _op = "link"
                     _src = _hardlink_tracker.subscribe_no_wait()
                     _src.link_to(_dst)
 
-                if is_last and not skip_cleanup:
-                    _first_copy.unlink(missing_ok=True)
+                if is_last:
+                    _local_copy.unlink(missing_ok=True)
 
             # finish up, collect stats
             stats_list.append(
@@ -273,6 +255,11 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     errors=_errors,
                 )
             )
+
+        # NOTE: exclude one entry as we prepare local copy
+        # when we are geernating delta
+        if _first_copy_prepared:
+            stats_list = stats_list[1:]
 
         return stats_list
 

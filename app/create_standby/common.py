@@ -1,11 +1,18 @@
 r"""Common used helpers, classes and functions for different bank creating methods."""
 from abc import abstractmethod
+import collections
 import os
 import queue
 import shutil
 import time
 import weakref
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import (
+    FIRST_EXCEPTION,
+    Future,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    wait,
+)
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, Lock, Semaphore
@@ -14,16 +21,19 @@ from typing import (
     Callable,
     ClassVar,
     Generator,
+    Iterator,
     List,
     Dict,
+    Literal,
+    OrderedDict,
     Protocol,
-    Set,
     Tuple,
     Union,
 )
 
 from app.common import file_sha256
 from app.configs import config as cfg
+from app.interface import OTAUpdateStatsCollectorProtocol
 from app.ota_metadata import OtaMetadata, RegularInf
 from app import log_util
 from app.update_stats import OTAUpdateStatsCollector
@@ -73,7 +83,7 @@ class StandbySlotCreatorProtocol(Protocol):
     """
 
     update_meta: UpdateMeta
-    stats_tracker: OTAUpdateStatsCollector
+    stats_tracker: OTAUpdateStatsCollectorProtocol
     update_phase_tracker: Callable
 
     @abstractmethod
@@ -204,6 +214,9 @@ class CreateRegularStatsCollector:
         block if concurrency limit is reached."""
         self.se.acquire()
 
+    def release_se(self):
+        self.se.release()
+
     def collector(self):
         _staging: List[RegularStats] = []
         _cur_time = time.time()
@@ -255,13 +268,12 @@ class CreateRegularStatsCollector:
             for st in sts:
                 self._que.put_nowait(st)
 
-            self.se.release()
+            self.release_se()
         except Exception as e:
             self.last_error = e
             # if any task raises exception,
             # interrupt the background collector
             self.abort_event.set()
-            raise
 
     def wait(self):
         """Waits until all regular files have been processed
@@ -282,62 +294,36 @@ class CreateRegularStatsCollector:
                 raise self.last_error
 
 
-class RegularInfSet(Set[RegularInf]):
-    def __init__(self, __iterable) -> None:
-        super().__init__(__iterable)
-        self.entry_to_be_collected: RegularInf = None
-        self.skip_cleanup = False
+class RegularInfSet(OrderedDict[RegularInf, None]):
+    """Use RegularInf as key, and RegularInf use path: Path as hash key."""
 
-    def iter_entries(self) -> Generator[Tuple[bool, RegularInf], None, None]:
+    def add(self, entry: RegularInf):
+        self[entry] = None
+
+    def remove(self, entry: RegularInf):
+        del self[entry]
+
+    def iter_entries(self) -> Iterator[Tuple[bool, RegularInf]]:
         while True:
             try:
-                entry = self.pop()
+                entry, _ = self.popitem()
                 yield len(self) == 0, entry
             except KeyError:
                 break
-
-    def ensure_copy(self, skip_verify: bool, *, src_root: Path) -> bool:
-        """Collect one entry within this hash group."""
-        if self.entry_to_be_collected is not None:
-            return True
-
-        for entry in self:
-            # check and verify entry, if valid, labeled as to_be_collected.
-            if skip_verify or (
-                entry.exists(src_root=src_root) and entry.verify_file(src_root=src_root)
-            ):
-                self.entry_to_be_collected = entry
-                return True
-
-        return False
-
-    def collect_entries_to_be_recycled(self, dst: Path, *, root: Path):
-        if self.entry_to_be_collected is not None:
-            try:
-                entry = self.entry_to_be_collected
-                entry.copy2dst(dst / entry.sha256hash, root=root)
-            except (FileNotFoundError, shutil.SameFileError):
-                pass  # ignore failure
-
-    def is_empty(self):
-        """NOTE: do not cleanup if entry_to_be_collected is assigned"""
-        return self.entry_to_be_collected is None and len(self) == 0
 
 
 class RegularDelta(Dict[str, RegularInfSet]):
     def __len__(self) -> int:
         return sum([len(_set) for _, _set in self.items()])
 
-    def skip_cleanup(self, _hash: str):
-        if _hash in self:
-            self[_hash].skip_cleanup = True
-
     def add_entry(self, entry: RegularInf):
         _hash = entry.sha256hash
         if _hash in self:
             self[_hash].add(entry)
         else:
-            self[_hash] = RegularInfSet([entry])
+            _new_set = RegularInfSet()
+            _new_set.add(entry)
+            self[_hash] = _new_set
 
     def remove_entry(self, entry: RegularInf):
         _hash = entry.sha256hash
@@ -346,25 +332,17 @@ class RegularDelta(Dict[str, RegularInfSet]):
 
         _set = self[_hash]
         _set.remove(entry)
-        if _set.is_empty():  # cleanup empty hash group
+        if len(_set) == 0:  # cleanup empty hash group
             del self[_hash]
 
-    def merge_entryset(self, _hash: str, _pathset: RegularInfSet):
+    def merge_entryset(self, _hash: str, _other: RegularInfSet):
         if _hash not in self:
             return
 
-        self[_hash].update(_pathset)
+        self[_hash].update(_other)
 
-    def ensure_copy(self, _hash: str, *, root: Path, skip_verify=False):
-        """
-        Args:
-            skip_verify: if the entry has been verified,
-                no need to double verify it.
-        """
-        if _hash not in self:
-            return
-
-        self[_hash].ensure_copy(skip_verify, src_root=root)
+    def contains_hash(self, _hash: str) -> bool:
+        return _hash in self
 
     def contains_entry(self, entry: RegularInf):
         if entry.sha256hash in self:
@@ -373,11 +351,15 @@ class RegularDelta(Dict[str, RegularInfSet]):
 
         return False
 
-    def contains_hash(self, _hash: str) -> bool:
-        return _hash in self
+    def contains_path(self, _hash: str, path: Path):
+        if _hash in self:
+            _set: RegularInfSet = self[_hash]
+            return path in _set
+
+        return False
 
 
-def create_regular_inf(fpath: Union[str, Path]) -> RegularInf:
+def create_regular_inf(fpath: Union[str, Path], *, _hash: str = None) -> RegularInf:
     # create a new instance of path
     path = Path(fpath)
     stat = path.stat()
@@ -389,13 +371,16 @@ def create_regular_inf(fpath: Union[str, Path]) -> RegularInf:
 
     _base_root = "/boot" if str(path).startswith("/boot") else "/"
 
+    if _hash is None:
+        _hash = file_sha256(fpath)
+
     res = RegularInf(
         mode=stat.st_mode,
         uid=stat.st_uid,
         gid=stat.st_gid,
         size=stat.st_size,
         nlink=nlink,
-        sha256hash=file_sha256(fpath),
+        sha256hash=_hash,
         path=path,
         inode=inode,
         _base_root=_base_root,
@@ -404,18 +389,21 @@ def create_regular_inf(fpath: Union[str, Path]) -> RegularInf:
     return res
 
 
-class _RegularDeltaCollector:
-    def __init__(self, delta: RegularDelta) -> None:
-        self._lock = Lock()
-        self._store = delta
+@dataclass
+class RegInfTuple:
+    path: str
+    reginf: RegularInf = None
+    _type: Literal["_rm", "_hold"] = "_rm"
 
-    def collect_callback(self, fut: Future):
-        try:
-            entry: RegularInf = fut.result()
-            with self._lock:
-                self._store.add_entry(entry)
-        except Exception:
-            logger.exception(f"exception detected during regular generation")
+
+@dataclass
+class DeltaBundle:
+    _rm: List[str]
+    _hold: RegularDelta
+    _new: RegularDelta
+    ref_root: Path
+    recycle_folder: Path
+    total_regular_nums: int
 
 
 class DeltaGenerator:
@@ -432,98 +420,126 @@ class DeltaGenerator:
     MAX_FOLDER_DEEPTH = 16
     MAX_FILENUM_PER_FOLDER = 1024
 
-    def __init__(self, old_reg, new_reg, *, ref_root: Path) -> None:
+    def __init__(
+        self,
+        old_reg: Path,
+        new_reg: Path,
+        *,
+        ref_root: Path,
+        recycle_folder: Path,
+    ) -> None:
         """
         Attrs:
             bank_root: the root of the bank(old) that we calculate delta from.
         """
         self._old_reg = old_reg
         self._new_reg = new_reg
+
         self._ref_root = ref_root
+        self._recycle_folder = recycle_folder
 
-    def _calculate_current_bank_regulars(self) -> Tuple[bool, RegularDelta]:
-        logger.info("start to calculate current slot's")
-        skip_verify, _rm = False, RegularDelta()
+        # generate delta
+        self._cal_and_prepare_old_slot_delta()
 
-        if Path(self._old_reg).is_file():
-            with open(self._old_reg, "r") as f:
-                for l in f:
-                    entry = RegularInf(l)
-                    _rm.add_entry(entry)
+    @staticmethod
+    def _parse_reginf(reginf_file: Union[Path, str]) -> Tuple[RegularDelta, int]:
+        _new_delta = RegularDelta()
+        with open(reginf_file, "r") as f:
+            with ProcessPoolExecutor() as pool:
+                for count, entry in enumerate(pool.map(RegularInf, f, chunksize=2048)):
+                    _new_delta.add_entry(entry)
+
+        return _new_delta, count + 1
+
+    def _process_file_in_old_slot(self, fpath: Path) -> RegInfTuple:
+        if not fpath.is_file():
+            return RegInfTuple(str(fpath))
+
+        # NOTE: should always use canonical_fpath
+        _canonical_fpath = Path("/") / fpath.relative_to(self._ref_root)
+        _canonical_fpath_str = str(_canonical_fpath)
+
+        _recycled_entry = self._recycle_folder / _hash
+        if _recycled_entry.is_file():
+            return RegInfTuple(_canonical_fpath_str)
+
+        _hash = file_sha256(fpath)
+        # collect this entry as the hash existed in _new
+        if self._new_delta.contains_hash(_hash):
+            shutil.copy(_recycled_entry, fpath)
+
+        # check whether this path should be remained
+        if self._new_delta.contains_path(_hash, _canonical_fpath_str):
+            entry = create_regular_inf(fpath, _hash=_hash)
+            # NOTE: re-asign the path
+            entry.path = _canonical_fpath
+            return RegInfTuple(_canonical_fpath, reginf=entry, _type="_hold")
         else:
-            _collector = _RegularDeltaCollector(_rm)
-            with ThreadPoolExecutor(thread_name_prefix="calculate_delta") as pool:
-                for _root in self.TARGET_FOLDERS:
-                    root_folder = self._ref_root / Path(_root).relative_to("/")
+            return RegInfTuple(_canonical_fpath)
 
-                    for dirpath, dirnames, filenames in os.walk(
-                        root_folder, topdown=True, followlinks=False
-                    ):
-                        cur_dir = Path(dirpath)
-                        if len(cur_dir.parents) > self.MAX_FOLDER_DEEPTH:
-                            logger.warning(
-                                f"reach max_folder_deepth on {cur_dir!r}, skip"
-                            )
-                            dirnames.clear()
-                            continue
+    def _cal_and_prepare_old_slot_delta(self):
+        """
+        NOTE: all local copies are ready after this method
+        """
+        # init
+        self._new_delta, self.total_new_num = self._parse_reginf(self._new_reg)
+        self._hold_delta = RegularDelta()
+        self._rm_list: List[str] = []
 
-                        # skip files that over the max_filenum_per_folder
-                        for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
-                            fpath = cur_dir / fname
-                            if fpath.is_file():  # only process regular file
-                                pool.submit(
-                                    create_regular_inf, fpath
-                                ).add_done_callback(_collector.collect_callback)
+        # phase 1: scan old slot and generate delta based on path,
+        #          group files into many hash group,
+        #          each hash group is a set contains RegularInf(s) with path as key.
+        with ThreadPoolExecutor() as pool:
+            for _root in self.TARGET_FOLDERS:
+                root_folder = self._ref_root / Path(_root).relative_to("/")
 
-            skip_verify = True
+                for dirpath, dirnames, filenames in os.walk(
+                    root_folder, topdown=True, followlinks=False
+                ):
+                    cur_dir = Path(dirpath)
+                    if len(cur_dir.parents) > self.MAX_FOLDER_DEEPTH:
+                        logger.warning(f"reach max_folder_deepth on {cur_dir!r}, skip")
+                        dirnames.clear()
+                        continue
 
-        logger.info(f"current slot regular files: {len(_rm)}")
+                    # skip files that over the max_filenum_per_folder
+                    futs: List[Future] = []
+                    for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
+                        futs.append(
+                            pool.submit(self._process_file_in_old_slot, cur_dir / fname)
+                        )
 
-        return skip_verify, _rm
+                    done, _ = wait(futs)
+                    for fut in done:
+                        try:
+                            res: RegInfTuple = fut.result()
+                        except Exception as e:
+                            raise CreateStandbySlotInternalError from e
 
-    def calculate_delta(self) -> Tuple[RegularDelta, RegularDelta, RegularDelta, int]:
-        logger.info("start to calculating delta...")
-        skip_verify, _rm = self._calculate_current_bank_regulars()
-        _hold, _new = RegularDelta(), RegularDelta()
+                        if res._type == "_rm":
+                            self._rm_list.append(res.path)
+                        elif res._type == "_hold":
+                            self._hold_delta.add_entry(res.reginf)
+                            self._new_delta.remove_entry(res.reginf)
 
-        # 1st-pass, comparing old and new by path
-        with open(self._new_reg, "r") as f:
-            for count, l in enumerate(f):
-                entry = RegularInf.parse_reginf(l)
-
-                if _rm.contains_entry(entry):
-                    # this path exists in both old and new
-                    _hold.add_entry(entry)
-                    _hold.ensure_copy(
-                        entry.sha256hash,
-                        root=self._ref_root,
-                        skip_verify=skip_verify,
-                    )
-
-                    _rm.remove_entry(entry)
-                else:
-                    # completely new path
-                    _new.add_entry(entry)
-
-            count += 1
-
-        # 2nd-pass: comparing _rm with _new by hash
-        #   cover the case that paths in _rm and _new have same hash
-        for _hash in _rm:
-            if _new.contains_hash(_hash):
-                # for hash that exists in both _rm and _new,
-                # recycle one entry in _rm to recycle folder.
-                _rm.ensure_copy(_hash, root=self._ref_root)
-
-        # 3rd-pass: comparing _new and _hold by hash
-        #   cover the case that new paths point to files that
-        #   existed in the _hold(detected by hash).
-        for _hash in _new:
-            if _hold.contains_hash(_hash):
+        # phase 2: parse _new_delta and compare to _hold by hash,
+        #          merging same hash group if possible.
+        _optimized: List[str] = []
+        for _hash, _entryset in self._new_delta.items():
+            if self._hold_delta.contains_hash(_hash):
                 # specially label this hash group
-                _hold.skip_cleanup(_hash)
+                self._hold_delta.merge_entryset(_entryset)
 
-        logger.info(
-            f"delta calculation result: {len(_new)=}, {len(_hold)=}, {len(_rm)=}, total_num={count}"
+        for _hash in _optimized:
+            del self._new_delta[_hash]
+
+    ###### public API ######
+    def get_delta(self) -> DeltaBundle:
+        return DeltaBundle(
+            _rm=self._rm_list,
+            _hold=self._hold_delta,
+            _new=self._new_delta,
+            ref_root=self._ref_root,
+            recycle_folder=self._recycle_folder,
+            total_regular_nums=self.total_new_num,
         )
-        return _new, _hold, _rm, count
