@@ -107,8 +107,11 @@ class _OTAUpdator:
         self._live_ota_status = live_ota_status
         self._boot_controller = boot_controller
 
-        self.update_start_time: int = 0  # unix time in milli-seconds
+        # set update status
         self.update_phase = OTAUpdatePhase.INITIAL
+        self.update_start_time = int(time.time() * 1000)  # unix time in milli-seconds
+        self.updating_version: str = None
+        self.failure_reason = ""
 
         # init downloader
         self._downloader = Downloader()
@@ -152,11 +155,8 @@ class _OTAUpdator:
     def _pre_update(
         self, version: str, url_base: str, cookies: Dict[str, Any], *, fsm: OTAUpdateFSM
     ):
-        # set update status
-        self.update_phase = OTAUpdatePhase.INITIAL
-        self.update_start_time = int(time.time() * 1000)
+        # set update version
         self.updating_version = version
-        self.failure_reason = ""
         # set ota status
         self._live_ota_status.set_ota_status(OTAStatusEnum.UPDATING)
 
@@ -339,6 +339,7 @@ class OTAClient(OTAClientInterface):
             raise OtaErrorBusy("another rollback is on-going, abort")
 
     ###### public API ######
+
     def update(
         self,
         version: str,
