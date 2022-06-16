@@ -272,7 +272,7 @@ class DirectoryInf(_BaseInf):
 
         del self._left
 
-    def mkdir2bank(self, dst_root: Path):
+    def mkdir2slot(self, dst_root: Path):
         _target = dst_root / self.path.relative_to("/")
         _target.mkdir(parents=True, exist_ok=True)
         os.chmod(_target, self.mode)
@@ -304,7 +304,7 @@ class SymbolicLinkInf(_BaseInf):
 
         del self._left
 
-    def link_at_bank(self, dst_root: Path):
+    def link_at_slot(self, dst_root: Path):
         if Path("/boot") in self.slink.parents:
             raise ValueError("symbolic link in /boot directory is not supported")
 
@@ -335,6 +335,7 @@ class RegularInf:
     example: 0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'path/to/file',1234,12345678
 
     NOTE: size and inode sections are both optional, if inode exists, size must exist.
+    NOTE 2: path should always be canonical!
     """
 
     mode: int
@@ -345,7 +346,7 @@ class RegularInf:
     path: Path
     size: Optional[int] = None
     inode: Optional[str] = None
-    _base_root: Optional[str] = None
+    _base: Optional[str] = None
 
     _reginf_pa: ClassVar[re.Pattern] = re.compile(
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'(,(?P<size>\d+)(,(?P<inode>\d+))?)?"
@@ -364,9 +365,7 @@ class RegularInf:
         path = Path(de_escape(_ma.group("path")))
 
         # special treatment for /boot folder
-        # if this entry is under /boot folder, we should get the relative_path
-        # from /boot, otherwise from /.
-        _base_root = "/boot" if str(path).startswith("/boot") else "/"
+        _base = "/boot" if str(path).startswith("/boot") else "/"
 
         size, inode = None, None
         if _size := _ma.group("size"):
@@ -385,7 +384,7 @@ class RegularInf:
             sha256hash=sha256hash,
             size=size,
             inode=inode,
-            _base_root=_base_root,
+            _base=_base,
         )
 
     def __hash__(self) -> int:
@@ -395,17 +394,17 @@ class RegularInf:
     def __eq__(self, _other) -> bool:
         return isinstance(_other, self.__class__) and self.path == _other.path
 
-    def exists(self, *, src_root: Path) -> bool:
-        _target = src_root / self.path.relative_to(self._base_root)
+    def exists_at_src_slot(self, *, src_root: Path) -> bool:
+        _target = src_root / self.path.relative_to(self._base)
         return _target.is_file()
 
     def change_root(self, new_root: Path) -> Path:
-        return Path(new_root) / self.path.relative_to(self._base_root)
+        return Path(new_root) / self.path.relative_to(self._base)
 
     def verify_file(self, *, src_root: Path) -> bool:
         return verify_file(self.change_root(src_root), self.sha256hash, self.size)
 
-    def copy2bank(self, dst_root: Path, /, *, src_root: Path):
+    def copy2slot(self, dst_root: Path, /, *, src_root: Path):
         """Copy file pointed by self to the dst bank."""
         _src = self.change_root(src_root)
         _dst = self.change_root(dst_root)
