@@ -1,24 +1,8 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from threading import Event
-from typing import Any, Protocol, TypeVar, Generator
-
-from app.ota_status import OTAStatusEnum
-
+from typing import Any
 
 # fmt: off
-_STATS = TypeVar("_STATS")
-
-class OTAUpdateStatsCollectorProtocol(Protocol[_STATS]):
-    @abstractmethod
-    def get_snapshot(self) -> _STATS: ...
-    @abstractmethod
-    def set(self, _key: str, _value: Any): ...
-    @abstractmethod
-    def get(self, _key: str) -> Any: ...
-    @abstractmethod
-    def clear(self): ...
-    @abstractmethod
-    def staging_changes(self) -> Generator[_STATS, None, None]: ...
 
 class OTAClientInterface(ABC):
     def update(
@@ -31,12 +15,5 @@ class OTAClientInterface(ABC):
 
     def rollback(self) -> Any: ...
     def status(self) -> Any: ...
-
-    def get_ota_status(self) -> OTAStatusEnum: ...
-    def set_ota_status(self, _status: OTAStatusEnum): ...
-    def request_update(self) -> None: 
-        """Check whether current ota_status is legal for applying an OTA update."""
-    def request_rollback(self) -> None:
-        """Check whether current ota_status is legal for applying an OTA rollback."""
 
 # fmt: on

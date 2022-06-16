@@ -175,7 +175,8 @@ class OtaClientStub:
         # NOTE 2: signal ota_client after ota_proxy launched
         if proxy_cfg.enable_local_ota_proxy:
             _init_cache = (
-                self._ota_client.get_live_ota_status() == OTAStatusEnum.SUCCESS
+                self._ota_client.live_ota_status.get_ota_status()
+                == OTAStatusEnum.SUCCESS
             )
             self._ota_proxy.start(_init_cache)
 

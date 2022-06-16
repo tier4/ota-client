@@ -120,6 +120,9 @@ class Downloader:
         # register the connection pool
         self._session = session
 
+    def shutdown(self):
+        self._session.close()
+
     def configure_proxy(self, proxy: str):
         # configure proxy
         self._proxy_set = True
