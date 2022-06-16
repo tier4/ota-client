@@ -164,7 +164,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
         _concurrent_se = Semaphore(self.MAX_CONCURRENT_TASKS)
 
-        def _release_concurrent_se():
+        def _release_concurrent_se(*args):
             _concurrent_se.release()
 
         # apply delta

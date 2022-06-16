@@ -375,7 +375,7 @@ class DeltaGenerator:
             )
 
         # check whether this path should be remained
-        if self._new_delta.contains_path(_hash, _canonical_fpath_str):
+        if self._new_delta.contains_path(_canonical_fpath_str):
             entry = create_regular_inf(fpath, _hash=_hash)
             # NOTE: re-asign the path
             entry.path = _canonical_fpath
