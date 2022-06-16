@@ -370,7 +370,7 @@ class OTAClient(OTAClientInterface):
             self.updator.execute(version, url_base, cookies_json, fsm=fsm)
             return self._result_ok()
         except OtaErrorBusy as e:
-            return self._result_recoverable(e)
+            return OTAOperationFailureType.RECOVERABLE
         except OtaErrorRecoverable as e:
             return self._result_recoverable(e)
         except OtaErrorUnrecoverable as e:
