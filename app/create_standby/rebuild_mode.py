@@ -67,8 +67,11 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
         self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
 
-        # recycle folder
-        self._recycle_folder = Path(cfg.OTA_TMP_STORE)
+        # recycle folder, files copied from referenced slot will be stored here,
+        # also the meta files will be stored under this folder
+        self._recycle_folder = self.standby_slot / Path(cfg.OTA_TMP_STORE).relative_to(
+            "/"
+        )
         self._recycle_folder.mkdir()
 
         # configure the downloader
@@ -121,14 +124,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
         with open(self._recycle_folder / "dirs.txt", "r") as f:
             for l in f:
-                DirectoryInf(l).mkdir2bank(self.standby_slot)
+                DirectoryInf(l).mkdir2slot(self.standby_slot)
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
-        _dst = Path(self.META_FOLDER)
+        _dst = self.standby_slot / Path(self.META_FOLDER).relative_to("/")
         _dst.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"save image meta to {_dst}")
+        logger.info(f"save image meta files to {_dst}")
         for fname, _ in self.META_FILES.items():
             _src = self._recycle_folder / fname
             shutil.copy(_src, _dst)
@@ -136,7 +139,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _process_symlinks(self):
         with open(self._recycle_folder / "symlinks.txt", "r") as f:
             for l in f:
-                SymbolicLinkInf(l).link_at_bank(self.standby_slot)
+                SymbolicLinkInf(l).link_at_slot(self.standby_slot)
 
     def _process_regulars(self):
         self.update_phase_tracker(OTAUpdatePhase.REGULAR)
