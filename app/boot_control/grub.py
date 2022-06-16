@@ -2,7 +2,6 @@ from pathlib import Path
 
 from app.boot_control._grub import OtaPartitionFile
 from app.boot_control.common import (
-    BootControlExternalError,
     CMDHelperFuncs,
     OTAStatusMixin,
     VersionControlMixin,
@@ -45,6 +44,7 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
             / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._boot_control.get_standby_root_device()}"
         )
         self.standby_ota_status_dir.mkdir(exist_ok=True)
+
         self.ota_status = self._init_boot_control()
 
     def _finalize_update(self) -> OTAStatusEnum:
@@ -89,6 +89,13 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
 
     def get_standby_slot_path(self) -> Path:
         return self.standby_slot_path
+
+    def get_standby_boot_dir(self) -> Path:
+        """
+        NOTE: in grub_controller, kernel and initrd images are stored under
+        the ota_status_dir(ota_partition_dir)
+        """
+        return self.standby_ota_status_dir
 
     def pre_update(self, version: str, *, erase_standby=False):
         try:

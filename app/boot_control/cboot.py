@@ -457,6 +457,13 @@ class CBootController(
     def get_standby_slot_path(self) -> Path:
         return self.standby_slot_path
 
+    def get_standby_boot_dir(self) -> Path:
+        """
+        NOTE: in cboot controller, we directly use the /boot dir under the standby slot,
+        and sync to the external boot dev in the post_update if needed.
+        """
+        return self.standby_slot_path / "boot"
+
     def pre_update(self, version: str, *, erase_stanby=False):
         try:
             # setup updating
