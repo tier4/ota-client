@@ -23,7 +23,9 @@ from typing import (
     Literal,
     OrderedDict,
     Protocol,
+    Set,
     Tuple,
+    TypeVar,
     Union,
 )
 
@@ -287,17 +289,23 @@ class DeltaBundle:
     total_regular_num: int
 
 
+# whether to enable full scan on all files,
+# or fall back to only scan paths that also exists in new img
+_SCAN_MODE = TypeVar("_SCAN_MODE")
+_FULL_SCAN = "FULL_SCAN"
+_MATCH_ONLY = "MATCH_ONLY"
+
+
 class DeltaGenerator:
     # folders to scan on bank
-    TARGET_FOLDERS: ClassVar[List[str]] = [
-        "/etc",
-        "/greengrass",
-        "/home/autoware",
-        "/var/lib",
-        "/opt",
-        "/usr",
-        "/var/lib",
-    ]
+    # Dict[<folder_name>, <full_scan>]
+    TARGET_FOLDERS: ClassVar[Dict[str, _SCAN_MODE]] = {
+        "/etc": _FULL_SCAN,
+        "/opt": _FULL_SCAN,
+        "/usr": _FULL_SCAN,
+        "/var/lib": _FULL_SCAN,
+        "/home/autoware": _MATCH_ONLY,
+    }
     MAX_FOLDER_DEEPTH = 16
     MAX_FILENUM_PER_FOLDER = 1024
 
@@ -385,8 +393,9 @@ class DeltaGenerator:
         # phase 1: scan old slot and generate delta based on path,
         #          group files into many hash group,
         #          each hash group is a set contains RegularInf(s) with path as key.
+        # TODO: if old_reg is available, only scan files that presented in the old_reg
         with ThreadPoolExecutor() as pool:
-            for _root in self.TARGET_FOLDERS:
+            for _root, scan_mode in self.TARGET_FOLDERS.items():
                 root_folder = self._ref_root / Path(_root).relative_to("/")
 
                 for dirpath, dirnames, filenames in os.walk(
@@ -401,9 +410,18 @@ class DeltaGenerator:
                     # skip files that over the max_filenum_per_folder
                     futs: List[Future] = []
                     for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
-                        futs.append(
-                            pool.submit(self._process_file_in_old_slot, cur_dir / fname)
-                        )
+                        fpath = cur_dir / fname
+
+                        # in MATCH_ONLY scan mode, skip paths that don't exist
+                        # in the new img to prevent scanning unintentionally files.
+                        if scan_mode == _MATCH_ONLY:
+                            canonical_path = Path("/") / fpath.relative_to(
+                                self._ref_root
+                            )
+                            if not self._new_delta.contains_path(canonical_path):
+                                continue
+
+                        futs.append(pool.submit(self._process_file_in_old_slot, fpath))
 
                     done, _ = wait(futs)
                     for fut in done:
