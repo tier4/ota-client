@@ -4,7 +4,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Semaphore
-from typing import Callable, List
+from typing import Callable
 from urllib.parse import urljoin
 
 from app.configs import OTAFileCacheControl, config as cfg

@@ -255,7 +255,7 @@ class _OTAUpdator:
         *,
         fsm: OTAUpdateFSM,
     ):
-        logger.info(f"{version=},{raw_url_base=},{cookies=}")
+        logger.info(f"{version=},{raw_url_base=},{cookies_json=}")
         """
         e.g.
         cookies = {

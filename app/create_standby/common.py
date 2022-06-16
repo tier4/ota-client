@@ -339,11 +339,14 @@ class DeltaGenerator:
         _canonical_fpath = Path("/") / fpath.relative_to(self._ref_root)
         _canonical_fpath_str = str(_canonical_fpath)
 
+        # TODO: if old_reg is available, we can get the hash of the path
+        # without hashing it in the first place
+        _hash = file_sha256(fpath)
+
         _recycled_entry = self._recycle_folder / _hash
         if _recycled_entry.is_file():
             return RegInfTuple(_canonical_fpath_str)
 
-        _hash = file_sha256(fpath)
         # collect this entry as the hash existed in _new
         if self._new_delta.contains_hash(_hash):
             _start = time.thread_time()
