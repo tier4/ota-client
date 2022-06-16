@@ -180,6 +180,7 @@ class _OTAUpdator:
             cookies=cookies,
             metadata=metadata,
             url_base=url_base,
+            boot_dir=str(self._boot_controller.get_standby_boot_dir()),
         )
 
         # launch ota update stats collector
