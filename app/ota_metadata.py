@@ -410,29 +410,29 @@ class RegularInf:
         _dst = self.change_root(dst_root)
         shutil.copy2(_src, _dst, follow_symlinks=False)
         # still ensure permission on dst
-        os.chmod(_dst, self.mode)
         os.chown(_dst, self.uid, self.gid)
+        os.chmod(_dst, self.mode)
 
     def copy2dst(self, dst: Path, /, *, src_root: Path):
         """Copy file pointed by self to the dst."""
         _src = self.change_root(src_root)
         shutil.copy2(_src, dst, follow_symlinks=False)
         # still ensure permission on dst
-        os.chmod(dst, self.mode)
         os.chown(dst, self.uid, self.gid)
+        os.chmod(dst, self.mode)
 
     def copy_from_src(self, src: Path, *, dst_root: Path):
         """Copy file from src to dst pointed by regular_inf."""
         _dst = self.change_root(dst_root)
         shutil.copy2(src, _dst, follow_symlinks=False)
         # still ensure permission on dst
-        os.chmod(_dst, self.mode)
         os.chown(_dst, self.uid, self.gid)
+        os.chmod(_dst, self.mode)
 
     def move_from_src(self, src: Path, *, dst_root: Path):
         """Copy file from src to dst pointed by regular_inf."""
         _dst = self.change_root(dst_root)
         shutil.move(src, _dst)
         # still ensure permission on dst
-        os.chmod(_dst, self.mode)
         os.chown(_dst, self.uid, self.gid)
+        os.chmod(_dst, self.mode)
