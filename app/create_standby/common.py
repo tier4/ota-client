@@ -1,13 +1,10 @@
 r"""Common used helpers, classes and functions for different bank creating methods."""
-from abc import abstractmethod
-import collections
 import os
-import queue
 import shutil
 import time
 import weakref
+from abc import abstractmethod
 from concurrent.futures import (
-    FIRST_EXCEPTION,
     Future,
     ProcessPoolExecutor,
     ThreadPoolExecutor,
@@ -15,12 +12,11 @@ from concurrent.futures import (
 )
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Event, Lock, Semaphore
+from threading import Event, Lock
 from typing import (
     Any,
     Callable,
     ClassVar,
-    Generator,
     Iterator,
     List,
     Dict,
@@ -33,10 +29,10 @@ from typing import (
 
 from app.common import file_sha256
 from app.configs import config as cfg
-from app.interface import OTAUpdateStatsCollectorProtocol
 from app.ota_metadata import OtaMetadata, RegularInf
 from app import log_util
-from app.update_stats import OTAUpdateStatsCollector
+from app.update_phase import OTAUpdatePhase
+from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -68,6 +64,7 @@ class UpdateMeta:
     cookies: Dict[str, Any]  # cookies needed for requesting remote ota files
     metadata: OtaMetadata  # meta data for the update request
     url_base: str  # base url of the remote ota image
+    boot_dir: str  # where to populate files under /boot
 
 
 class StandbySlotCreatorProtocol(Protocol):
@@ -83,8 +80,8 @@ class StandbySlotCreatorProtocol(Protocol):
     """
 
     update_meta: UpdateMeta
-    stats_tracker: OTAUpdateStatsCollectorProtocol
-    update_phase_tracker: Callable
+    stats_collector: OTAUpdateStatsCollector
+    update_phase_tracker: Callable[[OTAUpdatePhase], None]
 
     @abstractmethod
     def create_standby_bank(self):
@@ -173,125 +170,6 @@ class HardlinkRegister:
                 self._hash_ref_dict[_identifier] = _ref
                 self._ref_tracker_dict[_ref] = _tracker
                 return _tracker, True
-
-
-@dataclass
-class RegularStats:
-    """processed_list have dictionaries as follows:
-    {"size": int}  # file size
-    {"elapsed": int}  # elapsed time in seconds
-    {"op": str}  # operation. "copy", "link" or "download"
-    {"errors": int}  # number of errors that occurred when downloading.
-    """
-
-    op: str = ""
-    size: int = 0
-    elapsed: int = 0
-    errors: int = 0
-
-
-class CreateRegularStatsCollector:
-    COLLECT_INTERVAL = cfg.STATS_COLLECT_INTERVAL
-
-    def __init__(
-        self,
-        store: OTAUpdateStatsCollector,
-        *,
-        total_regular_num: int,
-        max_concurrency_tasks: int,
-    ) -> None:
-        self._que = queue.Queue()
-        self._store = store
-
-        self.abort_event = Event()
-        self.finished_event = Event()
-        self.last_error = None
-        self.se = Semaphore(max_concurrency_tasks)
-        self.total_regular_num = total_regular_num
-
-    def acquire_se(self):
-        """Acquire se for dispatching task to threadpool,
-        block if concurrency limit is reached."""
-        self.se.acquire()
-
-    def release_se(self):
-        self.se.release()
-
-    def collector(self):
-        _staging: List[RegularStats] = []
-        _cur_time = time.time()
-        while True:
-            if self.abort_event.is_set():
-                logger.error("abort event is set, collector exits")
-                break
-
-            if self._store.get_processed_num() < self.total_regular_num:
-                try:
-                    sts = self._que.get_nowait()
-                    _staging.append(sts)
-                except queue.Empty:
-                    # if no new stats available, wait <_interval> time
-                    time.sleep(self.COLLECT_INTERVAL)
-            else:
-                # all sts are processed
-                self.finished_event.set()
-                break
-
-            # collect stats every <_interval> seconds
-            if _staging and time.time() - _cur_time > self.COLLECT_INTERVAL:
-                with self._store.staging_changes() as staging_storage:
-                    staging_storage.regular_files_processed += len(_staging)
-
-                    for st in _staging:
-                        _suffix = st.op
-                        if _suffix in {"copy", "link", "download"}:
-                            staging_storage[f"files_processed_{_suffix}"] += 1
-                            staging_storage[f"file_size_processed_{_suffix}"] += st.size
-                            staging_storage[f"elapsed_time_{_suffix}"] += int(
-                                st.elapsed * 1000
-                            )
-
-                            if _suffix == "download":
-                                staging_storage[f"errors_{_suffix}"] += st.errors
-
-                    # cleanup already collected stats
-                    _staging.clear()
-
-                _cur_time = time.time()
-
-    def callback(self, fut: Future):
-        """Callback for create regular files
-        sts will also being put into que from this callback
-        """
-        try:
-            sts: List[RegularStats] = fut.result()
-            for st in sts:
-                self._que.put_nowait(st)
-
-            self.release_se()
-        except Exception as e:
-            self.last_error = e
-            # if any task raises exception,
-            # interrupt the background collector
-            self.abort_event.set()
-
-    def wait(self):
-        """Waits until all regular files have been processed
-        and detect any exceptions raised by background workers.
-
-        Raise:
-            Last error happens among worker threads.
-        """
-        # loop detect exception
-        while not self.finished_event.is_set():
-            # if done_event is set before all tasks finished,
-            # it means exception happened
-            time.sleep(self.COLLECT_INTERVAL)
-            if self.abort_event.is_set():
-                logger.error(
-                    f"create_regular_files failed, last error: {self.last_error!r}"
-                )
-                raise self.last_error
 
 
 class RegularInfSet(OrderedDict[RegularInf, None]):
@@ -383,7 +261,7 @@ def create_regular_inf(fpath: Union[str, Path], *, _hash: str = None) -> Regular
         sha256hash=_hash,
         path=path,
         inode=inode,
-        _base_root=_base_root,
+        _base=_base_root,
     )
 
     return res
@@ -403,7 +281,7 @@ class DeltaBundle:
     _new: RegularDelta
     ref_root: Path
     recycle_folder: Path
-    total_regular_nums: int
+    total_regular_num: int
 
 
 class DeltaGenerator:
@@ -427,6 +305,7 @@ class DeltaGenerator:
         *,
         ref_root: Path,
         recycle_folder: Path,
+        stats_collector: OTAUpdateStatsCollector,
     ) -> None:
         """
         Attrs:
@@ -435,6 +314,7 @@ class DeltaGenerator:
         self._old_reg = old_reg
         self._new_reg = new_reg
 
+        self._stats_collector = stats_collector
         self._ref_root = ref_root
         self._recycle_folder = recycle_folder
 
@@ -466,7 +346,17 @@ class DeltaGenerator:
         _hash = file_sha256(fpath)
         # collect this entry as the hash existed in _new
         if self._new_delta.contains_hash(_hash):
+            _start = time.thread_time()
             shutil.copy(_recycled_entry, fpath)
+
+            # report to the ota update stats collector
+            self._stats_collector.report(
+                RegInfProcessedStats(
+                    op="copy",
+                    size=fpath.stat().st_size,
+                    elapsed=time.thread_time() - _start,
+                )
+            )
 
         # check whether this path should be remained
         if self._new_delta.contains_path(_hash, _canonical_fpath_str):
@@ -541,5 +431,5 @@ class DeltaGenerator:
             _new=self._new_delta,
             ref_root=self._ref_root,
             recycle_folder=self._recycle_folder,
-            total_regular_nums=self.total_new_num,
+            total_regular_num=self.total_new_num,
         )

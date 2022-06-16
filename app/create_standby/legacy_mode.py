@@ -10,7 +10,6 @@ from urllib.parse import urljoin
 from app.configs import OTAFileCacheControl, config as cfg
 from app.copy_tree import CopyTree
 from app.downloader import Downloader
-from app.update_stats import OTAUpdateStatsCollector
 from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
     DirectoryInf,
@@ -23,12 +22,10 @@ from app.proxy_info import proxy_cfg
 from app.create_standby.common import (
     CreateStandbySlotExternalError,
     HardlinkRegister,
-    RegularStats,
-    CreateRegularStatsCollector,
     StandbySlotCreatorProtocol,
     UpdateMeta,
 )
-
+from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
 from app import log_util
 
 logger = log_util.get_logger(
@@ -45,14 +42,14 @@ class LegacyMode(StandbySlotCreatorProtocol):
         self,
         *,
         update_meta: UpdateMeta,
-        stats_tracker: OTAUpdateStatsCollector,
+        stats_collector: OTAUpdateStatsCollector,
         update_phase_tracker: Callable,
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
         self.url_base = update_meta.url_base
 
-        self.stats_tracker = stats_tracker
+        self.stats_collector = stats_collector
         self.update_phase_tracker: Callable = update_phase_tracker
 
         self.reference_slot = Path("/")
@@ -182,7 +179,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     ):  # NOTE: not equivalent to perinf.path.exists()
                         copy_tree.copy_with_parents(perinf.path, self.standby_slot)
 
-    def _create_regular_file(self, reginf: RegularInf) -> List[RegularStats]:
+    def _create_regular_file(self, reginf: RegularInf, *, download_se: Semaphore):
         # thread_time for multithreading function
         # NOTE: for multithreading implementation,
         # when a thread is sleeping, the GIL will be released
@@ -190,7 +187,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         # so we use time.thread_time here.
         begin_time = time.thread_time()
 
-        processed = RegularStats()
+        processed = RegInfProcessedStats()
         if str(reginf.path).startswith("/boot"):
             dst = self.boot_dir / reginf.path.relative_to("/boot")
         else:
@@ -224,11 +221,11 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     src_root=self.reference_slot
                 ):
                     # copy file from active bank if hash is the same
-                    reginf.copy2bank(self.standby_slot, src_root=self.reference_slot)
+                    reginf.copy2slot(self.standby_slot, src_root=self.reference_slot)
                     processed.op = "copy"
                 else:
                     # limit the concurrent downloading tasks
-                    with self._download_se:
+                    with download_se:
                         processed.errors = self._downloader.download(
                             reginf.path,
                             dst,
@@ -258,7 +255,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         processed.elapsed = time.thread_time() - begin_time
 
-        return [processed]
+        self.stats_collector.report(processed)
 
     def _create_regular_files(self, regulars_file: str):
         logger.info("start to populate regular files...")
@@ -268,35 +265,29 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         # NOTE: check _OtaStatisticsStorage for available attributes
         logger.info(f"total_regular_files={total_files_num}")
-        self.stats_tracker.set("total_regular_files", total_files_num)
+        self.stats_collector.store.total_regular_files = total_files_num
 
         self._hardlink_register = HardlinkRegister()
-        # collector that records stats from tasks and update ota-update status
-        _collector = CreateRegularStatsCollector(
-            self.stats_tracker,
-            total_regular_num=total_files_num,
-            max_concurrency_tasks=self.MAX_CONCURRENT_TASKS,
-        )
-        # limit the cocurrent downloading tasks
-        self._download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
+
+        # limit the cocurrent tasks and downloading
+        _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
+        _concurrent_se = Semaphore(self.MAX_CONCURRENT_TASKS)
+
+        def _release_concurrent_se():
+            _concurrent_se.release()
 
         with open(regulars_file, "r") as f, ThreadPoolExecutor() as pool:
-            # fire up background collector
-            pool.submit(_collector.collector)
-
             for l in f:
                 entry = RegularInf.parse_reginf(l)
-                _collector.acquire_se()
+                _concurrent_se.acquire()
 
                 pool.submit(
                     self._create_regular_file,
                     entry,
-                ).add_done_callback(_collector.callback)
+                    download_se=_download_se,
+                ).add_done_callback(_release_concurrent_se)
 
             logger.info("all create_regular_files tasks dispatched, wait for collector")
-
-            # wait for collector
-            _collector.wait()
 
     ###### public API methods ######
     @classmethod

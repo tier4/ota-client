@@ -1,12 +1,7 @@
 from itertools import chain
 import shutil
-import tempfile
 import time
-from concurrent.futures import (
-    FIRST_EXCEPTION,
-    ThreadPoolExecutor,
-    wait as concurrent_futures_wait,
-)
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Semaphore
 from typing import Callable, ClassVar, Dict, List
@@ -14,10 +9,7 @@ from urllib.parse import urljoin
 
 from app.create_standby.common import (
     CreateStandbySlotExternalError,
-    CreateStandbySlotInternalError,
     HardlinkRegister,
-    CreateRegularStatsCollector,
-    RegularStats,
     RegularInfSet,
     DeltaGenerator,
     StandbySlotCreatorProtocol,
@@ -26,7 +18,7 @@ from app.create_standby.common import (
 from app.configs import OTAFileCacheControl, config as cfg
 from app.proxy_info import proxy_cfg
 from app.downloader import Downloader
-from app.update_stats import OTAUpdateStatsCollector
+from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
 from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
     DirectoryInf,
@@ -57,27 +49,27 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self,
         *,
         update_meta: UpdateMeta,
-        stats_tracker: OTAUpdateStatsCollector,
-        update_phase_tracker: "Callable[[OTAUpdatePhase], None]",
+        stats_collector: OTAUpdateStatsCollector,
+        update_phase_tracker: Callable[[OTAUpdatePhase], None],
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
         self.url_base = update_meta.url_base
-        self.stats_tracker = stats_tracker
+        self.stats_collector = stats_collector
         self.update_phase_tracker = update_phase_tracker
 
+        # path configuration
+        self.boot_dir = Path(update_meta.boot_dir)
         self.reference_slot = Path("/")
         self.standby_slot = Path(cfg.MOUNT_POINT)
-        self.boot_dir = self.standby_slot / Path(cfg.BOOT_DIR).relative_to("/")
 
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
         self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
 
-        # temp storage
-        Path(cfg.OTA_TMP_STORE).mkdir(exist_ok=True)
-        self._tmp_storage = tempfile.TemporaryDirectory(dir=cfg.OTA_TMP_STORE)
-        self._tmp_folder = Path(self._tmp_storage.name)
+        # recycle folder
+        self._recycle_folder = Path(cfg.OTA_TMP_STORE)
+        self._recycle_folder.mkdir()
 
         # configure the downloader
         self._downloader = Downloader()
@@ -92,7 +84,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             list_info = getattr(self.metadata, method)()
             self._downloader.download(
                 path=list_info["file"],
-                dst=self._tmp_folder / fname,
+                dst=self._recycle_folder / fname,
                 digest=list_info["hash"],
                 url_base=self.url_base,
                 cookies=self.cookies,
@@ -115,7 +107,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             dst_group_file=self.standby_slot / _group_file.relative_to("/"),
         )
 
-        with open(self._tmp_folder / "persistents.txt", "r") as f:
+        with open(self._recycle_folder / "persistents.txt", "r") as f:
             for l in f:
                 perinf = PersistentInf(l)
                 if (
@@ -127,7 +119,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _process_dirs(self):
         self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
-        with open(self._tmp_folder / "dirs.txt", "r") as f:
+        with open(self._recycle_folder / "dirs.txt", "r") as f:
             for l in f:
                 DirectoryInf(l).mkdir2bank(self.standby_slot)
 
@@ -138,11 +130,11 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         logger.info(f"save image meta to {_dst}")
         for fname, _ in self.META_FILES.items():
-            _src = self._tmp_folder / fname
+            _src = self._recycle_folder / fname
             shutil.copy(_src, _dst)
 
     def _process_symlinks(self):
-        with open(self._tmp_folder / "symlinks.txt", "r") as f:
+        with open(self._recycle_folder / "symlinks.txt", "r") as f:
             for l in f:
                 SymbolicLinkInf(l).link_at_bank(self.standby_slot)
 
@@ -154,45 +146,45 @@ class RebuildMode(StandbySlotCreatorProtocol):
         logger.info("generating delta...")
         delta_calculator = DeltaGenerator(
             old_reg=Path(self.META_FOLDER) / "regulars.txt",
-            new_reg=self._tmp_folder / "regulars.txt",
+            new_reg=self._recycle_folder / "regulars.txt",
             ref_root=self.reference_slot,
-            recycle_folder=None,  # TODO: recycle folder
+            recycle_folder=self._recycle_folder,
         )
         delta_bundle = delta_calculator.get_delta()
-        logger.info(f"total_regular_files_num={delta_bundle.total_regular_nums}")
+        self.stats_collector.store.total_regular_files = delta_bundle.total_regular_num
+        logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
 
         self._hardlink_register = HardlinkRegister()
-        self._download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
-        _collector = CreateRegularStatsCollector(
-            self.stats_tracker,
-            total_regular_num=delta_bundle.total_regular_nums,
-            max_concurrency_tasks=self.MAX_CONCURRENT_TASKS,
-        )
-        self.stats_tracker.set("total_regular_files", delta_bundle.total_regular_nums)
+
+        # limitation on on-going tasks/download
+        _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
+        _concurrent_se = Semaphore(self.MAX_CONCURRENT_TASKS)
+
+        def _release_concurrent_se():
+            _concurrent_se.release()
 
         # apply delta
         with ThreadPoolExecutor(thread_name_prefix="create_standby_bank") as pool:
             logger.info("start applying delta")
-            pool.submit(_collector.collector)
             for _hash, _regulars_set in chain(
                 delta_bundle._hold.items(), delta_bundle._new.items()
             ):
-                _collector.acquire_se()
+                _concurrent_se.acquire()
                 pool.submit(
                     self._apply_reginf_set,
                     _hash,
                     _regulars_set,
-                ).add_done_callback(_collector.callback)
+                    download_se=_download_se,
+                ).add_done_callback(_release_concurrent_se)
 
-            _collector.wait()
             logger.info("delta apply done")
 
     def _apply_reginf_set(
-        self, _hash: str, _regs_set: RegularInfSet
-    ) -> List[RegularStats]:
-        stats_list = []
+        self, _hash: str, _regs_set: RegularInfSet, *, download_se: Semaphore
+    ):
+        stats_list: List[RegInfProcessedStats] = []  # for ota stats report
 
-        _local_copy = self._tmp_folder / _hash
+        _local_copy = self._recycle_folder / _hash
         _local_copy_available = _local_copy.is_file()
         _first_copy_prepared = _local_copy_available
 
@@ -203,7 +195,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             # prepare first copy for the hash group
             if not _local_copy_available:
                 _op = "download"
-                with self._download_se:  # limit on-going downloading
+                with download_se:  # limit on-going downloading
                     _errors = self._downloader.download(
                         entry.path,
                         _local_copy,
@@ -216,7 +208,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
             # special treatment on /boot folder
             _mount_point = (
-                self.standby_slot if not entry._base_root == "/boot" else self.boot_dir
+                self.standby_slot if not entry._base == "/boot" else self.boot_dir
             )
 
             # prepare this entry
@@ -246,9 +238,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
 
-            # finish up, collect stats
             stats_list.append(
-                RegularStats(
+                RegInfProcessedStats(
                     op=_op,
                     size=entry.size,
                     elapsed=time.thread_time() - _start,
@@ -260,8 +251,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # when we are geernating delta
         if _first_copy_prepared:
             stats_list = stats_list[1:]
-
-        return stats_list
+        self.stats_collector.report(*stats_list)
 
     ###### public API methods ######
     @classmethod
@@ -279,4 +269,4 @@ class RebuildMode(StandbySlotCreatorProtocol):
         except Exception as e:
             raise CreateStandbySlotExternalError from e
         finally:
-            self._tmp_storage.cleanup()  # finally cleanup
+            shutil.rmtree(self._recycle_folder, ignore_errors=True)
