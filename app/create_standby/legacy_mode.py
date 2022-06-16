@@ -54,7 +54,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         self.reference_slot = Path("/")
         self.standby_slot = Path(cfg.MOUNT_POINT)
-        self.boot_dir = self.standby_slot / Path(cfg.BOOT_DIR).relative_to("/")
+        self.boot_dir = Path(update_meta.boot_dir)
 
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
@@ -273,7 +273,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
         _concurrent_se = Semaphore(self.MAX_CONCURRENT_TASKS)
 
-        def _release_concurrent_se():
+        def _release_concurrent_se(*args):
             _concurrent_se.release()
 
         with open(regulars_file, "r") as f, ThreadPoolExecutor() as pool:
