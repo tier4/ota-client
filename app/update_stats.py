@@ -1,9 +1,12 @@
+from concurrent.futures import ThreadPoolExecutor
 import dataclasses
 from contextlib import contextmanager
-from threading import Lock
-from typing import Any, Dict, Generator
+from queue import Empty, Queue
+from threading import Event, Lock
+import time
+from typing import Any, Dict, Generator, List
 
-from app.interface import OTAUpdateStatsCollectorProtocol
+from app.configs import config as cfg
 
 
 @dataclasses.dataclass
@@ -36,36 +39,97 @@ class OTAUpdateStats:
         setattr(self, _key, _value)
 
 
-class OTAUpdateStatsCollector(OTAUpdateStatsCollectorProtocol):
+@dataclasses.dataclass
+class RegInfProcessedStats:
+    """processed_list have dictionaries as follows:
+    {"size": int}  # file size
+    {"elapsed": int}  # elapsed time in seconds
+    {"op": str}  # operation. "copy", "link" or "download"
+    {"errors": int}  # number of errors that occurred when downloading.
+    """
+
+    op: str = ""
+    size: int = 0
+    elapsed: int = 0
+    errors: int = 0
+
+
+class OTAUpdateStatsCollector:
     def __init__(self) -> None:
         self._lock = Lock()
-        self._store = OTAUpdateStats()
+        self._started = False
+        self.store = OTAUpdateStats()
 
-    def get_processed_num(self) -> int:
-        return self._store.regular_files_processed
+        self.collect_interval = cfg.STATS_COLLECT_INTERVAL
+        self.terminated = Event()
+        self._que: Queue[RegInfProcessedStats] = Queue()
+        self._staging: List[RegInfProcessedStats] = []
+
+    @contextmanager
+    def _staging_changes(self) -> Generator[OTAUpdateStats, None, None]:
+        """Acquire a staging storage for updating the slot atomically and thread-safely."""
+        try:
+            staging_slot = self.store.copy()
+            yield staging_slot
+        finally:
+            self.store = staging_slot
+
+    ###### public API ######
+
+    def start(self):
+        with self._lock:
+            if not self._started:
+                self._executor = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="update_stats_collector"
+                )
+                self._executor.submit(self.collector())
+
+    def stop(self):
+        with self._lock:
+            if self._started:
+                self.terminated.set()
+                self._executor.shutdown(wait=True)
+                self._started = False
 
     def get_snapshot(self) -> OTAUpdateStats:
         """Return a copy of statistics storage."""
-        return self._store.copy()
+        return self.store.copy()
 
-    def get(self, _key: str) -> int:
-        return self._store[_key]
+    def get_snapshot_as_dist(self) -> Dict[str, Any]:
+        return self.store.copy().export_as_dict()
 
-    def set(self, _attr: str, _value: Any):
-        """Set a single attr in the slot."""
-        with self._lock:
-            self._store[_attr] = _value
+    def report(self, *stats: RegInfProcessedStats):
+        for _stat in stats:
+            self._que.put_nowait(_stat)
 
-    def clear(self):
-        self._store = OTAUpdateStats()
+    def collector(self):
+        _prev_time = time.time()
+        while self._staging or not self.terminated.is_set():
+            if not self.terminated.is_set():
+                try:
+                    _sts = self._que.get_nowait()
+                    self._staging.append(_sts)
+                except Empty:
+                    # if no new stats available, wait <_interval> time
+                    time.sleep(self.collect_interval)
 
-    @contextmanager
-    def staging_changes(self) -> Generator[OTAUpdateStats, None, None]:
-        """Acquire a staging storage for updating the slot atomically and thread-safely."""
-        try:
-            self._lock.acquire()
-            staging_slot = self._store.copy()
-            yield staging_slot
-        finally:
-            self._store = staging_slot
-            self._lock.release()
+            _cur_time = time.time()
+            if self._staging and _cur_time - _prev_time >= self.collect_interval:
+                _prev_time = _cur_time
+                with self._staging_changes() as staging_storage:
+                    staging_storage.regular_files_processed += len(self._staging)
+
+                    for st in self._staging:
+                        _suffix = st.op
+                        if _suffix in {"copy", "link", "download"}:
+                            staging_storage[f"files_processed_{_suffix}"] += 1
+                            staging_storage[f"file_size_processed_{_suffix}"] += st.size
+                            staging_storage[f"elapsed_time_{_suffix}"] += int(
+                                st.elapsed * 1000
+                            )
+
+                            if _suffix == "download":
+                                staging_storage[f"errors_{_suffix}"] += st.errors
+
+                    # cleanup already collected stats
+                    self._staging.clear()
