@@ -18,13 +18,14 @@ class OTAStatusEnum(Enum):
     ROLLBACK_FAILURE = auto()
 
 
-class LiveOTAStatusMixin:
-    live_ota_status: OTAStatusEnum
+class LiveOTAStatus:
+    def __init__(self, ota_status: OTAStatusEnum) -> None:
+        self.live_ota_status = ota_status
 
-    def get_live_ota_status(self) -> OTAStatusEnum:
+    def get_ota_status(self) -> OTAStatusEnum:
         return self.live_ota_status
 
-    def set_live_ota_status(self, _status: OTAStatusEnum):
+    def set_ota_status(self, _status: OTAStatusEnum):
         self.live_ota_status = _status
 
     def request_update(self) -> bool:
