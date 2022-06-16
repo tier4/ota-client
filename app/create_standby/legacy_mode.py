@@ -121,9 +121,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 for line in symlink_txt:
                     # NOTE: symbolic link in /boot directory is not supported. We don't use it.
                     slinkf = SymbolicLinkInf(line)
-                    slink = self.standby_slot.joinpath(slinkf.slink.relative_to("/"))
-                    slink.symlink_to(slinkf.srcpath)
-                    os.chown(slink, slinkf.uid, slinkf.gid, follow_symlinks=False)
+                    slinkf.link_at_slot(self.standby_slot)
 
     def _process_regular(self):
         self.update_phase_tracker(OTAUpdatePhase.REGULAR)
@@ -235,6 +233,10 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         )
                         processed.op = "download"
 
+                    # set file permission as RegInf says
+                    os.chown(dst, reginf.uid, reginf.gid)
+                    os.chmod(dst, reginf.mode)
+
                 # when first copy is ready(by copy or download),
                 # inform the subscriber
                 if is_hardlink and _is_writer:
@@ -242,17 +244,11 @@ class LegacyMode(StandbySlotCreatorProtocol):
             except Exception:
                 if is_hardlink and _is_writer:
                     # signal all subscribers to abort
-
                     _hardlink_tracker.writer_on_failed()
 
                 raise
 
         processed.size = dst.stat().st_size
-
-        # set file permission as RegInf says
-        os.chown(dst, reginf.uid, reginf.gid)
-        os.chmod(dst, reginf.mode)
-
         processed.elapsed = time.thread_time() - begin_time
 
         self.stats_collector.report(processed)
