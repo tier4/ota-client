@@ -105,7 +105,8 @@ class _BaseConfig:
 
     ## standby creation mode
     STANDBY_CREATION_MODE: Literal["legacy", "rebuild", "in-place", "auto"] = "auto"
-    OTA_TMP_STORE: str = "/var/tmp/ota-tmp"
+    # NOTE: the following 2 folders are meant to be located under standby_slot
+    OTA_TMP_STORE: str = "/ota-tmp"
     META_FOLDER: str = "/opt/ota/image-meta"
 
 
