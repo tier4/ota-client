@@ -1,6 +1,12 @@
 from typing import Type
 
-from app.create_standby.common import StandbySlotCreatorProtocol, UpdateMeta
+from app.create_standby.common import (
+    StandbySlotCreatorProtocol,
+    UpdateMeta,
+    CreateStandbySlotExternalError,
+    CreateStandbySlotInternalError,
+    CreateStandbySlotError,
+)
 from app.configs import config as cfg
 from app import log_util
 
@@ -53,4 +59,12 @@ def get_reference_slot(
 
 StandbySlotCreator: Type[StandbySlotCreatorProtocol] = get_standby_creator()
 
-__all__ = ("StandBySlotCreator", "UpdateMeta", "get_reference_bank", "get_bank_creator")
+__all__ = (
+    "StandBySlotCreator",
+    "CreateStandbySlotError",
+    "CreateStandbySlotExternalError",
+    "CreateStandbySlotInternalError",
+    "UpdateMeta",
+    "get_reference_bank",
+    "get_bank_creator",
+)
