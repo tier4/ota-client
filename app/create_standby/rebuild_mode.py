@@ -170,9 +170,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # apply delta
         with ThreadPoolExecutor(thread_name_prefix="create_standby_bank") as pool:
             logger.info("start applying delta")
-            for _hash, _regulars_set in chain(
-                delta_bundle._hold.items(), delta_bundle._new.items()
-            ):
+            for _hash, _regulars_set in delta_bundle._new.items():
                 _concurrent_se.acquire()
                 pool.submit(
                     self._apply_reginf_set,

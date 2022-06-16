@@ -20,7 +20,7 @@ from typing import (
     Iterator,
     List,
     Dict,
-    Literal,
+    Optional,
     OrderedDict,
     Protocol,
     Set,
@@ -242,47 +242,9 @@ class RegularDelta(Dict[str, RegularInfSet]):
         return path in self._regularinf_set
 
 
-def create_regular_inf(fpath: Union[str, Path], *, _hash: str = None) -> RegularInf:
-    # create a new instance of path
-    path = Path(fpath)
-    stat = path.stat()
-
-    nlink, inode = None, None
-    if stat.st_nlink > 0:
-        nlink = stat.st_nlink
-        inode = stat.st_ino
-
-    _base_root = "/boot" if str(path).startswith("/boot") else "/"
-
-    if _hash is None:
-        _hash = file_sha256(fpath)
-
-    res = RegularInf(
-        mode=stat.st_mode,
-        uid=stat.st_uid,
-        gid=stat.st_gid,
-        size=stat.st_size,
-        nlink=nlink,
-        sha256hash=_hash,
-        path=path,
-        inode=inode,
-        _base=_base_root,
-    )
-
-    return res
-
-
-@dataclass
-class RegInfTuple:
-    path: str
-    reginf: RegularInf = None
-    _type: Literal["_rm", "_hold"] = "_rm"
-
-
 @dataclass
 class DeltaBundle:
     _rm: List[str]
-    _hold: RegularDelta
     _new: RegularDelta
     ref_root: Path
     recycle_folder: Path
@@ -344,24 +306,26 @@ class DeltaGenerator:
 
         return _new_delta, count + 1
 
-    def _process_file_in_old_slot(self, fpath: Path) -> RegInfTuple:
-        if not fpath.is_file():
-            return RegInfTuple(str(fpath))
-
+    def _process_file_in_old_slot(
+        self, fpath: Path, *, _hash: str = None
+    ) -> Optional[str]:
         # NOTE: should always use canonical_fpath in RegularInf and in rm_list
         _canonical_fpath = Path("/") / fpath.relative_to(self._ref_root)
         _canonical_fpath_str = str(_canonical_fpath)
 
+        # ignore non-file file
+        if not fpath.is_file():
+            return
+
         # TODO: if old_reg is available, we can get the hash of the path
         # without hashing it in the first place
-        _hash = file_sha256(fpath)
+        if _hash is None:
+            _hash = file_sha256(fpath)
 
         _recycled_entry = self._recycle_folder / _hash
-        if _recycled_entry.is_file():
-            return RegInfTuple(_canonical_fpath_str)
-
         # collect this entry as the hash existed in _new
-        if self._new_delta.contains_hash(_hash):
+        # and not yet being collected
+        if not _recycled_entry.is_file() and self._new_delta.contains_hash(_hash):
             _start = time.thread_time()
             shutil.copy(fpath, _recycled_entry)
 
@@ -375,25 +339,23 @@ class DeltaGenerator:
             )
 
         # check whether this path should be remained
-        if self._new_delta.contains_path(_canonical_fpath_str):
-            entry = create_regular_inf(fpath, _hash=_hash)
-            # NOTE: re-asign the path
-            entry.path = _canonical_fpath
-            return RegInfTuple(_canonical_fpath, reginf=entry, _type="_hold")
-        else:
-            return RegInfTuple(_canonical_fpath)
+        if not self._new_delta.contains_path(_canonical_fpath):
+            return _canonical_fpath_str
 
     def _cal_and_prepare_old_slot_delta(self):
         """
         NOTE: all local copies are ready after this method
         """
         self._new_delta, self.total_new_num = self._parse_reginf(self._new_reg)
-        self._hold_delta = RegularDelta()
-        self._rm_list: List[str] = []
+        self._rm_list: Set[str] = set()
 
-        # phase 1: scan old slot and generate delta based on path,
-        #          group files into many hash group,
-        #          each hash group is a set contains RegularInf(s) with path as key.
+        # scan old slot and generate delta based on path,
+        # group files into many hash group,
+        # each hash group is a set contains RegularInf(s) with path as key.
+        #
+        # if the scanned file's hash existed in _new,
+        # collect this file to the recycle folder if not yet being collected.
+
         # TODO: if old_reg is available, only scan files that presented in the old_reg
         with ThreadPoolExecutor() as pool:
             for _root, scan_mode in self.TARGET_FOLDERS.items():
@@ -427,32 +389,17 @@ class DeltaGenerator:
                     done, _ = wait(futs)
                     for fut in done:
                         try:
-                            res: RegInfTuple = fut.result()
+                            if res := fut.result():
+                                self._rm_list.add(res)
                         except Exception as e:
-                            raise CreateStandbySlotInternalError from e
-
-                        if res._type == "_rm":
-                            self._rm_list.append(res.path)
-                        elif res._type == "_hold":
-                            self._hold_delta.add_entry(res.reginf)
-                            self._new_delta.remove_entry(res.reginf)
-
-        # phase 2: parse _new_delta and compare to _hold by hash,
-        #          merging same hash group if possible.
-        _optimized: List[str] = []
-        for _hash, _entryset in self._new_delta.items():
-            if self._hold_delta.contains_hash(_hash):
-                # specially label this hash group
-                self._hold_delta.merge_entryset(_entryset)
-
-        for _hash in _optimized:
-            del self._new_delta[_hash]
+                            logger.warning(
+                                f"scan one file failed under {cur_dir=}: {e!r}, ignored"
+                            )
 
     ###### public API ######
     def get_delta(self) -> DeltaBundle:
         return DeltaBundle(
             _rm=self._rm_list,
-            _hold=self._hold_delta,
             _new=self._new_delta,
             ref_root=self._ref_root,
             recycle_folder=self._recycle_folder,
