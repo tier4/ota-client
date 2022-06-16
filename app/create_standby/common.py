@@ -191,10 +191,17 @@ class RegularInfSet(OrderedDict[RegularInf, None]):
 
 
 class RegularDelta(Dict[str, RegularInfSet]):
+    def __init__(self):
+        super().__init__()
+        # for fast lookup regularinf entry
+        self._regularinf_set: Set[RegularInf] = set()
+
     def __len__(self) -> int:
         return sum([len(_set) for _, _set in self.items()])
 
     def add_entry(self, entry: RegularInf):
+        self._regularinf_set.add(entry)
+
         _hash = entry.sha256hash
         if _hash in self:
             self[_hash].add(entry)
@@ -204,6 +211,8 @@ class RegularDelta(Dict[str, RegularInfSet]):
             self[_hash] = _new_set
 
     def remove_entry(self, entry: RegularInf):
+        self._regularinf_set.discard(entry)
+
         _hash = entry.sha256hash
         if _hash not in self:
             return
@@ -218,23 +227,17 @@ class RegularDelta(Dict[str, RegularInfSet]):
             return
 
         self[_hash].update(_other)
+        for entry, _ in _other.items():
+            self._regularinf_set.add(entry)
 
     def contains_hash(self, _hash: str) -> bool:
         return _hash in self
 
     def contains_entry(self, entry: RegularInf):
-        if entry.sha256hash in self:
-            _set: RegularInfSet = self[entry.sha256hash]
-            return entry in _set
+        return entry in self._regularinf_set
 
-        return False
-
-    def contains_path(self, _hash: str, path: Path):
-        if _hash in self:
-            _set: RegularInfSet = self[_hash]
-            return path in _set
-
-        return False
+    def contains_path(self, path: Path):
+        return path in self._regularinf_set
 
 
 def create_regular_inf(fpath: Union[str, Path], *, _hash: str = None) -> RegularInf:
