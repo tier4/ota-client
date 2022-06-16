@@ -82,7 +82,7 @@ class OTAUpdateStatsCollector:
                 self._executor = ThreadPoolExecutor(
                     max_workers=1, thread_name_prefix="update_stats_collector"
                 )
-                self._executor.submit(self.collector())
+                self._executor.submit(self.collector)
 
     def stop(self):
         with self._lock:
