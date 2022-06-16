@@ -337,7 +337,9 @@ class DeltaGenerator:
         _new_delta = RegularDelta()
         with open(reginf_file, "r") as f:
             with ProcessPoolExecutor() as pool:
-                for count, entry in enumerate(pool.map(RegularInf, f, chunksize=2048)):
+                for count, entry in enumerate(
+                    pool.map(RegularInf.parse_reginf, f, chunksize=2048)
+                ):
                     _new_delta.add_entry(entry)
 
         return _new_delta, count + 1
@@ -346,7 +348,7 @@ class DeltaGenerator:
         if not fpath.is_file():
             return RegInfTuple(str(fpath))
 
-        # NOTE: should always use canonical_fpath
+        # NOTE: should always use canonical_fpath in RegularInf and in rm_list
         _canonical_fpath = Path("/") / fpath.relative_to(self._ref_root)
         _canonical_fpath_str = str(_canonical_fpath)
 
@@ -361,7 +363,7 @@ class DeltaGenerator:
         # collect this entry as the hash existed in _new
         if self._new_delta.contains_hash(_hash):
             _start = time.thread_time()
-            shutil.copy(_recycled_entry, fpath)
+            shutil.copy(fpath, _recycled_entry)
 
             # report to the ota update stats collector
             self._stats_collector.report(
@@ -385,7 +387,6 @@ class DeltaGenerator:
         """
         NOTE: all local copies are ready after this method
         """
-        # init
         self._new_delta, self.total_new_num = self._parse_reginf(self._new_reg)
         self._hold_delta = RegularDelta()
         self._rm_list: List[str] = []

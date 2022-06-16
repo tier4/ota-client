@@ -202,7 +202,7 @@ class _OTAUpdator:
         # configure standby slot creator
         _standby_slot_creator = StandbySlotCreator(
             update_meta=self._updatemeta,
-            stats_tracker=self.update_stats_collector,
+            stats_collector=self.update_stats_collector,
             update_phase_tracker=self._set_update_phase,
         )
         # start to constructing standby bank

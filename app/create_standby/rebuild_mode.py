@@ -8,7 +8,7 @@ from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
 
 from app.create_standby.common import (
-    CreateStandbySlotExternalError,
+    CreateStandbySlotInternalError,
     HardlinkRegister,
     RegularInfSet,
     DeltaGenerator,
@@ -152,6 +152,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             new_reg=self._recycle_folder / "regulars.txt",
             ref_root=self.reference_slot,
             recycle_folder=self._recycle_folder,
+            stats_collector=self.stats_collector,
         )
         delta_bundle = delta_calculator.get_delta()
         self.stats_collector.store.total_regular_files = delta_bundle.total_regular_num
@@ -270,6 +271,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
             self._process_persistents()
             self._save_meta()
         except Exception as e:
-            raise CreateStandbySlotExternalError from e
+            raise CreateStandbySlotInternalError from e
         finally:
             shutil.rmtree(self._recycle_folder, ignore_errors=True)
