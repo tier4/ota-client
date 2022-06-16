@@ -162,7 +162,20 @@ class OtaClientStub:
 
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
         logger.info(f"{request=}")
+
         response = v2.UpdateResponse()
+        # TODO: add a method for ota_client to proxy request_update
+        if not self._ota_client.live_ota_status.request_update():
+            # current ota_client's status indicates that
+            # the ota_client should not start an ota update
+            logger.warning(
+                f"ota_client should not take ota update under ota_status={self._ota_client.live_ota_status.get_ota_status()}"
+            )
+            ecu = response.ecu.add()
+            ecu.ecu_id = self._ecu_info.get_ecu_id()
+            ecu.result = v2.RECOVERABLE
+
+            return response
 
         # init state machine(P1: ota_service, P2: ota_client)
         ota_sfsm = OTAUpdateFSM()
