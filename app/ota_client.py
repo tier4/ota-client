@@ -356,12 +356,6 @@ class OTAClient(OTAClientInterface):
         logger.debug("[update] entering...")
 
         try:
-            # pre-test whether we should enter an update
-            if not self.live_ota_status.request_update():
-                raise OtaErrorBusy(
-                    f"{self.live_ota_status.get_ota_status()} is illegal for update"
-                )
-
             # init and launch updator
             self.updator = _OTAUpdator(
                 live_ota_status=self.live_ota_status,
@@ -369,8 +363,6 @@ class OTAClient(OTAClientInterface):
             )
             self.updator.execute(version, url_base, cookies_json, fsm=fsm)
             return self._result_ok()
-        except OtaErrorBusy as e:
-            return OTAOperationFailureType.RECOVERABLE
         except OtaErrorRecoverable as e:
             return self._result_recoverable(e)
         except OtaErrorUnrecoverable as e:
