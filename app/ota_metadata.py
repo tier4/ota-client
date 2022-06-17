@@ -305,13 +305,11 @@ class SymbolicLinkInf(_BaseInf):
         del self._left
 
     def link_at_slot(self, dst_root: Path):
-        if Path("/boot") in self.slink.parents:
-            raise ValueError("symbolic link in /boot directory is not supported")
-
-        _target = dst_root / self.slink.relative_to("/")
-        _target.symlink_to(self.srcpath)
+        # NOTE: symbolic link in /boot directory is not supported. We don't use it.
+        _newlink = dst_root / self.slink.relative_to("/")
+        _newlink.symlink_to(self.srcpath)
         # set the permission on the file itself
-        os.chown(_target, self.uid, self.gid, follow_symlinks=False)
+        os.chown(_newlink, self.uid, self.gid, follow_symlinks=False)
 
 
 @dataclass
@@ -324,7 +322,7 @@ class PersistentInf:
     path: Path
 
     def __init__(self, info: str):
-        self.path = Path(de_escape(info[1:-1]))
+        self.path = Path(de_escape(info.strip()[1:-1]))
 
 
 @dataclass
