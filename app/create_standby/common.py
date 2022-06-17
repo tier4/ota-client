@@ -262,8 +262,8 @@ class DeltaGenerator:
     # folders to scan on bank
     # Dict[<folder_name>, <full_scan>]
     TARGET_FOLDERS: ClassVar[Dict[str, _SCAN_MODE]] = {
-        "/etc": _FULL_SCAN,
-        "/opt": _FULL_SCAN,
+        "/etc": _MATCH_ONLY,
+        "/opt": _MATCH_ONLY,
         "/usr": _FULL_SCAN,
         "/var/lib": _FULL_SCAN,
         "/home/autoware": _MATCH_ONLY,
