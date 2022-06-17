@@ -19,7 +19,6 @@ logger = log_util.get_logger(
 class PwdEntry:
     pw_name: str
     pw_uid: int
-    pw_gid: int
 
     def __init__(self, pw_line: str) -> None:
         """
@@ -29,8 +28,7 @@ class PwdEntry:
         """
         _parsed = pw_line.split(":")
         self.pw_name = _parsed[0]
-        self.pw_uid = _parsed[2]
-        self.pw_gid = _parsed[3]
+        self.pw_uid = int(_parsed[2])
 
 
 @dataclass
@@ -46,7 +44,7 @@ class GrpEntry:
         """
         _parsed = grp_line.split(":")
         self.gr_name = _parsed[0]
-        self.gr_id = _parsed[2]
+        self.gr_id = int(_parsed[2])
 
 
 def _load_dst_pwd(dst_pwd: Path) -> Dict[str, PwdEntry]:
@@ -62,7 +60,7 @@ def _load_dst_pwd(dst_pwd: Path) -> Dict[str, PwdEntry]:
 
 def _load_dst_grp(dst_group: Path) -> Dict[str, GrpEntry]:
     # name -> uid
-    _gname_gid_mapping: Dict[str, GrpEntry] = []
+    _gname_gid_mapping: Dict[str, GrpEntry] = {}
     with open(dst_group, "r") as f:
         for l in f:
             _parsed = GrpEntry(l)
@@ -108,7 +106,7 @@ class CopyTree:
             _src_uname = self._src_uid_uname_mapping[_src_uid]
         else:
             _src_uname = self._src_uid_uname_mapping.setdefault(
-                _src_uid, pwd.getpwnam(_src_uid).pw_name
+                _src_uid, pwd.getpwuid(_src_uid).pw_name
             )
         _dst_uid = self._dst_uname_uid_mapping[_src_uname].pw_uid
 
@@ -116,7 +114,7 @@ class CopyTree:
             _src_gname = self._src_gid_gname_mapping[_src_gid]
         else:
             _src_gname = self._src_gid_gname_mapping.setdefault(
-                _src_gid, grp.getgrnam(_src_gid).gr_name
+                _src_gid, grp.getgrgid(_src_gid).gr_name
             )
         _dst_gid = self._dst_gname_gid_mapping[_src_gname].gr_id
 
