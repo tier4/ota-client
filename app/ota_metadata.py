@@ -390,7 +390,14 @@ class RegularInf:
         return hash(self.path)
 
     def __eq__(self, _other) -> bool:
-        return isinstance(_other, self.__class__) and self.path == _other.path
+        """
+        NOTE: also take Path as _other
+        """
+        if isinstance(_other, Path):
+            return self.path == _other
+
+        if isinstance(_other, self.__class__):
+            return self.path == _other.path
 
     def exists_at_src_slot(self, *, src_root: Path) -> bool:
         _target = src_root / self.path.relative_to(self._base)
