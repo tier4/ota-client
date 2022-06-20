@@ -71,8 +71,23 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
         logger.info(f"loaded ota_status: {_ota_status}")
         return _ota_status
 
-    def _mount_standby(self):
-        CMDHelperFuncs.mount(str(self.standby_slot_dev), self.standby_slot_path)
+    def _mount_standby(self, erase_standby: bool):
+        # mount standby slot
+        self._boot_control.cleanup_standby_boot_partition()
+        if erase_standby:
+            self._boot_control.mount_standby_root_partition_and_clean(
+                self.standby_slot_path
+            )
+        else:
+            # directly mount standby without cleaning up
+            CMDHelperFuncs.mount(str(self.standby_slot_dev), self.standby_slot_path)
+
+    def _mount_refroot(self, standby_as_ref: bool):
+        CMDHelperFuncs.mount_refroot(
+            standby_slot_dev=self._boot_control.get_standby_root_device(),
+            active_slot_dev=self._boot_control.get_active_root_device(),
+            standby_as_ref=standby_as_ref,
+        )
 
     def _on_operation_failure(self, e: Exception):
         """Failure registering and cleanup at failure."""
@@ -97,19 +112,12 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
         """
         return self.standby_ota_status_dir
 
-    def pre_update(self, version: str, *, erase_standby=False):
+    def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
         try:
             self._store_standby_ota_status(OTAStatusEnum.UPDATING)
             self._store_standby_version(version)
-
-            self._boot_control.cleanup_standby_boot_partition()
-            if erase_standby:
-                self._boot_control.mount_standby_root_partition_and_clean(
-                    self.standby_slot_path
-                )
-            else:
-                # directly mount standby without cleaning up
-                self._mount_standby()
+            self._mount_standby(erase_standby)
+            self._mount_refroot(standby_as_ref)
         except Exception as e:  # TODO: use BootControlError for any exceptions
             logger.error(f"failed on pre_update: {e!r}")
             self._on_operation_failure(e)

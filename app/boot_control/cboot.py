@@ -286,8 +286,9 @@ class _SlotInUseMixin:
         )
 
 
-class _PrepareStandbyMixin:
+class _PrepareMountMixin:
     standby_slot_path: Path
+    ref_slot_path: Path
     _cboot_control: _CBootControl
 
     def _prepare_and_mount_standby(self, *, erase=False):
@@ -311,9 +312,17 @@ class _PrepareStandbyMixin:
         )
         _ota_status_dir.mkdir(exist_ok=True, parents=True)
 
+    def _mount_ref_root(self, standby_as_ref: bool):
+        CMDHelperFuncs.mount_refroot(
+            standby_slot_dev=self._cboot_control.get_standby_rootfs_dev(),
+            active_slot_dev=self._cboot_control.get_current_rootfs_dev(),
+            refroot_mount_point=str(self.ref_slot_path),
+            standby_as_ref=standby_as_ref,
+        )
+
 
 class CBootController(
-    _PrepareStandbyMixin,
+    _PrepareMountMixin,
     _SlotInUseMixin,
     OTAStatusMixin,
     VersionControlMixin,
@@ -327,6 +336,8 @@ class CBootController(
         # load paths
         self.standby_slot_path = Path(cfg.MOUNT_POINT)
         self.standby_slot_path.mkdir()
+        self.ref_slot_path = Path(cfg.REF_ROOT_MOUNT_POINT)
+        self.ref_slot_path.mkdir()
 
         ## ota-status dir
         ### current slot
@@ -464,11 +475,12 @@ class CBootController(
         """
         return self.standby_slot_path / "boot"
 
-    def pre_update(self, version: str, *, erase_stanby=False):
+    def pre_update(self, version: str, *, standby_as_ref: bool, erase_stanby=False):
         try:
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
             self._prepare_and_mount_standby(erase_stanby)
+            self._mount_ref_root(standby_as_ref)
 
             # store status to standby slot
             self._store_standby_ota_status(OTAStatusEnum.UPDATING)

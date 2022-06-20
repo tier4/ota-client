@@ -92,7 +92,10 @@ class _BaseConfig:
     LOG_FORMAT: str = (
         "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s"
     )
+
     MOUNT_POINT: str = "/mnt/standby"
+    # where active(old) image partition will be bind mounted to
+    REF_ROOT_MOUNT_POINT: str = "/mnt/refroot"
 
     # ota-client behavior setting
     CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB

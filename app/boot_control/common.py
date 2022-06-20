@@ -30,7 +30,7 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def get_standby_boot_dir(self) -> Path: ...
     @abstractmethod
-    def pre_update(self, version: str, *, erase_standby: bool): ...
+    def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool): ...
     @abstractmethod
     def post_update(self): ...
     @abstractmethod
@@ -166,12 +166,12 @@ class CMDHelperFuncs:
         return str(dev)
 
     @classmethod
-    def get_mount_point_by_dev(cls, dev: str) -> str:
+    def get_mount_point_by_dev(cls, dev: str, *, raise_exception=True) -> str:
         """
         findmnt <dev> -o TARGET -n
         """
         mount_point = cls._findmnt(f"{dev} -o TARGET -n")
-        if not mount_point:
+        if not mount_point and raise_exception:
             raise BootControlExternalError(f"{dev} is not mounted")
 
         return mount_point
@@ -244,6 +244,35 @@ class CMDHelperFuncs:
             _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
             logger.error(_failure_msg)
             raise BootControlExternalError(_failure_msg)
+
+    @classmethod
+    def mount_refroot(
+        cls,
+        standby_slot_dev: str,
+        active_slot_dev: str,
+        refroot_mount_point: str,
+        *,
+        standby_as_ref: bool,
+    ):
+        _refroot_dev = standby_slot_dev if standby_as_ref else active_slot_dev
+
+        # NOTE: set raise_exception to false to allow not mounted
+        # not mounted dev will have empty return str
+        if _refroot_active_mount_point := CMDHelperFuncs.get_mount_point_by_dev(
+            _refroot_dev, raise_exception=False
+        ):
+            _mount_options = ["bind", "ro"]
+            CMDHelperFuncs.mount(
+                _refroot_dev,
+                refroot_mount_point,
+                _mount_options,
+            )
+        else:
+            # NOTE: refroot is expected to be mounted,
+            # if refroot is active rootfs, it is mounted as /;
+            # if refroot is standby rootfs(in-place update mode),
+            # it will be mounted to /mnt/standby(rw), so we still mount it as bind,ro
+            raise BootControlInternalError("refroot is expected to be mounted")
 
 
 ###### helper mixins ######
