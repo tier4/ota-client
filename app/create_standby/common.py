@@ -184,12 +184,10 @@ class RegularInfSet(OrderedDict[RegularInf, None]):
         del self[entry]
 
     def iter_entries(self) -> Iterator[Tuple[bool, RegularInf]]:
-        while True:
-            try:
-                entry, _ = self.popitem()
-                yield len(self) == 0, entry
-            except KeyError:
-                break
+        _len, _count = len(self), 0
+        for entry, _ in self.items():
+            _count += 1
+            yield _len == _count, entry
 
 
 class RegularDelta(Dict[str, RegularInfSet]):
