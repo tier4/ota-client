@@ -8,7 +8,7 @@ from OpenSSL import crypto
 from pathlib import Path
 from pprint import pformat
 from functools import partial
-from typing import ClassVar, Optional
+from typing import Any, ClassVar, Optional
 
 from app.ota_error import OtaErrorRecoverable
 from app.configs import config as cfg
@@ -262,6 +262,8 @@ class _BaseInf:
 class DirectoryInf(_BaseInf):
     """Directory file information class for dirs.txt.
     format: mode,uid,gid,'dir/name'
+
+    NOTE: only use path for hash key
     """
 
     path: Path
@@ -271,6 +273,17 @@ class DirectoryInf(_BaseInf):
         self.path = Path(de_escape(self._left[1:-1]))
 
         del self._left
+
+    def __eq__(self, _other: Any) -> bool:
+        if isinstance(_other, DirectoryInf):
+            return _other.path == self.path
+        elif isinstance(_other, Path):
+            return _other == self.path
+        else:
+            return False
+
+    def __hash__(self) -> int:
+        return hash(self.path)
 
     def mkdir2slot(self, dst_root: Path):
         _target = dst_root / self.path.relative_to("/")
