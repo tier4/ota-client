@@ -95,6 +95,32 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 },
             )
 
+    def _cal_and_prepare_delta(self):
+        self.update_phase_tracker(OTAUpdatePhase.METADATA)
+
+        # TODO: hardcoded regulars.txt
+        # TODO 2: old_reg is not used currently
+        logger.info("generating delta...")
+
+        delta_calculator = DeltaGenerator(
+            old_reg=Path(self.META_FOLDER) / "regulars.txt",
+            new_reg=self._recycle_folder / "regulars.txt",
+            new_dirs=self._recycle_folder / "dirs.txt",
+            ref_root=self.reference_slot,
+            recycle_folder=self._recycle_folder,
+            stats_collector=self.stats_collector,
+        )
+        self.delta_bundle = delta_calculator.get_delta()
+        self.stats_collector.store.total_regular_files = (
+            self.delta_bundle.total_regular_num
+        )
+        logger.info(f"total_regular_files_num={self.delta_bundle.total_regular_num}")
+
+        # NOTE: now apply dirs.txt moved to here
+        self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
+        for entry in self.delta_bundle._dirs:
+            entry.mkdir2slot(self.standby_slot)
+
     def _process_persistents(self):
         """NOTE: just copy from legacy mode"""
         from app.copy_tree import CopyTree
@@ -117,12 +143,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 ):  # NOTE: not equivalent to perinf.path.exists()
                     _copy_tree.copy_with_parents(perinf.path, self.standby_slot)
 
-    def _process_dirs(self):
-        self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
-        with open(self._recycle_folder / "dirs.txt", "r") as f:
-            for l in f:
-                DirectoryInf(l).mkdir2slot(self.standby_slot)
-
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
         _dst = self.standby_slot / Path(self.META_FOLDER).relative_to("/")
@@ -140,21 +160,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _process_regulars(self):
         self.update_phase_tracker(OTAUpdatePhase.REGULAR)
-
-        # TODO: hardcoded regulars.txt
-        # TODO 2: old_reg is not used currently
-        logger.info("generating delta...")
-        delta_calculator = DeltaGenerator(
-            old_reg=Path(self.META_FOLDER) / "regulars.txt",
-            new_reg=self._recycle_folder / "regulars.txt",
-            ref_root=self.reference_slot,
-            recycle_folder=self._recycle_folder,
-            stats_collector=self.stats_collector,
-        )
-        delta_bundle = delta_calculator.get_delta()
-        self.stats_collector.store.total_regular_files = delta_bundle.total_regular_num
-        logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
-
         self._hardlink_register = HardlinkRegister()
 
         # limitation on on-going tasks/download
@@ -167,7 +172,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # apply delta
         with ThreadPoolExecutor(thread_name_prefix="create_standby_bank") as pool:
             logger.info("start applying delta")
-            for _hash, _regulars_set in delta_bundle._new.items():
+            for _hash, _regulars_set in self.delta_bundle._new.items():
                 _concurrent_se.acquire()
                 pool.submit(
                     self._apply_reginf_set,
@@ -260,7 +265,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def create_standby_bank(self):
         try:
             self._prepare_meta_files()  # download meta and calculate
-            self._process_dirs()
+            self._cal_and_prepare_delta()  # NOTE: dirs are processed here
             self._process_regulars()
             self._process_symlinks()
             self._process_persistents()
