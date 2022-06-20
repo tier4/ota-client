@@ -1,4 +1,3 @@
-from itertools import chain
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -60,8 +59,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         # path configuration
         self.boot_dir = Path(update_meta.boot_dir)
-        self.reference_slot = Path("/")
-        self.standby_slot = Path(cfg.MOUNT_POINT)
+        self.standby_slot = Path(update_meta.standby_slot_mount_point)
+        self.reference_slot = Path(update_meta.ref_slot_mount_point)
 
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]

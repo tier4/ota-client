@@ -181,6 +181,8 @@ class _OTAUpdator:
             metadata=metadata,
             url_base=url_base,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
+            standby_slot_mount_point=cfg.MOUNT_POINT,
+            ref_slot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
         )
 
         # launch ota update stats collector

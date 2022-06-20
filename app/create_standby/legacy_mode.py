@@ -52,8 +52,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
         self.stats_collector = stats_collector
         self.update_phase_tracker: Callable = update_phase_tracker
 
-        self.reference_slot = Path("/")
-        self.standby_slot = Path(cfg.MOUNT_POINT)
+        self.reference_slot = Path(update_meta.ref_slot_mount_point)
+        self.standby_slot = Path(update_meta.standby_slot_mount_point)
         self.boot_dir = Path(update_meta.boot_dir)
 
         # the location of image at the ota server root

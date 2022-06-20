@@ -67,6 +67,8 @@ class UpdateMeta:
     metadata: OtaMetadata  # meta data for the update request
     url_base: str  # base url of the remote ota image
     boot_dir: str  # where to populate files under /boot
+    standby_slot_mount_point: str
+    ref_slot_mount_point: str
 
 
 class StandbySlotCreatorProtocol(Protocol):
@@ -84,6 +86,14 @@ class StandbySlotCreatorProtocol(Protocol):
     update_meta: UpdateMeta
     stats_collector: OTAUpdateStatsCollector
     update_phase_tracker: Callable[[OTAUpdatePhase], None]
+
+    def __init__(
+        self,
+        update_meta: UpdateMeta,
+        stats_collector: OTAUpdateStatsCollector,
+        update_phase_tracker: Callable[[OTAUpdatePhase], None],
+    ) -> None:
+        ...
 
     @abstractmethod
     def create_standby_bank(self):
