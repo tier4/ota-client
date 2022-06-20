@@ -8,7 +8,7 @@ from concurrent.futures import (
     Future,
     ProcessPoolExecutor,
     ThreadPoolExecutor,
-    wait,
+    as_completed,
 )
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,7 +31,7 @@ from typing import (
 
 from app.common import file_sha256
 from app.configs import config as cfg
-from app.ota_metadata import OtaMetadata, RegularInf
+from app.ota_metadata import DirectoryInf, OtaMetadata, RegularInf
 from app import log_util
 from app.update_phase import OTAUpdatePhase
 from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
@@ -239,35 +239,32 @@ class RegularDelta(Dict[str, RegularInfSet]):
 class DeltaBundle:
     _rm: List[str]
     _new: RegularDelta
+    _dirs: OrderedDict[DirectoryInf, None]
     ref_root: Path
     recycle_folder: Path
     total_regular_num: int
 
 
-# whether to enable full scan on all files,
-# or fall back to only scan paths that also exists in new img
-_SCAN_MODE = TypeVar("_SCAN_MODE")
-_FULL_SCAN = "FULL_SCAN"
-_MATCH_ONLY = "MATCH_ONLY"
-
-
 class DeltaGenerator:
-    # folders to scan on bank
-    # Dict[<folder_name>, <full_scan>]
-    TARGET_FOLDERS: ClassVar[Dict[str, _SCAN_MODE]] = {
-        "/etc": _MATCH_ONLY,
-        "/opt": _MATCH_ONLY,
-        "/usr": _FULL_SCAN,
-        "/var/lib": _FULL_SCAN,
-        "/home/autoware": _MATCH_ONLY,
-    }
+    # entry under the following folders will be scanned
+    # no matter it is existed in new image or not
+    FULL_SCAN_PATHS = Set(
+        [
+            "/var/lib",
+            "/usr",
+            "/opt/nvidia",
+            "/home/autoware/autoware.proj",
+        ]
+    )
+
     MAX_FOLDER_DEEPTH = 16
-    MAX_FILENUM_PER_FOLDER = 1024
+    MAX_FILENUM_PER_FOLDER = 8192
 
     def __init__(
         self,
-        old_reg: Path,
-        new_reg: Path,
+        old_reg: Path,  # path to old image regulars.txt
+        new_reg: Path,  # path to new image regulars.txt
+        new_dirs: Path,  # path to dirs.txt
         *,
         ref_root: Path,
         recycle_folder: Path,
@@ -285,27 +282,32 @@ class DeltaGenerator:
         self._recycle_folder = recycle_folder
 
         # generate delta
+        self._dirs: OrderedDict[DirectoryInf, None] = self._parse_dirs_txt(new_dirs)
         self._cal_and_prepare_old_slot_delta()
 
     @staticmethod
     def _parse_reginf(reginf_file: Union[Path, str]) -> Tuple[RegularDelta, int]:
         _new_delta = RegularDelta()
-        with open(reginf_file, "r") as f:
-            with ProcessPoolExecutor() as pool:
-                for count, entry in enumerate(
-                    pool.map(RegularInf.parse_reginf, f, chunksize=2048)
-                ):
-                    _new_delta.add_entry(entry)
+        with open(reginf_file, "r") as f, ProcessPoolExecutor() as pool:
+            for count, entry in enumerate(
+                pool.map(RegularInf.parse_reginf, f, chunksize=2048)
+            ):
+                _new_delta.add_entry(entry)
 
         return _new_delta, count + 1
 
-    def _process_file_in_old_slot(
-        self, fpath: Path, *, _hash: str = None
-    ) -> Optional[str]:
-        # NOTE: should always use canonical_fpath in RegularInf and in rm_list
-        _canonical_fpath = Path("/") / fpath.relative_to(self._ref_root)
-        _canonical_fpath_str = str(_canonical_fpath)
+    @staticmethod
+    def _parse_dirs_txt(new_dirs: Path) -> OrderedDict[DirectoryInf, None]:
+        _res = OrderedDict()
+        with open(new_dirs, "r") as f, ProcessPoolExecutor() as pool:
+            for _dir in pool.map(DirectoryInf, f, chunksize=2048):
+                _res[_dir] = None
 
+        return _res
+
+    def _process_file_in_old_slot(
+        self, fpath: Path, canonical_fpath: Path, *, _hash: str = None
+    ) -> Optional[str]:
         # ignore non-file file
         if not fpath.is_file():
             return
@@ -332,15 +334,15 @@ class DeltaGenerator:
             )
 
         # check whether this path should be remained
-        if not self._new_delta.contains_path(_canonical_fpath):
-            return _canonical_fpath_str
+        if not self._new_delta.contains_path(canonical_fpath):
+            return str(canonical_fpath)
 
     def _cal_and_prepare_old_slot_delta(self):
         """
         NOTE: all local copies are ready after this method
         """
         self._new_delta, self.total_new_num = self._parse_reginf(self._new_reg)
-        self._rm_list: Set[str] = set()
+        self._rm_list: List[str] = []
 
         # scan old slot and generate delta based on path,
         # group files into many hash group,
@@ -348,52 +350,78 @@ class DeltaGenerator:
         #
         # if the scanned file's hash existed in _new,
         # collect this file to the recycle folder if not yet being collected.
+        with ThreadPoolExecutor(thread_name_prefix="scan_slot") as pool:
+            for curdir, dirnames, filenames in os.walk(
+                self._ref_root, topdown=True, followlinks=False
+            ):
+                curdir_path = Path(curdir)
 
-        # TODO: if old_reg is available, only scan files that presented in the old_reg
-        with ThreadPoolExecutor() as pool:
-            for _root, scan_mode in self.TARGET_FOLDERS.items():
-                root_folder = self._ref_root / Path(_root).relative_to("/")
+                # skip folder that exceeds max_folder_deepth
+                if len(curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
+                    logger.warning(f"reach max_folder_deepth on {curdir_path!r}, skip")
+                    dirnames.clear()
+                    continue
 
-                for dirpath, dirnames, filenames in os.walk(
-                    root_folder, topdown=True, followlinks=False
-                ):
-                    cur_dir = Path(dirpath)
-                    if len(cur_dir.parents) > self.MAX_FOLDER_DEEPTH:
-                        logger.warning(f"reach max_folder_deepth on {cur_dir!r}, skip")
-                        dirnames.clear()
+                # skip folder if it doesn't exist on new image,
+                # and also not meant to be fully scanned
+                dir_should_skip = False if curdir_path.parent in self._dirs else True
+                dir_should_fully_scan = False
+
+                # check if we neede to fully scan this folder
+                for parent in reversed(curdir_path.parents):
+                    if (
+                        not dir_should_fully_scan
+                        and str(parent) in self.FULL_SCAN_PATHS
+                    ):
+                        dir_should_fully_scan = True
+                        break
+
+                # should we totally skip folder?
+                if dir_should_skip and not dir_should_fully_scan:
+                    dirnames.clear()  # prune the search on all its subfolders
+                    continue
+
+                # skip files that over the max_filenum_per_folder
+                if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
+                    logger.warning(
+                        f"reach max_filenum_per_folder on {curdir_path}, "
+                        "exceeded files will be ignored silently"
+                    )
+
+                futs: List[Future] = []
+                for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
+                    fpath = curdir_path / fname
+
+                    # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
+                    canonical_fpath = Path("/") / fpath.relative_to(self._ref_root)
+                    if not dir_should_fully_scan and not self._new_delta.contains_path(
+                        canonical_fpath
+                    ):
                         continue
 
-                    # skip files that over the max_filenum_per_folder
-                    futs: List[Future] = []
-                    for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
-                        fpath = cur_dir / fname
+                    # TODO: if old_reg is available, only scan files that presented
+                    # in the old_reg in the full_scan folders
+                    futs.append(
+                        pool.submit(
+                            self._process_file_in_old_slot, fpath, canonical_fpath
+                        )
+                    )
 
-                        # in MATCH_ONLY scan mode, skip paths that don't exist
-                        # in the new img to prevent scanning unintentionally files.
-                        if scan_mode == _MATCH_ONLY:
-                            canonical_path = Path("/") / fpath.relative_to(
-                                self._ref_root
-                            )
-                            if not self._new_delta.contains_path(canonical_path):
-                                continue
-
-                        futs.append(pool.submit(self._process_file_in_old_slot, fpath))
-
-                    done, _ = wait(futs)
-                    for fut in done:
-                        try:
-                            if res := fut.result():
-                                self._rm_list.add(res)
-                        except Exception as e:
-                            logger.warning(
-                                f"scan one file failed under {cur_dir=}: {e!r}, ignored"
-                            )
+                for fut in as_completed(futs):
+                    try:
+                        if res := fut.result():
+                            self._rm_list.append(res)
+                    except Exception as e:
+                        logger.warning(
+                            f"scanning one file failed under {curdir_path=}: {e!r}, ignored"
+                        )
 
     ###### public API ######
     def get_delta(self) -> DeltaBundle:
         return DeltaBundle(
             _rm=self._rm_list,
             _new=self._new_delta,
+            _dirs=self._dirs,
             ref_root=self._ref_root,
             recycle_folder=self._recycle_folder,
             total_regular_num=self.total_new_num,
