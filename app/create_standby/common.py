@@ -194,13 +194,13 @@ class RegularDelta(Dict[str, RegularInfSet]):
     def __init__(self):
         super().__init__()
         # for fast lookup regularinf entry
-        self._regularinf_set: Set[RegularInf] = set()
+        self._pathset: Set[Path] = set()
 
     def __len__(self) -> int:
         return sum([len(_set) for _, _set in self.items()])
 
     def add_entry(self, entry: RegularInf):
-        self._regularinf_set.add(entry)
+        self._pathset.add(entry.path)
 
         _hash = entry.sha256hash
         if _hash in self:
@@ -210,34 +210,19 @@ class RegularDelta(Dict[str, RegularInfSet]):
             _new_set.add(entry)
             self[_hash] = _new_set
 
-    def remove_entry(self, entry: RegularInf):
-        self._regularinf_set.discard(entry)
-
-        _hash = entry.sha256hash
-        if _hash not in self:
-            return
-
-        _set = self[_hash]
-        _set.remove(entry)
-        if len(_set) == 0:  # cleanup empty hash group
-            del self[_hash]
-
     def merge_entryset(self, _hash: str, _other: RegularInfSet):
         if _hash not in self:
             return
 
         self[_hash].update(_other)
         for entry, _ in _other.items():
-            self._regularinf_set.add(entry)
+            self._pathset.add(entry)
 
     def contains_hash(self, _hash: str) -> bool:
         return _hash in self
 
-    def contains_entry(self, entry: RegularInf):
-        return entry in self._regularinf_set
-
     def contains_path(self, path: Path):
-        return path in self._regularinf_set
+        return path in self._pathset
 
 
 @dataclass
