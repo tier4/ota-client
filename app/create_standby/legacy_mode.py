@@ -7,6 +7,7 @@ from threading import Semaphore
 from typing import Callable
 from urllib.parse import urljoin
 
+from app.common import SimpleTasksTracker
 from app.configs import OTAFileCacheControl, config as cfg
 from app.copy_tree import CopyTree
 from app.downloader import Downloader
@@ -265,23 +266,28 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         # limit the cocurrent tasks and downloading
         _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
-        _concurrent_se = Semaphore(self.MAX_CONCURRENT_TASKS)
+        _tasks_tracker = SimpleTasksTracker(
+            semaphore=Semaphore(self.MAX_CONCURRENT_TASKS),
+            title="process_regulars",
+        )
 
-        def _release_concurrent_se(*args):
-            _concurrent_se.release()
-
-        with open(regulars_file, "r") as f, ThreadPoolExecutor() as pool:
+        with open(regulars_file, "r") as f, ThreadPoolExecutor(
+            thread_name_prefix="create_standby_slot"
+        ) as pool:
             for l in f:
                 entry = RegularInf.parse_reginf(l)
-                _concurrent_se.acquire()
-
+                _tasks_tracker.register()
                 pool.submit(
                     self._create_regular_file,
                     entry,
                     download_se=_download_se,
-                ).add_done_callback(_release_concurrent_se)
+                ).add_done_callback(_tasks_tracker.callback)
 
-            logger.info("all create_regular_files tasks dispatched, wait for collector")
+            logger.info(
+                "all process_regulars tasks are dispatched, wait for finishing..."
+            )
+            _tasks_tracker.register_finished()
+            _tasks_tracker.wait()
 
     ###### public API methods ######
     @classmethod

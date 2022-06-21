@@ -6,6 +6,7 @@ from threading import Semaphore
 from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
 
+from app.common import SimpleTasksTracker
 from app.create_standby.common import (
     CreateStandbySlotInternalError,
     HardlinkRegister,
@@ -96,7 +97,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             )
 
     def _cal_and_prepare_delta(self):
-        self.update_phase_tracker(OTAUpdatePhase.METADATA)
+        self.update_phase_tracker(OTAUpdatePhase.REGULAR)
 
         # TODO: hardcoded regulars.txt
         # TODO 2: old_reg is not used currently
@@ -164,24 +165,28 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         # limitation on on-going tasks/download
         _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
-        _concurrent_se = Semaphore(self.MAX_CONCURRENT_TASKS)
-
-        def _release_concurrent_se(*args):
-            _concurrent_se.release()
+        _tasks_tracker = SimpleTasksTracker(
+            semaphore=Semaphore(self.MAX_CONCURRENT_TASKS),
+            title="process_regulars",
+        )
 
         # apply delta
-        with ThreadPoolExecutor(thread_name_prefix="create_standby_bank") as pool:
-            logger.info("start applying delta")
+        logger.info("start applying delta")
+        with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
             for _hash, _regulars_set in self.delta_bundle._new.items():
-                _concurrent_se.acquire()
+                _tasks_tracker.register()
                 pool.submit(
                     self._apply_reginf_set,
                     _hash,
                     _regulars_set,
                     download_se=_download_se,
-                ).add_done_callback(_release_concurrent_se)
+                ).add_done_callback(_tasks_tracker.callback)
 
-            logger.info("delta apply done")
+            logger.info(
+                "all process_regulars tasks are dispatched, wait for finishing..."
+            )
+            _tasks_tracker.register_finished()
+            _tasks_tracker.wait()
 
     def _apply_reginf_set(
         self, _hash: str, _regs_set: RegularInfSet, *, download_se: Semaphore
