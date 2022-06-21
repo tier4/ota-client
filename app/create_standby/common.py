@@ -2,7 +2,6 @@ r"""Common used helpers, classes and functions for different bank creating metho
 import os
 import shutil
 import time
-import weakref
 from abc import abstractmethod
 from concurrent.futures import (
     Future,
@@ -16,7 +15,6 @@ from threading import Event, Lock
 from typing import (
     Any,
     Callable,
-    ClassVar,
     Iterator,
     List,
     Dict,
@@ -25,9 +23,9 @@ from typing import (
     Protocol,
     Set,
     Tuple,
-    TypeVar,
     Union,
 )
+from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from app.common import file_sha256
 from app.configs import config as cfg
@@ -83,7 +81,6 @@ class StandbySlotCreatorProtocol(Protocol):
         status_updator: inform which ota phase now.
     """
 
-    update_meta: UpdateMeta
     stats_collector: OTAUpdateStatsCollector
     update_phase_tracker: Callable[[OTAUpdatePhase], None]
 
@@ -152,10 +149,12 @@ class _HardlinkTracker:
 class HardlinkRegister:
     def __init__(self):
         self._lock = Lock()
-        self._hash_ref_dict: Dict[str, _WeakRef] = weakref.WeakValueDictionary()
-        self._ref_tracker_dict: Dict[
-            _WeakRef, _HardlinkTracker
-        ] = weakref.WeakKeyDictionary()
+        self._hash_ref_dict: "WeakValueDictionary[str, _WeakRef]" = (
+            WeakValueDictionary()
+        )
+        self._ref_tracker_dict: "WeakKeyDictionary[_WeakRef, _HardlinkTracker]" = (
+            WeakKeyDictionary()
+        )
 
     def get_tracker(
         self, _identifier: str, path: Path, nlink: int
@@ -226,7 +225,7 @@ class RegularDelta(Dict[str, RegularInfSet]):
 
         self[_hash].update(_other)
         for entry, _ in _other.items():
-            self._pathset.add(entry)
+            self._pathset.add(entry.path)
 
     def contains_hash(self, _hash: str) -> bool:
         return _hash in self
@@ -237,9 +236,9 @@ class RegularDelta(Dict[str, RegularInfSet]):
 
 @dataclass
 class DeltaBundle:
-    _rm: List[str]
-    _new: RegularDelta
-    _dirs: OrderedDict[DirectoryInf, None]
+    rm_delta: List[str]
+    new_delta: RegularDelta
+    new_dirs: OrderedDict[DirectoryInf, None]
     ref_root: Path
     recycle_folder: Path
     total_regular_num: int
@@ -289,12 +288,12 @@ class DeltaGenerator:
     def _parse_reginf(reginf_file: Union[Path, str]) -> Tuple[RegularDelta, int]:
         _new_delta = RegularDelta()
         with open(reginf_file, "r") as f, ProcessPoolExecutor() as pool:
-            for count, entry in enumerate(
-                pool.map(RegularInf.parse_reginf, f, chunksize=2048)
-            ):
+            total_regulars_num = 0
+            for entry in pool.map(RegularInf.parse_reginf, f, chunksize=2048):
+                total_regulars_num += 1
                 _new_delta.add_entry(entry)
 
-        return _new_delta, count + 1
+        return _new_delta, total_regulars_num
 
     @staticmethod
     def _parse_dirs_txt(new_dirs: Path) -> OrderedDict[DirectoryInf, None]:
@@ -306,7 +305,7 @@ class DeltaGenerator:
         return _res
 
     def _process_file_in_old_slot(
-        self, fpath: Path, canonical_fpath: Path, *, _hash: str = None
+        self, fpath: Path, canonical_fpath: Path, *, _hash: Optional[str] = None
     ) -> Optional[str]:
         # ignore non-file file
         if not fpath.is_file():
@@ -329,7 +328,7 @@ class DeltaGenerator:
                 RegInfProcessedStats(
                     op="copy",
                     size=fpath.stat().st_size,
-                    elapsed=time.thread_time() - _start,
+                    elapsed=int(time.thread_time() - _start),
                 )
             )
 
@@ -419,9 +418,9 @@ class DeltaGenerator:
     ###### public API ######
     def get_delta(self) -> DeltaBundle:
         return DeltaBundle(
-            _rm=self._rm_list,
-            _new=self._new_delta,
-            _dirs=self._dirs,
+            rm_delta=self._rm_list,
+            new_delta=self._new_delta,
+            new_dirs=self._dirs,
             ref_root=self._ref_root,
             recycle_folder=self._recycle_folder,
             total_regular_num=self.total_new_num,
