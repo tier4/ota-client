@@ -83,9 +83,11 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
             CMDHelperFuncs.mount(str(self.standby_slot_dev), self.standby_slot_path)
 
     def _mount_refroot(self, standby_as_ref: bool):
+        Path(cfg.REF_ROOT_MOUNT_POINT).mkdir(exist_ok=True)
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=self._boot_control.get_standby_root_device(),
             active_slot_dev=self._boot_control.get_active_root_device(),
+            refroot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
             standby_as_ref=standby_as_ref,
         )
 
