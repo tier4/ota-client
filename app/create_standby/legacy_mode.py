@@ -81,7 +81,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
             # NOTE: do not use cache when fetching dir list
             self._downloader.download(
                 list_info["file"],
-                f.name,
+                Path(f.name),
                 list_info["hash"],
                 cookies=self.cookies,
                 url_base=self.url_base,
@@ -109,7 +109,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
             # NOTE: do not use cache when fetching symlink list
             self._downloader.download(
                 list_info["file"],
-                f.name,
+                Path(f.name),
                 list_info["hash"],
                 url_base=self.url_base,
                 cookies=self.cookies,
@@ -133,7 +133,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
             # NOTE: do not use cache when fetching regular files list
             self._downloader.download(
                 list_info["file"],
-                f.name,
+                Path(f.name),
                 list_info["hash"],
                 url_base=self.url_base,
                 cookies=self.cookies,
@@ -152,7 +152,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
             # NOTE: do not use cache when fetching persist files list
             self._downloader.download(
                 list_info["file"],
-                f.name,
+                Path(f.name),
                 list_info["hash"],
                 url_base=self.url_base,
                 cookies=self.cookies,
@@ -190,9 +190,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
         else:
             dst = self.standby_slot / reginf.path.relative_to("/")
 
-        # if is_hardlink file, get a tracker from the register
-        is_hardlink = reginf.nlink >= 2
-        if is_hardlink:
+        # case 1: if is_hardlink file, get a tracker from the register
+        if reginf.nlink >= 2:
             # NOTE(20220523): for regulars.txt that support hardlink group,
             #   use inode to identify the hardlink group.
             #   otherwise, use hash to identify the same hardlink file.
@@ -204,51 +203,75 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 _identifier, reginf.path, reginf.nlink
             )
 
-        # case 1: is hardlink and this thread is subscriber
-        if is_hardlink and not _is_writer:
-            # wait until the first copy is ready
-            prev_reginf_path = _hardlink_tracker.subscribe()
-            (self.standby_slot / prev_reginf_path.relative_to("/")).link_to(dst)
-            processed.op = "link"
+            # case 1.1: is hardlink and this thread is subscriber
+            if not _is_writer:
+                # wait until the first copy is ready
+                prev_reginf_path = _hardlink_tracker.subscribe()
+                (self.standby_slot / prev_reginf_path.relative_to("/")).link_to(dst)
+                processed.op = "link"
 
-        # case 2: normal file or first copy of hardlink file
-        else:
-            try:
-                if reginf.path.is_file() and reginf.verify_file(
-                    src_root=self.reference_slot
-                ):
-                    # copy file from active bank if hash is the same
-                    reginf.copy2slot(self.standby_slot, src_root=self.reference_slot)
-                    processed.op = "copy"
-                else:
-                    # limit the concurrent downloading tasks
-                    with download_se:
-                        processed.errors = self._downloader.download(
-                            reginf.path,
-                            dst,
-                            reginf.sha256hash,
-                            url_base=self.image_base_url,
-                            cookies=self.cookies,
+            # case 1.2: is hardlink and is writer
+            else:
+                try:
+                    if reginf.path.is_file() and reginf.verify_file(
+                        src_root=self.reference_slot
+                    ):
+                        # copy file from active bank if hash is the same
+                        reginf.copy2slot(
+                            self.standby_slot, src_root=self.reference_slot
                         )
-                        processed.op = "download"
+                        processed.op = "copy"
+                    else:
+                        # limit the concurrent downloading tasks
+                        with download_se:
+                            processed.errors = self._downloader.download(
+                                reginf.path,
+                                dst,
+                                reginf.sha256hash,
+                                url_base=self.image_base_url,
+                                cookies=self.cookies,
+                            )
+                            processed.op = "download"
 
-                    # set file permission as RegInf says
-                    os.chown(dst, reginf.uid, reginf.gid)
-                    os.chmod(dst, reginf.mode)
+                        # set file permission as RegInf says
+                        os.chown(dst, reginf.uid, reginf.gid)
+                        os.chmod(dst, reginf.mode)
 
-                # when first copy is ready(by copy or download),
-                # inform the subscriber
-                if is_hardlink and _is_writer:
+                    # when first copy is ready(by copy or download),
+                    # inform the subscriber
                     _hardlink_tracker.writer_done()
-            except Exception:
-                if is_hardlink and _is_writer:
+                except Exception:
                     # signal all subscribers to abort
                     _hardlink_tracker.writer_on_failed()
 
-                raise
+                    raise
+
+        # case 2: normal file
+        else:
+            if reginf.path.is_file() and reginf.verify_file(
+                src_root=self.reference_slot
+            ):
+                # copy file from active bank if hash is the same
+                reginf.copy2slot(self.standby_slot, src_root=self.reference_slot)
+                processed.op = "copy"
+            else:
+                # limit the concurrent downloading tasks
+                with download_se:
+                    processed.errors = self._downloader.download(
+                        reginf.path,
+                        dst,
+                        reginf.sha256hash,
+                        url_base=self.image_base_url,
+                        cookies=self.cookies,
+                    )
+                    processed.op = "download"
+
+                # set file permission as RegInf says
+                os.chown(dst, reginf.uid, reginf.gid)
+                os.chmod(dst, reginf.mode)
 
         processed.size = dst.stat().st_size
-        processed.elapsed = time.thread_time() - begin_time
+        processed.elapsed = int(time.thread_time() - begin_time)
 
         self.stats_collector.report(processed)
 
