@@ -4,7 +4,7 @@ from abc import abstractmethod
 from enum import auto, Enum
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Protocol, Union
+from typing import List, Optional, Protocol, Union
 
 from app import log_util
 from app.configs import config as cfg
@@ -98,7 +98,7 @@ class CMDHelperFuncs:
 
     @staticmethod
     def _mount(
-        dev: str, mount_point: str, options: List[str] = None
+        dev: str, mount_point: str, options: Optional[List[str]] = None
     ) -> MountFailedReason:
         """
         mount [-o option1[,option2, ...]]] <dev> <mount_point>
@@ -148,7 +148,11 @@ class CMDHelperFuncs:
         res = cls._blkid(args)
 
         pa = re.compile(r'PARTUUID="?(?P<partuuid>[\w-]*)"?')
-        v = pa.search(res).group("partuuid")
+        if ma := pa.search(res):
+            v = ma.group("partuuid")
+        else:
+            logger.error(f"failed to get partuuid from {dev}")
+            return ""
 
         return f"PARTUUID={v}"
 
@@ -211,7 +215,10 @@ class CMDHelperFuncs:
 
     @classmethod
     def mount(
-        cls, target: str, mount_point: Union[Path, str], options: List[str] = None
+        cls,
+        target: str,
+        mount_point: Union[Path, str],
+        options: Optional[List[str]] = None,
     ):
         _failed_reason = cls._mount(target, str(mount_point), options)
         if _failed_reason != MountFailedReason.SUCCESS:
@@ -291,6 +298,7 @@ class OTAStatusMixin:
         write_to_file(self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
 
     def _load_current_ota_status(self) -> OTAStatusEnum:
+        _status = OTAStatusEnum.FAILURE  # for unexpected situation, default to FAILURE
         try:
             _status_str = read_from_file(
                 self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
