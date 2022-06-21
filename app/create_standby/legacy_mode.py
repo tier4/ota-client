@@ -317,6 +317,10 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def should_erase_standby_slot(cls) -> bool:
         return True
 
+    @classmethod
+    def is_standby_as_ref(cls) -> bool:
+        return False
+
     def create_standby_bank(self):
         """Exposed API for ota-client."""
         try:

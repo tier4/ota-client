@@ -26,7 +26,7 @@ def select_mode() -> str:
 _AUOTSELECTED_MODE = select_mode()
 
 
-def get_standby_creator(
+def get_standby_slot_creator(
     mode: str = _AUOTSELECTED_MODE,
 ) -> Type[StandbySlotCreatorProtocol]:
     logger.info(f"use slot update {mode=}")
@@ -57,14 +57,13 @@ def get_reference_slot(
     return res
 
 
-StandbySlotCreator: Type[StandbySlotCreatorProtocol] = get_standby_creator()
+StandbySlotCreator: Type[StandbySlotCreatorProtocol] = get_standby_slot_creator()
 
 __all__ = (
-    "StandBySlotCreator",
+    "StandbySlotCreator",
     "CreateStandbySlotError",
     "CreateStandbySlotExternalError",
     "CreateStandbySlotInternalError",
     "UpdateMeta",
-    "get_reference_bank",
-    "get_bank_creator",
+    "get_standby_slot_creator",
 )

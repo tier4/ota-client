@@ -21,7 +21,6 @@ from app.downloader import Downloader
 from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
 from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
-    DirectoryInf,
     PersistentInf,
     SymbolicLinkInf,
 )
@@ -119,7 +118,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         # NOTE: now apply dirs.txt moved to here
         self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
-        for entry in self.delta_bundle._dirs:
+        for entry in self.delta_bundle.new_dirs:
             entry.mkdir2slot(self.standby_slot)
 
     def _process_persistents(self):
@@ -173,7 +172,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # apply delta
         logger.info("start applying delta")
         with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
-            for _hash, _regulars_set in self.delta_bundle._new.items():
+            for _hash, _regulars_set in self.delta_bundle.new_delta.items():
                 _tasks_tracker.register()
                 pool.submit(
                     self._apply_reginf_set,
@@ -250,8 +249,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             stats_list.append(
                 RegInfProcessedStats(
                     op=_op,
-                    size=entry.size,
-                    elapsed=time.thread_time() - _start,
+                    size=entry.size if entry.size else 0,
+                    elapsed=int(time.thread_time() - _start),
                     errors=_errors,
                 )
             )
@@ -266,6 +265,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
     @classmethod
     def should_erase_standby_slot(cls) -> bool:
         return True
+
+    @classmethod
+    def is_standby_as_ref(cls) -> bool:
+        return False
 
     def create_standby_bank(self):
         try:

@@ -102,6 +102,12 @@ class StandbySlotCreatorProtocol(Protocol):
         """Tell whether standby slot should be erased
         under this standby slot creating mode."""
 
+    @classmethod
+    @abstractmethod
+    def is_standby_as_ref(cls) -> bool:
+        """Tell whether the slot creator intends to use
+        in-place update."""
+
 
 class _WeakRef:
     pass
