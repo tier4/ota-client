@@ -1,10 +1,14 @@
 r"""Utils that shared between modules are listed here."""
+import itertools
 import os
 import shlex
 import shutil
 import subprocess
+import time
+from concurrent.futures import Future
 from hashlib import sha256
 from pathlib import Path
+from threading import Event, Semaphore
 from typing import Union
 
 from app.log_util import get_logger
@@ -151,3 +155,55 @@ def copytree_identical(src: Path, dst: Path):
             _src_f = _cur_dir_on_src / fname
             if not (_src_f.is_file() or _src_f.is_symlink()):
                 (_cur_dir_on_dst / fname).unlink(missing_ok=True)
+
+
+class SimpleTasksTracker:
+    def __init__(
+        self, *, semaphore: Semaphore, title: str = "simple_tasks_tracker"
+    ) -> None:
+        self.title = title
+        self._wait_interval = cfg.STATS_COLLECT_INTERVAL
+        self.last_error = None
+        self._se = semaphore
+
+        self._interrupted = Event()
+        self._register_finished = False
+
+        self._in_counter = itertools.count()
+        self._done_counter = itertools.count()
+        self._in_num = 0
+        self._done_num = 0
+
+    def register(self):
+        if self._interrupted.is_set() or self._register_finished:
+            return
+
+        self._se.acquire()
+        self._in_num = next(self._in_counter)
+
+    def register_finished(self):
+        self._register_finished = True
+
+    def callback(self, fut: Future):
+        try:
+            self._se.release()
+            fut.result()
+            self._done_num = next(self._done_counter)
+        except Exception as e:
+            self.last_error = e
+            self._interrupted.set()
+
+    def wait(self, *, timeout: float = None, raise_exception=True):
+        _start = time.time()
+        while not self._register_finished and self._done_num < self._in_num:
+            if timeout and time.time() - _start > timeout:
+                raise TimeoutError(f"wait on {self.title} timeout")
+
+            if self._interrupted.is_set():
+                logger.error(f"{self.title} interrupted, abort")
+                break
+
+            time.sleep(self._wait_interval)
+
+        if raise_exception and self.last_error:
+            raise self.last_error
