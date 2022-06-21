@@ -9,7 +9,7 @@ from concurrent.futures import Future
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Semaphore
-from typing import Union
+from typing import Optional, Union
 
 from app.log_util import get_logger
 from app.configs import config as cfg
@@ -17,7 +17,7 @@ from app.configs import config as cfg
 logger = get_logger(__name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
 
 # file verification
-def file_sha256(filename: Union[str, str]) -> str:
+def file_sha256(filename: Union[Path, str]) -> str:
     with open(filename, "rb") as f:
         m = sha256()
         while True:
@@ -184,7 +184,7 @@ class SimpleTasksTracker:
     def register_finished(self):
         self._register_finished = True
 
-    def callback(self, fut: Future):
+    def callback(self, fut: Future) -> None:
         try:
             self._se.release()
             fut.result()
@@ -193,7 +193,7 @@ class SimpleTasksTracker:
             self.last_error = e
             self._interrupted.set()
 
-    def wait(self, *, timeout: float = None, raise_exception=True):
+    def wait(self, *, timeout: Optional[float] = None, raise_exception: bool = True):
         _start = time.time()
         while not self._register_finished and self._done_num < self._in_num:
             if timeout and time.time() - _start > timeout:
