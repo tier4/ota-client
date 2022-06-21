@@ -110,7 +110,7 @@ class _OTAUpdator:
         # set update status
         self.update_phase = OTAUpdatePhase.INITIAL
         self.update_start_time = int(time.time() * 1000)  # unix time in milli-seconds
-        self.updating_version: str = None
+        self.updating_version: str = ""
         self.failure_reason = ""
 
         # init downloader
@@ -198,6 +198,7 @@ class _OTAUpdator:
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
         self._boot_controller.pre_update(
             self.updating_version,
+            standby_as_ref=StandbySlotCreator.is_standby_as_ref(),
             erase_standby=StandbySlotCreator.should_erase_standby_slot(),
         )
 
@@ -321,7 +322,7 @@ class OTAClient(OTAClientInterface):
         self.failure_reason = str(e)
         return OTAOperationFailureType.RECOVERABLE
 
-    def _result_unrecoverable(self, e):
+    def _result_unrecoverable(self, e: Any):
         self.failure_type = OTAOperationFailureType.UNRECOVERABLE
         self.failure_reason = str(e)
         return OTAOperationFailureType.UNRECOVERABLE
@@ -385,9 +386,6 @@ class OTAClient(OTAClientInterface):
 
     def status(self) -> Tuple[OTAOperationFailureType, Dict[str, Any]]:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
-            if not hasattr(self, "updator"):
-                return self._result_unrecoverable("not in update mode, abort")
-
             _stats_dict = self.updator.status()
             # insert failure reason
             _stats_dict["failure_type"] = self.failure_type.name
@@ -402,8 +400,3 @@ class OTAClient(OTAClientInterface):
                 "version": self.boot_controller.load_version(),
                 "update_progress": {},
             }
-
-
-if __name__ == "__main__":
-    ota_client = OTAClient()
-    ota_client.update("123.x", "http://localhost:8080", "{}")
