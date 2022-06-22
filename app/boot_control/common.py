@@ -265,10 +265,12 @@ class CMDHelperFuncs:
 
         # NOTE: set raise_exception to false to allow not mounted
         # not mounted dev will have empty return str
-        if CMDHelperFuncs.get_mount_point_by_dev(_refroot_dev, raise_exception=False):
+        if _refroot_active_mount_point := CMDHelperFuncs.get_mount_point_by_dev(
+            _refroot_dev, raise_exception=False
+        ):
             _mount_options = ["bind", "ro"]
             CMDHelperFuncs.mount(
-                _refroot_dev,
+                _refroot_active_mount_point,
                 refroot_mount_point,
                 _mount_options,
             )
