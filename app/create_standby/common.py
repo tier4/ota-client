@@ -242,9 +242,14 @@ class RegularDelta(Dict[str, RegularInfSet]):
 
 @dataclass
 class DeltaBundle:
+    """NOTE: all paths are canonical!"""
+
+    # delta
     rm_delta: List[str]
     new_delta: RegularDelta
     new_dirs: OrderedDict[DirectoryInf, None]
+
+    # misc
     ref_root: Path
     recycle_folder: Path
     total_regular_num: int
@@ -267,7 +272,7 @@ class DeltaGenerator:
 
     def __init__(
         self,
-        old_reg: Path,  # path to old image regulars.txt
+        old_reg: Path,  # path to old image regulars.txt, currently not used now
         new_reg: Path,  # path to new image regulars.txt
         new_dirs: Path,  # path to dirs.txt
         *,
@@ -279,15 +284,18 @@ class DeltaGenerator:
         Attrs:
             bank_root: the root of the bank(old) that we calculate delta from.
         """
-        self._old_reg = old_reg
-        self._new_reg = new_reg
-
         self._stats_collector = stats_collector
         self._ref_root = ref_root
         self._recycle_folder = recycle_folder
 
         # generate delta
         self._dirs: OrderedDict[DirectoryInf, None] = self._parse_dirs_txt(new_dirs)
+        self._new_delta, self.total_new_num = self._parse_reginf(new_reg)
+        logger.info(f"preload: {len(self._dirs)=}, {len(self._new_delta)=}")
+
+        # set total_new_num to store
+        self._stats_collector.store.total_regular_files = self.total_new_num
+
         self._cal_and_prepare_old_slot_delta()
 
     @staticmethod
@@ -311,14 +319,8 @@ class DeltaGenerator:
         return _res
 
     def _process_file_in_old_slot(
-        self, fpath: Path, canonical_fpath: Path, *, _hash: Optional[str] = None
-    ) -> Optional[str]:
-        # ignore non-file file
-        if not fpath.is_file():
-            return
-
-        # TODO: if old_reg is available, we can get the hash of the path
-        # without hashing it in the first place
+        self, fpath: Path, *, _hash: Optional[str] = None
+    ) -> None:
         if _hash is None:
             _hash = file_sha256(fpath)
 
@@ -338,16 +340,12 @@ class DeltaGenerator:
                 )
             )
 
-        # check whether this path should be remained
-        if not self._new_delta.contains_path(canonical_fpath):
-            return str(canonical_fpath)
-
     def _cal_and_prepare_old_slot_delta(self):
         """
         NOTE: all local copies are ready after this method
         """
-        self._new_delta, self.total_new_num = self._parse_reginf(self._new_reg)
-        self._rm_list: List[str] = []
+        self._rm_list: List[str] = []  # not used
+        _canonical_root = Path("/")
 
         # scan old slot and generate delta based on path,
         # group files into many hash group,
@@ -360,6 +358,9 @@ class DeltaGenerator:
                 self._ref_root, topdown=True, followlinks=False
             ):
                 curdir_path = Path(curdir)
+                canonical_curdir_path = _canonical_root / curdir_path.relative_to(
+                    self._ref_root
+                )
 
                 # skip folder that exceeds max_folder_deepth
                 if len(curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
@@ -369,11 +370,11 @@ class DeltaGenerator:
 
                 # skip folder if it doesn't exist on new image,
                 # and also not meant to be fully scanned
-                dir_should_skip = False if curdir_path.parent in self._dirs else True
+                dir_should_skip = False if canonical_curdir_path in self._dirs else True
                 dir_should_fully_scan = False
 
                 # check if we neede to fully scan this folder
-                for parent in reversed(curdir_path.parents):
+                for parent in reversed(canonical_curdir_path.parents):
                     if (
                         not dir_should_fully_scan
                         and str(parent) in self.FULL_SCAN_PATHS
@@ -396,30 +397,32 @@ class DeltaGenerator:
                 futs: List[Future] = []
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     fpath = curdir_path / fname
-
                     # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
-                    canonical_fpath = Path("/") / fpath.relative_to(self._ref_root)
+                    canonical_fpath = canonical_curdir_path / fname
+
+                    # ignore non-file file
+                    if not fpath.is_file():
+                        continue
+
+                    # in default match_only mode, if the path doesn't exist in new, ignore
                     if not dir_should_fully_scan and not self._new_delta.contains_path(
                         canonical_fpath
                     ):
                         continue
 
+                    # scan and hash the file
                     # TODO: if old_reg is available, only scan files that presented
-                    # in the old_reg in the full_scan folders
-                    futs.append(
-                        pool.submit(
-                            self._process_file_in_old_slot, fpath, canonical_fpath
-                        )
-                    )
+                    # in the old_reg in the full_scan folders,
+                    # TODO 2: hash can also be pre-loaded from old_reg
+                    futs.append(pool.submit(self._process_file_in_old_slot, fpath))
 
                 for fut in as_completed(futs):
                     try:
-                        if res := fut.result():
-                            self._rm_list.append(res)
+                        fut.result()
                     except Exception as e:
-                        logger.warning(
-                            f"scanning one file failed under {curdir_path=}: {e!r}, ignored"
-                        )
+                        raise CreateStandbySlotInternalError(
+                            "failed to finish delta preparing"
+                        ) from e
 
     ###### public API ######
     def get_delta(self) -> DeltaBundle:
