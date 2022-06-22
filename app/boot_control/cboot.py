@@ -276,12 +276,12 @@ class _CBootControl:
 
 
 class _PrepareMountMixin:
-    standby_slot_path: Path
-    ref_slot_path: Path
+    standby_slot_mount_point: Path
+    ref_slot_mount_point: Path
     _cboot_control: _CBootControl
 
     def _prepare_and_mount_standby(self, *, erase=False):
-        self.standby_slot_path.mkdir(parents=True, exist_ok=True)
+        self.standby_slot_mount_point.mkdir(parents=True, exist_ok=True)
         standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()
 
         # first try umount the dev
@@ -293,19 +293,19 @@ class _PrepareMountMixin:
             CMDHelperFuncs.mkfs_ext4(standby_slot_dev)
 
         # try to mount the standby dev
-        CMDHelperFuncs.mount(standby_slot_dev, self.standby_slot_path)
+        CMDHelperFuncs.mount(standby_slot_dev, self.standby_slot_mount_point)
 
         # create the ota-status folder unconditionally
-        _ota_status_dir = self.standby_slot_path / Path(cfg.OTA_STATUS_DIR).relative_to(
-            "/"
-        )
+        _ota_status_dir = self.standby_slot_mount_point / Path(
+            cfg.OTA_STATUS_DIR
+        ).relative_to("/")
         _ota_status_dir.mkdir(exist_ok=True, parents=True)
 
     def _mount_ref_root(self, standby_as_ref: bool):
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=self._cboot_control.get_standby_rootfs_dev(),
             active_slot_dev=self._cboot_control.get_current_rootfs_dev(),
-            refroot_mount_point=str(self.ref_slot_path),
+            refroot_mount_point=str(self.ref_slot_mount_point),
             standby_as_ref=standby_as_ref,
         )
 
@@ -323,10 +323,10 @@ class CBootController(
         self._cboot_control: _CBootControl = _CBootControl()
 
         # load paths
-        self.standby_slot_path = Path(cfg.MOUNT_POINT)
-        self.standby_slot_path.mkdir()
-        self.ref_slot_path = Path(cfg.REF_ROOT_MOUNT_POINT)
-        self.ref_slot_path.mkdir()
+        self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
+        self.standby_slot_mount_point.mkdir()
+        self.ref_slot_mount_point = Path(cfg.REF_ROOT_MOUNT_POINT)
+        self.ref_slot_mount_point.mkdir()
 
         ## ota-status dir
         ### current slot
@@ -335,7 +335,7 @@ class CBootController(
 
         ## standby slot
         ### NOTE: not yet available before ota update starts
-        self.standby_ota_status_dir = self.standby_slot_path / Path(
+        self.standby_ota_status_dir = self.standby_slot_mount_point / Path(
             cfg.OTA_STATUS_DIR
         ).relative_to("/")
 
@@ -428,7 +428,7 @@ class CBootController(
 
             dst = _boot_dir_mount_point / "boot"
             dst.mkdir(exist_ok=True, parents=True)
-            src = self.standby_slot_path / "boot"
+            src = self.standby_slot_mount_point / "boot"
 
             # copy the standby slot's boot folder to emmc boot dev
             copytree_identical(src, dst)
@@ -454,14 +454,14 @@ class CBootController(
     # also includes methods from OTAStatusMixin, VersionControlMixin
 
     def get_standby_slot_path(self) -> Path:
-        return self.standby_slot_path
+        return self.standby_slot_mount_point
 
     def get_standby_boot_dir(self) -> Path:
         """
         NOTE: in cboot controller, we directly use the /boot dir under the standby slot,
         and sync to the external boot dev in the post_update if needed.
         """
-        return self.standby_slot_path / "boot"
+        return self.standby_slot_mount_point / "boot"
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_stanby=False):
         try:
@@ -488,7 +488,7 @@ class CBootController(
         # TODO: deal with unexpected reboot during post_update
         try:
             # update extlinux_cfg file
-            _extlinux_cfg = self.standby_slot_path / Path(
+            _extlinux_cfg = self.standby_slot_mount_point / Path(
                 self.EXTLINUX_FILE
             ).relative_to("/")
             self._cboot_control.update_extlinux_cfg(
