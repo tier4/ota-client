@@ -265,9 +265,7 @@ class CMDHelperFuncs:
 
         # NOTE: set raise_exception to false to allow not mounted
         # not mounted dev will have empty return str
-        if _refroot_active_mount_point := CMDHelperFuncs.get_mount_point_by_dev(
-            _refroot_dev, raise_exception=False
-        ):
+        if CMDHelperFuncs.get_mount_point_by_dev(_refroot_dev, raise_exception=False):
             _mount_options = ["bind", "ro"]
             CMDHelperFuncs.mount(
                 _refroot_dev,
@@ -283,6 +281,20 @@ class CMDHelperFuncs:
 
 
 ###### helper mixins ######
+class SlotInUseMixin:
+    current_ota_status_dir: Path
+    standby_ota_status_dir: Path
+
+    def _store_current_slot_in_use(self, _slot: str):
+        write_to_file(self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
+
+    def _store_standby_slot_in_use(self, _slot: str):
+        write_to_file(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
+
+    def _load_current_slot_in_use(self) -> str:
+        return read_from_file(
+            self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, missing_ok=False
+        )
 
 
 class OTAStatusMixin:

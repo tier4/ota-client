@@ -11,6 +11,7 @@ from app.boot_control.common import (
     BootControlInternalError,
     CMDHelperFuncs,
     BootControlExternalError,
+    SlotInUseMixin,
     VersionControlMixin,
     BootControllerProtocol,
 )
@@ -274,22 +275,6 @@ class _CBootControl:
         dst.write_text(re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text()))
 
 
-class _SlotInUseMixin:
-    current_ota_status_dir: Path
-    standby_ota_status_dir: Path
-
-    def _store_current_slot_in_use(self, _slot: str):
-        write_to_file(self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
-
-    def _store_standby_slot_in_use(self, _slot: str):
-        write_to_file(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
-
-    def _load_current_slot_in_use(self) -> str:
-        return read_from_file(
-            self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, missing_ok=False
-        )
-
-
 class _PrepareMountMixin:
     standby_slot_path: Path
     ref_slot_path: Path
@@ -327,7 +312,7 @@ class _PrepareMountMixin:
 
 class CBootController(
     _PrepareMountMixin,
-    _SlotInUseMixin,
+    SlotInUseMixin,
     OTAStatusMixin,
     VersionControlMixin,
     BootControllerProtocol,
