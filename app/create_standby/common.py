@@ -370,7 +370,14 @@ class DeltaGenerator:
 
                 # skip folder if it doesn't exist on new image,
                 # and also not meant to be fully scanned
-                dir_should_skip = False if canonical_curdir_path in self._dirs else True
+                dir_should_skip = (
+                    False
+                    if (
+                        canonical_curdir_path == _canonical_root
+                        or canonical_curdir_path in self._dirs
+                    )
+                    else True
+                )
                 dir_should_fully_scan = False
 
                 # check if we neede to fully scan this folder
