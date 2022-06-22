@@ -253,7 +253,7 @@ class DeltaBundle:
 class DeltaGenerator:
     # entry under the following folders will be scanned
     # no matter it is existed in new image or not
-    FULL_SCAN_PATHS = Set(
+    FULL_SCAN_PATHS = set(
         [
             "/var/lib",
             "/usr",
