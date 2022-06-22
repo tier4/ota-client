@@ -355,8 +355,8 @@ class _OtaPartition:
         sda3 and sda4 root device exist, sda4 is returned.
         NOTE: cache cannot be used since active and standby boot is switched.
         """
-        active_root_device = self.get_active_root_device()
-        standby_root_device = self.get_standby_root_device()
+        active_root_device = self.get_active_root_device_name()
+        standby_root_device = self.get_standby_root_device_name()
 
         active_boot_device = self.get_active_boot_device()
         if active_boot_device == active_root_device:
@@ -370,14 +370,39 @@ class _OtaPartition:
             f"standby_root_device={standby_root_device}"
         )
 
-    def get_active_root_device(self):
+    def get_active_root_dev(self):
+        return self._get_root_device_file()
+
+    def get_active_root_device_name(self):
         if self._active_root_device_cache:  # return cache if available
             return self._active_root_device_cache
 
         self._active_root_device_cache = self._get_root_device_file().lstrip("/dev")
         return self._active_root_device_cache
 
-    def get_standby_root_device(self):
+    def get_standby_root_dev(self):
+        """
+        returns standby root device
+        standby root device is:
+        fstype ext4, sibling device of root device and not boot device.
+        """
+        # find root device
+        root_device_file = self._get_root_device_file()
+
+        # find boot device
+        boot_device_file = self._get_boot_device_file()
+
+        # find parent device from root device
+        parent_device_file = self._get_parent_device_file(root_device_file)
+
+        # find standby device file from root and boot device file
+        return self._get_standby_device_file(
+            parent_device_file,
+            root_device_file,
+            boot_device_file,
+        )
+
+    def get_standby_root_device_name(self):
         """
         returns standby root device
         standby root device is:
@@ -452,7 +477,7 @@ class OtaPartitionFile(_OtaPartition):
 
     def is_switching_boot_partition_from_active_to_standby(self):
         standby_boot_device = self.get_standby_boot_device()
-        active_root_device = self.get_active_root_device()
+        active_root_device = self.get_active_root_device_name()
         logger.info(f"{standby_boot_device=},{active_root_device=}")
         return standby_boot_device == active_root_device
 
@@ -519,12 +544,12 @@ class OtaPartitionFile(_OtaPartition):
                 f.unlink()
 
     def mount_standby_root_partition_and_clean(self, mount_path: Path):
-        standby_root = self.get_standby_root_device()
+        standby_root = self.get_standby_root_device_name()
         mount_path.mkdir(exist_ok=True)
         self._mount_and_clean(f"/dev/{standby_root}", mount_path)
 
     def update_fstab(self, mount_path: Path):
-        active_root_device = self.get_active_root_device()
+        active_root_device = self.get_active_root_device_name()
         standby_root_device = self.get_standby_boot_device()
         logger.info(f"{active_root_device=},{standby_root_device=}")
         self._grub_control.update_fstab(
@@ -540,7 +565,7 @@ class OtaPartitionFile(_OtaPartition):
         )
 
     def update_grub_cfg(self):
-        active_device = self.get_active_root_device()
+        active_device = self.get_active_root_device_name()
         standby_boot_path = self.get_standby_boot_partition_path()
         logger.info(f"{active_device=},{standby_boot_path=}")
         self._grub_control.update_grub_cfg(
@@ -624,8 +649,8 @@ class OtaPartitionFile(_OtaPartition):
             active_device = self.get_active_boot_device()
             standby_device = self.get_standby_boot_device()
         except FileNotFoundError:
-            active_device = self.get_active_root_device()
-            standby_device = self.get_standby_root_device()
+            active_device = self.get_active_root_device_name()
+            standby_device = self.get_standby_root_device_name()
         logger.info(f"{active_device=},{standby_device=}")
 
         active_boot_path = boot_ota_partition.with_suffix(f".{active_device}")
