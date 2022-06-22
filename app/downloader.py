@@ -3,7 +3,7 @@ import time
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 from urllib.parse import quote_from_bytes, urljoin, urlparse
 
 from app.configs import OTAFileCacheControl, config as cfg
@@ -133,18 +133,18 @@ class Downloader:
         self._proxy_set = False
         self.configure_proxy("")
 
-    def _path_to_url(self, base: str, p: Union[Path, str]) -> str:
+    def _path_to_url(self, base: str, path: Union[Path, str]) -> str:
         # regulate base url, add suffix / to it if not existed
         if not base.endswith("/"):
             base = f"{base}/"
 
-        if isinstance(p, str):
-            p = Path(p)
+        if isinstance(path, str):
+            path = Path(path)
 
-        relative_path = p
+        relative_path = path
         # if the path is relative to /
         try:
-            relative_path = p.relative_to("/")
+            relative_path = path.relative_to("/")
         except ValueError:
             pass
 
@@ -161,17 +161,20 @@ class Downloader:
     @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def download(
         self,
-        path: str,
-        dst: Path,
-        digest: str,
+        path: Union[Path, str],
+        dst: Union[Path, str],
+        digest: Optional[str],
         *,
         url_base: str,
         cookies: Dict[str, str],
-        headers: Dict[str, str] = None,
+        headers: Optional[Dict[str, str]] = None,
     ) -> int:
         url = self._path_to_url(url_base, path)
         if not headers:
             headers = dict()
+
+        if isinstance(dst, str):
+            dst = Path(dst)
 
         # specially deal with empty file
         if digest == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855":

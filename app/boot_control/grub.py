@@ -11,7 +11,7 @@ from app.configs import config as cfg
 from app.ota_status import OTAStatusEnum
 from app import log_util
 
-assert cfg.BOOTLOADER == "grub"
+assert cfg.BOOTLOADER == "grub", f"ERROR, try to use grub on {cfg.BOOTLOADER}, abort"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

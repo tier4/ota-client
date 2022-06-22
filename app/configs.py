@@ -1,7 +1,7 @@
 import enum
 from dataclasses import dataclass, field
 from logging import INFO
-from typing import Literal
+from typing import Dict, Literal
 
 
 class OTAFileCacheControl(enum.Enum):
@@ -66,7 +66,7 @@ class OtaClientServerConfig:
 @dataclass
 class _BaseConfig:
     DEFAULT_LOG_LEVEL: int = INFO
-    LOG_LEVEL_TABLE: dict = field(
+    LOG_LEVEL_TABLE: Dict[str, int] = field(
         default_factory=lambda: {
             "ecu_info": INFO,
             "grub_control": INFO,
@@ -134,7 +134,7 @@ class CBootControlConfig(_BaseConfig):
     """
 
     BOOTLOADER: str = "cboot"
-    CHIP_ID_MODEL_MAP: dict = field(default_factory=lambda: {0x19: "rqx_580"})
+    CHIP_ID_MODEL_MAP: Dict[int, str] = field(default_factory=lambda: {0x19: "rqx_580"})
     
     # ota related status files are stored under OTA_STATUS_DIR
     # include: status, slot_in_use, version

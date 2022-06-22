@@ -2,7 +2,7 @@ import re
 import subprocess
 from pathlib import Path
 from functools import partial
-from typing import Union
+from typing import Optional, Union
 
 from app import log_util
 from app.boot_control.common import (
@@ -24,7 +24,7 @@ from app.common import (
 from app.configs import config as cfg
 from app.ota_status import OTAStatusEnum
 
-assert cfg.BOOTLOADER == "cboot"
+assert cfg.BOOTLOADER == "cboot", f"ERROR, try to use cboot on {cfg.BOOTLOADER}, abort"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -74,13 +74,14 @@ class Nvbootctrl:
         NOTE: expect using UUID method to assign rootfs!
         """
         pa = re.compile(r"\broot=(?P<rdev>[\w=-]*)\b")
-        ma = pa.search(subprocess_check_output("cat /proc/cmdline")).group("rdev")
-
-        if ma is None:
+        if ma := pa.search(subprocess_check_output("cat /proc/cmdline")):
+            res = ma.group("rdev")
+        else:
             raise BootControlInternalError(
-                "rootfs detect failed or not PARTUUID method"
+                "rootfs detect failed or rootfs is not specified by PARTUUID in kernel cmdline"
             )
-        uuid = ma.split("=")[-1]
+
+        uuid = res.split("=")[-1]
 
         return Path(CMDHelperFuncs.get_dev_by_partuuid(uuid)).resolve(
             strict=True
@@ -88,7 +89,10 @@ class Nvbootctrl:
 
     @classmethod
     def get_current_slot(cls) -> str:
-        return cls._nvbootctrl("get-current-slot", call_only=False)
+        if slot := cls._nvbootctrl("get-current-slot", call_only=False):
+            return slot
+        else:
+            raise BootControlInternalError
 
     @classmethod
     def mark_boot_successful(cls, slot: str):
@@ -365,10 +369,9 @@ class CBootController(
             _ota_status = self._finalize_rollback()
         elif _ota_status == OTAStatusEnum.SUCCESS:
             # need to check whether it is negative SUCCESS
+            current_slot = Nvbootctrl.get_current_slot()
             try:
-                current_slot = Nvbootctrl.get_current_slot()
                 slot_in_use = self._load_current_slot_in_use()
-
                 # cover the case that device reboot into unexpected slot
                 if current_slot != slot_in_use:
                     logger.error(
@@ -429,10 +432,10 @@ class CBootController(
 
     def _populate_boot_folder_to_separate_bootdev(self):
         # mount the actual standby_boot_dev now
-        try:
-            _boot_dir_mount_point = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
-            _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
+        _boot_dir_mount_point = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
+        _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
 
+        try:
             CMDHelperFuncs.mount(
                 self._cboot_control.get_standby_boot_dev(),
                 _boot_dir_mount_point,
@@ -479,7 +482,7 @@ class CBootController(
         try:
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
-            self._prepare_and_mount_standby(erase_stanby)
+            self._prepare_and_mount_standby(erase=erase_stanby)
             self._mount_ref_root(standby_as_ref)
 
             # store status to standby slot

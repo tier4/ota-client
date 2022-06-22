@@ -229,7 +229,7 @@ class CMDHelperFuncs:
             raise BootControlExternalError(_failure_msg)
 
     @classmethod
-    def umount_dev(cls, dev: str):
+    def umount_dev(cls, dev: Union[Path, str]):
         try:
             _cmd = f"umount -f {dev}"
             subprocess_call(_cmd, raise_exception=True)
