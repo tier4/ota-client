@@ -60,12 +60,15 @@ class BootControlInternalError(BootControlError):
 
 
 class MountFailedReason(Enum):
+    # error code
     SUCCESS = 0
     PERMISSIONS_ERROR = 1
     SYSTEM_ERROR = 2
     INTERNAL_ERROR = 4
     USER_INTERRUPT = 8
     GENERIC_MOUNT_FAILURE = 32
+
+    # custom error code
     # specific reason for generic mount failure
     TARGET_NOT_FOUND = auto()
     TARGET_ALREADY_MOUNTED = auto()
@@ -110,10 +113,9 @@ class CMDHelperFuncs:
         _cmd = f"mount {_option_str} {dev} {mount_point}"
         try:
             subprocess_call(_cmd, raise_exception=True)
+            return MountFailedReason.SUCCESS
         except CalledProcessError as e:
             return MountFailedReason.parse_failed_reason(e)
-        finally:
-            return MountFailedReason.SUCCESS
 
     @staticmethod
     def _findfs(key: str, value: str) -> str:
