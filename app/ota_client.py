@@ -31,7 +31,8 @@ from app.ota_error import (
     OtaErrorUnrecoverable,
 )
 from app.update_stats import OTAUpdateStatsCollector
-from app.configs import OTAFileCacheControl, config as cfg
+from app.configs import config as cfg
+from app.common import OTAFileCacheControl
 from app.proxy_info import proxy_cfg
 from app import log_util
 
