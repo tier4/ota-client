@@ -4,6 +4,7 @@ from app.boot_control._grub import OtaPartitionFile
 from app.boot_control.common import (
     CMDHelperFuncs,
     OTAStatusMixin,
+    SlotInUseMixin,
     VersionControlMixin,
     BootControllerProtocol,
 )
@@ -18,7 +19,9 @@ logger = log_util.get_logger(
 )
 
 
-class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol):
+class GrubController(
+    VersionControlMixin, OTAStatusMixin, SlotInUseMixin, BootControllerProtocol
+):
     def __init__(self) -> None:
         self._boot_control = OtaPartitionFile()
 
@@ -63,6 +66,25 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
             _ota_status = self._finalize_update()
         elif _ota_status == OTAStatusEnum.ROLLBACKING:
             _ota_status = self._finalize_rollback()
+        elif _ota_status == OTAStatusEnum.SUCCESS:
+            # need to check whether it is negative SUCCESS
+            current_slot = self._boot_control.get_active_root_device_name()
+            try:
+                slot_in_use = self._load_current_slot_in_use()
+                # cover the case that device reboot into unexpected slot
+                if current_slot != slot_in_use:
+                    logger.error(
+                        f"boot into old slot {current_slot}, "
+                        f"should boot into {slot_in_use}"
+                    )
+                    _ota_status = OTAStatusEnum.FAILURE
+
+            except FileNotFoundError:
+                # init slot_in_use file and ota_status file
+                self._store_current_slot_in_use(current_slot)
+                _ota_status = OTAStatusEnum.INITIALIZED
+
+        # FAILURE, INITIALIZED and ROLLBACK_FAILURE are remained as it
 
         # NOTE: only update the current ota_status at ota-client launching up!
         self._store_current_ota_status(_ota_status)
@@ -114,10 +136,17 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
         try:
-            self._store_standby_ota_status(OTAStatusEnum.UPDATING)
-            self._store_standby_version(version)
             self._mount_standby(erase_standby)
             self._mount_refroot(standby_as_ref)
+
+            # store status and version to standby
+            self._store_standby_ota_status(OTAStatusEnum.UPDATING)
+            self._store_standby_version(version)
+
+            # store slot_in_use to both slots
+            _target_slot = self._boot_control.get_standby_root_device_name()
+            self._store_current_slot_in_use(_target_slot)
+            self._store_standby_slot_in_use(_target_slot)
         except Exception as e:  # TODO: use BootControlError for any exceptions
             logger.error(f"failed on pre_update: {e!r}")
             self._on_operation_failure(e)
