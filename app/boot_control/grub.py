@@ -25,23 +25,21 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
         # load paths
         self.standby_slot_path = Path(cfg.MOUNT_POINT)
         self.standby_slot_path.mkdir(exist_ok=True)
-        self.standby_slot_dev = (
-            Path("/dev") / self._boot_control.get_standby_root_device()
-        )
+        self.standby_slot_dev = self._boot_control.get_standby_root_dev()
 
         ## ota-status dir
         ### current slot: /boot/ota-partition.<rootfs_dev_active>
         # NOTE: BOOT_OTA_PARTITION_FILE is a directory, should we change it?
         self.current_ota_status_dir = (
             Path(cfg.BOOT_DIR)
-            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._boot_control.get_active_root_device()}"
+            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._boot_control.get_active_root_device_name()}"
         )
         self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
 
         ## standby slot: /boot/ota-partition.<rootfs_dev_standby>
         self.standby_ota_status_dir = (
             Path(cfg.BOOT_DIR)
-            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._boot_control.get_standby_root_device()}"
+            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._boot_control.get_standby_root_device_name()}"
         )
         self.standby_ota_status_dir.mkdir(exist_ok=True)
 
@@ -85,8 +83,8 @@ class GrubController(VersionControlMixin, OTAStatusMixin, BootControllerProtocol
     def _mount_refroot(self, standby_as_ref: bool):
         Path(cfg.REF_ROOT_MOUNT_POINT).mkdir(exist_ok=True)
         CMDHelperFuncs.mount_refroot(
-            standby_slot_dev=self._boot_control.get_standby_root_device(),
-            active_slot_dev=self._boot_control.get_active_root_device(),
+            standby_slot_dev=self._boot_control.get_standby_root_dev(),
+            active_slot_dev=self._boot_control.get_active_root_dev(),
             refroot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
             standby_as_ref=standby_as_ref,
         )
