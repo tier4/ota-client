@@ -68,16 +68,20 @@ class OTAUpdateStatsCollector:
     @contextmanager
     def _staging_changes(self) -> Generator[OTAUpdateStats, None, None]:
         """Acquire a staging storage for updating the slot atomically and thread-safely."""
+        staging_slot = self.store.copy()
         try:
-            staging_slot = self.store.copy()
             yield staging_slot
         finally:
             self.store = staging_slot
 
     ###### public API ######
 
-    def start(self):
+    def start(self, *, restart=False):
+        if restart and self._started:
+            self.stop()
+
         with self._lock:
+            self.clear()
             if not self._started:
                 self._executor = ThreadPoolExecutor(
                     max_workers=1, thread_name_prefix="update_stats_collector"
@@ -88,8 +92,13 @@ class OTAUpdateStatsCollector:
         with self._lock:
             if self._started:
                 self.terminated.set()
-                self._executor.shutdown(wait=True)
+                self._executor.shutdown()
                 self._started = False
+
+            self.clear()  # cleanup stats storage
+
+    def clear(self):
+        self.store = OTAUpdateStats()
 
     def get_snapshot(self) -> OTAUpdateStats:
         """Return a copy of statistics storage."""
