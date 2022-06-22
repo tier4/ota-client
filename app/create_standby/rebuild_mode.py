@@ -6,7 +6,7 @@ from threading import Semaphore
 from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
 
-from app.common import SimpleTasksTracker
+from app.common import SimpleTasksTracker, OTAFileCacheControl
 from app.create_standby.common import (
     CreateStandbySlotInternalError,
     HardlinkRegister,
@@ -15,7 +15,7 @@ from app.create_standby.common import (
     StandbySlotCreatorProtocol,
     UpdateMeta,
 )
-from app.configs import OTAFileCacheControl, config as cfg
+from app.configs import config as cfg
 from app.proxy_info import proxy_cfg
 from app.downloader import Downloader
 from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats

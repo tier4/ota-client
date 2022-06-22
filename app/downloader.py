@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Dict, Optional, Union
 from urllib.parse import quote_from_bytes, urljoin, urlparse
 
-from app.configs import OTAFileCacheControl, config as cfg
+from app.configs import config as cfg
+from app.common import OTAFileCacheControl
 from app.ota_error import OtaErrorRecoverable
 
 from app import log_util

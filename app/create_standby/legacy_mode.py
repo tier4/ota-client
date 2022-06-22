@@ -7,8 +7,8 @@ from threading import Semaphore
 from typing import Callable
 from urllib.parse import urljoin
 
-from app.common import SimpleTasksTracker
-from app.configs import OTAFileCacheControl, config as cfg
+from app.common import SimpleTasksTracker, OTAFileCacheControl
+from app.configs import config as cfg
 from app.copy_tree import CopyTree
 from app.downloader import Downloader
 from app.update_phase import OTAUpdatePhase
