@@ -128,8 +128,8 @@ class CMDHelperFuncs:
         return subprocess_check_output(_cmd)
 
     @staticmethod
-    def _findmnt(p: str) -> str:
-        _cmd = f"findmnt {p}"
+    def _findmnt(args: str) -> str:
+        _cmd = f"findmnt {args}"
         return subprocess_check_output(_cmd)
 
     @staticmethod
@@ -167,7 +167,7 @@ class CMDHelperFuncs:
         return cls._findfs("PARTUUID", partuuid)
 
     @classmethod
-    def get_rootfs_dev(cls) -> str:
+    def get_current_rootfs_dev(cls) -> str:
         dev = Path(cls._findmnt("/ -o SOURCE -n")).resolve(strict=True)
         return str(dev)
 
@@ -191,28 +191,17 @@ class CMDHelperFuncs:
         return cls._lsblk(cmd)
 
     @classmethod
-    def get_family_devs(cls, parent_device: str) -> list:
+    def get_dev_family(cls, parent_device: str) -> List[str]:
         """
         When `/dev/nvme0n1` is specified as parent_device,
-        ["NAME=/dev/nvme0n1", "NAME=/dev/nvme0n1p1", "NAME=/dev/nvme0n1p2"] is returned.
+        ["/dev/nvme0n1", "/dev/nvme0n1p1", "/dev/nvme0n1p2"...] will be return
         """
         cmd = f"-Pp -o NAME {parent_device}"
-        return cls._lsblk(cmd).splitlines()
-
-    @classmethod
-    def get_sibling_dev(cls, device: str) -> str:
-        """
-        When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1p2 is returned.
-        """
-        family: List[str] = cls.get_family_devs(cls.get_parent_dev(device))
-        partitions = {i.split("=")[-1].strip('"') for i in family[1:3]}
-        res = partitions - {device}
-        if len(res) == 1:
-            (r,) = res
-            return r
-
-        raise BootControlExternalError(
-            f"device is has unexpected partition layout, {family=}"
+        return list(
+            map(
+                lambda l: l.split("=")[-1].strip('"'),
+                cls._lsblk(cmd).splitlines(),
+            )
         )
 
     @classmethod
