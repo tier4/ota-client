@@ -7,11 +7,12 @@ import shutil
 from pathlib import Path
 from pprint import pformat
 
-import log_util
-from configs import config as cfg
-from ota_error import OtaErrorUnrecoverable
+from app import log_util
+from app.boot_control.grub import ABPartitionDetecter
+from app.configs import BOOT_LOADER, grub_cfg as cfg
+from app.ota_error import OtaErrorUnrecoverable
 
-assert cfg.BOOTLOADER == "grub"
+assert BOOT_LOADER == "grub"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -327,14 +328,17 @@ class _OtaPartition:
     device_file means: /dev/sda3
     """
 
-    BOOT_DIR = cfg.BOOT_DIR  # Path("/boot")
-    BOOT_OTA_PARTITION_FILE = cfg.BOOT_OTA_PARTITION_FILE  # Path("ota-partition")
-
     def __init__(self):
-        self._active_root_device_cache = None
-        self._standby_root_device_cache = None
-        self._boot_dir = Path(_OtaPartition.BOOT_DIR)
-        self._boot_ota_partition_file = Path(_OtaPartition.BOOT_OTA_PARTITION_FILE)
+        self._boot_dir = Path(cfg.BOOT_DIR)  # /boot
+        self._boot_ota_partition_file = Path(
+            cfg.BOOT_OTA_PARTITION_FILE
+        )  # /boot/ota-partition
+
+        _ab_detecter = ABPartitionDetecter()
+        self.active_root_dev = _ab_detecter.get_active_slot_dev()
+        self.standby_root_dev = _ab_detecter.get_standby_slot_dev()
+        self.active_slot = _ab_detecter.get_active_slot()
+        self.standby_slot = _ab_detecter.get_standby_slot()
 
     def get_active_boot_device(self):
         """
@@ -343,9 +347,24 @@ class _OtaPartition:
         NOTE: cache cannot be used since active and standby boot is switched.
         """
         # read link
-        link = os.readlink(self._boot_dir / self._boot_ota_partition_file)
+        ota_partition_file = self._boot_dir / self._boot_ota_partition_file
+
+        link = os.readlink(ota_partition_file)
         m = re.match(rf"{str(self._boot_ota_partition_file)}.(.*)", link)
         active_boot_device = m.group(1)
+
+        if active_boot_device != self.active_slot:
+            logger.warning(
+                f"mismatch between ota-partition file and actually active slot:"
+                f"link->{active_boot_device}, actual->{self.active_slot}, "
+                "relink the ota-partition file"
+            )
+            ota_partition_file.unlink(missing_ok=True)
+            ota_partition_file.link_to(
+                f"{cfg.BOOT_OTA_PARTITION_FILE}.{self.active_slot}"
+            )
+            active_boot_device = self.active_slot
+
         return active_boot_device
 
     def get_standby_boot_device(self):
@@ -355,113 +374,30 @@ class _OtaPartition:
         sda3 and sda4 root device exist, sda4 is returned.
         NOTE: cache cannot be used since active and standby boot is switched.
         """
-        active_root_device = self.get_active_root_device_name()
-        standby_root_device = self.get_standby_root_device_name()
-
         active_boot_device = self.get_active_boot_device()
-        if active_boot_device == active_root_device:
-            return standby_root_device
-        elif active_boot_device == standby_root_device:
-            return active_root_device
+        if active_boot_device == self.active_slot:
+            return self.standby_slot
+        elif active_boot_device == self.standby_slot:
+            return self.active_slot
 
         raise OtaErrorUnrecoverable(
             f"illegal active_boot_device={active_boot_device}, "
-            f"active_boot_device={active_root_device}, "
-            f"standby_root_device={standby_root_device}"
+            f"active_boot_device={self.active_slot}, "
+            f"standby_root_device={self.standby_slot}"
         )
 
     def get_active_root_dev(self):
-        return self._get_root_device_file()
+        return self.active_root_dev
 
     def get_active_root_device_name(self):
-        if self._active_root_device_cache:  # return cache if available
-            return self._active_root_device_cache
-
-        self._active_root_device_cache = self._get_root_device_file().lstrip("/dev")
-        return self._active_root_device_cache
+        """NOTE: dev name as slot name"""
+        return self.active_slot
 
     def get_standby_root_dev(self):
-        """
-        returns standby root device
-        standby root device is:
-        fstype ext4, sibling device of root device and not boot device.
-        """
-        # find root device
-        root_device_file = self._get_root_device_file()
-
-        # find boot device
-        boot_device_file = self._get_boot_device_file()
-
-        # find parent device from root device
-        parent_device_file = self._get_parent_device_file(root_device_file)
-
-        # find standby device file from root and boot device file
-        return self._get_standby_device_file(
-            parent_device_file,
-            root_device_file,
-            boot_device_file,
-        )
+        return self.standby_root_dev
 
     def get_standby_root_device_name(self):
-        """
-        returns standby root device
-        standby root device is:
-        fstype ext4, sibling device of root device and not boot device.
-        """
-        if self._standby_root_device_cache:  # return cache if available
-            return self._standby_root_device_cache
-
-        # find root device
-        root_device_file = self._get_root_device_file()
-
-        # find boot device
-        boot_device_file = self._get_boot_device_file()
-
-        # find parent device from root device
-        parent_device_file = self._get_parent_device_file(root_device_file)
-
-        # find standby device file from root and boot device file
-        self._standby_root_device_cache = self._get_standby_device_file(
-            parent_device_file,
-            root_device_file,
-            boot_device_file,
-        ).lstrip("/dev")
-        return self._standby_root_device_cache
-
-    """ private from here """
-
-    def _findmnt_cmd(self, mount_point):
-        cmd = f"findmnt -n -o SOURCE {mount_point}"
-        return subprocess.check_output(shlex.split(cmd)).decode().strip()
-
-    def _get_root_device_file(self):
-        return self._findmnt_cmd("/")
-
-    def _get_boot_device_file(self):
-        return self._findmnt_cmd("/boot")
-
-    def _get_parent_device_file(self, child_device_file):
-        cmd = f"lsblk -ipn -o PKNAME {child_device_file}"
-        return subprocess.check_output(shlex.split(cmd)).decode().strip()
-
-    def _get_standby_device_file(
-        self, parent_device_file, root_device_file, boot_device_file
-    ):
-        # list children device file from parent device
-        cmd = f"lsblk -Pp -o NAME,FSTYPE {parent_device_file}"
-        output = subprocess.check_output(shlex.split(cmd)).decode()
-        # FSTYPE="ext4" and
-        # not (parent_device_file, root_device_file and boot_device_file)
-        for blk in output.split("\n"):
-            m = re.match(r'NAME="(.*)" FSTYPE="(.*)"', blk)
-            if (
-                m.group(1) != parent_device_file
-                and m.group(1) != root_device_file
-                and m.group(1) != boot_device_file
-                and m.group(2) == "ext4"
-            ):
-                return m.group(1)
-        raise OtaErrorUnrecoverable(f"lsblk output={output} is illegal")
+        return self.standby_slot
 
 
 class OtaPartitionFile(_OtaPartition):
@@ -494,39 +430,6 @@ class OtaPartitionFile(_OtaPartition):
             logger.info(f"switching: {os.readlink(temp_file)=} -> {ota_partition_file}")
             self._move_atomic(temp_file, ota_partition_file)
             logger.info(f"switched: {os.readlink(ota_partition_file)=}")
-
-    def store_active_ota_status(self, status):
-        """
-        NOTE:
-        In most cases of saving a status to active ota status, the status is a
-        `success`.
-        """
-        device = self.get_active_boot_device()
-        path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
-        logger.info(f"{device=},{path=},{status=}")
-        self._store_string(path / "status", status)
-
-    def store_standby_ota_status(self, status: str):
-        device = self.get_standby_boot_device()
-        path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
-        logger.info(f"{device=},{path=},{status=}")
-        self._store_string(path / "status", status)
-
-    def store_standby_ota_version(self, version: str):
-        device = self.get_standby_boot_device()
-        path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
-        self._store_string(path / "version", version)
-
-    def load_ota_status(self):
-        """NOTE: always load ota status from standby boot"""
-        device = self.get_standby_boot_device()
-        path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
-        return self._load_string(path / "status")
-
-    def load_ota_version(self):
-        device = self.get_active_boot_device()
-        path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
-        return self._load_string(path / "version")
 
     def cleanup_standby_boot_partition(self):
         """
@@ -620,22 +523,6 @@ class OtaPartitionFile(_OtaPartition):
         (self._boot_dir / initrd_img_file).unlink(missing_ok=True)
         (self._boot_dir / initrd_img_file).symlink_to(standby_path / "initrd.img-ota")
         return vmlinuz_file, initrd_img_file
-
-    def _store_string(self, path, string):
-        with tempfile.NamedTemporaryFile("w", delete=False, prefix=__name__) as f:
-            temp_name = f.name
-            f.write(string)
-            f.flush()
-            os.fsync(f.fileno())
-        # should not be called within the NamedTemporaryFile context
-        shutil.move(temp_name, path)
-
-    def _load_string(self, path):
-        try:
-            with open(path) as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            return ""
 
     def _initialize_boot_partition(self):
         """
