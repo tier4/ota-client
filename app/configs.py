@@ -116,15 +116,21 @@ def _detect_bootloader():
         )
 
 
-def create_config(bootloader: str):
+BOOT_LOADER = _detect_bootloader()
+
+# init cfgs
+server_cfg = OtaClientServerConfig()
+cboot_cfg = CBootControlConfig()
+grub_cfg = GrubControlConfig()
+
+def create_config(bootloader: str=BOOT_LOADER):
     if bootloader == "grub":
-        return GrubControlConfig()
+        return grub_cfg
     elif bootloader == "cboot":
-        return CBootControlConfig()
+        return cboot_cfg
     else:
         raise NotImplementedError(f"{bootloader=} not supported, abort")
 
+config = create_config()
 
-config = create_config(_detect_bootloader())
-server_cfg = OtaClientServerConfig()
 # fmt: on

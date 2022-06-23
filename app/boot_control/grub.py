@@ -8,11 +8,11 @@ from app.boot_control.common import (
     VersionControlMixin,
     BootControllerProtocol,
 )
-from app.configs import config as cfg
+from app.configs import BOOT_LOADER, grub_cfg as cfg
 from app.ota_status import OTAStatusEnum
 from app import log_util
 
-assert cfg.BOOTLOADER == "grub", f"ERROR, try to use grub on {cfg.BOOTLOADER}, abort"
+assert BOOT_LOADER == "grub", f"ERROR, try to use grub on {BOOT_LOADER}, abort"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

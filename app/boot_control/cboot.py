@@ -2,7 +2,7 @@ import re
 import subprocess
 from pathlib import Path
 from functools import partial
-from typing import Optional, Union
+from typing import Union
 
 from app import log_util
 from app.boot_control.common import (
@@ -20,12 +20,11 @@ from app.common import (
     read_from_file,
     subprocess_call,
     subprocess_check_output,
-    write_to_file,
 )
-from app.configs import config as cfg
+from app.configs import BOOT_LOADER, cboot_cfg as cfg
 from app.ota_status import OTAStatusEnum
 
-assert cfg.BOOTLOADER == "cboot", f"ERROR, try to use cboot on {cfg.BOOTLOADER}, abort"
+assert BOOT_LOADER == "cboot", f"ERROR, try to use cboot on {BOOT_LOADER}, abort"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
