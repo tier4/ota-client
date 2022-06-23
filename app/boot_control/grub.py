@@ -1,7 +1,9 @@
 from pathlib import Path
+from typing import Tuple
 
 from app.boot_control._grub import OtaPartitionFile
 from app.boot_control.common import (
+    BootControlInternalError,
     CMDHelperFuncs,
     OTAStatusMixin,
     SlotInUseMixin,
@@ -19,30 +21,101 @@ logger = log_util.get_logger(
 )
 
 
+class ABPartitionDetecter:
+    """
+    Expected layout:
+        /dev/sdx
+            - sdx1: dedicated boot partition
+            - sdx2: A partition
+            - sdx3: B partition
+
+    slot_name is the dev name of the A/B partition
+    """
+
+    def __init__(self) -> None:
+        self.active_slot, self.active_dev = self._detect_active_slot()
+        self.standby_slot, self.standby_dev = self._detect_standby_slot(self.active_dev)
+
+    @staticmethod
+    def _get_sibling_dev(slot_dev_path: str) -> str:
+        """
+        Expected partition layout:
+            /dev/sdx
+                - sdx1: dedicated boot partition
+                - sdx2: A partition
+                - sdx3: B partition
+        """
+        parent = CMDHelperFuncs.get_parent_dev(slot_dev_path)
+        family = CMDHelperFuncs.get_dev_family(parent)
+
+        # NOTE: skip the first 2 lines: parent dev and boot dev
+        res = set(family[2:]) - {slot_dev_path}
+        if len(res) == 1:
+            return list(res)[0]
+        else:
+            raise BootControlInternalError(
+                f"device is has unexpected partition layout: {family=}"
+            )
+
+    def _detect_active_slot(self) -> Tuple[str, str]:
+        """
+        Returns:
+            A tuple contains the slot_name and the full dev path
+            of the active slot.
+        """
+        dev_path = CMDHelperFuncs.get_current_rootfs_dev()
+        slot_name = dev_path.lstrip("/dev/")
+        return slot_name, dev_path
+
+    def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
+        """
+        Returns:
+            A tuple contains the slot_name and the full dev path
+            of the standby slot.
+        """
+        dev_path = self._get_sibling_dev(active_dev)
+        slot_name = dev_path.lstrip("/dev/")
+        return slot_name, dev_path
+
+    ###### public methods ######
+    def get_standby_slot(self) -> str:
+        return self.standby_slot
+
+    def get_standby_slot_dev(self) -> str:
+        return self.standby_dev
+
+    def get_active_slot(self) -> str:
+        return self.active_slot
+
+    def get_active_slot_dev(self) -> str:
+        return self.active_dev
+
+
 class GrubController(
     VersionControlMixin, OTAStatusMixin, SlotInUseMixin, BootControllerProtocol
 ):
     def __init__(self) -> None:
         self._boot_control = OtaPartitionFile()
+        self._ab_detecter = ABPartitionDetecter()
 
         # load paths
         self.standby_slot_path = Path(cfg.MOUNT_POINT)
         self.standby_slot_path.mkdir(exist_ok=True)
-        self.standby_slot_dev = self._boot_control.get_standby_root_dev()
+        self.standby_slot_dev = self._ab_detecter.get_standby_slot_dev()
 
         ## ota-status dir
         ### current slot: /boot/ota-partition.<rootfs_dev_active>
         # NOTE: BOOT_OTA_PARTITION_FILE is a directory, should we change it?
         self.current_ota_status_dir = (
             Path(cfg.BOOT_DIR)
-            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._boot_control.get_active_root_device_name()}"
+            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._ab_detecter.get_active_slot()}"
         )
-        self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
+        self.current_ota_status_dir.mkdir(exist_ok=True)
 
         ## standby slot: /boot/ota-partition.<rootfs_dev_standby>
         self.standby_ota_status_dir = (
             Path(cfg.BOOT_DIR)
-            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._boot_control.get_standby_root_device_name()}"
+            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._ab_detecter.get_standby_slot()}"
         )
         self.standby_ota_status_dir.mkdir(exist_ok=True)
 
@@ -68,14 +141,14 @@ class GrubController(
             _ota_status = self._finalize_rollback()
         elif _ota_status == OTAStatusEnum.SUCCESS:
             # need to check whether it is negative SUCCESS
-            current_slot = self._boot_control.get_active_root_device_name()
+            current_slot = self._ab_detecter.get_active_slot()
             try:
                 slot_in_use = self._load_current_slot_in_use()
                 # cover the case that device reboot into unexpected slot
                 if current_slot != slot_in_use:
                     logger.error(
                         f"boot into old slot {current_slot}, "
-                        f"should boot into {slot_in_use}"
+                        f"expect to boot into {slot_in_use}"
                     )
                     _ota_status = OTAStatusEnum.FAILURE
 
@@ -105,8 +178,8 @@ class GrubController(
     def _mount_refroot(self, standby_as_ref: bool):
         Path(cfg.REF_ROOT_MOUNT_POINT).mkdir(exist_ok=True)
         CMDHelperFuncs.mount_refroot(
-            standby_slot_dev=self._boot_control.get_standby_root_dev(),
-            active_slot_dev=self._boot_control.get_active_root_dev(),
+            standby_slot_dev=self._ab_detecter.get_standby_slot_dev(),
+            active_slot_dev=self._ab_detecter.get_active_slot_dev(),
             refroot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
             standby_as_ref=standby_as_ref,
         )
