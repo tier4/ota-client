@@ -197,7 +197,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _first_copy_prepared = _local_copy_available
 
         for is_last, entry in _regs_set.iter_entries():
-            _start = time.thread_time()
+            _start = time.thread_time_ns()
             _op, _errors = "copy", 0
 
             # prepare first copy for the hash group
@@ -246,11 +246,12 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
 
+            _time_cost_in_ns = time.thread_time_ns() - _start
             stats_list.append(
                 RegInfProcessedStats(
                     op=_op,
                     size=entry.size if entry.size else 0,
-                    elapsed=int(time.thread_time() - _start),
+                    elapsed_ns=_time_cost_in_ns,
                     errors=_errors,
                 )
             )

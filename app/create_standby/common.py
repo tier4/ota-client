@@ -328,7 +328,7 @@ class DeltaGenerator:
         # collect this entry as the hash existed in _new
         # and not yet being collected
         if not _recycled_entry.is_file() and self._new_delta.contains_hash(_hash):
-            _start = time.thread_time()
+            _start = time.thread_time_ns()
             shutil.copy(fpath, _recycled_entry)
 
             # report to the ota update stats collector
@@ -336,7 +336,7 @@ class DeltaGenerator:
                 RegInfProcessedStats(
                     op="copy",
                     size=fpath.stat().st_size,
-                    elapsed=int(time.thread_time() - _start),
+                    elapsed_ns=time.thread_time_ns() - _start,
                 )
             )
 

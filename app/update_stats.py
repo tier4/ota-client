@@ -20,9 +20,9 @@ class OTAUpdateStats:
     file_size_processed_copy: int = 0
     file_size_processed_link: int = 0
     file_size_processed_download: int = 0
-    elapsed_time_copy: int = 0
-    elapsed_time_link: int = 0
-    elapsed_time_download: int = 0
+    elapsed_time_copy: float = 0  # ns
+    elapsed_time_link: float = 0  # ns
+    elapsed_time_download: float = 0  # ns
     errors_download: int = 0
     total_elapsed_time: int = 0
 
@@ -30,12 +30,20 @@ class OTAUpdateStats:
         return dataclasses.replace(self)
 
     def export_as_dict(self) -> Dict[str, int]:
-        return dataclasses.asdict(self)
+        """
+        NOTE: convert elasped_time_<op> from nano-second to milli-second here
+        """
+        _copy = self.copy()
+        _copy.elapsed_time_copy = int(_copy.elapsed_time_copy) // 10**6
+        _copy.elapsed_time_download = int(_copy.elapsed_time_download) // 10**6
+        _copy.elapsed_time_link = int(_copy.elapsed_time_link) // 10**6
+
+        return dataclasses.asdict(_copy)
 
     def __getitem__(self, _key: str) -> int:
         return getattr(self, _key)
 
-    def __setitem__(self, _key: str, _value: int):
+    def __setitem__(self, _key: str, _value):
         setattr(self, _key, _value)
 
 
@@ -50,7 +58,7 @@ class RegInfProcessedStats:
 
     op: str = ""
     size: int = 0
-    elapsed: int = 0
+    elapsed_ns: float = 0
     errors: int = 0
 
 
@@ -133,9 +141,9 @@ class OTAUpdateStatsCollector:
                         if _suffix in {"copy", "link", "download"}:
                             staging_storage[f"files_processed_{_suffix}"] += 1
                             staging_storage[f"file_size_processed_{_suffix}"] += st.size
-                            staging_storage[f"elapsed_time_{_suffix}"] += int(
-                                st.elapsed * 1000
-                            )
+                            staging_storage[
+                                f"elapsed_time_{_suffix}"
+                            ] += st.elapsed_ns  # in nano-seconds
 
                             if _suffix == "download":
                                 staging_storage[f"errors_{_suffix}"] += st.errors

@@ -247,9 +247,9 @@ class _OTAUpdater:
     def status(self) -> Optional[Dict[str, Any]]:
         if self.update_phase is not None:
             # TODO: refactoring?
-            self.update_stats_collector.store.total_elapsed_time = (
-                int(time.time() * 1000) - self.update_start_time
-            )
+            self.update_stats_collector.store.total_elapsed_time = int(
+                time.time() * 1000 - self.update_start_time
+            )  # in milli-seconds
 
             version = self.updating_version
             update_progress = self.update_stats_collector.get_snapshot_as_dist()

@@ -182,7 +182,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         # when a thread is sleeping, the GIL will be released
         # and other thread will take the place to execute,
         # so we use time.thread_time here.
-        begin_time = time.thread_time()
+        begin_time = time.thread_time_ns()
 
         processed = RegInfProcessedStats()
         if str(reginf.path).startswith("/boot"):
@@ -271,7 +271,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 os.chmod(dst, reginf.mode)
 
         processed.size = dst.stat().st_size
-        processed.elapsed = int(time.thread_time() - begin_time)
+        processed.elapsed_ns = time.thread_time_ns() - begin_time
 
         self.stats_collector.report(processed)
 
