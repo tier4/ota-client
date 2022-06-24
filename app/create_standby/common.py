@@ -288,35 +288,30 @@ class DeltaGenerator:
         self._ref_root = ref_root
         self._recycle_folder = recycle_folder
 
-        # generate delta
-        self._dirs: OrderedDict[DirectoryInf, None] = self._parse_dirs_txt(new_dirs)
-        self._new_delta, self.total_new_num = self._parse_reginf(new_reg)
-        logger.info(f"preload: {len(self._dirs)=}, {len(self._new_delta)=}")
-
-        # set total_new_num to store
-        self._stats_collector.store.total_regular_files = self.total_new_num
-
+        # pre-load dirs list
+        self._parse_dirs_txt(new_dirs)
+        # pre-load from new regulars.txt
+        self._parse_reginf(new_reg)
+        # generate delta and prepare files
         self._cal_and_prepare_old_slot_delta()
 
-    @staticmethod
-    def _parse_reginf(reginf_file: Union[Path, str]) -> Tuple[RegularDelta, int]:
-        _new_delta = RegularDelta()
+    def _parse_reginf(self, reginf_file: Union[Path, str]) -> None:
+        self._new_delta = RegularDelta()
+        self._hash_set = set()
+        self.total_regulars_num = 0
         with open(reginf_file, "r") as f, ProcessPoolExecutor() as pool:
-            total_regulars_num = 0
             for entry in pool.map(RegularInf.parse_reginf, f, chunksize=2048):
-                total_regulars_num += 1
-                _new_delta.add_entry(entry)
+                self.total_regulars_num += 1
+                self._new_delta.add_entry(entry)
+                self._hash_set.add(entry.sha256hash)
 
-        return _new_delta, total_regulars_num
+        self._stats_collector.store.total_regular_files = self.total_regulars_num
 
-    @staticmethod
-    def _parse_dirs_txt(new_dirs: Path) -> OrderedDict[DirectoryInf, None]:
-        _res = OrderedDict()
+    def _parse_dirs_txt(self, new_dirs: Path) -> None:
+        self._dirs: OrderedDict[DirectoryInf, None] = OrderedDict()
         with open(new_dirs, "r") as f, ProcessPoolExecutor() as pool:
             for _dir in pool.map(DirectoryInf, f, chunksize=2048):
-                _res[_dir] = None
-
-        return _res
+                self._dirs[_dir] = None
 
     def _process_file_in_old_slot(
         self, fpath: Path, *, _hash: Optional[str] = None
@@ -324,21 +319,25 @@ class DeltaGenerator:
         if _hash is None:
             _hash = file_sha256(fpath)
 
-        _recycled_entry = self._recycle_folder / _hash
+        try:
+            self._hash_set.remove(_hash)
+        except KeyError:
+            # this hash has already been prepared
+            return
+
         # collect this entry as the hash existed in _new
         # and not yet being collected
-        if not _recycled_entry.is_file() and self._new_delta.contains_hash(_hash):
-            _start = time.thread_time_ns()
-            shutil.copy(fpath, _recycled_entry)
+        _start = time.thread_time_ns()
+        shutil.copy(fpath, self._recycle_folder / _hash)
 
-            # report to the ota update stats collector
-            self._stats_collector.report(
-                RegInfProcessedStats(
-                    op="copy",
-                    size=fpath.stat().st_size,
-                    elapsed_ns=time.thread_time_ns() - _start,
-                )
+        # report to the ota update stats collector
+        self._stats_collector.report(
+            RegInfProcessedStats(
+                op="copy",
+                size=fpath.stat().st_size,
+                elapsed_ns=time.thread_time_ns() - _start,
             )
+        )
 
     def _cal_and_prepare_old_slot_delta(self):
         """
@@ -439,5 +438,5 @@ class DeltaGenerator:
             new_dirs=self._dirs,
             ref_root=self._ref_root,
             recycle_folder=self._recycle_folder,
-            total_regular_num=self.total_new_num,
+            total_regular_num=self.total_regulars_num,
         )
