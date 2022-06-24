@@ -127,6 +127,23 @@ class AwsIotLogger:
         data = {log_stream_suffix: message}
         self._log_message_queue.put(data)
 
+    # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/logs.html#CloudWatchLogs.Client.put_log_events
+    def _is_max_log_size(self, messages, next_message):
+        # The maximum number of log events in a batch is 10,000.
+        print(len(messages))
+        if len(messages) >= 9_999:  # 9_999 + 1(=next_message)
+            logger.warning(f"max log entry size {len(messages)}")
+            return True
+        # The maximum batch size is 1,048,576 bytes. This size is calculated as
+        # the sum of all event messages in UTF-8, plus 26 bytes for each log event.
+        total = len(next_message["message"].encode()) + 26
+        for message in messages:
+            total += len(message["message"].encode()) + 26
+        if total >= 1024 * 1024:  # =1,048,576
+            logger.warning(f"max log size {len(messages)}")
+            return True
+        return False
+
     def _send_messages_thread(self):
         try:
             while True:
@@ -140,7 +157,16 @@ class AwsIotLogger:
                         if log_stream_suffix not in message_dict:
                             message_dict[log_stream_suffix] = []
                         message = data[log_stream_suffix]
+                        # before append message, max log size should be checked.
+                        if self._is_max_log_size(
+                            message_dict[log_stream_suffix], message
+                        ):
+                            self.send_messages(
+                                log_stream_suffix, message_dict[log_stream_suffix]
+                            )
+                            message_dict[log_stream_suffix] = []
                         message_dict[log_stream_suffix].append(message)
+
                     except Empty:
                         break
                 # send merged message
