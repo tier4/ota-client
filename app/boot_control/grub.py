@@ -2,7 +2,6 @@ from pathlib import Path
 
 from app.boot_control._grub import OtaPartitionFile
 from app.boot_control.common import (
-    BootControlError,
     GrubABPartitionDetecter,
     CMDHelperFuncs,
     OTAStatusMixin,
@@ -21,82 +20,12 @@ logger = log_util.get_logger(
 )
 
 
-class ABPartitionDetecter:
-    """
-    Expected layout:
-        /dev/sdx
-            - sdx1: dedicated boot partition
-            - sdx2: A partition
-            - sdx3: B partition
-
-    slot_name is the dev name of the A/B partition
-    """
-
-    def __init__(self) -> None:
-        self.active_slot, self.active_dev = self._detect_active_slot()
-        self.standby_slot, self.standby_dev = self._detect_standby_slot(self.active_dev)
-
-    @staticmethod
-    def _get_sibling_dev(slot_dev_path: str) -> str:
-        """
-        Expected partition layout:
-            /dev/sdx
-                - sdx1: dedicated boot partition
-                - sdx2: A partition
-                - sdx3: B partition
-        """
-        parent = CMDHelperFuncs.get_parent_dev(slot_dev_path)
-        family = CMDHelperFuncs.get_dev_family(parent)
-
-        # NOTE: skip the first 2 lines: parent dev and boot dev
-        res = set(family[2:]) - {slot_dev_path}
-        if len(res) == 1:
-            return list(res)[0]
-        else:
-            raise BootControlInternalError(
-                f"device is has unexpected partition layout: {family=}"
-            )
-
-    def _detect_active_slot(self) -> Tuple[str, str]:
-        """
-        Returns:
-            A tuple contains the slot_name and the full dev path
-            of the active slot.
-        """
-        dev_path = CMDHelperFuncs.get_current_rootfs_dev()
-        slot_name = dev_path.lstrip("/dev/")
-        return slot_name, dev_path
-
-    def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
-        """
-        Returns:
-            A tuple contains the slot_name and the full dev path
-            of the standby slot.
-        """
-        dev_path = self._get_sibling_dev(active_dev)
-        slot_name = dev_path.lstrip("/dev/")
-        return slot_name, dev_path
-
-    ###### public methods ######
-    def get_standby_slot(self) -> str:
-        return self.standby_slot
-
-    def get_standby_slot_dev(self) -> str:
-        return self.standby_dev
-
-    def get_active_slot(self) -> str:
-        return self.active_slot
-
-    def get_active_slot_dev(self) -> str:
-        return self.active_dev
-
-
 class GrubController(
     VersionControlMixin, OTAStatusMixin, SlotInUseMixin, BootControllerProtocol
 ):
     def __init__(self) -> None:
         self._boot_control = OtaPartitionFile()
-        self._ab_detecter = ABPartitionDetecter()
+        self._ab_detecter = GrubABPartitionDetecter()
 
         # load paths
         self.standby_slot_path = Path(cfg.MOUNT_POINT)

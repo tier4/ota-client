@@ -4,7 +4,7 @@ from abc import abstractmethod
 from enum import auto, Enum
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Optional, Protocol, Union
+from typing import List, Optional, Protocol, Tuple, Union
 
 from app import log_util
 from app.configs import config as cfg
@@ -273,6 +273,76 @@ class CMDHelperFuncs:
             # if refroot is standby rootfs(in-place update mode),
             # it will be mounted to /mnt/standby(rw), so we still mount it as bind,ro
             raise BootControlInternalError("refroot is expected to be mounted")
+
+
+class GrubABPartitionDetecter:
+    """
+    Expected layout:
+        /dev/sdx
+            - sdx1: dedicated boot partition
+            - sdx2: A partition
+            - sdx3: B partition
+
+    slot_name is the dev name of the A/B partition
+    """
+
+    def __init__(self) -> None:
+        self.active_slot, self.active_dev = self._detect_active_slot()
+        self.standby_slot, self.standby_dev = self._detect_standby_slot(self.active_dev)
+
+    @staticmethod
+    def _get_sibling_dev(slot_dev_path: str) -> str:
+        """
+        Expected partition layout:
+            /dev/sdx
+                - sdx1: dedicated boot partition
+                - sdx2: A partition
+                - sdx3: B partition
+        """
+        parent = CMDHelperFuncs.get_parent_dev(slot_dev_path)
+        family = CMDHelperFuncs.get_dev_family(parent)
+
+        # NOTE: skip the first 2 lines: parent dev and boot dev
+        res = set(family[2:]) - {slot_dev_path}
+        if len(res) == 1:
+            return list(res)[0]
+        else:
+            raise BootControlInternalError(
+                f"device is has unexpected partition layout: {family=}"
+            )
+
+    def _detect_active_slot(self) -> Tuple[str, str]:
+        """
+        Returns:
+            A tuple contains the slot_name and the full dev path
+            of the active slot.
+        """
+        dev_path = CMDHelperFuncs.get_current_rootfs_dev()
+        slot_name = dev_path.lstrip("/dev/")
+        return slot_name, dev_path
+
+    def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
+        """
+        Returns:
+            A tuple contains the slot_name and the full dev path
+            of the standby slot.
+        """
+        dev_path = self._get_sibling_dev(active_dev)
+        slot_name = dev_path.lstrip("/dev/")
+        return slot_name, dev_path
+
+    ###### public methods ######
+    def get_standby_slot(self) -> str:
+        return self.standby_slot
+
+    def get_standby_slot_dev(self) -> str:
+        return self.standby_dev
+
+    def get_active_slot(self) -> str:
+        return self.active_slot
+
+    def get_active_slot_dev(self) -> str:
+        return self.active_dev
 
 
 ###### helper mixins ######

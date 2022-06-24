@@ -8,7 +8,7 @@ from pathlib import Path
 from pprint import pformat
 
 from app import log_util
-from app.boot_control.grub import ABPartitionDetecter
+from app.boot_control.common import GrubABPartitionDetecter
 from app.configs import BOOT_LOADER, grub_cfg as cfg
 from app.ota_error import OtaErrorUnrecoverable
 
@@ -334,7 +334,7 @@ class _OtaPartition:
             cfg.BOOT_OTA_PARTITION_FILE
         )  # /boot/ota-partition
 
-        _ab_detecter = ABPartitionDetecter()
+        _ab_detecter = GrubABPartitionDetecter()
         self.active_root_dev = _ab_detecter.get_active_slot_dev()
         self.standby_root_dev = _ab_detecter.get_standby_slot_dev()
         self.active_slot = _ab_detecter.get_active_slot()
