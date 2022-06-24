@@ -19,7 +19,8 @@ class OtaClientServerConfig:
 
 
 @dataclass
-class _BaseConfig:
+class BaseConfig:
+    """Platform neutral configuration."""
     DEFAULT_LOG_LEVEL: int = INFO
     LOG_LEVEL_TABLE: Dict[str, int] = field(
         default_factory=lambda: {
@@ -72,10 +73,8 @@ class _BaseConfig:
 
 
 @dataclass
-class GrubControlConfig(_BaseConfig):
-    """
-    x86-64 platform, using grub
-    """
+class GrubControlConfig(BaseConfig):
+    """x86-64 platform, with grub as bootloader."""
 
     BOOTLOADER: str = "grub"
     FSTAB_FILE: str = "/etc/fstab"
@@ -87,8 +86,9 @@ class GrubControlConfig(_BaseConfig):
 
 
 @dataclass
-class CBootControlConfig(_BaseConfig):
-    """
+class CBootControlConfig(BaseConfig):
+    """arm platform, with cboot as bootloader.
+    
     NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
     """
 
@@ -123,7 +123,7 @@ server_cfg = OtaClientServerConfig()
 cboot_cfg = CBootControlConfig()
 grub_cfg = GrubControlConfig()
 
-def create_config(bootloader: str=BOOT_LOADER):
+def create_config(bootloader: str=BOOT_LOADER) -> BaseConfig:
     if bootloader == "grub":
         return grub_cfg
     elif bootloader == "cboot":
