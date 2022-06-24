@@ -284,7 +284,7 @@ class _PrepareMountMixin:
         standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()
 
         # first try umount the dev
-        CMDHelperFuncs.umount_dev(standby_slot_dev)
+        CMDHelperFuncs.umount(standby_slot_dev)
 
         # format the whole standby slot if needed
         if erase:
@@ -300,7 +300,10 @@ class _PrepareMountMixin:
         ).relative_to("/")
         _ota_status_dir.mkdir(exist_ok=True, parents=True)
 
-    def _mount_ref_root(self, standby_as_ref: bool):
+    def _mount_refroot(self, standby_as_ref: bool):
+        # first try to umount refroot mount point
+        CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=True)
+
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=self._cboot_control.get_standby_rootfs_dev(),
             active_slot_dev=self._cboot_control.get_current_rootfs_dev(),
@@ -433,11 +436,20 @@ class CBootController(
             copytree_identical(src, dst)
         finally:
             try:
-                CMDHelperFuncs.umount_dev(_boot_dir_mount_point)
+                # finish populating new boot folder to boot dev,
+                # we can umount the boot dev right now
+                CMDHelperFuncs.umount(_boot_dir_mount_point)
             except BootControlExternalError as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
                 logger.error(_failure_msg)
                 # no need to raise to the caller
+
+    def _unmount_all(self, *, ignore_error=False):
+        """Umount standby and refroot."""
+
+        # ignore errors on umounting
+        CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
+        CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=ignore_error)
 
     def _on_operation_failure(self, e: BootControlError):
         """Failure registering and cleanup at failure."""
@@ -445,7 +457,7 @@ class CBootController(
 
         try:
             logger.warning("on failure try to unmounting standby slot...")
-            CMDHelperFuncs.umount_dev(self._cboot_control.get_standby_rootfs_dev())
+            self._unmount_all(ignore_error=True)
         finally:
             raise e
 
@@ -467,7 +479,7 @@ class CBootController(
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
             self._prepare_and_mount_standby(erase=erase_stanby)
-            self._mount_ref_root(standby_as_ref)
+            self._mount_refroot(standby_as_ref)
 
             # store status to standby slot
             self._store_standby_ota_status(OTAStatusEnum.UPDATING)
@@ -504,6 +516,7 @@ class CBootController(
             self._cboot_control.switch_boot()
 
             logger.info("post update finished, rebooting...")
+            self._unmount_all(ignore_error=True)
             self._cboot_control.reboot()
 
         except BootControlError as e:

@@ -1,9 +1,9 @@
 from pathlib import Path
-from typing import Tuple
 
 from app.boot_control._grub import OtaPartitionFile
 from app.boot_control.common import (
-    BootControlInternalError,
+    BootControlError,
+    GrubABPartitionDetecter,
     CMDHelperFuncs,
     OTAStatusMixin,
     SlotInUseMixin,
@@ -176,7 +176,12 @@ class GrubController(
             CMDHelperFuncs.mount(str(self.standby_slot_dev), self.standby_slot_path)
 
     def _mount_refroot(self, standby_as_ref: bool):
-        Path(cfg.REF_ROOT_MOUNT_POINT).mkdir(exist_ok=True)
+        _refroot_mount_point = Path(cfg.REF_ROOT_MOUNT_POINT)
+        _refroot_mount_point.mkdir(exist_ok=True)
+
+        # first try to umount refroot mount point
+        CMDHelperFuncs.umount(_refroot_mount_point, ignore_error=True)
+
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=self._ab_detecter.get_standby_slot_dev(),
             active_slot_dev=self._ab_detecter.get_active_slot_dev(),
@@ -184,13 +189,20 @@ class GrubController(
             standby_as_ref=standby_as_ref,
         )
 
+    def _umount_all(self, *, ignore_error=False):
+        """Umount standby and refroot."""
+
+        # ignore errors on umounting
+        CMDHelperFuncs.umount(self.standby_slot_dev, ignore_error=ignore_error)
+        CMDHelperFuncs.umount(cfg.REF_ROOT_MOUNT_POINT, ignore_error=ignore_error)
+
     def _on_operation_failure(self, e: Exception):
         """Failure registering and cleanup at failure."""
         self._store_standby_ota_status(OTAStatusEnum.FAILURE)
 
         try:
             logger.warning("on failure try to unmounting standby slot...")
-            CMDHelperFuncs.umount_dev(str(self.standby_slot_dev))
+            self._umount_all(ignore_error=True)
         finally:
             raise e
 
@@ -227,6 +239,7 @@ class GrubController(
     def post_update(self):
         try:
             self._boot_control.update_fstab(self.standby_slot_path)
+            self._umount_all(ignore_error=True)
             self._boot_control.create_custom_cfg_and_reboot()
         except Exception as e:  # TODO: use BootControlError for any exceptions
             logger.error(f"failed on pre_update: {e!r}")

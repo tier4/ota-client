@@ -233,7 +233,7 @@ class CMDHelperFuncs:
             logger.warning(_failure_msg)
 
             if not ignore_error:
-                raise BootControlExternalError(_failure_msg)
+                raise BootControlExternalError(_failure_msg) from e
 
     @classmethod
     def mkfs_ext4(cls, dev: str):
