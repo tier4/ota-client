@@ -220,18 +220,20 @@ class CMDHelperFuncs:
             raise BootControlExternalError(_failure_msg)
 
     @classmethod
-    def umount_dev(cls, dev: Union[Path, str]):
+    def umount(cls, target: Union[Path, str], *, ignore_error=False):
         try:
-            _cmd = f"umount -f {dev}"
+            _cmd = f"umount -f {target}"
             subprocess_call(_cmd, raise_exception=True)
         except CalledProcessError as e:
             # ignore if target dev is not mounted
             if e.returncode == 32 and str(e.stderr).find("not mounted") != -1:
                 return
 
-            _failure_msg = f"failed to umount {dev}: {e!r}"
+            _failure_msg = f"failed to umount {target}: {e!r}"
             logger.warning(_failure_msg)
-            raise BootControlExternalError(_failure_msg)
+
+            if not ignore_error:
+                raise BootControlExternalError(_failure_msg)
 
     @classmethod
     def mkfs_ext4(cls, dev: str):
