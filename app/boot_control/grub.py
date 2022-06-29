@@ -115,10 +115,11 @@ class GrubController(
 
     def _mount_refroot(self, standby_as_ref: bool):
         _refroot_mount_point = Path(cfg.REF_ROOT_MOUNT_POINT)
-        _refroot_mount_point.mkdir(exist_ok=True)
 
         # first try to umount refroot mount point
         CMDHelperFuncs.umount(_refroot_mount_point, ignore_error=True)
+        if not _refroot_mount_point.is_dir():
+            _refroot_mount_point.mkdir(parents=True)
 
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=self._ab_detecter.get_standby_slot_dev(),

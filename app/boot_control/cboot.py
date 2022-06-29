@@ -316,6 +316,8 @@ class _PrepareMountMixin:
     def _mount_refroot(self, standby_as_ref: bool):
         # first try to umount refroot mount point
         CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=True)
+        if not self.ref_slot_mount_point.is_dir():
+            self.ref_slot_mount_point.mkdir(parents=True)
 
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=self._cboot_control.get_standby_rootfs_dev(),
