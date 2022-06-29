@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -314,11 +315,6 @@ class _PrepareMountMixin:
         _ota_status_dir.mkdir(exist_ok=True, parents=True)
 
     def _mount_refroot(self, standby_as_ref: bool):
-        # first try to umount refroot mount point
-        CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=True)
-        if not self.ref_slot_mount_point.is_dir():
-            self.ref_slot_mount_point.mkdir(parents=True)
-
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=self._cboot_control.get_standby_rootfs_dev(),
             active_slot_dev=self._cboot_control.get_current_rootfs_dev(),
@@ -340,10 +336,20 @@ class CBootController(
         self._cboot_control: _CBootControl = _CBootControl()
 
         # load paths
+        ## first try to unmount standby dev if possible
+        self.standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()
+        CMDHelperFuncs.umount(self.standby_slot_dev)
+
         self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
         self.standby_slot_mount_point.mkdir()
-        self.ref_slot_mount_point = Path(cfg.REF_ROOT_MOUNT_POINT)
-        self.ref_slot_mount_point.mkdir()
+
+        ## refroot mount point
+        _refroot_mount_point = cfg.REF_ROOT_MOUNT_POINT
+        # first try to umount refroot mount point
+        CMDHelperFuncs.umount(_refroot_mount_point)
+        if not os.path.isdir(_refroot_mount_point):
+            os.mkdir(_refroot_mount_point)
+        self.ref_slot_mount_point = Path(_refroot_mount_point)
 
         ## ota-status dir
         ### current slot

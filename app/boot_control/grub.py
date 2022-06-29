@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from app.boot_control._grub import OtaPartitionFile
@@ -35,9 +36,12 @@ class GrubController(
             self._ab_detecter = GrubABPartitionDetecter()
 
             # load paths
+            ## first try to unmount standby dev if possible
+            self.standby_slot_dev = self._ab_detecter.get_standby_slot_dev()
+            CMDHelperFuncs.umount(self.standby_slot_dev)
+
             self.standby_slot_path = Path(cfg.MOUNT_POINT)
             self.standby_slot_path.mkdir(exist_ok=True)
-            self.standby_slot_dev = self._ab_detecter.get_standby_slot_dev()
 
             ## ota-status dir
             ### current slot: /boot/ota-partition.<rootfs_dev_active>
@@ -54,6 +58,14 @@ class GrubController(
                 / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._ab_detecter.get_standby_slot()}"
             )
             self.standby_ota_status_dir.mkdir(exist_ok=True)
+
+            ## refroot mount point
+            _refroot_mount_point = cfg.REF_ROOT_MOUNT_POINT
+
+            # first try to umount refroot mount point
+            CMDHelperFuncs.umount(_refroot_mount_point)
+            if not os.path.isdir(_refroot_mount_point):
+                os.mkdir(_refroot_mount_point)
 
             self.ota_status = self._init_boot_control()
         except Exception as e:
@@ -114,17 +126,11 @@ class GrubController(
             CMDHelperFuncs.mount(str(self.standby_slot_dev), self.standby_slot_path)
 
     def _mount_refroot(self, standby_as_ref: bool):
-        _refroot_mount_point = Path(cfg.REF_ROOT_MOUNT_POINT)
-
-        # first try to umount refroot mount point
-        CMDHelperFuncs.umount(_refroot_mount_point, ignore_error=True)
-        if not _refroot_mount_point.is_dir():
-            _refroot_mount_point.mkdir(parents=True)
-
+        _refroot_mount_point = cfg.REF_ROOT_MOUNT_POINT
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=self._ab_detecter.get_standby_slot_dev(),
             active_slot_dev=self._ab_detecter.get_active_slot_dev(),
-            refroot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
+            refroot_mount_point=_refroot_mount_point,
             standby_as_ref=standby_as_ref,
         )
 
