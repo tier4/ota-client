@@ -1,11 +1,9 @@
-from typing import Type
+from pathlib import Path
+from typing import Type, Union
 
 from app.create_standby.common import (
     StandbySlotCreatorProtocol,
     UpdateMeta,
-    CreateStandbySlotExternalError,
-    CreateStandbySlotInternalError,
-    CreateStandbySlotError,
 )
 from app.configs import config as cfg
 from app import log_util
@@ -43,9 +41,12 @@ def get_standby_slot_creator(
 
 
 def get_reference_slot(
-    mode: str = _AUOTSELECTED_MODE, *, cur_slot: str, standby_slot: str
+    mode: str = _AUOTSELECTED_MODE,
+    *,
+    cur_slot: Union[Path, str],
+    standby_slot: Union[Path, str],
 ):
-    """Get the bank to copy from."""
+    """Get the slot to copy from."""
     if mode in ("legacy", "rebuild"):
         res = cur_slot
     elif mode in ("in_place"):
@@ -61,9 +62,6 @@ StandbySlotCreator: Type[StandbySlotCreatorProtocol] = get_standby_slot_creator(
 
 __all__ = (
     "StandbySlotCreator",
-    "CreateStandbySlotError",
-    "CreateStandbySlotExternalError",
-    "CreateStandbySlotInternalError",
     "UpdateMeta",
     "get_standby_slot_creator",
 )

@@ -6,11 +6,17 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable
 from urllib.parse import urljoin
+from app.base_error import OTAError
 
 from app.common import SimpleTasksTracker, OTAFileCacheControl
 from app.configs import config as cfg
 from app.copy_tree import CopyTree
-from app.downloader import Downloader
+from app.downloader import (
+    ChunkStreamingError,
+    Downloader,
+    ExceedMaxRetryError,
+)
+from app.errors import NetworkError, OTAErrorRecoverable
 from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
     DirectoryInf,
@@ -21,7 +27,6 @@ from app.ota_metadata import (
 from app.proxy_info import proxy_cfg
 
 from app.create_standby.common import (
-    CreateStandbySlotExternalError,
     HardlinkRegister,
     StandbySlotCreatorProtocol,
     UpdateMeta,
@@ -328,5 +333,10 @@ class LegacyMode(StandbySlotCreatorProtocol):
             self._process_symlink()
             self._process_regular()
             self._process_persistent()
+        except OTAError:
+            raise  # if the error is already specified and wrapped, just raise again
+        except (ExceedMaxRetryError, ChunkStreamingError) as e:
+            raise NetworkError from e
         except Exception as e:
-            raise CreateStandbySlotExternalError from e
+            # TODO: define specified error code
+            raise OTAErrorRecoverable from e

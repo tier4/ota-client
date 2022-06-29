@@ -39,24 +39,6 @@ logger = log_util.get_logger(
 )
 
 
-class CreateStandbySlotError(Exception):
-    pass
-
-
-class CreateStandbySlotExternalError(CreateStandbySlotError):
-    """Error caused by calling external program.
-
-    For ota-client, typically we map this Error as Recoverable.
-    """
-
-
-class CreateStandbySlotInternalError(CreateStandbySlotError):
-    """Error caused by internal logic.
-
-    For ota-client, typically we map this Error as Unrecoverable.
-    """
-
-
 @dataclass
 class UpdateMeta:
     """Meta info for standby slot creator to update slot."""
@@ -423,12 +405,8 @@ class DeltaGenerator:
                     futs.append(pool.submit(self._process_file_in_old_slot, fpath))
 
                 for fut in as_completed(futs):
-                    try:
-                        fut.result()
-                    except Exception as e:
-                        raise CreateStandbySlotInternalError(
-                            "failed to finish delta preparing"
-                        ) from e
+                    if exp := fut.exception():
+                        raise exp
 
     ###### public API ######
     def get_delta(self) -> DeltaBundle:
