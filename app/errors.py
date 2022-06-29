@@ -14,6 +14,8 @@ class OTAErrorCode(Enum):
     E_OTA_ERR_RECOVERABLE = 200
     E_OTAUPDATE_BUSY = auto()
     E_INVALID_STATUS_FOR_OTAUPDATE = auto()
+    E_INVALID_OTAUPDATE_REQUEST = auto()
+    E_INVALID_STATUS_FOR_OTAROLLBACK = auto()
 
     E_OTA_ERR_UNRECOVERABLE = 300
 
@@ -62,10 +64,30 @@ class OTAUpdateBusy(OTAErrorRecoverable):
     desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: on-going ota update detected, this request has been ignored"
 
 
+class OTARollBusy(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.API
+    errcode: OTAErrorCode = OTAErrorCode.E_OTAUPDATE_BUSY
+    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: on-going ota update detected, this request has been ignored"
+
+
 class InvalidStatusForOTAUpdate(OTAErrorRecoverable):
     module: OTAModules = OTAModules.API
     errcode: OTAErrorCode = OTAErrorCode.E_INVALID_STATUS_FOR_OTAUPDATE
     desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: current ota-status indicates it should not accept ota update"
+
+
+class InvalidUpdateRequest(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.API
+    errcode: OTAErrorCode = OTAErrorCode.E_INVALID_OTAUPDATE_REQUEST
+    desc: str = (
+        f"{_RECOVERABLE_DEFAULT_DESC}: incoming ota update request's content is invalid"
+    )
+
+
+class InvalidStatusForOTARollback(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.API
+    errcode: OTAErrorCode = OTAErrorCode.E_INVALID_STATUS_FOR_OTAROLLBACK
+    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: current ota-status indicates it should not accept ota rollback"
 
 
 ### unrecoverable error ###

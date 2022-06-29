@@ -31,7 +31,6 @@ class OTA_API(Enum):
     Unspecific = 0
     Update = 1
     Rollback = 2
-    Status = 3
 
     def to_str(self) -> str:
         return f"{self.value:0>2}"
@@ -104,3 +103,7 @@ class OTA_APIError(Exception):
     def get_traceback(self, *, splitter="\n") -> str:
         """Format the traceback into a str with splitter as <splitter>."""
         return splitter.join(traceback.format_tb(self.__traceback__))
+
+
+class OTAUpdateError(OTA_APIError):
+    api: OTA_API = OTA_API.Update
