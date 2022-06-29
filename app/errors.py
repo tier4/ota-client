@@ -21,6 +21,10 @@ class OTAErrorCode(Enum):
     E_APPLY_OTAUPDATE_FAILED = auto()
 
     E_OTA_ERR_UNRECOVERABLE = 300
+    E_BOOTCONTROL_INIT_ERR = auto()
+    E_BOOTCONTROL_PREUPDATE_FAILED = auto()
+    E_BOOTCONTROL_POSTUPDATE_FAILED = auto()
+    E_BOOTCONTROL_POSTROLLBACK_FAILED = auto()
 
     def to_str(self) -> str:
         return f"{self.value:0>3}"
@@ -40,6 +44,8 @@ _NETWORK_ERR_DEFAULT_DESC = (
 
 ### network error ###
 class NetworkError(OTAError):
+    """Generic network error"""
+
     failure_type: OTAFailureType = OTAFailureType.RECOVERABLE
     module: OTAModules = OTAModules.Downloader
     errcode: OTAErrorCode = OTAErrorCode.E_NETWORK
@@ -129,3 +135,27 @@ class OTAErrorUnRecoverable(OTAError):
     module: OTAModules = OTAModules.General
     errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
     desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: unspecific unrecoverable ota error, please contact technical support"
+
+
+class BootControlInitError(OTAErrorUnRecoverable):
+    module: OTAModules = OTAModules.BootController
+    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_INIT_ERR
+    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to init boot controller module"
+
+
+class BootControlPreUpdateFailed(OTAErrorUnRecoverable):
+    module: OTAModules = OTAModules.BootController
+    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREUPDATE_FAILED
+    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: pre_update process failed"
+
+
+class BootControlPostUpdateFailed(OTAErrorUnRecoverable):
+    module: OTAModules = OTAModules.BootController
+    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTUPDATE_FAILED
+    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: post_update process failed, switch boot is not finished"
+
+
+class BootControlPostRollbackFailed(OTAErrorUnRecoverable):
+    module: OTAModules = OTAModules.BootController
+    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTUPDATE_FAILED
+    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: post_rollback process failed, switch boot is not finished"

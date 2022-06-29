@@ -21,6 +21,23 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+
+class BootControlError(Exception):
+    ...
+
+
+class MountError(BootControlError):
+    ...
+
+
+class ABPartitionError(BootControlError):
+    ...
+
+
+class MkfsError(BootControlError):
+    ...
+
+
 # fmt: off
 class BootControllerProtocol(Protocol):
     @abstractmethod
@@ -39,24 +56,6 @@ class BootControllerProtocol(Protocol):
     def load_version(self) -> str: ...
 
 # fmt: on
-
-
-class BootControlError(Exception):
-    pass
-
-
-class BootControlExternalError(BootControlError):
-    """Error caused by calling external program.
-
-    For ota-client, typically we map this Error as Recoverable.
-    """
-
-
-class BootControlInternalError(BootControlError):
-    """Error caused by boot control internal logic.
-
-    For ota-client, typically we map this Error as Unrecoverable.
-    """
 
 
 class MountFailedReason(Enum):
@@ -178,7 +177,7 @@ class CMDHelperFuncs:
         """
         mount_point = cls._findmnt(f"{dev} -o TARGET -n")
         if not mount_point and raise_exception:
-            raise BootControlExternalError(f"{dev} is not mounted")
+            raise MountError(f"{dev} is not mounted")
 
         return mount_point
 
@@ -217,7 +216,7 @@ class CMDHelperFuncs:
                 f"failed to mount {target} on {mount_point}: {_failed_reason.name}"
             )
             logger.error(_failure_msg)
-            raise BootControlExternalError(_failure_msg)
+            raise MountError(_failure_msg)
 
     @classmethod
     def umount(cls, target: Union[Path, str], *, ignore_error=False):
@@ -233,7 +232,7 @@ class CMDHelperFuncs:
             logger.warning(_failure_msg)
 
             if not ignore_error:
-                raise BootControlExternalError(_failure_msg) from e
+                raise MountError(_failure_msg) from e
 
     @classmethod
     def mkfs_ext4(cls, dev: str):
@@ -243,7 +242,7 @@ class CMDHelperFuncs:
         except CalledProcessError as e:
             _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
             logger.error(_failure_msg)
-            raise BootControlExternalError(_failure_msg)
+            raise MkfsError(_failure_msg)
 
     @classmethod
     def mount_refroot(
@@ -272,7 +271,7 @@ class CMDHelperFuncs:
             # if refroot is active rootfs, it is mounted as /;
             # if refroot is standby rootfs(in-place update mode),
             # it will be mounted to /mnt/standby(rw), so we still mount it as bind,ro
-            raise BootControlInternalError("refroot is expected to be mounted")
+            raise MountError("refroot is expected to be mounted")
 
 
 class GrubABPartitionDetecter:
@@ -307,7 +306,7 @@ class GrubABPartitionDetecter:
         if len(res) == 1:
             return list(res)[0]
         else:
-            raise BootControlInternalError(
+            raise ABPartitionError(
                 f"device is has unexpected partition layout: {family=}"
             )
 
@@ -398,10 +397,10 @@ class VersionControlMixin:
     standby_ota_status_dir: Path
 
     def _store_standby_version(self, _version: str):
-        try:
-            write_to_file(self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME, _version)
-        except FileNotFoundError as e:
-            raise BootControlExternalError from e
+        write_to_file(
+            self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            _version,
+        )
 
     def load_version(self) -> str:
         _version = read_from_file(

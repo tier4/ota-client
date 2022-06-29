@@ -10,7 +10,6 @@ from pprint import pformat
 from app import log_util
 from app.boot_control.common import GrubABPartitionDetecter
 from app.configs import BOOT_LOADER, grub_cfg as cfg
-from app.ota_error import OtaErrorUnrecoverable
 
 assert BOOT_LOADER == "grub"
 
@@ -140,7 +139,8 @@ class GrubControl:
             number = self._count_menuentry(menus, uuid, default_vmlinuz)
             logger.info(f"{number=}")
             if number < 0:
-                raise OtaErrorUnrecoverable(
+                # TODO: specify a unique error code
+                raise ValueError(
                     f"menuentry not found: UUID={uuid}, vmlinuz={default_vmlinuz}, menus={menus}"
                 )
 
@@ -232,7 +232,8 @@ class GrubControl:
                 if m and m.group(1) == vmlinuz and m.group(2) == uuid:
                     return i
             else:
-                raise OtaErrorUnrecoverable("GRUB_DISABLE_SUBMENU=y should be set")
+                # TODO: speicify a unique error code
+                raise ValueError("GRUB_DISABLE_SUBMENU=y should be set")
         return -1
 
     def _get_booted_menuentry(self):
@@ -380,7 +381,8 @@ class _OtaPartition:
         elif active_boot_device == self.standby_slot:
             return self.active_slot
 
-        raise OtaErrorUnrecoverable(
+        # TODO: specify a unique error code
+        raise ValueError(
             f"illegal active_boot_device={active_boot_device}, "
             f"active_boot_device={self.active_slot}, "
             f"standby_root_device={self.standby_slot}"
@@ -487,19 +489,20 @@ class OtaPartitionFile(_OtaPartition):
             link = os.readlink(path / "vmlinuz-ota")
             link_path = Path(path / link)
             if not link_path.is_file() or link_path.is_symlink():
-                raise OtaErrorUnrecoverable(f"unintended vmlinuz-ota link {link_path}")
+                # TODO: specify a unique error code
+                raise ValueError(f"unintended vmlinuz-ota link {link_path}")
             # read intrd.img-ota link
             link = os.readlink(path / "initrd.img-ota")
             link_path = Path(path / link)
             if not link_path.is_file() or link_path.is_symlink():
-                raise OtaErrorUnrecoverable(
-                    f"unintended initrd.img-ota link {link_path}"
-                )
+                # TODO: specify a unique error code
+                raise ValueError(f"unintended initrd.img-ota link {link_path}")
         else:
             # find vmlinuz-* under /boot/ota-partition.{standby}
             vmlinuz_list = list(path.glob("vmlinuz-*"))
             if len(vmlinuz_list) != 1:
-                raise OtaErrorUnrecoverable(f"unintended vmlinuz list={vmlinuz_list}")
+                # TODO: specify a unique error code
+                raise ValueError(f"unintended vmlinuz list={vmlinuz_list}")
             # create symbolic link vmlinuz-ota -> vmlinuz-* under /boot/ota-partition.{standby}
             # NOTE: standby boot partition is cleaned-up when updating
             (path / "vmlinuz-ota").symlink_to(vmlinuz_list[0].name)
@@ -507,9 +510,8 @@ class OtaPartitionFile(_OtaPartition):
             # find initrd.img-* under /boot/ota-partition.{standby}
             initrd_img_list = list(path.glob("initrd.img-*"))
             if len(initrd_img_list) != 1:
-                raise OtaErrorUnrecoverable(
-                    f"unintended initrd.img list={initrd_img_list}"
-                )
+                # TODO: specify a unique error code
+                raise ValueError(f"unintended initrd.img list={initrd_img_list}")
             # create symbolic link initrd.img-ota -> initrd.img-* under /boot/ota-partition.{standby}
             # NOTE: standby boot partition is cleaned-up when updating
             (path / "initrd.img-ota").symlink_to(initrd_img_list[0].name)
@@ -560,8 +562,10 @@ class OtaPartitionFile(_OtaPartition):
         # version is retrieved from /proc/cmdline.
         def _check_is_regular(path):
             if not path.is_file() or path.is_symlink():
-                logger.error(f"unintended file type: path={path}")
-                raise OtaErrorUnrecoverable(f"unintended file type: path={path}")
+                errmsg = f"unintended file type: path={path}"
+                logger.error(errmsg)
+                # TODO: specify a unique error code
+                raise ValueError(errmsg)
 
         vmlinuz, _ = self._grub_control.get_booted_vmlinuz_and_uuid()
         logger.info(f"{vmlinuz=}")

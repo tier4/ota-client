@@ -10,6 +10,12 @@ from app.boot_control.common import (
     BootControllerProtocol,
 )
 from app.configs import BOOT_LOADER, grub_cfg as cfg
+from app.errors import (
+    BootControlInitError,
+    BootControlPostRollbackFailed,
+    BootControlPostUpdateFailed,
+    BootControlPreUpdateFailed,
+)
 from app.ota_status import OTAStatusEnum
 from app import log_util
 
@@ -24,31 +30,34 @@ class GrubController(
     VersionControlMixin, OTAStatusMixin, SlotInUseMixin, BootControllerProtocol
 ):
     def __init__(self) -> None:
-        self._boot_control = OtaPartitionFile()
-        self._ab_detecter = GrubABPartitionDetecter()
+        try:
+            self._boot_control = OtaPartitionFile()
+            self._ab_detecter = GrubABPartitionDetecter()
 
-        # load paths
-        self.standby_slot_path = Path(cfg.MOUNT_POINT)
-        self.standby_slot_path.mkdir(exist_ok=True)
-        self.standby_slot_dev = self._ab_detecter.get_standby_slot_dev()
+            # load paths
+            self.standby_slot_path = Path(cfg.MOUNT_POINT)
+            self.standby_slot_path.mkdir(exist_ok=True)
+            self.standby_slot_dev = self._ab_detecter.get_standby_slot_dev()
 
-        ## ota-status dir
-        ### current slot: /boot/ota-partition.<rootfs_dev_active>
-        # NOTE: BOOT_OTA_PARTITION_FILE is a directory, should we change it?
-        self.current_ota_status_dir = (
-            Path(cfg.BOOT_DIR)
-            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._ab_detecter.get_active_slot()}"
-        )
-        self.current_ota_status_dir.mkdir(exist_ok=True)
+            ## ota-status dir
+            ### current slot: /boot/ota-partition.<rootfs_dev_active>
+            # NOTE: BOOT_OTA_PARTITION_FILE is a directory, should we change it?
+            self.current_ota_status_dir = (
+                Path(cfg.BOOT_DIR)
+                / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._ab_detecter.get_active_slot()}"
+            )
+            self.current_ota_status_dir.mkdir(exist_ok=True)
 
-        ## standby slot: /boot/ota-partition.<rootfs_dev_standby>
-        self.standby_ota_status_dir = (
-            Path(cfg.BOOT_DIR)
-            / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._ab_detecter.get_standby_slot()}"
-        )
-        self.standby_ota_status_dir.mkdir(exist_ok=True)
+            ## standby slot: /boot/ota-partition.<rootfs_dev_standby>
+            self.standby_ota_status_dir = (
+                Path(cfg.BOOT_DIR)
+                / f"{cfg.BOOT_OTA_PARTITION_FILE}.{self._ab_detecter.get_standby_slot()}"
+            )
+            self.standby_ota_status_dir.mkdir(exist_ok=True)
 
-        self.ota_status = self._init_boot_control()
+            self.ota_status = self._init_boot_control()
+        except Exception as e:
+            raise BootControlInitError from e
 
     def _finalize_update(self) -> OTAStatusEnum:
         if self._boot_control.is_switching_boot_partition_from_active_to_standby():
@@ -125,15 +134,11 @@ class GrubController(
         CMDHelperFuncs.umount(self.standby_slot_dev, ignore_error=ignore_error)
         CMDHelperFuncs.umount(cfg.REF_ROOT_MOUNT_POINT, ignore_error=ignore_error)
 
-    def _on_operation_failure(self, e: Exception):
+    def _on_operation_failure(self):
         """Failure registering and cleanup at failure."""
         self._store_standby_ota_status(OTAStatusEnum.FAILURE)
-
-        try:
-            logger.warning("on failure try to unmounting standby slot...")
-            self._umount_all(ignore_error=True)
-        finally:
-            raise e
+        logger.warning("on failure try to unmounting standby slot...")
+        self._umount_all(ignore_error=True)
 
     ###### public methods ######
     # also includes methods from OTAStatusMixin, VersionControlMixin
@@ -161,22 +166,25 @@ class GrubController(
             _target_slot = self._boot_control.get_standby_root_device_name()
             self._store_current_slot_in_use(_target_slot)
             self._store_standby_slot_in_use(_target_slot)
-        except Exception as e:  # TODO: use BootControlError for any exceptions
+        except Exception as e:
             logger.error(f"failed on pre_update: {e!r}")
-            self._on_operation_failure(e)
+            self._on_operation_failure()
+            raise BootControlPreUpdateFailed from e
 
     def post_update(self):
         try:
             self._boot_control.update_fstab(self.standby_slot_path)
             self._umount_all(ignore_error=True)
             self._boot_control.create_custom_cfg_and_reboot()
-        except Exception as e:  # TODO: use BootControlError for any exceptions
+        except Exception as e:
             logger.error(f"failed on pre_update: {e!r}")
-            self._on_operation_failure(e)
+            self._on_operation_failure()
+            raise BootControlPostUpdateFailed from e
 
     def post_rollback(self):
         try:
             self._boot_control.create_custom_cfg_and_reboot(rollback=True)
         except Exception as e:
             logger.error(f"failed on pre_rollback: {e!r}")
-            self._on_operation_failure(e)
+            self._on_operation_failure()
+            raise BootControlPostRollbackFailed from e
