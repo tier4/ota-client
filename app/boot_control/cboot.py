@@ -6,11 +6,10 @@ from typing import Union
 
 from app import log_util
 from app.boot_control.common import (
+    MountError,
     OTAStatusMixin,
-    BootControlError,
-    BootControlInternalError,
+    _BootControlError,
     CMDHelperFuncs,
-    BootControlExternalError,
     SlotInUseMixin,
     VersionControlMixin,
     BootControllerProtocol,
@@ -22,6 +21,13 @@ from app.common import (
     subprocess_check_output,
 )
 from app.configs import BOOT_LOADER, cboot_cfg as cfg
+from app.errors import (
+    BootControlInitError,
+    BootControlPlatformUnsupported,
+    BootControlPostRollbackFailed,
+    BootControlPostUpdateFailed,
+    BootControlPreUpdateFailed,
+)
 from app.ota_status import OTAStatusEnum
 
 assert BOOT_LOADER == "cboot", f"ERROR, try to use cboot on {BOOT_LOADER}, abort"
@@ -64,7 +70,8 @@ class Nvbootctrl:
                 _cmd, raise_exception=raise_exception
             ).strip()
         except subprocess.CalledProcessError as e:
-            raise BootControlExternalError from e
+            # TODO: assign a unique error code
+            raise _BootControlError from e
 
     @classmethod
     def check_rootdev(cls, dev: str) -> bool:
@@ -77,7 +84,7 @@ class Nvbootctrl:
         if ma := pa.search(subprocess_check_output("cat /proc/cmdline")):
             res = ma.group("rdev")
         else:
-            raise BootControlInternalError(
+            raise _BootControlError(
                 "rootfs detect failed or rootfs is not specified by PARTUUID in kernel cmdline"
             )
 
@@ -92,7 +99,8 @@ class Nvbootctrl:
         if slot := cls._nvbootctrl("get-current-slot", call_only=False):
             return slot
         else:
-            raise BootControlInternalError
+            # TODO: assign a unique error code
+            raise _BootControlError
 
     @classmethod
     def mark_boot_successful(cls, slot: str):
@@ -140,21 +148,26 @@ class _CBootControl:
         self._fdt = self.FDT
         self._cmdline_extra = self.EXTRA_CMDLINE
 
-        # NOTE: only support r580 platform right now!
-        # detect the chip id
-        tegra_chip_id_f = Path("/sys/module/tegra_fuse/parameters/tegra_chip_id")
-        self.chip_id = read_from_file(tegra_chip_id_f)
-        if self.chip_id == "" or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
-            raise BootControlInternalError from NotImplementedError(
-                f"unsupported platform found (chip_id: {self.chip_id}), abort"
-            )
+        try:
+            # NOTE: only support r580 platform right now!
+            # detect the chip id
+            tegra_chip_id_f = Path("/sys/module/tegra_fuse/parameters/tegra_chip_id")
+            self.chip_id = read_from_file(tegra_chip_id_f)
+            if self.chip_id == "" or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
+                raise NotImplementedError(
+                    f"unsupported platform found (chip_id: {self.chip_id}), abort"
+                )
 
-        self.chip_id = int(self.chip_id)
-        self.model = cfg.CHIP_ID_MODEL_MAP[self.chip_id]
-        logger.info(f"{self.model=}, (chip_id={hex(self.chip_id)})")
+            self.chip_id = int(self.chip_id)
+            self.model = cfg.CHIP_ID_MODEL_MAP[self.chip_id]
+            logger.info(f"{self.model=}, (chip_id={hex(self.chip_id)})")
 
-        # initializing dev info
-        self._init_dev_info()
+            # initializing dev info
+            self._init_dev_info()
+        except NotImplementedError as e:
+            raise BootControlPlatformUnsupported from e
+        except Exception as e:
+            raise BootControlInitError from e
 
     def _init_dev_info(self):
         self.current_slot: str = Nvbootctrl.get_current_slot()
@@ -182,7 +195,7 @@ class _CBootControl:
                 self.standby_rootfs_dev
             )
         else:
-            raise BootControlInternalError from NotImplementedError(
+            raise NotImplementedError(
                 f"rootfs on {self.current_rootfs_dev} is not supported, abort"
             )
 
@@ -194,7 +207,7 @@ class _CBootControl:
             msg = (
                 f"rootfs mismatch, expect {self.standby_rootfs_dev} as standby slot dev"
             )
-            raise BootControlInternalError(msg)
+            raise ValueError(msg)
 
         logger.info("dev info initializing completed")
         logger.info(
@@ -256,8 +269,8 @@ class _CBootControl:
     def reboot(cls):
         try:
             subprocess_call("reboot", raise_exception=True)
-        except subprocess.CalledProcessError as e:
-            raise BootControlExternalError from e
+        except subprocess.CalledProcessError:
+            logger.exception("failed to reboot")
 
     def update_extlinux_cfg(self, dst: Path, ref: Path):
         def _replace(ma: re.Match, repl: str):
@@ -439,7 +452,7 @@ class CBootController(
                 # finish populating new boot folder to boot dev,
                 # we can umount the boot dev right now
                 CMDHelperFuncs.umount(_boot_dir_mount_point)
-            except BootControlExternalError as e:
+            except MountError as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
                 logger.error(_failure_msg)
                 # no need to raise to the caller
@@ -451,15 +464,11 @@ class CBootController(
         CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
         CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=ignore_error)
 
-    def _on_operation_failure(self, e: BootControlError):
+    def _on_operation_failure(self):
         """Failure registering and cleanup at failure."""
         self._store_standby_ota_status(OTAStatusEnum.FAILURE)
-
-        try:
-            logger.warning("on failure try to unmounting standby slot...")
-            self._unmount_all(ignore_error=True)
-        finally:
-            raise e
+        logger.warning("on failure try to unmounting standby slot...")
+        self._unmount_all(ignore_error=True)
 
     ###### public methods ######
     # also includes methods from OTAStatusMixin, VersionControlMixin
@@ -491,9 +500,10 @@ class CBootController(
 
             logger.info("pre-update setting finished")
 
-        except BootControlError as e:
+        except _BootControlError as e:
             logger.error(f"failed on pre_update: {e!r}")
-            self._on_operation_failure(e)
+            self._on_operation_failure()
+            raise BootControlPreUpdateFailed from e
 
     def post_update(self):
         # TODO: deal with unexpected reboot during post_update
@@ -519,14 +529,16 @@ class CBootController(
             self._unmount_all(ignore_error=True)
             self._cboot_control.reboot()
 
-        except BootControlError as e:
+        except _BootControlError as e:
             logger.error(f"failed on post_update: {e!r}")
-            self._on_operation_failure(e)
+            self._on_operation_failure()
+            raise BootControlPostUpdateFailed from e
 
     def post_rollback(self):
         try:
             self._cboot_control.switch_boot()
             self._cboot_control.reboot()
-        except BootControlError as e:
+        except _BootControlError as e:
             logger.error(f"failed on post_rollback: {e!r}")
-            self._on_operation_failure(e)
+            self._on_operation_failure()
+            raise BootControlPostRollbackFailed from e

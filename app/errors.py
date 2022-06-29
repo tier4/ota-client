@@ -21,6 +21,7 @@ class OTAErrorCode(Enum):
     E_APPLY_OTAUPDATE_FAILED = auto()
 
     E_OTA_ERR_UNRECOVERABLE = 300
+    E_BOOTCONTROL_PLATFORM_UNSUPPORTED = auto()
     E_BOOTCONTROL_INIT_ERR = auto()
     E_BOOTCONTROL_PREUPDATE_FAILED = auto()
     E_BOOTCONTROL_POSTUPDATE_FAILED = auto()
@@ -135,6 +136,12 @@ class OTAErrorUnRecoverable(OTAError):
     module: OTAModules = OTAModules.General
     errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
     desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: unspecific unrecoverable ota error, please contact technical support"
+
+
+class BootControlPlatformUnsupported(OTAErrorUnRecoverable):
+    module: OTAModules = OTAModules.BootController
+    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PLATFORM_UNSUPPORTED
+    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: current ECU platform is not supported by the boot controller module"
 
 
 class BootControlInitError(OTAErrorUnRecoverable):

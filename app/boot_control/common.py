@@ -22,19 +22,19 @@ logger = log_util.get_logger(
 )
 
 
-class BootControlError(Exception):
+class _BootControlError(Exception):
     ...
 
 
-class MountError(BootControlError):
+class MountError(_BootControlError):
     ...
 
 
-class ABPartitionError(BootControlError):
+class ABPartitionError(_BootControlError):
     ...
 
 
-class MkfsError(BootControlError):
+class MkfsError(_BootControlError):
     ...
 
 
