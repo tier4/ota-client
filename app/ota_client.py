@@ -7,7 +7,7 @@ from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
-from app.base_error import OTA_APIError, OTAError, OTAFailureType, OTAUpdateError
+from app.errors import OTA_APIError, OTAError, OTAFailureType, OTAUpdateError
 from app.boot_control import BootController
 from app.boot_control.common import BootControllerProtocol
 

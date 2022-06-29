@@ -6,7 +6,7 @@ from functools import partial
 from multiprocessing import Process
 from threading import Lock, Condition
 from typing import Tuple
-from app.base_error import OTAFailureType
+from app.errors import OTAFailureType
 
 import app.otaclient_v2_pb2 as v2
 from app.ota_status import OTAStatusEnum

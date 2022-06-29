@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable
 from urllib.parse import urljoin
-from app.base_error import OTAError
+from app.errors import OTAError
 
 from app.common import SimpleTasksTracker, OTAFileCacheControl
 from app.configs import config as cfg
