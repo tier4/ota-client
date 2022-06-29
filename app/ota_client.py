@@ -358,7 +358,7 @@ class OTAClient(OTAClientInterface):
         finally:
             self._lock.release()
 
-    def status(self) -> Optional[Dict[str, Any]]:
+    def status(self) -> Optional[OTAClientStatus]:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
             if _update_stats := self.updater.status():
                 # construct status response dict
@@ -372,7 +372,7 @@ class OTAClient(OTAClientInterface):
                     _res.failure_type = self.last_failure.failure_type.name
                     _res.failure_reason = self.last_failure.get_err_reason()
 
-                return asdict(_res)
+                return _res
             else:
                 logger.warning(
                     f"live_ota_status indicates there is an ongoing update,"
@@ -390,4 +390,4 @@ class OTAClient(OTAClientInterface):
                 _res.failure_type = self.last_failure.failure_type.name
                 _res.failure_reason = self.last_failure.get_err_reason()
 
-            return asdict(_res)
+            return _res

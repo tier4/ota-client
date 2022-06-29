@@ -5,10 +5,10 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
+from app.base_error import OTAError
 
 from app.common import SimpleTasksTracker, OTAFileCacheControl
 from app.create_standby.common import (
-    CreateStandbySlotInternalError,
     HardlinkRegister,
     RegularInfSet,
     DeltaGenerator,
@@ -16,8 +16,21 @@ from app.create_standby.common import (
     UpdateMeta,
 )
 from app.configs import config as cfg
+from app.errors import (
+    ApplyOTAUpdateFailed,
+    OTAErrorUnRecoverable,
+    OTAMetaDownloadFailed,
+    OTAMetaVerificationFailed,
+    UpdateDeltaGenerationFailed,
+)
 from app.proxy_info import proxy_cfg
-from app.downloader import Downloader
+from app.downloader import (
+    ChunkStreamingError,
+    DestinationNotAvailableError,
+    Downloader,
+    ExceedMaxRetryError,
+    HashVerificaitonError,
+)
 from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
 from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
@@ -82,18 +95,25 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _prepare_meta_files(self):
         self.update_phase_tracker(OTAUpdatePhase.METADATA)
-        for fname, method in self.META_FILES.items():
-            list_info = getattr(self.metadata, method)()
-            self._downloader.download(
-                path=list_info["file"],
-                dst=self._recycle_folder / fname,
-                digest=list_info["hash"],
-                url_base=self.url_base,
-                cookies=self.cookies,
-                headers={
-                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
-                },
-            )
+        try:
+            for fname, method in self.META_FILES.items():
+                list_info = getattr(self.metadata, method)()
+                self._downloader.download(
+                    path=list_info["file"],
+                    dst=self._recycle_folder / fname,
+                    digest=list_info["hash"],
+                    url_base=self.url_base,
+                    cookies=self.cookies,
+                    headers={
+                        OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                    },
+                )
+        except (ExceedMaxRetryError, ChunkStreamingError) as e:
+            raise OTAMetaDownloadFailed from e
+        except HashVerificaitonError as e:
+            raise OTAMetaVerificationFailed from e
+        except DestinationNotAvailableError as e:
+            raise OTAErrorUnRecoverable from e
 
     def _cal_and_prepare_delta(self):
         self.update_phase_tracker(OTAUpdatePhase.REGULAR)
@@ -102,19 +122,25 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # TODO 2: old_reg is not used currently
         logger.info("generating delta...")
 
-        delta_calculator = DeltaGenerator(
-            old_reg=Path(self.META_FOLDER) / "regulars.txt",
-            new_reg=self._recycle_folder / "regulars.txt",
-            new_dirs=self._recycle_folder / "dirs.txt",
-            ref_root=self.reference_slot,
-            recycle_folder=self._recycle_folder,
-            stats_collector=self.stats_collector,
-        )
-        self.delta_bundle = delta_calculator.get_delta()
-        self.stats_collector.store.total_regular_files = (
-            self.delta_bundle.total_regular_num
-        )
-        logger.info(f"total_regular_files_num={self.delta_bundle.total_regular_num}")
+        try:
+            delta_calculator = DeltaGenerator(
+                old_reg=Path(self.META_FOLDER) / "regulars.txt",
+                new_reg=self._recycle_folder / "regulars.txt",
+                new_dirs=self._recycle_folder / "dirs.txt",
+                ref_root=self.reference_slot,
+                recycle_folder=self._recycle_folder,
+                stats_collector=self.stats_collector,
+            )
+            self.delta_bundle = delta_calculator.get_delta()
+            self.stats_collector.store.total_regular_files = (
+                self.delta_bundle.total_regular_num
+            )
+            logger.info(
+                f"total_regular_files_num={self.delta_bundle.total_regular_num}"
+            )
+        except Exception as e:
+            # TODO: define specific error for delta generator
+            raise UpdateDeltaGenerationFailed from e
 
         # NOTE: now apply dirs.txt moved to here
         self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
@@ -279,7 +305,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
             self._process_symlinks()
             self._process_persistents()
             self._save_meta()
+        except OTAError as e:
+            raise  # if the error is already specified and wrapped, just raise again
         except Exception as e:
-            raise CreateStandbySlotInternalError from e
+            # TODO: cover all errors and mapping to specific OTAError type
+            raise ApplyOTAUpdateFailed from e
         finally:
             shutil.rmtree(self._recycle_folder, ignore_errors=True)

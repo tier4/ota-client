@@ -1,6 +1,5 @@
 """OTA error code definition"""
 from enum import Enum, auto, unique
-from typing import Dict
 
 from app.base_error import OTAError, OTAFailureType, OTAModules
 
@@ -10,12 +9,16 @@ class OTAErrorCode(Enum):
     E_UNSPECIFIC = 0
 
     E_NETWORK = 100
+    E_OTAMETA_DOWNLOAD_FAILED = auto()
 
     E_OTA_ERR_RECOVERABLE = 200
     E_OTAUPDATE_BUSY = auto()
     E_INVALID_STATUS_FOR_OTAUPDATE = auto()
     E_INVALID_OTAUPDATE_REQUEST = auto()
     E_INVALID_STATUS_FOR_OTAROLLBACK = auto()
+    E_OTAMETA_VERIFICATION_FAILED = auto()
+    E_UPDATEDELTA_GENERATION_FAILED = auto()
+    E_APPLY_OTAUPDATE_FAILED = auto()
 
     E_OTA_ERR_UNRECOVERABLE = 300
 
@@ -41,6 +44,11 @@ class NetworkError(OTAError):
     module: OTAModules = OTAModules.Downloader
     errcode: OTAErrorCode = OTAErrorCode.E_NETWORK
     desc: str = _NETWORK_ERR_DEFAULT_DESC
+
+
+class OTAMetaDownloadFailed(NetworkError):
+    errcode: OTAErrorCode = OTAErrorCode.E_OTAMETA_DOWNLOAD_FAILED
+    desc: str = f"{_NETWORK_ERR_DEFAULT_DESC}: failed to download ota image meta"
 
 
 ### recoverable error ###
@@ -88,6 +96,26 @@ class InvalidStatusForOTARollback(OTAErrorRecoverable):
     module: OTAModules = OTAModules.API
     errcode: OTAErrorCode = OTAErrorCode.E_INVALID_STATUS_FOR_OTAROLLBACK
     desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: current ota-status indicates it should not accept ota rollback"
+
+
+class OTAMetaVerificationFailed(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.StandbySlotCreater
+    errcode: OTAErrorCode = OTAErrorCode.E_OTAMETA_VERIFICATION_FAILED
+    desc: str = (
+        f"{_RECOVERABLE_DEFAULT_DESC}: hash verification failed for ota meta files"
+    )
+
+
+class UpdateDeltaGenerationFailed(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.StandbySlotCreater
+    errcode: OTAErrorCode = OTAErrorCode.E_UPDATEDELTA_GENERATION_FAILED
+    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: (rebuild_mode) failed to calculate and/or prepare update delta"
+
+
+class ApplyOTAUpdateFailed(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.StandbySlotCreater
+    errcode: OTAErrorCode = OTAErrorCode.E_APPLY_OTAUPDATE_FAILED
+    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: failed to apply ota update"
 
 
 ### unrecoverable error ###
