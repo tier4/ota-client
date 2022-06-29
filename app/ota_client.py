@@ -9,18 +9,14 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 from app.base_error import OTA_APIError, OTAError, OTAFailureType, OTAUpdateError
 from app.boot_control import BootController
-from app.boot_control.common import (
-    BootControllerProtocol,
-)
+from app.boot_control.common import BootControllerProtocol
 
 from app.create_standby import (
     StandbySlotCreator,
     UpdateMeta,
 )
 from app.downloader import Downloader
-from app.errors import (
-    InvalidUpdateRequest,
-)
+from app.errors import InvalidUpdateRequest
 from app.ota_status import LiveOTAStatus, OTAStatusEnum
 from app.update_phase import OTAUpdatePhase
 from app.interface import OTAClientInterface
