@@ -177,12 +177,15 @@ class CMDHelperFuncs:
     def get_mount_point_by_dev(cls, dev: str, *, raise_exception=True) -> str:
         """
         findmnt <dev> -o TARGET -n
+
+        NOTE: findmnt raw result might have multiple lines if target dev is bind mounted.
+                Always get the first line.
         """
-        mount_point = cls._findmnt(f"{dev} -o TARGET -n")
-        if not mount_point and raise_exception:
+        mount_points = cls._findmnt(f"{dev} -o TARGET -n").splitlines()
+        if not mount_points and raise_exception:
             raise MountError(f"{dev} is not mounted")
 
-        return mount_point
+        return mount_points[0].strip()
 
     @classmethod
     def get_parent_dev(cls, child_device: str) -> str:
