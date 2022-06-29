@@ -240,7 +240,7 @@ class SimpleTasksTracker:
 
     def wait(self, *, timeout: Optional[float] = None, raise_exception: bool = True):
         _start = time.time()
-        while not self._register_finished and self._done_num < self._in_num:
+        while not self._register_finished and self._done_num <= self._in_num:
             if timeout and time.time() - _start > timeout:
                 raise TimeoutError(f"wait on {self.title} timeout")
 
