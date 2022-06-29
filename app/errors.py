@@ -1,99 +1,81 @@
-import traceback
-from enum import Enum, unique
+"""OTA error code definition"""
+from enum import Enum, auto, unique
+from typing import Dict
 
-from app.error_code import OTAErrorCode
-
-
-@unique
-class OTAFailureType(Enum):
-    NO_FAILURE = 0
-    RECOVERABLE = 1
-    UNRECOVERABLE = 2
-
-    def to_str(self) -> str:
-        return f"{self.value:0>1}"
+from app.base_error import OTAError, OTAFailureType, OTAModules
 
 
 @unique
-class OTAModules(Enum):
-    General = 0
-    BootController = 1
-    StandbySlotCreater = 2
-    Downloader = 3
+class OTAErrorCode(Enum):
+    E_UNSPECIFIC = 0
+
+    E_NETWORK = 100
+
+    E_OTA_ERR_RECOVERABLE = 200
+    E_OTAUPDATE_BUSY = auto()
+    E_INVALID_STATUS_FOR_OTAUPDATE = auto()
+
+    E_OTA_ERR_UNRECOVERABLE = 300
 
     def to_str(self) -> str:
-        return f"{self.value:0>2}"
+        return f"{self.value:0>3}"
+
+    def get_errcode(self) -> int:
+        return self.value
+
+    def get_errname(self) -> str:
+        return self.name
 
 
-@unique
-class OTA_API(Enum):
-    Unspecific = 0
-    Update = 1
-    Rollback = 2
-    Status = 3
+###### error exception classes ######
+_NETWORK_ERR_DEFAULT_DESC = (
+    "error related to network connection detected, "
+    "please check the Internet connection and try again"
+)
 
-    def to_str(self) -> str:
-        return f"{self.value:0>2}"
-
-
-class OTAClientError(Exception):
-    """Errors that happen during otaclient code executing.
-
-    This exception class should be the base module level exception for each module.
-    It should always be captured by the OTAError at otaclient.py.
-    """
-
-    failure_type: OTAFailureType
-    module: OTAModules
-    errcode: "OTAErrorCode"
+### network error ###
+class NetworkError(OTAError):
+    failure_type: OTAFailureType = OTAFailureType.RECOVERABLE
+    module: OTAModules = OTAModules.Downloader
+    errcode: OTAErrorCode = OTAErrorCode.E_NETWORK
+    desc: str = _NETWORK_ERR_DEFAULT_DESC
 
 
-class OTAError(Exception):
-    """Errors that happen during processing API request.
+### recoverable error ###
+_RECOVERABLE_DEFAULT_DESC = (
+    "recoverable ota error(unrelated to network) detected, "
+    "please resend the request or retry after a restart of ota-client/ECU"
+)
 
-    This exception class should be the top level exception for each API entry.
-    This exception must be created by wrapping an OTAClientError.
-    """
 
-    api: OTA_API
-    _err_prefix = "E"
+class OTAErrorRecoverable(OTAError):
+    failure_type: OTAFailureType = OTAFailureType.RECOVERABLE
+    # followings are default values
+    module: OTAModules = OTAModules.General
+    errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_RECOVERABLE
+    desc: str = _RECOVERABLE_DEFAULT_DESC
 
-    def __init__(self, otaclient_err: OTAClientError, *args: object) -> None:
-        super().__init__(*args)
-        self.otaclient_err = otaclient_err
-        self.errcode = otaclient_err.errcode
-        self.module = otaclient_err.module
-        self.failure_type = otaclient_err.failure_type
 
-    def get_errcode(self) -> "OTAErrorCode":
-        return self.errcode
+class OTAUpdateBusy(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.API
+    errcode: OTAErrorCode = OTAErrorCode.E_OTAUPDATE_BUSY
+    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: on-going ota update detected, this request has been ignored"
 
-    def get_errcode_str(self) -> str:
-        return f"{self._err_prefix}{self.errcode.to_str()}"
 
-    def get_err_reason(self, *, append_desc=True) -> str:
-        """Return a failure_reason str.
+class InvalidStatusForOTAUpdate(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.API
+    errcode: OTAErrorCode = OTAErrorCode.E_INVALID_STATUS_FOR_OTAUPDATE
+    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: current ota-status indicates it should not accept ota update"
 
-        Format: Ec-aabb-dee[: <err_description>]
-            c: FAILURE_TYPE_1digit
-            aa: API_2digits
-            bb: MODULE_2digits
-            dee: ERRCODE_3digits
-        """
-        _errdesc = ""
-        if append_desc:
-            _errdesc = f": {self.errcode.get_errdesc()}"
 
-        return (
-            f"{self._err_prefix}"
-            f"{self.failure_type.to_str()}"
-            "-"
-            f"{self.api.to_str()}{self.module.to_str()}"
-            "-"
-            f"{self.errcode.to_str()}"
-            f"{_errdesc}"
-        )
+### unrecoverable error ###
+_UNRECOVERABLE_DEFAULT_DESC = (
+    "unrecoverable ota error detected, please contact technical support"
+)
 
-    def get_traceback(self, *, splitter="\n") -> str:
-        """Format the traceback into a str with splitter as <splitter>."""
-        return splitter.join(traceback.format_tb(self.__traceback__))
+
+class OTAErrorUnRecoverable(OTAError):
+    failure_type: OTAFailureType = OTAFailureType.RECOVERABLE
+    module: OTAModules = OTAModules.General
+    errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
+    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: unspecific unrecoverable ota error, please contact technical support"
