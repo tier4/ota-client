@@ -242,6 +242,7 @@ class DeltaGenerator:
     # no matter it is existed in new image or not
     FULL_SCAN_PATHS = set(
         [
+            "/lib",
             "/var/lib",
             "/usr",
             "/opt/nvidia",
