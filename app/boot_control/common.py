@@ -167,7 +167,10 @@ class CMDHelperFuncs:
 
     @classmethod
     def get_current_rootfs_dev(cls) -> str:
-        dev = Path(cls._findmnt("/ -o SOURCE -n")).resolve(strict=True)
+        devs = cls._findmnt("/ -o SOURCE -n").splitlines()
+        # NOTE: if refroot is mounted, the above will have multiple lines,
+        # get the first line
+        dev = Path(devs[0]).resolve(strict=True)
         return str(dev)
 
     @classmethod
