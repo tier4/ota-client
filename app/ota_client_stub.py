@@ -6,10 +6,10 @@ from functools import partial
 from multiprocessing import Process
 from threading import Lock, Condition
 from typing import Tuple
+from app.base_error import OTAFailureType
 
 import app.otaclient_v2_pb2 as v2
 from app.ota_status import OTAStatusEnum
-from app.ota_error import OtaErrorRecoverable
 from app.ota_client import OTAClient, OTAUpdateFSM
 from app.ota_client_call import OtaClientCall
 from app.proxy_info import proxy_cfg
@@ -310,23 +310,26 @@ class OtaClientStub:
 
         # my ecu
         ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        result, status = self._ota_client.status()
-        logger.debug(f"myecu: {result=},{status=}")
 
-        # construct status response
         ecu = response.ecu.add()
-
         ecu.ecu_id = ecu_id
-        ecu.result = result.value
-        ecu.status.status = v2.StatusOta.Value(status["status"])
-        ecu.status.failure = v2.FailureType.Value(status["failure_type"])
-        ecu.status.failure_reason = status["failure_reason"]
-        ecu.status.version = status["version"]
+        if status := self._ota_client.status():
+            # construct status response
+            ecu.result = OTAFailureType.NO_FAILURE
+            ecu.status.status = v2.StatusOta.Value(status.status)
+            ecu.status.failure = v2.FailureType.Value(status.failure_type)
+            ecu.status.failure_reason = status.failure_reason
+            ecu.status.version = status.version
 
-        prg = ecu.status.progress
-        prg.CopyFrom(_statusprogress_msg_from_dict(status["update_progress"]))
-        if status["update_progress"]:  # skip if no update is on-going
-            prg.phase = v2.StatusProgressPhase.Value(status["update_progress"]["phase"])
+            prg = ecu.status.progress
+            prg.CopyFrom(_statusprogress_msg_from_dict(status.update_progress))
+            if status.update_progress:  # skip if no update is on-going
+                prg.phase = v2.StatusProgressPhase.Value(
+                    status.update_progress["phase"]
+                )
+        else:
+            # otaclient status method doesn't return valid result
+            ecu.result = OTAFailureType.RECOVERABLE
 
         # available ecu ids
         available_ecu_ids = self._ecu_info.get_available_ecu_ids()
