@@ -225,13 +225,16 @@ class CMDHelperFuncs:
             raise MountError(_failure_msg)
 
     @classmethod
-    def umount(cls, target: Union[Path, str], *, ignore_error=False):
+    def umount(
+        cls, target: Union[Path, str], *, ignore_error=False, ignore_unmounted=True
+    ):
         try:
             _cmd = f"umount -f {target}"
             subprocess_call(_cmd, raise_exception=True)
         except CalledProcessError as e:
-            # ignore if target dev is not mounted
             if e.returncode == 32 and str(e.stderr).find("not mounted") != -1:
+                if not ignore_unmounted:  # ignore umounted error
+                    raise MountError(f"{target} is not mounted")
                 return
 
             _failure_msg = f"failed to umount {target}: {e!r}"
