@@ -315,7 +315,7 @@ class OtaClientStub:
         ecu.ecu_id = ecu_id
         if status := self._ota_client.status():
             # construct status response
-            ecu.result = OTAFailureType.NO_FAILURE
+            ecu.result = OTAFailureType.NO_FAILURE.value
             ecu.status.status = v2.StatusOta.Value(status.status)
             ecu.status.failure = v2.FailureType.Value(status.failure_type)
             ecu.status.failure_reason = status.failure_reason
@@ -329,7 +329,7 @@ class OtaClientStub:
                 )
         else:
             # otaclient status method doesn't return valid result
-            ecu.result = OTAFailureType.RECOVERABLE
+            ecu.result = OTAFailureType.RECOVERABLE.value
 
         # available ecu ids
         available_ecu_ids = self._ecu_info.get_available_ecu_ids()
