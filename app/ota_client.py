@@ -1,3 +1,4 @@
+from dataclasses import asdict, dataclass
 import json
 import tempfile
 import time
@@ -6,30 +7,24 @@ from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
+from app.base_error import OTA_APIError, OTAError, OTAFailureType, OTAUpdateError
 from app.boot_control import BootController
 from app.boot_control.common import (
-    BootControlExternalError,
-    BootControlInternalError,
     BootControllerProtocol,
 )
 
 from app.create_standby import (
     StandbySlotCreator,
-    CreateStandbySlotExternalError,
-    CreateStandbySlotInternalError,
     UpdateMeta,
 )
 from app.downloader import Downloader
+from app.errors import (
+    InvalidUpdateRequest,
+)
 from app.ota_status import LiveOTAStatus, OTAStatusEnum
 from app.update_phase import OTAUpdatePhase
 from app.interface import OTAClientInterface
 from app.ota_metadata import OtaMetadata
-from app.ota_error import (
-    OTAOperationFailureType,
-    OtaErrorBusy,
-    OtaErrorRecoverable,
-    OtaErrorUnrecoverable,
-)
 from app.update_stats import OTAUpdateStatsCollector
 from app.configs import config as cfg
 from app.common import OTAFileCacheControl
@@ -101,11 +96,9 @@ class _OTAUpdater:
     def __init__(
         self,
         *,
-        live_ota_status: LiveOTAStatus,
         boot_controller: BootControllerProtocol,
     ) -> None:
         self._lock = Lock()
-        self._live_ota_status = live_ota_status
         self._boot_controller = boot_controller
 
         # init update status
@@ -154,14 +147,19 @@ class _OTAUpdater:
             return metadata
 
     def _pre_update(
-        self, version: str, url_base: str, cookies: Dict[str, Any], *, fsm: OTAUpdateFSM
+        self, version: str, url_base: str, cookies_json: str, *, fsm: OTAUpdateFSM
     ):
+        # parse cookies
+        try:
+            cookies: Dict[str, Any] = json.loads(cookies_json)
+        except JSONDecodeError as e:
+            raise InvalidUpdateRequest from e
+
         # set ota status
         self.updating_version = version
         self.update_phase = OTAUpdatePhase.INITIAL
         self.update_start_time = int(time.time() * 1000)  # unix time in milli-seconds
         self.failure_reason = ""  # clean failure reason
-        self._live_ota_status.set_ota_status(OTAStatusEnum.UPDATING)
 
         # init ota_update_stats collector and downloader
         self.update_stats_collector.start(restart=True)
@@ -198,8 +196,6 @@ class _OTAUpdater:
         logger.info("[_pre_update] finished")
 
     def _in_update(self, *, fsm: OTAUpdateFSM):
-        self._live_ota_status.set_ota_status(OTAStatusEnum.UPDATING)
-
         # finish pre-update configuration, enter update
         fsm.client_enter_update()
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
@@ -244,7 +240,11 @@ class _OTAUpdater:
             self.update_stats_collector.stop()
             self._downloader.cleanup_proxy()
 
-    def status(self) -> Optional[Dict[str, Any]]:
+    def status(self) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """
+        Returns:
+            A tuple contains the version and the update_progress.
+        """
         if self.update_phase is not None:
             # TODO: refactoring?
             self.update_stats_collector.store.total_elapsed_time = int(
@@ -255,11 +255,7 @@ class _OTAUpdater:
             update_progress = self.update_stats_collector.get_snapshot_as_dist()
             # add extra fields
             update_progress["phase"] = self.update_phase.name
-            return {
-                "status": self._live_ota_status.get_ota_status().name,
-                "version": version,
-                "update_progress": update_progress,
-            }
+            return version, update_progress
 
     def execute(
         self,
@@ -283,84 +279,53 @@ class _OTAUpdater:
 
         try:
             if self._lock.acquire(blocking=False):
-                cookies = json.loads(cookies_json)
-
                 # unconditionally regulate the url_base
                 _url_base = urlparse(raw_url_base)
                 _path = f"{_url_base.path.rstrip('/')}/"
                 url_base = _url_base._replace(path=_path).geturl()
 
-                self._pre_update(version, url_base, cookies, fsm=fsm)
+                self._pre_update(version, url_base, cookies_json, fsm=fsm)
                 self._in_update(fsm=fsm)
                 self._post_update(fsm=fsm)
             else:
                 logger.warning("ignore multiple update attempt")
-        except (
-            JSONDecodeError,
-            BootControlExternalError,
-            CreateStandbySlotExternalError,
-        ) as e:
-            self._live_ota_status.set_ota_status(OTAStatusEnum.FAILURE)
-            logger.exception(msg="recoverable")
-            raise OtaErrorRecoverable from e
-        except (
-            BootControlInternalError,
-            CreateStandbySlotInternalError,
-            Exception,
-        ) as e:
-            self._live_ota_status.set_ota_status(OTAStatusEnum.FAILURE)
-            logger.exception(msg="unrecoverable")
-            raise OtaErrorUnrecoverable from e
+        except OTAError as e:
+            logger.exception(f"update failed")
+            raise OTAUpdateError(e) from e
         finally:
             # cleanup
             self.shutdown()
+
+
+@dataclass
+class OTAClientStatus:
+    version: str
+    status: str
+    update_progress: Dict[str, Any]
+    failure_type: str = OTAFailureType.NO_FAILURE.name
+    failure_reason: str = ""
 
 
 class OTAClient(OTAClientInterface):
     def __init__(self):
         self._lock = Lock()
 
-        self.failure_type = OTAOperationFailureType.NO_FAILURE
-        self.failure_reason = ""
+        self.last_failure: Optional[OTA_APIError] = None
 
         self.boot_controller = BootController()
         self.live_ota_status = LiveOTAStatus(self.boot_controller.get_ota_status())
 
         # init feature helpers
-        self.updater = _OTAUpdater(
-            live_ota_status=self.live_ota_status,
-            boot_controller=self.boot_controller,
-        )
-
-    def _result_ok(self):
-        self.failure_type = OTAOperationFailureType.NO_FAILURE
-        self.failure_reason = ""
-        return OTAOperationFailureType.NO_FAILURE
-
-    def _result_recoverable(self, e):
-        self.failure_type = OTAOperationFailureType.RECOVERABLE
-        self.failure_reason = str(e)
-        return OTAOperationFailureType.RECOVERABLE
-
-    def _result_unrecoverable(self, e: Any):
-        self.failure_type = OTAOperationFailureType.UNRECOVERABLE
-        self.failure_reason = str(e)
-        return OTAOperationFailureType.UNRECOVERABLE
+        self.updater = _OTAUpdater(boot_controller=self.boot_controller)
 
     def _rollback(self):
-        if self._lock.acquire(blocking=False):
-            if not self.live_ota_status.request_rollback():
-                raise OtaErrorBusy(f"{self.live_ota_status=} is illegal for rollback")
+        # enter rollback
+        self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACKING)
+        self.failure_type = OTAFailureType.NO_FAILURE
+        self.failure_reason = ""
 
-            # enter rollback
-            self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACKING)
-            self.failure_type = OTAOperationFailureType.NO_FAILURE
-            self.failure_reason = ""
-
-            # leave rollback
-            self.boot_controller.post_rollback()
-        else:
-            raise OtaErrorBusy("another rollback is on-going, abort")
+        # leave rollback
+        self.boot_controller.post_rollback()
 
     ###### public API ######
 
@@ -371,54 +336,58 @@ class OTAClient(OTAClientInterface):
         cookies_json: str,
         *,
         fsm: OTAUpdateFSM,
-    ) -> OTAOperationFailureType:
-        """
-        main entry of the ota update logic
-        exceptions are captured and recorded here
-        """
-        logger.debug("[update] entering...")
-
+    ):
         try:
-            self.updater.execute(version, url_base, cookies_json, fsm=fsm)
-            return self._result_ok()
-        except OtaErrorRecoverable as e:
-            return self._result_recoverable(e)
-        except OtaErrorUnrecoverable as e:
-            return self._result_unrecoverable(e)
+            if self._lock.acquire(blocking=False):
+                logger.info("[update] entering...")
+                self.updater.execute(version, url_base, cookies_json, fsm=fsm)
+            # silently ignore overlapping request
+        except OTAUpdateError as e:
+            self.live_ota_status.set_ota_status(OTAStatusEnum.FAILURE)
+            self.last_failure = e
+        finally:
+            self._lock.release()
 
-    def rollback(self) -> OTAOperationFailureType:
+    def rollback(self):
         try:
-            self._rollback()
-            return self._result_ok()
-        except OtaErrorBusy as e:
-            return self._result_recoverable(e)
-        except BootControlExternalError as e:
-            logger.exception(msg="recoverable")
-            return self._result_recoverable(e)
-        except (BootControlInternalError, Exception) as e:
-            logger.exception(msg="unrecoverable")
-            return self._result_unrecoverable(e)
+            if self._lock.acquire(blocking=False):
+                logger.info("[rollback] entering...")
+                self._rollback()
+            # silently ignore overlapping request
+        # TODO: define rollback errors
+        finally:
+            self._lock.release()
 
-    def status(self) -> Tuple[OTAOperationFailureType, Dict[str, Any]]:
+    def status(self) -> Optional[Dict[str, Any]]:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
-            if _stats_dict := self.updater.status():
-                # insert failure reason
-                _stats_dict["failure_type"] = self.failure_type.name
-                _stats_dict["failure_reason"] = self.failure_reason
+            if _update_stats := self.updater.status():
+                # construct status response dict
+                _res = OTAClientStatus(
+                    version=_update_stats[0],
+                    status=self.live_ota_status.get_ota_status().name,
+                    update_progress=_update_stats[1],
+                )
+                # insert failure type and failure reason
+                if self.last_failure is not None:
+                    _res.failure_type = self.last_failure.failure_type.name
+                    _res.failure_reason = self.last_failure.get_err_reason()
 
-                return OTAOperationFailureType.NO_FAILURE, _stats_dict
+                return asdict(_res)
             else:
                 logger.warning(
                     f"live_ota_status indicates there is an ongoing update,"
                     "but we failed to get update status from updater"
                 )
-                return OTAOperationFailureType.RECOVERABLE, {}
+                return
 
-        # default status
-        return OTAOperationFailureType.NO_FAILURE, {
-            "status": self.live_ota_status.get_ota_status().name,
-            "failure_type": self.failure_type.name,
-            "failure_reason": self.failure_reason,
-            "version": self.boot_controller.load_version(),
-            "update_progress": {},
-        }
+        else:  # default status
+            _res = OTAClientStatus(
+                status=self.live_ota_status.get_ota_status().name,
+                version=self.boot_controller.load_version(),
+                update_progress={},
+            )
+            if self.last_failure is not None:
+                _res.failure_type = self.last_failure.failure_type.name
+                _res.failure_reason = self.last_failure.get_err_reason()
+
+            return asdict(_res)
