@@ -8,7 +8,6 @@ from typing import Dict, Tuple
 
 from app import log_util
 from app.configs import config as cfg
-from app.ota_error import OtaErrorUnrecoverable
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -136,7 +135,7 @@ class CopyTree:
 
     def _copy_preserve(self, src: Path, dst_dir: Path):
         if not dst_dir.is_dir() or dst_dir.is_symlink():
-            raise OtaErrorUnrecoverable(f"{dst_dir} should be plain directory")
+            raise ValueError(f"{dst_dir} should be plain directory")
 
         dst_path = dst_dir / src.name
         # src is plain directory?

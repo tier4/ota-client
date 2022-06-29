@@ -10,7 +10,6 @@ from pprint import pformat
 from functools import partial
 from typing import Any, ClassVar, Optional
 
-from app.ota_error import OtaErrorRecoverable
 from app.configs import config as cfg
 from app.common import verify_file
 from app import log_util
@@ -64,7 +63,7 @@ class OtaMetadata:
             crypto.verify(cert, self._signature, verify_data, "sha256")
         except Exception as e:
             logger.exception("verify")
-            raise OtaErrorRecoverable(e)
+            raise ValueError(e)
 
     def get_directories_info(self):
         """
