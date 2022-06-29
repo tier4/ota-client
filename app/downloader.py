@@ -3,7 +3,7 @@ import time
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 from urllib.parse import quote_from_bytes, urljoin, urlparse
 from requests.exceptions import (
     ConnectionError,
@@ -23,16 +23,16 @@ logger = log_util.get_logger(
 
 
 class DownloadError(Exception):
-    def __init__(self, url: str, dst: Any, *args, **kwargs) -> None:
+    def __init__(self, url: str, dst: Any, *args: object) -> None:
         self.url = url
         self.dst = str(dst)
-        super().__init__(*args, **kwargs)
+        super().__init__(*args)
 
-    def __repr__(self) -> str:
-        _inject = f"Failed on download url={self.url} to dst={self.dst}\n"
-        return f"{_inject}{super().__repr__()}"
+    def __str__(self) -> str:
+        _inject = f"failed on download url={self.url} to dst={self.dst}: "
+        return f"{_inject}{super().__str__()}"
 
-    __str__ = __repr__
+    __repr__ = __str__
 
 
 class DestinationNotAvailableError(DownloadError):
@@ -53,24 +53,16 @@ class HashVerificaitonError(DownloadError):
     pass
 
 
-# exposed error type
-class DownloadErrorRecoverable(Exception):
-    pass
-
-
-class DownloadeErrorUnrecoverable(Exception):
-    pass
-
-
-REQUEST_CACHE_HEADER: Dict[str, str] = {
+REQUEST_RECACHE_HEADER: Dict[str, str] = {
     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
 }
 
 
-def _retry(retry, backoff_factor, backoff_max, func):
+def _retry(retry: int, backoff_factor: float, backoff_max: int, func: Callable):
     """
     NOTE: this retry decorator expects the input func to
     have 'headers' kwarg.
+    NOTE 2: only retry on ChunkStreamingError and HashVerificationError
     """
     from functools import wraps
 
@@ -80,9 +72,7 @@ def _retry(retry, backoff_factor, backoff_max, func):
         while True:
             try:
                 return func(*args, **kwargs)
-            except ExceedMaxRetryError as e:
-                raise DownloadErrorRecoverable from e
-            except (HashVerificaitonError, ChunkStreamingError) as e:
+            except (HashVerificaitonError, ChunkStreamingError):
                 _retry_count += 1
                 _backoff = backoff_factor * (2 ** (_retry_count - 1))
 
@@ -90,15 +80,13 @@ def _retry(retry, backoff_factor, backoff_max, func):
                 # to re-cache the possible corrupted file.
                 # modify header if needed and inject it into kwargs
                 if "headers" in kwargs and isinstance(kwargs["headers"], dict):
-                    kwargs["headers"].update(REQUEST_CACHE_HEADER.copy())
+                    kwargs["headers"].update(REQUEST_RECACHE_HEADER.copy())
                 else:
-                    kwargs["headers"] = REQUEST_CACHE_HEADER.copy()
+                    kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
 
                 if _retry_count > retry or _backoff > backoff_max:
-                    raise DownloadErrorRecoverable from e
+                    raise
                 time.sleep(_backoff)
-            except Exception as e:
-                raise DownloadeErrorUnrecoverable from e
 
     return _wrapper
 
