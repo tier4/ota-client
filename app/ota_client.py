@@ -336,6 +336,7 @@ class OTAClient(OTAClientInterface):
         try:
             if self._lock.acquire(blocking=False):
                 logger.info("[update] entering...")
+                self.last_failure = None
                 self.updater.execute(version, url_base, cookies_json, fsm=fsm)
             # silently ignore overlapping request
         except OTAUpdateError as e:
@@ -348,6 +349,7 @@ class OTAClient(OTAClientInterface):
         try:
             if self._lock.acquire(blocking=False):
                 logger.info("[rollback] entering...")
+                self.last_failure = None
                 self._rollback()
             # silently ignore overlapping request
         # TODO: define rollback errors
