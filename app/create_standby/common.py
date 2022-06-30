@@ -193,7 +193,7 @@ class DeltaGenerator:
         ]
     )
 
-    MAX_FOLDER_DEEPTH = 18
+    MAX_FOLDER_DEEPTH = 20
     MAX_FILENUM_PER_FOLDER = 8192
 
     def __init__(
