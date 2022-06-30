@@ -288,7 +288,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         # NOTE: check _OtaStatisticsStorage for available attributes
         logger.info(f"total_regular_files={total_files_num}")
-        self.stats_collector.store.total_regular_files = total_files_num
+        self.stats_collector.set_total_regular_files(total_files_num)
 
         self._hardlink_register = HardlinkRegister()
 

@@ -108,6 +108,9 @@ class OTAUpdateStatsCollector:
     def clear(self):
         self.store = OTAUpdateStats()
 
+    def set_total_regular_files(self, value: int):
+        self.store.total_regular_files = value
+
     def get_snapshot(self) -> OTAUpdateStats:
         """Return a copy of statistics storage."""
         return self.store.copy()

@@ -132,7 +132,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 stats_collector=self.stats_collector,
             )
             self.delta_bundle = delta_calculator.get_delta()
-            self.stats_collector.store.total_regular_files = (
+            self.stats_collector.set_total_regular_files(
                 self.delta_bundle.total_regular_num
             )
             logger.info(
