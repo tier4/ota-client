@@ -368,10 +368,8 @@ class OtaClientStub:
 
             prg = ecu.status.progress
             prg.CopyFrom(_statusprogress_msg_from_dict(status.update_progress))
-            if status.update_progress:  # skip if no update is on-going
-                prg.phase = v2.StatusProgressPhase.Value(
-                    status.update_progress["phase"]
-                )
+            if phase := status.get_update_phase():
+                prg.phase = v2.StatusProgressPhase.Value(phase)
         else:
             # otaclient status method doesn't return valid result
             ecu.result = OTAFailureType.RECOVERABLE.value

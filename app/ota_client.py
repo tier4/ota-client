@@ -1,7 +1,7 @@
-from dataclasses import asdict, dataclass
 import json
 import tempfile
 import time
+from dataclasses import dataclass
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from threading import Event, Lock
@@ -300,6 +300,10 @@ class OTAClientStatus:
     update_progress: Dict[str, Any]
     failure_type: str = OTAFailureType.NO_FAILURE.name
     failure_reason: str = ""
+
+    def get_update_phase(self) -> Optional[str]:
+        if self.update_progress and "phase" in self.update_progress:
+            return self.update_progress["phase"]
 
 
 class OTAClient(OTAClientInterface):
