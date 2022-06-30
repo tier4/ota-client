@@ -1,11 +1,11 @@
 import grpc.aio
-from concurrent import futures
 
 import app.otaclient_v2_pb2_grpc as v2_grpc
 import app.otaclient_v2_pb2 as v2
 from app import log_util
 from app.ota_client_stub import OtaClientStub
-from app.configs import config as cfg
+from app.configs import server_cfg, config as cfg
+
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -22,9 +22,11 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         logger.info(f"{response=}")
         return response
 
-    def Rollback(self, request: v2.RollbackRequest, context) -> v2.RollbackResponse:
+    async def Rollback(
+        self, request: v2.RollbackRequest, context
+    ) -> v2.RollbackResponse:
         logger.info(f"{request=}")
-        response = self._stub.rollback(request)
+        response = await self._stub.rollback(request)
         logger.info(f"{response=}")
         return response
 
@@ -33,9 +35,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
 
 async def service_start(port, service_list) -> grpc.aio.Server:
-    server = grpc.aio.server(
-        migration_thread_pool=futures.ThreadPoolExecutor(max_workers=2)
-    )
+    server = grpc.aio.server()
     for service in service_list:
         service["grpc"].add_OtaClientServiceServicer_to_server(
             service["instance"], server
@@ -44,6 +44,20 @@ async def service_start(port, service_list) -> grpc.aio.Server:
 
     await server.start()
     return server
+
+
+async def launch_otaclient_grpc_server():
+    ota_client_stub = OtaClientStub()
+    ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
+
+    server = await service_start(
+        f"{ota_client_stub.host_addr()}:{server_cfg.SERVER_PORT}",
+        [
+            {"grpc": v2_grpc, "instance": ota_client_service_v2},
+        ],
+    )
+
+    await service_wait_for_termination(server)
 
 
 async def service_wait_for_termination(server: grpc.aio.Server):

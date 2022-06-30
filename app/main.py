@@ -6,17 +6,9 @@ import _pathloader
 
 assert _pathloader
 
-from app.ota_client_stub import OtaClientStub
-from app.ota_client_service import (
-    OtaClientServiceV2,
-    service_start,
-    service_wait_for_termination,
-)
-import app.otaclient_v2_pb2_grpc as v2_grpc
-
 from app import log_util
 from app.configs import config as cfg
-from app.configs import server_cfg
+from app.ota_client_service import launch_otaclient_grpc_server
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -39,20 +31,6 @@ def _check_other_otaclient():
     lock_file.write_text(f"{our_pid}")
 
 
-async def _launch_otaclient_grpc_server():
-    ota_client_stub = OtaClientStub()
-    ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
-
-    server = await service_start(
-        f"{ota_client_stub.host_addr()}:{server_cfg.SERVER_PORT}",
-        [
-            {"grpc": v2_grpc, "instance": ota_client_service_v2},
-        ],
-    )
-
-    await service_wait_for_termination(server)
-
-
 def main():
     version_file = VERSION_FILE
     if version_file.is_file():
@@ -65,7 +43,7 @@ def main():
     _check_other_otaclient()
 
     # start the otaclient grpc server
-    asyncio.run(_launch_otaclient_grpc_server())
+    asyncio.run(launch_otaclient_grpc_server())
 
 
 if __name__ == "__main__":
