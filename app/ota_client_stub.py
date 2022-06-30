@@ -1,4 +1,5 @@
 import asyncio
+import grpc
 import grpc.aio
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
@@ -90,7 +91,7 @@ class OtaProxyWrapper:
             http="h11",
         )
 
-    def start(self, init_cache) -> int:
+    def start(self, init_cache) -> Optional[int]:
         """Launch ota_proxy as a separate process."""
         with self._lock:
             if self._closed:
@@ -220,41 +221,38 @@ class OtaClientStub:
                     )
                 )
 
-        # NOTE(20220513): is it illegal that ecu itself is not requested to update
-        # but its subecus do, but currently we just log errors for it
-        else:
-            logger.warning("entries in update request doesn't include this ecu")
-
         # wait for all sub ecu acknowledge ota update requests
-        done, pending = await asyncio.wait(
-            tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
-        )
-        for t in pending:
-            ecu_id = t.get_name()
-            logger.info(f"{ecu_id=}")
-
-            sub_ecu = response.ecu.add()
-            sub_ecu.ecu_id = ecu_id
-            sub_ecu.result = v2.RECOVERABLE
-            logger.error(
-                f"subecu {ecu_id} doesn't respond to ota update request on time"
+        if tasks:
+            done, pending = await asyncio.wait(
+                tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
             )
-        for t in done:
-            exp = t.exception()
-            if exp is not None:
+            for t in pending:
                 ecu_id = t.get_name()
-                logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
+                logger.info(f"{ecu_id=}")
+
                 sub_ecu = response.ecu.add()
                 sub_ecu.ecu_id = ecu_id
-                sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
-            else:
-                for e in t.result().ecu:
-                    ecu = response.ecu.add()
-                    ecu.CopyFrom(e)
-                    logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
+                sub_ecu.result = v2.RECOVERABLE
+                logger.error(
+                    f"subecu {ecu_id} doesn't respond to ota update request on time"
+                )
+            for t in done:
+                exp = t.exception()
+                if exp is not None:
+                    ecu_id = t.get_name()
+                    logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
+                    sub_ecu = response.ecu.add()
+                    sub_ecu.ecu_id = ecu_id
+                    sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
+                else:
+                    for e in t.result().ecu:
+                        ecu = response.ecu.add()
+                        ecu.CopyFrom(e)
+                        logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
+        # TODO: should we interrupt the my ecu's update if any child ecu failed to ack the update request?
 
-        # after all subecu ack the update request, update my ecu
-        if entry := OtaClientStub._find_request(request.ecu, ecu_id):
+        # after all subecus ack the update request, update my ecu
+        if entry := OtaClientStub._find_request(request.ecu, my_ecu_id):
             logger.info(f"{my_ecu_id=}, {entry=}")
             # dispatch update requst to ota_client only
             self._executor.submit(
@@ -262,6 +260,10 @@ class OtaClientStub:
                 entry,
                 fsm=ota_sfsm,
             )
+        # NOTE(20220513): is it illegal that ecu itself is not requested to update
+        # but its subecus do, but currently we just log errors for it
+        else:
+            logger.warning("entries in update request doesn't include this ecu")
 
         logger.info(f"{response=}")
         return response
@@ -304,33 +306,35 @@ class OtaClientStub:
 
         # wait for all subecus to ack the requests
         # TODO: should rollback timeout has its own value?
-        done, pending = await asyncio.wait(
-            tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
-        )
-        for t in pending:
-            ecu_id = t.get_name()
-
-            sub_ecu = response.ecu.add()
-            sub_ecu.ecu_id = ecu_id
-            sub_ecu.result = v2.RECOVERABLE
-            logger.error(
-                f"subecu {ecu_id} doesn't respond to ota rollback request on time"
+        if tasks:
+            done, pending = await asyncio.wait(
+                tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
             )
-        for t in done:
-            if exp := t.exception():
+            for t in pending:
                 ecu_id = t.get_name()
-                logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
 
                 sub_ecu = response.ecu.add()
                 sub_ecu.ecu_id = ecu_id
-                sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
-            else:
-                subsub_ecus: List[v2.RollbackResponseEcu] = t.result().ecu
-                # NOTE: subsub_ecus list also include current ecu
-                for e in subsub_ecus:
-                    ecu = response.ecu.add()
-                    ecu.CopyFrom(e)
-                    logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
+                sub_ecu.result = v2.RECOVERABLE
+                logger.error(
+                    f"subecu {ecu_id} doesn't respond to ota rollback request on time"
+                )
+            for t in done:
+                if exp := t.exception():
+                    ecu_id = t.get_name()
+                    logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
+
+                    sub_ecu = response.ecu.add()
+                    sub_ecu.ecu_id = ecu_id
+                    sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
+                else:
+                    subsub_ecus: List[v2.RollbackResponseEcu] = t.result().ecu
+                    # NOTE: subsub_ecus list also include current ecu
+                    for e in subsub_ecus:
+                        ecu = response.ecu.add()
+                        ecu.CopyFrom(e)
+                        logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
+        # TODO: should we interrupt the my ecu's rollback if any childecus failed to ack the rollback request?
 
         # after all subecus response the request, rollback my ecu
         if entry := OtaClientStub._find_request(request.ecu, my_ecu_id):
@@ -423,7 +427,7 @@ class OtaClientStub:
         self,
         response: v2.StatusResponse,
         *,
-        failed_ecu: list = None,  # output
+        failed_ecu: Optional[List[str]] = None,  # output
     ) -> bool:
         """
         fill the response with subecu status
@@ -443,7 +447,7 @@ class OtaClientStub:
             failed_ecu = [] if failed_ecu is None else failed_ecu
 
             # dispatch status pulling requests to all subecu
-            tasks = []
+            tasks: List[asyncio.Task] = []
             for secondary in secondary_ecus:
                 request = v2.StatusRequest()
                 tasks.append(
@@ -460,13 +464,12 @@ class OtaClientStub:
             for t in done:
                 ecu_id = t.get_name()
 
-                exp = t.exception()
-                if exp is not None:
+                if exp := t.exception():
                     # exception raised from the task
                     failed_ecu.append(ecu_id)
 
                     logger.debug(f"{ecu_id} currently is UNAVAILABLE")
-                    if isinstance(exp, grpc.RpcError):
+                    if isinstance(exp, grpc.aio.AioRpcError):
                         if exp.code() == grpc.StatusCode.UNAVAILABLE:
                             # request was not received.
                             logger.debug(f"{ecu_id} did not receive the request")
@@ -484,12 +487,14 @@ class OtaClientStub:
                         logger.debug(f"{ecu.ecu_id=}, {ecu.result=}")
 
             for t in pending:
+                ecu_id = t.get_name()
+
                 # task timeout
-                failed_ecu.append(t.get_name())
+                failed_ecu.append(ecu_id)
                 logger.warning(f"{ecu_id=} maybe UNAVAILABLE due to connection timeout")
                 # TODO: should we record these ECUs as FAILURE in the response?
                 ecu = response.ecu.add()
-                ecu.ecu_id = t.get_name()
+                ecu.ecu_id = ecu_id
                 ecu.result = v2.FAILURE
 
             ret = True if len(pending) == 0 and len(failed_ecu) == 0 else False
@@ -533,7 +538,7 @@ class OtaClientStub:
         # _get_subecu_status return True, means that all directly
         # connected subECUs are reachable
         for e in response.ecu:
-            if e.result != v2.NO_FAILURE:
+            if e.result != v2.FailureType.NO_FAILURE:
                 failed_ecu_list.append(e.ecu_id)
                 msg = f"Secondary ECU {e.ecu_id} failed: {e.result=}"
                 logger.error(msg)
@@ -566,7 +571,7 @@ class OtaClientStub:
             for ecu, st in subecu_directly_connected.items():
                 if st == v2.StatusOta.UPDATING:
                     return True
-                elif st == v2.StatusOta.FAILURE or st == v2.FAILURE:
+                elif st == v2.StatusOta.FAILURE:
                     failed_directly_connected_ecu.append(ecu)
             return False
 
