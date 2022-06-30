@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 from pathlib import Path
@@ -24,16 +25,7 @@ logger = log_util.get_logger(
 VERSION_FILE = Path(__file__).parent.parent / "version.txt"
 
 
-def main():
-    logger.info("started")
-    version_file = VERSION_FILE
-    if version_file.is_file():
-        version = open(version_file).read()
-        logger.info(version)
-
-    if cfg is None:
-        sys.exit("unsupported platform, abort")
-
+def _check_other_otaclient():
     # create a lock file to prevent multiple ota-client instances start
     lock_file = Path("/var/run/ota-client.lock")
     our_pid = os.getpid()
@@ -46,17 +38,34 @@ def main():
     # write our pid to the lock file
     lock_file.write_text(f"{our_pid}")
 
+
+async def _launch_otaclient_grpc_server():
     ota_client_stub = OtaClientStub()
     ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
 
-    server = service_start(
+    server = await service_start(
         f"{ota_client_stub.host_addr()}:{server_cfg.SERVER_PORT}",
         [
             {"grpc": v2_grpc, "instance": ota_client_service_v2},
         ],
     )
 
-    service_wait_for_termination(server)
+    await service_wait_for_termination(server)
+
+
+def main():
+    version_file = VERSION_FILE
+    if version_file.is_file():
+        version = open(version_file).read()
+        logger.info(version)
+
+    if cfg is None:
+        sys.exit("unsupported platform, abort")
+
+    _check_other_otaclient()
+
+    # start the otaclient grpc server
+    asyncio.run(_launch_otaclient_grpc_server())
 
 
 if __name__ == "__main__":

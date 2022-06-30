@@ -1,11 +1,11 @@
 import asyncio
-import grpc
+import grpc.aio
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from multiprocessing import Process
 from threading import Lock, Condition
-from typing import Tuple
+from typing import Any, Dict, Tuple
 from app.errors import OTAFailureType
 
 import app.otaclient_v2_pb2 as v2
@@ -34,7 +34,7 @@ def _path_load():
 _path_load()
 
 
-def _statusprogress_msg_from_dict(input: dict) -> v2.StatusProgress:
+def _statusprogress_msg_from_dict(input: Dict[str, Any]) -> v2.StatusProgress:
     """
     expecting input dict to has the same structure as the statusprogress msg
     """
