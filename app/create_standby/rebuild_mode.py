@@ -223,7 +223,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
             # prepare first copy for the hash group
             if not _local_copy_available:
-                cur_stat.op = "download"
+                cur_stat.op = RegInfProcessedStats.OP_DOWNLOAD
                 with download_se:  # limit on-going downloading
                     cur_stat.errors = self._downloader.download(
                         entry.path,
@@ -244,8 +244,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             # case 1: normal file
             if entry.nlink == 1:
                 # at this point, cur_stat.op is set means that this entry is downloaded
-                if not cur_stat.op:
-                    cur_stat.op = "copy"
+                if cur_stat.op == RegInfProcessedStats.OP_UNSPECIFIC:
+                    cur_stat.op = RegInfProcessedStats.OP_COPY
 
                 if is_last:  # move the tmp entry to the dst
                     entry.move_from_src(_local_copy, dst_root=_mount_point)
@@ -257,7 +257,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 # NOTE(20220523): for regulars.txt that support hardlink group,
                 #   use inode to identify the hardlink group.
                 #   otherwise, use hash to identify the same hardlink file.
-                cur_stat.op = "link"
+                cur_stat.op = RegInfProcessedStats.OP_LINK
                 _identifier = entry.sha256hash if entry.inode is None else entry.inode
 
                 _dst = entry.change_root(_mount_point)

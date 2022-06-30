@@ -210,7 +210,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 # wait until the first copy is ready
                 prev_reginf_path = _hardlink_tracker.subscribe()
                 (self.standby_slot / prev_reginf_path.relative_to("/")).link_to(dst)
-                processed.op = "link"
+                processed.op = RegInfProcessedStats.OP_LINK
 
             # case 1.2: is hardlink and is writer
             else:
@@ -222,7 +222,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         reginf.copy2slot(
                             self.standby_slot, src_root=self.reference_slot
                         )
-                        processed.op = "copy"
+                        processed.op = RegInfProcessedStats.OP_COPY
                     else:
                         # limit the concurrent downloading tasks
                         with download_se:
@@ -233,7 +233,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                                 url_base=self.image_base_url,
                                 cookies=self.cookies,
                             )
-                            processed.op = "download"
+                            processed.op = RegInfProcessedStats.OP_DOWNLOAD
 
                         # set file permission as RegInf says
                         os.chown(dst, reginf.uid, reginf.gid)
@@ -255,7 +255,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
             ):
                 # copy file from active bank if hash is the same
                 reginf.copy2slot(self.standby_slot, src_root=self.reference_slot)
-                processed.op = "copy"
+                processed.op = RegInfProcessedStats.OP_COPY
             else:
                 # limit the concurrent downloading tasks
                 with download_se:
@@ -266,7 +266,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         url_base=self.image_base_url,
                         cookies=self.cookies,
                     )
-                    processed.op = "download"
+                    processed.op = RegInfProcessedStats.OP_DOWNLOAD
 
                 # set file permission as RegInf says
                 os.chown(dst, reginf.uid, reginf.gid)

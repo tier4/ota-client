@@ -259,7 +259,7 @@ class DeltaGenerator:
         # report to the ota update stats collector
         self._stats_collector.report(
             RegInfProcessedStats(
-                op="copy",
+                op=RegInfProcessedStats.OP_COPY,
                 size=fpath.stat().st_size,
                 elapsed_ns=time.thread_time_ns() - _start,
             )

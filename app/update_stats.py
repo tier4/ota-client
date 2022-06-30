@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from queue import Empty, Queue
 from threading import Event, Lock
 import time
-from typing import Any, Dict, Generator, List
+from typing import Any, ClassVar, Dict, Generator, List, Literal
 
 from app.configs import config as cfg
 
@@ -56,7 +56,12 @@ class RegInfProcessedStats:
     {"errors": int}  # number of errors that occurred when downloading.
     """
 
-    op: str = ""
+    OP_DOWNLOAD: ClassVar[Literal["download"]] = "download"
+    OP_COPY: ClassVar[Literal["copy"]] = "copy"
+    OP_LINK: ClassVar[Literal["link"]] = "link"
+    OP_UNSPECIFIC: ClassVar[Literal["unspecific"]] = "unspecific"
+
+    op: Literal["download", "copy", "link", "unspecific"] = OP_UNSPECIFIC
     size: int = 0
     elapsed_ns: float = 0
     errors: int = 0
