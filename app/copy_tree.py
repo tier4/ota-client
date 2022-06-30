@@ -164,7 +164,7 @@ class CopyTree:
             shutil.copy2(src, dst_path, follow_symlinks=False)
             self._copy_stat(src, dst_path)
         else:
-            raise OtaErrorUnrecoverable(f"{src} unintended file type")
+            raise ValueError(f"{src} unintended file type")
 
     def _copy_recursive(self, src: Path, dst_dir: Path):
         self._copy_preserve(src, dst_dir)

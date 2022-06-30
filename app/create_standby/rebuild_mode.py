@@ -300,7 +300,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             self._process_symlinks()
             self._process_persistents()
             self._save_meta()
-        except OTAError as e:
+        except OTAError:
             raise  # if the error is already specified and wrapped, just raise again
         except Exception as e:
             # TODO: cover all errors and mapping to specific OTAError type

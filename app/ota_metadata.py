@@ -202,7 +202,7 @@ class OtaMetadata:
             cert_to_verify = load_pem(certificate)
         except crypto.Error:
             logger.exception(f"invalid certificate {certificate}")
-            raise OtaErrorRecoverable(f"invalid certificate {certificate}")
+            raise ValueError(f"invalid certificate {certificate}")
 
         for ca_prefix in sorted(ca_set_prefix):
             certs_list = [
@@ -224,7 +224,7 @@ class OtaMetadata:
                 logger.info(f"verify against {ca_prefix} failed: {e}")
 
         logger.error(f"certificate {certificate} could not be verified")
-        raise OtaErrorRecoverable(f"certificate {certificate} could not be verified")
+        raise ValueError(f"certificate {certificate} could not be verified")
 
 
 # meta files entry classes

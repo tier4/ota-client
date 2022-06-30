@@ -7,14 +7,10 @@ from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
-from app.errors import OTA_APIError, OTAError, OTAFailureType, OTAUpdateError
-from app.boot_control import BootController
-from app.boot_control.common import BootControllerProtocol
 
-from app.create_standby import (
-    StandbySlotCreator,
-    UpdateMeta,
-)
+from app.errors import OTA_APIError, OTAError, OTAFailureType, OTAUpdateError
+from app.boot_control import BootController, BootControllerProtocol
+from app.create_standby import StandbySlotCreator, UpdateMeta
 from app.downloader import Downloader
 from app.errors import InvalidUpdateRequest
 from app.ota_status import LiveOTAStatus, OTAStatusEnum
@@ -286,7 +282,7 @@ class _OTAUpdater:
             else:
                 logger.warning("ignore multiple update attempt")
         except OTAError as e:
-            logger.exception(f"update failed")
+            logger.exception("update failed")
             raise OTAUpdateError(e) from e
         finally:
             # cleanup
@@ -379,7 +375,7 @@ class OTAClient(OTAClientInterface):
                 return _res
             else:
                 logger.warning(
-                    f"live_ota_status indicates there is an ongoing update,"
+                    "live_ota_status indicates there is an ongoing update,"
                     "but we failed to get update status from updater"
                 )
                 return

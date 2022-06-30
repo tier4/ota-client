@@ -2,7 +2,6 @@ import asyncio
 import grpc.aio
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from multiprocessing import Process
 from threading import Lock, Condition
 from typing import Any, Dict, List, Optional, Tuple
@@ -581,7 +580,7 @@ class OtaClientStub:
                     "but some subECUs failed to apply the ota update."
                     f"failed directly subECUs presented: {failed_directly_connected_ecu}"
                 )
-                raise OtaErrorRecoverable(
+                raise ValueError(
                     f"failed directly subECUs presented: {failed_directly_connected_ecu}"
                 )
             else:

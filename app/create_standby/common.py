@@ -2,7 +2,6 @@ r"""Common used helpers, classes and functions for different bank creating metho
 import os
 import shutil
 import time
-from abc import abstractmethod
 from concurrent.futures import (
     Future,
     ProcessPoolExecutor,
@@ -13,14 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, Lock
 from typing import (
-    Any,
-    Callable,
     Iterator,
     List,
     Dict,
     Optional,
     OrderedDict,
-    Protocol,
     Set,
     Tuple,
     Union,
@@ -29,9 +25,8 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from app.common import file_sha256
 from app.configs import config as cfg
-from app.ota_metadata import DirectoryInf, OtaMetadata, RegularInf
+from app.ota_metadata import DirectoryInf, RegularInf
 from app import log_util
-from app.update_phase import OTAUpdatePhase
 from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
 
 logger = log_util.get_logger(
