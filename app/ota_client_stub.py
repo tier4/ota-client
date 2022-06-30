@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from multiprocessing import Process
 from threading import Lock, Condition
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 from app.errors import OTAFailureType
 
 import app.otaclient_v2_pb2 as v2
@@ -162,6 +162,7 @@ class OtaClientStub:
 
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
         logger.info(f"{request=}")
+        my_ecu_id = self._ecu_info.get_ecu_id()
 
         response = v2.UpdateResponse()
         # TODO: add a method for ota_client to proxy request_update
@@ -172,11 +173,17 @@ class OtaClientStub:
                 f"ota_client should not take ota update under ota_status={self._ota_client.live_ota_status.get_ota_status()}"
             )
             ecu = response.ecu.add()
-            ecu.ecu_id = self._ecu_info.get_ecu_id()
+            ecu.ecu_id = my_ecu_id
             ecu.result = v2.RECOVERABLE
 
             return response
+        else:
+            # update request permitted, prepare response
+            ecu = response.ecu.add()
+            ecu.ecu_id = my_ecu_id
+            ecu.result = v2.NO_FAILURE
 
+        ### start ota_proxy server if needed
         # init state machine(P1: ota_service, P2: ota_client)
         ota_sfsm = OTAUpdateFSM()
 
@@ -198,8 +205,9 @@ class OtaClientStub:
 
         ota_sfsm.stub_ready()
 
+        ### dispatch update requests to all the subecus
         # secondary ecus
-        tasks = []
+        tasks: List[asyncio.Task] = []
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         logger.info(f"{secondary_ecus=}")
         # simultaneously dispatching update requests to all subecus without blocking
@@ -213,89 +221,126 @@ class OtaClientStub:
                     )
                 )
 
-        # my ecu
-        ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        logger.info(f"{ecu_id=}")
-        entry = OtaClientStub._find_request(request.ecu, ecu_id)
-        logger.info(f"{entry=}")
-
-        if entry:
-            # dispatch update requst to ota_client only
-            loop = asyncio.get_running_loop()
-            loop.run_in_executor(
-                self._executor,
-                partial(
-                    self._update_executor,
-                    entry,
-                    fsm=ota_sfsm,
-                ),
-            )
-
         # NOTE(20220513): is it illegal that ecu itself is not requested to update
         # but its subecus do, but currently we just log errors for it
         else:
             logger.warning("entries in update request doesn't include this ecu")
 
         # wait for all sub ecu acknowledge ota update requests
-        if len(tasks):  # if we have sub ecu to update
-            done, pending = await asyncio.wait(
-                tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
-            )
-            for t in pending:
-                ecu_id = t.get_name()
-                logger.info(f"{ecu_id=}")
+        done, pending = await asyncio.wait(
+            tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
+        )
+        for t in pending:
+            ecu_id = t.get_name()
+            logger.info(f"{ecu_id=}")
 
+            sub_ecu = response.ecu.add()
+            sub_ecu.ecu_id = ecu_id
+            sub_ecu.result = v2.RECOVERABLE
+            logger.error(
+                f"subecu {ecu_id} doesn't respond to ota update request on time"
+            )
+        for t in done:
+            exp = t.exception()
+            if exp is not None:
+                ecu_id = t.get_name()
+                logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
                 sub_ecu = response.ecu.add()
                 sub_ecu.ecu_id = ecu_id
-                sub_ecu.result = v2.RECOVERABLE
-                logger.error(
-                    f"subecu {ecu_id} doesn't respond to ota update request on time"
-                )
-            for t in done:
-                exp = t.exception()
-                if exp is not None:
-                    ecu_id = t.get_name()
-                    logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
-                    sub_ecu = response.ecu.add()
-                    sub_ecu.ecu_id = ecu_id
-                    sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
-                else:
-                    for e in t.result().ecu:
-                        ecu = response.ecu.add()
-                        ecu.CopyFrom(e)
-                        logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
+                sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
+            else:
+                for e in t.result().ecu:
+                    ecu = response.ecu.add()
+                    ecu.CopyFrom(e)
+                    logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
+
+        # after all subecu ack the update request, update my ecu
+        if entry := OtaClientStub._find_request(request.ecu, ecu_id):
+            logger.info(f"{my_ecu_id=}, {entry=}")
+            # dispatch update requst to ota_client only
+            self._executor.submit(
+                self._update_executor,
+                entry,
+                fsm=ota_sfsm,
+            )
 
         logger.info(f"{response=}")
         return response
 
-    def rollback(self, request):
+    async def rollback(self, request) -> v2.RollbackResponse:
         logger.info(f"{request=}")
-        response = v2.RollbackResponse()
+        my_ecu_id = self._ecu_info.get_ecu_id()
 
-        # secondary ecus
+        response = v2.RollbackResponse()
+        # TODO: rollback request proxy?
+        if not self._ota_client.live_ota_status.request_rollback():
+            # current ota_client's status indicates that
+            # the ota_client should not start an ota rollback
+            logger.warning(
+                f"ota_client should not take ota rollback under ota_status={self._ota_client.live_ota_status.get_ota_status()}"
+            )
+            ecu = response.ecu.add()
+            ecu.ecu_id = my_ecu_id
+            ecu.result = v2.RECOVERABLE
+
+            return response
+        else:
+            # rollback request is permitted, prepare the response
+            ecu = response.ecu.add()
+            ecu.ecu_id = my_ecu_id
+            ecu.result = v2.NO_FAILURE
+
+        # dispatch rollback requests to all secondary ecus
         secondary_ecus = self._ecu_info.get_secondary_ecus()
         logger.info(f"{secondary_ecus=}")
+        tasks: List[asyncio.Task] = []
         for secondary in secondary_ecus:
-            entry = OtaClientStub._find_request(request.ecu, secondary["ecu_id"])
-            if entry:
-                r = self._ota_client_call.rollback(request, secondary["ip_addr"])
-                for e in r.ecu:
+            if entry := OtaClientStub._find_request(request.ecu, secondary["ecu_id"]):
+                tasks.append(
+                    asyncio.create_task(
+                        self._ota_client_call.rollback(request, secondary["ip_addr"]),
+                        name=secondary["ecu_id"],
+                    )
+                )
+
+        # wait for all subecus to ack the requests
+        # TODO: should rollback timeout has its own value?
+        done, pending = await asyncio.wait(
+            tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
+        )
+        for t in pending:
+            ecu_id = t.get_name()
+
+            sub_ecu = response.ecu.add()
+            sub_ecu.ecu_id = ecu_id
+            sub_ecu.result = v2.RECOVERABLE
+            logger.error(
+                f"subecu {ecu_id} doesn't respond to ota rollback request on time"
+            )
+        for t in done:
+            if exp := t.exception():
+                ecu_id = t.get_name()
+                logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
+
+                sub_ecu = response.ecu.add()
+                sub_ecu.ecu_id = ecu_id
+                sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
+            else:
+                subsub_ecus: List[v2.RollbackResponseEcu] = t.result().ecu
+                # NOTE: subsub_ecus list also include current ecu
+                for e in subsub_ecus:
                     ecu = response.ecu.add()
                     ecu.CopyFrom(e)
+                    logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
 
-        # my ecu
-        ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-        logger.info(f"{ecu_id=}")
-        entry = OtaClientStub._find_request(request.ecu, ecu_id)
-        logger.info(f"{entry=}")
-        if entry:
-            result = self._ota_client.rollback()
-            logger.info(f"{result=}")
-            ecu = response.ecu.add()
-            ecu.ecu_id = ecu_id
-            ecu.result = result.value
+        # after all subecus response the request, rollback my ecu
+        if entry := OtaClientStub._find_request(request.ecu, my_ecu_id):
+            logger.info(f"{my_ecu_id=}, {entry=}")
+            # dispatch the rollback request to threadpool
+            self._executor.submit(self._ota_client.rollback)
+        else:
+            logger.warning("entries in rollback request doesn't include this ecu")
 
-        logger.info(f"{response=}")
         return response
 
     async def status(self, request: v2.StatusRequest) -> v2.StatusResponse:
