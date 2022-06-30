@@ -218,14 +218,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _first_copy_prepared = _local_copy_available
 
         for is_last, entry in _regs_set.iter_entries():
+            cur_stat = RegInfProcessedStats()
             _start = time.thread_time_ns()
-            _op, _errors = "copy", 0
 
             # prepare first copy for the hash group
             if not _local_copy_available:
-                _op = "download"
+                cur_stat.op = "download"
                 with download_se:  # limit on-going downloading
-                    _errors = self._downloader.download(
+                    cur_stat.errors = self._downloader.download(
                         entry.path,
                         _local_copy,
                         entry.sha256hash,
@@ -241,15 +241,23 @@ class RebuildMode(StandbySlotCreatorProtocol):
             )
 
             # prepare this entry
+            # case 1: normal file
             if entry.nlink == 1:
+                # at this point, cur_stat.op is set means that this entry is downloaded
+                if not cur_stat.op:
+                    cur_stat.op = "copy"
+
                 if is_last:  # move the tmp entry to the dst
                     entry.move_from_src(_local_copy, dst_root=_mount_point)
                 else:  # copy from the tmp dir
                     entry.copy_from_src(_local_copy, dst_root=_mount_point)
+
+            # case 2: hardlink file
             else:
                 # NOTE(20220523): for regulars.txt that support hardlink group,
                 #   use inode to identify the hardlink group.
                 #   otherwise, use hash to identify the same hardlink file.
+                cur_stat.op = "link"
                 _identifier = entry.sha256hash if entry.inode is None else entry.inode
 
                 _dst = entry.change_root(_mount_point)
@@ -257,28 +265,26 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _identifier, _dst, entry.nlink
                 )
 
+                # writer
                 if _is_writer:
                     entry.copy_from_src(_local_copy, dst_root=_mount_point)
+                # subscriber
                 else:
-                    _op = "link"
                     _src = _hardlink_tracker.subscribe_no_wait()
                     _src.link_to(_dst)
 
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
 
-            _time_cost_in_ns = time.thread_time_ns() - _start
-            stats_list.append(
-                RegInfProcessedStats(
-                    op=_op,
-                    size=entry.size if entry.size else 0,
-                    elapsed_ns=_time_cost_in_ns,
-                    errors=_errors,
-                )
-            )
+            # create stat
+            cur_stat.size = entry.size if entry.size else 0
+            cur_stat.elapsed_ns = time.thread_time_ns() - _start
+            stats_list.append(cur_stat)
 
-        # NOTE: exclude one entry as we prepare local copy
-        # when we are geernating delta
+        # report the stats to the stats_collector
+        # NOTE: if first_copy_available is True, unconditionally
+        # remove one entry from the stats_list to maintain the correct
+        # total_regular_num
         if _first_copy_prepared:
             stats_list = stats_list[1:]
         self.stats_collector.report(*stats_list)
