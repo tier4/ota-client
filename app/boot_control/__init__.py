@@ -1,5 +1,5 @@
 from typing import Type
-from app.boot_control.common import BootControllerProtocol
+from app.boot_control.interface import BootControllerProtocol
 from app.configs import BOOT_LOADER
 
 
@@ -21,4 +21,4 @@ def get_boot_controller(bootloader: str) -> Type[BootControllerProtocol]:
 
 BootController: Type[BootControllerProtocol] = get_boot_controller(BOOT_LOADER)
 
-__all__ = ("BootController",)
+__all__ = ("BootController", "get_boot_controller")

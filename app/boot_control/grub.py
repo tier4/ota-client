@@ -8,8 +8,8 @@ from app.boot_control.common import (
     OTAStatusMixin,
     SlotInUseMixin,
     VersionControlMixin,
-    BootControllerProtocol,
 )
+from app.boot_control.interface import BootControllerProtocol
 from app.configs import BOOT_LOADER, grub_cfg as cfg
 from app.errors import (
     BootControlInitError,

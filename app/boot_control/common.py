@@ -1,10 +1,9 @@
 r"""Shared utils for boot_controller."""
 import re
-from abc import abstractmethod
 from enum import auto, Enum
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Optional, Protocol, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 from app import log_util
 from app.configs import config as cfg
@@ -36,26 +35,6 @@ class ABPartitionError(_BootControlError):
 
 class MkfsError(_BootControlError):
     ...
-
-
-# fmt: off
-class BootControllerProtocol(Protocol):
-    @abstractmethod
-    def get_ota_status(self) -> OTAStatusEnum: ...
-    @abstractmethod
-    def get_standby_slot_path(self) -> Path: ...
-    @abstractmethod
-    def get_standby_boot_dir(self) -> Path: ...
-    @abstractmethod
-    def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool): ...
-    @abstractmethod
-    def post_update(self): ...
-    @abstractmethod
-    def post_rollback(self): ...
-    @abstractmethod
-    def load_version(self) -> str: ...
-
-# fmt: on
 
 
 class MountFailedReason(Enum):

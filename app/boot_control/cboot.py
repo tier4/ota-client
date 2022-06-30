@@ -13,8 +13,8 @@ from app.boot_control.common import (
     CMDHelperFuncs,
     SlotInUseMixin,
     VersionControlMixin,
-    BootControllerProtocol,
 )
+from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     copytree_identical,
     read_from_file,
