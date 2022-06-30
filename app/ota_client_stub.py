@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from multiprocessing import Process
 from threading import Lock, Condition
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from app.errors import OTAFailureType
 
 import app.otaclient_v2_pb2 as v2
@@ -60,7 +60,7 @@ class OtaProxyWrapper:
     def __init__(self):
         self._lock = Lock()
         self._closed = True
-        self._server_p: Process = None
+        self._server_p: Optional[Process] = None
         # an event for ota_cache to signal ota_service that
         # cache scrub finished.
         self._scrub_cache_event = multiprocessing.Event()
@@ -114,7 +114,7 @@ class OtaProxyWrapper:
             else:
                 logger.warning("try to launch ota-proxy again")
 
-    def wait_on_ota_cache(self, timeout: float = None):
+    def wait_on_ota_cache(self, timeout: Optional[float] = None):
         """Wait on ota_cache to finish initializing."""
         self._scrub_cache_event.wait(timeout=timeout)
 
@@ -126,7 +126,7 @@ class OtaProxyWrapper:
         from ota_proxy.config import config as proxy_srv_cfg
 
         with self._lock:
-            if not self._closed:
+            if not self._closed and self._server_p:
                 # send SIGTERM to the server process
                 self._server_p.terminate()
                 self._closed = True
