@@ -26,11 +26,8 @@ from app.ota_metadata import (
 )
 from app.proxy_info import proxy_cfg
 
-from app.create_standby.common import (
-    HardlinkRegister,
-    StandbySlotCreatorProtocol,
-    UpdateMeta,
-)
+from app.create_standby.common import HardlinkRegister
+from app.create_standby.interface import StandbySlotCreatorProtocol, UpdateMeta
 from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
 from app import log_util
 

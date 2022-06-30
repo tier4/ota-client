@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Type, Union
 
-from app.create_standby.common import (
+from app.create_standby.interface import (
     StandbySlotCreatorProtocol,
     UpdateMeta,
 )

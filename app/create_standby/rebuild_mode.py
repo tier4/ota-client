@@ -8,13 +8,8 @@ from urllib.parse import urljoin
 from app.errors import OTAError
 
 from app.common import SimpleTasksTracker, OTAFileCacheControl
-from app.create_standby.common import (
-    HardlinkRegister,
-    RegularInfSet,
-    DeltaGenerator,
-    StandbySlotCreatorProtocol,
-    UpdateMeta,
-)
+from app.create_standby.common import HardlinkRegister, RegularInfSet, DeltaGenerator
+from app.create_standby.interface import StandbySlotCreatorProtocol, UpdateMeta
 from app.configs import config as cfg
 from app.errors import (
     ApplyOTAUpdateFailed,
