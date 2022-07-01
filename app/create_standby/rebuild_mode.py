@@ -206,7 +206,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 "all process_regulars tasks are dispatched, wait for finishing..."
             )
             _tasks_tracker.register_finished()
-            _tasks_tracker.wait()
+            _tasks_tracker.wait(self.stats_collector.wait_staging)
 
     def _apply_reginf_set(
         self, _hash: str, _regs_set: RegularInfSet, *, download_se: Semaphore

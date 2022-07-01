@@ -312,7 +312,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 "all process_regulars tasks are dispatched, wait for finishing..."
             )
             _tasks_tracker.register_finished()
-            _tasks_tracker.wait()
+            _tasks_tracker.wait(self.stats_collector.wait_staging)
 
     ###### public API methods ######
     @classmethod

@@ -10,7 +10,7 @@ from concurrent.futures import Future
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Semaphore
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 from app.log_util import get_logger
 from app.configs import config as cfg
@@ -238,7 +238,13 @@ class SimpleTasksTracker:
             self.last_error = e
             self._interrupted.set()
 
-    def wait(self, *, timeout: Optional[float] = None, raise_exception: bool = True):
+    def wait(
+        self,
+        extra_wait_cb: Optional[Callable] = None,
+        *,
+        timeout: Optional[float] = None,
+        raise_exception: bool = True,
+    ):
         _start = time.time()
         while not self._register_finished and self._done_num <= self._in_num:
             if timeout and time.time() - _start > timeout:
@@ -249,6 +255,10 @@ class SimpleTasksTracker:
                 break
 
             time.sleep(self._wait_interval)
+
+        # if extra_wait_cb presents, also wait for it
+        if callable(extra_wait_cb):
+            extra_wait_cb()
 
         if raise_exception and self.last_error:
             raise self.last_error
