@@ -92,7 +92,13 @@ class OtaProxyWrapper:
             http="h11",
         )
 
-    def start(self, init_cache) -> Optional[int]:
+    def start(
+        self,
+        init_cache: bool,
+        *,
+        wait_on_scrub=True,
+        wait_on_timeout: Optional[float] = None,
+    ) -> Optional[int]:
         """Launch ota_proxy as a separate process."""
         with self._lock:
             if self._closed:
@@ -111,9 +117,12 @@ class OtaProxyWrapper:
                     f"{proxy_cfg=}"
                 )
 
+                if wait_on_scrub:
+                    self._scrub_cache_event.wait(timeout=wait_on_timeout)
+
                 return self._server_p.pid
             else:
-                logger.warning("try to launch ota-proxy again")
+                logger.warning("try to launch ota-proxy again, ignored")
 
     def wait_on_ota_cache(self, timeout: Optional[float] = None):
         """Wait on ota_cache to finish initializing."""
@@ -142,7 +151,7 @@ class OtaProxyWrapper:
 class OtaClientStub:
     def __init__(self):
         # dispatch the requested operations to threadpool
-        self._executor = ThreadPoolExecutor()
+        self._executor = ThreadPoolExecutor(thread_name_prefix="ota_client_stub")
 
         self._ota_client = OTAClient()
         self._ecu_info = EcuInfo()
@@ -151,8 +160,8 @@ class OtaClientStub:
         # for _get_subecu_status
         self._status_pulling_lock = Lock()
         self._cached_status_cv: Condition = Condition()
-        self._cached_status: v2.StatusResponse = None
-        self._cached_if_subecu_ready: bool = None
+        self._cached_status: Optional[v2.StatusResponse] = None
+        self._cached_if_subecu_ready: Optional[bool] = None
 
         # ota proxy server
         if proxy_cfg.enable_local_ota_proxy:
@@ -164,6 +173,7 @@ class OtaClientStub:
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
         logger.info(f"{request=}")
         my_ecu_id = self._ecu_info.get_ecu_id()
+        _loop = asyncio.get_running_loop()
 
         response = v2.UpdateResponse()
         # TODO: add a method for ota_client to proxy request_update
@@ -185,7 +195,7 @@ class OtaClientStub:
             ecu.result = v2.NO_FAILURE
 
         ### start ota_proxy server if needed
-        # init state machine(P1: ota_service, P2: ota_client)
+        # init state machine
         ota_sfsm = OTAUpdateFSM()
 
         # start ota proxy server
@@ -199,11 +209,15 @@ class OtaClientStub:
                 self._ota_client.live_ota_status.get_ota_status()
                 == OTAStatusEnum.SUCCESS
             )
-            self._ota_proxy.start(_init_cache)
-
             # wait for ota_cache to finish initializing
-            self._ota_proxy.wait_on_ota_cache()
-
+            await _loop.run_in_executor(
+                self._executor,
+                partial(
+                    self._ota_proxy.start,
+                    init_cache=_init_cache,
+                    wait_on_scrub=True,
+                ),
+            )
         ota_sfsm.stub_ready()
 
         ### dispatch update requests to all the subecus
@@ -398,8 +412,10 @@ class OtaClientStub:
         NOTE: no exceptions will be raised as there is no upper caller after the update is dispatched.
         exceptions will only be recorded by logger. Use status API to query the status of the update.
         """
+        _loop = asyncio.get_running_loop()
+
         # dispatch the local update to threadpool
-        fut = asyncio.get_running_loop().run_in_executor(
+        fut = _loop.run_in_executor(
             self._executor,
             partial(
                 self._ota_client.update,
@@ -432,7 +448,13 @@ class OtaClientStub:
                 "stop ota_proxy server on all subecus and my ecu update finished,"
             )
             # cleanup cache only when the local update is successful
-            self._ota_proxy.stop(cleanup_cache=update_successfully)
+            await _loop.run_in_executor(
+                self._executor,
+                partial(
+                    self._ota_proxy.stop,
+                    cleanup_cache=update_successfully,
+                ),
+            )
 
         # signal the otaclient to execute post update
         logger.info(f"local update result: {update_successfully=}")
