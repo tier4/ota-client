@@ -345,7 +345,7 @@ class SlotInUseMixin:
 
     def _load_current_slot_in_use(self) -> str:
         return read_from_file(
-            self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, missing_ok=False
+            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, missing_ok=False
         )
 
 
