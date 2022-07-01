@@ -71,8 +71,34 @@ class GrubController(
         except Exception as e:
             raise BootControlInitError from e
 
+    def _is_switching_boot(self):
+        # evidence 1: ota_status should be updating/rollbacking at the first reboot
+        _check_ota_status = self._load_current_ota_status() in [
+            OTAStatusEnum.UPDATING,
+            OTAStatusEnum.ROLLBACKING,
+        ]
+
+        # evidence 2: slot_in_use file should have the same slot as current slot
+        _current_slot = self._load_current_slot_in_use()
+        _check_slot_in_use = (
+            _current_slot == self._boot_control.get_active_root_device_name()
+        )
+
+        # evidence 3: check the symlink to ota-partition folder,
+        # the ota-partition folder should point to the current slot
+        _check_ota_partition_symlink = (
+            _current_slot == self._boot_control.get_active_boot_device()
+        )
+
+        res = _check_ota_status and _check_slot_in_use and _check_ota_partition_symlink
+        logger.info(
+            f"_is_switching_boot: {res} "
+            f"({_check_ota_status=}, {_check_slot_in_use=}, {_check_ota_partition_symlink=})"
+        )
+        return res
+
     def _finalize_update(self) -> OTAStatusEnum:
-        if self._boot_control.is_switching_boot_partition_from_active_to_standby():
+        if self._is_switching_boot():
             self._boot_control.update_grub_cfg()
             # switch should be called last.
             self._boot_control.switch_boot_partition_from_active_to_standby()
