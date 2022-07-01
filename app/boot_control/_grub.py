@@ -6,6 +6,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from pprint import pformat
+from typing import Optional
 
 from app import log_util
 from app.boot_control.common import GrubABPartitionDetecter
@@ -333,7 +334,7 @@ class _OtaPartition:
         self._boot_dir = Path(cfg.BOOT_DIR)  # /boot
         self._boot_ota_partition_file = Path(
             cfg.BOOT_OTA_PARTITION_FILE
-        )  # /boot/ota-partition
+        )  # ota-partition
 
         _ab_detecter = GrubABPartitionDetecter()
         self.active_root_dev = _ab_detecter.get_active_slot_dev()
@@ -341,7 +342,7 @@ class _OtaPartition:
         self.active_slot = _ab_detecter.get_active_slot()
         self.standby_slot = _ab_detecter.get_standby_slot()
 
-    def get_active_boot_device(self):
+    def get_active_boot_device(self) -> Optional[str]:
         """
         returns device linked from /boot/ota-partition
         e.g. if /boot/ota-partition links to ota-partition.sda3, sda3 is returned.
@@ -350,23 +351,16 @@ class _OtaPartition:
         # read link
         ota_partition_file = self._boot_dir / self._boot_ota_partition_file
 
-        link = os.readlink(ota_partition_file)
-        m = re.match(rf"{str(self._boot_ota_partition_file)}.(.*)", link)
-        active_boot_device = m.group(1)
+        try:
+            link = os.readlink(ota_partition_file)
+        except FileNotFoundError:
+            raise ValueError(f"ota-partition file is not found")
 
-        if active_boot_device != self.active_slot:
-            logger.warning(
-                f"mismatch between ota-partition file and actually active slot:"
-                f"link->{active_boot_device}, actual->{self.active_slot}, "
-                "relink the ota-partition file"
-            )
-            ota_partition_file.unlink(missing_ok=True)
-            ota_partition_file.link_to(
-                f"{cfg.BOOT_OTA_PARTITION_FILE}.{self.active_slot}"
-            )
-            active_boot_device = self.active_slot
-
-        return active_boot_device
+        if m := re.match(rf"{str(self._boot_ota_partition_file)}.(.*)", link):
+            active_boot_device = m.group(1)
+            return active_boot_device
+        else:
+            raise ValueError(f"ota-partition file link is broken")
 
     def get_standby_boot_device(self):
         """
@@ -380,13 +374,13 @@ class _OtaPartition:
             return self.standby_slot
         elif active_boot_device == self.standby_slot:
             return self.active_slot
-
-        # TODO: specify a unique error code
-        raise ValueError(
-            f"illegal active_boot_device={active_boot_device}, "
-            f"active_boot_device={self.active_slot}, "
-            f"standby_root_device={self.standby_slot}"
-        )
+        else:
+            # TODO: specify a unique error code
+            raise ValueError(
+                f"illegal active_boot_device={active_boot_device}, "
+                f"active_boot_device={self.active_slot}, "
+                f"standby_root_device={self.standby_slot}"
+            )
 
     def get_active_root_dev(self):
         return self.active_root_dev
@@ -412,12 +406,6 @@ class OtaPartitionFile(_OtaPartition):
         device = self.get_standby_boot_device()
         path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{device}")
         return path
-
-    def is_switching_boot_partition_from_active_to_standby(self):
-        standby_boot_device = self.get_standby_boot_device()
-        active_root_device = self.get_active_root_device_name()
-        logger.info(f"{standby_boot_device=},{active_root_device=}")
-        return standby_boot_device == active_root_device
 
     def switch_boot_partition_from_active_to_standby(self):
         standby_device = self.get_standby_boot_device()
