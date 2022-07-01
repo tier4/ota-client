@@ -67,7 +67,7 @@ class OtaProxyWrapper:
         self._scrub_cache_event = multiprocessing.Event()
 
     @staticmethod
-    def _start_server_process(init_cache: bool, *, scrub_cache_event):
+    async def _start_uvicorn(init_cache: bool, *, scrub_cache_event):
         import uvicorn
         from ota_proxy import App, OTACache
 
@@ -82,7 +82,7 @@ class OtaProxyWrapper:
         # NOTE: explicitly set loop and http options
         # to prevent using wrong libs
         # NOTE 2: http=="httptools" will break ota_proxy
-        uvicorn.run(
+        config = uvicorn.Config(
             App(_ota_cache),
             host=proxy_cfg.local_ota_proxy_listen_addr,
             port=proxy_cfg.local_ota_proxy_listen_port,
@@ -91,6 +91,8 @@ class OtaProxyWrapper:
             loop="asyncio",
             http="h11",
         )
+        server = uvicorn.Server(config)
+        await server.serve()
 
     def start(
         self,
@@ -103,11 +105,12 @@ class OtaProxyWrapper:
         with self._lock:
             if self._closed:
                 self._server_p = Process(
-                    target=self._start_server_process,
-                    kwargs={
-                        "init_cache": init_cache,
-                        "scrub_cache_event": self._scrub_cache_event,
-                    },
+                    target=asyncio.run,
+                    args=[
+                        self._start_uvicorn(
+                            init_cache, scrub_cache_event=self._scrub_cache_event
+                        ),
+                    ],
                 )
                 self._server_p.start()
 
@@ -458,7 +461,7 @@ class OtaClientStub:
 
         # signal the otaclient to execute post update
         logger.info(f"local update result: {update_successfully=}")
-        fsm.stub_subecu_update_finished()
+        fsm.stub_ready_for_reboot()
 
     async def _get_subecu_status(
         self,

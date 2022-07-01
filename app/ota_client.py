@@ -76,7 +76,7 @@ class OTAUpdateFSM:
         self.current = self._S1
         self._s1.set()
 
-    def stub_subecu_update_finished(self):
+    def stub_ready_for_reboot(self):
         self.current = self._S2
         self._s2.set()
 
