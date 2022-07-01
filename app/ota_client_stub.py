@@ -221,7 +221,7 @@ class OtaClientStub:
                     wait_on_scrub=True,
                 ),
             )
-        ota_sfsm.stub_ready()
+            ota_sfsm.stub_ota_proxy_launched()
 
         ### dispatch update requests to all the subecus
         # secondary ecus
@@ -418,7 +418,7 @@ class OtaClientStub:
         _loop = asyncio.get_running_loop()
 
         # dispatch the local update to threadpool
-        fut = _loop.run_in_executor(
+        _loop.run_in_executor(
             self._executor,
             partial(
                 self._ota_client.update,
@@ -437,15 +437,15 @@ class OtaClientStub:
         await self._ensure_subecu_status()
         logger.info("all subECUs are updated and become ready")
 
-        update_successfully = False
-        try:
-            await fut
-            update_successfully = True
-        except OTA_APIError:
-            # not dealing exception here,
-            # as we use status API to track update status
-            pass
+        # wait for local update to finish
+        await _loop.run_in_executor(
+            self._executor,
+            fsm.stub_wait_for_local_update,
+        )
 
+        # check the last failure AFTER local update finished,
+        # (after IN_UPDATE stage, before POST_UPDATE stage)
+        update_success = self._ota_client.get_last_failure() is None
         if proxy_cfg.enable_local_ota_proxy:
             logger.info(
                 "stop ota_proxy server on all subecus and my ecu update finished,"
@@ -455,13 +455,13 @@ class OtaClientStub:
                 self._executor,
                 partial(
                     self._ota_proxy.stop,
-                    cleanup_cache=update_successfully,
+                    cleanup_cache=update_success,
                 ),
             )
 
         # signal the otaclient to execute post update
-        logger.info(f"local update result: {update_successfully=}")
-        fsm.stub_ready_for_reboot()
+        logger.info(f"local update result: {update_success=}")
+        fsm.stub_cleanup_finished()
 
     async def _get_subecu_status(
         self,

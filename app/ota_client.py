@@ -29,59 +29,34 @@ logger = log_util.get_logger(
 
 
 class OTAUpdateFSM:
-    """State machine that synchronzing ota_service and ota_client.
-
-    States switch:
-    START -> S0, caller P1_ota_service:
-        ota_service start the ota_proxy,
-        wait for ota_proxy to finish initializing(scrub cache),
-        and then signal ota_client
-    S0 -> S1, caller P2_ota_client:
-        ota_client wait for ota_proxy finish intializing,
-        and then finishes pre_update procedure,
-        signal ota_service to send update requests to all subecus
-    S1 -> S2, caller P2_ota_client:
-        ota_client finishes local update,
-        signal ota_service to cleanup after all subecus are ready
-    S2 -> END
-        ota_service finishes cleaning up,
-        signal ota_client to reboot
-    """
-
-    ######## state machine definition ########
-    _START, _S0, _S1, _S2 = (
-        "_START",  # start
-        "_S0",  # stub ready
-        "_S1",  # ota_client enter update
-        "_S2",  # all subECUs are ready
-    )
-
     def __init__(self) -> None:
-        self._s0 = Event()
-        self._s1 = Event()
-        self._s2 = Event()
-        self.current: str = self._START
+        self._ota_proxy_ready = Event()
+        self._otaclient_enter_update = Event()
+        self._otaclient_finish_update = Event()
+        self._stub_cleanup_finish = Event()
 
-    def stub_ready(self):
-        if self.current == self._START:
-            self.current = self._S0
-            self._s0.set()
-        else:
-            raise ValueError(f"expecting _START, but got {self.current=}")
+    def stub_ota_proxy_launched(self):
+        self._ota_proxy_ready.set()
 
-    def client_wait_for_stub(self):
-        self._s0.wait()
+    def client_wait_for_ota_proxy(self, *, timeout: Optional[float] = None):
+        """Local otaclient wait for stub(to setup ota_proxy server)."""
+        self._ota_proxy_ready.wait(timeout=timeout)
 
     def client_enter_update(self):
-        self.current = self._S1
-        self._s1.set()
+        self._otaclient_enter_update.set()
 
-    def stub_ready_for_reboot(self):
-        self.current = self._S2
-        self._s2.set()
+    def client_finish_update(self):
+        self._otaclient_finish_update.set()
+
+    def stub_wait_for_local_update(self, *, timeout: Optional[float] = None):
+        self._otaclient_finish_update.wait(timeout=timeout)
+
+    def stub_cleanup_finished(self):
+        self._stub_cleanup_finish.set()
 
     def client_wait_for_reboot(self):
-        self._s2.wait()
+        """Local otaclient should reboot after the stub cleanup finished."""
+        self._stub_cleanup_finish.wait()
 
 
 class _OTAUpdater:
@@ -156,12 +131,6 @@ class _OTAUpdater:
         # init ota_update_stats collector and downloader
         self.update_stats_collector.start(restart=True)
 
-        # configure proxy
-        self._downloader.cleanup_proxy()
-        if proxy := proxy_cfg.get_proxy_for_local_ota():
-            fsm.client_wait_for_stub()  # wait for stub to setup the proxy server
-            self._downloader.configure_proxy(proxy)
-
         # process metadata.jwt
         logger.debug("[update] process metadata...")
         self.update_phase = OTAUpdatePhase.METADATA
@@ -184,12 +153,10 @@ class _OTAUpdater:
 
         # launch ota update stats collector
         self.update_stats_collector.start()
-
         logger.info("[_pre_update] finished")
 
-    def _in_update(self, *, fsm: OTAUpdateFSM):
+    def _in_update(self):
         # finish pre-update configuration, enter update
-        fsm.client_enter_update()
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
         self._boot_controller.pre_update(
             self.updating_version,
@@ -207,14 +174,8 @@ class _OTAUpdater:
         _standby_slot_creator.create_standby_bank()
         logger.info("[_in_update] finished creating standby slot")
 
-    def _post_update(self, *, fsm: OTAUpdateFSM):
+    def _post_update(self):
         self._set_update_phase(OTAUpdatePhase.POST_PROCESSING)
-
-        logger.info(
-            "[update] leaving update, "
-            "wait on ota_service, apply post-update and reboot..."
-        )
-        fsm.client_wait_for_reboot()
         self._boot_controller.post_update()
 
     def _set_update_phase(self, _phase: OTAUpdatePhase):
@@ -276,9 +237,26 @@ class _OTAUpdater:
                 _path = f"{_url_base.path.rstrip('/')}/"
                 url_base = _url_base._replace(path=_path).geturl()
 
+                # configure proxy if needed before entering update
+                self._downloader.cleanup_proxy()
+                if proxy := proxy_cfg.get_proxy_for_local_ota():
+                    logger.info(f"use local ota_proxy")
+                    # wait for stub to setup the local ota_proxy server
+                    fsm.client_wait_for_ota_proxy()
+                    self._downloader.configure_proxy(proxy)
+
                 self._pre_update(version, url_base, cookies_json, fsm=fsm)
-                self._in_update(fsm=fsm)
-                self._post_update(fsm=fsm)
+                fsm.client_enter_update()
+
+                self._in_update()
+                fsm.client_finish_update()
+
+                logger.info(
+                    "[update] leaving update, "
+                    "wait on ota_service, apply post-update and reboot..."
+                )
+                fsm.client_wait_for_reboot()
+                self._post_update()
             else:
                 logger.warning("ignore multiple update attempt")
         except OTAError as e:
@@ -324,6 +302,9 @@ class OTAClient(OTAClientInterface):
         self.boot_controller.post_rollback()
 
     ###### public API ######
+
+    def get_last_failure(self) -> Optional[OTA_APIError]:
+        return self.last_failure
 
     def update(
         self,
