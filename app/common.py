@@ -97,7 +97,13 @@ def write_to_file(path: Path, input: str):
 # wrapped subprocess call
 def subprocess_call(cmd: str, *, raise_exception=False):
     try:
-        subprocess.run(shlex.split(cmd), capture_output=True)
+        # NOTE: we need to check the stderr and stdout when error occurs,
+        # so use subprocess.run here instead of subprocess.check_call
+        subprocess.run(
+            shlex.split(cmd),
+            check=True,
+            capture_output=True,
+        )
     except subprocess.CalledProcessError as e:
         logger.warning(
             msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}"
