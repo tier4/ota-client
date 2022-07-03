@@ -416,15 +416,15 @@ class OtaPartitionFile:
         )
 
     def create_custom_cfg_and_reboot(self, rollback=False):
-        standby_slot = self.standby_slot
+        standby_dev = self.get_standby_root_dev()
         vmlinuz_file, initrd_img_file = self._create_standby_boot_kernel_files(rollback)
-        logger.info(f"{standby_slot=},{vmlinuz_file=},{initrd_img_file=}")
+        logger.info(f"{standby_dev=},{vmlinuz_file=},{initrd_img_file=}")
         self._grub_control.create_custom_cfg_and_reboot(
-            standby_slot, vmlinuz_file, initrd_img_file
+            standby_dev, vmlinuz_file, initrd_img_file
         )
 
     def update_grub_cfg(self):
-        active_device = self.get_active_root_device_name()
+        active_device = self.get_active_root_dev()
         standby_boot_path = self.get_standby_boot_partition_path()
         logger.info(f"{active_device=},{standby_boot_path=}")
         self._grub_control.update_grub_cfg(
