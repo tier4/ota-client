@@ -39,7 +39,7 @@ logger = log_util.get_logger(
 
 
 class NvbootctrlError(_BootControlError):
-    ...
+    """Specific internal errors related to nvbootctrl cmd."""
 
 
 class Nvbootctrl:
@@ -62,6 +62,10 @@ class Nvbootctrl:
     # nvbootctrl
     @staticmethod
     def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> Optional[str]:
+        """
+        Raises:
+            NvbootCtrlError if raise_exception is True.
+        """
         # NOTE: target is always set to rootfs
         _cmd = f"nvbootctrl -t rootfs {arg}"
         if call_only:
@@ -123,7 +127,7 @@ class Nvbootctrl:
         try:
             cls._nvbootctrl(f"is-slot-bootable {slot}")
             return True
-        except ValueError:
+        except NvbootctrlError:
             return False
 
     @classmethod
@@ -131,7 +135,7 @@ class Nvbootctrl:
         try:
             cls._nvbootctrl(f"is-slot-marked-successful {slot}")
             return True
-        except ValueError:
+        except NvbootctrlError:
             return False
 
 

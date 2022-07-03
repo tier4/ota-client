@@ -1,12 +1,11 @@
 import os
-from pathlib import Path
-from pprint import pformat
 import re
 import shlex
 import shutil
 import subprocess
 import tempfile
-from typing import Optional
+from pathlib import Path
+from pprint import pformat
 
 from app.boot_control.common import (
     GrubABPartitionDetecter,

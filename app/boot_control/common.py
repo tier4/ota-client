@@ -1,5 +1,4 @@
 r"""Shared utils for boot_controller."""
-import re
 from enum import auto, Enum
 from pathlib import Path
 from subprocess import CalledProcessError
@@ -22,7 +21,11 @@ logger = log_util.get_logger(
 
 
 class _BootControlError(Exception):
-    ...
+    """Internal used exception type related to boot control errors.
+    NOTE: this exception should not be directly raised to upper caller,
+    it should always be wrapped by a specific OTA Error type.
+    check app.errors for details.
+    """
 
 
 class MountError(_BootControlError):
@@ -114,11 +117,6 @@ class CMDHelperFuncs:
     def _lsblk(args: str, *, raise_exception=False) -> str:
         _cmd = f"lsblk {args}"
         return subprocess_check_output(_cmd, raise_exception=raise_exception)
-
-    @staticmethod
-    def _blkid(args: str) -> str:
-        _cmd = f"blkid {args}"
-        return subprocess_check_output(_cmd)
 
     ###### derived helper methods ######
 
