@@ -178,13 +178,13 @@ class CMDHelperFuncs:
         findmnt <dev> -o TARGET -n
 
         NOTE: findmnt raw result might have multiple lines if target dev is bind mounted.
-                Always get the first line.
+        use option -f to only show the first file system
         """
-        mount_points = cls._findmnt(f"{dev} -o TARGET -n").splitlines()
+        mount_points = cls._findmnt(f"{dev} -o TARGET -n -f")
         if not mount_points and raise_exception:
             raise MountError(f"{dev} is not mounted")
 
-        return mount_points[0].strip()
+        return mount_points
 
     @classmethod
     def get_parent_dev(cls, child_device: str) -> str:
