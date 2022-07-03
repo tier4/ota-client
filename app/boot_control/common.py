@@ -2,7 +2,7 @@ r"""Shared utils for boot_controller."""
 from enum import auto, Enum
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 from app import log_util
 from app.configs import config as cfg
@@ -29,7 +29,11 @@ class _BootControlError(Exception):
 
 
 class MountError(_BootControlError):
-    ...
+    def __init__(
+        self, *args: object, fail_reason: Optional["MountFailedReason"] = None
+    ) -> None:
+        super().__init__(*args)
+        self.fail_reason = fail_reason
 
 
 class ABPartitionError(_BootControlError):
@@ -57,36 +61,57 @@ class MountFailedReason(Enum):
     BIND_MOUNT_ON_NON_DIR = auto()
 
     @classmethod
-    def parse_failed_reason(cls, e: CalledProcessError) -> "MountFailedReason":
-        _reason = cls(e.returncode)
-        if _reason != cls.GENERIC_MOUNT_FAILURE:
-            return _reason
+    def parse_failed_reason(cls, func: Callable):
+        from functools import wraps
 
-        # if the return code is 32, determine the detailed reason
-        # of the mount failure
-        _error_msg = str(e.stderr)
-        if _error_msg.find("already mounted") != -1:
-            return cls.TARGET_ALREADY_MOUNTED
-        elif _error_msg.find("mount point does not exist") != -1:
-            return cls.MOUNT_POINT_NOT_FOUND
-        elif _error_msg.find("does not exist") != -1:
-            return cls.TARGET_NOT_FOUND
-        elif _error_msg.find("Not a directory") != -1:
-            return cls.BIND_MOUNT_ON_NON_DIR
-        else:
-            return cls.GENERIC_MOUNT_FAILURE
+        @wraps(func)
+        def _wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except CalledProcessError as e:
+                _called_process_error_str = (
+                    f"{e.cmd=} failed: {e.returncode=}, {e.stderr=}, {e.stdout=}"
+                )
+
+                _reason = cls(e.returncode)
+                if _reason != cls.GENERIC_MOUNT_FAILURE:
+                    raise MountError(
+                        _called_process_error_str,
+                        fail_reason=_reason,
+                    ) from None
+
+                # if the return code is 32, determine the detailed reason
+                # of the mount failure
+                _error_msg, _fail_reason = str(e.stderr), cls.GENERIC_MOUNT_FAILURE
+                if _error_msg.find("already mounted") != -1:
+                    _fail_reason = cls.TARGET_ALREADY_MOUNTED
+                elif _error_msg.find("mount point does not exist") != -1:
+                    _fail_reason = cls.MOUNT_POINT_NOT_FOUND
+                elif _error_msg.find("does not exist") != -1:
+                    _fail_reason = cls.TARGET_NOT_FOUND
+                elif _error_msg.find("Not a directory") != -1:
+                    _fail_reason = cls.BIND_MOUNT_ON_NON_DIR
+
+                raise MountError(
+                    _called_process_error_str,
+                    fail_reason=_fail_reason,
+                ) from None
+
+        return _wrapper
 
 
 class CMDHelperFuncs:
     """HelperFuncs bundle for wrapped linux cmd."""
 
     @staticmethod
+    @MountFailedReason.parse_failed_reason
     def _mount(
         dev: str,
         mount_point: str,
+        *,
         options: Optional[List[str]] = None,
         args: Optional[List[str]] = None,
-    ) -> MountFailedReason:
+    ):
         """
         mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
         """
@@ -99,11 +124,7 @@ class CMDHelperFuncs:
             _args_str = f"{' '.join(args)}"
 
         _cmd = f"mount {_option_str} {_args_str} {dev} {mount_point}"
-        try:
-            subprocess_call(_cmd, raise_exception=True)
-            return MountFailedReason.SUCCESS
-        except CalledProcessError as e:
-            return MountFailedReason.parse_failed_reason(e)
+        subprocess_call(_cmd, raise_exception=True)
 
     @staticmethod
     def _findfs(key: str, value: str) -> str:
@@ -222,19 +243,24 @@ class CMDHelperFuncs:
         )
 
     @classmethod
-    def mount(
-        cls,
-        target: str,
-        mount_point: Union[Path, str],
-        options: Optional[List[str]] = None,
-    ):
-        _failed_reason = cls._mount(target, str(mount_point), options)
-        if _failed_reason != MountFailedReason.SUCCESS:
-            _failure_msg = (
-                f"failed to mount {target} on {mount_point}: {_failed_reason.name}"
-            )
-            logger.error(_failure_msg)
-            raise MountError(_failure_msg)
+    def mount_rw(cls, target: str, mount_point: Union[Path, str]):
+        """
+        NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
+        mount events propagation to/from this mount point.
+        """
+        options = ["rw"]
+        args = ["--make-private", "--make-unbindable"]
+        cls._mount(target, str(mount_point), options=options, args=args)
+
+    @classmethod
+    def bind_mount_ro(cls, target: str, mount_point: Union[Path, str]):
+        """
+        NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
+        mount events propagation to/from this mount point.
+        """
+        options = ["bind", "ro"]
+        args = ["--make-private", "--make-unbindable"]
+        cls._mount(target, str(mount_point), options=options, args=args)
 
     @classmethod
     def umount(cls, target: Union[Path, str], *, ignore_error=False):
@@ -259,6 +285,7 @@ class CMDHelperFuncs:
     @classmethod
     def mkfs_ext4(cls, dev: str):
         try:
+            logger.warning(f"format {dev} to ext4...")
             _cmd = f"mkfs.ext4 -F {dev}"
             subprocess_call(_cmd, raise_exception=True)
         except CalledProcessError as e:
@@ -282,11 +309,9 @@ class CMDHelperFuncs:
         if _refroot_active_mount_point := CMDHelperFuncs.get_mount_point_by_dev(
             _refroot_dev, raise_exception=False
         ):
-            _mount_options = ["bind", "ro"]
-            CMDHelperFuncs.mount(
+            CMDHelperFuncs.bind_mount_ro(
                 _refroot_active_mount_point,
                 refroot_mount_point,
-                _mount_options,
             )
         else:
             # NOTE: refroot is expected to be mounted,
