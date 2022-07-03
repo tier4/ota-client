@@ -111,9 +111,9 @@ class CMDHelperFuncs:
         return subprocess_check_output(_cmd)
 
     @staticmethod
-    def _lsblk(args: str) -> str:
+    def _lsblk(args: str, *, raise_exception=False) -> str:
         _cmd = f"lsblk {args}"
-        return subprocess_check_output(_cmd)
+        return subprocess_check_output(_cmd, raise_exception=raise_exception)
 
     @staticmethod
     def _blkid(args: str) -> str:
@@ -124,17 +124,32 @@ class CMDHelperFuncs:
 
     @classmethod
     def get_partuuid_by_dev(cls, dev: str) -> str:
-        args = f"{dev} -s PARTUUID"
-        res = cls._blkid(args)
+        """Return partuuid of input device."""
+        args = f"-in -o PARTUUID {dev}"
+        try:
+            return cls._lsblk(args, raise_exception=True)
+        except ValueError as e:
+            msg = f"failed to get partuuid for {dev}: {e}"
+            raise ValueError(msg) from None
 
-        pa = re.compile(r'PARTUUID="?(?P<partuuid>[\w-]*)"?')
-        if ma := pa.search(res):
-            v = ma.group("partuuid")
-        else:
-            logger.error(f"failed to get partuuid from {dev}")
-            return ""
+    @classmethod
+    def get_uuid_by_dev(cls, dev: str) -> str:
+        """Return uuid of input device."""
+        args = f"-in -o UUID {dev}"
+        try:
+            return cls._lsblk(args, raise_exception=True)
+        except ValueError as e:
+            msg = f"failed to get uuid for {dev}: {e}"
+            raise ValueError(msg) from None
 
-        return f"PARTUUID={v}"
+    @classmethod
+    def get_partuuid_str_by_dev(cls, dev: str) -> str:
+        """Return PARTUUID string of input device.
+
+        Returns:
+            str like: "PARTUUID=<partuuid>"
+        """
+        return f"PARTUUID={cls.get_partuuid_by_dev(dev)}"
 
     @classmethod
     def get_dev_by_partlabel(cls, partlabel: str) -> str:
