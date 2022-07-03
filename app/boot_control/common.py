@@ -82,16 +82,23 @@ class CMDHelperFuncs:
 
     @staticmethod
     def _mount(
-        dev: str, mount_point: str, options: Optional[List[str]] = None
+        dev: str,
+        mount_point: str,
+        options: Optional[List[str]] = None,
+        args: Optional[List[str]] = None,
     ) -> MountFailedReason:
         """
-        mount [-o option1[,option2, ...]]] <dev> <mount_point>
+        mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
         """
         _option_str = ""
         if options:
             _option_str = f"-o {','.join(options)}"
 
-        _cmd = f"mount {_option_str} {dev} {mount_point}"
+        _args_str = ""
+        if args:
+            _args_str = f"{' '.join(args)}"
+
+        _cmd = f"mount {_option_str} {_args_str} {dev} {mount_point}"
         try:
             subprocess_call(_cmd, raise_exception=True)
             return MountFailedReason.SUCCESS
