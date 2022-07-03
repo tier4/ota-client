@@ -737,7 +737,7 @@ class GrubController(
             )
         else:
             # directly mount standby without cleaning up
-            CMDHelperFuncs.mount(str(self.standby_slot_dev), self.standby_slot_path)
+            CMDHelperFuncs.mount_rw(str(self.standby_slot_dev), self.standby_slot_path)
 
     def _mount_refroot(self, standby_as_ref: bool):
         _refroot_mount_point = cfg.REF_ROOT_MOUNT_POINT

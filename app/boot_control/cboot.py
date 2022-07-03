@@ -309,7 +309,7 @@ class _PrepareMountMixin:
             CMDHelperFuncs.mkfs_ext4(standby_slot_dev)
 
         # try to mount the standby dev
-        CMDHelperFuncs.mount(standby_slot_dev, self.standby_slot_mount_point)
+        CMDHelperFuncs.mount_rw(standby_slot_dev, self.standby_slot_mount_point)
 
         # create the ota-status folder unconditionally
         _ota_status_dir = self.standby_slot_mount_point / Path(
@@ -447,7 +447,7 @@ class CBootController(
         _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
 
         try:
-            CMDHelperFuncs.mount(
+            CMDHelperFuncs.mount_rw(
                 self._cboot_control.get_standby_boot_dev(),
                 _boot_dir_mount_point,
             )
