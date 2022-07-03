@@ -196,6 +196,10 @@ class CMDHelperFuncs:
         return mount_points
 
     @classmethod
+    def is_target_mounted(cls, target: Union[Path, str]) -> bool:
+        return cls._findmnt(f"{target}") != ""
+
+    @classmethod
     def get_parent_dev(cls, child_device: str) -> str:
         """
         When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
@@ -233,23 +237,24 @@ class CMDHelperFuncs:
             raise MountError(_failure_msg)
 
     @classmethod
-    def umount(
-        cls, target: Union[Path, str], *, ignore_error=False, ignore_unmounted=True
-    ):
+    def umount(cls, target: Union[Path, str], *, ignore_error=False):
+        # first try to check whether the target(either a mount point or a dev)
+        # is mounted
+        if not cls.is_target_mounted(target):
+            return
+
+        # if the target is mounted, try to unmount it.
         try:
             _cmd = f"umount -f {target}"
             subprocess_call(_cmd, raise_exception=True)
         except CalledProcessError as e:
-            if e.returncode == 32 and str(e.stderr).find("not mounted") != -1:
-                if not ignore_unmounted:  # ignore umounted error
-                    raise MountError(f"{target} is not mounted")
-                return
-
-            _failure_msg = f"failed to umount {target}: {e!r}"
+            _failure_msg = (
+                f"failed to umount {target}: {e.returncode=}, {e.stderr=}, {e.stdout=}"
+            )
             logger.warning(_failure_msg)
 
             if not ignore_error:
-                raise MountError(_failure_msg) from e
+                raise _BootControlError(_failure_msg) from None
 
     @classmethod
     def mkfs_ext4(cls, dev: str):
