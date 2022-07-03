@@ -96,6 +96,11 @@ def write_to_file(path: Path, input: str):
 
 # wrapped subprocess call
 def subprocess_call(cmd: str, *, raise_exception=False):
+    """
+
+    Raises:
+        a ValueError containing information about the failure.
+    """
     try:
         # NOTE: we need to check the stderr and stdout when error occurs,
         # so use subprocess.run here instead of subprocess.check_call
@@ -112,6 +117,10 @@ def subprocess_call(cmd: str, *, raise_exception=False):
 
 
 def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> str:
+    """
+    Raises:
+        a ValueError containing information about the failure.
+    """
     try:
         return subprocess.check_output(shlex.split(cmd)).decode().strip()
     except subprocess.CalledProcessError as e:

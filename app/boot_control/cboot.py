@@ -1,9 +1,8 @@
 import os
 import re
-import subprocess
 from pathlib import Path
 from functools import partial
-from typing import Union
+from typing import Optional
 
 from app import log_util
 from app.boot_control.common import (
@@ -38,6 +37,10 @@ logger = log_util.get_logger(
 )
 
 
+class NvbootctrlError(_BootControlError):
+    ...
+
+
 class Nvbootctrl:
     """
     NOTE: slot and rootfs are binding accordingly!
@@ -57,9 +60,7 @@ class Nvbootctrl:
 
     # nvbootctrl
     @staticmethod
-    def _nvbootctrl(
-        arg: str, *, call_only=True, raise_exception=True
-    ) -> Union[str, None]:
+    def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> Optional[str]:
         # NOTE: target is always set to rootfs
         _cmd = f"nvbootctrl -t rootfs {arg}"
         if call_only:
@@ -70,9 +71,8 @@ class Nvbootctrl:
             return subprocess_check_output(
                 _cmd, raise_exception=raise_exception
             ).strip()
-        except subprocess.CalledProcessError as e:
-            # TODO: assign a unique error code
-            raise _BootControlError from e
+        except ValueError as e:
+            raise NvbootctrlError from e
 
     @classmethod
     def check_rootdev(cls, dev: str) -> bool:
@@ -85,7 +85,7 @@ class Nvbootctrl:
         if ma := pa.search(subprocess_check_output("cat /proc/cmdline")):
             res = ma.group("rdev")
         else:
-            raise _BootControlError(
+            raise NvbootctrlError(
                 "rootfs detect failed or rootfs is not specified by PARTUUID in kernel cmdline"
             )
 
@@ -100,8 +100,7 @@ class Nvbootctrl:
         if slot := cls._nvbootctrl("get-current-slot", call_only=False):
             return slot
         else:
-            # TODO: assign a unique error code
-            raise _BootControlError
+            raise NvbootctrlError
 
     @classmethod
     def mark_boot_successful(cls, slot: str):
@@ -120,7 +119,7 @@ class Nvbootctrl:
         try:
             cls._nvbootctrl(f"is-slot-bootable {slot}")
             return True
-        except subprocess.CalledProcessError:
+        except ValueError:
             return False
 
     @classmethod
@@ -128,7 +127,7 @@ class Nvbootctrl:
         try:
             cls._nvbootctrl(f"is-slot-marked-successful {slot}")
             return True
-        except subprocess.CalledProcessError:
+        except ValueError:
             return False
 
 
@@ -185,14 +184,14 @@ class _CBootControl:
             logger.debug("rootfs on external storage detected, nvme rootfs is enable")
             self.is_rootfs_on_external = True
             self.standby_rootfs_dev = f"/dev/{Nvbootctrl.NVME_DEV}p{standby_partid}"
-            self.standby_slot_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
+            self.standby_slot_partuuid = CMDHelperFuncs.get_partuuid_str_by_dev(
                 self.standby_rootfs_dev
             )
         elif self.current_rootfs_dev.find(Nvbootctrl.EMMC_DEV) != -1:
             logger.debug("using internal storage as rootfs")
             self.is_rootfs_on_external = False
             self.standby_rootfs_dev = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
-            self.standby_slot_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
+            self.standby_slot_partuuid = CMDHelperFuncs.get_partuuid_str_by_dev(
                 self.standby_rootfs_dev
             )
         else:
@@ -231,10 +230,6 @@ class _CBootControl:
     def get_standby_rootfs_dev(self) -> str:
         return self.standby_rootfs_dev
 
-    def get_standby_slot_partuuid(self) -> str:
-        dev = self.standby_rootfs_dev
-        return CMDHelperFuncs.get_partuuid_by_dev(dev)
-
     def get_standby_slot(self) -> str:
         return self.standby_slot
 
@@ -270,7 +265,7 @@ class _CBootControl:
     def reboot(cls):
         try:
             subprocess_call("reboot", raise_exception=True)
-        except subprocess.CalledProcessError:
+        except ValueError:
             logger.exception("failed to reboot")
 
     def update_extlinux_cfg(self, dst: Path, ref: Path):
