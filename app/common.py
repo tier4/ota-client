@@ -113,7 +113,7 @@ def subprocess_call(cmd: str, *, raise_exception=False):
         msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
         logger.debug(msg)
         if raise_exception:
-            raise ValueError(msg) from None
+            raise
 
 
 def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> str:
@@ -127,7 +127,7 @@ def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> s
         msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
         logger.debug(msg)
         if raise_exception:
-            raise ValueError(msg) from None
+            raise
         return default
 
 

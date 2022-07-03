@@ -2,6 +2,7 @@ import os
 import re
 from pathlib import Path
 from functools import partial
+from subprocess import CalledProcessError
 from typing import Optional
 
 from app import log_util
@@ -71,7 +72,7 @@ class Nvbootctrl:
             return subprocess_check_output(
                 _cmd, raise_exception=raise_exception
             ).strip()
-        except ValueError as e:
+        except CalledProcessError as e:
             raise NvbootctrlError from e
 
     @classmethod
@@ -82,12 +83,15 @@ class Nvbootctrl:
         NOTE: expect using UUID method to assign rootfs!
         """
         pa = re.compile(r"\broot=(?P<rdev>[\w=-]*)\b")
-        if ma := pa.search(subprocess_check_output("cat /proc/cmdline")):
-            res = ma.group("rdev")
-        else:
+        try:
+            if ma := pa.search(subprocess_check_output("cat /proc/cmdline")):
+                res = ma.group("rdev")
+            else:
+                raise ValueError(f"failed to find specific {dev} in cmdline")
+        except (CalledProcessError, ValueError) as e:
             raise NvbootctrlError(
                 "rootfs detect failed or rootfs is not specified by PARTUUID in kernel cmdline"
-            )
+            ) from e
 
         uuid = res.split("=")[-1]
 
@@ -265,7 +269,7 @@ class _CBootControl:
     def reboot(cls):
         try:
             subprocess_call("reboot", raise_exception=True)
-        except ValueError:
+        except CalledProcessError:
             logger.exception("failed to reboot")
 
     def update_extlinux_cfg(self, dst: Path, ref: Path):
