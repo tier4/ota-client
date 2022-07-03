@@ -161,5 +161,5 @@ class OTAUpdateStatsCollector:
 
     def wait_staging(self):
         """This method will block until the self._staging is empty."""
-        while len(self._staging) > 0:
+        while len(self._staging) > 0 or self._que.qsize() > 0:
             time.sleep(self.collect_interval)
