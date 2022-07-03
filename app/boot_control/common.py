@@ -166,11 +166,20 @@ class CMDHelperFuncs:
 
     @classmethod
     def get_current_rootfs_dev(cls) -> str:
-        devs = cls._findmnt("/ -o SOURCE -n").splitlines()
-        # NOTE: if refroot is mounted, the above will have multiple lines,
-        # get the first line
-        dev = Path(devs[0]).resolve(strict=True)
-        return str(dev)
+        """
+        NOTE:
+            -o <COLUMN>: only print <COLUMN>
+            -n: no headings
+            -f: only show the first file system
+            -c: canonicalize printed paths
+
+        Returns:
+            full path to dev of the current rootfs
+        """
+        if res := cls._findmnt("/ -o SOURCE -n -f -c"):
+            return res
+        else:
+            raise _BootControlError("failed to detect current rootfs")
 
     @classmethod
     def get_mount_point_by_dev(cls, dev: str, *, raise_exception=True) -> str:
