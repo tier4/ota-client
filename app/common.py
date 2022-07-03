@@ -105,22 +105,20 @@ def subprocess_call(cmd: str, *, raise_exception=False):
             capture_output=True,
         )
     except subprocess.CalledProcessError as e:
-        logger.warning(
-            msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}"
-        )
+        msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
+        logger.debug(msg)
         if raise_exception:
-            raise
+            raise ValueError(msg) from None
 
 
 def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> str:
     try:
         return subprocess.check_output(shlex.split(cmd)).decode().strip()
     except subprocess.CalledProcessError as e:
-        logger.warning(
-            msg=f"command failed(exit-code: {e.returncode} stderr: {e.stderr} stdout: {e.stdout}): {cmd}"
-        )
+        msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
+        logger.debug(msg)
         if raise_exception:
-            raise
+            raise ValueError(msg) from None
         return default
 
 
