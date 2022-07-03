@@ -149,8 +149,8 @@ class GrubControl:
             self._grub_mkconfig_cmd(file_name)
 
             # 3. count a number of default_vmlinuz entry from temporary grub.cfg
-            menus = GrubCfgParser(open(file_name).read()).parse()
-            uuid = self._get_uuid(device)
+            menus = GrubCfgParser((file_name).read_text()).parse()
+            uuid = CMDHelperFuncs.get_uuid_by_dev(device)
             number = self._count_menuentry(menus, uuid, default_vmlinuz)
             logger.info(f"{number=}")
             if number < 0:
@@ -180,8 +180,8 @@ class GrubControl:
         fstab operation might not be a part of grub, but uuid operation is only
         done in this class, so this function is implemented in this class.
         """
-        active_uuid = self._get_uuid(active_device)
-        standby_uuid = self._get_uuid(standby_device)
+        active_uuid = CMDHelperFuncs.get_uuid_by_dev(active_device)
+        standby_uuid = CMDHelperFuncs.get_uuid_by_dev(standby_device)
         logger.info(f"{active_uuid=},{standby_uuid=}")
 
         fstab_active = open(self._fstab_file).readlines()  # active partition fstab
@@ -267,7 +267,7 @@ class GrubControl:
         return f"{menuentry['entry']}\n"  # append newline
 
     def _update_menuentry(self, menuentry, standby_device, vmlinuz, initrd_img):
-        uuid = self._get_uuid(standby_device)
+        uuid = CMDHelperFuncs.get_uuid_by_dev(standby_device)
         logger.info(f"{uuid=}")
         # NOTE: Only UUID sepcifier is supported.
         replaced = re.sub(
@@ -323,10 +323,6 @@ class GrubControl:
         menus = GrubCfgParser(grub_cfg).parse()
         self._grub_reboot_cmd(len(menus))
 
-    def _get_uuid(self, device):
-        cmd = f"lsblk -in -o UUID /dev/{device}"
-        return subprocess.check_output(shlex.split(cmd)).decode().strip()
-
     def _get_cmdline(self):
         return open("/proc/cmdline").read()
 
@@ -376,16 +372,16 @@ class OtaPartitionFile:
         path = self._boot_dir / self._boot_ota_partition_file.with_suffix(f".{slot}")
         return path
 
-    def switch_boot_partition_from_active_to_standby(self):
-        """Switch ota-partition symlink from active to standby atomically."""
-        standby_slot = self.standby_slot
-        logger.info(f"{standby_slot=}")
+    def ensure_ota_partition_symlink_for_active_slot(self):
+        """Ensure that the ota_partition symlink points to current active slot."""
+        active_slot = self.active_slot
+        logger.info(f"{active_slot=}")
 
         # to update the link atomically, move is used.
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             temp_file = Path(d) / self._boot_ota_partition_file
             temp_file.symlink_to(
-                self._boot_ota_partition_file.with_suffix(f".{standby_slot}")
+                self._boot_ota_partition_file.with_suffix(f".{active_slot}")
             )
             ota_partition_file = self._boot_dir / self._boot_ota_partition_file
             logger.info(f"switching: {os.readlink(temp_file)=} -> {ota_partition_file}")
@@ -493,8 +489,8 @@ class OtaPartitionFile:
         """
         boot_ota_partition = self._boot_dir / self._boot_ota_partition_file
 
-        active_slot = self.active_root_dev
-        standby_slot = self.standby_root_dev
+        active_slot = self.active_slot
+        standby_slot = self.standby_slot
         logger.info(f"{active_slot=},{standby_slot=}")
 
         active_boot_path = boot_ota_partition.with_suffix(f".{active_slot}")
@@ -694,7 +690,7 @@ class GrubController(
         if self._is_switching_boot():
             self._boot_control.update_grub_cfg()
             # switch should be called last.
-            self._boot_control.switch_boot_partition_from_active_to_standby()
+            self._boot_control.ensure_ota_partition_symlink_for_active_slot()
             return OTAStatusEnum.SUCCESS
         else:
             return OTAStatusEnum.FAILURE
