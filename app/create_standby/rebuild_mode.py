@@ -232,8 +232,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
                         url_base=self.image_base_url,
                         cookies=self.cookies,
                     )
-
                 _local_copy_available = True
+
+            # record the size of this entry(by query the local copy)
+            cur_stat.size = _local_copy.stat().st_size
 
             # special treatment on /boot folder
             _mount_point = (
@@ -277,7 +279,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _local_copy.unlink(missing_ok=True)
 
             # create stat
-            cur_stat.size = entry.size if entry.size else 0
             cur_stat.elapsed_ns = time.thread_time_ns() - _start
             stats_list.append(cur_stat)
 
