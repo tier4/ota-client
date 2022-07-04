@@ -135,7 +135,7 @@ def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
     """Copy file/dir permission bits and owner info from src to dst."""
     _stat = Path(src).stat()
     os.chown(dst, _stat.st_uid, _stat.st_gid)
-    os.chmod(dst, _stat.st_mode, follow_symlinks=False)
+    os.chmod(dst, _stat.st_mode)
 
 
 def dst_symlink_as_src(src: Path, dst: Path):
