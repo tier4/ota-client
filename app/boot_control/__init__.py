@@ -3,7 +3,7 @@ from app.boot_control.interface import BootControllerProtocol
 from app.configs import BOOT_LOADER
 
 
-def get_boot_controller(bootloader: str) -> Type[BootControllerProtocol]:
+def get_boot_controller(bootloader: str = BOOT_LOADER) -> Type[BootControllerProtocol]:
     if bootloader == "grub":
         from app.boot_control.grub import GrubController
 
@@ -19,6 +19,4 @@ def get_boot_controller(bootloader: str) -> Type[BootControllerProtocol]:
         )
 
 
-BootController: Type[BootControllerProtocol] = get_boot_controller(BOOT_LOADER)
-
-__all__ = ("BootController", "get_boot_controller")
+__all__ = ("get_boot_controller",)

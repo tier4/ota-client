@@ -58,10 +58,7 @@ def get_reference_slot(
     return res
 
 
-StandbySlotCreator: Type[StandbySlotCreatorProtocol] = get_standby_slot_creator()
-
 __all__ = (
-    "StandbySlotCreator",
     "UpdateMeta",
     "get_standby_slot_creator",
 )

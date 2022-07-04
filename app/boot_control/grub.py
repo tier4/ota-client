@@ -204,7 +204,7 @@ class GrubController(
             self._umount_all(ignore_error=True)
             self._boot_control.create_custom_cfg_and_reboot()
         except Exception as e:
-            logger.error(f"failed on pre_update: {e!r}")
+            logger.error(f"failed on post_update: {e!r}")
             self._on_operation_failure()
             raise BootControlPostUpdateFailed from e
 
