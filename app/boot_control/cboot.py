@@ -344,7 +344,7 @@ class CBootController(
         CMDHelperFuncs.umount(self.standby_slot_dev)
 
         self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
-        self.standby_slot_mount_point.mkdir()
+        self.standby_slot_mount_point.mkdir(exist_ok=True)
 
         ## refroot mount point
         _refroot_mount_point = cfg.REF_ROOT_MOUNT_POINT
@@ -494,11 +494,11 @@ class CBootController(
         """
         return self.standby_slot_mount_point / "boot"
 
-    def pre_update(self, version: str, *, standby_as_ref: bool, erase_stanby=False):
+    def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
         try:
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
-            self._prepare_and_mount_standby(erase=erase_stanby)
+            self._prepare_and_mount_standby(erase=erase_standby)
             self._mount_refroot(standby_as_ref)
 
             # store status to standby slot

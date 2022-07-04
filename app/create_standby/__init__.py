@@ -1,5 +1,4 @@
-from pathlib import Path
-from typing import Type, Union
+from typing import Type
 
 from app.create_standby.interface import (
     StandbySlotCreatorProtocol,
