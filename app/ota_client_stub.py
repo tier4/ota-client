@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Process
 from threading import Lock, Condition
 from typing import Any, Dict, List, Optional, Tuple
-from app.errors import OTA_APIError, OTAFailureType
+from app.errors import OTAFailureType
 
 import app.otaclient_v2_pb2 as v2
 from app.ota_status import OTAStatusEnum
@@ -244,6 +244,9 @@ class OtaClientStub:
             done, pending = await asyncio.wait(
                 tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
             )
+            # indicates whether any of the subecu cannot ack the update request
+            _subecu_failed = len(pending) != 0
+
             for t in pending:
                 ecu_id = t.get_name()
                 logger.info(f"{ecu_id=}")
@@ -255,8 +258,10 @@ class OtaClientStub:
                     f"subecu {ecu_id} doesn't respond to ota update request on time"
                 )
             for t in done:
-                exp = t.exception()
-                if exp is not None:
+                if exp := t.exception():
+                    if not _subecu_failed:
+                        _subecu_failed = True
+
                     ecu_id = t.get_name()
                     logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
                     sub_ecu = response.ecu.add()
@@ -267,7 +272,17 @@ class OtaClientStub:
                         ecu = response.ecu.add()
                         ecu.CopyFrom(e)
                         logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
-        # TODO: should we interrupt the my ecu's update if any child ecu failed to ack the update request?
+
+            if _subecu_failed:
+                logger.error(
+                    f"failed to ensure all directly connected subecus acked the update requests, "
+                    "abort update"
+                )
+                ecu = response.ecu.add()
+                ecu.ecu_id = my_ecu_id
+                ecu.result = v2.RECOVERABLE
+
+                return response
 
         # after all subecus ack the update request, update my ecu
         if entry := OtaClientStub._find_request(request.ecu, my_ecu_id):
@@ -328,6 +343,9 @@ class OtaClientStub:
             done, pending = await asyncio.wait(
                 tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
             )
+            # indicates whether any of the subecu cannot ack the rollback request
+            _subecu_failed = len(pending) != 0
+
             for t in pending:
                 ecu_id = t.get_name()
 
@@ -339,6 +357,9 @@ class OtaClientStub:
                 )
             for t in done:
                 if exp := t.exception():
+                    if not _subecu_failed:
+                        _subecu_failed = True
+
                     ecu_id = t.get_name()
                     logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
 
@@ -352,7 +373,17 @@ class OtaClientStub:
                         ecu = response.ecu.add()
                         ecu.CopyFrom(e)
                         logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
-        # TODO: should we interrupt the my ecu's rollback if any childecus failed to ack the rollback request?
+
+            if _subecu_failed:
+                logger.error(
+                    f"failed to ensure all directly connected subecus acked the rollback requests, "
+                    "abort rollback"
+                )
+                ecu = response.ecu.add()
+                ecu.ecu_id = my_ecu_id
+                ecu.result = v2.RECOVERABLE
+
+                return response
 
         # after all subecus response the request, rollback my ecu
         if entry := OtaClientStub._find_request(request.ecu, my_ecu_id):
