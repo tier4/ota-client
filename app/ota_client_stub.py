@@ -7,6 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Process
 from threading import Lock, Condition
 from typing import Any, Dict, List, Optional, Tuple
+from app.boot_control import get_boot_controller
+from app.create_standby import get_standby_slot_creator, AUOTSELECTED_MODE
 from app.errors import OTAFailureType
 
 import app.otaclient_v2_pb2 as v2
@@ -16,7 +18,7 @@ from app.ota_client_call import OtaClientCall
 from app.proxy_info import proxy_cfg
 from app.ecu_info import EcuInfo
 
-from app.configs import server_cfg, config as cfg
+from app.configs import BOOT_LOADER, server_cfg, config as cfg
 from app import log_util
 
 logger = log_util.get_logger(
@@ -156,7 +158,12 @@ class OtaClientStub:
         # dispatch the requested operations to threadpool
         self._executor = ThreadPoolExecutor(thread_name_prefix="ota_client_stub")
 
-        self._ota_client = OTAClient()
+        # NOTE: explicitly specific which mechanism to use
+        # for boot control and create standby slot
+        self._ota_client = OTAClient(
+            boot_control_cls=get_boot_controller(BOOT_LOADER),
+            create_standby_cls=get_standby_slot_creator(AUOTSELECTED_MODE),
+        )
         self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
 
@@ -275,7 +282,7 @@ class OtaClientStub:
 
             if _subecu_failed:
                 logger.error(
-                    f"failed to ensure all directly connected subecus acked the update requests, "
+                    "failed to ensure all directly connected subecus acked the update requests, "
                     "abort update"
                 )
                 ecu = response.ecu.add()
@@ -376,7 +383,7 @@ class OtaClientStub:
 
             if _subecu_failed:
                 logger.error(
-                    f"failed to ensure all directly connected subecus acked the rollback requests, "
+                    "failed to ensure all directly connected subecus acked the rollback requests, "
                     "abort rollback"
                 )
                 ecu = response.ecu.add()

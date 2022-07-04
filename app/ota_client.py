@@ -5,12 +5,12 @@ from dataclasses import dataclass
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from threading import Event, Lock
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Type
 from urllib.parse import urlparse
 
 from app.errors import OTA_APIError, OTAError, OTAFailureType, OTAUpdateError
-from app.boot_control import BootController, BootControllerProtocol
-from app.create_standby import StandbySlotCreator, UpdateMeta
+from app.boot_control import BootControllerProtocol
+from app.create_standby import StandbySlotCreatorProtocol, UpdateMeta
 from app.downloader import Downloader
 from app.errors import InvalidUpdateRequest
 from app.ota_status import LiveOTAStatus, OTAStatusEnum
@@ -60,13 +60,21 @@ class OTAUpdateFSM:
 
 
 class _OTAUpdater:
+    """
+
+    Attributes:
+        create_standby_cls: type of create standby slot mechanism implementation
+    """
+
     def __init__(
         self,
-        *,
         boot_controller: BootControllerProtocol,
+        *,
+        create_standby_cls: Type[StandbySlotCreatorProtocol],
     ) -> None:
         self._lock = Lock()
         self._boot_controller = boot_controller
+        self._create_standby_cls = create_standby_cls
 
         # init update status
         self.update_phase: Optional[OTAUpdatePhase] = None
@@ -160,12 +168,12 @@ class _OTAUpdater:
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
         self._boot_controller.pre_update(
             self.updating_version,
-            standby_as_ref=StandbySlotCreator.is_standby_as_ref(),
-            erase_standby=StandbySlotCreator.should_erase_standby_slot(),
+            standby_as_ref=self._create_standby_cls.is_standby_as_ref(),
+            erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
 
         # configure standby slot creator
-        _standby_slot_creator = StandbySlotCreator(
+        _standby_slot_creator = self._create_standby_cls(
             update_meta=self._updatemeta,
             stats_collector=self.update_stats_collector,
             update_phase_tracker=self._set_update_phase,
@@ -240,7 +248,7 @@ class _OTAUpdater:
                 # configure proxy if needed before entering update
                 self._downloader.cleanup_proxy()
                 if proxy := proxy_cfg.get_proxy_for_local_ota():
-                    logger.info(f"use local ota_proxy")
+                    logger.info("use local ota_proxy")
                     # wait for stub to setup the local ota_proxy server
                     fsm.client_wait_for_ota_proxy()
                     self._downloader.configure_proxy(proxy)
@@ -281,16 +289,29 @@ class OTAClientStatus:
 
 
 class OTAClient(OTAClientInterface):
-    def __init__(self):
+    """
+    Init params:
+        boot_control_cls: type of boot control mechanism to use
+        create_standby_cls: type of create standby slot mechanism to use
+    """
+
+    def __init__(
+        self,
+        boot_control_cls: Type[BootControllerProtocol],
+        create_standby_cls: Type[StandbySlotCreatorProtocol],
+    ):
         self._lock = Lock()
 
         self.last_failure: Optional[OTA_APIError] = None
 
-        self.boot_controller = BootController()
+        self.boot_controller = boot_control_cls()
         self.live_ota_status = LiveOTAStatus(self.boot_controller.get_ota_status())
 
         # init feature helpers
-        self.updater = _OTAUpdater(boot_controller=self.boot_controller)
+        self.updater = _OTAUpdater(
+            boot_controller=self.boot_controller,
+            create_standby_cls=create_standby_cls,
+        )
 
     def _rollback(self):
         # enter rollback

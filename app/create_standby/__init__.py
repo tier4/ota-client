@@ -21,12 +21,10 @@ def select_mode() -> str:
     return cfg.STANDBY_CREATION_MODE
 
 
-_AUOTSELECTED_MODE = select_mode()
+AUOTSELECTED_MODE = select_mode()
 
 
-def get_standby_slot_creator(
-    mode: str = _AUOTSELECTED_MODE,
-) -> Type[StandbySlotCreatorProtocol]:
+def get_standby_slot_creator(mode: str) -> Type[StandbySlotCreatorProtocol]:
     logger.info(f"use slot update {mode=}")
     if mode == "legacy":
         from app.create_standby.legacy_mode import LegacyMode
@@ -40,25 +38,8 @@ def get_standby_slot_creator(
         raise NotImplementedError(f"slot update {mode=} not implemented")
 
 
-def get_reference_slot(
-    mode: str = _AUOTSELECTED_MODE,
-    *,
-    cur_slot: Union[Path, str],
-    standby_slot: Union[Path, str],
-):
-    """Get the slot to copy from."""
-    if mode in ("legacy", "rebuild"):
-        res = cur_slot
-    elif mode in ("in_place"):
-        res = standby_slot
-    else:
-        raise NotImplementedError(f"slot update {mode=} not implemented")
-
-    logger.info(f"use {res} as reference slot for local copying")
-    return res
-
-
 __all__ = (
     "UpdateMeta",
+    "AUOTSELECTED_MODE",
     "get_standby_slot_creator",
 )
