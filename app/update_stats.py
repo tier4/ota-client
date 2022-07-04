@@ -142,11 +142,10 @@ class OTAUpdateStatsCollector:
             if self._staging and _cur_time - _prev_time >= self.collect_interval:
                 _prev_time = _cur_time
                 with self._staging_changes() as staging_storage:
-                    staging_storage.regular_files_processed += len(self._staging)
-
                     for st in self._staging:
                         _suffix = st.op
                         if _suffix in {"copy", "link", "download"}:
+                            staging_storage.regular_files_processed += 1
                             staging_storage[f"files_processed_{_suffix}"] += 1
                             staging_storage[f"file_size_processed_{_suffix}"] += st.size
                             staging_storage[
