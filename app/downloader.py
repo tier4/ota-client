@@ -53,6 +53,10 @@ class HashVerificaitonError(DownloadError):
     pass
 
 
+class DownloadFailedSpaceNotEnough(DownloadError):
+    pass
+
+
 REQUEST_RECACHE_HEADER: Dict[str, str] = {
     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
 }
@@ -208,8 +212,8 @@ class Downloader:
         except MaxRetryError as e:
             raise ExceedMaxRetryError(url, dst) from e
 
+        hash_f = sha256()
         try:
-            hash_f = sha256()
             with open(dst, "wb") as f:
                 for chunk in response.iter_content(chunk_size=self.CHUNK_SIZE):
                     hash_f.update(chunk)
@@ -218,6 +222,10 @@ class Downloader:
             raise ChunkStreamingError(url, dst) from e
         except FileNotFoundError as e:
             raise DestinationNotAvailableError(url, dst) from e
+        except OSError as e:
+            # space not enough error
+            if OSError.errno == 28:
+                raise DownloadFailedSpaceNotEnough(url, dst) from None
 
         calc_digest = hash_f.hexdigest()
         if digest and calc_digest != digest:

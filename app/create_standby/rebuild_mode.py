@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
-from app.errors import OTAError
+from app.errors import OTAError, StandbySlotSpaceNotEnoughError
 
 from app.common import SimpleTasksTracker, OTAFileCacheControl
 from app.create_standby.common import HardlinkRegister, RegularInfSet, DeltaGenerator
@@ -25,6 +25,7 @@ from app.downloader import (
     Downloader,
     ExceedMaxRetryError,
     HashVerificaitonError,
+    DownloadFailedSpaceNotEnough,
 )
 from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
 from app.update_phase import OTAUpdatePhase
@@ -309,6 +310,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             self._save_meta()
         except OTAError:
             raise  # if the error is already specified and wrapped, just raise again
+        except DownloadFailedSpaceNotEnough:
+            raise StandbySlotSpaceNotEnoughError from None
         except Exception as e:
             # TODO: cover all errors and mapping to specific OTAError type
             raise ApplyOTAUpdateFailed from e

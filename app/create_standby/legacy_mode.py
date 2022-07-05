@@ -6,13 +6,14 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable
 from urllib.parse import urljoin
-from app.errors import OTAError
+from app.errors import OTAError, StandbySlotSpaceNotEnoughError
 
 from app.common import SimpleTasksTracker, OTAFileCacheControl
 from app.configs import config as cfg
 from app.copy_tree import CopyTree
 from app.downloader import (
     ChunkStreamingError,
+    DownloadFailedSpaceNotEnough,
     Downloader,
     ExceedMaxRetryError,
 )
@@ -332,6 +333,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
             self._process_persistent()
         except OTAError:
             raise  # if the error is already specified and wrapped, just raise again
+        except DownloadFailedSpaceNotEnough:
+            raise StandbySlotSpaceNotEnoughError from None
         except (ExceedMaxRetryError, ChunkStreamingError) as e:
             raise NetworkError from e
         except Exception as e:

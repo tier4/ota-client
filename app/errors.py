@@ -131,6 +131,7 @@ class OTAErrorCode(Enum):
     E_BOOTCONTROL_PREUPDATE_FAILED = 303
     E_BOOTCONTROL_POSTUPDATE_FAILED = 304
     E_BOOTCONTROL_POSTROLLBACK_FAILED = 305
+    E_STANDBY_SLOT_SPACE_NOT_ENOUGH_ERROR = 306
 
     def to_str(self) -> str:
         return f"{self.value:0>3}"
@@ -277,3 +278,9 @@ class BootControlPostRollbackFailed(OTAErrorUnRecoverable):
     module: OTAModules = OTAModules.BootController
     errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTUPDATE_FAILED
     desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: post_rollback process failed, switch boot is not finished"
+
+
+class StandbySlotSpaceNotEnoughError(OTAErrorUnRecoverable):
+    module: OTAModules = OTAModules.StandbySlotCreater
+    errcode: OTAErrorCode = OTAErrorCode.E_STANDBY_SLOT_SPACE_NOT_ENOUGH_ERROR
+    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: standby slot has insufficient space to apply update, abort"
