@@ -185,7 +185,7 @@ def copytree_identical(src: Path, dst: Path):
             _src_f = _cur_dir / fname
             _dst_f = _cur_dir_on_dst / fname
 
-            # src and dst type mismatch, dst is a folder
+            # src is file but dst is a folder
             if _dst_f.is_dir():
                 shutil.rmtree(_dst_f, ignore_errors=True)
 

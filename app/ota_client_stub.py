@@ -266,8 +266,7 @@ class OtaClientStub:
                 )
             for t in done:
                 if exp := t.exception():
-                    if not _subecu_failed:
-                        _subecu_failed = True
+                    _subecu_failed = True
 
                     ecu_id = t.get_name()
                     logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
@@ -364,8 +363,7 @@ class OtaClientStub:
                 )
             for t in done:
                 if exp := t.exception():
-                    if not _subecu_failed:
-                        _subecu_failed = True
+                    _subecu_failed = True
 
                     ecu_id = t.get_name()
                     logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
