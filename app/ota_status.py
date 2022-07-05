@@ -11,11 +11,11 @@ logger = log_util.get_logger(
 @unique
 class OTAStatusEnum(Enum):
     INITIALIZED = 0
-    SUCCESS = auto()
-    FAILURE = auto()
-    UPDATING = auto()
-    ROLLBACKING = auto()
-    ROLLBACK_FAILURE = auto()
+    SUCCESS = 1
+    FAILURE = 2
+    UPDATING = 3
+    ROLLBACKING = 4
+    ROLLBACK_FAILURE = 5
 
 
 class LiveOTAStatus:
