@@ -140,7 +140,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # NOTE: now apply dirs.txt moved to here
         self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
         for entry in self.delta_bundle.new_dirs:
-            entry.mkdir2slot(self.standby_slot)
+            entry.mkdir_to_slot(self.standby_slot)
 
     def _process_persistents(self):
         """NOTE: just copy from legacy mode"""
