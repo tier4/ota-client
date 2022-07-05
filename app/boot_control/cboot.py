@@ -68,14 +68,12 @@ class Nvbootctrl:
         """
         # NOTE: target is always set to rootfs
         _cmd = f"nvbootctrl -t rootfs {arg}"
-        if call_only:
-            subprocess_call(_cmd, raise_exception=raise_exception)
-            return
-
         try:
-            return subprocess_check_output(
-                _cmd, raise_exception=raise_exception
-            ).strip()
+            if call_only:
+                subprocess_call(_cmd, raise_exception=raise_exception)
+                return
+            else:
+                return subprocess_check_output(_cmd, raise_exception=raise_exception)
         except CalledProcessError as e:
             raise NvbootctrlError from e
 
