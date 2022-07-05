@@ -248,7 +248,7 @@ class _BaseInf:
     )
 
     def __init__(self, info: str):
-        match_res: re.Match = self._base_pattern.match(info.strip())
+        match_res: Optional[re.Match] = self._base_pattern.match(info.strip())
         assert match_res is not None, f"match base_inf failed: {info}"
 
         self.mode = int(match_res.group("mode"), 8)
@@ -354,9 +354,9 @@ class RegularInf:
     nlink: int
     sha256hash: str
     path: Path
+    _base: str
     size: Optional[int] = None
     inode: Optional[str] = None
-    _base: Optional[str] = None
 
     _reginf_pa: ClassVar[re.Pattern] = re.compile(
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'(,(?P<size>\d+)(,(?P<inode>\d+))?)?"
@@ -410,6 +410,8 @@ class RegularInf:
 
         if isinstance(_other, self.__class__):
             return self.path == _other.path
+
+        return False
 
     def exists_at_src_slot(self, *, src_root: Path) -> bool:
         _target = src_root / self.path.relative_to(self._base)

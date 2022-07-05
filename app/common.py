@@ -73,8 +73,8 @@ def file_sha256(filename: Union[Path, str]) -> str:
         return m.hexdigest()
 
 
-def verify_file(fpath: Path, fhash: str, fsize: int) -> bool:
-    if not fpath.is_file() or (fsize and fpath.stat().st_size != fsize):
+def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
+    if not fpath.is_file() or (fsize is not None and fpath.stat().st_size != fsize):
         return False
     return file_sha256(fpath) == fhash
 
