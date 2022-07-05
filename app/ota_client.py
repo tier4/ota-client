@@ -8,10 +8,17 @@ from threading import Event, Lock
 from typing import Any, Dict, Optional, Tuple, Type
 from urllib.parse import urlparse
 
-from app.errors import OTA_APIError, OTAError, OTAFailureType, OTAUpdateError
+from app.errors import (
+    BaseOTAMetaVerificationFailed,
+    NetworkError,
+    OTA_APIError,
+    OTAError,
+    OTAFailureType,
+    OTAUpdateError,
+)
 from app.boot_control import BootControllerProtocol
 from app.create_standby import StandbySlotCreatorProtocol, UpdateMeta
-from app.downloader import Downloader
+from app.downloader import DownloadError, Downloader
 from app.errors import InvalidUpdateRequest
 from app.ota_status import LiveOTAStatus, OTAStatusEnum
 from app.update_phase import OTAUpdatePhase
@@ -142,7 +149,13 @@ class _OTAUpdater:
         # process metadata.jwt
         logger.debug("[update] process metadata...")
         self.update_phase = OTAUpdatePhase.METADATA
-        metadata = self._process_metadata(url_base, cookies)
+        try:
+            metadata = self._process_metadata(url_base, cookies)
+        except DownloadError as e:
+            raise NetworkError("failed to download metadata") from e
+        except ValueError as e:
+            raise BaseOTAMetaVerificationFailed from e
+
         total_regular_file_size = metadata.get_total_regular_file_size()
         if total_regular_file_size:
             self.update_stats_collector.store.total_regular_file_size = (
