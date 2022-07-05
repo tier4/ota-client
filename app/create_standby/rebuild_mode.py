@@ -186,7 +186,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # limitation on on-going tasks/download
         _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
         _tasks_tracker = SimpleTasksTracker(
-            semaphore=Semaphore(self.MAX_CONCURRENT_TASKS),
+            max_concurrent=self.MAX_CONCURRENT_TASKS,
             title="process_regulars",
         )
 

@@ -217,12 +217,12 @@ def copytree_identical(src: Path, dst: Path):
 
 class SimpleTasksTracker:
     def __init__(
-        self, *, semaphore: Semaphore, title: str = "simple_tasks_tracker"
+        self, *, max_concurrent: int, title: str = "simple_tasks_tracker"
     ) -> None:
         self.title = title
         self._wait_interval = cfg.STATS_COLLECT_INTERVAL
         self.last_error = None
-        self._se = semaphore
+        self._se = Semaphore(max_concurrent)
 
         self._interrupted = Event()
         self._register_finished = False
