@@ -194,18 +194,18 @@ class RebuildMode(StandbySlotCreatorProtocol):
         logger.info("start applying delta")
         with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
             for _hash, _regulars_set in self.delta_bundle.new_delta.items():
-                _tasks_tracker.register()
+                _tasks_tracker.add_task()
                 pool.submit(
                     self._apply_reginf_set,
                     _hash,
                     _regulars_set,
                     download_se=_download_se,
-                ).add_done_callback(_tasks_tracker.callback)
+                ).add_done_callback(_tasks_tracker.done_callback)
 
             logger.info(
                 "all process_regulars tasks are dispatched, wait for finishing..."
             )
-            _tasks_tracker.register_finished()
+            _tasks_tracker.task_collect_finished()
             _tasks_tracker.wait(self.stats_collector.wait_staging)
 
     def _apply_reginf_set(

@@ -301,17 +301,17 @@ class LegacyMode(StandbySlotCreatorProtocol):
         ) as pool:
             for l in f:
                 entry = RegularInf.parse_reginf(l)
-                _tasks_tracker.register()
+                _tasks_tracker.add_task()
                 pool.submit(
                     self._create_regular_file,
                     entry,
                     download_se=_download_se,
-                ).add_done_callback(_tasks_tracker.callback)
+                ).add_done_callback(_tasks_tracker.done_callback)
 
             logger.info(
                 "all process_regulars tasks are dispatched, wait for finishing..."
             )
-            _tasks_tracker.register_finished()
+            _tasks_tracker.task_collect_finished()
             _tasks_tracker.wait(self.stats_collector.wait_staging)
 
     ###### public API methods ######

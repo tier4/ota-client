@@ -232,17 +232,17 @@ class SimpleTasksTracker:
         self._in_num = 0
         self._done_num = 0
 
-    def register(self):
+    def add_task(self):
         if self._interrupted.is_set() or self._register_finished:
             return
 
         self._se.acquire()
         self._in_num = next(self._in_counter)
 
-    def register_finished(self):
+    def task_collect_finished(self):
         self._register_finished = True
 
-    def callback(self, fut: Future) -> None:
+    def done_callback(self, fut: Future) -> None:
         try:
             self._se.release()
             fut.result()
