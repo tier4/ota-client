@@ -250,9 +250,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     cur_stat.op = RegInfProcessedStats.OP_COPY
 
                 if is_last:  # move the tmp entry to the dst
-                    entry.move_from_src(_local_copy, dst_root=_mount_point)
+                    entry.move_from_src(_local_copy, dst_slot_mp=_mount_point)
                 else:  # copy from the tmp dir
-                    entry.copy_from_src(_local_copy, dst_root=_mount_point)
+                    entry.copy_from_src(_local_copy, dst_slot_mp=_mount_point)
 
             # case 2: hardlink file
             else:
@@ -262,14 +262,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 cur_stat.op = RegInfProcessedStats.OP_LINK
                 _identifier = entry.sha256hash if entry.inode is None else entry.inode
 
-                _dst = entry.change_root(_mount_point)
+                _dst = entry.make_relative_to_slot(_mount_point)
                 _hardlink_tracker, _is_writer = self._hardlink_register.get_tracker(
                     _identifier, _dst, entry.nlink
                 )
 
                 # writer
                 if _is_writer:
-                    entry.copy_from_src(_local_copy, dst_root=_mount_point)
+                    entry.copy_from_src(_local_copy, dst_slot_mp=_mount_point)
                 # subscriber
                 else:
                     _src = _hardlink_tracker.subscribe_no_wait()

@@ -8,7 +8,7 @@ from OpenSSL import crypto
 from pathlib import Path
 from pprint import pformat
 from functools import partial
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Optional, Union
 
 from app.configs import config as cfg
 from app.common import verify_file
@@ -286,8 +286,8 @@ class DirectoryInf(_BaseInf):
     def __hash__(self) -> int:
         return hash(self.path)
 
-    def mkdir2slot(self, dst_root: Path):
-        _target = dst_root / self.path.relative_to("/")
+    def mkdir_to_slot(self, dst_slot_mp: Union[Path, str]):
+        _target = Path(dst_slot_mp) / self.path.relative_to("/")
         _target.mkdir(parents=True, exist_ok=True)
         os.chmod(_target, self.mode)
         os.chown(_target, self.uid, self.gid)
@@ -318,9 +318,9 @@ class SymbolicLinkInf(_BaseInf):
 
         del self._left
 
-    def link_at_slot(self, dst_root: Path):
+    def link_at_slot(self, dst_slot_mp: Union[Path, str]):
         # NOTE: symbolic link in /boot directory is not supported. We don't use it.
-        _newlink = dst_root / self.slink.relative_to("/")
+        _newlink = Path(dst_slot_mp) / self.slink.relative_to("/")
         _newlink.symlink_to(self.srcpath)
         # set the permission on the file itself
         os.chown(_newlink, self.uid, self.gid, follow_symlinks=False)
@@ -347,7 +347,7 @@ class RegularInf:
     example: 0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'path/to/file',1234,12345678
 
     NOTE: size and inode sections are both optional, if inode exists, size must exist.
-    NOTE 2: path should always be canonical!
+    NOTE 2: path should always be relative to '/', not relative to any mount point!
     """
 
     mode: int
@@ -415,44 +415,46 @@ class RegularInf:
 
         return False
 
-    def exists_at_src_slot(self, *, src_root: Path) -> bool:
-        _target = src_root / self.path.relative_to(self._base)
+    def exists_at_src_slot(self, *, src_slot_mp: Union[Path, str]) -> bool:
+        _target = Path(src_slot_mp) / self.path.relative_to(self._base)
         return _target.is_file()
 
-    def change_root(self, new_root: Path) -> Path:
-        return Path(new_root) / self.path.relative_to(self._base)
+    def make_relative_to_slot(self, slot_mp: Union[Path, str]) -> Path:
+        return Path(slot_mp) / self.path.relative_to(self._base)
 
-    def verify_file(self, *, src_root: Path) -> bool:
-        return verify_file(self.change_root(src_root), self.sha256hash, self.size)
+    def verify_file(self, *, src_slot_mp: Union[Path, str]) -> bool:
+        return verify_file(
+            self.make_relative_to_slot(src_slot_mp), self.sha256hash, self.size
+        )
 
-    def copy2slot(self, dst_root: Path, /, *, src_root: Path):
+    def copy_to_slot(self, dst_slot_mp: Union[Path, str], /, *, src_slot_mp: Path):
         """Copy file pointed by self to the dst bank."""
-        _src = self.change_root(src_root)
-        _dst = self.change_root(dst_root)
+        _src = self.make_relative_to_slot(src_slot_mp)
+        _dst = self.make_relative_to_slot(dst_slot_mp)
         shutil.copy2(_src, _dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)
         os.chmod(_dst, self.mode)
 
-    def copy2dst(self, dst: Path, /, *, src_root: Path):
+    def copy_to_dst(self, dst: Union[Path, str], /, *, src_slot_mp: Path):
         """Copy file pointed by self to the dst."""
-        _src = self.change_root(src_root)
+        _src = self.make_relative_to_slot(src_slot_mp)
         shutil.copy2(_src, dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(dst, self.uid, self.gid)
         os.chmod(dst, self.mode)
 
-    def copy_from_src(self, src: Path, *, dst_root: Path):
+    def copy_from_src(self, src: Union[Path, str], *, dst_slot_mp: Path):
         """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.change_root(dst_root)
+        _dst = self.make_relative_to_slot(dst_slot_mp)
         shutil.copy2(src, _dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)
         os.chmod(_dst, self.mode)
 
-    def move_from_src(self, src: Path, *, dst_root: Path):
+    def move_from_src(self, src: Union[Path, str], *, dst_slot_mp: Path):
         """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.change_root(dst_root)
+        _dst = self.make_relative_to_slot(dst_slot_mp)
         shutil.move(src, _dst)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)

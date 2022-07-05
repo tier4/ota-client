@@ -216,11 +216,11 @@ class LegacyMode(StandbySlotCreatorProtocol):
             else:
                 try:
                     if reginf.path.is_file() and reginf.verify_file(
-                        src_root=self.reference_slot
+                        src_slot_mp=self.reference_slot
                     ):
                         # copy file from active bank if hash is the same
-                        reginf.copy2slot(
-                            self.standby_slot, src_root=self.reference_slot
+                        reginf.copy_to_slot(
+                            self.standby_slot, src_slot_mp=self.reference_slot
                         )
                         processed.op = RegInfProcessedStats.OP_COPY
                     else:
@@ -251,10 +251,10 @@ class LegacyMode(StandbySlotCreatorProtocol):
         # case 2: normal file
         else:
             if reginf.path.is_file() and reginf.verify_file(
-                src_root=self.reference_slot
+                src_slot_mp=self.reference_slot
             ):
                 # copy file from active bank if hash is the same
-                reginf.copy2slot(self.standby_slot, src_root=self.reference_slot)
+                reginf.copy_to_slot(self.standby_slot, src_slot_mp=self.reference_slot)
                 processed.op = RegInfProcessedStats.OP_COPY
             else:
                 # limit the concurrent downloading tasks
