@@ -50,7 +50,7 @@ class OtaMetadata:
         self._certs_dir = self.CERTS_DIR
         logger.info(f"certs_dir={self._certs_dir}")
 
-    def verify(self, certificate: str):
+    def verify(self, certificate: bytes):
         """"""
         # verify certificate itself before hand.
         self._verify_certificate(certificate)
@@ -185,12 +185,14 @@ class OtaMetadata:
         jwt_list = self.__metadata_jwt.split(".")
         return jwt_list[0] + "." + jwt_list[1]
 
-    def _verify_certificate(self, certificate: str):
+    def _verify_certificate(self, certificate: bytes):
         ca_set_prefix = set()
         # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
         for cert in self._certs_dir.glob("*.*.pem"):
-            m = re.match(r"(.*)\..*.pem", cert.name)
-            ca_set_prefix.add(m.group(1))
+            if m := re.match(r"(.*)\..*.pem", cert.name):
+                ca_set_prefix.add(m.group(1))
+            else:
+                raise ValueError("no pem file is found")
         if len(ca_set_prefix) == 0:
             logger.warning("there is no root or intermediate certificate")
             return
@@ -213,7 +215,7 @@ class OtaMetadata:
             store = crypto.X509Store()
             for c in certs_list:
                 logger.info(f"cert {c}")
-                store.add_cert(load_pem(open(c).read()))
+                store.add_cert(load_pem(c.read_bytes()))
 
             try:
                 store_ctx = crypto.X509StoreContext(store, cert_to_verify)

@@ -118,7 +118,7 @@ class _OTAUpdater:
                 },
             )
 
-            metadata.verify(cert_file.read_text())
+            metadata.verify(cert_file.read_bytes())
             return metadata
 
     def _pre_update(
