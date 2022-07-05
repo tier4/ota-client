@@ -255,14 +255,9 @@ class SimpleTasksTracker:
         self,
         extra_wait_cb: Optional[Callable] = None,
         *,
-        timeout: Optional[float] = None,
         raise_exception: bool = True,
     ):
-        _start = time.time()
-        while not self._register_finished and self._done_num <= self._in_num:
-            if timeout and time.time() - _start > timeout:
-                raise TimeoutError(f"wait on {self.title} timeout")
-
+        while not self._register_finished or self._done_num < self._in_num:
             if self._interrupted.is_set():
                 logger.error(f"{self.title} interrupted, abort")
                 break
