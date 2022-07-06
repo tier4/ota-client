@@ -222,6 +222,28 @@ def copytree_identical(src: Path, dst: Path):
                 (_cur_dir_on_dst / fname).unlink(missing_ok=True)
 
 
+def re_symlink_atomic(link: Path, target: Union[Path, str]):
+    """Re-link a symlink to new destination atomically.
+
+    NOTE: shutil.move use os.rename, and os.rename is atomic when
+    src and dst are on the same filesystem under linux.
+    """
+    if not (link.is_symlink() and link.readlink() == Path(target)):
+        tmp_link = Path(link).parent / f"tmp_link_{os.urandom(6)}"
+        try:
+            tmp_link.symlink_to(target)
+            shutil.move(tmp_link, link)
+        except Exception:
+            tmp_link.unlink(missing_ok=True)
+
+
+def re_symlink(link: Path, target: Union[Path, str]):
+    if not (link.is_symlink() and link.readlink() == target):
+        link.unlink(missing_ok=True)
+        link.symlink_to(target)
+    # do nothing if the link is correct
+
+
 class SimpleTasksTracker:
     def __init__(
         self, *, max_concurrent: int, title: str = "simple_tasks_tracker"
