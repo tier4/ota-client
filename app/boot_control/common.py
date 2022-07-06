@@ -10,7 +10,7 @@ from app.common import (
     read_from_file,
     subprocess_call,
     subprocess_check_output,
-    write_to_file,
+    write_to_file_sync,
 )
 from app.ota_status import OTAStatusEnum
 
@@ -397,10 +397,10 @@ class SlotInUseMixin:
     standby_ota_status_dir: Path
 
     def _store_current_slot_in_use(self, _slot: str):
-        write_to_file(self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
+        write_to_file_sync(self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
 
     def _store_standby_slot_in_use(self, _slot: str):
-        write_to_file(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
+        write_to_file_sync(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
 
     def _load_current_slot_in_use(self) -> str:
         return read_from_file(
@@ -415,10 +415,14 @@ class OTAStatusMixin:
 
     def _store_current_ota_status(self, _status: OTAStatusEnum):
         """NOTE: only update the current ota_status at ota-client launching up!"""
-        write_to_file(self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
+        write_to_file_sync(
+            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+        )
 
     def _store_standby_ota_status(self, _status: OTAStatusEnum):
-        write_to_file(self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name)
+        write_to_file_sync(
+            self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+        )
 
     def _load_current_ota_status(self) -> OTAStatusEnum:
         _status = OTAStatusEnum.FAILURE  # for unexpected situation, default to FAILURE
@@ -429,7 +433,7 @@ class OTAStatusMixin:
             _status = OTAStatusEnum[_status_str]
         except KeyError:
             _status = OTAStatusEnum.INITIALIZED
-            write_to_file(
+            write_to_file_sync(
                 self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
             )
         finally:
@@ -444,7 +448,7 @@ class VersionControlMixin:
     standby_ota_status_dir: Path
 
     def _store_standby_version(self, _version: str):
-        write_to_file(
+        write_to_file_sync(
             self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
             _version,
         )

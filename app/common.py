@@ -95,7 +95,7 @@ def write_to_file(path: Path, input: str):
 
 
 def write_to_file_sync(path: Union[Path, str], input: str):
-    with open(path, "r") as f:
+    with open(path, "w") as f:
         f.write(input)
         f.flush()
         os.fsync(f.fileno())
