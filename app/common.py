@@ -252,6 +252,12 @@ def re_symlink(link: Path, target: Union[Path, str]):
 
 
 class SimpleTasksTracker:
+    """A simple lock-free task tracker implemented by itertools.count.
+
+    NOTE: If we are using CPython, then itertools.count is thread-safe
+    for used in python code as itertools.count is implemented in C in CPython.
+    """
+
     def __init__(
         self, *, max_concurrent: int, title: str = "simple_tasks_tracker"
     ) -> None:
