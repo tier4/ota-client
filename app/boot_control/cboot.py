@@ -432,18 +432,11 @@ class CBootController(
                 logger.error(_failure_msg)
                 # no need to raise to the caller
 
-    def _unmount_all(self, *, ignore_error=False):
-        """Umount standby and refroot."""
-
-        # ignore errors on umounting
-        CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
-        CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=ignore_error)
-
     def _on_operation_failure(self):
         """Failure registering and cleanup at failure."""
         self._store_standby_ota_status(OTAStatusEnum.FAILURE)
         logger.warning("on failure try to unmounting standby slot...")
-        self._unmount_all(ignore_error=True)
+        self.umount_all(ignore_error=True)
 
     ###### public methods ######
     # also includes methods from OTAStatusMixin, VersionControlMixin
@@ -462,11 +455,11 @@ class CBootController(
         try:
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
-            self._prepare_and_mount_standby(
+            self.prepare_and_mount_standby(
                 self._cboot_control.get_standby_rootfs_dev(),
                 erase=erase_standby,
             )
-            self._mount_refroot(
+            self.mount_refroot(
                 standby_dev=self._cboot_control.get_standby_rootfs_dev(),
                 active_dev=self._cboot_control.get_current_rootfs_dev(),
                 standby_as_ref=standby_as_ref,
@@ -513,7 +506,7 @@ class CBootController(
             self._cboot_control.switch_boot()
 
             logger.info("post update finished, rebooting...")
-            self._unmount_all(ignore_error=True)
+            self.umount_all(ignore_error=True)
             self._cboot_control.reboot()
 
         except _BootControlError as e:
