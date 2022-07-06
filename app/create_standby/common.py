@@ -332,8 +332,8 @@ class DeltaGenerator:
                     # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
                     canonical_fpath = canonical_curdir_path / fname
 
-                    # ignore non-file file
-                    if not fpath.is_file():
+                    # ignore non-file file(include symlink)
+                    if fpath.is_symlink() or not fpath.is_file():
                         continue
 
                     # in default match_only mode, if the path doesn't exist in new, ignore

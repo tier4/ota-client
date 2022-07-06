@@ -74,7 +74,11 @@ def file_sha256(filename: Union[Path, str]) -> str:
 
 
 def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
-    if not fpath.is_file() or (fsize is not None and fpath.stat().st_size != fsize):
+    if (
+        fpath.is_symlink()
+        or not fpath.is_file()
+        or (fsize is not None and fpath.stat().st_size != fsize)
+    ):
         return False
     return file_sha256(fpath) == fhash
 
@@ -150,7 +154,7 @@ def dst_symlink_as_src(src: Path, dst: Path):
     if dst.is_symlink() or dst.is_file():
         dst.unlink()
     else:
-        raise TypeError("dst is a folder")
+        raise TypeError("dst is not a symlink or normal file")
 
     dst.symlink_to(os.readlink(src))
 

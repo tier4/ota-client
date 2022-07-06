@@ -415,10 +415,6 @@ class RegularInf:
 
         return False
 
-    def exists_at_src_slot(self, *, src_slot_mp: Union[Path, str]) -> bool:
-        _target = Path(src_slot_mp) / self.path.relative_to(self._base)
-        return _target.is_file()
-
     def make_relative_to_slot(self, slot_mp: Union[Path, str]) -> Path:
         return Path(slot_mp) / self.path.relative_to(self._base)
 
