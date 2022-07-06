@@ -461,3 +461,36 @@ class VersionControlMixin:
             logger.warning("version file not found, return empty version string")
 
         return _version
+
+
+class PrepareMountMixin:
+    standby_slot_mount_point: Path
+    ref_slot_mount_point: Path
+
+    def _prepare_and_mount_standby(self, standby_slot_dev: str, *, erase=False):
+        self.standby_slot_mount_point.mkdir(parents=True, exist_ok=True)
+
+        # first try umount the dev
+        CMDHelperFuncs.umount(standby_slot_dev)
+
+        # format the whole standby slot if needed
+        if erase:
+            logger.warning(f"perform mkfs.ext4 on standby slot({standby_slot_dev})")
+            CMDHelperFuncs.mkfs_ext4(standby_slot_dev)
+
+        # try to mount the standby dev
+        CMDHelperFuncs.mount_rw(standby_slot_dev, self.standby_slot_mount_point)
+
+    def _mount_refroot(
+        self,
+        *,
+        standby_dev: str,
+        active_dev: str,
+        standby_as_ref: bool,
+    ):
+        CMDHelperFuncs.mount_refroot(
+            standby_slot_dev=standby_dev,
+            active_slot_dev=active_dev,
+            refroot_mount_point=str(self.ref_slot_mount_point),
+            standby_as_ref=standby_as_ref,
+        )

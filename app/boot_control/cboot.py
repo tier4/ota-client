@@ -10,6 +10,7 @@ from app.boot_control.common import (
     MountError,
     OTAStatusMixin,
     _BootControlError,
+    PrepareMountMixin,
     CMDHelperFuncs,
     SlotInUseMixin,
     VersionControlMixin,
@@ -289,43 +290,8 @@ class _CBootControl:
         dst.write_text(re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text()))
 
 
-class _PrepareMountMixin:
-    standby_slot_mount_point: Path
-    ref_slot_mount_point: Path
-    _cboot_control: _CBootControl
-
-    def _prepare_and_mount_standby(self, *, erase=False):
-        self.standby_slot_mount_point.mkdir(parents=True, exist_ok=True)
-        standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()
-
-        # first try umount the dev
-        CMDHelperFuncs.umount(standby_slot_dev)
-
-        # format the whole standby slot if needed
-        if erase:
-            logger.warning(f"perform mkfs.ext4 on standby slot({standby_slot_dev})")
-            CMDHelperFuncs.mkfs_ext4(standby_slot_dev)
-
-        # try to mount the standby dev
-        CMDHelperFuncs.mount_rw(standby_slot_dev, self.standby_slot_mount_point)
-
-        # create the ota-status folder unconditionally
-        _ota_status_dir = self.standby_slot_mount_point / Path(
-            cfg.OTA_STATUS_DIR
-        ).relative_to("/")
-        _ota_status_dir.mkdir(exist_ok=True, parents=True)
-
-    def _mount_refroot(self, standby_as_ref: bool):
-        CMDHelperFuncs.mount_refroot(
-            standby_slot_dev=self._cboot_control.get_standby_rootfs_dev(),
-            active_slot_dev=self._cboot_control.get_current_rootfs_dev(),
-            refroot_mount_point=str(self.ref_slot_mount_point),
-            standby_as_ref=standby_as_ref,
-        )
-
-
 class CBootController(
-    _PrepareMountMixin,
+    PrepareMountMixin,
     SlotInUseMixin,
     OTAStatusMixin,
     VersionControlMixin,
@@ -496,8 +462,20 @@ class CBootController(
         try:
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
-            self._prepare_and_mount_standby(erase=erase_standby)
-            self._mount_refroot(standby_as_ref)
+            self._prepare_and_mount_standby(
+                self._cboot_control.get_standby_rootfs_dev(),
+                erase=erase_standby,
+            )
+            self._mount_refroot(
+                standby_dev=self._cboot_control.get_standby_rootfs_dev(),
+                active_dev=self._cboot_control.get_current_rootfs_dev(),
+                standby_as_ref=standby_as_ref,
+            )
+            # create the ota-status folder unconditionally
+            _ota_status_dir = self.standby_slot_mount_point / Path(
+                cfg.OTA_STATUS_DIR
+            ).relative_to("/")
+            _ota_status_dir.mkdir(exist_ok=True, parents=True)
 
             # store status to standby slot
             self._store_standby_ota_status(OTAStatusEnum.UPDATING)
