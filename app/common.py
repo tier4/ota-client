@@ -141,7 +141,9 @@ def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
 def dst_symlink_as_src(src: Path, dst: Path):
     """Make the dst a symlink link as src."""
     if dst.is_symlink() or dst.is_file():
-        dst.unlink(missing_ok=True)
+        dst.unlink()
+    else:
+        raise TypeError("dst is a folder")
 
     dst.symlink_to(os.readlink(src))
 
@@ -165,8 +167,11 @@ def copytree_identical(src: Path, dst: Path):
     3. it will remove files that not presented in the src, and
         unconditionally override files with same path, ensuring
         that the dst will be identical with the src.
+
+    NOTE: is_file/is_dir also returns True if it is a symlink and
+    the link target is_file/is_dir
     """
-    if not dst.is_dir():
+    if dst.is_symlink() or not dst.is_dir():
         raise FileNotFoundError(f"{dst} is not found or not a dir")
 
     # phase1: populate files to the dst
@@ -175,7 +180,7 @@ def copytree_identical(src: Path, dst: Path):
         _cur_dir_on_dst = dst / _cur_dir.relative_to(src)
 
         # cover the edge case that dst is not a dir.
-        if not _cur_dir_on_dst.is_dir():
+        if _cur_dir_on_dst.is_symlink() or not _cur_dir_on_dst.is_dir():
             _cur_dir_on_dst.unlink(missing_ok=True)
             _cur_dir_on_dst.mkdir(parents=True)
             copy_stat(_cur_dir, _cur_dir_on_dst)
@@ -185,18 +190,20 @@ def copytree_identical(src: Path, dst: Path):
             _src_f = _cur_dir / fname
             _dst_f = _cur_dir_on_dst / fname
 
-            # src is file but dst is a folder
-            if _dst_f.is_dir():
+            # prepare dst
+            #   src is file but dst is a folder
+            #   delete the dst in advance
+            if not _dst_f.is_symlink() and _dst_f.is_dir():
                 shutil.rmtree(_dst_f, ignore_errors=True)
 
-            # check symlink, re-link if needed
+            # copy/symlink dst as src
+            #   if src is symlink, check symlink, re-link if needed
             if _src_f.is_symlink():
                 dst_symlink_as_src(_src_f, _dst_f)
-                continue
-
-            # finally populate the new file or override the dst file
-            shutil.copy(_src_f, _dst_f, follow_symlinks=False)
-            copy_stat(_src_f, _dst_f)
+            else:
+                # copy/override src to dst
+                shutil.copy(_src_f, _dst_f, follow_symlinks=False)
+                copy_stat(_src_f, _dst_f)
 
     # phase2: remove unused files in the dst
     for cur_dir, dirs, files in os.walk(dst, topdown=True, followlinks=False):
@@ -211,7 +218,7 @@ def copytree_identical(src: Path, dst: Path):
 
         for fname in files:
             _src_f = _cur_dir_on_src / fname
-            if not (_src_f.is_file() or _src_f.is_symlink()):
+            if not (_src_f.is_symlink() or _src_f.is_file()):
                 (_cur_dir_on_dst / fname).unlink(missing_ok=True)
 
 
