@@ -233,25 +233,26 @@ def copytree_identical(src: Path, dst: Path):
                 (_cur_dir_on_dst / fname).unlink(missing_ok=True)
 
 
-def re_symlink_atomic(link: Path, target: Union[Path, str]):
-    """Re-link a symlink to new destination atomically.
+def re_symlink_atomic(src: Path, target: Union[Path, str]):
+    """Make the <src> a symlink to <target> atomically.
 
-    NOTE: shutil.move use os.rename, and os.rename is atomic when
-    src and dst are on the same filesystem under linux.
+    NOTE: os.rename is atomic when src and dst are on
+    the same filesystem under linux.
     """
-    if not (link.is_symlink() and os.readlink(link) == Path(target)):
-        tmp_link = Path(link).parent / f"tmp_link_{os.urandom(6)}"
+    if not (src.is_symlink() and str(os.readlink(src)) == str(target)):
+        tmp_link = Path(src).parent / f"tmp_link_{os.urandom(6)}"
         try:
             tmp_link.symlink_to(target)
-            shutil.move(tmp_link, link)
+            os.rename(tmp_link, src)  # unconditionally override
         except Exception:
             tmp_link.unlink(missing_ok=True)
+            raise
 
 
-def re_symlink(link: Path, target: Union[Path, str]):
-    if not (link.is_symlink() and os.readlink(link) == target):
-        link.unlink(missing_ok=True)
-        link.symlink_to(target)
+def re_symlink(src: Path, target: Union[Path, str]):
+    if not (src.is_symlink() and str(os.readlink(src)) == str(target)):
+        src.unlink(missing_ok=True)
+        src.symlink_to(target)
     # do nothing if the link is correct
 
 
