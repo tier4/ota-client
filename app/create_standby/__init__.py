@@ -4,7 +4,7 @@ from app.create_standby.interface import (
     StandbySlotCreatorProtocol,
     UpdateMeta,
 )
-from app.configs import config as cfg
+from app.configs import CreateStandbyMechanism, config as cfg
 from app import log_util
 
 logger = log_util.get_logger(
@@ -12,24 +12,15 @@ logger = log_util.get_logger(
 )
 
 
-def select_mode() -> str:
-    # TODO: select mode mechanism
-    if cfg.STANDBY_CREATION_MODE == "auto":
-        return "rebuild"
-
-    return cfg.STANDBY_CREATION_MODE
-
-
-AUOTSELECTED_MODE = select_mode()
-
-
-def get_standby_slot_creator(mode: str) -> Type[StandbySlotCreatorProtocol]:
+def get_standby_slot_creator(
+    mode: CreateStandbyMechanism,
+) -> Type[StandbySlotCreatorProtocol]:
     logger.info(f"use slot update {mode=}")
-    if mode == "legacy":
+    if mode == CreateStandbyMechanism.LEGACY:
         from app.create_standby.legacy_mode import LegacyMode
 
         return LegacyMode
-    elif mode == "rebuild":
+    elif mode == CreateStandbyMechanism.REBUILD:
         from app.create_standby.rebuild_mode import RebuildMode
 
         return RebuildMode
@@ -39,6 +30,5 @@ def get_standby_slot_creator(mode: str) -> Type[StandbySlotCreatorProtocol]:
 
 __all__ = (
     "UpdateMeta",
-    "AUOTSELECTED_MODE",
     "get_standby_slot_creator",
 )

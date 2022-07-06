@@ -1,8 +1,14 @@
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from logging import INFO
 from typing import Dict, Literal
 
 # fmt: off
+class CreateStandbyMechanism(Enum):
+    LEGACY = 0
+    REBUILD = auto()
+    IN_PLACE = auto()
+
 @dataclass(frozen=True)
 class OtaClientServerConfig:
     SERVER_PORT: str = "50051"
@@ -65,8 +71,8 @@ class BaseConfig:
     MAX_CONCURRENT_DOWNLOAD: int = 8
     MAX_CONCURRENT_TASKS: int = 1024
     STATS_COLLECT_INTERVAL: int = 1 # second
-    ## standby creation mode
-    STANDBY_CREATION_MODE: Literal["legacy", "rebuild", "in-place", "auto"] = "auto"
+    ## standby creation mode, default to rebuild now
+    STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
     # NOTE: the following 2 folders are meant to be located under standby_slot
     OTA_TMP_STORE: str = "/ota-tmp"
     META_FOLDER: str = "/opt/ota/image-meta"

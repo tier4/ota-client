@@ -8,7 +8,7 @@ from multiprocessing import Process
 from threading import Lock, Condition
 from typing import Any, Dict, List, Optional, Tuple
 from app.boot_control import get_boot_controller
-from app.create_standby import get_standby_slot_creator, AUOTSELECTED_MODE
+from app.create_standby import get_standby_slot_creator
 from app.errors import OTAFailureType
 
 import app.otaclient_v2_pb2 as v2
@@ -162,7 +162,7 @@ class OtaClientStub:
         # for boot control and create standby slot
         self._ota_client = OTAClient(
             boot_control_cls=get_boot_controller(BOOT_LOADER),
-            create_standby_cls=get_standby_slot_creator(AUOTSELECTED_MODE),
+            create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
         )
         self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
