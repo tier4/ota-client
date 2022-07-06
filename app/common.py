@@ -84,9 +84,9 @@ def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
 
 
 # handled file read/write
-def read_from_file(path: Path, *, missing_ok=True) -> str:
+def read_from_file(path: Union[Path, str], *, missing_ok=True) -> str:
     try:
-        return path.read_text().strip()
+        return Path(path).read_text().strip()
     except FileNotFoundError:
         if missing_ok:
             return ""
@@ -239,7 +239,7 @@ def re_symlink_atomic(link: Path, target: Union[Path, str]):
     NOTE: shutil.move use os.rename, and os.rename is atomic when
     src and dst are on the same filesystem under linux.
     """
-    if not (link.is_symlink() and link.readlink() == Path(target)):
+    if not (link.is_symlink() and os.readlink(link) == Path(target)):
         tmp_link = Path(link).parent / f"tmp_link_{os.urandom(6)}"
         try:
             tmp_link.symlink_to(target)
@@ -249,7 +249,7 @@ def re_symlink_atomic(link: Path, target: Union[Path, str]):
 
 
 def re_symlink(link: Path, target: Union[Path, str]):
-    if not (link.is_symlink() and link.readlink() == target):
+    if not (link.is_symlink() and os.readlink(link) == target):
         link.unlink(missing_ok=True)
         link.symlink_to(target)
     # do nothing if the link is correct
