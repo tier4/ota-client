@@ -467,7 +467,7 @@ class PrepareMountMixin:
     standby_slot_mount_point: Path
     ref_slot_mount_point: Path
 
-    def prepare_and_mount_standby(self, standby_slot_dev: str, *, erase=False):
+    def _prepare_and_mount_standby(self, standby_slot_dev: str, *, erase=False):
         self.standby_slot_mount_point.mkdir(parents=True, exist_ok=True)
 
         # first try umount the dev
@@ -481,7 +481,7 @@ class PrepareMountMixin:
         # try to mount the standby dev
         CMDHelperFuncs.mount_rw(standby_slot_dev, self.standby_slot_mount_point)
 
-    def mount_refroot(
+    def _mount_refroot(
         self,
         *,
         standby_dev: str,
@@ -495,6 +495,6 @@ class PrepareMountMixin:
             standby_as_ref=standby_as_ref,
         )
 
-    def umount_all(self, *, ignore_error: bool = False):
+    def _umount_all(self, *, ignore_error: bool = False):
         CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
         CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=ignore_error)

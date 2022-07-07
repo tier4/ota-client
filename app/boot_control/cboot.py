@@ -436,10 +436,11 @@ class CBootController(
         """Failure registering and cleanup at failure."""
         self._store_standby_ota_status(OTAStatusEnum.FAILURE)
         logger.warning("on failure try to unmounting standby slot...")
-        self.umount_all(ignore_error=True)
+        self._umount_all(ignore_error=True)
 
     ###### public methods ######
     # also includes methods from OTAStatusMixin, VersionControlMixin
+    # load_version, get_ota_status
 
     def get_standby_slot_path(self) -> Path:
         return self.standby_slot_mount_point
@@ -455,11 +456,11 @@ class CBootController(
         try:
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
-            self.prepare_and_mount_standby(
+            self._prepare_and_mount_standby(
                 self._cboot_control.get_standby_rootfs_dev(),
                 erase=erase_standby,
             )
-            self.mount_refroot(
+            self._mount_refroot(
                 standby_dev=self._cboot_control.get_standby_rootfs_dev(),
                 active_dev=self._cboot_control.get_current_rootfs_dev(),
                 standby_as_ref=standby_as_ref,
@@ -506,7 +507,7 @@ class CBootController(
             self._cboot_control.switch_boot()
 
             logger.info("post update finished, rebooting...")
-            self.umount_all(ignore_error=True)
+            self._umount_all(ignore_error=True)
             self._cboot_control.reboot()
 
         except _BootControlError as e:
