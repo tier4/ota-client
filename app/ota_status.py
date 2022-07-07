@@ -1,4 +1,4 @@
-from enum import Enum, unique, auto
+from enum import Enum, unique
 
 from app.configs import config as cfg
 from app import log_util

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from logging import INFO
-from typing import Dict, Literal
+from typing import Dict
 
 # fmt: off
 class CreateStandbyMechanism(Enum):

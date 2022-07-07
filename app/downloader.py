@@ -224,7 +224,7 @@ class Downloader:
             raise DestinationNotAvailableError(url, dst) from e
         except OSError as e:
             # space not enough error
-            if OSError.errno == 28:
+            if e.errno == 28:
                 raise DownloadFailedSpaceNotEnough(url, dst) from None
 
         calc_digest = hash_f.hexdigest()

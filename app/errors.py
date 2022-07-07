@@ -1,6 +1,6 @@
 """OTA error code definition"""
 import traceback
-from enum import Enum, auto, unique
+from enum import Enum, unique
 
 
 @unique

@@ -307,7 +307,7 @@ class _GrubControl:
         if res := GrubHelper.get_entry(grub_cfg, kernel_ver=GrubHelper.SUFFIX_OTA):
             active_slot_entry_idx, _ = res
         else:
-            raise ValueError(f"boot entry for ACTIVE slot not found, abort")
+            raise ValueError("boot entry for ACTIVE slot not found, abort")
 
         # step3: update grub_default again, setting default to <idx>
         # ensure the active slot to be the default
