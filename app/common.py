@@ -244,7 +244,7 @@ def re_symlink_atomic(src: Path, target: Union[Path, str]):
     the same filesystem under linux.
     """
     if not (src.is_symlink() and str(os.readlink(src)) == str(target)):
-        tmp_link = Path(src).parent / f"tmp_link_{os.urandom(6)}"
+        tmp_link = Path(src).parent / f"tmp_link_{os.urandom(6).hex()}"
         try:
             tmp_link.symlink_to(target)
             os.rename(tmp_link, src)  # unconditionally override
