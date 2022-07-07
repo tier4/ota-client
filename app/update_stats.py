@@ -155,10 +155,13 @@ class OTAUpdateStatsCollector:
                             if _suffix == "download":
                                 staging_storage[f"errors_{_suffix}"] += st.errors
 
-                    # cleanup already collected stats
-                    self._staging.clear()
+                # cleanup already collected stats
+                self._staging.clear()
 
     def wait_staging(self):
         """This method will block until the self._staging is empty."""
         while len(self._staging) > 0 or self._que.qsize() > 0:
             time.sleep(self.collect_interval)
+
+        # sleep extra 3 intervals to ensure the result is recorded
+        time.sleep(self.collect_interval * 3)
