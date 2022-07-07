@@ -133,7 +133,11 @@ def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> s
         a ValueError containing information about the failure.
     """
     try:
-        return subprocess.check_output(shlex.split(cmd)).decode().strip()
+        return (
+            subprocess.check_output(shlex.split(cmd), stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
     except subprocess.CalledProcessError as e:
         msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
         logger.debug(msg)
