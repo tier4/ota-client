@@ -55,7 +55,7 @@ class GrubMenuEntry:
     menuentry: str
     linux: str
     initrd: str
-    rootfs_uuid: str
+    rootfs_partuuid_str: str  # format: PARTUUID=xxx
 
     def __init__(self, ma: re.Match) -> None:
         """
@@ -68,12 +68,12 @@ class GrubMenuEntry:
         # get linux and initrd from menuentry
         if linux_ma := GrubHelper.linux_pa.search(self.menuentry):
             self.linux = linux_ma.group("kernel")
-            self.rootfs_uuid = linux_ma.group("rootfs_uuid")
+            self.rootfs_partuuid_str = linux_ma.group("rootfs_partuuid_str")
         if initrd_ma := GrubHelper.initrd_pa.search(self.menuentry):
             self.initrd = initrd_ma.group("initrd")
 
         assert self.linux and self.initrd, "failed to detect linux img and initrd"
-        assert self.rootfs_uuid, "failed to detect rootfs uuid"
+        assert self.rootfs_partuuid_str, "failed to detect rootfs_partuuid_str"
 
 
 class GrubHelper:
@@ -90,7 +90,7 @@ class GrubHelper:
     )
     linux_pa: ClassVar[re.Pattern] = re.compile(
         r"(?P<left>^\s+linux.*(?P<kernel>vmlinuz-(?P<ver>[\.\w\-]*)) +.*)"
-        r"(?P<rootfs>root=UUID=(?P<rootfs_uuid>[\w\-]*))"
+        r"(?P<rootfs>root=(?P<rootfs_partuuid_str>[\w\-=]*))"
         r"(?P<right>.*)",
         re.MULTILINE,
     )
@@ -128,13 +128,13 @@ class GrubHelper:
             grub_cfg: input grub_cfg str
             kernel_ver: kernel version str for the target entry
             rootfs_str: a str that indicates which rootfs device to use,
-                support uuid(root=UUID=xxx) or partuuid(root=PARTUUID=xxx)
+                support partuuid(root=PARTUUID=xxx)
         """
         new_entry_block: Optional[str] = None
         entry_l, entry_r = None, None
 
         # loop over normal entry, find the target entry,
-        # and then replace the rootfs uuid string
+        # and then replace the rootfs string
         for entry in cls.menuentry_pa.finditer(grub_cfg):
             entry_l, entry_r = entry.span()
             entry_block = entry.group()
@@ -229,8 +229,7 @@ class _GrubControl:
         ).with_suffix(f".{self.standby_slot}")
         self.standby_grub_file = self.standby_ota_partition_folder / "grub.cfg"
 
-        self.active_root_dev_uuid = CMDHelperFuncs.get_uuid_by_dev(self.active_root_dev)
-        self.standby_root_dev_uuid = CMDHelperFuncs.get_uuid_by_dev(
+        self.standby_slot_partuuid_str = CMDHelperFuncs.get_partuuid_str_by_dev(
             self.standby_root_dev
         )
 
@@ -326,10 +325,10 @@ class _GrubControl:
         if grub_cfg_updated := GrubHelper.update_entry_rootfs(
             grub_cfg,
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
-            rootfs_str=f"root=UUID={self.standby_root_dev_uuid}",
+            rootfs_str=f"root={self.standby_slot_partuuid_str}",
         ):
             write_to_file_sync(self.active_grub_file, grub_cfg_updated)
-            logger.info(f"standby dev uuid: {self.standby_root_dev_uuid}")
+            logger.info(f"standby rootfs: {self.standby_slot_partuuid_str}")
             logger.debug(f"generated grub_cfg: {pformat(grub_cfg_updated)}")
         else:
             msg = (
@@ -379,12 +378,18 @@ class _GrubControl:
         )
 
     ###### public methods ######
-    def reprepare_ota_partition_file(self, *, abort_on_standby_missed: bool):
+    def reprepare_active_ota_partition_file(self, *, abort_on_standby_missed: bool):
         self._prepare_kernel_initrd_links_for_ota(self.active_ota_partition_folder)
         self._ensure_ota_partition_symlinks()
         self._grub_update_for_active_slot(
             abort_on_standby_missed=abort_on_standby_missed
         )
+
+    def reprepare_standby_ota_partition_file(self):
+        self._prepare_kernel_initrd_links_for_ota(self.standby_ota_partition_folder)
+        self._ensure_ota_partition_symlinks()
+        # NOTE: always update active slots' grub file
+        self._grub_update_for_active_slot(abort_on_standby_missed=True)
 
     def init_active_ota_partition_file(self):
         """Prepare active ota-partition folder and ensure the existence of
@@ -411,12 +416,12 @@ class _GrubControl:
             shutil.copy(
                 cur_initrd, self.active_ota_partition_folder, follow_symlinks=True
             )
-            self.reprepare_ota_partition_file(abort_on_standby_missed=False)
+            self.reprepare_active_ota_partition_file(abort_on_standby_missed=False)
 
         logger.info("ota-partition file initialized")
 
     def grub_reboot_to_standby(self):
-        self.reprepare_ota_partition_file(abort_on_standby_missed=True)
+        self.reprepare_standby_ota_partition_file()
         idx, _ = GrubHelper.get_entry(
             read_from_file(self.grub_file),
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
@@ -425,7 +430,7 @@ class _GrubControl:
         logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
 
     def finalize_update_switch_boot(self):
-        self.reprepare_ota_partition_file(abort_on_standby_missed=True)
+        self.reprepare_active_ota_partition_file(abort_on_standby_missed=True)
 
 
 class GrubController(
@@ -487,6 +492,7 @@ class GrubController(
                 self._boot_control.init_active_ota_partition_file()
 
             # NOTE: only update the current ota_status at ota-client launching up!
+            self.ota_status = _ota_status
             self._store_current_ota_status(_ota_status)
             logger.info(f"loaded ota_status: {_ota_status}")
         except Exception as e:
@@ -526,7 +532,9 @@ class GrubController(
 
         Override existed entries in standby fstab, merge new entries from active fstab.
         """
-        standby_uuid = self._boot_control.standby_root_dev_uuid
+        standby_partuuid_str = CMDHelperFuncs.get_partuuid_str_by_dev(
+            self._boot_control.standby_root_dev
+        )
         fstab_entry_pa = re.compile(
             r"^\s*(?P<file_system>[^# ]*)\s+"
             r"(?P<mount_point>[^ ]*)\s+"
@@ -553,7 +561,7 @@ class GrubController(
                 mp = ma.group("mount_point")
                 if mp == "/":  # rootfs mp, unconditionally replace uuid
                     _list = list(ma.groups())
-                    _list[0] = f"UUID={standby_uuid}"
+                    _list[0] = standby_partuuid_str
                     merged.append("\t".join(_list))
                 elif mp in fstab_standby_dict:
                     merged.append("\t".join(fstab_standby_dict[mp].groups()))
