@@ -69,32 +69,35 @@ class OtaProxyWrapper:
         self._scrub_cache_event = multiprocessing.Event()
 
     @staticmethod
-    async def _start_uvicorn(init_cache: bool, *, scrub_cache_event):
-        import uvicorn
-        from ota_proxy import App, OTACache
+    def launch_entry(init_cache, *, scrub_cache_event):
+        async def _start_uvicorn(init_cache: bool, *, scrub_cache_event):
+            import uvicorn
+            from ota_proxy import App, OTACache
 
-        _ota_cache = OTACache(
-            cache_enabled=proxy_cfg.enable_local_ota_proxy_cache,
-            upper_proxy=proxy_cfg.upper_ota_proxy,
-            enable_https=proxy_cfg.gateway,
-            init_cache=init_cache,
-            scrub_cache_event=scrub_cache_event,
-        )
+            _ota_cache = OTACache(
+                cache_enabled=proxy_cfg.enable_local_ota_proxy_cache,
+                upper_proxy=proxy_cfg.upper_ota_proxy,
+                enable_https=proxy_cfg.gateway,
+                init_cache=init_cache,
+                scrub_cache_event=scrub_cache_event,
+            )
 
-        # NOTE: explicitly set loop and http options
-        # to prevent using wrong libs
-        # NOTE 2: http=="httptools" will break ota_proxy
-        config = uvicorn.Config(
-            App(_ota_cache),
-            host=proxy_cfg.local_ota_proxy_listen_addr,
-            port=proxy_cfg.local_ota_proxy_listen_port,
-            log_level="error",
-            lifespan="on",
-            loop="asyncio",
-            http="h11",
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
+            # NOTE: explicitly set loop and http options
+            # to prevent using wrong libs
+            # NOTE 2: http=="httptools" will break ota_proxy
+            config = uvicorn.Config(
+                App(_ota_cache),
+                host=proxy_cfg.local_ota_proxy_listen_addr,
+                port=proxy_cfg.local_ota_proxy_listen_port,
+                log_level="error",
+                lifespan="on",
+                loop="asyncio",
+                http="h11",
+            )
+            server = uvicorn.Server(config)
+            await server.serve()
+
+        asyncio.run(_start_uvicorn(init_cache, scrub_cache_event=scrub_cache_event))
 
     def start(
         self,
@@ -107,12 +110,9 @@ class OtaProxyWrapper:
         with self._lock:
             if self._closed:
                 self._server_p = Process(
-                    target=asyncio.run,
-                    args=[
-                        self._start_uvicorn(
-                            init_cache, scrub_cache_event=self._scrub_cache_event
-                        ),
-                    ],
+                    target=self.launch_entry,
+                    args=[init_cache],
+                    kwargs={"scrub_cache_event": self._scrub_cache_event},
                 )
                 self._server_p.start()
 
