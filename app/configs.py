@@ -83,11 +83,11 @@ class GrubControlConfig(BaseConfig):
     """x86-64 platform, with grub as bootloader."""
 
     BOOTLOADER: str = "grub"
-    FSTAB_FILE: str = "/etc/fstab"
+    FSTAB_FILE_PATH: str = "/etc/fstab"
     GRUB_DIR: str = "/boot/grub"
-    GRUB_CFG_FILE: str = "/boot/grub/grub.cfg"
-    CUSTOM_CFG_FILE: str = "/boot/grub/custom.cfg"
-    DEFAULT_GRUB_FILE: str = "/etc/default/grub"
+    GRUB_CFG_PATH: str = "/boot/grub/grub.cfg"
+    CUSTOM_CFG_PATH: str = "/boot/grub/custom.cfg"
+    DEFAULT_GRUB_PATH: str = "/etc/default/grub"
     BOOT_OTA_PARTITION_FILE: str = "ota-partition"
 
 
