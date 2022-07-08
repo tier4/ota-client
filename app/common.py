@@ -134,7 +134,7 @@ def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> s
     """
     try:
         return (
-            subprocess.check_output(shlex.split(cmd), stderr=subprocess.DEVNULL)
+            subprocess.check_output(shlex.split(cmd), stderr=subprocess.PIPE)
             .decode()
             .strip()
         )
