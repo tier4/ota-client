@@ -139,28 +139,14 @@ class Nvbootctrl:
 
 
 class _CBootControl:
-    KERNEL: str = "/boot/Image"
-    KERNEL_SIG: str = "/boot/Image.sig"
-    INITRD: str = "/boot/initrd"
-    INITRD_IMG_LINK: str = "/boot/initrd.img"
-    FDT: str = "/boot/tegra194-rqx-580.dtb"
-    FDT_HDR40: str = "/boot/tegra194-rqx-580-hdr40.dtbo"
-    EXTRA_CMDLINE: str = (
-        "console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0"
-    )
+    TEGRA_CHIP_ID_PATH = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
 
     def __init__(self):
-        self._linux = self.KERNEL
-        self._initrd = self.INITRD
-        self._fdt = self.FDT
-        self._cmdline_extra = self.EXTRA_CMDLINE
-
         try:
             # NOTE: only support rqx-580, rqx-58g platform right now!
             # detect the chip id
-            tegra_chip_id_f = Path("/sys/module/tegra_fuse/parameters/tegra_chip_id")
-            self.chip_id = read_from_file(tegra_chip_id_f)
-            if self.chip_id == "" or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
+            self.chip_id = read_from_file(self.TEGRA_CHIP_ID_PATH)
+            if not self.chip_id or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
                 raise NotImplementedError(
                     f"unsupported platform found (chip_id: {self.chip_id}), abort"
                 )
@@ -274,6 +260,7 @@ class _CBootControl:
             subprocess_call("reboot", raise_exception=True)
         except CalledProcessError:
             logger.exception("failed to reboot")
+            raise
 
     def update_extlinux_cfg(self, dst: Path, ref: Path):
         def _replace(ma: re.Match, repl: str):
