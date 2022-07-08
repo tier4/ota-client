@@ -229,10 +229,6 @@ class _GrubControl:
         ).with_suffix(f".{self.standby_slot}")
         self.standby_grub_file = self.standby_ota_partition_folder / "grub.cfg"
 
-        self.standby_slot_partuuid_str = CMDHelperFuncs.get_partuuid_str_by_dev(
-            self.standby_root_dev
-        )
-
         self.active_ota_partition_folder.mkdir(exist_ok=True)
         self.standby_ota_partition_folder.mkdir(exist_ok=True)
 
@@ -322,13 +318,16 @@ class _GrubControl:
         # step4: populate new active grub_file
         # update the ota.standby entry's rootfs uuid to standby slot's uuid
         grub_cfg = GrubHelper.grub_mkconfig()
+        standby_partuuid_str = CMDHelperFuncs.get_partuuid_str_by_dev(
+            self.standby_root_dev
+        )
         if grub_cfg_updated := GrubHelper.update_entry_rootfs(
             grub_cfg,
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
-            rootfs_str=f"root={self.standby_slot_partuuid_str}",
+            rootfs_str=f"root={standby_partuuid_str}",
         ):
             write_to_file_sync(self.active_grub_file, grub_cfg_updated)
-            logger.info(f"standby rootfs: {self.standby_slot_partuuid_str}")
+            logger.info(f"standby rootfs: {standby_partuuid_str}")
             logger.debug(f"generated grub_cfg: {pformat(grub_cfg_updated)}")
         else:
             msg = (
