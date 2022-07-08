@@ -156,7 +156,7 @@ class _CBootControl:
         self._cmdline_extra = self.EXTRA_CMDLINE
 
         try:
-            # NOTE: only support r580 platform right now!
+            # NOTE: only support rqx-580, rqx-58g platform right now!
             # detect the chip id
             tegra_chip_id_f = Path("/sys/module/tegra_fuse/parameters/tegra_chip_id")
             self.chip_id = read_from_file(tegra_chip_id_f)
