@@ -165,6 +165,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
             )
 
             copy_tree = CopyTree(
+                src_passwd_file=self._passwd_file,
+                src_group_file=self._group_file,
                 dst_passwd_file=self.standby_slot / self._passwd_file.relative_to("/"),
                 dst_group_file=self.standby_slot / self._group_file.relative_to("/"),
             )

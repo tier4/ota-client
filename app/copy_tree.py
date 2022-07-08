@@ -1,10 +1,7 @@
-import grp
 import os
-import pwd
+import stat
 import shutil
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple
 
 from app import log_util
 from app.configs import config as cfg
@@ -14,76 +11,18 @@ logger = log_util.get_logger(
 )
 
 
-@dataclass
-class PwdEntry:
-    pw_name: str
-    pw_uid: int
-
-    def __init__(self, pw_line: str) -> None:
-        """
-        typical pw_line format:
-            <name>:<passwd>:<uid>:<gid>:<comment>:<home>:<shell>
-            root:x:0:0:root:/root:/bin/bash
-        """
-        _parsed = pw_line.split(":")
-        self.pw_name = _parsed[0]
-        self.pw_uid = int(_parsed[2])
-
-
-@dataclass
-class GrpEntry:
-    gr_name: str
-    gr_id: int
-
-    def __init__(self, grp_line: str) -> None:
-        """
-        typical grp_line format:
-            <group_nmae>:<passwd>:<gid>:<list_of_username>
-            adm:x:4:syslog,autoware
-        """
-        _parsed = grp_line.split(":")
-        self.gr_name = _parsed[0]
-        self.gr_id = int(_parsed[2])
-
-
-def _load_dst_pwd(dst_pwd: Path) -> Dict[str, PwdEntry]:
-    # name -> uid
-    _uname_uid_mapping: Dict[str, PwdEntry] = {}
-    with open(dst_pwd, "r") as f:
-        for l in f:
-            _parsed = PwdEntry(l)
-            _uname_uid_mapping[_parsed.pw_name] = _parsed
-
-    return _uname_uid_mapping
-
-
-def _load_dst_grp(dst_group: Path) -> Dict[str, GrpEntry]:
-    # name -> uid
-    _gname_gid_mapping: Dict[str, GrpEntry] = {}
-    with open(dst_group, "r") as f:
-        for l in f:
-            _parsed = GrpEntry(l)
-            _gname_gid_mapping[_parsed.gr_name] = _parsed
-
-    return _gname_gid_mapping
-
-
 class CopyTree:
     def __init__(
         self,
+        src_passwd_file: Path,
+        src_group_file: Path,
         dst_passwd_file: Path,
         dst_group_file: Path,
     ):
-        # cache
-        self._src_uid_uname_mapping: Dict[int, str] = {}
-        self._src_gid_gname_mapping: Dict[int, str] = {}
-
-        # src uname to dst uid
-        self._dst_uname_uid_mapping: Dict[str, PwdEntry] = _load_dst_pwd(
-            dst_passwd_file
-        )
-        # src gname to dst gid
-        self._dst_gname_gid_mapping: Dict[str, GrpEntry] = _load_dst_grp(dst_group_file)
+        self._src_passwd = self._id_to_name_dict(src_passwd_file)
+        self._src_group = self._id_to_name_dict(src_group_file)
+        self._dst_passwd = self._name_to_id_dict(dst_passwd_file)
+        self._dst_group = self._name_to_id_dict(dst_group_file)
 
     def copy_with_parents(self, src: Path, dst_dir: Path):
         dst_path = dst_dir
@@ -97,41 +36,45 @@ class CopyTree:
 
     """ private functions from here """
 
-    def _map_uid_gid(self, src: Path) -> Tuple[int, int]:
-        _stat = src.stat()
-        _src_uid, _src_gid = _stat.st_uid, _stat.st_gid
+    def _id_to_name_dict(self, passwd_or_group_file: Path):
+        lines = open(passwd_or_group_file).readlines()
+        entries = {}
+        for line in lines:
+            e = line.split(":")
+            entries[e[2]] = e[0]  # {uid: name}
+        return entries
 
-        if _src_uid in self._src_uid_uname_mapping:
-            _src_uname = self._src_uid_uname_mapping[_src_uid]
-        else:
-            _src_uname = self._src_uid_uname_mapping.setdefault(
-                _src_uid, pwd.getpwuid(_src_uid).pw_name
-            )
-        _dst_uid = self._dst_uname_uid_mapping[_src_uname].pw_uid
+    def _name_to_id_dict(self, passwd_or_group_file: Path):
+        lines = open(passwd_or_group_file).readlines()
+        entries = {}
+        for line in lines:
+            e = line.split(":")
+            entries[e[0]] = e[2]  # {name: uid}
+        return entries
 
-        if _src_gid in self._src_gid_gname_mapping:
-            _src_gname = self._src_gid_gname_mapping[_src_gid]
-        else:
-            _src_gname = self._src_gid_gname_mapping.setdefault(
-                _src_gid, grp.getgrgid(_src_gid).gr_name
-            )
-        _dst_gid = self._dst_gname_gid_mapping[_src_gname].gr_id
+    # src_uid -> src_name -> dst_name -> dst_uid
+    # src_gid -> src_name -> dst_name -> dst_gid
+    def _convert_src_id_to_dst_id(self, src_uid, src_gid):
+        logger.info(f"src_uid: {src_uid}, src_gid: {src_gid}")
+        user = self._src_passwd[str(src_uid)]
+        uid = self._dst_passwd[user]
+        group = self._src_group[str(src_gid)]
+        gid = self._dst_group[group]
+        logger.info(f"dst_uid: {uid}, dst_gid: {gid}")
+        return int(uid), int(gid)
 
-        return _dst_uid, _dst_gid
-
-    def _copy_stat(self, src: Path, dst: Path):
-        st = src.stat()
+    def _copy_stat(self, src, dst):
+        st = os.stat(src, follow_symlinks=False)
         try:
-            dst_uid, dst_gid = self._map_uid_gid(src)
-        except KeyError:  # In case src UID/GID not found, keep UID/GID as is.
-            logger.warning(
-                f"src_uid: {st.st_uid}, src_gid: {st.st_gid} mapping not found"
+            dst_uid, dst_gid = self._convert_src_id_to_dst_id(
+                st[stat.ST_UID], st[stat.ST_GID]
             )
-            dst_uid, dst_gid = st.st_uid, st.st_gid
-
+        except KeyError:  # In case src UID/GID not found, keep UID/GID as is.
+            logger.warning(f"uid: {st[stat.ST_UID]}, gid: {st[stat.ST_GID]} not found")
+            dst_uid, dst_gid = st[stat.ST_UID], st[stat.ST_GID]
         os.chown(dst, dst_uid, dst_gid, follow_symlinks=False)
         if not dst.is_symlink():  # symlink always 777
-            os.chmod(dst, st.st_mode)
+            os.chmod(dst, st[stat.ST_MODE])
 
     def _copy_preserve(self, src: Path, dst_dir: Path):
         if not dst_dir.is_dir() or dst_dir.is_symlink():

@@ -151,6 +151,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _passwd_file = Path(cfg.PASSWD_FILE)
         _group_file = Path(cfg.GROUP_FILE)
         _copy_tree = CopyTree(
+            src_passwd_file=_passwd_file,
+            src_group_file=_group_file,
             dst_passwd_file=self.standby_slot / _passwd_file.relative_to("/"),
             dst_group_file=self.standby_slot / _group_file.relative_to("/"),
         )
