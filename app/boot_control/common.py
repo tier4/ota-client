@@ -324,12 +324,23 @@ class CMDHelperFuncs:
 class GrubABPartitionDetecter:
     """
     Expected layout:
+    (system boots with legacy BIOS)
         /dev/sdx
             - sdx1: dedicated boot partition
             - sdx2: A partition
             - sdx3: B partition
 
-    slot_name is the dev name of the A/B partition
+    or
+    (system boots with UEFI)
+        /dev/sdx
+            - sdx1: /boot/uefi
+            - sdx2: /boot
+            - sdx3: A partition
+            - sdx4: B partition
+
+    slot_name is the dev name of the A/B partition.
+    We assume that last 2 partitions are A/B partitions, error will be raised
+    if the current rootfs is not one of the last 2 partitions.
     """
 
     def __init__(self) -> None:
@@ -337,19 +348,12 @@ class GrubABPartitionDetecter:
         self.standby_slot, self.standby_dev = self._detect_standby_slot(self.active_dev)
 
     @staticmethod
-    def _get_sibling_dev(slot_dev_path: str) -> str:
-        """
-        Expected partition layout:
-            /dev/sdx
-                - sdx1: dedicated boot partition
-                - sdx2: A partition
-                - sdx3: B partition
-        """
-        parent = CMDHelperFuncs.get_parent_dev(slot_dev_path)
+    def _get_sibling_dev(active_dev: str) -> str:
+        parent = CMDHelperFuncs.get_parent_dev(active_dev)
         family = CMDHelperFuncs.get_dev_family(parent)
 
-        # NOTE: skip the first 2 lines: parent dev and boot dev
-        res = set(family[2:]) - {slot_dev_path}
+        # NOTE: only get the last 2 lines for A/B partitions
+        res = set(family[-2:]) - {active_dev}
         if len(res) == 1:
             return list(res)[0]
         else:
