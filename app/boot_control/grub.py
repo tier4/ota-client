@@ -228,6 +228,7 @@ class _GrubControl:
         ).with_suffix(f".{self.standby_slot}")
         self.standby_grub_file = self.standby_ota_partition_folder / "grub.cfg"
 
+        # create ota-partition folders for each
         self.active_ota_partition_folder.mkdir(exist_ok=True)
         self.standby_ota_partition_folder.mkdir(exist_ok=True)
 
@@ -257,9 +258,17 @@ class _GrubControl:
         """
         kernel, initrd = None, None
         for f in target_folder.glob("*"):
-            if not f.is_symlink() and f.name.find(GrubHelper.VMLINUZ) == 0:
+            if (
+                f.name.find(GrubHelper.VMLINUZ) == 0
+                and not f.is_symlink()
+                and kernel is None
+            ):
                 kernel = f.name
-            elif not f.is_symlink() and f.name.find(GrubHelper.INITRD) == 0:
+            elif (
+                f.name.find(GrubHelper.INITRD) == 0
+                and not f.is_symlink()
+                and initrd is None
+            ):
                 initrd = f.name
             elif kernel and initrd:
                 break
@@ -378,16 +387,16 @@ class _GrubControl:
     ###### public methods ######
     def reprepare_active_ota_partition_file(self, *, abort_on_standby_missed: bool):
         self._prepare_kernel_initrd_links_for_ota(self.active_ota_partition_folder)
-        self._ensure_ota_partition_symlinks()
         self._grub_update_for_active_slot(
             abort_on_standby_missed=abort_on_standby_missed
         )
+        self._ensure_ota_partition_symlinks()
 
     def reprepare_standby_ota_partition_file(self):
+        """NOTE: this method still updates active grub file under active ota-partition folder."""
         self._prepare_kernel_initrd_links_for_ota(self.standby_ota_partition_folder)
-        self._ensure_ota_partition_symlinks()
-        # NOTE: always update active slots' grub file
         self._grub_update_for_active_slot(abort_on_standby_missed=True)
+        self._ensure_ota_partition_symlinks()
 
     def init_active_ota_partition_file(self):
         """Prepare active ota-partition folder and ensure the existence of
