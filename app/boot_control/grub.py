@@ -112,7 +112,6 @@ class GrubHelper:
         "GRUB_TIMEOUT": "10",
         "GRUB_DISABLE_SUBMENU": "y",
         "GRUB_DISABLE_OS_PROBER": "true",
-        "GRUB_DEFAULT": "'Ubuntu, with Linux ota'",
         "GRUB_DISABLE_RECOVERY": "true",
     }
 
