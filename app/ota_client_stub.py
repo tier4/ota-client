@@ -9,15 +9,11 @@ from functools import partial
 from multiprocessing import Process
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import _pathloader
-
-assert _pathloader
-
 from app.boot_control import get_boot_controller
 from app.create_standby import get_standby_slot_creator
 from app.errors import OTAFailureType
 
-import app.otaclient_v2_pb2 as v2
+from app.proto import v2
 from app.ota_status import OTAStatusEnum
 from app.ota_client import OTAClient, OTAUpdateFSM
 from app.ota_client_call import OtaClientCall
