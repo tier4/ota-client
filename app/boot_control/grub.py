@@ -402,6 +402,10 @@ class _GrubControl:
         """Prepare active ota-partition folder and ensure the existence of
         symlinks needed for ota update.
 
+        GrubController supports migrates system that doesn't boot via ota-partition
+        mechanism(possibly using different grub configuration, i.e., grub submenu enabled)
+        to use ota-partition.
+
         NOTE:
         1. only update the ota-partition.<active_slot>/grub.cfg!
         2. standby slot is not considered here!
