@@ -240,6 +240,9 @@ def copytree_identical(src: Path, dst: Path):
 def re_symlink_atomic(src: Path, target: Union[Path, str]):
     """Make the <src> a symlink to <target> atomically.
 
+    If the src is already existed as a file/symlink,
+    the src will be replaced by the newly created link unconditionally.
+
     NOTE: os.rename is atomic when src and dst are on
     the same filesystem under linux.
     """

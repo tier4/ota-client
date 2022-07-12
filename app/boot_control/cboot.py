@@ -32,7 +32,9 @@ from app.errors import (
 )
 from app.ota_status import OTAStatusEnum
 
-assert BOOT_LOADER == "cboot", f"ERROR, try to use cboot on {BOOT_LOADER}, abort"
+assert (
+    BOOT_LOADER == "cboot"
+), f"ERROR, use cboot instead of detected {BOOT_LOADER=}, abort"
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

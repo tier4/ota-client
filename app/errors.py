@@ -26,7 +26,7 @@ class OTAModules(Enum):
 
 
 @unique
-class OTA_API(Enum):
+class OTAAPI(Enum):
     Unspecific = 0
     Update = 1
     Rollback = 2
@@ -55,7 +55,7 @@ class OTA_APIError(Exception):
     This exception must be created by wrapping an OTAClientError.
     """
 
-    api: OTA_API
+    api: OTAAPI
     _err_prefix = "E"
 
     def __init__(self, ota_err: OTAError, *args: object) -> None:
@@ -105,7 +105,7 @@ class OTA_APIError(Exception):
 
 
 class OTAUpdateError(OTA_APIError):
-    api: OTA_API = OTA_API.Update
+    api: OTAAPI = OTAAPI.Update
 
 
 @unique

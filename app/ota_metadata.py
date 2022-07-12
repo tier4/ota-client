@@ -415,18 +415,18 @@ class RegularInf:
 
         return False
 
-    def make_relative_to_slot(self, slot_mp: Union[Path, str]) -> Path:
-        return Path(slot_mp) / self.path.relative_to(self._base)
+    def make_relative_to_mount_point(self, mp: Union[Path, str]) -> Path:
+        return Path(mp) / self.path.relative_to(self._base)
 
     def verify_file(self, *, src_slot_mp: Union[Path, str]) -> bool:
         return verify_file(
-            self.make_relative_to_slot(src_slot_mp), self.sha256hash, self.size
+            self.make_relative_to_mount_point(src_slot_mp), self.sha256hash, self.size
         )
 
     def copy_to_slot(self, dst_slot_mp: Union[Path, str], /, *, src_slot_mp: Path):
         """Copy file pointed by self to the dst bank."""
-        _src = self.make_relative_to_slot(src_slot_mp)
-        _dst = self.make_relative_to_slot(dst_slot_mp)
+        _src = self.make_relative_to_mount_point(src_slot_mp)
+        _dst = self.make_relative_to_mount_point(dst_slot_mp)
         shutil.copy2(_src, _dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)
@@ -434,7 +434,7 @@ class RegularInf:
 
     def copy_to_dst(self, dst: Union[Path, str], /, *, src_slot_mp: Path):
         """Copy file pointed by self to the dst."""
-        _src = self.make_relative_to_slot(src_slot_mp)
+        _src = self.make_relative_to_mount_point(src_slot_mp)
         shutil.copy2(_src, dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(dst, self.uid, self.gid)
@@ -442,7 +442,7 @@ class RegularInf:
 
     def copy_from_src(self, src: Union[Path, str], *, dst_slot_mp: Path):
         """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.make_relative_to_slot(dst_slot_mp)
+        _dst = self.make_relative_to_mount_point(dst_slot_mp)
         shutil.copy2(src, _dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)
@@ -450,8 +450,8 @@ class RegularInf:
 
     def move_from_src(self, src: Union[Path, str], *, dst_slot_mp: Path):
         """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.make_relative_to_slot(dst_slot_mp)
-        shutil.move(src, _dst)
+        _dst = self.make_relative_to_mount_point(dst_slot_mp)
+        shutil.move(str(src), _dst)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)
         os.chmod(_dst, self.mode)

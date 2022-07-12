@@ -265,7 +265,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 cur_stat.op = RegInfProcessedStats.OP_LINK
                 _identifier = entry.sha256hash if entry.inode is None else entry.inode
 
-                _dst = entry.make_relative_to_slot(_mount_point)
+                _dst = entry.make_relative_to_mount_point(_mount_point)
                 _hardlink_tracker, _is_writer = self._hardlink_register.get_tracker(
                     _identifier, _dst, entry.nlink
                 )
