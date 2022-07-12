@@ -243,6 +243,21 @@ class CMDHelperFuncs:
         )
 
     @classmethod
+    def get_dev_size(cls, dev: str) -> int:
+        """Return the size of dev by bytes.
+
+        NOTE:
+            -d: print the result from specified dev only
+            -b: print size in bytes
+            -n: no headings
+        """
+        cmd = f"-dbn -o SIZE {dev}"
+        try:
+            return int(cls._lsblk(cmd))
+        except ValueError:
+            raise ValueError(f"failed to get size of {dev}") from None
+
+    @classmethod
     def mount_rw(cls, target: str, mount_point: Union[Path, str]):
         """
         NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
