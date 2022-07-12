@@ -1,6 +1,6 @@
 import grpc.aio
 
-import app.otaclient_v2_pb2_grpc as v2_grpc
+import app.proto.otaclient_v2_pb2_grpc as v2_grpc
 from app import log_util
 from app.configs import config as cfg
 

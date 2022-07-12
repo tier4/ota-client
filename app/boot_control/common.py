@@ -393,7 +393,7 @@ class GrubABPartitionDetecter:
         # list children device file from parent device
         cmd = f"-Pp -o NAME,FSTYPE {parent}"
         # exclude parent dev
-        output = subprocess_check_output(cmd).splitlines()[1:]
+        output = CMDHelperFuncs._lsblk(cmd).splitlines()[1:]
         # FSTYPE="ext4" and
         # not (parent_device_file, root_device_file and boot_device_file)
         for blk in output:
