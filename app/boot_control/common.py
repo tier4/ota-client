@@ -1,6 +1,7 @@
 r"""Shared utils for boot_controller."""
 from enum import auto, Enum
 from pathlib import Path
+import re
 from subprocess import CalledProcessError
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -217,6 +218,11 @@ class CMDHelperFuncs:
         return mount_points
 
     @classmethod
+    def get_dev_by_mount_point(cls, mount_point: str) -> str:
+        """Return the underlying mounted dev of the given mount_point."""
+        return cls._findmnt(f"-no SOURCE {mount_point}")
+
+    @classmethod
     def is_target_mounted(cls, target: Union[Path, str]) -> bool:
         return cls._findmnt(f"{target}") != ""
 
@@ -374,19 +380,32 @@ class GrubABPartitionDetecter:
         self.active_slot, self.active_dev = self._detect_active_slot()
         self.standby_slot, self.standby_dev = self._detect_standby_slot(self.active_dev)
 
-    @staticmethod
-    def _get_sibling_dev(active_dev: str) -> str:
+    def _get_sibling_dev(self, active_dev: str) -> str:
+        """
+        NOTE: revert to use previous detection mechanism.
+        TODO: refine this method.
+        """
         parent = CMDHelperFuncs.get_parent_dev(active_dev)
-        family = CMDHelperFuncs.get_dev_family(parent)
+        boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
+        if not boot_dev:
+            raise ABPartitionError(f"/boot is not mounted")
 
-        # NOTE: only get the last 2 lines for A/B partitions
-        res = set(family[-2:]) - {active_dev}
-        if len(res) == 1:
-            return list(res)[0]
-        else:
-            raise ABPartitionError(
-                f"device is has unexpected partition layout: {family=}"
-            )
+        # list children device file from parent device
+        cmd = f"-Pp -o NAME,FSTYPE {parent}"
+        # exclude parent dev
+        output = subprocess_check_output(cmd).splitlines()[1:]
+        # FSTYPE="ext4" and
+        # not (parent_device_file, root_device_file and boot_device_file)
+        for blk in output:
+            if m := re.search(r'NAME="(.*)"\s+FSTYPE="(.*)"', blk):
+                if (
+                    m.group(1) != active_dev
+                    and m.group(1) != boot_dev
+                    and m.group(2) == "ext4"
+                ):
+                    return m.group(1)
+
+        raise ABPartitionError(f"{parent=} has unexpected partition layout: {output=}")
 
     def _detect_active_slot(self) -> Tuple[str, str]:
         """
