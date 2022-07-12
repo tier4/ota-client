@@ -206,6 +206,8 @@ class GrubHelper:
 
 
 class _GrubControl:
+    """Implementation of ota-partition switch boot mechanism."""
+
     def __init__(self) -> None:
         """NOTE: init only, no changes will be made in the __init__."""
         ab_detecter = GrubABPartitionDetecter()
@@ -352,11 +354,19 @@ class _GrubControl:
             logger.info(f"generated grub_cfg: {pformat(grub_cfg)}")
             write_to_file_sync(self.active_grub_file, grub_cfg)
 
+        # finally, symlink /boot/grub.cfg to ../ota-partition/grub.cfg
+        ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
+        re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
+            self.grub_file,
+            Path("../") / ota_partition_folder / "grub.cfg",
+        )
         logger.info(f"update_grub for {self.active_slot} finished.")
 
     def _ensure_ota_partition_symlinks(self):
         """
         NOTE: this method prepare symlinks from active slot's point of view.
+        NOTE 2: grub_cfg symlink will not be generated here, it will be linked
+                in grub_update method
         """
         # prepare ota-partition symlinks
         ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
@@ -382,24 +392,20 @@ class _GrubControl:
             ota_partition_folder.with_suffix(f".{self.standby_slot}")
             / GrubHelper.INITRD_OTA,
         )
-        re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
-            self.grub_file,
-            Path("../") / ota_partition_folder / "grub.cfg",
-        )
 
     ###### public methods ######
     def reprepare_active_ota_partition_file(self, *, abort_on_standby_missed: bool):
         self._prepare_kernel_initrd_links_for_ota(self.active_ota_partition_folder)
+        self._ensure_ota_partition_symlinks()
         self._grub_update_for_active_slot(
             abort_on_standby_missed=abort_on_standby_missed
         )
-        self._ensure_ota_partition_symlinks()
 
     def reprepare_standby_ota_partition_file(self):
         """NOTE: this method still updates active grub file under active ota-partition folder."""
         self._prepare_kernel_initrd_links_for_ota(self.standby_ota_partition_folder)
-        self._grub_update_for_active_slot(abort_on_standby_missed=True)
         self._ensure_ota_partition_symlinks()
+        self._grub_update_for_active_slot(abort_on_standby_missed=True)
 
     def init_active_ota_partition_file(self):
         """Prepare active ota-partition folder and ensure the existence of
@@ -412,23 +418,26 @@ class _GrubControl:
         NOTE:
         1. only update the ota-partition.<active_slot>/grub.cfg!
         2. standby slot is not considered here!
+        3. expected previously booted kernel/initrd to be located at /boot
         """
         # check the current booted kernel,
         # if it is not vmlinuz-ota, copy that kernel to active ota_partition folder
         cur_kernel, cur_initrd = self._get_current_booted_kernel_and_initrd()
-        if not (
-            cur_kernel != GrubHelper.KERNEL_OTA and cur_initrd != GrubHelper.INITRD_OTA
-        ):
+        if cur_kernel != GrubHelper.KERNEL_OTA or cur_initrd != GrubHelper.INITRD_OTA:
             logger.info(
-                "system doesn't use ota-partition mechanism to boot"
+                "system doesn't use ota-partition mechanism to boot, "
                 "initializing ota-partition file..."
             )
             # NOTE: just copy but not cleanup the existed kernel/initrd files
             shutil.copy(
-                cur_kernel, self.active_ota_partition_folder, follow_symlinks=True
+                self.boot_dir / cur_kernel,
+                self.active_ota_partition_folder,
+                follow_symlinks=True,
             )
             shutil.copy(
-                cur_initrd, self.active_ota_partition_folder, follow_symlinks=True
+                self.boot_dir / cur_initrd,
+                self.active_ota_partition_folder,
+                follow_symlinks=True,
             )
             self.reprepare_active_ota_partition_file(abort_on_standby_missed=False)
 
