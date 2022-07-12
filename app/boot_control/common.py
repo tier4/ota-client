@@ -235,18 +235,24 @@ class CMDHelperFuncs:
             raise ValueError(f"{child_device} not found or not a partition")
 
     @classmethod
-    def get_dev_family(cls, parent_device: str) -> List[str]:
+    def get_dev_family(cls, parent_device: str, *, include_parent=True) -> List[str]:
         """
         When `/dev/nvme0n1` is specified as parent_device,
         ["/dev/nvme0n1", "/dev/nvme0n1p1", "/dev/nvme0n1p2"...] will be return
         """
         cmd = f"-Pp -o NAME {parent_device}"
-        return list(
+        res = list(
             map(
                 lambda l: l.split("=")[-1].strip('"'),
                 cls._lsblk(cmd).splitlines(),
             )
         )
+
+        # the first line is the parent of the dev family
+        if include_parent:
+            return res
+        else:
+            return res[1:]
 
     @classmethod
     def get_dev_size(cls, dev: str) -> int:
