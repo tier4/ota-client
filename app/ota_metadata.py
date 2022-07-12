@@ -286,8 +286,8 @@ class DirectoryInf(_BaseInf):
     def __hash__(self) -> int:
         return hash(self.path)
 
-    def mkdir_to_slot(self, dst_slot_mp: Union[Path, str]):
-        _target = Path(dst_slot_mp) / self.path.relative_to("/")
+    def mkdir_relative_to_mount_point(self, mount_point: Union[Path, str]):
+        _target = Path(mount_point) / self.path.relative_to("/")
         _target.mkdir(parents=True, exist_ok=True)
         os.chmod(_target, self.mode)
         os.chown(_target, self.uid, self.gid)
@@ -318,9 +318,9 @@ class SymbolicLinkInf(_BaseInf):
 
         del self._left
 
-    def link_at_slot(self, dst_slot_mp: Union[Path, str]):
+    def link_at_mount_point(self, mount_point: Union[Path, str]):
         # NOTE: symbolic link in /boot directory is not supported. We don't use it.
-        _newlink = Path(dst_slot_mp) / self.slink.relative_to("/")
+        _newlink = Path(mount_point) / self.slink.relative_to("/")
         _newlink.symlink_to(self.srcpath)
         # set the permission on the file itself
         os.chown(_newlink, self.uid, self.gid, follow_symlinks=False)
@@ -418,39 +418,44 @@ class RegularInf:
     def make_relative_to_mount_point(self, mp: Union[Path, str]) -> Path:
         return Path(mp) / self.path.relative_to(self._base)
 
-    def verify_file(self, *, src_slot_mp: Union[Path, str]) -> bool:
+    def verify_file(self, *, src_mount_point: Union[Path, str]) -> bool:
+        """Verify file that with the path relative to <src_mount_point>."""
         return verify_file(
-            self.make_relative_to_mount_point(src_slot_mp), self.sha256hash, self.size
+            self.make_relative_to_mount_point(src_mount_point),
+            self.sha256hash,
+            self.size,
         )
 
-    def copy_to_slot(self, dst_slot_mp: Union[Path, str], /, *, src_slot_mp: Path):
-        """Copy file pointed by self to the dst bank."""
-        _src = self.make_relative_to_mount_point(src_slot_mp)
-        _dst = self.make_relative_to_mount_point(dst_slot_mp)
+    def copy_relative_to_mount_point(
+        self, dst_mount_point: Union[Path, str], /, *, src_mount_point: Path
+    ):
+        """Copy file to the path that relative to dst_mount_point, from src_mount_point."""
+        _src = self.make_relative_to_mount_point(src_mount_point)
+        _dst = self.make_relative_to_mount_point(dst_mount_point)
         shutil.copy2(_src, _dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)
         os.chmod(_dst, self.mode)
 
-    def copy_to_dst(self, dst: Union[Path, str], /, *, src_slot_mp: Path):
+    def copy_to_dst(self, dst: Union[Path, str], /, *, src_mount_point: Path):
         """Copy file pointed by self to the dst."""
-        _src = self.make_relative_to_mount_point(src_slot_mp)
+        _src = self.make_relative_to_mount_point(src_mount_point)
         shutil.copy2(_src, dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(dst, self.uid, self.gid)
         os.chmod(dst, self.mode)
 
-    def copy_from_src(self, src: Union[Path, str], *, dst_slot_mp: Path):
+    def copy_from_src(self, src: Union[Path, str], *, dst_mount_point: Path):
         """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.make_relative_to_mount_point(dst_slot_mp)
+        _dst = self.make_relative_to_mount_point(dst_mount_point)
         shutil.copy2(src, _dst, follow_symlinks=False)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)
         os.chmod(_dst, self.mode)
 
-    def move_from_src(self, src: Union[Path, str], *, dst_slot_mp: Path):
+    def move_from_src(self, src: Union[Path, str], *, dst_mount_point: Path):
         """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.make_relative_to_mount_point(dst_slot_mp)
+        _dst = self.make_relative_to_mount_point(dst_mount_point)
         shutil.move(str(src), _dst)
         # still ensure permission on dst
         os.chown(_dst, self.uid, self.gid)

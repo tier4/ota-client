@@ -68,8 +68,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         # path configuration
         self.boot_dir = Path(update_meta.boot_dir)
-        self.standby_slot = Path(update_meta.standby_slot_mount_point)
-        self.reference_slot = Path(update_meta.ref_slot_mount_point)
+        self.standby_slot_mp = Path(update_meta.standby_slot_mount_point)
+        self.reference_slot_mp = Path(update_meta.ref_slot_mount_point)
 
         # the location of image at the ota server root
         self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
@@ -77,9 +77,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
-        self._recycle_folder = self.standby_slot / Path(cfg.OTA_TMP_STORE).relative_to(
-            "/"
-        )
+        self._recycle_folder = self.standby_slot_mp / Path(
+            cfg.OTA_TMP_STORE
+        ).relative_to("/")
         self._recycle_folder.mkdir()
 
         # configure the downloader
@@ -123,7 +123,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 old_reg=Path(self.META_FOLDER) / "regulars.txt",
                 new_reg=self._recycle_folder / "regulars.txt",
                 new_dirs=self._recycle_folder / "dirs.txt",
-                ref_root=self.reference_slot,
+                ref_root=self.reference_slot_mp,
                 recycle_folder=self._recycle_folder,
                 stats_collector=self.stats_collector,
             )
@@ -141,7 +141,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # NOTE: now apply dirs.txt moved to here
         self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
         for entry in self.delta_bundle.new_dirs:
-            entry.mkdir_to_slot(self.standby_slot)
+            entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
     def _process_persistents(self):
         """NOTE: just copy from legacy mode"""
@@ -153,8 +153,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _copy_tree = CopyTree(
             src_passwd_file=_passwd_file,
             src_group_file=_group_file,
-            dst_passwd_file=self.standby_slot / _passwd_file.relative_to("/"),
-            dst_group_file=self.standby_slot / _group_file.relative_to("/"),
+            dst_passwd_file=self.standby_slot_mp / _passwd_file.relative_to("/"),
+            dst_group_file=self.standby_slot_mp / _group_file.relative_to("/"),
         )
 
         with open(self._recycle_folder / "persistents.txt", "r") as f:
@@ -165,11 +165,11 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     or perinf.path.is_dir()
                     or perinf.path.is_symlink()
                 ):  # NOTE: not equivalent to perinf.path.exists()
-                    _copy_tree.copy_with_parents(perinf.path, self.standby_slot)
+                    _copy_tree.copy_with_parents(perinf.path, self.standby_slot_mp)
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
-        _dst = self.standby_slot / Path(self.META_FOLDER).relative_to("/")
+        _dst = self.standby_slot_mp / Path(self.META_FOLDER).relative_to("/")
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")
@@ -180,7 +180,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _process_symlinks(self):
         with open(self._recycle_folder / "symlinks.txt", "r") as f:
             for l in f:
-                SymbolicLinkInf(l).link_at_slot(self.standby_slot)
+                SymbolicLinkInf(l).link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):
         self.update_phase_tracker(OTAUpdatePhase.REGULAR)
@@ -242,7 +242,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
             # special treatment on /boot folder
             _mount_point = (
-                self.standby_slot if not entry._base == "/boot" else self.boot_dir
+                self.standby_slot_mp if not entry._base == "/boot" else self.boot_dir
             )
 
             # prepare this entry
@@ -253,9 +253,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     cur_stat.op = RegInfProcessedStats.OP_COPY
 
                 if is_last:  # move the tmp entry to the dst
-                    entry.move_from_src(_local_copy, dst_slot_mp=_mount_point)
+                    entry.move_from_src(_local_copy, dst_mount_point=_mount_point)
                 else:  # copy from the tmp dir
-                    entry.copy_from_src(_local_copy, dst_slot_mp=_mount_point)
+                    entry.copy_from_src(_local_copy, dst_mount_point=_mount_point)
 
             # case 2: hardlink file
             else:
@@ -272,7 +272,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
                 # writer
                 if _is_writer:
-                    entry.copy_from_src(_local_copy, dst_slot_mp=_mount_point)
+                    entry.copy_from_src(_local_copy, dst_mount_point=_mount_point)
                 # subscriber
                 else:
                     _src = _hardlink_tracker.subscribe_no_wait()

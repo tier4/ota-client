@@ -56,8 +56,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
         self.stats_collector = stats_collector
         self.update_phase_tracker: Callable = update_phase_tracker
 
-        self.reference_slot = Path(update_meta.ref_slot_mount_point)
-        self.standby_slot = Path(update_meta.standby_slot_mount_point)
+        self.reference_slot_mp = Path(update_meta.ref_slot_mount_point)
+        self.standby_slot_mp = Path(update_meta.standby_slot_mount_point)
         self.boot_dir = Path(update_meta.boot_dir)
 
         # the location of image at the ota server root
@@ -96,7 +96,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
             with open(f.name, "r") as dir_txt:
                 for line in dir_txt:
                     dirinf = DirectoryInf(line)
-                    target_path = self.standby_slot.joinpath(
+                    target_path = self.standby_slot_mp.joinpath(
                         dirinf.path.relative_to("/")
                     )
 
@@ -125,7 +125,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 for line in symlink_txt:
                     # NOTE: symbolic link in /boot directory is not supported. We don't use it.
                     slinkf = SymbolicLinkInf(line)
-                    slinkf.link_at_slot(self.standby_slot)
+                    slinkf.link_at_mount_point(self.standby_slot_mp)
 
     def _process_regular(self):
         self.update_phase_tracker(OTAUpdatePhase.REGULAR)
@@ -167,8 +167,9 @@ class LegacyMode(StandbySlotCreatorProtocol):
             copy_tree = CopyTree(
                 src_passwd_file=self._passwd_file,
                 src_group_file=self._group_file,
-                dst_passwd_file=self.standby_slot / self._passwd_file.relative_to("/"),
-                dst_group_file=self.standby_slot / self._group_file.relative_to("/"),
+                dst_passwd_file=self.standby_slot_mp
+                / self._passwd_file.relative_to("/"),
+                dst_group_file=self.standby_slot_mp / self._group_file.relative_to("/"),
             )
 
             with open(f.name, "r") as persist_txt:
@@ -179,7 +180,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         or perinf.path.is_dir()
                         or perinf.path.is_symlink()
                     ):  # NOTE: not equivalent to perinf.path.exists()
-                        copy_tree.copy_with_parents(perinf.path, self.standby_slot)
+                        copy_tree.copy_with_parents(perinf.path, self.standby_slot_mp)
 
     def _create_regular_file(self, reginf: RegularInf, *, download_se: Semaphore):
         # thread_time for multithreading function
@@ -193,7 +194,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         if str(reginf.path).startswith("/boot"):
             dst = self.boot_dir / reginf.path.relative_to("/boot")
         else:
-            dst = self.standby_slot / reginf.path.relative_to("/")
+            dst = self.standby_slot_mp / reginf.path.relative_to("/")
 
         # case 1: if is_hardlink file, get a tracker from the register
         if reginf.nlink >= 2:
@@ -212,18 +213,18 @@ class LegacyMode(StandbySlotCreatorProtocol):
             if not _is_writer:
                 # wait until the first copy is ready
                 prev_reginf_path = _hardlink_tracker.subscribe()
-                (self.standby_slot / prev_reginf_path.relative_to("/")).link_to(dst)
+                (self.standby_slot_mp / prev_reginf_path.relative_to("/")).link_to(dst)
                 processed.op = RegInfProcessedStats.OP_LINK
 
             # case 1.2: is hardlink and is writer
             else:
                 try:
                     if reginf.path.is_file() and reginf.verify_file(
-                        src_slot_mp=self.reference_slot
+                        src_mount_point=self.reference_slot_mp
                     ):
                         # copy file from active bank if hash is the same
-                        reginf.copy_to_slot(
-                            self.standby_slot, src_slot_mp=self.reference_slot
+                        reginf.copy_relative_to_mount_point(
+                            self.standby_slot_mp, src_mount_point=self.reference_slot_mp
                         )
                         processed.op = RegInfProcessedStats.OP_COPY
                     else:
@@ -254,10 +255,12 @@ class LegacyMode(StandbySlotCreatorProtocol):
         # case 2: normal file
         else:
             if reginf.path.is_file() and reginf.verify_file(
-                src_slot_mp=self.reference_slot
+                src_mount_point=self.reference_slot_mp
             ):
                 # copy file from active bank if hash is the same
-                reginf.copy_to_slot(self.standby_slot, src_slot_mp=self.reference_slot)
+                reginf.copy_relative_to_mount_point(
+                    self.standby_slot_mp, src_mount_point=self.reference_slot_mp
+                )
                 processed.op = RegInfProcessedStats.OP_COPY
             else:
                 # limit the concurrent downloading tasks
