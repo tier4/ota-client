@@ -224,9 +224,15 @@ class CMDHelperFuncs:
     def get_parent_dev(cls, child_device: str) -> str:
         """
         When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
+
+        cmd params:
+            -d: print the result from specified dev only.
         """
-        cmd = f"-ipn -o PKNAME {child_device}"
-        return cls._lsblk(cmd)
+        cmd = f"-idpn -o PKNAME {child_device}"
+        if res := cls._lsblk(cmd):
+            return res
+        else:
+            raise ValueError(f"{child_device} not found or not a partition")
 
     @classmethod
     def get_dev_family(cls, parent_device: str) -> List[str]:
