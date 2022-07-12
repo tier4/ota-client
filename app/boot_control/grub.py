@@ -238,8 +238,8 @@ class _GrubControl:
         """Return the name of booted kernel and initrd."""
         boot_cmdline = read_from_file("/proc/cmdline")
         if kernel_ma := re.search(
+            r"BOOT_IMAGE=.*(?P<kernel>vmlinuz-(?P<ver>[\w\.\-]*))",
             boot_cmdline,
-            r".*BOOT_IMAGE=[^ ]*(?P<kernel>vmlinuz-(?P<ver>[\w\.\-]*))",
         ):
             kernel_ver = kernel_ma.group("ver")
         else:
@@ -249,6 +249,7 @@ class _GrubControl:
         _, entry = GrubHelper.get_entry(
             read_from_file(self.grub_file), kernel_ver=kernel_ver
         )
+        logger.info(f"detected booted param: {entry.linux=}, {entry.initrd=}")
         return entry.linux, entry.initrd
 
     @staticmethod
