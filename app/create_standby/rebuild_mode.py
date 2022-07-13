@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
-from app.errors import OTAError, StandbySlotSpaceNotEnoughError
+from app.errors import NetworkError, OTAError, StandbySlotSpaceNotEnoughError
 
 from app.common import SimpleTasksTracker, OTAFileCacheControl
 from app.create_standby.common import HardlinkRegister, RegularInfSet, DeltaGenerator
@@ -194,7 +194,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         )
 
         # apply delta
-        logger.info("start applying delta")
+        logger.info("start applying delta...")
         with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
             for _hash, _regulars_set in self.delta_bundle.new_delta.items():
                 _tasks_tracker.add_task()
@@ -204,6 +204,11 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _regulars_set,
                     download_se=_download_se,
                 ).add_done_callback(_tasks_tracker.done_callback)
+
+                # interrupt update if _tasks_tracker collects error
+                if e := _tasks_tracker.last_error:
+                    logger.error(f"interrupt update due to {e!r}")
+                    raise ApplyOTAUpdateFailed from e
 
             logger.info(
                 "all process_regulars tasks are dispatched, wait for finishing..."
@@ -314,6 +319,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             raise  # if the error is already specified and wrapped, just raise again
         except DownloadFailedSpaceNotEnough:
             raise StandbySlotSpaceNotEnoughError from None
+        except (ExceedMaxRetryError, ChunkStreamingError) as e:
+            raise NetworkError from e
         except Exception as e:
             # TODO: cover all errors and mapping to specific OTAError type
             raise ApplyOTAUpdateFailed from e

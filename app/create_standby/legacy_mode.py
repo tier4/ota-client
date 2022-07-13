@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable
 from urllib.parse import urljoin
-from app.errors import OTAError, StandbySlotSpaceNotEnoughError
+from app.errors import ApplyOTAUpdateFailed, OTAError, StandbySlotSpaceNotEnoughError
 
 from app.common import SimpleTasksTracker, OTAFileCacheControl
 from app.configs import config as cfg
@@ -314,6 +314,11 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     download_se=_download_se,
                 ).add_done_callback(_tasks_tracker.done_callback)
 
+                # interrupt update if _tasks_tracker collects error
+                if e := _tasks_tracker.last_error:
+                    logger.error(f"interrupt update due to {e!r}")
+                    raise ApplyOTAUpdateFailed from e
+
             logger.info(
                 "all process_regulars tasks are dispatched, wait for finishing..."
             )
@@ -344,4 +349,4 @@ class LegacyMode(StandbySlotCreatorProtocol):
             raise NetworkError from e
         except Exception as e:
             # TODO: define specified error code
-            raise OTAErrorRecoverable from e
+            raise ApplyOTAUpdateFailed from e
