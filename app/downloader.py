@@ -10,7 +10,6 @@ from requests.exceptions import (
     ChunkedEncodingError,
     StreamConsumedError,
 )
-from urllib3.exceptions import MaxRetryError
 
 from app.configs import config as cfg
 from app.common import OTAFileCacheControl

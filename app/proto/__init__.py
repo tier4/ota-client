@@ -23,8 +23,6 @@ def _import_proto():
     NOTE: compiled protobuf files under proto folder will be
     imported as modules to the global namespace.
     """
-    import sys
-
     proto_dir = Path(__file__).parent
     # load modules
     # NOTE: order matters here! v2_pb2_grpc depends on v2_pb2

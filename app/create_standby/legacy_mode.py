@@ -17,7 +17,7 @@ from app.downloader import (
     Downloader,
     ExceedMaxRetryError,
 )
-from app.errors import NetworkError, OTAErrorRecoverable
+from app.errors import NetworkError
 from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
     DirectoryInf,

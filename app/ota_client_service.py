@@ -17,17 +17,13 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         self._stub = ota_client_stub
 
     async def Update(self, request: v2.UpdateRequest, context) -> v2.UpdateResponse:
-        logger.info(f"{request=}")
         response = await self._stub.update(request)
-        logger.info(f"{response=}")
         return response
 
     async def Rollback(
         self, request: v2.RollbackRequest, context
     ) -> v2.RollbackResponse:
-        logger.info(f"{request=}")
         response = await self._stub.rollback(request)
-        logger.info(f"{response=}")
         return response
 
     async def Status(self, request: v2.StatusRequest, context) -> v2.StatusResponse:
