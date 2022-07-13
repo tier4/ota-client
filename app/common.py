@@ -271,9 +271,14 @@ class SimpleTasksTracker:
     """
 
     def __init__(
-        self, *, max_concurrent: int, title: str = "simple_tasks_tracker"
+        self,
+        *,
+        max_concurrent: int,
+        title: str = "simple_tasks_tracker",
+        interrupt_pending_on_exception=True,
     ) -> None:
         self.title = title
+        self.interrupt_pending_on_exception = interrupt_pending_on_exception
         self._wait_interval = cfg.STATS_COLLECT_INTERVAL
         self.last_error = None
         self._se = Semaphore(max_concurrent)
@@ -288,6 +293,11 @@ class SimpleTasksTracker:
 
         self._futs: List[Future] = []
 
+    def _terminate_pending_task(self):
+        """Cancel all the pending tasks."""
+        for fut in self._futs:
+            fut.cancel()
+
     def add_task(self, fut: Future):
         if self._interrupted.is_set() or self._register_finished:
             return
@@ -295,11 +305,6 @@ class SimpleTasksTracker:
         self._se.acquire()
         self._in_num = next(self._in_counter)
         self._futs.append(fut)
-
-    def terminate_pending_task(self):
-        """Cancel all the pending tasks."""
-        for fut in self._futs:
-            fut.cancel()
 
     def task_collect_finished(self):
         self._register_finished = True
@@ -314,7 +319,8 @@ class SimpleTasksTracker:
         except Exception as e:
             self.last_error = e
             self._interrupted.set()
-            self.terminate_pending_task()
+            if self.interrupt_pending_on_exception:
+                self._terminate_pending_task()
 
     def wait(
         self,
