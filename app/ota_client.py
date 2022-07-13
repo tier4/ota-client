@@ -357,7 +357,6 @@ class OTAClient(OTAClientInterface):
         except OTAUpdateError as e:
             self.live_ota_status.set_ota_status(OTAStatusEnum.FAILURE)
             self.last_failure = e
-            raise  # raise to signal upper caller
         finally:
             self._update_lock.release()
 
