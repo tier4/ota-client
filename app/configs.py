@@ -12,13 +12,10 @@ class CreateStandbyMechanism(Enum):
 @dataclass(frozen=True)
 class OtaClientServerConfig:
     SERVER_PORT: str = "50051"
-    PRE_UPDATE_TIMEOUT: float = 300  # 5mins
-    WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT: float = 300  # 5mins
-    WAITING_GET_SUBECU_STATUS: float = 300  # 5mins
-    WAITING_SUBECU_READY_TIMEOUT: float = 3600  # 1h
-    QUERYING_SUBECU_STATUS_TIMEOUT: float = 120  # 2mins
+    WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT: float = 6
+    QUERYING_SUBECU_STATUS_TIMEOUT: float = 30
     LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 10
-    QUERY_SUBECU_STATUS_INTERVAL: float = 3
+    STATUS_UPDATE_INTERVAL: float = 1
 
     # proxy server
     OTA_PROXY_LISTEN_ADDRESS: str = "0.0.0.0"
@@ -68,7 +65,7 @@ class BaseConfig:
     CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
     LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024 # 4MB
     DOWNLOAD_RETRY: int = 5
-    DOWNLOAD_BACKOFF_MAX: int = 10 # seconds
+    DOWNLOAD_BACKOFF_MAX: int = 3 # seconds
     MAX_CONCURRENT_DOWNLOAD: int = 8
     MAX_CONCURRENT_TASKS: int = 1024
     STATS_COLLECT_INTERVAL: int = 1 # second
