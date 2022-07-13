@@ -516,12 +516,10 @@ class GrubController(
             if _ota_status == OTAStatusEnum.INITIALIZED:
                 self._boot_control.init_active_ota_partition_file()
 
-            # NOTE: only update the current ota_status at ota-client launching up!
             self.ota_status = _ota_status
             self.store_current_ota_status(_ota_status)
             logger.info(f"loaded ota_status: {_ota_status}")
         except Exception as e:
-            # NOTE: store failure to current slot ONLY at boot control init failed!
             self.store_current_ota_status(OTAStatusEnum.FAILURE)
             raise BootControlInitError from e
 
