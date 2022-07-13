@@ -79,7 +79,6 @@ class _OTAUpdater:
         *,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
     ) -> None:
-        self._lock = Lock()
         self._boot_controller = boot_controller
         self._create_standby_cls = create_standby_cls
 
@@ -252,34 +251,31 @@ class _OTAUpdater:
         logger.info(f"{version=},{raw_url_base=},{cookies_json=}")
 
         try:
-            if self._lock.acquire(blocking=False):
-                # unconditionally regulate the url_base
-                _url_base = urlparse(raw_url_base)
-                _path = f"{_url_base.path.rstrip('/')}/"
-                url_base = _url_base._replace(path=_path).geturl()
+            # unconditionally regulate the url_base
+            _url_base = urlparse(raw_url_base)
+            _path = f"{_url_base.path.rstrip('/')}/"
+            url_base = _url_base._replace(path=_path).geturl()
 
-                # configure proxy if needed before entering update
-                self._downloader.cleanup_proxy()
-                if proxy := proxy_cfg.get_proxy_for_local_ota():
-                    logger.info("use local ota_proxy")
-                    # wait for stub to setup the local ota_proxy server
-                    fsm.client_wait_for_ota_proxy()
-                    self._downloader.configure_proxy(proxy)
+            # configure proxy if needed before entering update
+            self._downloader.cleanup_proxy()
+            if proxy := proxy_cfg.get_proxy_for_local_ota():
+                logger.info("use local ota_proxy")
+                # wait for stub to setup the local ota_proxy server
+                fsm.client_wait_for_ota_proxy()
+                self._downloader.configure_proxy(proxy)
 
-                self._pre_update(version, url_base, cookies_json, fsm=fsm)
-                fsm.client_enter_update()
+            self._pre_update(version, url_base, cookies_json, fsm=fsm)
+            fsm.client_enter_update()
 
-                self._in_update()
-                fsm.client_finish_update()
+            self._in_update()
+            fsm.client_finish_update()
 
-                logger.info(
-                    "[update] leaving update, "
-                    "wait on ota_service, apply post-update and reboot..."
-                )
-                fsm.client_wait_for_reboot()
-                self._post_update()
-            else:
-                logger.warning("ignore multiple update attempt")
+            logger.info(
+                "[update] leaving update, "
+                "wait on ota_service, apply post-update and reboot..."
+            )
+            fsm.client_wait_for_reboot()
+            self._post_update()
         except OTAError as e:
             logger.exception("update failed")
             raise OTAUpdateError(e) from e
@@ -313,8 +309,8 @@ class OTAClient(OTAClientInterface):
         boot_control_cls: Type[BootControllerProtocol],
         create_standby_cls: Type[StandbySlotCreatorProtocol],
     ):
-        self._lock = Lock()
-
+        self._update_lock = Lock()  # ensure only one update session is running
+        self._rollback_lock = Lock()
         self.last_failure: Optional[OTA_APIError] = None
 
         self.boot_controller = boot_control_cls()
@@ -349,7 +345,7 @@ class OTAClient(OTAClientInterface):
         fsm: OTAUpdateFSM,
     ):
         try:
-            if self._lock.acquire(blocking=False):
+            if self._update_lock.acquire(blocking=False):
                 logger.info("[update] entering...")
                 self.last_failure = None
                 self.live_ota_status.set_ota_status(OTAStatusEnum.UPDATING)
@@ -360,11 +356,11 @@ class OTAClient(OTAClientInterface):
             self.last_failure = e
             raise  # raise to signal upper caller
         finally:
-            self._lock.release()
+            self._update_lock.release()
 
     def rollback(self):
         try:
-            if self._lock.acquire(blocking=False):
+            if self._rollback_lock.acquire(blocking=False):
                 logger.info("[rollback] entering...")
                 self.last_failure = None
                 self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACKING)
@@ -372,7 +368,7 @@ class OTAClient(OTAClientInterface):
             # silently ignore overlapping request
         # TODO: define rollback errors
         finally:
-            self._lock.release()
+            self._rollback_lock.release()
 
     def status(self) -> Optional[OTAClientStatus]:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
@@ -390,7 +386,7 @@ class OTAClient(OTAClientInterface):
 
                 return _res
             else:
-                logger.warning(
+                logger.debug(
                     "live_ota_status indicates there is an ongoing update,"
                     "but we failed to get update status from updater"
                 )
