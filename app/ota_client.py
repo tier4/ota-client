@@ -42,7 +42,7 @@ class OTAUpdateFSM:
         self._otaclient_finish_update = Event()
         self._stub_cleanup_finish = Event()
 
-    def stub_ota_proxy_launched(self):
+    def stub_pre_update_ready(self):
         self._ota_proxy_ready.set()
 
     def client_wait_for_ota_proxy(self, *, timeout: Optional[float] = None):
