@@ -293,7 +293,7 @@ class OTAClientStatus:
     version: str
     status: str
     update_progress: Dict[str, Any]
-    failure_type: int = OTAFailureType.NO_FAILURE.value
+    failure_type: str = OTAFailureType.NO_FAILURE.name
     failure_reason: str = ""
 
     def get_update_phase(self) -> Optional[str]:
@@ -385,7 +385,7 @@ class OTAClient(OTAClientInterface):
                 )
                 # insert failure type and failure reason
                 if self.last_failure is not None:
-                    _res.failure_type = self.last_failure.failure_type.value
+                    _res.failure_type = self.last_failure.failure_type.name
                     _res.failure_reason = self.last_failure.get_err_reason()
 
                 return _res
@@ -403,7 +403,7 @@ class OTAClient(OTAClientInterface):
                 update_progress={},
             )
             if self.last_failure is not None:
-                _res.failure_type = self.last_failure.failure_type.value
+                _res.failure_type = self.last_failure.failure_type.name
                 _res.failure_reason = self.last_failure.get_err_reason()
 
             return _res

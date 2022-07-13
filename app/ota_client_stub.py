@@ -606,17 +606,15 @@ class OtaClientStub:
             if status := self._ota_client.status():
                 # construct status response
                 ecu.result = v2.NO_FAILURE
-                ecu.status.status = v2.StatusOta(v2.StatusOta.Value(status.status))
-                ecu.status.failure = v2.FailureType(status.failure_type)
+                ecu.status.status = getattr(v2.StatusOta, status.status)
+                ecu.status.failure = getattr(v2.FailureType, status.failure_type)
                 ecu.status.failure_reason = status.failure_reason
                 ecu.status.version = status.version
 
                 prg = ecu.status.progress
                 prg.CopyFrom(_statusprogress_msg_from_dict(status.update_progress))
                 if phase := status.get_update_phase():
-                    prg.phase = v2.StatusProgressPhase(
-                        v2.StatusProgressPhase.Value(phase)
-                    )
+                    prg.phase = getattr(v2.StatusProgressPhase, phase)
             else:
                 # otaclient status method doesn't return valid result
                 ecu.result = v2.RECOVERABLE
