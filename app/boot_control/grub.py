@@ -320,7 +320,9 @@ class _GrubControl:
 
         # step3: update grub_default again, setting default to <idx>
         # ensure the active slot to be the default
-        logger.info(f"boot entry for {self.active_slot=}: {active_slot_entry_idx}")
+        logger.info(
+            f"boot entry for vmlinuz-ota(slot={self.active_slot}): {active_slot_entry_idx}"
+        )
         _out = GrubHelper.update_grub_default(
             self.grub_default_file.read_text(),
             default_entry_idx=active_slot_entry_idx,
@@ -544,6 +546,9 @@ class GrubController(
     def _finalize_update(self) -> OTAStatusEnum:
         if self._is_switching_boot():
             self._boot_control.finalize_update_switch_boot()
+            # NOTE(20220713): for backward compatiblity,
+            # the following line might be deleted in the future
+            self._store_current_slot_in_use(self._boot_control.active_slot)
             return OTAStatusEnum.SUCCESS
         else:
             return OTAStatusEnum.FAILURE
