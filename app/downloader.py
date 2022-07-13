@@ -204,12 +204,11 @@ class Downloader:
             response = self.session.get(
                 url, stream=True, cookies=cookies, headers=headers
             )
-            response.raise_for_status()
 
             raw_r = response.raw
             if raw_r.retries:
                 error_count = len(raw_r.retries.history)
-        except MaxRetryError as e:
+        except Exception as e:
             raise ExceedMaxRetryError(url, dst) from e
 
         hash_f = sha256()
