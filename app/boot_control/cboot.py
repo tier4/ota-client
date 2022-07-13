@@ -352,7 +352,7 @@ class CBootController(
         # FAILURE, INITIALIZED and ROLLBACK_FAILURE are remained as it
 
         # NOTE: only update the current ota_status at ota-client launching up!
-        self._store_current_ota_status(_ota_status)
+        self.store_current_ota_status(_ota_status)
         logger.info(f"loaded ota_status: {_ota_status}")
         return _ota_status
 

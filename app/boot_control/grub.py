@@ -518,11 +518,11 @@ class GrubController(
 
             # NOTE: only update the current ota_status at ota-client launching up!
             self.ota_status = _ota_status
-            self._store_current_ota_status(_ota_status)
+            self.store_current_ota_status(_ota_status)
             logger.info(f"loaded ota_status: {_ota_status}")
         except Exception as e:
             # NOTE: store failure to current slot ONLY at boot control init failed!
-            self._store_current_ota_status(OTAStatusEnum.FAILURE)
+            self.store_current_ota_status(OTAStatusEnum.FAILURE)
             raise BootControlInitError from e
 
     def _is_switching_boot(self):

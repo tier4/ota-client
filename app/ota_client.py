@@ -278,6 +278,9 @@ class _OTAUpdater:
             self._post_update()
         except OTAError as e:
             logger.exception("update failed")
+            # NOTE: also set stored ota_status to FAILURE,
+            # as the standby slot has already been cleaned up!
+            self._boot_controller.store_current_ota_status(OTAStatusEnum.FAILURE)
             raise OTAUpdateError(e) from e
         finally:
             # cleanup

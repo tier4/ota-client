@@ -35,3 +35,7 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def load_version(self) -> str:
         """Read the version info from the current slot."""
+
+    @abstractmethod
+    def store_current_ota_status(self, _status: OTAStatusEnum):
+        ...
