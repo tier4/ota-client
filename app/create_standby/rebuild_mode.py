@@ -197,18 +197,19 @@ class RebuildMode(StandbySlotCreatorProtocol):
         logger.info("start applying delta...")
         with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
             for _hash, _regulars_set in self.delta_bundle.new_delta.items():
-                _tasks_tracker.add_task()
-                pool.submit(
+                # interrupt update if _tasks_tracker collects error
+                if e := _tasks_tracker.last_error:
+                    logger.error(f"interrupt update due to {e!r}")
+                    raise e
+
+                fut = pool.submit(
                     self._apply_reginf_set,
                     _hash,
                     _regulars_set,
                     download_se=_download_se,
-                ).add_done_callback(_tasks_tracker.done_callback)
-
-                # interrupt update if _tasks_tracker collects error
-                if e := _tasks_tracker.last_error:
-                    logger.error(f"interrupt update due to {e!r}")
-                    raise ApplyOTAUpdateFailed from e
+                )
+                _tasks_tracker.add_task(fut)
+                fut.add_done_callback(_tasks_tracker.done_callback)
 
             logger.info(
                 "all process_regulars tasks are dispatched, wait for finishing..."

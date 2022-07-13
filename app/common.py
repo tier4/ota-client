@@ -6,11 +6,11 @@ import shutil
 import enum
 import subprocess
 import time
-from concurrent.futures import Future
+from concurrent.futures import CancelledError, Future
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Semaphore
-from typing import Callable, Optional, Union
+from typing import Callable, List, Optional, Set, Union
 
 from app.log_util import get_logger
 from app.configs import config as cfg
@@ -42,11 +42,11 @@ class OTAFileCacheControl(enum.Enum):
     header_lower = "ota-file-cache-control"
 
     @classmethod
-    def parse_to_value_set(cls, input: str) -> "set[str]":
+    def parse_to_value_set(cls, input: str) -> Set[str]:
         return set(input.split(","))
 
     @classmethod
-    def parse_to_enum_set(cls, input: str) -> "set[OTAFileCacheControl]":
+    def parse_to_enum_set(cls, input: str) -> Set["OTAFileCacheControl"]:
         _policies_set = cls.parse_to_value_set(input)
         res = set()
         for p in _policies_set:
@@ -84,12 +84,12 @@ def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
 
 
 # handled file read/write
-def read_from_file(path: Union[Path, str], *, missing_ok=True) -> str:
+def read_from_file(path: Union[Path, str], *, missing_ok=True, default="") -> str:
     try:
         return Path(path).read_text().strip()
     except FileNotFoundError:
         if missing_ok:
-            return ""
+            return default
 
         raise
 
@@ -286,12 +286,20 @@ class SimpleTasksTracker:
         self._in_num = 0
         self._done_num = 0
 
-    def add_task(self):
+        self._futs: List[Future] = []
+
+    def add_task(self, fut: Future):
         if self._interrupted.is_set() or self._register_finished:
             return
 
         self._se.acquire()
         self._in_num = next(self._in_counter)
+        self._futs.append(fut)
+
+    def terminate_pending_task(self):
+        """Cancel all the pending tasks."""
+        for fut in self._futs:
+            fut.cancel()
 
     def task_collect_finished(self):
         self._register_finished = True
@@ -301,9 +309,12 @@ class SimpleTasksTracker:
             self._se.release()
             fut.result()
             self._done_num = next(self._done_counter)
+        except CancelledError:
+            pass  # ignored as this is not caused by fut itself
         except Exception as e:
             self.last_error = e
             self._interrupted.set()
+            self.terminate_pending_task()
 
     def wait(
         self,
@@ -318,9 +329,10 @@ class SimpleTasksTracker:
 
             time.sleep(self._wait_interval)
 
-        # if extra_wait_cb presents, also wait for it
-        if callable(extra_wait_cb):
+        if self.last_error:
+            logger.error(f"{self.title} failed: {self.last_error!r}")
+            if raise_exception:
+                raise self.last_error
+        elif callable(extra_wait_cb):
+            # if extra_wait_cb presents, also wait for it
             extra_wait_cb()
-
-        if raise_exception and self.last_error:
-            raise self.last_error

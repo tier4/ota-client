@@ -307,17 +307,19 @@ class LegacyMode(StandbySlotCreatorProtocol):
         ) as pool:
             for l in f:
                 entry = RegularInf.parse_reginf(l)
-                _tasks_tracker.add_task()
-                pool.submit(
-                    self._create_regular_file,
-                    entry,
-                    download_se=_download_se,
-                ).add_done_callback(_tasks_tracker.done_callback)
 
                 # interrupt update if _tasks_tracker collects error
                 if e := _tasks_tracker.last_error:
                     logger.error(f"interrupt update due to {e!r}")
-                    raise ApplyOTAUpdateFailed from e
+                    raise e
+
+                fut = pool.submit(
+                    self._create_regular_file,
+                    entry,
+                    download_se=_download_se,
+                )
+                _tasks_tracker.add_task(fut)
+                fut.add_done_callback(_tasks_tracker.done_callback)
 
             logger.info(
                 "all process_regulars tasks are dispatched, wait for finishing..."
