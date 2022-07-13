@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.boot_control import get_boot_controller
 from app.create_standby import get_standby_slot_creator
-from app.errors import OTAFailureType, OTAUpdateError
+from app.errors import OTAUpdateError
 
 from app.proto import v2
 from app.ota_status import OTAStatusEnum
@@ -322,7 +322,7 @@ class OtaClientStub:
                     # prepare response
                     ecu = response.ecu.add()
                     ecu.ecu_id = ecu_id
-                    ecu.result = v2.FAILURE  # TODO: failure?
+                    ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
                 else:
                     # task is done without any exception
                     logger.debug(f"{ecu_id=} is reachable")
@@ -339,7 +339,7 @@ class OtaClientStub:
                 # TODO: should we record these ECUs as FAILURE in the response?
                 ecu = response.ecu.add()
                 ecu.ecu_id = ecu_id
-                ecu.result = v2.FAILURE
+                ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
 
         return response
 
@@ -359,10 +359,10 @@ class OtaClientStub:
             resp = await self._query_subecu_status(tracked_ecu_id)
             for ecu in resp.ecu:
                 ecu_id, ecu_status = ecu.ecu_id, ecu.status.status
-                if ecu_status == v2.StatusOta.SUCCESS:
+                if ecu_status == v2.SUCCESS:
                     _pending_ecu.discard(ecu_id)
                     failed_ecu.discard(ecu_id)
-                elif ecu_status == v2.StatusOta.FAILURE:
+                elif ecu_status == v2.FAILURE:
                     _pending_ecu.discard(ecu_id)
                     failed_ecu.add(ecu_id)
 
@@ -605,19 +605,21 @@ class OtaClientStub:
             ecu.ecu_id = ecu_id
             if status := self._ota_client.status():
                 # construct status response
-                ecu.result = OTAFailureType.NO_FAILURE.value
-                ecu.status.status = v2.StatusOta.Value(status.status)
-                ecu.status.failure = v2.FailureType.Value(status.failure_type)
+                ecu.result = v2.NO_FAILURE
+                ecu.status.status = v2.StatusOta(v2.StatusOta.Value(status.status))
+                ecu.status.failure = v2.FailureType(status.failure_type)
                 ecu.status.failure_reason = status.failure_reason
                 ecu.status.version = status.version
 
                 prg = ecu.status.progress
                 prg.CopyFrom(_statusprogress_msg_from_dict(status.update_progress))
                 if phase := status.get_update_phase():
-                    prg.phase = v2.StatusProgressPhase.Value(phase)
+                    prg.phase = v2.StatusProgressPhase(
+                        v2.StatusProgressPhase.Value(phase)
+                    )
             else:
                 # otaclient status method doesn't return valid result
-                ecu.result = OTAFailureType.RECOVERABLE.value
+                ecu.result = v2.RECOVERABLE
 
             # available ecu ids
             available_ecu_ids = self._ecu_info.get_available_ecu_ids()
