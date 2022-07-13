@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.boot_control import get_boot_controller
 from app.create_standby import get_standby_slot_creator
-from app.errors import OTAUpdateError
 
 from app.proto import v2
 from app.ota_status import OTAStatusEnum
@@ -185,6 +184,7 @@ class _UpdateSession:
                             wait_on_scrub=True,
                         ),
                     )
+                    logger.info("ota_proxy server launched")
                 self.fsm.stub_pre_update_ready()
             else:
                 logger.warning("ignore overlapping update request")
@@ -192,7 +192,6 @@ class _UpdateSession:
     async def stop(self, *, update_succeed: bool):
         async with self._lock:
             if self._started:
-                logger.info(f"stopping ota update session for {self.update_request=}")
                 if self._ota_proxy:
                     logger.info(
                         f"stopping ota_proxy(cleanup_cache={update_succeed})..."
@@ -210,7 +209,7 @@ class _UpdateSession:
     async def update_tracker(
         self,
         *,
-        my_ecu_update_fut: Optional[asyncio.Future] = None,
+        my_ecu_update_tracker: Optional[asyncio.Task] = None,
         subecu_tracking_task: Optional[asyncio.Task] = None,
     ):
         myecu_succeed, subecus_succeed = False, False
@@ -219,17 +218,19 @@ class _UpdateSession:
             if subecu_tracking_task:
                 subecus_succeed, failed_list = await subecu_tracking_task
                 logger.info(
-                    f"all subecus update result: {subecus_succeed}, "
+                    f"all directly connected subecus update result: {subecus_succeed}, "
                     f"failed_ecus={failed_list}"
                 )
             else:
                 subecus_succeed = True
 
-            if my_ecu_update_fut:
+            if my_ecu_update_tracker:
                 try:
-                    await my_ecu_update_fut
-                except OTAUpdateError:
-                    logger.exception("local update failed")
+                    await my_ecu_update_tracker
+                    myecu_succeed = True
+                except Exception as e:
+                    # NOTE: only cover the exception happened before post_update
+                    logger.error(f"local applying update failed: {e!r}")
                     myecu_succeed = False
             else:
                 myecu_succeed = True
@@ -241,8 +242,8 @@ class _UpdateSession:
                 f"{update_succeed}({myecu_succeed=}, {subecus_succeed=})"
             )
             self.fsm.stub_cleanup_finished()
-        except Exception:
-            logger.exception("update tracker failed")
+        except Exception as e:
+            logger.error(f"update tracker failed: {e!r}")
         finally:
             await self.stop(update_succeed=False)
 
@@ -352,6 +353,10 @@ class OtaClientStub:
             A bool indicates whether all the subecus are in SUCCESS staus,
             and a list of failed ecus if any.
         """
+        logger.info(
+            f"tracking update status for directly connected subecu: {tracked_ecu_id}"
+        )
+
         failed_ecu: Set[str] = set()
         while True:
             _pending_ecu = tracked_ecu_id.copy()
@@ -367,20 +372,26 @@ class OtaClientStub:
                     failed_ecu.add(ecu_id)
 
             if not _pending_ecu:
-                logger.info(
-                    "all subecus are in SUCCESS or Failed status, "
-                    f"failed ecu: {failed_ecu}"
-                )
-                return len(failed_ecu) > 0, list(failed_ecu)
+                return len(failed_ecu) == 0, list(failed_ecu)
 
             await asyncio.sleep(server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
+
+    async def _local_update_tracker(self, fsm: OTAUpdateFSM):
+        _loop = asyncio.get_running_loop()
+        await _loop.run_in_executor(
+            self._executor,
+            fsm.stub_wait_for_local_update,
+        )
+
+        if e := self._ota_client.get_last_failure():
+            raise e
 
     ###### API stub method #######
     def host_addr(self):
         return self._ecu_info.get_ecu_ip_addr()
 
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
-        logger.info(f"receive update request: {request}")
+        logger.debug(f"receive update request: {request}")
         response = v2.UpdateResponse()
         my_ecu_id = self._ecu_info.get_ecu_id()
 
@@ -389,6 +400,7 @@ class OtaClientStub:
             ecu.ecu_id = my_ecu_id
             ecu.result = v2.RECOVERABLE
 
+            logger.debug("ignore duplicated update request")
             return response
         else:
             # start this update session
@@ -421,6 +433,9 @@ class OtaClientStub:
         # wait for all sub ecu acknowledge ota update requests
         subecu_tracking_task: Optional[asyncio.Task] = None
         if tasks:
+            logger.info(
+                f"waiting for subecus({update_tracked_ecus_set}) to acknowledge update request..."
+            )
             done, pending = await asyncio.wait(
                 tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
             )
@@ -431,6 +446,7 @@ class OtaClientStub:
                 sub_ecu = response.ecu.add()
                 sub_ecu.ecu_id = ecu_id
                 sub_ecu.result = v2.RECOVERABLE
+
                 logger.error(
                     f"subecu {ecu_id} doesn't respond to ota update request on time"
                 )
@@ -453,7 +469,7 @@ class OtaClientStub:
             )
 
         # after all subecus ack the update request, update my ecu
-        my_ecu_update_fut: Optional[asyncio.Future] = None
+        my_ecu_update_tracker: Optional[asyncio.Task] = None
         if entry := OtaClientStub._find_request(request.ecu, my_ecu_id):
             if not self._ota_client.live_ota_status.request_update():
                 logger.warning(
@@ -466,7 +482,7 @@ class OtaClientStub:
                 logger.info(f"{my_ecu_id=}, {entry=}")
                 # dispatch update to local otaclient
                 _loop = asyncio.get_running_loop()
-                my_ecu_update_fut = _loop.run_in_executor(
+                _loop.run_in_executor(
                     self._executor,
                     partial(
                         self._ota_client.update,
@@ -475,6 +491,12 @@ class OtaClientStub:
                         entry.cookies,
                         fsm=self._update_session.fsm,
                     ),
+                )
+
+                # launch the local update tracker
+                my_ecu_update_tracker = asyncio.create_task(
+                    self._local_update_tracker(fsm=self._update_session.fsm),
+                    name="local update tracker",
                 )
 
                 ecu = response.ecu.add()
@@ -490,7 +512,7 @@ class OtaClientStub:
         # NOTE: cleanup is done in the update tracker
         asyncio.create_task(
             self._update_session.update_tracker(
-                my_ecu_update_fut=my_ecu_update_fut,
+                my_ecu_update_tracker=my_ecu_update_tracker,
                 subecu_tracking_task=subecu_tracking_task,
             )
         )
@@ -579,10 +601,7 @@ class OtaClientStub:
         the caller should take the responsibility to update the cached status.
         """
         cur_time = time.time()
-        if (
-            cur_time - self._last_status_query
-            <= server_cfg.QUERY_SUBECU_STATUS_INTERVAL
-        ):
+        if cur_time - self._last_status_query <= server_cfg.STATUS_UPDATE_INTERVAL:
             # within query interval, use cached status
             response = v2.StatusResponse()
             response.CopyFrom(self._cached_status)
@@ -590,14 +609,13 @@ class OtaClientStub:
 
         # the caller should take the responsibility to update the status
         # for status API, query all directly connected subecus
-        tracked_ecu = set([ecu.id for ecu in self._ecu_info.get_secondary_ecus()])
+        tracked_ecu = set(
+            [ecu["ecu_id"] for ecu in self._ecu_info.get_secondary_ecus()]
+        )
         async with self._status_pulling_lock:
             self._last_status_query = cur_time
             # prepare subecu status
-            response = await asyncio.wait_for(
-                self._query_subecu_status(tracked_ecu),
-                timeout=server_cfg.WAITING_GET_SUBECU_STATUS,
-            )
+            response = await self._query_subecu_status(tracked_ecu)
 
             # prepare my ecu status
             ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
