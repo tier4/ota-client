@@ -1,5 +1,6 @@
 import requests
 import time
+import errno
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
@@ -222,7 +223,7 @@ class Downloader:
             raise DestinationNotAvailableError(url, dst) from e
         except OSError as e:
             # space not enough error
-            if e.errno == 28:
+            if e.errno == errno.ENOSPC:
                 raise DownloadFailedSpaceNotEnough(url, dst) from None
 
         calc_digest = hash_f.hexdigest()
