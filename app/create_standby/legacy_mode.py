@@ -29,7 +29,11 @@ from app.proxy_info import proxy_cfg
 
 from app.create_standby.common import HardlinkRegister
 from app.create_standby.interface import StandbySlotCreatorProtocol, UpdateMeta
-from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
+from app.update_stats import (
+    OTAUpdateStatsCollector,
+    RegInfProcessedStats,
+    RegProcessOperation,
+)
 from app import log_util
 
 logger = log_util.get_logger(
@@ -214,7 +218,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 # wait until the first copy is ready
                 prev_reginf_path = _hardlink_tracker.subscribe()
                 (self.standby_slot_mp / prev_reginf_path.relative_to("/")).link_to(dst)
-                processed.op = RegInfProcessedStats.OP_LINK
+                processed.op = RegProcessOperation.OP_LINK
 
             # case 1.2: is hardlink and is writer
             else:
@@ -226,7 +230,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         reginf.copy_relative_to_mount_point(
                             self.standby_slot_mp, src_mount_point=self.reference_slot_mp
                         )
-                        processed.op = RegInfProcessedStats.OP_COPY
+                        processed.op = RegProcessOperation.OP_COPY
                     else:
                         # limit the concurrent downloading tasks
                         with download_se:
@@ -237,7 +241,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                                 url_base=self.image_base_url,
                                 cookies=self.cookies,
                             )
-                            processed.op = RegInfProcessedStats.OP_DOWNLOAD
+                            processed.op = RegProcessOperation.OP_DOWNLOAD
 
                         # set file permission as RegInf says
                         os.chown(dst, reginf.uid, reginf.gid)
@@ -261,7 +265,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 reginf.copy_relative_to_mount_point(
                     self.standby_slot_mp, src_mount_point=self.reference_slot_mp
                 )
-                processed.op = RegInfProcessedStats.OP_COPY
+                processed.op = RegProcessOperation.OP_COPY
             else:
                 # limit the concurrent downloading tasks
                 with download_se:
@@ -272,7 +276,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         url_base=self.image_base_url,
                         cookies=self.cookies,
                     )
-                    processed.op = RegInfProcessedStats.OP_DOWNLOAD
+                    processed.op = RegProcessOperation.OP_DOWNLOAD
 
                 # set file permission as RegInf says
                 os.chown(dst, reginf.uid, reginf.gid)

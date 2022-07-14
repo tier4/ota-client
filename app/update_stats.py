@@ -1,10 +1,11 @@
-from concurrent.futures import ThreadPoolExecutor
 import dataclasses
+import time
+from enum import Enum
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from queue import Empty, Queue
 from threading import Event, Lock
-import time
-from typing import Any, ClassVar, Dict, Generator, List, Literal
+from typing import Any, Dict, Generator, List
 
 from app.configs import config as cfg
 
@@ -47,6 +48,13 @@ class OTAUpdateStats:
         setattr(self, _key, _value)
 
 
+class RegProcessOperation(Enum):
+    OP_UNSPECIFIC = "unspecific"
+    OP_DOWNLOAD = "download"
+    OP_COPY = "copy"
+    OP_LINK = "link"
+
+
 @dataclasses.dataclass
 class RegInfProcessedStats:
     """processed_list have dictionaries as follows:
@@ -56,12 +64,7 @@ class RegInfProcessedStats:
     {"errors": int}  # number of errors that occurred when downloading.
     """
 
-    OP_DOWNLOAD: ClassVar[Literal["download"]] = "download"
-    OP_COPY: ClassVar[Literal["copy"]] = "copy"
-    OP_LINK: ClassVar[Literal["link"]] = "link"
-    OP_UNSPECIFIC: ClassVar[Literal["unspecific"]] = "unspecific"
-
-    op: Literal["download", "copy", "link", "unspecific"] = OP_UNSPECIFIC
+    op: RegProcessOperation = RegProcessOperation.OP_UNSPECIFIC
     size: int = 0
     elapsed_ns: float = 0
     errors: int = 0

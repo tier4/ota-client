@@ -27,7 +27,11 @@ from app.common import file_sha256
 from app.configs import config as cfg
 from app.ota_metadata import DirectoryInf, RegularInf
 from app import log_util
-from app.update_stats import OTAUpdateStatsCollector, RegInfProcessedStats
+from app.update_stats import (
+    OTAUpdateStatsCollector,
+    RegInfProcessedStats,
+    RegProcessOperation,
+)
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -263,7 +267,7 @@ class DeltaGenerator:
         # report to the ota update stats collector
         self._stats_collector.report(
             RegInfProcessedStats(
-                op=RegInfProcessedStats.OP_COPY,
+                op=RegProcessOperation.OP_COPY,
                 size=fpath.stat().st_size,
                 elapsed_ns=time.thread_time_ns() - _start,
             )
