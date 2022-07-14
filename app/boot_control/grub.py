@@ -295,8 +295,7 @@ class GrubABPartitionDetecter:
 class _SymlinkABPartitionDetecter:
     """Implementation of legacy way to detect active/standby slot.
 
-    NOTE: this is re-introduced for backward compatibility reason,
-          should ONLY be used when migrating from old otaclient to new otaclient.
+    NOTE: this is re-introduced for backward compatibility reason.
 
     Get the active slot by reading the symlink target of /boot/ota-partition.
     if ota-partition -> ota-partition.sda3, then active slot is sda3.
@@ -323,9 +322,8 @@ class _SymlinkABPartitionDetecter:
         """
         NOTE: expecting to have only 2 ota-partition files for A/B partition each.
         """
+        boot_dir = Path(cls.BOOT_DIR)
         try:
-            boot_dir = Path(cls.BOOT_DIR)
-
             active_slot = cls._get_active_slot_by_symlink()
             ota_partition_fs = list(boot_dir.glob(f"{cls.OTA_PARTITION_FILE}.*"))
             ota_partition_fs.remove(Path(f"{cls.OTA_PARTITION_FILE}.{active_slot}"))
@@ -603,13 +601,6 @@ class GrubController(
         try:
             self._boot_control = _GrubControl()
 
-            # NOTE(20220714) backward compatibility for old otaclient
-            self.is_old_otaclient = False
-            try:
-                self._load_current_slot_in_use()
-            except FileNotFoundError:
-                self.is_old_otaclient = True
-
             # try to unmount standby dev if possible
             CMDHelperFuncs.umount(self._boot_control.standby_root_dev)
             self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
@@ -634,24 +625,26 @@ class GrubController(
                 _ota_status = self._finalize_update()
             elif _ota_status == OTAStatusEnum.ROLLBACKING:
                 _ota_status = self._finalize_rollback()
-            elif _ota_status == OTAStatusEnum.SUCCESS:
-                if not self.is_old_otaclient:
-                    # need to check whether it is negative SUCCESS
-                    current_slot = self._boot_control.active_slot
-                    slot_in_use = self._load_current_slot_in_use()
-                    # cover the case that device reboot into unexpected slot
-                    if current_slot != slot_in_use:
-                        logger.error(
-                            f"boot into old slot {current_slot}, "
-                            f"expect to boot into {slot_in_use}"
-                        )
-                        _ota_status = OTAStatusEnum.FAILURE
-                # only do negative SUCCESS if we have slot_in_use file
-            # INITIALIZED, FAILURE and ROLLBACK_FAILURE are remained as it
+            # NOTE(20220714): pending the use of slot_in_use file for grub controller,
+            # re-introduce it in the future.
+            # negative SUCCESS detection is only available when slot_in_use file
+            # is presented.
+
+            # elif _ota_status == OTAStatusEnum.SUCCESS:
+            #     # need to check whether it is negative SUCCESS
+            #     current_slot = self._boot_control.active_slot
+            #     slot_in_use = self._load_current_slot_in_use()
+            #     # cover the case that device reboot into unexpected slot
+            #     if current_slot != slot_in_use:
+            #         logger.error(
+            #             f"boot into old slot {current_slot}, "
+            #             f"expect to boot into {slot_in_use}"
+            #         )
+            #         _ota_status = OTAStatusEnum.FAILURE
+            # SUCCESS, INITIALIZED, FAILURE and ROLLBACK_FAILURE are remained as it
 
             # special treatment on initialized status
-            # NOTE: also init ota-partition file and slot_in_use file for old otaclient
-            if _ota_status == OTAStatusEnum.INITIALIZED or self.is_old_otaclient:
+            if _ota_status == OTAStatusEnum.INITIALIZED:
                 self._boot_control.init_active_ota_partition_file()
                 self._store_current_slot_in_use(self._boot_control.active_slot)
 
@@ -669,17 +662,18 @@ class GrubController(
             OTAStatusEnum.ROLLBACKING,
         ]
 
-        # NOTE(20220714): maintain backward compatibility
-        # evidence 2 for old otaclient: ota-partition.standby should be the
-        # current booted slot. ota-partition symlink is not yet switched for
-        # the first reboot.
-        if self.is_old_otaclient:
-            _target_slot = _SymlinkABPartitionDetecter._get_standby_slot_by_symlink()
-            _check_slot_in_use = _target_slot == self._boot_control.active_slot
+        # NOTE(20220714): maintain backward compatibility, not using slot_in_use
+        # file here to detect switching boot. Maybe enable it in the future.
+
+        # evidence 2(legacy): ota-partition.standby should be the
+        # current booted slot, because ota-partition symlink is not yet switched
+        # at the first reboot.
+        _target_slot = _SymlinkABPartitionDetecter._get_standby_slot_by_symlink()
+        _check_slot_in_use = _target_slot == self._boot_control.active_slot
+
         # evidence 2: slot_in_use file should have the same slot as current slot
-        else:
-            _target_slot = self._load_current_slot_in_use()
-            _check_slot_in_use = _target_slot == self._boot_control.active_slot
+        # _target_slot = self._load_current_slot_in_use()
+        # _check_slot_in_use = _target_slot == self._boot_control.active_slot
 
         res = _check_ota_status and _check_slot_in_use
         logger.info(
