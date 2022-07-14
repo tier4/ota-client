@@ -21,6 +21,7 @@ from app.common import (
     read_from_file,
     subprocess_call,
     subprocess_check_output,
+    write_to_file_sync,
 )
 from app.configs import BOOT_LOADER, cboot_cfg as cfg
 from app.errors import (
@@ -276,7 +277,9 @@ class _CBootControl:
             return res
 
         _repl_func = partial(_replace, repl=f"root={self.standby_slot_partuuid}")
-        dst.write_text(re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text()))
+        write_to_file_sync(
+            dst, re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text())
+        )
 
 
 class CBootController(
