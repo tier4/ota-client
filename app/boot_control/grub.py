@@ -205,6 +205,92 @@ class GrubHelper:
             )
 
 
+class GrubABPartitionDetecter:
+    """
+    Expected layout:
+    (system boots with legacy BIOS)
+        /dev/sdx
+            - sdx1: dedicated boot partition
+            - sdx2: A partition
+            - sdx3: B partition
+
+    or
+    (system boots with UEFI)
+        /dev/sdx
+            - sdx1: /boot/uefi
+            - sdx2: /boot
+            - sdx3: A partition
+            - sdx4: B partition
+
+    slot_name is the dev name of the A/B partition.
+    We assume that last 2 partitions are A/B partitions, error will be raised
+    if the current rootfs is not one of the last 2 partitions.
+    """
+
+    def __init__(self) -> None:
+        self.active_slot, self.active_dev = self._detect_active_slot()
+        self.standby_slot, self.standby_dev = self._detect_standby_slot(self.active_dev)
+
+    def _get_sibling_dev(self, active_dev: str) -> str:
+        """
+        NOTE: revert to use previous detection mechanism.
+        TODO: refine this method.
+        """
+        parent = CMDHelperFuncs.get_parent_dev(active_dev)
+        boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
+        if not boot_dev:
+            raise ABPartitionError(f"/boot is not mounted")
+
+        # list children device file from parent device
+        cmd = f"-Pp -o NAME,FSTYPE {parent}"
+        # exclude parent dev
+        output = CMDHelperFuncs._lsblk(cmd).splitlines()[1:]
+        # FSTYPE="ext4" and
+        # not (parent_device_file, root_device_file and boot_device_file)
+        for blk in output:
+            if m := re.search(r'NAME="(.*)"\s+FSTYPE="(.*)"', blk):
+                if (
+                    m.group(1) != active_dev
+                    and m.group(1) != boot_dev
+                    and m.group(2) == "ext4"
+                ):
+                    return m.group(1)
+
+        raise ABPartitionError(f"{parent=} has unexpected partition layout: {output=}")
+
+    def _detect_active_slot(self) -> Tuple[str, str]:
+        """
+        Returns:
+            A tuple contains the slot_name and the full dev path
+            of the active slot.
+        """
+        dev_path = CMDHelperFuncs.get_current_rootfs_dev()
+        slot_name = dev_path.lstrip("/dev/")
+        return slot_name, dev_path
+
+    def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
+        """
+        Returns:
+            A tuple contains the slot_name and the full dev path
+            of the standby slot.
+        """
+        dev_path = self._get_sibling_dev(active_dev)
+        slot_name = dev_path.lstrip("/dev/")
+        return slot_name, dev_path
+
+    ###### public methods ######
+    def get_standby_slot(self) -> str:
+        return self.standby_slot
+
+    def get_standby_slot_dev(self) -> str:
+        return self.standby_dev
+
+    def get_active_slot(self) -> str:
+        return self.active_slot
+
+    def get_active_slot_dev(self) -> str:
+        return self.active_dev
+
 class _GrubControl:
     """Implementation of ota-partition switch boot mechanism."""
 
