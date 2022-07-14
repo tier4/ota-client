@@ -324,9 +324,14 @@ class _SymlinkABPartitionDetecter:
         """
         boot_dir = Path(cls.BOOT_DIR)
         try:
-            active_slot = cls._get_active_slot_by_symlink()
             ota_partition_fs = list(boot_dir.glob(f"{cls.OTA_PARTITION_FILE}.*"))
-            ota_partition_fs.remove(Path(f"{cls.OTA_PARTITION_FILE}.{active_slot}"))
+
+            active_slot = cls._get_active_slot_by_symlink()
+            active_slot_ota_partition_file = (
+                boot_dir / f"{cls.OTA_PARTITION_FILE}.{active_slot}"
+            )
+            ota_partition_fs.remove(active_slot_ota_partition_file)
+
             assert len(ota_partition_fs) == 1
         except (ValueError, AssertionError):
             raise ABPartitionError("ota-partition files are broken")
