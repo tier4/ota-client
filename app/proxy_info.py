@@ -68,7 +68,7 @@ class ProxyInfo:
     gateway: bool = True
     # to be compatible with mainECU
     enable_local_ota_proxy_cache: bool = True
-    upper_ota_proxy: Optional[str] = None
+    upper_ota_proxy: str = ""
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
     local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
 
