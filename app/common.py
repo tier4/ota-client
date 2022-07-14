@@ -256,13 +256,6 @@ def re_symlink_atomic(src: Path, target: Union[Path, str]):
             raise
 
 
-def re_symlink(src: Path, target: Union[Path, str]):
-    if not (src.is_symlink() and str(os.readlink(src)) == str(target)):
-        src.unlink(missing_ok=True)
-        src.symlink_to(target)
-    # do nothing if the link is correct
-
-
 class SimpleTasksTracker:
     """A simple lock-free task tracker implemented by itertools.count.
 

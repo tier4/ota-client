@@ -336,7 +336,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def is_standby_as_ref(cls) -> bool:
         return False
 
-    def create_standby_bank(self):
+    def create_standby_slot(self):
         """Exposed API for ota-client."""
         try:
             self._process_directory()

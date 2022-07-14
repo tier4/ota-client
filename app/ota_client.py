@@ -191,7 +191,7 @@ class _OTAUpdater:
             update_phase_tracker=self._set_update_phase,
         )
         # start to constructing standby bank
-        _standby_slot_creator.create_standby_bank()
+        _standby_slot_creator.create_standby_slot()
         logger.info("[_in_update] finished creating standby slot")
 
     def _post_update(self):

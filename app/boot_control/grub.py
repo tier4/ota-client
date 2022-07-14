@@ -275,8 +275,10 @@ class _GrubControl:
                 and initrd is None
             ):
                 initrd = f.name
-            elif kernel and initrd:
+
+            if kernel and initrd:
                 break
+
         if not (kernel and initrd):
             raise ValueError(f"vmlinuz and/or initrd.img not found at {target_folder}")
 

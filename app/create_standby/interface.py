@@ -19,7 +19,7 @@ class UpdateMeta:
 
 
 class StandbySlotCreatorProtocol(Protocol):
-    """Protocol that describes bank creating.
+    """Protocol that describes standby slot creating mechanism.
     Attrs:
         cookies: authentication cookies used by ota_client to fetch files from the remote ota server.
         metadata: metadata of the requested ota image.
@@ -42,7 +42,7 @@ class StandbySlotCreatorProtocol(Protocol):
         ...
 
     @abstractmethod
-    def create_standby_bank(self):
+    def create_standby_slot(self):
         ...
 
     @classmethod

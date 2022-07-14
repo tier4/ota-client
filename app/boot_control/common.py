@@ -335,6 +335,11 @@ class CMDHelperFuncs:
         *,
         standby_as_ref: bool,
     ):
+        """Mount reference rootfs that we copy files from to <refroot_mount_point>.
+
+        This method bind mount refroot as ro with make-private flag and make-unbindable flag,
+        to prevent ANY accidental writes/changes to the refroot.
+        """
         _refroot_dev = standby_slot_dev if standby_as_ref else active_slot_dev
 
         # NOTE: set raise_exception to false to allow not mounted

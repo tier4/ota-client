@@ -391,7 +391,7 @@ class CBootController(
             self._cboot_control.mark_current_slot_boot_successful()
             return OTAStatusEnum.SUCCESS
         else:
-            logger.warning("changes applied failed")
+            logger.error("changes applied failed")
             return OTAStatusEnum.FAILURE
 
     _finalize_rollback = _finalize_update

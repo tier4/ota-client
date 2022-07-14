@@ -308,7 +308,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def is_standby_as_ref(cls) -> bool:
         return False
 
-    def create_standby_bank(self):
+    def create_standby_slot(self):
         try:
             self._prepare_meta_files()  # download meta and calculate
             self._cal_and_prepare_delta()  # NOTE: dirs are processed here
