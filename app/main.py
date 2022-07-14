@@ -2,14 +2,14 @@ import asyncio
 import sys
 import os
 from pathlib import Path
+
 import _pathloader
-
-assert _pathloader
-
 from app import log_util
 from app.common import read_from_file, write_to_file_sync
 from app.configs import config as cfg
 from app.ota_client_service import launch_otaclient_grpc_server
+
+assert _pathloader
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

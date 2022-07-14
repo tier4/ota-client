@@ -309,8 +309,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
         with open(regulars_file, "r") as f, ThreadPoolExecutor(
             thread_name_prefix="create_standby_slot"
         ) as pool:
-            for l in f:
-                entry = RegularInf.parse_reginf(l)
+            for entry_line in f:
+                entry = RegularInf.parse_reginf(entry_line)
 
                 # interrupt update if _tasks_tracker collects error
                 if e := _tasks_tracker.last_error:

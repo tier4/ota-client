@@ -1,19 +1,22 @@
 from abc import ABC
 from threading import Event
-from typing import Any
+from typing import Any, Optional
 
-# fmt: off
 
 class OTAClientInterface(ABC):
     def update(
-        self, 
-        version: str, 
-        url_base: str, 
-        cookies_json: str, 
-        *, 
-        pre_update_event: Event = None, post_update_event: Event = None) -> Any: ...
+        self,
+        version: str,
+        url_base: str,
+        cookies_json: str,
+        *,
+        pre_update_event: Optional[Event] = None,
+        post_update_event: Optional[Event] = None,
+    ) -> Any:
+        ...
 
-    def rollback(self) -> Any: ...
-    def status(self) -> Any: ...
+    def rollback(self) -> Any:
+        ...
 
-# fmt: on
+    def status(self) -> Any:
+        ...

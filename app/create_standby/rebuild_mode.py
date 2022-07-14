@@ -162,8 +162,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
         )
 
         with open(self._recycle_folder / "persistents.txt", "r") as f:
-            for l in f:
-                perinf = PersistentInf(l)
+            for entry_line in f:
+                perinf = PersistentInf(entry_line)
                 if (
                     perinf.path.is_file()
                     or perinf.path.is_dir()
@@ -183,8 +183,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _process_symlinks(self):
         with open(self._recycle_folder / "symlinks.txt", "r") as f:
-            for l in f:
-                SymbolicLinkInf(l).link_at_mount_point(self.standby_slot_mp)
+            for entry_line in f:
+                SymbolicLinkInf(entry_line).link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):
         self.update_phase_tracker(OTAUpdatePhase.REGULAR)

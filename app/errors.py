@@ -149,6 +149,7 @@ _NETWORK_ERR_DEFAULT_DESC = (
     "please check the Internet connection and try again"
 )
 
+
 ### network error ###
 class NetworkError(OTAError):
     """Generic network error"""

@@ -85,6 +85,11 @@ def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
 
 # handled file read/write
 def read_from_file(path: Union[Path, str], *, missing_ok=True, default="") -> str:
+    """
+    Params:
+        missing_ok: if set to False, FileNotFoundError will be raised to upper
+        default: the default value to return when missing_ok=True and file not found
+    """
     try:
         return Path(path).read_text().strip()
     except FileNotFoundError:

@@ -176,18 +176,18 @@ class GrubHelper:
             kvp["GRUB_DEFAULT"] = f"{default_entry_idx}"
 
         res: List[str] = []
-        for l in grub_default.splitlines():
+        for option_line in grub_default.splitlines():
             # NOTE: preserved empty or commented lines
-            if not l or l.startswith("#"):
-                res.append(l)
+            if not option_line or option_line.startswith("#"):
+                res.append(option_line)
                 continue
 
-            key, _ = l.strip().split("=")
+            key, _ = option_line.strip().split("=")
             if key in kvp:
-                l = "=".join((key, kvp[key]))
+                option_line = "=".join((key, kvp[key]))
                 del kvp[key]
 
-            res.append(l)
+            res.append(option_line)
 
         # append options that haven't show up in the input
         for k, v in kvp.items():
@@ -239,7 +239,7 @@ class GrubABPartitionDetecter:
         parent = CMDHelperFuncs.get_parent_dev(active_dev)
         boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
         if not boot_dev:
-            raise ABPartitionError(f"/boot is not mounted")
+            raise ABPartitionError("/boot is not mounted")
 
         # list children device file from parent device
         cmd = f"-Pp -o NAME,FSTYPE {parent}"

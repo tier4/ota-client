@@ -1,7 +1,7 @@
 import yaml
 import warnings
 from dataclasses import dataclass, fields
-from typing import Any, ClassVar, Dict
+from typing import Any, ClassVar, Dict, Optional
 from pathlib import Path
 
 from app import log_util
@@ -37,7 +37,7 @@ enable_local_ota_proxy: false
 # typically, we can only enable ota cache on the gateway ECU.
 enable_local_ota_proxy_cache: false
 
-# for internal ECU, upper_ota_proxy is required, 
+# for internal ECU, upper_ota_proxy is required,
 # internal ECU will use this proxy to request for ota update.
 # upper ota proxy must be an HTTP URL.
 upper_ota_proxy: <upper_ota_proxy_URL: str>
@@ -68,7 +68,7 @@ class ProxyInfo:
     gateway: bool = True
     # to be compatible with mainECU
     enable_local_ota_proxy_cache: bool = True
-    upper_ota_proxy: str = None
+    upper_ota_proxy: Optional[str] = None
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
     local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
 

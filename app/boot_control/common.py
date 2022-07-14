@@ -1,9 +1,8 @@
 r"""Shared utils for boot_controller."""
 from enum import auto, Enum
 from pathlib import Path
-import re
 from subprocess import CalledProcessError
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Union
 
 from app import log_util
 from app.configs import config as cfg

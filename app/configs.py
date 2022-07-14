@@ -3,11 +3,12 @@ from enum import Enum, auto
 from logging import INFO
 from typing import Dict
 
-# fmt: off
+
 class CreateStandbyMechanism(Enum):
     LEGACY = 0
     REBUILD = auto()
     IN_PLACE = auto()
+
 
 @dataclass(frozen=True)
 class OtaClientServerConfig:
@@ -25,6 +26,7 @@ class OtaClientServerConfig:
 @dataclass
 class BaseConfig:
     """Platform neutral configuration."""
+
     DEFAULT_LOG_LEVEL: int = INFO
     LOG_LEVEL_TABLE: Dict[str, int] = field(
         default_factory=lambda: {
@@ -63,12 +65,12 @@ class BaseConfig:
 
     # ota-client behavior setting
     CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
-    LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024 # 4MB
+    LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
     DOWNLOAD_RETRY: int = 5
-    DOWNLOAD_BACKOFF_MAX: int = 3 # seconds
+    DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
     MAX_CONCURRENT_DOWNLOAD: int = 8
     MAX_CONCURRENT_TASKS: int = 1024
-    STATS_COLLECT_INTERVAL: int = 1 # second
+    STATS_COLLECT_INTERVAL: int = 1  # second
     ## standby creation mode, default to rebuild now
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
     # NOTE: the following 2 folders are meant to be located under standby_slot
@@ -92,7 +94,7 @@ class GrubControlConfig(BaseConfig):
 @dataclass
 class CBootControlConfig(BaseConfig):
     """arm platform, with cboot as bootloader.
-    
+
     NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
     """
 
@@ -107,6 +109,7 @@ class CBootControlConfig(BaseConfig):
 # helper function to detect platform
 def _detect_bootloader():
     import platform
+
     machine, arch = platform.machine(), platform.processor()
 
     if machine == "x86_64" or arch == "x86_64":
@@ -127,6 +130,3 @@ server_cfg = OtaClientServerConfig()
 cboot_cfg = CBootControlConfig()
 grub_cfg = GrubControlConfig()
 config = BaseConfig()
-
-
-# fmt: on
