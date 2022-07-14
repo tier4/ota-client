@@ -78,7 +78,7 @@ def _retry(retry: int, backoff_factor: float, backoff_max: int, func: Callable):
                 return func(*args, **kwargs)
             except (HashVerificaitonError, ChunkStreamingError):
                 _retry_count += 1
-                _backoff = backoff_factor * (2 ** (_retry_count - 1))
+                _backoff = min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
 
                 # inject a OTA-File-Cache-Control header to indicate ota_proxy
                 # to re-cache the possible corrupted file.
@@ -88,7 +88,7 @@ def _retry(retry: int, backoff_factor: float, backoff_max: int, func: Callable):
                 else:
                     kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
 
-                if _retry_count > retry or _backoff > backoff_max:
+                if _retry_count > retry:
                     raise
                 time.sleep(_backoff)
 
