@@ -291,6 +291,52 @@ class GrubABPartitionDetecter:
     def get_active_slot_dev(self) -> str:
         return self.active_dev
 
+
+class _SymlinkABPartitionDetecter:
+    """Implementation of legacy way to detect active/standby slot.
+
+    NOTE: this is re-introduced for backward compatibility reason,
+          should ONLY be used when migrating from old otaclient to new otaclient.
+
+    Get the active slot by reading the symlink target of /boot/ota-partition.
+    if ota-partition -> ota-partition.sda3, then active slot is sda3.
+
+    If there are ota-partition.sda2 and ota-partition.sda3 exist under /boot, and
+    ota-partition -> ota-partition.sda3, then sda2 is the standby slot.
+    """
+
+    OTA_PARTITION_FILE: str = cfg.BOOT_OTA_PARTITION_FILE
+    BOOT_DIR: str = cfg.BOOT_DIR
+
+    @classmethod
+    def _get_active_slot_by_symlink(cls) -> str:
+        try:
+            ota_partition_symlink = Path(cls.BOOT_DIR) / cls.OTA_PARTITION_FILE
+            active_ota_partition_file = os.readlink(ota_partition_symlink)
+
+            return Path(active_ota_partition_file).suffix.strip(".")
+        except FileNotFoundError:
+            raise ABPartitionError("ota-partition files are broken")
+
+    @classmethod
+    def _get_standby_slot_by_symlink(cls) -> str:
+        """
+        NOTE: expecting to have only 2 ota-partition files for A/B partition each.
+        """
+        try:
+            boot_dir = Path(cls.BOOT_DIR)
+
+            active_slot = cls._get_active_slot_by_symlink()
+            ota_partition_fs = list(boot_dir.glob(f"{cls.OTA_PARTITION_FILE}.*"))
+            ota_partition_fs.remove(Path(f"{cls.OTA_PARTITION_FILE}.{active_slot}"))
+            assert len(ota_partition_fs) == 1
+        except (ValueError, AssertionError):
+            raise ABPartitionError("ota-partition files are broken")
+
+        (standby_ota_partition_file,) = ota_partition_fs
+        return standby_ota_partition_file.suffix.strip(".")
+
+
 class _GrubControl:
     """Implementation of ota-partition switch boot mechanism."""
 
