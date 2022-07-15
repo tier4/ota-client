@@ -69,7 +69,7 @@ class BaseConfig:
     DOWNLOAD_RETRY: int = 5
     DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
     MAX_CONCURRENT_DOWNLOAD: int = 8
-    MAX_CONCURRENT_TASKS: int = 1024
+    MAX_CONCURRENT_TASKS: int = 128
     STATS_COLLECT_INTERVAL: int = 1  # second
     ## standby creation mode, default to rebuild now
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
