@@ -1,4 +1,3 @@
-import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -321,9 +320,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
             self._process_symlinks()
             self._process_persistents()
             self._save_meta()
-
-            # do a os.sync after the standby slot creation finished
-            os.sync()
         except OTAError:
             raise  # if the error is already specified and wrapped, just raise again
         except DownloadFailedSpaceNotEnough:

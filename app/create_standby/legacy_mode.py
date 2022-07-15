@@ -347,9 +347,6 @@ class LegacyMode(StandbySlotCreatorProtocol):
             self._process_symlink()
             self._process_regular()
             self._process_persistent()
-
-            # do a os.sync after the standby slot creation finished
-            os.sync()
         except OTAError:
             raise  # if the error is already specified and wrapped, just raise again
         except DownloadFailedSpaceNotEnough:
