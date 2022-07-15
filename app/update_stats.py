@@ -146,7 +146,7 @@ class OTAUpdateStatsCollector:
                 _prev_time = _cur_time
                 with self._staging_changes() as staging_storage:
                     for st in self._staging:
-                        _suffix = st.op
+                        _suffix = st.op.value
                         if _suffix in {"copy", "link", "download"}:
                             staging_storage.regular_files_processed += 1
                             staging_storage[f"files_processed_{_suffix}"] += 1
