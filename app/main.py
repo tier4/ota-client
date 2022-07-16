@@ -1,15 +1,25 @@
 import asyncio
-import sys
 import os
+import sys
 from pathlib import Path
 
-import _pathloader
+try:
+    import app
+    import ota_proxy
+except ModuleNotFoundError:
+    # NOTE: support for legacy way to launch otaclient
+    # by directly execute `sudo python3 main.py`
+    # add otaclient project base folder to the sys.path
+    project_dir = Path(__file__).absolute().parent.parent
+    sys.path.insert(0, str(project_dir))
+finally:
+    del app, ota_proxy  # cleanup as we only test import here
+
 from app import log_util
 from app.common import read_from_file, write_to_file_sync
 from app.configs import config as cfg
 from app.ota_client_service import launch_otaclient_grpc_server
 
-assert _pathloader
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
