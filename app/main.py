@@ -4,16 +4,14 @@ import sys
 from pathlib import Path
 
 try:
-    import app
-    import ota_proxy
+    import app  # noqa
+    import ota_proxy  # noqa
 except ModuleNotFoundError:
     # NOTE: support for legacy way to launch otaclient
     # by directly execute `sudo python3 main.py`
     # add otaclient project base folder to the sys.path
     project_dir = Path(__file__).absolute().parent.parent
     sys.path.insert(0, str(project_dir))
-finally:
-    del app, ota_proxy  # cleanup as we only test import here
 
 from app import log_util
 from app.common import read_from_file, write_to_file_sync
