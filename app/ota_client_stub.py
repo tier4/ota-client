@@ -582,39 +582,34 @@ class OtaClientStub:
         the caller should take the responsibility to update the cached status.
         """
         cur_time = time.time()
-        if cur_time - self._last_status_query <= server_cfg.STATUS_UPDATE_INTERVAL:
-            # within query interval, use cached status
-            _response = v2.StatusResponse()
-            _response.CopyFrom(self._cached_status)
-            return _response
+        if cur_time - self._last_status_query > server_cfg.STATUS_UPDATE_INTERVAL:
+            # for status API, query all directly connected subecus
+            tracked_ecu = set(
+                [ecu["ecu_id"] for ecu in self._ecu_info.get_secondary_ecus()]
+            )
+            async with self._status_pulling_lock:
+                self._last_status_query = cur_time
+                # prepare subecu status
+                _response = await self._query_subecu_status(tracked_ecu)
 
-        # the caller should take the responsibility to update the status
-        # for status API, query all directly connected subecus
-        tracked_ecu = set(
-            [ecu["ecu_id"] for ecu in self._ecu_info.get_secondary_ecus()]
-        )
-        async with self._status_pulling_lock:
-            self._last_status_query = cur_time
-            # prepare subecu status
-            _response = await self._query_subecu_status(tracked_ecu)
+                # prepare my ecu status
+                ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
+                ecu = _response.ecu.add()
+                if status := self._ota_client.status():
+                    ecu.CopyFrom(status)
+                else:
+                    # otaclient status method doesn't return valid result
+                    ecu.ecu_id = ecu_id
+                    ecu.result = v2.RECOVERABLE
 
-            # prepare my ecu status
-            ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-            ecu = _response.ecu.add()
-            if status := self._ota_client.status():
-                ecu.CopyFrom(status.export_as_v2_StatusResponseEcu(ecu_id))
-            else:
-                # otaclient status method doesn't return valid result
-                ecu.ecu_id = ecu_id
-                ecu.result = v2.RECOVERABLE
+                # available ecu ids
+                available_ecu_ids = self._ecu_info.get_available_ecu_ids()
+                _response.available_ecu_ids.extend(available_ecu_ids)
 
-            # available ecu ids
-            available_ecu_ids = self._ecu_info.get_available_ecu_ids()
-            _response.available_ecu_ids.extend(available_ecu_ids)
+                # register the status to cache
+                self._cached_status = _response
 
-            # register the status to cache
-            self._cached_status = _response
-
+        # respond with the cached status
         res = v2.StatusResponse()
         res.CopyFrom(self._cached_status)
         return res
