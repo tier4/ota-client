@@ -21,6 +21,7 @@ from app.create_standby import StandbySlotCreatorProtocol, UpdateMeta
 from app.downloader import DownloadError, Downloader
 from app.errors import InvalidUpdateRequest
 from app.ota_status import LiveOTAStatus, OTAStatusEnum
+from app.proto import otaclient_v2_pb2 as v2
 from app.update_phase import OTAUpdatePhase
 from app.interface import OTAClientInterface
 from app.ota_metadata import OtaMetadata
@@ -295,9 +296,48 @@ class OTAClientStatus:
     failure_type: str = OTAFailureType.NO_FAILURE.name
     failure_reason: str = ""
 
-    def get_update_phase(self) -> Optional[str]:
-        if self.update_progress and "phase" in self.update_progress:
-            return self.update_progress["phase"]
+    @staticmethod
+    def _statusprogress_msg_from_dict(input: Dict[str, Any]) -> v2.StatusProgress:
+        """
+        expecting input dict to has the same structure as the statusprogress msg,
+        unknown fields will be ignored
+        """
+        from numbers import Number
+        from google.protobuf.duration_pb2 import Duration
+
+        res = v2.StatusProgress()
+        for k, v in input.items():
+            try:
+                msg_field = getattr(res, k)
+            except Exception:
+                continue
+
+            if isinstance(msg_field, Number) and isinstance(v, Number):
+                setattr(res, k, v)
+            elif isinstance(msg_field, Duration):
+                msg_field.FromMilliseconds(v)
+
+        return res
+
+    def export_as_v2_StatusResponseEcu(self, ecu_id: str) -> v2.StatusResponseEcu:
+        ecu_status = v2.StatusResponseEcu()
+        # construct top layer
+        ecu_status.ecu_id = ecu_id
+        ecu_status.result = v2.NO_FAILURE
+
+        # construct status
+        ecu_status.status.status = getattr(v2.StatusOta, self.status)
+        ecu_status.status.failure = getattr(v2.FailureType, self.failure_type)
+        ecu_status.status.failure_reason = self.failure_reason
+        ecu_status.status.version = self.version
+
+        if self.update_progress:
+            prg = ecu_status.status.progress
+            prg.CopyFrom(self._statusprogress_msg_from_dict(self.update_progress))
+            if phase := self.update_progress.get("phase"):
+                prg.phase = getattr(v2.StatusProgressPhase, phase)
+
+        return ecu_status
 
 
 class OTAClient(OTAClientInterface):

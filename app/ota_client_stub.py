@@ -7,7 +7,7 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from multiprocessing import Process
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 from app.boot_control import get_boot_controller
 from app.create_standby import get_standby_slot_creator
@@ -25,28 +25,6 @@ from app import log_util
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
-
-
-def _statusprogress_msg_from_dict(input: Dict[str, Any]) -> v2.StatusProgress:
-    """
-    expecting input dict to has the same structure as the statusprogress msg
-    """
-    from numbers import Number
-    from google.protobuf.duration_pb2 import Duration
-
-    res = v2.StatusProgress()
-    for k, v in input.items():
-        try:
-            msg_field = getattr(res, k)
-        except Exception:
-            continue
-
-        if isinstance(msg_field, Number) and isinstance(v, Number):
-            setattr(res, k, v)
-        elif isinstance(msg_field, Duration):
-            msg_field.FromMilliseconds(v)
-
-    return res
 
 
 class OtaProxyWrapper:
@@ -603,9 +581,9 @@ class OtaClientStub:
         cur_time = time.time()
         if cur_time - self._last_status_query <= server_cfg.STATUS_UPDATE_INTERVAL:
             # within query interval, use cached status
-            response = v2.StatusResponse()
-            response.CopyFrom(self._cached_status)
-            return response
+            _response = v2.StatusResponse()
+            _response.CopyFrom(self._cached_status)
+            return _response
 
         # the caller should take the responsibility to update the status
         # for status API, query all directly connected subecus
@@ -615,34 +593,25 @@ class OtaClientStub:
         async with self._status_pulling_lock:
             self._last_status_query = cur_time
             # prepare subecu status
-            response = await self._query_subecu_status(tracked_ecu)
+            _response = await self._query_subecu_status(tracked_ecu)
 
             # prepare my ecu status
             ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-            ecu = response.ecu.add()
-            ecu.ecu_id = ecu_id
+            ecu = _response.ecu.add()
             if status := self._ota_client.status():
-                # construct status response
-                ecu.result = v2.NO_FAILURE
-                ecu.status.status = getattr(v2.StatusOta, status.status)
-                ecu.status.failure = getattr(v2.FailureType, status.failure_type)
-                ecu.status.failure_reason = status.failure_reason
-                ecu.status.version = status.version
-
-                prg = ecu.status.progress
-                prg.CopyFrom(_statusprogress_msg_from_dict(status.update_progress))
-                if phase := status.get_update_phase():
-                    prg.phase = getattr(v2.StatusProgressPhase, phase)
+                ecu.CopyFrom(status.export_as_v2_StatusResponseEcu(ecu_id))
             else:
                 # otaclient status method doesn't return valid result
+                ecu.ecu_id = ecu_id
                 ecu.result = v2.RECOVERABLE
 
             # available ecu ids
             available_ecu_ids = self._ecu_info.get_available_ecu_ids()
-            response.available_ecu_ids.extend(available_ecu_ids)
+            _response.available_ecu_ids.extend(available_ecu_ids)
 
             # register the status to cache
-            cached_response = v2.StatusResponse()
-            cached_response.CopyFrom(response)
-            self._cached_status = cached_response
-            return response
+            self._cached_status = _response
+
+        res = v2.StatusResponse()
+        res.CopyFrom(self._cached_status)
+        return res
