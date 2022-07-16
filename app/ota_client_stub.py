@@ -374,11 +374,10 @@ class OtaClientStub:
     async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
         logger.debug(f"receive update request: {request}")
         response = v2.UpdateResponse()
-        my_ecu_id = self._ecu_info.get_ecu_id()
 
         if self._update_session.is_started():
             ecu = response.ecu.add()
-            ecu.ecu_id = my_ecu_id
+            ecu.ecu_id = self.my_ecu_id
             ecu.result = v2.RECOVERABLE
 
             logger.debug("ignore duplicated update request")
@@ -451,16 +450,16 @@ class OtaClientStub:
 
         # after all subecus ack the update request, update my ecu
         my_ecu_update_tracker: Optional[asyncio.Task] = None
-        if entry := OtaClientStub._find_request(request.ecu, my_ecu_id):
+        if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
             if not self._ota_client.live_ota_status.request_update():
                 logger.warning(
                     f"ota_client should not take ota update under ota_status={self._ota_client.live_ota_status.get_ota_status()}"
                 )
                 ecu = response.ecu.add()
-                ecu.ecu_id = my_ecu_id
+                ecu.ecu_id = self.my_ecu_id
                 ecu.result = v2.RECOVERABLE
             else:
-                logger.info(f"{my_ecu_id=}, {entry=}")
+                logger.info(f"{self.my_ecu_id=}, {entry=}")
                 # dispatch update to local otaclient
                 _loop = asyncio.get_running_loop()
                 _loop.run_in_executor(
@@ -481,7 +480,7 @@ class OtaClientStub:
                 )
 
                 ecu = response.ecu.add()
-                ecu.ecu_id = my_ecu_id
+                ecu.ecu_id = self.my_ecu_id
                 ecu.result = v2.NO_FAILURE
 
         # NOTE(20220513): is it illegal that ecu itself is not requested to update
@@ -503,7 +502,6 @@ class OtaClientStub:
 
     async def rollback(self, request) -> v2.RollbackResponse:
         logger.info(f"{request=}")
-        my_ecu_id = self._ecu_info.get_ecu_id()
         response = v2.RollbackResponse()
 
         # dispatch rollback requests to all secondary ecus
@@ -551,15 +549,15 @@ class OtaClientStub:
                         logger.info(f"{ecu.ecu_id=}, {ecu.result=}")
 
         # after all subecus response the request, rollback my ecu
-        if entry := OtaClientStub._find_request(request.ecu, my_ecu_id):
+        if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
             if self._ota_client.live_ota_status.request_rollback():
-                logger.info(f"{my_ecu_id=}, {entry=}")
+                logger.info(f"{self.my_ecu_id=}, {entry=}")
                 # dispatch the rollback request to threadpool
                 self._executor.submit(self._ota_client.rollback)
 
                 # rollback request is permitted, prepare the response
                 ecu = response.ecu.add()
-                ecu.ecu_id = my_ecu_id
+                ecu.ecu_id = self.my_ecu_id
                 ecu.result = v2.NO_FAILURE
             else:
                 # current ota_client's status indicates that
@@ -569,7 +567,7 @@ class OtaClientStub:
                     f"ota_status={self._ota_client.live_ota_status.get_ota_status()}"
                 )
                 ecu = response.ecu.add()
-                ecu.ecu_id = my_ecu_id
+                ecu.ecu_id = self.my_ecu_id
                 ecu.result = v2.RECOVERABLE
         else:
             logger.warning("entries in rollback request doesn't include this ecu")
