@@ -17,18 +17,18 @@ from app.errors import (
     OTAUpdateError,
 )
 from app.boot_control import BootControllerProtocol
+from app.common import OTAFileCacheControl
+from app.configs import config as cfg
 from app.create_standby import StandbySlotCreatorProtocol, UpdateMeta
 from app.downloader import DownloadError, Downloader
+from app.interface import OTAClientProtocol
 from app.errors import InvalidUpdateRequest
+from app.ota_metadata import OtaMetadata
 from app.ota_status import LiveOTAStatus, OTAStatusEnum
 from app.proto import otaclient_v2_pb2 as v2
-from app.update_phase import OTAUpdatePhase
-from app.interface import OTAClientInterface
-from app.ota_metadata import OtaMetadata
-from app.update_stats import OTAUpdateStatsCollector
-from app.configs import config as cfg
-from app.common import OTAFileCacheControl
 from app.proxy_info import proxy_cfg
+from app.update_phase import OTAUpdatePhase
+from app.update_stats import OTAUpdateStatsCollector
 from app import log_util
 
 logger = log_util.get_logger(
@@ -340,7 +340,7 @@ class OTAClientStatus:
         return ecu_status
 
 
-class OTAClient(OTAClientInterface):
+class OTAClient(OTAClientProtocol):
     """
     Init params:
         boot_control_cls: type of boot control mechanism to use
@@ -349,9 +349,12 @@ class OTAClient(OTAClientInterface):
 
     def __init__(
         self,
+        *,
         boot_control_cls: Type[BootControllerProtocol],
         create_standby_cls: Type[StandbySlotCreatorProtocol],
+        my_ecu_id: str = "",
     ):
+        self.my_ecu_id = my_ecu_id
         self._update_lock = Lock()  # ensure only one update session is running
         self._rollback_lock = Lock()
         self.last_failure: Optional[OTA_APIError] = None
@@ -412,7 +415,7 @@ class OTAClient(OTAClientInterface):
         finally:
             self._rollback_lock.release()
 
-    def status(self) -> Optional[OTAClientStatus]:
+    def status(self) -> Optional[v2.StatusResponseEcu]:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
             if _update_stats := self.updater.status():
                 # construct status response dict
@@ -426,7 +429,7 @@ class OTAClient(OTAClientInterface):
                     _res.failure_type = self.last_failure.failure_type.name
                     _res.failure_reason = self.last_failure.get_err_reason()
 
-                return _res
+                return _res.export_as_v2_StatusResponseEcu(self.my_ecu_id)
             else:
                 logger.debug(
                     "live_ota_status indicates there is an ongoing update,"
@@ -444,4 +447,4 @@ class OTAClient(OTAClientInterface):
                 _res.failure_type = self.last_failure.failure_type.name
                 _res.failure_reason = self.last_failure.get_err_reason()
 
-            return _res
+            return _res.export_as_v2_StatusResponseEcu(self.my_ecu_id)

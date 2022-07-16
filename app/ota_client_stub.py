@@ -231,13 +231,16 @@ class OtaClientStub:
         # dispatch the requested operations to threadpool
         self._executor = ThreadPoolExecutor(thread_name_prefix="ota_client_stub")
 
+        self._ecu_info = EcuInfo()
+        self.my_ecu_id = self._ecu_info.get_ecu_id()
+
         # NOTE: explicitly specific which mechanism to use
         # for boot control and create standby slot
         self._ota_client = OTAClient(
             boot_control_cls=get_boot_controller(BOOT_LOADER),
             create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
+            my_ecu_id=self.my_ecu_id,
         )
-        self._ecu_info = EcuInfo()
         self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
 
         # for _get_subecu_status
