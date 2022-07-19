@@ -1,5 +1,25 @@
 [tool.black]
-exclude = '''(
-  app/otaclient_v2_pb2.py |
-  app/otaclient_v2_pb2_grpc.py
+line-length = 88
+target-version = ['py38']
+include = '''(
+  (app | ota_proxy | aws-iot-log-server).*\.pyi?$
 )'''
+extend-exclude = '''(
+  app/proto/.*_v2_pb2.*
+)'''
+
+[tool.coverage.run]
+source_pkgs = ["app"]
+branch = true
+
+[tool.coverage.report]
+omit = ["app/proto/*pb2*"]
+show_missing = true
+
+[tool.pytest.ini_options]
+log_auto_indent = true
+log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
+log_cli = true
+log_cli_level = "INFO"
+addopts = "--cov=app"
+testpaths = ["/ota-client/tests"]

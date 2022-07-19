@@ -3,7 +3,8 @@ import sys
 import yaml
 import logging
 from pathlib import Path
-from configs import config as cfg
+
+from app.configs import config as cfg
 
 _logger = None
 

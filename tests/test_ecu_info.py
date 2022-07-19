@@ -1,5 +1,6 @@
-import os
+from pathlib import Path
 import pytest
+from pytest_mock import MockerFixture
 import yaml
 
 
@@ -42,9 +43,15 @@ import yaml
     ),
 )
 def test_ecu_info(
-    mocker, tmp_path, ecu_info_dict, secondary_ecus, ecu_id, ip_addr, available_ecu_ids
+    mocker: MockerFixture,
+    tmp_path: Path,
+    ecu_info_dict,
+    secondary_ecus,
+    ecu_id,
+    ip_addr,
+    available_ecu_ids,
 ):
-    from ecu_info import EcuInfo
+    from app.ecu_info import EcuInfo
 
     boot_dir = tmp_path / "boot"
     boot_dir.mkdir()

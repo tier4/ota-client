@@ -1,36 +1,41 @@
+import grpc.aio
 import pytest
+from pathlib import Path
+from pytest_mock import MockerFixture
+from pytest import LogCaptureFixture
+
+FIRST_LINE_LOG = "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
+
+
+async def _terminate_server(server: grpc.aio.Server):
+    await server.stop(None)
+
+
+class _dummy_OtaClientStub:
+    def host_addr(self) -> str:
+        return "127.0.0.1"
 
 
 @pytest.fixture
-def patch(mocker):
-    import random
-    from ota_client import OtaClient
-    from ota_client_call import OtaClientCall
-    from ota_client_service import OtaClientServiceV2
+def patch_main(mocker: MockerFixture, tmp_path: Path):
+    mocker.patch("app.ota_client_service.OtaClientStub", _dummy_OtaClientStub)
+    mocker.patch("app.main._check_other_otaclient")
+    mocker.patch(
+        "app.ota_client_service.service_wait_for_termination",
+        _terminate_server,
+    )
 
-    mocker.patch.object(OtaClient, "__init__", return_value=None)
-    mocker.patch.object(OtaClientCall, "__init__", return_value=None)
-    mocker.patch.object(OtaClientServiceV2, "__init__", return_value=None)
-    mocker.patch("main.service_start", return_value=None)
-    mocker.patch("main.service_wait_for_termination", return_value=None)
-    mocker.patch("main.os.getpid", lambda: random.getrandbits(64))
-
-
-def test_main(patch, mocker):
-    from main import main
-
-    main()
+    version_file = tmp_path / "version.txt"
+    version_file.write_text(FIRST_LINE_LOG)
+    mocker.patch("app.main.VERSION_FILE", version_file)
 
 
-def test_main_with_version(patch, mocker, tmp_path, caplog):
-    from main import main
-
-    version = tmp_path / "version.txt"
-    version.write_text("d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit")
-    mocker.patch("main.VERSION_FILE", version)
+def test_main_with_version(
+    patch_main,
+    caplog: LogCaptureFixture,
+):
+    from app.main import main
 
     main()
     assert caplog.records[0].msg == "started"
-    assert (
-        caplog.records[1].msg == "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
-    )
+    assert caplog.records[1].msg == FIRST_LINE_LOG

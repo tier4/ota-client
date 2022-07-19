@@ -21,9 +21,11 @@ services:
       "mkdir -p /ota-client/certs
       && cp -av /ota-client/tests/keys/root.pem /ota-client/certs/1.root.pem
       && cp -av /ota-client/tests/keys/interm.pem /ota-client/certs/1.interm.pem
-      && python3 -m pytest tests --cov=app --log-cli-level=INFO"
+      && python3 -m pytest tests"
     container_name: ota-client
     volumes:
+      - ./pyproject.toml:/ota-client/pyproject.toml:ro
+      - ./.flake8:/ota-client/.flake8:ro
       - ./app:/ota-client/app:ro
       - ./ota_proxy:/ota-client/ota_proxy:ro
       - ./tests:/ota-client/tests:ro
