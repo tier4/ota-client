@@ -18,12 +18,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install package dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r app/requirements.txt
+          python -m pip install -q --upgrade pip
+          python -m pip install -q -r app/requirements.txt
       # pytest
       - name: Install test dependencies
         run: |
-          python -m pip install -r tests/requirements.txt
+          python -m pip install -q -r tests/requirements.txt
       - name: Setup ota server
         run: |
           docker-compose -f docker-compose.yml -f docker-compose.dev.yml run -p 8080:8080 -d --rm server
@@ -57,7 +57,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
         run: | 
-          python -m pip install -r tests/requirements.txt
+          python -m pip install -q --upgrade pip
+          python -m pip install -q -r tests/requirements.txt
       - name: Lint codes without modification
         run: | 
           $pythonLocation/bin/python -m black . --check
