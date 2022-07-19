@@ -1,7 +1,7 @@
 import yaml
 import warnings
 from dataclasses import dataclass, fields
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, ClassVar, Dict
 from pathlib import Path
 
 from app import log_util

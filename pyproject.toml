@@ -1,9 +1,11 @@
 [tool.black]
-line-length = 90
+line-length = 88
 target-version = ['py38']
-exclude = '''(
-  app/proto/otaclient_v2_pb2.py |
-  app/proto/otaclient_v2_pb2_grpc.py
+include = '''(
+  (app | ota_proxy | aws-iot-log-server).*\.pyi?$
+)'''
+extend-exclude = '''(
+  app/proto/.*_v2_pb2.*
 )'''
 
 [tool.coverage.run]
