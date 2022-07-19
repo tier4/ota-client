@@ -110,17 +110,17 @@ class OtaProxyWrapper:
         NOTE: cache folder cleanup is done here.
         """
         from ota_proxy.config import config as proxy_srv_cfg
+        import shutil
 
         with self._lock:
             if not self._closed and self._server_p:
                 # send SIGTERM to the server process
                 self._server_p.terminate()
+                self._server_p.join(timeout=16)  # wait for ota_proxy cleanup
                 self._closed = True
                 logger.info("ota proxy server closed")
 
                 if cleanup_cache:
-                    import shutil
-
                     shutil.rmtree(proxy_srv_cfg.BASE_DIR, ignore_errors=True)
 
 
