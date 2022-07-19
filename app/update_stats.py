@@ -21,9 +21,9 @@ class OTAUpdateStats:
     file_size_processed_copy: int = 0
     file_size_processed_link: int = 0
     file_size_processed_download: int = 0
-    elapsed_time_copy: float = 0  # ns
-    elapsed_time_link: float = 0  # ns
-    elapsed_time_download: float = 0  # ns
+    elapsed_time_copy: int = 0  # ns
+    elapsed_time_link: int = 0  # ns
+    elapsed_time_download: int = 0  # ns
     errors_download: int = 0
     total_elapsed_time: int = 0
 
@@ -35,16 +35,16 @@ class OTAUpdateStats:
         NOTE: convert elasped_time_<op> from nano-second to milli-second here
         """
         _copy = self.copy()
-        _copy.elapsed_time_copy = int(_copy.elapsed_time_copy) // 10**6
-        _copy.elapsed_time_download = int(_copy.elapsed_time_download) // 10**6
-        _copy.elapsed_time_link = int(_copy.elapsed_time_link) // 10**6
+        _copy.elapsed_time_copy = _copy.elapsed_time_copy // 10**6
+        _copy.elapsed_time_download = _copy.elapsed_time_download // 10**6
+        _copy.elapsed_time_link = _copy.elapsed_time_link // 10**6
 
         return dataclasses.asdict(_copy)
 
     def __getitem__(self, _key: str) -> int:
         return getattr(self, _key)
 
-    def __setitem__(self, _key: str, _value):
+    def __setitem__(self, _key: str, _value: int):
         setattr(self, _key, _value)
 
 
@@ -54,19 +54,33 @@ class RegProcessOperation(Enum):
     OP_COPY = "copy"
     OP_LINK = "link"
 
+    @classmethod
+    def is_valid_op(cls, _op: Any) -> bool:
+        if isinstance(_op, cls):
+            return _op != cls.OP_UNSPECIFIC
+
+        if isinstance(_op, str):
+            try:
+                cls[_op]
+                return True
+            except KeyError:
+                return False
+
+        return False
+
 
 @dataclasses.dataclass
 class RegInfProcessedStats:
     """processed_list have dictionaries as follows:
     {"size": int}  # file size
-    {"elapsed": int}  # elapsed time in seconds
+    {"elapsed_ns": int}  # elapsed time in nano-seconds
     {"op": str}  # operation. "copy", "link" or "download"
     {"errors": int}  # number of errors that occurred when downloading.
     """
 
     op: RegProcessOperation = RegProcessOperation.OP_UNSPECIFIC
     size: int = 0
-    elapsed_ns: float = 0
+    elapsed_ns: int = 0
     errors: int = 0
 
 
@@ -83,7 +97,10 @@ class OTAUpdateStatsCollector:
 
     @contextmanager
     def _staging_changes(self) -> Generator[OTAUpdateStats, None, None]:
-        """Acquire a staging storage for updating the slot atomically and thread-safely."""
+        """Acquire a staging storage for updating the slot atomically.
+
+        NOTE: it should be only one collecter that calling this method!
+        """
         staging_slot = self.store.copy()
         try:
             yield staging_slot
@@ -147,15 +164,16 @@ class OTAUpdateStatsCollector:
                 with self._staging_changes() as staging_storage:
                     for st in self._staging:
                         _suffix = st.op.value
-                        if _suffix in {"copy", "link", "download"}:
+                        if RegProcessOperation.is_valid_op(_suffix):
                             staging_storage.regular_files_processed += 1
+                            staging_storage.total_regular_file_size += st.size
                             staging_storage[f"files_processed_{_suffix}"] += 1
                             staging_storage[f"file_size_processed_{_suffix}"] += st.size
                             staging_storage[
                                 f"elapsed_time_{_suffix}"
                             ] += st.elapsed_ns  # in nano-seconds
 
-                            if _suffix == "download":
+                            if _suffix == RegProcessOperation.OP_DOWNLOAD.value:
                                 staging_storage[f"errors_{_suffix}"] += st.errors
 
                 # cleanup already collected stats
