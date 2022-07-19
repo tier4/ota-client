@@ -34,7 +34,7 @@ jobs:
           mkdir -p ./certs
           cp -av ./tests/keys/root.pem ./certs/1.root.pem
           cp -av ./tests/keys/interm.pem ./certs/1.interm.pem
-          sudo $pythonLocation/bin/python -m pytest --cov-report term-missing --cov=app ./tests --log-cli-level=INFO | tee pytest-coverage.txt
+          sudo $pythonLocation/bin/python -m pytest ./tests | tee pytest-coverage.txt
       - name: Teardown ota server
         run: |
           bash -c 'docker-compose down || true'
@@ -60,10 +60,10 @@ jobs:
           python -m pip install -r tests/requirements.txt
       - name: Lint codes without modification
         run: | 
-          black . --check
+          $pythonLocation/bin/python -m black . --check
       - name: Lint codes for syntax check
         run: |
-          pyflakes ./app
+          $pythonLocation/bin/python -m flake8 ./app
 
   markdown_lint_check:
     runs-on: ubuntu-20.04
