@@ -174,9 +174,7 @@ class _OTAUpdater:
 
         # launch ota update stats collector
         self.update_stats_collector.start()
-        logger.info("[_pre_update] finished")
 
-    def _in_update(self):
         # finish pre-update configuration, enter update
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
         self._boot_controller.pre_update(
@@ -184,7 +182,9 @@ class _OTAUpdater:
             standby_as_ref=self._create_standby_cls.is_standby_as_ref(),
             erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
+        logger.info("[_pre_update] finished")
 
+    def _in_update(self):
         # configure standby slot creator
         _standby_slot_creator = self._create_standby_cls(
             update_meta=self._updatemeta,
@@ -265,22 +265,20 @@ class _OTAUpdater:
                 fsm.client_wait_for_ota_proxy()
                 self._downloader.configure_proxy(proxy)
 
-            self._pre_update(version, url_base, cookies_json, fsm=fsm)
-            fsm.client_enter_update()
+            self._pre_update(version, url_base, cookies_json)
 
             self._in_update()
             fsm.client_finish_update()
 
-            logger.info(
-                "[update] leaving update, "
-                "wait on ota_service, apply post-update and reboot..."
-            )
+            logger.info("[update] leaving update, wait on all subecs...")
             fsm.client_wait_for_reboot()
+
+            logger.info("[update] apply post-update and reboot...")
             self._post_update()
         except OTAError as e:
             logger.exception("update failed")
             # NOTE: also set stored ota_status to FAILURE,
-            # as the standby slot has already been cleaned up!
+            #       as the standby slot has already been cleaned up!
             self._boot_controller.store_current_ota_status(OTAStatusEnum.FAILURE)
             raise OTAUpdateError(e) from e
         finally:
