@@ -1,6 +1,5 @@
 from abc import abstractmethod
-from threading import Event
-from typing import Optional, Protocol, Type
+from typing import Protocol, Type
 
 from app.boot_control.interface import BootControllerProtocol
 from app.create_standby.interface import StandbySlotCreatorProtocol
@@ -24,8 +23,7 @@ class OTAClientProtocol(Protocol):
         url_base: str,
         cookies_json: str,
         *,
-        pre_update_event: Optional[Event] = None,
-        post_update_event: Optional[Event] = None,
+        fsm,  # OTAUpdateFSM
     ) -> None:
         ...
 
