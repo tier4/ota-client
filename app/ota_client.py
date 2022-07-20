@@ -198,30 +198,25 @@ class _OTAUpdater:
     ######  public API ######
 
     def shutdown(self):
-        """Used when ota-update is interrupted."""
-        if self.update_phase is not None:
-            self.update_phase = None
-            self.update_stats_collector.stop()
-            self._downloader.cleanup_proxy()
+        self.update_phase = None
+        self.update_stats_collector.stop()
+        self._downloader.cleanup_proxy()
 
-    def update_progress(self) -> Optional[Tuple[str, v2.StatusProgress]]:
+    def update_progress(self) -> Tuple[str, v2.StatusProgress]:
         """
         Returns:
             A tuple contains the version and the update_progress.
         """
-        if self.update_phase is not None:
-            update_progress: v2.StatusProgress = (
-                self.update_stats_collector.get_snapshot_as_v2_StatusProgress(
-                    self.update_phase.name
-                )
-            )
+        update_progress = self.update_stats_collector.get_snapshot_as_v2_StatusProgress(
+            self.update_phase
+        )
 
-            # set total_elapsed_time
-            update_progress.total_elapsed_time.FromNanoseconds(
-                time.time_ns() - self.update_start_time
-            )
+        # set total_elapsed_time
+        update_progress.total_elapsed_time.FromNanoseconds(
+            time.time_ns() - self.update_start_time
+        )
 
-            return self.updating_version, update_progress
+        return self.updating_version, update_progress
 
     def execute(
         self,
@@ -267,15 +262,17 @@ class _OTAUpdater:
 
             logger.info("[update] apply post-update and reboot...")
             self._post_update()
+            # NOTE: no need to call shutdown method here, keep the update_progress
+            #       as it as we are still in updating before rebooting
         except OTAError as e:
             logger.exception("update failed")
             # NOTE: also set stored ota_status to FAILURE,
             #       as the standby slot has already been cleaned up!
             self._boot_controller.store_current_ota_status(OTAStatusEnum.FAILURE)
-            raise OTAUpdateError(e) from e
-        finally:
-            # cleanup
+
+            # cleanup on failure
             self.shutdown()
+            raise OTAUpdateError(e) from e
 
 
 class OTAClient(OTAClientProtocol):
@@ -355,30 +352,22 @@ class OTAClient(OTAClientProtocol):
         finally:
             self._rollback_lock.release()
 
-    def status(self) -> Optional[v2.StatusResponseEcu]:
+    def status(self) -> v2.StatusResponseEcu:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
-            if _update_stats := self.updater.update_progress():
-                _version, _update_progress = _update_stats
-                _status = v2.Status(
-                    version=_version,
-                    status=self.live_ota_status.get_ota_status().name,
-                    progress=_update_progress,
-                )
-                if self.last_failure:
-                    self.last_failure.register_to_v2_Status(_status)
+            _version, _update_progress = self.updater.update_progress()
+            _status = v2.Status(
+                version=_version,
+                status=self.live_ota_status.get_ota_status().name,
+                progress=_update_progress,
+            )
+            if self.last_failure:
+                self.last_failure.register_to_v2_Status(_status)
 
-                return v2.StatusResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=v2.NO_FAILURE,
-                    status=_status,
-                )
-            else:
-                logger.debug(
-                    "live_ota_status indicates there is an ongoing update,"
-                    "but we failed to get update status from updater"
-                )
-                return
-
+            return v2.StatusResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=v2.NO_FAILURE,
+                status=_status,
+            )
         else:  # no update/rollback on-going
             _status = v2.Status(
                 version=self.current_version,
