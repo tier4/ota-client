@@ -3,15 +3,19 @@ import time
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from google.protobuf.duration_pb2 import Duration
 from queue import Empty, Queue
 from threading import Event, Lock
-from typing import Any, Dict, Generator, List
+from typing import Generator, List
 
 from app.configs import config as cfg
+from app.proto import otaclient_v2_pb2 as v2
 
 
 @dataclasses.dataclass
 class OTAUpdateStats:
+    """NOTE: check v2.StatusProgress message definition"""
+
     total_regular_files: int = 0
     total_regular_file_size: int = 0
     regular_files_processed: int = 0
@@ -30,16 +34,23 @@ class OTAUpdateStats:
     def copy(self) -> "OTAUpdateStats":
         return dataclasses.replace(self)
 
-    def export_as_dict(self) -> Dict[str, int]:
-        """
-        NOTE: convert elasped_time_<op> from nano-second to milli-second here
-        """
-        _copy = self.copy()
-        _copy.elapsed_time_copy = _copy.elapsed_time_copy // 10**6
-        _copy.elapsed_time_download = _copy.elapsed_time_download // 10**6
-        _copy.elapsed_time_link = _copy.elapsed_time_link // 10**6
+    def export_as_v2_StatusProgress(self, _phase: str = "") -> v2.StatusProgress:
+        res = v2.StatusProgress()
 
-        return dataclasses.asdict(_copy)
+        if phase := getattr(v2.StatusProgressPhase, _phase, None):
+            res.phase = phase
+
+        for field in dataclasses.fields(self):
+            _key = field.name
+            _value = getattr(self, _key)
+
+            msg_field = getattr(res, _key, None)
+            if isinstance(msg_field, Duration):
+                msg_field.FromNanoseconds(_value)
+            elif msg_field is not None:
+                setattr(res, _key, _value)
+
+        return res
 
     def __getitem__(self, _key: str) -> int:
         return getattr(self, _key)
@@ -53,20 +64,6 @@ class RegProcessOperation(Enum):
     OP_DOWNLOAD = "download"
     OP_COPY = "copy"
     OP_LINK = "link"
-
-    @classmethod
-    def is_valid_op(cls, _op: Any) -> bool:
-        if isinstance(_op, cls):
-            return _op != cls.OP_UNSPECIFIC
-
-        if isinstance(_op, str):
-            try:
-                cls[_op]
-                return True
-            except KeyError:
-                return False
-
-        return False
 
 
 @dataclasses.dataclass
@@ -140,8 +137,9 @@ class OTAUpdateStatsCollector:
         """Return a copy of statistics storage."""
         return self.store.copy()
 
-    def get_snapshot_as_dist(self) -> Dict[str, Any]:
-        return self.store.copy().export_as_dict()
+    def get_snapshot_as_v2_StatusProgress(self, _phase: str) -> v2.StatusProgress:
+        _snapshot = self.store.copy()
+        return _snapshot.export_as_v2_StatusProgress(_phase)
 
     def report(self, *stats: RegInfProcessedStats):
         for _stat in stats:
@@ -163,8 +161,11 @@ class OTAUpdateStatsCollector:
                 _prev_time = _cur_time
                 with self._staging_changes() as staging_storage:
                     for st in self._staging:
-                        _suffix = st.op.value
-                        if RegProcessOperation.is_valid_op(_suffix):
+                        if (
+                            isinstance(st.op, RegProcessOperation)
+                            and st.op != RegProcessOperation.OP_UNSPECIFIC
+                        ):
+                            _suffix = st.op.value
                             staging_storage.regular_files_processed += 1
                             staging_storage.total_regular_file_size += st.size
                             staging_storage[f"files_processed_{_suffix}"] += 1
