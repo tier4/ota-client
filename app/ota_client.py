@@ -1,7 +1,6 @@
 import json
 import tempfile
 import time
-from dataclasses import dataclass
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from threading import Event, Lock
@@ -39,7 +38,6 @@ logger = log_util.get_logger(
 class OTAUpdateFSM:
     def __init__(self) -> None:
         self._ota_proxy_ready = Event()
-        self._otaclient_enter_update = Event()
         self._otaclient_finish_update = Event()
         self._stub_cleanup_finish = Event()
 
@@ -49,9 +47,6 @@ class OTAUpdateFSM:
     def client_wait_for_ota_proxy(self, *, timeout: Optional[float] = None):
         """Local otaclient wait for stub(to setup ota_proxy server)."""
         self._ota_proxy_ready.wait(timeout=timeout)
-
-    def client_enter_update(self):
-        self._otaclient_enter_update.set()
 
     def client_finish_update(self):
         self._otaclient_finish_update.set()
@@ -128,9 +123,7 @@ class _OTAUpdater:
             metadata.verify(cert_file.read_bytes())
             return metadata
 
-    def _pre_update(
-        self, version: str, url_base: str, cookies_json: str, *, fsm: OTAUpdateFSM
-    ):
+    def _pre_update(self, version: str, url_base: str, cookies_json: str):
         # parse cookies
         try:
             cookies: Dict[str, Any] = json.loads(cookies_json)
@@ -140,10 +133,10 @@ class _OTAUpdater:
         # set ota status
         self.updating_version = version
         self.update_phase = OTAUpdatePhase.INITIAL
-        self.update_start_time = int(time.time() * 1000)  # unix time in milli-seconds
+        self.update_start_time = time.time_ns()
         self.failure_reason = ""  # clean failure reason
 
-        # init ota_update_stats collector and downloader
+        # init ota_update_stats collector
         self.update_stats_collector.start(restart=True)
 
         # process metadata.jwt
@@ -156,12 +149,6 @@ class _OTAUpdater:
         except ValueError as e:
             raise BaseOTAMetaVerificationFailed from e
 
-        total_regular_file_size = metadata.get_total_regular_file_size()
-        if total_regular_file_size:
-            self.update_stats_collector.store.total_regular_file_size = (
-                total_regular_file_size
-            )
-
         # prepare update meta
         self._updatemeta = UpdateMeta(
             cookies=cookies,
@@ -172,11 +159,12 @@ class _OTAUpdater:
             ref_slot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
         )
 
-        # launch ota update stats collector
-        self.update_stats_collector.start()
-        logger.info("[_pre_update] finished")
+        # set total_regular_file_size to stats store
+        if total_regular_file_size := metadata.get_total_regular_file_size():
+            self.update_stats_collector.set_total_regular_files_size(
+                total_regular_file_size
+            )
 
-    def _in_update(self):
         # finish pre-update configuration, enter update
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
         self._boot_controller.pre_update(
@@ -184,7 +172,9 @@ class _OTAUpdater:
             standby_as_ref=self._create_standby_cls.is_standby_as_ref(),
             erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
+        logger.info("[_pre_update] finished")
 
+    def _in_update(self):
         # configure standby slot creator
         _standby_slot_creator = self._create_standby_cls(
             update_meta=self._updatemeta,
@@ -214,22 +204,24 @@ class _OTAUpdater:
             self.update_stats_collector.stop()
             self._downloader.cleanup_proxy()
 
-    def status(self) -> Optional[Tuple[str, Dict[str, Any]]]:
+    def update_progress(self) -> Optional[Tuple[str, v2.StatusProgress]]:
         """
         Returns:
             A tuple contains the version and the update_progress.
         """
         if self.update_phase is not None:
-            # TODO: refactoring?
-            self.update_stats_collector.store.total_elapsed_time = int(
-                time.time() * 1000 - self.update_start_time
-            )  # in milli-seconds
+            update_progress: v2.StatusProgress = (
+                self.update_stats_collector.get_snapshot_as_v2_StatusProgress(
+                    self.update_phase.name
+                )
+            )
 
-            version = self.updating_version
-            update_progress = self.update_stats_collector.get_snapshot_as_dist()
-            # add extra fields
-            update_progress["phase"] = self.update_phase.name
-            return version, update_progress
+            # set total_elapsed_time
+            update_progress.total_elapsed_time.FromNanoseconds(
+                time.time_ns() - self.update_start_time
+            )
+
+            return self.updating_version, update_progress
 
     def execute(
         self,
@@ -265,79 +257,25 @@ class _OTAUpdater:
                 fsm.client_wait_for_ota_proxy()
                 self._downloader.configure_proxy(proxy)
 
-            self._pre_update(version, url_base, cookies_json, fsm=fsm)
-            fsm.client_enter_update()
+            self._pre_update(version, url_base, cookies_json)
 
             self._in_update()
             fsm.client_finish_update()
 
-            logger.info(
-                "[update] leaving update, "
-                "wait on ota_service, apply post-update and reboot..."
-            )
+            logger.info("[update] leaving update, wait on all subecs...")
             fsm.client_wait_for_reboot()
+
+            logger.info("[update] apply post-update and reboot...")
             self._post_update()
         except OTAError as e:
             logger.exception("update failed")
             # NOTE: also set stored ota_status to FAILURE,
-            # as the standby slot has already been cleaned up!
+            #       as the standby slot has already been cleaned up!
             self._boot_controller.store_current_ota_status(OTAStatusEnum.FAILURE)
             raise OTAUpdateError(e) from e
         finally:
             # cleanup
             self.shutdown()
-
-
-@dataclass
-class OTAClientStatus:
-    version: str
-    status: str
-    update_progress: Dict[str, Any]
-    failure_type: str = OTAFailureType.NO_FAILURE.name
-    failure_reason: str = ""
-
-    @staticmethod
-    def _statusprogress_msg_from_dict(input: Dict[str, Any]) -> v2.StatusProgress:
-        """
-        expecting input dict to has the same structure as the statusprogress msg,
-        unknown fields will be ignored
-        """
-        from numbers import Number
-        from google.protobuf.duration_pb2 import Duration
-
-        res = v2.StatusProgress()
-        for k, v in input.items():
-            try:
-                msg_field = getattr(res, k)
-            except Exception:
-                continue
-
-            if isinstance(msg_field, Number) and isinstance(v, Number):
-                setattr(res, k, v)
-            elif isinstance(msg_field, Duration):
-                msg_field.FromMilliseconds(v)
-
-        return res
-
-    def export_as_v2_StatusResponseEcu(self, ecu_id: str) -> v2.StatusResponseEcu:
-        ecu_status = v2.StatusResponseEcu()
-        # construct top layer
-        ecu_status.ecu_id = ecu_id
-        ecu_status.result = v2.NO_FAILURE
-
-        # construct status
-        ecu_status.status.status = getattr(v2.StatusOta, self.status)
-        ecu_status.status.failure = getattr(v2.FailureType, self.failure_type)
-        ecu_status.status.failure_reason = self.failure_reason
-        ecu_status.status.version = self.version
-
-        if self.update_progress:
-            prg = ecu_status.status.progress
-            prg.CopyFrom(self._statusprogress_msg_from_dict(self.update_progress))
-            if phase := self.update_progress.get("phase"):
-                prg.phase = getattr(v2.StatusProgressPhase, phase)
-
-        return ecu_status
 
 
 class OTAClient(OTAClientProtocol):
@@ -367,6 +305,8 @@ class OTAClient(OTAClientProtocol):
             boot_controller=self.boot_controller,
             create_standby_cls=create_standby_cls,
         )
+
+        self.current_version = self.boot_controller.load_version()
 
     def _rollback(self):
         # enter rollback
@@ -417,19 +357,21 @@ class OTAClient(OTAClientProtocol):
 
     def status(self) -> Optional[v2.StatusResponseEcu]:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
-            if _update_stats := self.updater.status():
-                # construct status response dict
-                _res = OTAClientStatus(
-                    version=_update_stats[0],
+            if _update_stats := self.updater.update_progress():
+                _version, _update_progress = _update_stats
+                _status = v2.Status(
+                    version=_version,
                     status=self.live_ota_status.get_ota_status().name,
-                    update_progress=_update_stats[1],
+                    progress=_update_progress,
                 )
-                # insert failure type and failure reason
-                if self.last_failure is not None:
-                    _res.failure_type = self.last_failure.failure_type.name
-                    _res.failure_reason = self.last_failure.get_err_reason()
+                if self.last_failure:
+                    self.last_failure.register_to_v2_Status(_status)
 
-                return _res.export_as_v2_StatusResponseEcu(self.my_ecu_id)
+                return v2.StatusResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=v2.NO_FAILURE,
+                    status=_status,
+                )
             else:
                 logger.debug(
                     "live_ota_status indicates there is an ongoing update,"
@@ -437,14 +379,16 @@ class OTAClient(OTAClientProtocol):
                 )
                 return
 
-        else:  # default status
-            _res = OTAClientStatus(
+        else:  # no update/rollback on-going
+            _status = v2.Status(
+                version=self.current_version,
                 status=self.live_ota_status.get_ota_status().name,
-                version=self.boot_controller.load_version(),
-                update_progress={},
             )
-            if self.last_failure is not None:
-                _res.failure_type = self.last_failure.failure_type.name
-                _res.failure_reason = self.last_failure.get_err_reason()
+            if self.last_failure:
+                self.last_failure.register_to_v2_Status(_status)
 
-            return _res.export_as_v2_StatusResponseEcu(self.my_ecu_id)
+            return v2.StatusResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=v2.NO_FAILURE,
+                status=_status,
+            )

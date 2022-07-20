@@ -2,6 +2,8 @@
 import traceback
 from enum import Enum, unique
 
+from app.proto import otaclient_v2_pb2 as v2
+
 
 @unique
 class OTAFailureType(Enum):
@@ -102,6 +104,16 @@ class OTA_APIError(Exception):
     def get_traceback(self, *, splitter="\n") -> str:
         """Format the traceback into a str with splitter as <splitter>."""
         return splitter.join(traceback.format_tb(self.__traceback__))
+
+    def register_to_v2_Status(self, _status: v2.Status):
+        if not isinstance(_status, v2.Status):
+            return
+        try:
+            _status.failure = getattr(v2.FailureType, self.failure_type.name)
+        except AttributeError:
+            pass
+
+        _status.failure_reason = self.get_err_reason()
 
 
 class OTAUpdateError(OTA_APIError):
