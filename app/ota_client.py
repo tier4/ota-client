@@ -206,7 +206,7 @@ class _OTAUpdater:
             self.update_stats_collector.stop()
             self._downloader.cleanup_proxy()
 
-    def status(self) -> Optional[Tuple[str, v2.StatusProgress]]:
+    def update_progress(self) -> Optional[Tuple[str, v2.StatusProgress]]:
         """
         Returns:
             A tuple contains the version and the update_progress.
@@ -359,7 +359,7 @@ class OTAClient(OTAClientProtocol):
 
     def status(self) -> Optional[v2.StatusResponseEcu]:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
-            if _update_stats := self.updater.status():
+            if _update_stats := self.updater.update_progress():
                 _version, _update_progress = _update_stats
                 _status = v2.Status(
                     version=_version,
