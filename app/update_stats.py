@@ -133,6 +133,9 @@ class OTAUpdateStatsCollector:
     def set_total_regular_files(self, value: int):
         self.store.total_regular_files = value
 
+    def set_total_regular_files_size(self, value: int):
+        self.store.total_regular_file_size = value
+
     def get_snapshot(self) -> OTAUpdateStats:
         """Return a copy of statistics storage."""
         return self.store.copy()
@@ -167,7 +170,6 @@ class OTAUpdateStatsCollector:
                         ):
                             _suffix = st.op.value
                             staging_storage.regular_files_processed += 1
-                            staging_storage.total_regular_file_size += st.size
                             staging_storage[f"files_processed_{_suffix}"] += 1
                             staging_storage[f"file_size_processed_{_suffix}"] += st.size
                             staging_storage[

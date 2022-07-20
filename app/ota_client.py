@@ -149,11 +149,6 @@ class _OTAUpdater:
         except ValueError as e:
             raise BaseOTAMetaVerificationFailed from e
 
-        if total_regular_file_size := metadata.get_total_regular_file_size():
-            self.update_stats_collector.store.total_regular_file_size = (
-                total_regular_file_size
-            )
-
         # prepare update meta
         self._updatemeta = UpdateMeta(
             cookies=cookies,
@@ -166,6 +161,11 @@ class _OTAUpdater:
 
         # launch ota update stats collector
         self.update_stats_collector.start()
+
+        if total_regular_file_size := metadata.get_total_regular_file_size():
+            self.update_stats_collector.set_total_regular_files_size(
+                total_regular_file_size
+            )
 
         # finish pre-update configuration, enter update
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
