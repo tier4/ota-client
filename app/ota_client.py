@@ -136,7 +136,7 @@ class _OTAUpdater:
         self.update_start_time = time.time_ns()
         self.failure_reason = ""  # clean failure reason
 
-        # init ota_update_stats collector and downloader
+        # init ota_update_stats collector
         self.update_stats_collector.start(restart=True)
 
         # process metadata.jwt
@@ -159,9 +159,7 @@ class _OTAUpdater:
             ref_slot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
         )
 
-        # launch ota update stats collector
-        self.update_stats_collector.start()
-
+        # set total_regular_file_size to stats store
         if total_regular_file_size := metadata.get_total_regular_file_size():
             self.update_stats_collector.set_total_regular_files_size(
                 total_regular_file_size
