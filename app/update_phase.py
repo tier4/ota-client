@@ -14,7 +14,9 @@ class OTAUpdatePhase(Enum):
     POST_PROCESSING = 6
 
     @classmethod
-    def convert_to_v2_StatusProgressPhase(cls, _in) -> Optional[v2.StatusProgressPhase]:
+    def convert_to_v2_StatusProgressPhase(
+        cls, _in
+    ) -> Optional["v2.StatusProgressPhase"]:
         try:
             if isinstance(_in, cls):
                 return getattr(v2.StatusProgressPhase, _in.name)
