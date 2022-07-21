@@ -117,7 +117,11 @@ class OTA_APIError(Exception):
 
 
 class OTAUpdateError(OTA_APIError):
-    api: OTAAPI = OTAAPI.Update
+    api = OTAAPI.Update
+
+
+class OTARollbackError(OTA_APIError):
+    api = OTAAPI.Rollback
 
 
 @unique
