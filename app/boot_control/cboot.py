@@ -354,7 +354,7 @@ class CBootController(
 
         # FAILURE, INITIALIZED and ROLLBACK_FAILURE are remained as it
 
-        self.store_current_ota_status(_ota_status)
+        self._store_current_ota_status(_ota_status)
         logger.info(f"loaded ota_status: {_ota_status}")
         return _ota_status
 

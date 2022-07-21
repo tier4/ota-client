@@ -650,7 +650,7 @@ class GrubController(
 
         # other ota_status will remain the same
         self.ota_status = _ota_status
-        self.store_current_ota_status(_ota_status)
+        self._store_current_ota_status(_ota_status)
         self._store_standby_ota_status(_ota_status)
         logger.info(f"boot control init finished, ota_status is {_ota_status}")
 
@@ -767,7 +767,7 @@ class GrubController(
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""
         self._store_standby_ota_status(OTAStatusEnum.FAILURE)
-        self.store_current_ota_status(OTAStatusEnum.FAILURE)
+        self._store_current_ota_status(OTAStatusEnum.FAILURE)
         logger.warning("on failure try to unmounting standby slot...")
         self._umount_all(ignore_error=True)
 
@@ -784,7 +784,7 @@ class GrubController(
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
         try:
             # update ota_status files
-            self.store_current_ota_status(OTAStatusEnum.FAILURE)
+            self._store_current_ota_status(OTAStatusEnum.FAILURE)
             self._store_standby_ota_status(OTAStatusEnum.UPDATING)
             # update version file
             self._store_standby_version(version)
