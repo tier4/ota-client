@@ -630,7 +630,6 @@ class GrubController(
             self._init_boot_control()
         except Exception as e:
             logger.error(f"failed on init boot controller: {e!r}")
-            self.on_operation_failure()
             raise BootControlInitError from e
 
     def _init_boot_control(self):
@@ -809,7 +808,6 @@ class GrubController(
             self.cleanup_standby_ota_partition_folder()
         except Exception as e:
             logger.error(f"failed on pre_update: {e!r}")
-            self.on_operation_failure()
             raise BootControlPreUpdateFailed from e
 
     def post_update(self):
@@ -830,7 +828,6 @@ class GrubController(
             subprocess_call("reboot")
         except Exception as e:
             logger.error(f"failed on post_update: {e!r}")
-            self.on_operation_failure()
             raise BootControlPostUpdateFailed from e
 
     def post_rollback(self):
@@ -839,5 +836,4 @@ class GrubController(
             subprocess_call("reboot")
         except Exception as e:
             logger.error(f"failed on pre_rollback: {e!r}")
-            self.on_operation_failure()
             raise BootControlPostRollbackFailed from e

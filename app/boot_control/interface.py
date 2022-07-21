@@ -39,3 +39,7 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def store_current_ota_status(self, _status: OTAStatusEnum):
         ...
+
+    @abstractmethod
+    def on_operation_failure(self):
+        ...

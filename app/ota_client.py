@@ -9,10 +9,12 @@ from urllib.parse import urlparse
 
 from app.errors import (
     BaseOTAMetaVerificationFailed,
+    BootControlPostRollbackFailed,
     NetworkError,
     OTA_APIError,
     OTAError,
     OTAFailureType,
+    OTARollbackError,
     OTAUpdateError,
 )
 from app.boot_control import BootControllerProtocol
@@ -265,12 +267,8 @@ class _OTAUpdater:
             # NOTE: no need to call shutdown method here, keep the update_progress
             #       as it as we are still in updating before rebooting
         except OTAError as e:
-            logger.exception("update failed")
-            # NOTE: also set stored ota_status to FAILURE,
-            #       as the standby slot has already been cleaned up!
-            self._boot_controller.store_current_ota_status(OTAStatusEnum.FAILURE)
-
-            # cleanup on failure
+            logger.error("update failed")
+            self._boot_controller.on_operation_failure()
             self.shutdown()
             raise OTAUpdateError(e) from e
 
@@ -348,7 +346,9 @@ class OTAClient(OTAClientProtocol):
                 self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACKING)
                 self._rollback()
             # silently ignore overlapping request
-        # TODO: define rollback errors
+        except BootControlPostRollbackFailed as e:
+            self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACK_FAILURE)
+            self.last_failure = OTARollbackError(e)
         finally:
             self._rollback_lock.release()
 
