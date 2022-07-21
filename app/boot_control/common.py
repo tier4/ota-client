@@ -380,7 +380,7 @@ class OTAStatusMixin:
     standby_ota_status_dir: Path
     ota_status: OTAStatusEnum
 
-    def store_current_ota_status(self, _status: OTAStatusEnum):
+    def _store_current_ota_status(self, _status: OTAStatusEnum):
         write_to_file_sync(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
