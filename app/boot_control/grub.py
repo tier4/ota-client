@@ -637,7 +637,9 @@ class GrubController(
         # load ota_status str and slot_in_use
         _ota_status = self._load_current_ota_status()
         _slot_in_use = self._load_current_slot_in_use()
-        if not (_ota_status and _slot_in_use):
+
+        # NOTE: for backward compatibility, only check otastatus file
+        if not _ota_status:
             logger.info("initializing boot control files...")
             _ota_status = OTAStatusEnum.INITIALIZED
             self._boot_control.init_active_ota_partition_file()
@@ -657,6 +659,18 @@ class GrubController(
                 else:
                     _ota_status = OTAStatusEnum.FAILURE
         # other ota_status will remain the same
+
+        # detect failed reboot, but only print error logging
+        if (
+            _ota_status != OTAStatusEnum.INITIALIZED
+            and _slot_in_use
+            and _slot_in_use != self._boot_control.active_slot
+        ):
+            logger.error(
+                f"boot into old slot {self._boot_control.active_slot}, "
+                f"but slot_in_use indicates it should boot into {_slot_in_use}, "
+                "this might indicate a failed finalization at first reboot after update/rollback"
+            )
 
         # apply ota_status to otaclient
         self.ota_status = _ota_status
