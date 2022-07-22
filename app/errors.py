@@ -148,6 +148,7 @@ class OTAErrorCode(Enum):
     E_BOOTCONTROL_POSTUPDATE_FAILED = 304
     E_BOOTCONTROL_POSTROLLBACK_FAILED = 305
     E_STANDBY_SLOT_SPACE_NOT_ENOUGH_ERROR = 306
+    E_BOOTCONTROL_PREROLLBACK_FAILED = 307
 
     def to_str(self) -> str:
         return f"{self.value:0>3}"
@@ -301,3 +302,9 @@ class StandbySlotSpaceNotEnoughError(OTAErrorUnRecoverable):
     module: OTAModules = OTAModules.StandbySlotCreater
     errcode: OTAErrorCode = OTAErrorCode.E_STANDBY_SLOT_SPACE_NOT_ENOUGH_ERROR
     desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: standby slot has insufficient space to apply update, abort"
+
+
+class BootControlPreRollbackFailed(OTAErrorUnRecoverable):
+    module: OTAModules = OTAModules.BootController
+    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREROLLBACK_FAILED
+    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: pre_rollback process failed"
