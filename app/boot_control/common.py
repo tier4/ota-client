@@ -370,9 +370,7 @@ class SlotInUseMixin:
         write_to_file_sync(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
 
     def _load_current_slot_in_use(self) -> str:
-        return read_from_file(
-            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, missing_ok=False
-        )
+        return read_from_file(self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME)
 
 
 class OTAStatusMixin:
@@ -390,20 +388,14 @@ class OTAStatusMixin:
             self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
-    def _load_current_ota_status(self) -> OTAStatusEnum:
-        _status = OTAStatusEnum.FAILURE  # for unexpected situation, default to FAILURE
-        try:
-            _status_str = read_from_file(
-                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
-            ).upper()
-            _status = OTAStatusEnum[_status_str]
-        except KeyError:
-            _status = OTAStatusEnum.INITIALIZED
-            write_to_file_sync(
-                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
-            )
-        finally:
-            return _status
+    def _load_current_ota_status(self) -> Optional[OTAStatusEnum]:
+        if _status_str := read_from_file(
+            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
+        ).upper():
+            try:
+                return OTAStatusEnum[_status_str]
+            except KeyError:
+                pass  # invalid status string
 
     def get_ota_status(self) -> OTAStatusEnum:
         return self.ota_status
