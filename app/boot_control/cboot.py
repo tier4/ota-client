@@ -332,10 +332,11 @@ class CBootController(
         # load ota_status str and slot_in_use
         _ota_status = self._load_current_ota_status()
         _slot_in_use = self._load_current_slot_in_use()
+        current_slot = Nvbootctrl.get_current_slot()
         if not (_ota_status and _slot_in_use):
             logger.info("initializing boot control files...")
             _ota_status = OTAStatusEnum.INITIALIZED
-            self._store_current_slot_in_use(Nvbootctrl.get_current_slot())
+            self._store_current_slot_in_use(current_slot)
             self._store_current_ota_status(OTAStatusEnum.INITIALIZED)
 
         if _ota_status in [OTAStatusEnum.UPDATING, OTAStatusEnum.ROLLBACKING]:
@@ -350,6 +351,14 @@ class CBootController(
                 else:
                     _ota_status = OTAStatusEnum.FAILURE
         # status except UPDATING/ROLLBACKING remained as it
+
+        # detect failed reboot, but only print error logging
+        if _ota_status != OTAStatusEnum.INITIALIZED and _slot_in_use != current_slot:
+            logger.error(
+                f"boot into old slot {current_slot}, "
+                f"but slot_in_use indicates it should boot into {_slot_in_use}, "
+                "this might indicate a failed finalization at first reboot after update/rollback"
+            )
 
         self.ota_status = _ota_status
         self._store_current_ota_status(_ota_status)
