@@ -28,6 +28,7 @@ from app.errors import (
     BootControlInitError,
     BootControlPostRollbackFailed,
     BootControlPostUpdateFailed,
+    BootControlPreRollbackFailed,
     BootControlPreUpdateFailed,
 )
 from app.ota_status import OTAStatusEnum
@@ -643,7 +644,10 @@ class GrubController(
                 # switch ota_status
                 _ota_status = OTAStatusEnum.SUCCESS
             else:
-                _ota_status = OTAStatusEnum.FAILURE
+                if _ota_status == OTAStatusEnum.ROLLBACKING:
+                    _ota_status = OTAStatusEnum.ROLLBACK_FAILURE
+                else:
+                    _ota_status = OTAStatusEnum.FAILURE
         elif _ota_status == OTAStatusEnum.INITIALIZED:
             self._boot_control.init_active_ota_partition_file()
             self._store_current_slot_in_use(self._boot_control.active_slot)
@@ -651,7 +655,6 @@ class GrubController(
         # other ota_status will remain the same
         self.ota_status = _ota_status
         self._store_current_ota_status(_ota_status)
-        self._store_standby_ota_status(_ota_status)
         logger.info(f"boot control init finished, ota_status is {_ota_status}")
 
     def _is_switching_boot(self):
@@ -829,6 +832,14 @@ class GrubController(
         except Exception as e:
             logger.error(f"failed on post_update: {e!r}")
             raise BootControlPostUpdateFailed from e
+
+    def pre_rollback(self):
+        try:
+            self._store_current_ota_status(OTAStatusEnum.FAILURE)
+            self._store_standby_ota_status(OTAStatusEnum.ROLLBACKING)
+        except Exception as e:
+            logger.error(f"failed on pre_rollback: {e!r}")
+            raise BootControlPreRollbackFailed from e
 
     def post_rollback(self):
         try:
