@@ -848,7 +848,7 @@ class GrubController(
             self._umount_all(ignore_error=True)
 
             self._boot_control.grub_reboot_to_standby()
-            subprocess_call("reboot")
+            CMDHelperFuncs.reboot()
         except Exception as e:
             logger.error(f"failed on post_update: {e!r}")
             raise BootControlPostUpdateFailed from e
@@ -864,7 +864,7 @@ class GrubController(
     def post_rollback(self):
         try:
             self._boot_control.grub_reboot_to_standby()
-            subprocess_call("reboot")
+            CMDHelperFuncs.reboot()
         except Exception as e:
             logger.error(f"failed on pre_rollback: {e!r}")
             raise BootControlPostRollbackFailed from e

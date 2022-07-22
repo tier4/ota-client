@@ -258,14 +258,6 @@ class _CBootControl:
         slot = self.current_slot
         return Nvbootctrl.is_slot_marked_successful(slot)
 
-    @classmethod
-    def reboot(cls):
-        try:
-            subprocess_call("reboot", raise_exception=True)
-        except CalledProcessError:
-            logger.exception("failed to reboot")
-            raise
-
     def update_extlinux_cfg(self, dst: Path, ref: Path):
         def _replace(ma: re.Match, repl: str):
             append_l: str = ma.group(0)
@@ -500,7 +492,7 @@ class CBootController(
 
             logger.info("post update finished, rebooting...")
             self._umount_all(ignore_error=True)
-            self._cboot_control.reboot()
+            CMDHelperFuncs.reboot()
         except _BootControlError as e:
             logger.error(f"failed on post_update: {e!r}")
             raise BootControlPostUpdateFailed from e
@@ -522,7 +514,7 @@ class CBootController(
     def post_rollback(self):
         try:
             self._cboot_control.switch_boot()
-            self._cboot_control.reboot()
+            CMDHelperFuncs.reboot()
         except _BootControlError as e:
             logger.error(f"failed on post_rollback: {e!r}")
             raise BootControlPostRollbackFailed from e
