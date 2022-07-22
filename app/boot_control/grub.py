@@ -634,8 +634,16 @@ class GrubController(
             raise BootControlInitError from e
 
     def _init_boot_control(self):
+        # load ota_status str and slot_in_use
         _ota_status = self._load_current_ota_status()
-        logger.info(f"loaded ota_status: {_ota_status}")
+        _slot_in_use = self._load_current_slot_in_use()
+        if not (_ota_status and _slot_in_use):
+            logger.info("initializing boot control files...")
+            _ota_status = OTAStatusEnum.INITIALIZED
+            self._boot_control.init_active_ota_partition_file()
+            self._store_current_slot_in_use(self._boot_control.active_slot)
+            self._store_current_ota_status(OTAStatusEnum.INITIALIZED)
+
         if _ota_status in [OTAStatusEnum.UPDATING, OTAStatusEnum.ROLLBACKING]:
             if self._is_switching_boot():
                 self._boot_control.finalize_update_switch_boot(
@@ -648,11 +656,9 @@ class GrubController(
                     _ota_status = OTAStatusEnum.ROLLBACK_FAILURE
                 else:
                     _ota_status = OTAStatusEnum.FAILURE
-        elif _ota_status == OTAStatusEnum.INITIALIZED:
-            self._boot_control.init_active_ota_partition_file()
-            self._store_current_slot_in_use(self._boot_control.active_slot)
-
         # other ota_status will remain the same
+
+        # apply ota_status to otaclient
         self.ota_status = _ota_status
         self._store_current_ota_status(_ota_status)
         logger.info(f"boot control init finished, ota_status is {_ota_status}")
