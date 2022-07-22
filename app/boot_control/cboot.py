@@ -329,7 +329,15 @@ class CBootController(
 
     def _init_boot_control(self):
         """Init boot control and ota-status on start-up."""
+        # load ota_status str and slot_in_use
         _ota_status = self._load_current_ota_status()
+        _slot_in_use = self._load_current_slot_in_use()
+        if not (_ota_status and _slot_in_use):
+            logger.info("initializing boot control files...")
+            _ota_status = OTAStatusEnum.INITIALIZED
+            self._store_current_slot_in_use(Nvbootctrl.get_current_slot())
+            self._store_current_ota_status(OTAStatusEnum.INITIALIZED)
+
         if _ota_status in [OTAStatusEnum.UPDATING, OTAStatusEnum.ROLLBACKING]:
             if self._is_switching_boot():
                 # set the current slot(switched slot) as boot successful
@@ -341,11 +349,6 @@ class CBootController(
                     _ota_status = OTAStatusEnum.ROLLBACK_FAILURE
                 else:
                     _ota_status = OTAStatusEnum.FAILURE
-
-        if _ota_status not in [OTAStatusEnum.FAILURE, OTAStatusEnum.ROLLBACK_FAILURE]:
-            # store slot_in_use file
-            current_slot = Nvbootctrl.get_current_slot()
-            self._store_current_slot_in_use(current_slot)
         # status except UPDATING/ROLLBACKING remained as it
 
         self.ota_status = _ota_status
