@@ -305,9 +305,9 @@ class OTAClient(OTAClientProtocol):
 
     def _rollback(self):
         # enter rollback
-        self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACKING)
         self.failure_type = OTAFailureType.NO_FAILURE
         self.failure_reason = ""
+        self.boot_controller.pre_rollback()
 
         # leave rollback
         self.boot_controller.post_rollback()
