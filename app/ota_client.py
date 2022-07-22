@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 from app.errors import (
     BaseOTAMetaVerificationFailed,
-    BootControlPostRollbackFailed,
     NetworkError,
     OTA_APIError,
     OTAError,
@@ -304,13 +303,18 @@ class OTAClient(OTAClientProtocol):
         self.current_version = self.boot_controller.load_version()
 
     def _rollback(self):
-        # enter rollback
-        self.failure_type = OTAFailureType.NO_FAILURE
-        self.failure_reason = ""
-        self.boot_controller.pre_rollback()
+        try:
+            # enter rollback
+            self.failure_type = OTAFailureType.NO_FAILURE
+            self.failure_reason = ""
+            self.boot_controller.pre_rollback()
 
-        # leave rollback
-        self.boot_controller.post_rollback()
+            # leave rollback
+            self.boot_controller.post_rollback()
+        except OTAError as e:
+            logger.error(f"rollback failed: {e!r}")
+            self.boot_controller.on_operation_failure()
+            raise OTARollbackError(e) from e
 
     ###### public API ######
 
@@ -346,9 +350,9 @@ class OTAClient(OTAClientProtocol):
                 self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACKING)
                 self._rollback()
             # silently ignore overlapping request
-        except BootControlPostRollbackFailed as e:
+        except OTARollbackError as e:
             self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACK_FAILURE)
-            self.last_failure = OTARollbackError(e)
+            self.last_failure = e
         finally:
             self._rollback_lock.release()
 
