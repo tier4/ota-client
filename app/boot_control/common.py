@@ -357,6 +357,14 @@ class CMDHelperFuncs:
             # it will be mounted to /mnt/standby(rw), so we still mount it as bind,ro
             raise MountError("refroot is expected to be mounted")
 
+    @classmethod
+    def reboot(cls):
+        try:
+            subprocess_call("reboot", raise_exception=True)
+        except CalledProcessError:
+            logger.exception("failed to reboot")
+            raise
+
 
 ###### helper mixins ######
 class SlotInUseMixin:
