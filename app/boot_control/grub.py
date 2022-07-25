@@ -646,6 +646,10 @@ class GrubController(
             self._store_current_slot_in_use(self._boot_control.active_slot)
             self._store_current_ota_status(OTAStatusEnum.INITIALIZED)
 
+        # populate slot_in_use file if it doesn't exist
+        if not _slot_in_use:
+            self._store_current_slot_in_use(self._boot_control.active_slot)
+
         if _ota_status in [OTAStatusEnum.UPDATING, OTAStatusEnum.ROLLBACKING]:
             if self._is_switching_boot():
                 self._boot_control.finalize_update_switch_boot(
