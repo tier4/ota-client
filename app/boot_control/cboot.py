@@ -468,7 +468,6 @@ class CBootController(
             raise BootControlPreUpdateFailed from e
 
     def post_update(self):
-        # TODO: deal with unexpected reboot during post_update
         try:
             # update extlinux_cfg file
             _extlinux_cfg = self.standby_slot_mount_point / Path(
@@ -488,10 +487,9 @@ class CBootController(
                 )
                 self._populate_boot_folder_to_separate_bootdev()
 
-            self._cboot_control.switch_boot()
-
             logger.info("post update finished, rebooting...")
             self._umount_all(ignore_error=True)
+            self._cboot_control.switch_boot()
             CMDHelperFuncs.reboot()
         except _BootControlError as e:
             logger.error(f"failed on post_update: {e!r}")
