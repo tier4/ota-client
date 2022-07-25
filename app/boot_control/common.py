@@ -377,8 +377,11 @@ class SlotInUseMixin:
     def _store_standby_slot_in_use(self, _slot: str):
         write_to_file_sync(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
 
-    def _load_current_slot_in_use(self) -> str:
-        return read_from_file(self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME)
+    def _load_current_slot_in_use(self) -> Optional[str]:
+        if res := read_from_file(
+            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, default=""
+        ):
+            return res
 
 
 class OTAStatusMixin:
@@ -421,7 +424,9 @@ class VersionControlMixin:
 
     def load_version(self) -> str:
         _version = read_from_file(
-            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME, missing_ok=True
+            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            missing_ok=True,
+            default="",
         )
         if not _version:
             logger.warning("version file not found, return empty version string")
