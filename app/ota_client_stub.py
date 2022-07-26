@@ -282,7 +282,7 @@ class _SubECUTracker:
                 coros.append(self._query_ecu(subecu_addr))
 
             all_ecus_success, all_ecus_ready = True, True
-            for _ecustatus in asyncio.gather(*coros):
+            for _ecustatus in await asyncio.gather(*coros):
                 this_subecu_ready = True
                 if _ecustatus in (
                     self.ECUStatus.SUCCESS,
@@ -372,7 +372,7 @@ class OtaClientStub:
             coros.append(self._query_subecu_status_api(subecu_id, subecu_addr))
 
         subecu_resp: v2.StatusResponse
-        for subecu_resp in asyncio.gather(*coros):
+        for subecu_resp in await asyncio.gather(*coros):
             # gather the subecu and its child ecus status
             for _ecu_resp in subecu_resp.ecu:
                 _ecu = response.ecu.add()
