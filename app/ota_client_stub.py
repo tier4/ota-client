@@ -367,7 +367,7 @@ class OtaClientStub:
     ) -> v2.StatusResponse:
         response = v2.StatusResponse()
 
-        coros: List[typing.Coroutine] = []
+        coros: List[Coroutine] = []
         for subecu_id, subecu_addr in ecus_addr_dict.items():
             coros.append(self._query_subecu_status_api(subecu_id, subecu_addr))
 
@@ -380,15 +380,16 @@ class OtaClientStub:
 
         return response
 
-    async def _local_update_tracker(self, fsm: OTAUpdateFSM):
+    async def _local_update_tracker(self, fsm: OTAUpdateFSM) -> bool:
         _loop = asyncio.get_running_loop()
         await _loop.run_in_executor(
             self._executor,
             fsm.stub_wait_for_local_update,
         )
 
-        if e := self._ota_client.get_last_failure():
-            raise e
+        if self._ota_client.get_last_failure():
+            return False
+        return True
 
     ###### API stub method #######
     def host_addr(self):
