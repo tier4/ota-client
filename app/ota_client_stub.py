@@ -415,17 +415,15 @@ class OtaClientStub:
             await self._update_session.start(request, init_cache=_init_cache)
 
         # a list of directly connected ecus in the update request
-        update_tracked_ecus_set: Set[str] = set()
+        tracked_ecus_dict: Dict[str, str] = {}
 
         # secondary ecus
         tasks: List[asyncio.Task] = []
-        secondary_ecus = self._ecu_info.get_secondary_ecus()
-        logger.info(f"directly connected subecu: {secondary_ecus=}")
         # simultaneously dispatching update requests to all subecus without blocking
-        for secondary in secondary_ecus:
-            _ecu_id, _ecu_ip = secondary["ecu_id"], secondary["ip_addr"]
+        for _ecu_id, _ecu_ip in self.subecus_dict.items():
             if OtaClientStub._find_request(request.ecu, _ecu_id):
-                update_tracked_ecus_set.add(_ecu_id)  # add to tracked ecu list
+                # add to tracked ecu list
+                tracked_ecus_dict[_ecu_id] = _ecu_ip
                 tasks.append(
                     asyncio.create_task(
                         self._ota_client_call.update(request, _ecu_ip),
@@ -438,7 +436,7 @@ class OtaClientStub:
         subecu_tracking_task: Optional[asyncio.Task] = None
         if tasks:
             logger.info(
-                f"waiting for subecus({update_tracked_ecus_set}) to acknowledge update request..."
+                f"waiting for subecus({tracked_ecus_dict}) to acknowledge update request..."
             )
             done, pending = await asyncio.wait(
                 tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
@@ -467,13 +465,8 @@ class OtaClientStub:
                         ecu = response.ecu.add()
                         ecu.CopyFrom(e)
 
-            # create a subecu tracking task
-            subecu_tracking_task = asyncio.create_task(
-                self._ensure_tracked_ecu_ready(update_tracked_ecus_set)
-            )
-
         # after all subecus ack the update request, update my ecu
-        my_ecu_update_tracker: Optional[asyncio.Task] = None
+        my_ecu_tracking_task: Optional[asyncio.Task] = None
         if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
             if not self._ota_client.live_ota_status.request_update():
                 logger.warning(
@@ -498,7 +491,7 @@ class OtaClientStub:
                 )
 
                 # launch the local update tracker
-                my_ecu_update_tracker = asyncio.create_task(
+                my_ecu_tracking_task = asyncio.create_task(
                     self._local_update_tracker(fsm=self._update_session.fsm),
                     name="local update tracker",
                 )
@@ -514,9 +507,14 @@ class OtaClientStub:
 
         # start the update tracking in the background
         # NOTE: cleanup is done in the update tracker
+        # create a subecu tracking task
+        subecu_tracker = _SubECUTracker(tracked_ecus_dict)
+        subecu_tracking_task = asyncio.create_task(
+            subecu_tracker.ensure_tracked_ecu_ready()
+        )
         asyncio.create_task(
             self._update_session.update_tracker(
-                my_ecu_update_tracker=my_ecu_update_tracker,
+                my_ecu_tracking_task=my_ecu_tracking_task,
                 subecu_tracking_task=subecu_tracking_task,
             )
         )
