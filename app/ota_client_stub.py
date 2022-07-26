@@ -233,6 +233,9 @@ class OtaClientStub:
 
         self._ecu_info = EcuInfo()
         self.my_ecu_id = self._ecu_info.get_ecu_id()
+        self.subecus_dict: Dict[str, str] = {
+            e["ecu_id"]: e["ip_addr"] for e in self._ecu_info.get_secondary_ecus()
+        }
 
         # NOTE: explicitly specific which mechanism to use
         # for boot control and create standby slot
