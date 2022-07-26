@@ -268,97 +268,42 @@ class OtaClientStub:
                 return request
         return None
 
-    async def _query_subecu_status(self, tracked_ecu_id: Set[str]) -> v2.StatusResponse:
+    async def _query_subecu_status_api(
+        self, ecu_id: str, ecu_addr: str
+    ) -> v2.StatusResponse:
+        try:
+            return await asyncio.wait_for(
+                self._ota_client_call.status(
+                    v2.StatusRequest(),
+                    ecu_addr,
+                ),
+                timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
+            )  # type: ignore
+        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
+            resp = v2.StatusResponse()
+            ecu = resp.ecu.add()
+            ecu.ecu_id = ecu_id
+            ecu.result = v2.RECOVERABLE  # treat unreachable ecu as recoverable
+
+            return resp
+
+    async def _query_subecu_status(
+        self, ecus_addr_dict: Dict[str, str]
+    ) -> v2.StatusResponse:
         response = v2.StatusResponse()
 
-        secondary_ecu = []
-        for ecu in self._ecu_info.get_secondary_ecus():
-            if ecu["ecu_id"] in tracked_ecu_id:
-                secondary_ecu.append(ecu)
+        coros: List[typing.Coroutine] = []
+        for subecu_id, subecu_addr in ecus_addr_dict.items():
+            coros.append(self._query_subecu_status_api(subecu_id, subecu_addr))
 
-        if not secondary_ecu:
-            return response
-
-        tasks: List[asyncio.Task] = []
-        for secondary_ecu in secondary_ecu:
-            tasks.append(
-                asyncio.create_task(
-                    self._ota_client_call.status(
-                        v2.StatusRequest(), secondary_ecu["ip_addr"]
-                    ),
-                    name=secondary_ecu["ecu_id"],
-                )
-            )
-        if tasks:
-            done, pending = await asyncio.wait(
-                tasks, timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT
-            )
-            for t in done:
-                ecu_id = t.get_name()
-                if exp := t.exception():
-                    logger.debug(f"query subecu: {ecu_id} currently is UNAVAILABLE")
-                    if isinstance(exp, grpc.aio.AioRpcError):
-                        if exp.code() == grpc.StatusCode.UNAVAILABLE:
-                            # request was not received.
-                            logger.debug(f"{ecu_id} did not receive the request")
-                        else:
-                            # other grpc error
-                            logger.debug(f"contacting {ecu_id} failed with grpc error")
-                    # prepare response
-                    ecu = response.ecu.add()
-                    ecu.ecu_id = ecu_id
-                    ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
-                else:
-                    # task is done without any exception
-                    logger.debug(f"{ecu_id=} is reachable")
-                    for e in t.result().ecu:
-                        ecu = response.ecu.add()
-                        # NOTE: response.available_ecu_ids in sub ecu status is ignored.
-                        ecu.CopyFrom(e)
-                        logger.debug(f"{ecu.ecu_id=}, {ecu.result=}")
-
-            for t in pending:
-                ecu_id = t.get_name()
-                # task timeout
-                logger.warning(f"{ecu_id=} maybe UNAVAILABLE due to connection timeout")
-                # TODO: should we record these ECUs as FAILURE in the response?
-                ecu = response.ecu.add()
-                ecu.ecu_id = ecu_id
-                ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
+        subecu_resp: v2.StatusResponse
+        for subecu_resp in asyncio.gather(*coros):
+            # gather the subecu and its child ecus status
+            for _ecu_resp in subecu_resp.ecu:
+                _ecu = response.ecu.add()
+                _ecu.CopyFrom(_ecu_resp)
 
         return response
-
-    async def _ensure_tracked_ecu_ready(
-        self, tracked_ecu_id: Set[str]
-    ) -> Tuple[bool, List[str]]:
-        """Return untill all subecus are not in UPDATE status.
-
-        Return:
-            A bool indicates whether all the subecus are in SUCCESS staus,
-            and a list of failed ecus if any.
-        """
-        logger.info(
-            f"tracking update status for directly connected subecu: {tracked_ecu_id}"
-        )
-
-        failed_ecu: Set[str] = set()
-        while True:
-            _pending_ecu = tracked_ecu_id.copy()
-
-            resp = await self._query_subecu_status(tracked_ecu_id)
-            for ecu in resp.ecu:
-                ecu_id, ecu_status = ecu.ecu_id, ecu.status.status
-                if ecu_status == v2.SUCCESS:
-                    _pending_ecu.discard(ecu_id)
-                    failed_ecu.discard(ecu_id)
-                elif ecu_status == v2.FAILURE:
-                    _pending_ecu.discard(ecu_id)
-                    failed_ecu.add(ecu_id)
-
-            if not _pending_ecu:
-                return len(failed_ecu) == 0, list(failed_ecu)
-
-            await asyncio.sleep(server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL)
 
     async def _local_update_tracker(self, fsm: OTAUpdateFSM):
         _loop = asyncio.get_running_loop()
