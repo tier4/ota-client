@@ -1,23 +1,24 @@
 import asyncio
-import threading
-import time
 import grpc
 import grpc.aio
 import multiprocessing
+import threading
+import time
+
 from concurrent.futures import ThreadPoolExecutor
+from enum import Enum
 from functools import partial
 from multiprocessing import Process
-from typing import List, Optional, Set, Tuple
+from typing import Coroutine, Dict, List, Optional
 
 from app.boot_control import get_boot_controller
 from app.create_standby import get_standby_slot_creator
-
-from app.proto import v2
+from app.ecu_info import EcuInfo
 from app.ota_status import OTAStatusEnum
 from app.ota_client import OTAClient, OTAUpdateFSM
 from app.ota_client_call import OtaClientCall
+from app.proto import v2
 from app.proxy_info import proxy_cfg
-from app.ecu_info import EcuInfo
 
 from app.configs import BOOT_LOADER, server_cfg, config as cfg
 from app import log_util
@@ -187,43 +188,117 @@ class _UpdateSession:
     async def update_tracker(
         self,
         *,
-        my_ecu_update_tracker: Optional[asyncio.Task] = None,
+        my_ecu_tracking_task: Optional[asyncio.Task] = None,
         subecu_tracking_task: Optional[asyncio.Task] = None,
     ):
-        myecu_succeed, subecus_succeed = False, False
-        update_succeed = False
+        """
+        NOTE: expect input tracking task to return a bool to indicate
+              whether the tracked task successfully finished or not.
+        """
+
+        subecus_succeed = True
+        if subecu_tracking_task:
+            subecus_succeed = await subecu_tracking_task
+            logger.info(f"subecus update result: {subecus_succeed}")
+
+        myecu_succeed = True
+        if my_ecu_tracking_task:
+            myecu_succeed = await my_ecu_tracking_task
+            logger.info(f"my ecu update result: {myecu_succeed}")
+
+        update_succeed = myecu_succeed and subecus_succeed
+        await self.stop(update_succeed=update_succeed)
+        self.fsm.stub_cleanup_finished()
+
+
+class _SubECUTracker:
+    """Loop pulling subecus until all the tracked subecus become
+        SUCCESS, FAILURE.
+
+    NOTE: if subecu is unreachable, this tracker will still keep pulling,
+        the end user should interrupt the update/rollback session by their own.
+    """
+
+    class ECUStatus(Enum):
+        SUCCESS = "success"
+        FAILURE = "failure"
+        NOT_READY = "not_ready"
+        API_FAILED = "api_failed"
+        UNREACHABLE = "unreachable"
+
+    def __init__(self, tracked_ecus_dict: Dict[str, str]) -> None:
+        self.subecu_query_timeout = server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT
+        self.interval = server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL
+        self.tracked_ecus_dict: Dict[str, str] = tracked_ecus_dict
+        self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
+
+    async def _query_ecu(self, ecu_addr: str) -> ECUStatus:
+        """Query ecu status API once."""
         try:
-            if subecu_tracking_task:
-                subecus_succeed, failed_list = await subecu_tracking_task
-                logger.info(
-                    f"all directly connected subecus update result: {subecus_succeed}, "
-                    f"failed_ecus={failed_list}"
-                )
-            else:
-                subecus_succeed = True
-
-            if my_ecu_update_tracker:
-                try:
-                    await my_ecu_update_tracker
-                    myecu_succeed = True
-                except Exception as e:
-                    # NOTE: only cover the exception happened before post_update
-                    logger.error(f"local applying update failed: {e!r}")
-                    myecu_succeed = False
-            else:
-                myecu_succeed = True
-
-            update_succeed = myecu_succeed and subecus_succeed
-            await self.stop(update_succeed=update_succeed)
-            logger.info(
-                f"update result for {self.update_request}: "
-                f"{update_succeed}({myecu_succeed=}, {subecus_succeed=})"
+            resp: v2.StatusResponse = await asyncio.wait_for(
+                self._ota_client_call.status(v2.StatusRequest(), ecu_addr),  # type: ignore
+                timeout=self.subecu_query_timeout,
             )
-            self.fsm.stub_cleanup_finished()
-        except Exception as e:
-            logger.error(f"update tracker failed: {e!r}")
-        finally:
-            await self.stop(update_succeed=False)
+
+            # if ANY OF the subecu and its child ecu are
+            # not in SUCCESS/FAILURE otastatus, or unreacable, return False
+            all_ready, all_success = True, True
+            for ecu in resp.ecu:
+                if ecu.result != v2.NO_FAILURE:
+                    all_ready = False
+                    break
+
+                _status = ecu.status.status
+                if _status in (v2.SUCCESS, v2.FAILURE):
+                    all_success &= _status == v2.SUCCESS
+                else:
+                    all_ready = False
+
+            if all_ready:
+                if all_success:
+                    # this ecu and its subecus are all in SUCCESS
+                    return self.ECUStatus.SUCCESS
+                # one of this ecu and its subecu in FAILURE
+                return self.ECUStatus.FAILURE
+            # one of this ecu and its subecu are still in UPDATING/ROLLBACKING
+            return self.ECUStatus.NOT_READY
+        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
+            # this ecu is unreachable
+            return self.ECUStatus.UNREACHABLE
+
+    async def ensure_tracked_ecu_ready(self) -> bool:
+        """Loop pulling tracked ecus' status until are ready.
+
+        Return:
+            A bool to indicate if all subecus and its child are in SUCCESS status.
+
+        NOTE: 1. ready means otastatus in SUCCESS or FAILURE,
+              2. this method will block until all tracked ecus are ready,
+              2. if subecu is unreachable, this tracker will still keep pulling.
+        """
+        while True:
+            coros: List[Coroutine] = []
+            for _, subecu_addr in self.tracked_ecus_dict.items():
+                coros.append(self._query_ecu(subecu_addr))
+
+            all_ecus_success, all_ecus_ready = True, True
+            for _ecustatus in asyncio.gather(*coros):
+                this_subecu_ready = True
+                if _ecustatus in (
+                    self.ECUStatus.SUCCESS,
+                    self.ECUStatus.FAILURE,
+                ):
+                    all_ecus_success &= _ecustatus == self.ECUStatus.SUCCESS
+                else:
+                    # if any of this ecu's subecu(or itself) is not ready,
+                    # then this subecu is not ready
+                    this_subecu_ready = False
+
+                all_ecus_ready &= this_subecu_ready
+
+            if all_ecus_ready:
+                return all_ecus_success
+            await asyncio.sleep(self.interval)
 
 
 class OtaClientStub:
