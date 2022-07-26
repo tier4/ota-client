@@ -529,31 +529,32 @@ class OtaClientStub:
         """
         cur_time = time.time()
         if cur_time - self._last_status_query > server_cfg.STATUS_UPDATE_INTERVAL:
-            # for status API, query all directly connected subecus
-            tracked_ecu = set(
-                [ecu["ecu_id"] for ecu in self._ecu_info.get_secondary_ecus()]
-            )
             async with self._status_pulling_lock:
                 self._last_status_query = cur_time
-                # prepare subecu status
-                _response = await self._query_subecu_status(tracked_ecu)
+
+                resp = v2.StatusResponse()
+                subecus_resp = await self._query_subecu_status(self.subecus_dict)
+
+                # prepare subecus status
+                for ecu_status in subecus_resp.ecu:
+                    ecu = resp.ecu.add()
+                    ecu.CopyFrom(ecu_status)
 
                 # prepare my ecu status
-                ecu_id = self._ecu_info.get_ecu_id()  # my ecu id
-                ecu = _response.ecu.add()
-                if status := self._ota_client.status():
-                    ecu.CopyFrom(status)
+                my_ecu = subecus_resp.ecu.add()
+                if my_ecu_status := self._ota_client.status():
+                    my_ecu.CopyFrom(my_ecu_status)
                 else:
                     # otaclient status method doesn't return valid result
-                    ecu.ecu_id = ecu_id
-                    ecu.result = v2.RECOVERABLE
+                    my_ecu.ecu_id = self.my_ecu_id
+                    my_ecu.result = v2.RECOVERABLE
 
                 # available ecu ids
-                available_ecu_ids = self._ecu_info.get_available_ecu_ids()
-                _response.available_ecu_ids.extend(available_ecu_ids)
+                # NOTE: only contains directly connected subecus!
+                resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
 
                 # register the status to cache
-                self._cached_status = _response
+                self._cached_status = subecus_resp
 
         # respond with the cached status
         res = v2.StatusResponse()
