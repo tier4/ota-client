@@ -29,6 +29,7 @@ from app.errors import (
     BootControlPlatformUnsupported,
     BootControlPostRollbackFailed,
     BootControlPostUpdateFailed,
+    BootControlPreRollbackFailed,
     BootControlPreUpdateFailed,
 )
 from app.ota_status import OTAStatusEnum
@@ -257,14 +258,6 @@ class _CBootControl:
         slot = self.current_slot
         return Nvbootctrl.is_slot_marked_successful(slot)
 
-    @classmethod
-    def reboot(cls):
-        try:
-            subprocess_call("reboot", raise_exception=True)
-        except CalledProcessError:
-            logger.exception("failed to reboot")
-            raise
-
     def update_extlinux_cfg(self, dst: Path, ref: Path):
         def _replace(ma: re.Match, repl: str):
             append_l: str = ma.group(0)
@@ -322,41 +315,46 @@ class CBootController(
         ).relative_to("/")
 
         # init ota-status
-        self.ota_status = self._init_boot_control()
+        self._init_boot_control()
 
     ###### private methods ######
 
-    def _init_boot_control(self) -> OTAStatusEnum:
+    def _init_boot_control(self):
         """Init boot control and ota-status on start-up."""
+        # load ota_status str and slot_in_use
         _ota_status = self._load_current_ota_status()
+        _slot_in_use = self._load_current_slot_in_use()
+        current_slot = Nvbootctrl.get_current_slot()
+        if not (_ota_status and _slot_in_use):
+            logger.info("initializing boot control files...")
+            _ota_status = OTAStatusEnum.INITIALIZED
+            self._store_current_slot_in_use(current_slot)
+            self._store_current_ota_status(OTAStatusEnum.INITIALIZED)
 
-        if _ota_status == OTAStatusEnum.UPDATING:
-            _ota_status = self._finalize_update()
-        elif _ota_status == OTAStatusEnum.ROLLBACKING:
-            _ota_status = self._finalize_rollback()
-        elif _ota_status == OTAStatusEnum.SUCCESS:
-            # need to check whether it is negative SUCCESS
-            current_slot = Nvbootctrl.get_current_slot()
-            try:
-                slot_in_use = self._load_current_slot_in_use()
-                # cover the case that device reboot into unexpected slot
-                if current_slot != slot_in_use:
-                    logger.error(
-                        f"boot into old slot {current_slot}, "
-                        f"should boot into {slot_in_use}"
-                    )
+        if _ota_status in [OTAStatusEnum.UPDATING, OTAStatusEnum.ROLLBACKING]:
+            if self._is_switching_boot():
+                # set the current slot(switched slot) as boot successful
+                self._cboot_control.mark_current_slot_boot_successful()
+                # switch ota_status
+                _ota_status = OTAStatusEnum.SUCCESS
+            else:
+                if _ota_status == OTAStatusEnum.ROLLBACKING:
+                    _ota_status = OTAStatusEnum.ROLLBACK_FAILURE
+                else:
                     _ota_status = OTAStatusEnum.FAILURE
+        # status except UPDATING/ROLLBACKING remained as it
 
-            except FileNotFoundError:
-                # init slot_in_use file and ota_status file
-                self._store_current_slot_in_use(current_slot)
-                _ota_status = OTAStatusEnum.INITIALIZED
+        # detect failed reboot, but only print error logging
+        if _ota_status != OTAStatusEnum.INITIALIZED and _slot_in_use != current_slot:
+            logger.error(
+                f"boot into old slot {current_slot}, "
+                f"but slot_in_use indicates it should boot into {_slot_in_use}, "
+                "this might indicate a failed finalization at first reboot after update/rollback"
+            )
 
-        # FAILURE, INITIALIZED and ROLLBACK_FAILURE are remained as it
-
-        self.store_current_ota_status(_ota_status)
-        logger.info(f"loaded ota_status: {_ota_status}")
-        return _ota_status
+        self.ota_status = _ota_status
+        self._store_current_ota_status(_ota_status)
+        logger.info(f"boot control init finished, ota_status is {_ota_status}")
 
     def _is_switching_boot(self) -> bool:
         # evidence 1: nvbootctrl status
@@ -382,19 +380,6 @@ class CBootController(
             f"slot_in_use: {_is_slot_in_use}"
         )
         return _nvboot_res and _ota_status and _is_slot_in_use
-
-    def _finalize_update(self) -> OTAStatusEnum:
-        logger.debug("entering finalizing stage...")
-        if self._is_switching_boot():
-            logger.debug("changes applied succeeded")
-            # set the current slot(switched slot) as boot successful
-            self._cboot_control.mark_current_slot_boot_successful()
-            return OTAStatusEnum.SUCCESS
-        else:
-            logger.error("changes applied failed")
-            return OTAStatusEnum.FAILURE
-
-    _finalize_rollback = _finalize_update
 
     def _populate_boot_folder_to_separate_bootdev(self):
         # mount the actual standby_boot_dev now
@@ -423,15 +408,19 @@ class CBootController(
                 logger.error(_failure_msg)
                 # no need to raise to the caller
 
-    def _on_operation_failure(self):
-        """Failure registering and cleanup at failure."""
-        self._store_standby_ota_status(OTAStatusEnum.FAILURE)
-        logger.warning("on failure try to unmounting standby slot...")
-        self._umount_all(ignore_error=True)
-
     ###### public methods ######
     # also includes methods from OTAStatusMixin, VersionControlMixin
     # load_version, get_ota_status
+
+    def on_operation_failure(self):
+        """Failure registering and cleanup at failure."""
+        self._store_current_ota_status(OTAStatusEnum.FAILURE)
+        # when standby slot is not created, otastatus is not needed to be set
+        if CMDHelperFuncs.is_target_mounted(self.standby_slot_mount_point):
+            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
+
+        logger.warning("on failure try to unmounting standby slot...")
+        self._umount_all(ignore_error=True)
 
     def get_standby_slot_path(self) -> Path:
         return self.standby_slot_mount_point
@@ -445,6 +434,11 @@ class CBootController(
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
         try:
+            # store current slot status
+            _target_slot = self._cboot_control.get_standby_slot()
+            self._store_current_ota_status(OTAStatusEnum.FAILURE)
+            self._store_current_slot_in_use(_target_slot)
+
             # setup updating
             self._cboot_control.set_standby_slot_unbootable()
             self._prepare_and_mount_standby(
@@ -456,29 +450,24 @@ class CBootController(
                 active_dev=self._cboot_control.get_current_rootfs_dev(),
                 standby_as_ref=standby_as_ref,
             )
+
+            ### re-populate /boot/ota-status folder
             # create the ota-status folder unconditionally
             _ota_status_dir = self.standby_slot_mount_point / Path(
                 cfg.OTA_STATUS_DIR
             ).relative_to("/")
             _ota_status_dir.mkdir(exist_ok=True, parents=True)
-
             # store status to standby slot
             self._store_standby_ota_status(OTAStatusEnum.UPDATING)
             self._store_standby_version(version)
-
-            _target_slot = self._cboot_control.get_standby_slot()
-            self._store_current_slot_in_use(_target_slot)
             self._store_standby_slot_in_use(_target_slot)
 
             logger.info("pre-update setting finished")
-
         except _BootControlError as e:
             logger.error(f"failed on pre_update: {e!r}")
-            self._on_operation_failure()
             raise BootControlPreUpdateFailed from e
 
     def post_update(self):
-        # TODO: deal with unexpected reboot during post_update
         try:
             # update extlinux_cfg file
             _extlinux_cfg = self.standby_slot_mount_point / Path(
@@ -488,6 +477,9 @@ class CBootController(
                 dst=_extlinux_cfg, ref=_extlinux_cfg
             )
 
+            # NOTE: we didn't prepare /boot/ota here,
+            #       process_persistent does this for us
+
             if self._cboot_control.is_external_rootfs_enabled():
                 logger.info(
                     "rootfs on external storage detected: "
@@ -495,22 +487,32 @@ class CBootController(
                 )
                 self._populate_boot_folder_to_separate_bootdev()
 
-            self._cboot_control.switch_boot()
-
             logger.info("post update finished, rebooting...")
             self._umount_all(ignore_error=True)
-            self._cboot_control.reboot()
-
+            self._cboot_control.switch_boot()
+            CMDHelperFuncs.reboot()
         except _BootControlError as e:
             logger.error(f"failed on post_update: {e!r}")
-            self._on_operation_failure()
             raise BootControlPostUpdateFailed from e
+
+    def pre_rollback(self):
+        try:
+            self._store_current_ota_status(OTAStatusEnum.FAILURE)
+            self._prepare_and_mount_standby(
+                self._cboot_control.get_standby_rootfs_dev(),
+                erase=False,
+            )
+            # store ROLLBACKING status to standby
+            self._store_standby_ota_status(OTAStatusEnum.ROLLBACKING)
+        except Exception as e:
+            logger.error(f"failed on pre_rollback: {e!r}")
+            # TODO: bootcontrol prerollback failure
+            raise BootControlPreRollbackFailed from e
 
     def post_rollback(self):
         try:
             self._cboot_control.switch_boot()
-            self._cboot_control.reboot()
+            CMDHelperFuncs.reboot()
         except _BootControlError as e:
             logger.error(f"failed on post_rollback: {e!r}")
-            self._on_operation_failure()
             raise BootControlPostRollbackFailed from e
