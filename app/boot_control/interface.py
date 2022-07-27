@@ -25,6 +25,10 @@ class BootControllerProtocol(Protocol):
         ...
 
     @abstractmethod
+    def pre_rollback(self):
+        ...
+
+    @abstractmethod
     def post_update(self):
         ...
 
@@ -37,5 +41,5 @@ class BootControllerProtocol(Protocol):
         """Read the version info from the current slot."""
 
     @abstractmethod
-    def store_current_ota_status(self, _status: OTAStatusEnum):
+    def on_operation_failure(self):
         ...

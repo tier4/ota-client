@@ -357,6 +357,14 @@ class CMDHelperFuncs:
             # it will be mounted to /mnt/standby(rw), so we still mount it as bind,ro
             raise MountError("refroot is expected to be mounted")
 
+    @classmethod
+    def reboot(cls):
+        try:
+            subprocess_call("reboot", raise_exception=True)
+        except CalledProcessError:
+            logger.exception("failed to reboot")
+            raise
+
 
 ###### helper mixins ######
 class SlotInUseMixin:
@@ -369,10 +377,11 @@ class SlotInUseMixin:
     def _store_standby_slot_in_use(self, _slot: str):
         write_to_file_sync(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
 
-    def _load_current_slot_in_use(self) -> str:
-        return read_from_file(
-            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, missing_ok=False
-        )
+    def _load_current_slot_in_use(self) -> Optional[str]:
+        if res := read_from_file(
+            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, default=""
+        ):
+            return res
 
 
 class OTAStatusMixin:
@@ -380,7 +389,7 @@ class OTAStatusMixin:
     standby_ota_status_dir: Path
     ota_status: OTAStatusEnum
 
-    def store_current_ota_status(self, _status: OTAStatusEnum):
+    def _store_current_ota_status(self, _status: OTAStatusEnum):
         write_to_file_sync(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
@@ -390,20 +399,14 @@ class OTAStatusMixin:
             self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
-    def _load_current_ota_status(self) -> OTAStatusEnum:
-        _status = OTAStatusEnum.FAILURE  # for unexpected situation, default to FAILURE
-        try:
-            _status_str = read_from_file(
-                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
-            ).upper()
-            _status = OTAStatusEnum[_status_str]
-        except KeyError:
-            _status = OTAStatusEnum.INITIALIZED
-            write_to_file_sync(
-                self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
-            )
-        finally:
-            return _status
+    def _load_current_ota_status(self) -> Optional[OTAStatusEnum]:
+        if _status_str := read_from_file(
+            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
+        ).upper():
+            try:
+                return OTAStatusEnum[_status_str]
+            except KeyError:
+                pass  # invalid status string
 
     def get_ota_status(self) -> OTAStatusEnum:
         return self.ota_status
@@ -421,7 +424,9 @@ class VersionControlMixin:
 
     def load_version(self) -> str:
         _version = read_from_file(
-            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME, missing_ok=True
+            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            missing_ok=True,
+            default="",
         )
         if not _version:
             logger.warning("version file not found, return empty version string")
