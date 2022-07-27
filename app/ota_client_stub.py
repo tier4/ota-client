@@ -417,56 +417,31 @@ class OtaClientStub:
         # a list of directly connected ecus in the update request
         tracked_ecus_dict: Dict[str, str] = {}
 
-        # secondary ecus
-        tasks: List[asyncio.Task] = []
         # simultaneously dispatching update requests to all subecus without blocking
+        coros: List[Coroutine] = []
         for _ecu_id, _ecu_ip in self.subecus_dict.items():
             if OtaClientStub._find_request(request.ecu, _ecu_id):
                 # add to tracked ecu list
                 tracked_ecus_dict[_ecu_id] = _ecu_ip
-                tasks.append(
-                    asyncio.create_task(
-                        self._ota_client_call.update(request, _ecu_ip),
-                        # register the task name with sub_ecu id
-                        name=_ecu_id,
+                coros.append(
+                    self._ota_client_call.update_call(
+                        _ecu_id,
+                        _ecu_ip,
+                        request=request,
+                        timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
                     )
                 )
+        logger.info(f"update: {tracked_ecus_dict=}")
 
         # wait for all sub ecu acknowledge ota update requests
-        subecu_tracking_task: Optional[asyncio.Task] = None
-        if tasks:
-            logger.info(
-                f"waiting for subecus({tracked_ecus_dict}) to acknowledge update request..."
-            )
-            done, pending = await asyncio.wait(
-                tasks, timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT
-            )
-            for t in pending:
-                ecu_id = t.get_name()
-                logger.info(f"{ecu_id=}")
-
-                sub_ecu = response.ecu.add()
-                sub_ecu.ecu_id = ecu_id
-                sub_ecu.result = v2.RECOVERABLE
-
-                logger.error(
-                    f"subecu {ecu_id} doesn't respond to ota update request on time"
-                )
-            for t in done:
-                ecu_id = t.get_name()
-                if exp := t.exception():
-                    logger.error(f"connect sub ecu {ecu_id} failed: {exp!r}")
-                    sub_ecu = response.ecu.add()
-                    sub_ecu.ecu_id = ecu_id
-                    sub_ecu.result = v2.UNRECOVERABLE  # TODO: unrecoverable?
-                else:
-                    # append subecu's and its subecus' status
-                    for e in t.result().ecu:
-                        ecu = response.ecu.add()
-                        ecu.CopyFrom(e)
+        update_resp: v2.UpdateResponse
+        for update_resp in await asyncio.gather(*coros):
+            for _ecu_resp in update_resp.ecu:  # type: ignore
+                _ecu = response.ecu.add()
+                _ecu.CopyFrom(_ecu_resp)
 
         # after all subecus ack the update request, update my ecu
-        my_ecu_tracking_task: Optional[asyncio.Task] = None
+        my_ecu_tracking_task: Optional[Coroutine] = None
         if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
             if not self._ota_client.live_ota_status.request_update():
                 logger.warning(
@@ -606,15 +581,33 @@ class OtaClientStub:
             async with self._status_pulling_lock:
                 self._last_status_query = cur_time
 
-                resp = v2.StatusResponse()
-                subecus_resp = await self._query_subecu_status(self.subecus_dict)
+                # get subecus' status
+                subecus_resp = v2.StatusResponse()
+                coros: List[Coroutine] = []
+                for subecu_id, subecu_addr in self.subecus_dict.items():
+                    coros.append(
+                        self._ota_client_call.status_call(
+                            subecu_id,
+                            subecu_addr,
+                            timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
+                        )
+                    )
+                subecu_resp: v2.StatusResponse
+                for subecu_resp in await asyncio.gather(*coros):
+                    # gather the subecu and its child ecus status
+                    for _ecu_resp in subecu_resp.ecu:  # type: ignore
+                        _ecu = subecus_resp.ecu.add()
+                        _ecu.CopyFrom(_ecu_resp)
 
-                # prepare subecus status
+                # prepare final response
+                resp = v2.StatusResponse()
+                # NOTE: only contains directly connected subecus!
+                resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
+                ## append from subecus_resp
                 for ecu_status in subecus_resp.ecu:
                     ecu = resp.ecu.add()
                     ecu.CopyFrom(ecu_status)
-
-                # prepare my ecu status
+                ## append myecu status
                 my_ecu = subecus_resp.ecu.add()
                 if my_ecu_status := self._ota_client.status():
                     my_ecu.CopyFrom(my_ecu_status)
@@ -622,10 +615,6 @@ class OtaClientStub:
                     # otaclient status method doesn't return valid result
                     my_ecu.ecu_id = self.my_ecu_id
                     my_ecu.result = v2.RECOVERABLE
-
-                # available ecu ids
-                # NOTE: only contains directly connected subecus!
-                resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
 
                 # register the status to cache
                 self._cached_status = subecus_resp
