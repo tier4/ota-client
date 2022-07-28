@@ -571,7 +571,7 @@ class OtaClientStub:
                     my_ecu.result = v2.RECOVERABLE
 
                 # register the status to cache
-                self._cached_status = subecus_resp
+                self._cached_status = resp
 
         # respond with the cached status
         res = v2.StatusResponse()
