@@ -186,10 +186,10 @@ class _UpdateSession:
                 self._started = False
 
     @classmethod
-    async def myecu_update_tracker(
+    async def my_ecu_update_tracker(
         cls,
         *,
-        otaclient_get_exp: Callable,
+        ota_client_get_exp: Callable,
         fsm: OTAUpdateFSM,
         executor,
     ) -> bool:
@@ -200,8 +200,8 @@ class _UpdateSession:
         _loop = asyncio.get_running_loop()
         await _loop.run_in_executor(executor, fsm.stub_wait_for_local_update)
 
-        if otaclient_get_exp:
-            if await _loop.run_in_executor(executor, otaclient_get_exp):
+        if ota_client_get_exp:
+            if await _loop.run_in_executor(executor, ota_client_get_exp):
                 return False
         return True
 
@@ -221,12 +221,12 @@ class _UpdateSession:
             subecus_succeed = await subecu_tracking_task
             logger.info(f"subecus update result: {subecus_succeed}")
 
-        myecu_succeed = True
+        my_ecu_succeed = True
         if my_ecu_tracking_task:
-            myecu_succeed = await my_ecu_tracking_task
-            logger.info(f"my ecu update result: {myecu_succeed}")
+            my_ecu_succeed = await my_ecu_tracking_task
+            logger.info(f"my ecu update result: {my_ecu_succeed}")
 
-        update_succeed = myecu_succeed and subecus_succeed
+        update_succeed = my_ecu_succeed and subecus_succeed
         await self.stop(update_succeed=update_succeed)
         self.fsm.stub_cleanup_finished()
 
@@ -273,6 +273,7 @@ class _SubECUTracker:
                     all_success &= _status == v2.SUCCESS
                 else:
                     all_ready = False
+                    break
 
             if all_ready:
                 if all_success:
@@ -423,7 +424,7 @@ class OtaClientStub:
                 ecu.ecu_id = self.my_ecu_id
                 ecu.result = v2.RECOVERABLE
             else:
-                logger.info(f"update myecu: {self.my_ecu_id=}, {entry=}")
+                logger.info(f"update my_ecu: {self.my_ecu_id=}, {entry=}")
                 # dispatch update to local otaclient
                 _loop = asyncio.get_running_loop()
                 _loop.run_in_executor(
@@ -439,9 +440,9 @@ class OtaClientStub:
 
                 # launch the local update tracker
                 # NOTE: pass otaclient's get_last_failure method into the tracker
-                my_ecu_tracking_task = _UpdateSession.myecu_update_tracker(
+                my_ecu_tracking_task = _UpdateSession.my_ecu_update_tracker(
                     executor=self._executor,
-                    otaclient_get_exp=self._ota_client.get_last_failure,
+                    ota_client_get_exp=self._ota_client.get_last_failure,
                     fsm=self._update_session.fsm,
                 )
 
@@ -502,7 +503,7 @@ class OtaClientStub:
         # after all subecus response the request, rollback my ecu
         if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
             if self._ota_client.live_ota_status.request_rollback():
-                logger.info(f"rollback myecu: {self.my_ecu_id=}, {entry=}")
+                logger.info(f"rollback my_ecu: {self.my_ecu_id=}, {entry=}")
                 # dispatch the rollback request to threadpool
                 self._executor.submit(self._ota_client.rollback)
 
@@ -555,13 +556,12 @@ class OtaClientStub:
 
                 # prepare final response
                 resp = v2.StatusResponse()
-                # NOTE: only contains directly connected subecus!
                 resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
                 ## append from subecus_resp
                 for ecu_status in subecus_resp.ecu:
                     ecu = resp.ecu.add()
                     ecu.CopyFrom(ecu_status)
-                ## append myecu status
+                ## append my_ecu status
                 my_ecu = subecus_resp.ecu.add()
                 if my_ecu_status := self._ota_client.status():
                     my_ecu.CopyFrom(my_ecu_status)
