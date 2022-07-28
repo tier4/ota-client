@@ -30,7 +30,7 @@ class EcuInfo:
         return self._ecu_info.get("ip_addr", "localhost")
 
     def get_available_ecu_ids(self):
-        return self._ecu_info.get("available_ecu_ids", [])
+        return self._ecu_info.get("available_ecu_ids", [self.get_ecu_id()])
 
     def _load_ecu_info(self, path: str):
         try:
