@@ -4,14 +4,34 @@ import typing
 import otaclient_v2_pb2 as v2
 from enum import Enum
 from google.protobuf import message as _message
-from typing import Any, ClassVar, Optional, Type
+from typing import Any, ClassVar, Optional, Protocol, Type
 
 
 class _WrapperBase:
+    """Dummy base for wrapper types."""
+
+
+_RollbackRequest = typing.cast(Type[v2.RollbackRequest], _WrapperBase)
+_RollbackRequestEcu = typing.cast(Type[v2.RollbackRequestEcu], _WrapperBase)
+_RollbackResponse = typing.cast(Type[v2.RollbackResponse], _WrapperBase)
+_RollbackResponseEcu = typing.cast(Type[v2.RollbackResponseEcu], _WrapperBase)
+_Status = typing.cast(Type[v2.Status], _WrapperBase)
+_StatusProgress = typing.cast(Type[v2.StatusProgress], _WrapperBase)
+_StatusRequest = typing.cast(Type[v2.StatusRequest], _WrapperBase)
+_StatusResponse = typing.cast(Type[v2.StatusResponse], _WrapperBase)
+_StatusResponseEcu = typing.cast(Type[v2.StatusResponseEcu], _WrapperBase)
+_UpdateRequest = typing.cast(Type[v2.UpdateRequest], _WrapperBase)
+_UpdateRequestEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
+_UpdateResponse = typing.cast(Type[v2.UpdateResponse], _WrapperBase)
+_UpdateResponseEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
+
+
+class MessageWrapperProtocol(Protocol):
     """A proxy wrapper base that proxies all attrs from/to the
     wrapped proto class instance."""
 
     proto_class: ClassVar[Type[_message.Message]]
+    data: _message.Message
 
     def __init__(self, *args, **kwargs):
         self.data = self.proto_class(*args, **kwargs)
@@ -32,26 +52,6 @@ class _WrapperBase:
 
     def __setitem__(self, __key: str, __value: Any):
         setattr(self.data, __key, __value)
-
-
-_RollbackRequest = typing.cast(Type[v2.RollbackRequest], _WrapperBase)
-_RollbackRequestEcu = typing.cast(Type[v2.RollbackRequestEcu], _WrapperBase)
-_RollbackResponse = typing.cast(Type[v2.RollbackResponse], _WrapperBase)
-_RollbackResponseEcu = typing.cast(Type[v2.RollbackResponseEcu], _WrapperBase)
-_Status = typing.cast(Type[v2.Status], _WrapperBase)
-_StatusProgress = typing.cast(Type[v2.StatusProgress], _WrapperBase)
-_StatusRequest = typing.cast(Type[v2.StatusRequest], _WrapperBase)
-_StatusResponse = typing.cast(Type[v2.StatusResponse], _WrapperBase)
-_StatusResponseEcu = typing.cast(Type[v2.StatusResponseEcu], _WrapperBase)
-_UpdateRequest = typing.cast(Type[v2.UpdateRequest], _WrapperBase)
-_UpdateRequestEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
-_UpdateResponse = typing.cast(Type[v2.UpdateResponse], _WrapperBase)
-_UpdateResponseEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
-
-
-class MessageWrapperMixin:
-    proto_class: ClassVar[Type[_message.Message]]
-    data: _message.Message
 
     def export_pb(self):
         res = self.proto_class()
@@ -80,7 +80,7 @@ class MessageWrapperMixin:
         return self.data
 
 
-class EnumWrapperMixin:
+class EnumWrapperProtocol:
     __proto_class__: ClassVar[Type]
 
     def export_pb(self):
@@ -99,22 +99,22 @@ class EnumWrapperMixin:
 
 
 ## rollback
-class RollbackRequestEcu(MessageWrapperMixin, _RollbackRequestEcu):
+class RollbackRequestEcu(MessageWrapperProtocol, _RollbackRequestEcu):
     proto_class = v2.RollbackRequestEcu
     data: v2.RollbackRequestEcu
 
 
-class RollbackRequest(MessageWrapperMixin, _RollbackRequest):
+class RollbackRequest(MessageWrapperProtocol, _RollbackRequest):
     proto_class = v2.RollbackRequest
     data: v2.RollbackRequest
 
 
-class RollbackResponseEcu(MessageWrapperMixin, _RollbackResponseEcu):
+class RollbackResponseEcu(MessageWrapperProtocol, _RollbackResponseEcu):
     proto_class = v2.RollbackResponseEcu
     data: v2.RollbackResponseEcu
 
 
-class RollbackResponse(MessageWrapperMixin, _RollbackResponse):
+class RollbackResponse(MessageWrapperProtocol, _RollbackResponse):
     proto_class = v2.RollbackResponse
     data: v2.RollbackResponse
 
@@ -124,27 +124,27 @@ class RollbackResponse(MessageWrapperMixin, _RollbackResponse):
 
 
 ## status API
-class Status(MessageWrapperMixin, _Status):
+class Status(MessageWrapperProtocol, _Status):
     proto_class = v2.Status
     data: v2.Status
 
 
-class StatusProgress(MessageWrapperMixin, _StatusProgress):
+class StatusProgress(MessageWrapperProtocol, _StatusProgress):
     proto_class = v2.StatusProgress
     data: v2.StatusProgress
 
 
-class StatusRequest(MessageWrapperMixin, _StatusRequest):
+class StatusRequest(MessageWrapperProtocol, _StatusRequest):
     proto_class = v2.StatusRequest
     data: v2.StatusRequest
 
 
-class StatusResponseEcu(MessageWrapperMixin, _StatusResponseEcu):
+class StatusResponseEcu(MessageWrapperProtocol, _StatusResponseEcu):
     proto_class = v2.StatusResponseEcu
     data: v2.StatusResponseEcu
 
 
-class StatusResponse(MessageWrapperMixin, _StatusResponse):
+class StatusResponse(MessageWrapperProtocol, _StatusResponse):
     proto_class = v2.StatusResponse
     data: v2.StatusResponse
 
@@ -154,12 +154,12 @@ class StatusResponse(MessageWrapperMixin, _StatusResponse):
 
 
 ## update API
-class UpdateRequestEcu(MessageWrapperMixin, _UpdateRequestEcu):
+class UpdateRequestEcu(MessageWrapperProtocol, _UpdateRequestEcu):
     proto_class = v2.UpdateRequestEcu
     data: v2.UpdateRequestEcu
 
 
-class UpdateRequest(MessageWrapperMixin, _UpdateRequest):
+class UpdateRequest(MessageWrapperProtocol, _UpdateRequest):
     proto_class = v2.UpdateRequest
     data: v2.UpdateRequest
 
@@ -169,12 +169,12 @@ class UpdateRequest(MessageWrapperMixin, _UpdateRequest):
                 return UpdateRequestEcu.wrap(request_ecu)
 
 
-class UpdateResponseEcu(MessageWrapperMixin, _UpdateResponseEcu):
+class UpdateResponseEcu(MessageWrapperProtocol, _UpdateResponseEcu):
     proto_class = v2.UpdateResponseEcu
     data: v2.UpdateResponseEcu
 
 
-class UpdateResponse(MessageWrapperMixin, _UpdateResponse):
+class UpdateResponse(MessageWrapperProtocol, _UpdateResponse):
     proto_class = v2.UpdateResponse
     data: v2.UpdateResponse
 
@@ -186,7 +186,7 @@ class UpdateResponse(MessageWrapperMixin, _UpdateResponse):
 # enum
 
 
-class FailureType(EnumWrapperMixin, Enum):
+class FailureType(EnumWrapperProtocol, Enum):
     __proto_class__ = v2.FailureType
     NO_FAILURE = v2.NO_FAILURE
     RECOVERABLE = v2.RECOVERABLE
@@ -196,7 +196,7 @@ class FailureType(EnumWrapperMixin, Enum):
         return f"{self.value:0>1}"
 
 
-class StatusOta(EnumWrapperMixin, Enum):
+class StatusOta(EnumWrapperProtocol, Enum):
     __proto_class__ = v2.StatusOta
     INITIALIZED = v2.INITIALIZED
     SUCCESS = v2.SUCCESS
@@ -206,7 +206,7 @@ class StatusOta(EnumWrapperMixin, Enum):
     ROLLBACK_FAILURE = v2.ROLLBACK_FAILURE
 
 
-class StatusProgressPhase(EnumWrapperMixin, Enum):
+class StatusProgressPhase(EnumWrapperProtocol, Enum):
     __proto_class__ = v2.StatusProgressPhase
     INITIAL = v2.INITIAL
     METADATA = v2.METADATA
