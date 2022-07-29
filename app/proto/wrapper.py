@@ -12,7 +12,6 @@ class _WrapperBase:
     wrapped proto class instance."""
 
     proto_class: ClassVar[Type[_message.Message]]
-    data: _message.Message
 
     def __init__(self, *args, **kwargs):
         self.data = self.proto_class(*args, **kwargs)
@@ -35,12 +34,19 @@ class _WrapperBase:
         setattr(self.data, __key, __value)
 
 
-_StatusResponse = typing.cast(Type[v2.StatusResponse], _WrapperBase)
-_StatusResponseEcu = typing.cast(Type[v2.StatusResponseEcu], _WrapperBase)
+_RollbackRequest = typing.cast(Type[v2.RollbackRequest], _WrapperBase)
+_RollbackRequestEcu = typing.cast(Type[v2.RollbackRequestEcu], _WrapperBase)
+_RollbackResponse = typing.cast(Type[v2.RollbackResponse], _WrapperBase)
+_RollbackResponseEcu = typing.cast(Type[v2.RollbackResponseEcu], _WrapperBase)
 _Status = typing.cast(Type[v2.Status], _WrapperBase)
 _StatusProgress = typing.cast(Type[v2.StatusProgress], _WrapperBase)
+_StatusRequest = typing.cast(Type[v2.StatusRequest], _WrapperBase)
+_StatusResponse = typing.cast(Type[v2.StatusResponse], _WrapperBase)
+_StatusResponseEcu = typing.cast(Type[v2.StatusResponseEcu], _WrapperBase)
 _UpdateRequest = typing.cast(Type[v2.UpdateRequest], _WrapperBase)
 _UpdateRequestEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
+_UpdateResponse = typing.cast(Type[v2.UpdateResponse], _WrapperBase)
+_UpdateResponseEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
 
 
 class MessageWrapperMixin:
@@ -71,47 +77,92 @@ class MessageWrapperMixin:
         return self.wrap(_new_data)
 
 
-class StatusResponseWrapper(MessageWrapperMixin, _StatusResponse):
-    proto_class = v2.StatusResponse
-    data: v2.StatusResponse
-
-
-class StatusResponseEcuWrapper(MessageWrapperMixin, _StatusResponseEcu):
-    proto_class = v2.StatusResponseEcu
-    data: v2.StatusResponseEcu
-
-
-class StatusWrapper(MessageWrapperMixin, _Status):
-    proto_class = v2.Status
-    data: v2.Status
-
-
-class StatusProgressWrapper(MessageWrapperMixin, _StatusProgress):
-    proto_class = v2.StatusProgress
-    data: v2.StatusProgress
-
-
-class UpdateRequestEcuWrapper(MessageWrapperMixin, _UpdateRequestEcu):
-    proto_class = v2.UpdateRequestEcu
-    data: v2.UpdateRequestEcu
-
-
-class UpdateRequestWrapper(MessageWrapperMixin, _UpdateRequest):
-    proto_class = v2.UpdateRequest
-    data: v2.UpdateRequest
-
-    def find_request(self, ecu_id: str) -> Optional[UpdateRequestEcuWrapper]:
-        for request_ecu in self.ecu:
-            if request_ecu.ecu_id == ecu_id:
-                return UpdateRequestEcuWrapper.wrap(request_ecu)
-
-
 class EnumWrapperMixin:
     def export_pb(self):
         raise self.value  # type: ignore
 
 
-class FailureTypeWrapper(EnumWrapperMixin, Enum):
+# message
+
+
+## rollback
+class RollbackRequest(MessageWrapperMixin, _RollbackRequest):
+    proto_class = v2.RollbackRequest
+    data: v2.RollbackRequest
+
+
+class RollbackRequestEcu(MessageWrapperMixin, _RollbackRequestEcu):
+    proto_class = v2.RollbackRequestEcu
+    data: v2.RollbackRequestEcu
+
+
+class RollbackResponse(MessageWrapperMixin, _RollbackResponse):
+    proto_class = v2.RollbackResponse
+    data: v2.RollbackResponse
+
+
+class RollbackResponseEcu(MessageWrapperMixin, _RollbackResponseEcu):
+    proto_class = v2.RollbackResponseEcu
+    data: v2.RollbackResponseEcu
+
+
+## status API
+class Status(MessageWrapperMixin, _Status):
+    proto_class = v2.Status
+    data: v2.Status
+
+
+class StatusProgress(MessageWrapperMixin, _StatusProgress):
+    proto_class = v2.StatusProgress
+    data: v2.StatusProgress
+
+
+class StatusRequest(MessageWrapperMixin, _StatusRequest):
+    proto_class = v2.StatusRequest
+    data: v2.StatusRequest
+
+
+class StatusResponse(MessageWrapperMixin, _StatusResponse):
+    proto_class = v2.StatusResponse
+    data: v2.StatusResponse
+
+
+class StatusResponseEcu(MessageWrapperMixin, _StatusResponseEcu):
+    proto_class = v2.StatusResponseEcu
+    data: v2.StatusResponseEcu
+
+
+## update API
+class UpdateRequest(MessageWrapperMixin, _UpdateRequest):
+    proto_class = v2.UpdateRequest
+    data: v2.UpdateRequest
+
+    def find_request(self, ecu_id: str) -> Optional[UpdateRequestEcu]:
+        for request_ecu in self.ecu:
+            if request_ecu.ecu_id == ecu_id:
+                return UpdateRequestEcu.wrap(request_ecu)
+
+
+class UpdateRequestEcu(MessageWrapperMixin, _UpdateRequestEcu):
+    proto_class = v2.UpdateRequestEcu
+    data: v2.UpdateRequestEcu
+
+
+class UpdateResponse(MessageWrapperMixin, _UpdateResponse):
+    proto_class = v2.UpdateResponse
+    data: v2.UpdateResponse
+
+
+class UpdateResponseEcu(MessageWrapperMixin, _UpdateResponseEcu):
+    proto_class = v2.UpdateResponseEcu
+    data: v2.UpdateResponseEcu
+
+
+# enum
+
+
+class FailureType(EnumWrapperMixin, Enum):
+    _proto_class = v2.FailureType
     NO_FAILURE = v2.NO_FAILURE
     RECOVERABLE = v2.RECOVERABLE
     UNRECOVERABLE = v2.UNRECOVERABLE
@@ -120,7 +171,8 @@ class FailureTypeWrapper(EnumWrapperMixin, Enum):
         return f"{self.value:0>1}"
 
 
-class StatusOtaWrapper(EnumWrapperMixin, Enum):
+class StatusOta(EnumWrapperMixin, Enum):
+    _proto_class = v2.StatusOta
     INITIALIZED = v2.INITIALIZED
     SUCCESS = v2.SUCCESS
     FAILURE = v2.FAILURE
@@ -129,7 +181,8 @@ class StatusOtaWrapper(EnumWrapperMixin, Enum):
     ROLLBACK_FAILURE = v2.ROLLBACK_FAILURE
 
 
-class StatusProgressPhaseWrapper(EnumWrapperMixin, Enum):
+class StatusProgressPhase(EnumWrapperMixin, Enum):
+    _proto_class = v2.StatusProgressPhase
     INITIAL = v2.INITIAL
     METADATA = v2.METADATA
     DIRECTORY = v2.DIRECTORY
