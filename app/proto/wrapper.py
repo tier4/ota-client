@@ -78,6 +78,8 @@ class MessageWrapperMixin:
 
 
 class EnumWrapperMixin:
+    __proto_class__: ClassVar[Type]
+
     def export_pb(self):
         raise self.value  # type: ignore
 
@@ -162,7 +164,7 @@ class UpdateResponseEcu(MessageWrapperMixin, _UpdateResponseEcu):
 
 
 class FailureType(EnumWrapperMixin, Enum):
-    _proto_class = v2.FailureType
+    __proto_class__ = v2.FailureType
     NO_FAILURE = v2.NO_FAILURE
     RECOVERABLE = v2.RECOVERABLE
     UNRECOVERABLE = v2.UNRECOVERABLE
@@ -172,7 +174,7 @@ class FailureType(EnumWrapperMixin, Enum):
 
 
 class StatusOta(EnumWrapperMixin, Enum):
-    _proto_class = v2.StatusOta
+    __proto_class__ = v2.StatusOta
     INITIALIZED = v2.INITIALIZED
     SUCCESS = v2.SUCCESS
     FAILURE = v2.FAILURE
@@ -182,7 +184,7 @@ class StatusOta(EnumWrapperMixin, Enum):
 
 
 class StatusProgressPhase(EnumWrapperMixin, Enum):
-    _proto_class = v2.StatusProgressPhase
+    __proto_class__ = v2.StatusProgressPhase
     INITIAL = v2.INITIAL
     METADATA = v2.METADATA
     DIRECTORY = v2.DIRECTORY
