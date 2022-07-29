@@ -28,6 +28,7 @@ def test_message_wrapper_normal_field(
     # test directly init
     _directly_init = wrapper_cls(**{field_name: field_value})  # type: ignore
     assert getattr(_directly_init, field_name) == field_value
+    assert _directly_init[field_name] == field_value
 
     # test wrap
     _data = pb_cls(**{field_name: field_value})
@@ -130,6 +131,7 @@ def test_enum_wrapper(
 ):
     _origin = getattr(pb_cls, enum_field_name)
     _proxied = wrapper_cls[enum_field_name]
+    assert _proxied == getattr(wrapper_cls, enum_field_name)
     assert _origin == _proxied  # test directly comparing to pb types
     assert _origin == _proxied.value
     assert _origin == _proxied.export_pb()
