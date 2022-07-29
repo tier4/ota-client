@@ -76,6 +76,9 @@ class MessageWrapperMixin:
         _new_data.CopyFrom(self.data)
         return self.wrap(_new_data)
 
+    def unwrap(self):
+        return self.data
+
 
 class EnumWrapperMixin:
     __proto_class__: ClassVar[Type]
@@ -96,24 +99,28 @@ class EnumWrapperMixin:
 
 
 ## rollback
+class RollbackRequestEcu(MessageWrapperMixin, _RollbackRequestEcu):
+    proto_class = v2.RollbackRequestEcu
+    data: v2.RollbackRequestEcu
+
+
 class RollbackRequest(MessageWrapperMixin, _RollbackRequest):
     proto_class = v2.RollbackRequest
     data: v2.RollbackRequest
 
 
-class RollbackRequestEcu(MessageWrapperMixin, _RollbackRequestEcu):
-    proto_class = v2.RollbackRequestEcu
-    data: v2.RollbackRequestEcu
+class RollbackResponseEcu(MessageWrapperMixin, _RollbackResponseEcu):
+    proto_class = v2.RollbackResponseEcu
+    data: v2.RollbackResponseEcu
 
 
 class RollbackResponse(MessageWrapperMixin, _RollbackResponse):
     proto_class = v2.RollbackResponse
     data: v2.RollbackResponse
 
-
-class RollbackResponseEcu(MessageWrapperMixin, _RollbackResponseEcu):
-    proto_class = v2.RollbackResponseEcu
-    data: v2.RollbackResponseEcu
+    def add_ecu(self, _response_ecu: RollbackResponseEcu):
+        _ecu = typing.cast(v2.RollbackResponseEcu, _response_ecu.unwrap())
+        self.data.ecu.append(_ecu)
 
 
 ## status API
@@ -132,17 +139,26 @@ class StatusRequest(MessageWrapperMixin, _StatusRequest):
     data: v2.StatusRequest
 
 
-class StatusResponse(MessageWrapperMixin, _StatusResponse):
-    proto_class = v2.StatusResponse
-    data: v2.StatusResponse
-
-
 class StatusResponseEcu(MessageWrapperMixin, _StatusResponseEcu):
     proto_class = v2.StatusResponseEcu
     data: v2.StatusResponseEcu
 
 
+class StatusResponse(MessageWrapperMixin, _StatusResponse):
+    proto_class = v2.StatusResponse
+    data: v2.StatusResponse
+
+    def add_ecu(self, _response_ecu: StatusResponseEcu):
+        _ecu = typing.cast(v2.StatusResponseEcu, _response_ecu.unwrap())
+        self.data.ecu.append(_ecu)
+
+
 ## update API
+class UpdateRequestEcu(MessageWrapperMixin, _UpdateRequestEcu):
+    proto_class = v2.UpdateRequestEcu
+    data: v2.UpdateRequestEcu
+
+
 class UpdateRequest(MessageWrapperMixin, _UpdateRequest):
     proto_class = v2.UpdateRequest
     data: v2.UpdateRequest
@@ -153,19 +169,18 @@ class UpdateRequest(MessageWrapperMixin, _UpdateRequest):
                 return UpdateRequestEcu.wrap(request_ecu)
 
 
-class UpdateRequestEcu(MessageWrapperMixin, _UpdateRequestEcu):
-    proto_class = v2.UpdateRequestEcu
-    data: v2.UpdateRequestEcu
+class UpdateResponseEcu(MessageWrapperMixin, _UpdateResponseEcu):
+    proto_class = v2.UpdateResponseEcu
+    data: v2.UpdateResponseEcu
 
 
 class UpdateResponse(MessageWrapperMixin, _UpdateResponse):
     proto_class = v2.UpdateResponse
     data: v2.UpdateResponse
 
-
-class UpdateResponseEcu(MessageWrapperMixin, _UpdateResponseEcu):
-    proto_class = v2.UpdateResponseEcu
-    data: v2.UpdateResponseEcu
+    def add_ecu(self, _response_ecu: UpdateResponseEcu):
+        _ecu = typing.cast(v2.UpdateResponseEcu, _response_ecu.unwrap())
+        self.data.ecu.append(_ecu)
 
 
 # enum
