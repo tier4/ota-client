@@ -81,7 +81,15 @@ class EnumWrapperMixin:
     __proto_class__: ClassVar[Type]
 
     def export_pb(self):
-        raise self.value  # type: ignore
+        return self.value  # type: ignore
+
+    def __eq__(self, __o: object) -> bool:
+        """Support directly comparing with v2 Enum types."""
+        if isinstance(__o, self.__proto_class__):
+            return __o == self.value  # type: ignore
+        if isinstance(__o, self.__class__):
+            return __o == self
+        return False
 
 
 # message
