@@ -50,6 +50,7 @@ def test_message_wrapper_normal_field(
     setattr(_wrapped, field_name, field_value)
     assert getattr(_wrapped, field_name) == field_value
     assert getattr(_wrapped.data, field_name) == field_value
+    assert _wrapped[field_name] == field_value
 
 
 @pytest.mark.parametrize(
@@ -102,8 +103,15 @@ def test_message_wrapper_repeated_field(
     assert _copied.data == _wrapped.data and _copied.data is not _wrapped.data
 
     # test attrs proxy
+    ## getattr
     _wrapped = wrapper_cls()
     _field = getattr(_wrapped, field_name)
+    _ecu = _field.add()
+    _ecu.CopyFrom(value.data)
+    assert _wrapped.data == _data
+    ## getitem
+    _wrapped = wrapper_cls()
+    _field = _wrapped[field_name]
     _ecu = _field.add()
     _ecu.CopyFrom(value.data)
     assert _wrapped.data == _data

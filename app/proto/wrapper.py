@@ -89,8 +89,8 @@ class EnumWrapper(Enum):
     def __eq__(self, __o: object) -> bool:
         """Support directly comparing with v2 Enum types."""
         if isinstance(__o, self.__class__):
-            return __o == self
-        return __o == self.value
+            return super().__eq__(__o)
+        return self.value == __o
 
 
 # message
