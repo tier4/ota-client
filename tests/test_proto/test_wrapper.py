@@ -1,7 +1,6 @@
-from typing import Any, Type
-from google.protobuf import message as _message
-
 import pytest
+from google.protobuf import message as _message
+from typing import Any, Type
 
 from app.proto import wrapper
 from app.proto import v2
@@ -41,8 +40,8 @@ def test_message_wrapper_normal_field(
     _exported = _wrapped.export_pb()
     assert _data == _exported and _data is not _exported
 
-    # test copy
-    _copied = _wrapped.copy()
+    # test copy_from
+    _copied = wrapper_cls().copy_from(_data)
     # NOTE: the underlaying data is also copied
     assert _copied.data == _wrapped.data and _copied.data is not _wrapped.data
 
@@ -58,18 +57,12 @@ def test_message_wrapper_normal_field(
     "pb_cls, wrapper_cls, field_name, value",
     (
         (
-            v2.RollbackRequest,
-            wrapper.RollbackRequest,
-            "ecu",
-            wrapper.RollbackRequestEcu(),
-        ),
-        (
             v2.RollbackResponse,
             wrapper.RollbackResponse,
             "ecu",
             wrapper.RollbackResponseEcu(),
         ),
-        (v2.UpdateRequest, wrapper.UpdateRequest, "ecu", wrapper.UpdateRequestEcu()),
+        (v2.StatusResponse, wrapper.StatusResponse, "ecu", wrapper.StatusResponseEcu()),
         (v2.UpdateResponse, wrapper.UpdateResponse, "ecu", wrapper.UpdateResponseEcu()),
     ),
 )
@@ -98,24 +91,24 @@ def test_message_wrapper_repeated_field(
     _exported = _wrapped.export_pb()
     assert _data == _exported and _data is not _exported
 
-    # test copy
-    _copied = _wrapped.copy()
+    # test copy_from
+    _copied = wrapper_cls.copy_from(_data)
     # NOTE: the underlaying data is also copied
     assert _copied.data == _wrapped.data and _copied.data is not _wrapped.data
 
     # test attrs proxy
     ## getattr
     _wrapped = wrapper_cls()
-    _field = getattr(_wrapped, field_name)
-    _ecu = _field.add()
-    _ecu.CopyFrom(value.data)
+    getattr(_wrapped, field_name).append(value.data)
     assert _wrapped.data == _data
     ## getitem
     _wrapped = wrapper_cls()
-    _field = _wrapped[field_name]
-    _ecu = _field.add()
-    _ecu.CopyFrom(value.data)
+    _wrapped[field_name].append(value.data)
     assert _wrapped.data == _data
+
+
+# TODO: test helper methods for RollbackResponse, StatusProgress,
+#       Status, StatusResponse, UpdateRequest and UpdateResponse
 
 
 @pytest.mark.parametrize(
