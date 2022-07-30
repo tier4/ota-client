@@ -1,10 +1,21 @@
 from __future__ import annotations
+from dataclasses import dataclass
 
 import typing
 import otaclient_v2_pb2 as v2
 from enum import Enum
 from google.protobuf import message as _message
-from typing import Any, ClassVar, List, Optional, Protocol, Type
+from typing import (
+    Any,
+    ClassVar,
+    Generator,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    Type,
+    Union,
+)
 
 
 class _WrapperBase:
@@ -72,11 +83,16 @@ class MessageWrapperProtocol(Protocol):
             res.data = _in
         return res
 
-    def copy(self):
-        """Copy the wrapped data to a new wrapper with CopyFrom."""
-        _new_data = self.proto_class()
-        _new_data.CopyFrom(self.data)
-        return self.wrap(_new_data)
+    @classmethod
+    def copy_from(cls, _in: _message.Message):
+        """Copy and wrap input message into a new wrapper instance."""
+        _new_data = cls.proto_class()
+        _new_data.CopyFrom(_in)
+        return cls.wrap(_new_data)
+
+    def rewrap(self, _in: _message.Message):
+        """Replace the underlaying wrapped data instance."""
+        self.data = _in
 
     def unwrap(self):
         return self.data
@@ -106,10 +122,6 @@ class RollbackRequest(_RollbackRequest, MessageWrapperProtocol):
     proto_class = v2.RollbackRequest
     data: v2.RollbackRequest
 
-    def add_ecu(self, _response_ecu: RollbackRequestEcu):
-        _ecu = typing.cast(v2.RollbackRequestEcu, _response_ecu.export_pb())
-        self.ecu.append(_ecu)
-
 
 class RollbackResponseEcu(_RollbackResponseEcu, MessageWrapperProtocol):
     proto_class = v2.RollbackResponseEcu
@@ -120,20 +132,36 @@ class RollbackResponse(_RollbackResponse, MessageWrapperProtocol):
     proto_class = v2.RollbackResponse
     data: v2.RollbackResponse
 
+    def iter_ecu(
+        self,
+    ) -> Generator[Tuple[str, FailureType, RollbackResponseEcu], None, None]:
+        for _ecu in self.data.ecu:
+            yield _ecu.ecu_id, FailureType(_ecu.result), RollbackResponseEcu.wrap(_ecu)
+
     def add_ecu(self, _response_ecu: RollbackResponseEcu):
-        _ecu = typing.cast(v2.RollbackResponseEcu, _response_ecu.export_pb())
-        self.ecu.append(_ecu)
+        _ecu = typing.cast(v2.RollbackResponseEcu, _response_ecu.unwrap())
+        self.data.ecu.append(_ecu)
 
 
 ## status API
+class StatusProgress(_StatusProgress, MessageWrapperProtocol):
+    proto_class = v2.StatusProgress
+    data: v2.StatusProgress
+
+    def get_snapshot(self) -> StatusProgress:
+        _export = self.export_pb()
+        return self.__class__.wrap(_export)
+
+
 class Status(_Status, MessageWrapperProtocol):
     proto_class = v2.Status
     data: v2.Status
 
+    def get_progress(self) -> StatusProgress:
+        return StatusProgress.wrap(self.progress)
 
-class StatusProgress(_StatusProgress, MessageWrapperProtocol):
-    proto_class = v2.StatusProgress
-    data: v2.StatusProgress
+    def get_failure(self) -> Tuple[FailureType, str]:
+        return FailureType(self.failure), self.failure_reason
 
 
 class StatusRequest(_StatusRequest, MessageWrapperProtocol):
@@ -150,12 +178,37 @@ class StatusResponse(_StatusResponse, MessageWrapperProtocol):
     proto_class = v2.StatusResponse
     data: v2.StatusResponse
 
+    def iter_ecu_status(self) -> Generator[Tuple[str, FailureType, Status], None, None]:
+        """
+        Returns:
+            A tuple of (<ecu_id>, <failure_type>, <status>)
+        """
+        for _ecu in self.data.ecu:
+            yield _ecu.ecu_id, FailureType(_ecu.result), Status.wrap(_ecu.status)
+
     def add_ecu(self, _response_ecu: StatusResponseEcu):
-        _ecu = typing.cast(v2.StatusResponseEcu, _response_ecu.export_pb())
-        self.ecu.append(_ecu)
+        _ecu = typing.cast(v2.StatusResponseEcu, _response_ecu.unwrap())
+        self.data.ecu.append(_ecu)
+
+    def merge_from(self, _in: Union["StatusResponse", v2.StatusResponse]):
+        if isinstance(_in, StatusResponse):
+            _in = _in.unwrap()  # type: ignore
+
+        # NOTE: available_ecu_ids will not be merged
+        for _ecu in _in.ecu:
+            self.data.ecu.append(_ecu)
+
+    def get_ecu_status(self, ecu_id: str) -> Optional[Tuple[str, FailureType, Status]]:
+        """
+        Returns:
+            A tuple of (<ecu_id>, <failure_type>, <status>)
+        """
+        for _ecu in self.data.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return _ecu.ecu_id, FailureType(_ecu.result), Status.wrap(_ecu.status)
 
     def update_available_ecu_ids(self, _ecu_list: List[str]):
-        self.available_ecu_ids.extend(_ecu_list)
+        self.data.available_ecu_ids.extend(_ecu_list)
 
 
 ## update API
@@ -168,14 +221,14 @@ class UpdateRequest(_UpdateRequest, MessageWrapperProtocol):
     proto_class = v2.UpdateRequest
     data: v2.UpdateRequest
 
-    def find_request(self, ecu_id: str) -> Optional[UpdateRequestEcu]:
-        for request_ecu in self.ecu:
-            if request_ecu.ecu_id == ecu_id:
-                return UpdateRequestEcu.wrap(request_ecu)
+    def find_update_meta(self, ecu_id: str) -> Optional[UpdateRequestEcu]:
+        for _ecu in self.data.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return UpdateRequestEcu.wrap(_ecu)
 
-    def add_ecu(self, _response_ecu: UpdateRequestEcu):
-        _ecu = typing.cast(v2.UpdateRequestEcu, _response_ecu.export_pb())
-        self.ecu.append(_ecu)
+    def iter_update_meta(self) -> Generator[UpdateRequestEcu, None, None]:
+        for _ecu in self.data.ecu:
+            yield UpdateRequestEcu.wrap(_ecu)
 
 
 class UpdateResponseEcu(_UpdateResponseEcu, MessageWrapperProtocol):
@@ -187,9 +240,14 @@ class UpdateResponse(_UpdateResponse, MessageWrapperProtocol):
     proto_class = v2.UpdateResponse
     data: v2.UpdateResponse
 
+    def iter_ecu(self) -> Generator[UpdateResponseEcu, None, None]:
+        for _ecu in self.data.ecu:
+            _wrapped = UpdateResponseEcu.wrap(_ecu)
+            yield _wrapped
+
     def add_ecu(self, _response_ecu: UpdateResponseEcu):
-        _ecu = typing.cast(v2.UpdateResponseEcu, _response_ecu.export_pb())
-        self.ecu.append(_ecu)
+        _ecu = typing.cast(v2.UpdateResponseEcu, _response_ecu.unwrap())
+        self.data.ecu.append(_ecu)
 
 
 # enum
