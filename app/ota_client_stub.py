@@ -562,7 +562,7 @@ class OtaClientStub:
                     ecu = resp.ecu.add()
                     ecu.CopyFrom(ecu_status)
                 ## append my_ecu status
-                my_ecu = subecus_resp.ecu.add()
+                my_ecu = resp.ecu.add()
                 if my_ecu_status := self._ota_client.status():
                     my_ecu.CopyFrom(my_ecu_status)
                 else:
