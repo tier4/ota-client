@@ -169,6 +169,15 @@ class CMDHelperFuncs:
             raise ValueError(msg) from None
 
     @classmethod
+    def get_uuid_str_by_dev(cls, dev: str) -> str:
+        """Return UUID string of input device.
+
+        Returns:
+            str like: "UUID=<uuid>"
+        """
+        return f"UUID={cls.get_uuid_by_dev(dev)}"
+
+    @classmethod
     def get_partuuid_str_by_dev(cls, dev: str) -> str:
         """Return PARTUUID string of input device.
 
