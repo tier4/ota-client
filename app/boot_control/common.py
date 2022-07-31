@@ -325,11 +325,16 @@ class CMDHelperFuncs:
 
     @classmethod
     def mkfs_ext4(cls, dev: str):
+        _specify_uuid = ""
+        try:
+            # inherit previous uuid
+            _specify_uuid = f"-U {cls.get_uuid_by_dev(dev)}"
+        except ValueError:
+            pass
+
         try:
             logger.warning(f"format {dev} to ext4...")
-            # inherit previous uuid
-            _uuid = cls.get_uuid_by_dev(dev)
-            _cmd = f"mkfs.ext4 -F -U {_uuid} {dev}"
+            _cmd = f"mkfs.ext4 {_specify_uuid} {dev}"
             subprocess_call(_cmd, raise_exception=True)
         except CalledProcessError as e:
             _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
