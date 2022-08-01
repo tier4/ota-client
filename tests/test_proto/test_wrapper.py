@@ -32,18 +32,12 @@ def test_message_wrapper_normal_field(
     # test wrap
     _data = pb_cls(**{field_name: field_value})
     _wrapped = wrapper_cls.wrap(_data)
-    assert _directly_init.data == _wrapped.data
-    assert _wrapped.data is _data  # wrap
+    assert _directly_init == _wrapped
     # test unwrap
-    assert _data is _wrapped.unwrap()
+    assert _data == _wrapped.unwrap()
     # test export_pb
     _exported = _wrapped.export_pb()
-    assert _data == _exported and _data is not _exported
-
-    # test copy_from
-    _copied = wrapper_cls().copy_from(_data)
-    # NOTE: the underlaying data is also copied
-    assert _copied.data == _wrapped.data and _copied.data is not _wrapped.data
+    assert _data == _exported
 
     # test attrs proxy
     _wrapped = wrapper_cls()
@@ -84,17 +78,11 @@ def test_message_wrapper_repeated_field(
 
     # test wrap
     _wrapped = wrapper_cls.wrap(_data)
-    assert _wrapped.data is _data  # wrap
     # test unwrap
-    assert _data is _wrapped.unwrap()
+    assert _data == _wrapped.unwrap()
     # test export_pb
     _exported = _wrapped.export_pb()
-    assert _data == _exported and _data is not _exported
-
-    # test copy_from
-    _copied = wrapper_cls.copy_from(_data)
-    # NOTE: the underlaying data is also copied
-    assert _copied.data == _wrapped.data and _copied.data is not _wrapped.data
+    assert _data == _exported
 
     # test attrs proxy
     ## getattr
@@ -107,8 +95,7 @@ def test_message_wrapper_repeated_field(
     assert _wrapped.data == _data
 
 
-# TODO: test helper methods for RollbackResponse, StatusProgress,
-#       Status, StatusResponse, UpdateRequest and UpdateResponse
+# TODO: test helper methods for RollbackResponse, StatusProgress and UpdateResponse
 
 
 @pytest.mark.parametrize(
@@ -128,3 +115,77 @@ def test_enum_wrapper(
     assert _origin == _proxied  # test directly comparing to pb types
     assert _origin == _proxied.value
     assert _origin == _proxied.export_pb()
+
+
+# specific types test files
+
+
+def test_Status():
+    _progress = wrapper.StatusProgress(total_regular_files=123456)
+    _failure, _failure_reason = wrapper.FailureType.RECOVERABLE, "recoverable"
+    _status = wrapper.Status(
+        progress=_progress.data,
+        failure=_failure.value,
+        failure_reason=_failure_reason,
+    )
+
+    # test helper methods of _status
+    assert _status.get_progress() == _progress
+    assert _status.get_failure() == (_failure, _failure_reason)
+
+
+def test_StatusResponse():
+    _ecu_status = wrapper.Status(
+        failure=wrapper.FailureType.NO_FAILURE.value,
+        failure_reason="no_failure",
+        version="789.x",
+    )
+    _mainecu = wrapper.StatusResponseEcu(
+        ecu_id="autoware",
+        result=wrapper.FailureType.NO_FAILURE.value,
+        status=_ecu_status.data,
+    )
+    _p1 = wrapper.StatusResponseEcu(
+        ecu_id="p1",
+        result=wrapper.FailureType.NO_FAILURE.value,
+        status=_ecu_status.data,
+    )
+
+    _status = wrapper.StatusResponse(available_ecu_ids=["autoware", "p1"])
+    _status_to_merge = wrapper.StatusResponse(available_ecu_ids=["p1"])
+    # test add_ecu method
+    _status.add_ecu(_mainecu)
+    _status_to_merge.add_ecu(_p1)
+    # test merge_from method
+    _status.merge_from(_status_to_merge)
+    # test get_ecu_status
+    assert _status.get_ecu_status("autoware") == (
+        "autoware",
+        wrapper.FailureType.NO_FAILURE,
+        _ecu_status,
+    )
+    # test iter_ecu_staus
+    for _ecu_id, _ecu_result, _ecu_status in _status.iter_ecu_status():
+        if _ecu_id == "autoware":
+            assert _ecu_result == wrapper.FailureType.NO_FAILURE, _mainecu.status
+        elif _ecu_id == "p1":
+            assert _ecu_result == wrapper.FailureType.NO_FAILURE, _p1.status
+        else:
+            assert False
+
+    # test update_available_ecu_ids
+    _s1 = wrapper.StatusResponse()
+    _s2 = wrapper.StatusResponse(available_ecu_ids=["autoware", "p1"])
+    _s1.update_available_ecu_ids("autoware", "p1")
+    assert _s1.available_ecu_ids == _s2.available_ecu_ids
+
+
+def test_UpdateRequest():
+    _ecu_id = "autoware"
+    _mainecu = wrapper.UpdateRequestEcu(ecu_id=_ecu_id, version="789.x")
+    _request = wrapper.UpdateRequest()
+    _request.ecu.append(_mainecu.data)
+
+    assert _request.find_update_meta(_ecu_id) == _mainecu
+    _itered = list(_request.iter_update_meta())
+    assert _itered[0] == _mainecu
