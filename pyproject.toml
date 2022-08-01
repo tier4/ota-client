@@ -16,6 +16,11 @@ branch = true
 omit = ["app/proto/*pb2*"]
 show_missing = true
 
+[tool.pyright]
+exclude = ["**/__pycache__"]
+ignore = ["app/proto/otaclient_v2_pb2*"]
+pythonVersion = "3.8"
+
 [tool.pytest.ini_options]
 log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
