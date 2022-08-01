@@ -71,3 +71,24 @@ class OtaClientCall:
             ecu.result = v2.RECOVERABLE  # treat unreachable ecu as recoverable
 
             return resp
+
+    async def rollback_call(
+        self,
+        ecu_id: str,
+        ecu_addr: str,
+        *,
+        request: v2.RollbackRequest,
+        timeout=None,
+    ) -> v2.RollbackResponse:
+        try:
+            return await asyncio.wait_for(
+                self.rollback(request, ecu_addr),  # type: ignore
+                timeout=timeout,
+            )
+        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
+            resp = v2.RollbackResponse()
+            ecu = resp.ecu.add()
+            ecu.ecu_id = ecu_id
+            ecu.result = v2.RECOVERABLE  # treat unreachable ecu as recoverable
+
+            return resp

@@ -484,9 +484,10 @@ class OtaClientStub:
                 # add to tracked ecu list
                 tracked_ecus_dict[_ecu_id] = _ecu_ip
                 coros.append(
-                    self._ota_client_call.status_call(
+                    self._ota_client_call.rollback_call(
                         _ecu_id,
                         _ecu_ip,
+                        request=request,
                         # TODO: should rollback timeout has its own value?
                         timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
                     )
