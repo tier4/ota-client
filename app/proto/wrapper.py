@@ -1,5 +1,4 @@
 from __future__ import annotations
-from dataclasses import dataclass
 
 import typing
 import otaclient_v2_pb2 as v2
@@ -9,7 +8,6 @@ from typing import (
     Any,
     ClassVar,
     Generator,
-    List,
     Optional,
     Protocol,
     Tuple,
@@ -77,9 +75,9 @@ class MessageWrapperProtocol(Protocol):
         return res
 
     @classmethod
-    def wrap(cls, _in: Optional[_message.Message] = None):
+    def _wrap(cls, _in: Optional[_message.Message] = None):
         if _in is not None and not isinstance(_in, cls.proto_class):
-            raise ValueError(
+            raise TypeError(
                 f"wrong input type, expect={cls.proto_class}, in={_in.__class__}"
             )
 
@@ -89,11 +87,11 @@ class MessageWrapperProtocol(Protocol):
         return res
 
     @classmethod
-    def copy_from(cls, _in: _message.Message):
+    def wrap(cls, _in: _message.Message):
         """Copy and wrap input message into a new wrapper instance."""
         _new_data = cls.proto_class()
         _new_data.CopyFrom(_in)
-        return cls.wrap(_new_data)
+        return cls._wrap(_new_data)
 
     def rewrap(self, _in: _message.Message):
         """Replace the underlaying wrapped data instance."""
@@ -144,8 +142,9 @@ class RollbackResponse(_RollbackResponse, MessageWrapperProtocol):
             yield _ecu.ecu_id, FailureType(_ecu.result), RollbackResponseEcu.wrap(_ecu)
 
     def add_ecu(self, _response_ecu: RollbackResponseEcu):
-        _ecu = typing.cast(v2.RollbackResponseEcu, _response_ecu.unwrap())
-        self.data.ecu.append(_ecu)
+        if not isinstance(_response_ecu, RollbackResponseEcu):
+            raise TypeError
+        self.data.ecu.append(_response_ecu.unwrap())  # type: ignore
 
 
 ## status API
@@ -154,8 +153,7 @@ class StatusProgress(_StatusProgress, MessageWrapperProtocol):
     data: v2.StatusProgress
 
     def get_snapshot(self) -> StatusProgress:
-        _export = self.export_pb()
-        return self.__class__.wrap(_export)
+        return self.wrap(self.data)
 
 
 class Status(_Status, MessageWrapperProtocol):
@@ -192,8 +190,9 @@ class StatusResponse(_StatusResponse, MessageWrapperProtocol):
             yield _ecu.ecu_id, FailureType(_ecu.result), Status.wrap(_ecu.status)
 
     def add_ecu(self, _response_ecu: StatusResponseEcu):
-        _ecu = typing.cast(v2.StatusResponseEcu, _response_ecu.unwrap())
-        self.data.ecu.append(_ecu)
+        if not isinstance(_response_ecu, StatusResponseEcu):
+            raise TypeError
+        self.data.ecu.append(_response_ecu.export_pb())  # type: ignore
 
     def merge_from(self, _in: Union["StatusResponse", v2.StatusResponse]):
         if isinstance(_in, StatusResponse):
@@ -210,9 +209,13 @@ class StatusResponse(_StatusResponse, MessageWrapperProtocol):
         """
         for _ecu in self.data.ecu:
             if _ecu.ecu_id == ecu_id:
-                return _ecu.ecu_id, FailureType(_ecu.result), Status.wrap(_ecu.status)
+                return (
+                    _ecu.ecu_id,
+                    FailureType(_ecu.result),
+                    Status.wrap(_ecu.status),
+                )
 
-    def update_available_ecu_ids(self, _ecu_list: List[str]):
+    def update_available_ecu_ids(self, *_ecu_list: str):
         self.data.available_ecu_ids.extend(_ecu_list)
 
 
@@ -247,12 +250,12 @@ class UpdateResponse(_UpdateResponse, MessageWrapperProtocol):
 
     def iter_ecu(self) -> Generator[UpdateResponseEcu, None, None]:
         for _ecu in self.data.ecu:
-            _wrapped = UpdateResponseEcu.wrap(_ecu)
-            yield _wrapped
+            yield UpdateResponseEcu.wrap(_ecu)
 
     def add_ecu(self, _response_ecu: UpdateResponseEcu):
-        _ecu = typing.cast(v2.UpdateResponseEcu, _response_ecu.unwrap())
-        self.data.ecu.append(_ecu)
+        if not isinstance(_response_ecu, UpdateResponseEcu):
+            raise TypeError
+        self.data.ecu.append(_response_ecu.export_pb())  # type: ignore
 
 
 # enum
