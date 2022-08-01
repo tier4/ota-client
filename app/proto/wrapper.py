@@ -66,6 +66,11 @@ class MessageWrapperProtocol(Protocol):
     def __setitem__(self, __key: str, __value: Any):
         setattr(self.data, __key, __value)
 
+    def __eq__(self, __o: object) -> bool:
+        if isinstance(__o, self.__class__):
+            return __o.data == self.data
+        return False
+
     def export_pb(self):
         res = self.proto_class()
         res.CopyFrom(self.data)
