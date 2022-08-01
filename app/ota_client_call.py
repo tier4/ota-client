@@ -1,5 +1,6 @@
 import asyncio
 import grpc.aio
+from typing import Optional
 
 from app.proto import otaclient_v2_pb2 as v2
 from app.proto import otaclient_v2_pb2_grpc as v2_grpc
@@ -38,19 +39,17 @@ class OtaClientCall:
 
     async def status_call(
         self, ecu_id: str, ecu_addr: str, *, timeout=None
-    ) -> v2.StatusResponse:
+    ) -> Optional[v2.StatusResponse]:
         try:
             return await asyncio.wait_for(
                 self.status(v2.StatusRequest(), ecu_addr),  # type: ignore
                 timeout=timeout,
             )
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            resp = v2.StatusResponse()
-            ecu = resp.ecu.add()
-            ecu.ecu_id = ecu_id
-            ecu.result = v2.RECOVERABLE  # treat unreachable ecu as recoverable
-
-            return resp
+            # NOTE(20220801): for status querying, if the target ecu
+            # is unreachable, just return nothing, instead of return
+            # a response with result=RECOVERABLE
+            pass
 
     async def update_call(
         self,

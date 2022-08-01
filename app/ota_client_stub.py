@@ -549,6 +549,9 @@ class OtaClientStub:
                     )
                 subecu_resp: v2.StatusResponse
                 for subecu_resp in await asyncio.gather(*coros):
+                    if subecu_resp is None:
+                        continue
+
                     # gather the subecu and its child ecus status
                     for _ecu_resp in subecu_resp.ecu:  # type: ignore
                         _ecu = subecus_resp.ecu.add()
