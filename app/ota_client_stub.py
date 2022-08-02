@@ -343,7 +343,6 @@ class OtaClientStub:
             create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
             my_ecu_id=self.my_ecu_id,
         )
-        self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
 
         # for _get_subecu_status
         self._status_pulling_lock = asyncio.Lock()
@@ -360,25 +359,21 @@ class OtaClientStub:
             executor=self._executor,
         )
 
-    @staticmethod
-    def _find_request(update_request, ecu_id):
-        for request in update_request:
-            if request.ecu_id == ecu_id:
-                return request
-        return None
-
     ###### API stub method #######
     def host_addr(self):
         return self._ecu_info.get_ecu_ip_addr()
 
-    async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
+    async def update(self, request: wrapper.UpdateRequest) -> wrapper.UpdateResponse:
         logger.debug(f"receive update request: {request}")
-        response = v2.UpdateResponse()
+        response = wrapper.UpdateResponse()
 
         if self._update_session.is_started():
-            ecu = response.ecu.add()
-            ecu.ecu_id = self.my_ecu_id
-            ecu.result = v2.RECOVERABLE
+            response.add_ecu(
+                wrapper.UpdateResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=wrapper.FailureType.RECOVERABLE.value,
+                )
+            )
 
             logger.debug("ignore duplicated update request")
             return response
@@ -396,13 +391,14 @@ class OtaClientStub:
         # simultaneously dispatching update requests to all subecus without blocking
         coros: List[Coroutine] = []
         for _ecu_id, _ecu_ip in self.subecus_dict.items():
-            if OtaClientStub._find_request(request.ecu, _ecu_id):
+            if request.if_contains_ecu(_ecu_id):
                 # add to tracked ecu list
                 tracked_ecus_dict[_ecu_id] = _ecu_ip
                 coros.append(
-                    self._ota_client_call.update_call(
+                    OtaClientCall.update_call(
                         _ecu_id,
                         _ecu_ip,
+                        server_cfg.SERVER_PORT,
                         request=request,
                         timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
                     )
@@ -410,22 +406,23 @@ class OtaClientStub:
         logger.info(f"update: {tracked_ecus_dict=}")
 
         # wait for all sub ecu acknowledge ota update requests
-        update_resp: v2.UpdateResponse
+        update_resp: wrapper.UpdateResponse
         for update_resp in await asyncio.gather(*coros):
-            for _ecu_resp in update_resp.ecu:  # type: ignore
-                _ecu = response.ecu.add()
-                _ecu.CopyFrom(_ecu_resp)
+            response.merge_from(update_resp)
 
         # after all subecus ack the update request, update my ecu
         my_ecu_tracking_task: Optional[Coroutine] = None
-        if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
+        if entry := request.find_update_meta(self.my_ecu_id):
             if not self._ota_client.live_ota_status.request_update():
                 logger.warning(
                     f"ota_client should not take ota update under ota_status={self._ota_client.live_ota_status.get_ota_status()}"
                 )
-                ecu = response.ecu.add()
-                ecu.ecu_id = self.my_ecu_id
-                ecu.result = v2.RECOVERABLE
+                response.add_ecu(
+                    wrapper.UpdateResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=wrapper.FailureType.RECOVERABLE.value,
+                    )
+                )
             else:
                 logger.info(f"update my_ecu: {self.my_ecu_id=}, {entry=}")
                 # dispatch update to local otaclient
@@ -449,9 +446,12 @@ class OtaClientStub:
                     fsm=self._update_session.fsm,
                 )
 
-                ecu = response.ecu.add()
-                ecu.ecu_id = self.my_ecu_id
-                ecu.result = v2.NO_FAILURE
+                response.add_ecu(
+                    wrapper.UpdateResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=wrapper.FailureType.NO_FAILURE.value,
+                    )
+                )
 
         # NOTE(20220513): is it illegal that ecu itself is not requested to update
         # but its subecus do, but currently we just log errors for it
