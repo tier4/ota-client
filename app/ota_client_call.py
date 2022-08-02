@@ -22,7 +22,7 @@ class OtaClientCall:
         ecu_port: int = server_cfg.SERVER_PORT,
         *,
         timeout=None,
-    ) -> Optional[v2.StatusResponse]:
+    ) -> Optional[wrapper.StatusResponse]:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
