@@ -358,9 +358,9 @@ class OTAClient(OTAClientProtocol):
 
     def status(self) -> v2.StatusResponseEcu:
         if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
-            _version, _update_progress = self.updater.update_progress()
+            _, _update_progress = self.updater.update_progress()
             _status = v2.Status(
-                version=_version,
+                version=self.current_version,
                 status=self.live_ota_status.get_ota_status().name,
                 progress=_update_progress,
             )
