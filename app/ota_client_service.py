@@ -24,11 +24,11 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
     async def Rollback(
         self, request: v2.RollbackRequest, context
     ) -> v2.RollbackResponse:
-        response = await self._stub.rollback(request)
+        response = await self._stub.rollback(wrapper.RollbackRequest.wrap(request))
         return response.unwrap()  # type: ignore
 
     async def Status(self, request: v2.StatusRequest, context) -> v2.StatusResponse:
-        response = await self._stub.status(request)
+        response = await self._stub.status(wrapper.StatusRequest.wrap(request))
         return response.unwrap()  # type: ignore
 
 

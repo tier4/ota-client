@@ -1,6 +1,4 @@
 import asyncio
-import grpc
-import grpc.aio
 import multiprocessing
 import threading
 import time
@@ -475,21 +473,24 @@ class OtaClientStub:
         logger.debug(f"update requests response: {response}")
         return response
 
-    async def rollback(self, request: v2.RollbackRequest) -> v2.RollbackResponse:
+    async def rollback(
+        self, request: wrapper.RollbackRequest
+    ) -> wrapper.RollbackResponse:
         logger.info(f"{request=}")
-        response = v2.RollbackResponse()
+        response = wrapper.RollbackResponse()
 
         # wait for all subecus to ack the requests
         tracked_ecus_dict: Dict[str, str] = {}
         coros: List[Coroutine] = []
         for _ecu_id, _ecu_ip in self.subecus_dict.items():
-            if OtaClientStub._find_request(request.ecu, _ecu_id):
+            if request.if_contains_ecu(_ecu_id):
                 # add to tracked ecu list
                 tracked_ecus_dict[_ecu_id] = _ecu_ip
                 coros.append(
-                    self._ota_client_call.rollback_call(
+                    OtaClientCall.rollback_call(
                         _ecu_id,
                         _ecu_ip,
+                        server_cfg.SERVER_PORT,
                         request=request,
                         # TODO: should rollback timeout has its own value?
                         timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
@@ -498,23 +499,23 @@ class OtaClientStub:
         logger.info(f"rollback: {tracked_ecus_dict=}")
 
         # wait for all sub ecu acknowledge ota rollback requests
-        rollback_resp: v2.UpdateResponse
         for rollback_resp in await asyncio.gather(*coros):
-            for _ecu_resp in rollback_resp.ecu:  # type: ignore
-                _ecu = response.ecu.add()
-                _ecu.CopyFrom(_ecu_resp)
+            response.merge_from(rollback_resp)
 
         # after all subecus response the request, rollback my ecu
-        if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
+        if entry := request.if_contains_ecu(self.my_ecu_id):
             if self._ota_client.live_ota_status.request_rollback():
                 logger.info(f"rollback my_ecu: {self.my_ecu_id=}, {entry=}")
                 # dispatch the rollback request to threadpool
                 self._executor.submit(self._ota_client.rollback)
 
                 # rollback request is permitted, prepare the response
-                ecu = response.ecu.add()
-                ecu.ecu_id = self.my_ecu_id
-                ecu.result = v2.NO_FAILURE
+                response.add_ecu(
+                    wrapper.RollbackResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=wrapper.FailureType.NO_FAILURE.value,
+                    )
+                )
             else:
                 # current ota_client's status indicates that
                 # the ota_client should not start an ota rollback
@@ -522,9 +523,12 @@ class OtaClientStub:
                     "ota_client should not take ota rollback under "
                     f"ota_status={self._ota_client.live_ota_status.get_ota_status()}"
                 )
-                ecu = response.ecu.add()
-                ecu.ecu_id = self.my_ecu_id
-                ecu.result = v2.RECOVERABLE
+                response.add_ecu(
+                    wrapper.RollbackResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=wrapper.FailureType.RECOVERABLE.value,
+                    )
+                )
         else:
             logger.warning("entries in rollback request doesn't include this ecu")
 

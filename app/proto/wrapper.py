@@ -121,6 +121,12 @@ class RollbackRequest(_RollbackRequest, MessageWrapperProtocol):
     proto_class = v2.RollbackRequest
     data: v2.RollbackRequest
 
+    def if_contains_ecu(self, ecu_id: str) -> bool:
+        for _ecu in self.data.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return True
+        return False
+
 
 class RollbackResponseEcu(_RollbackResponseEcu, MessageWrapperProtocol):
     proto_class = v2.RollbackResponseEcu
@@ -141,6 +147,11 @@ class RollbackResponse(_RollbackResponse, MessageWrapperProtocol):
         if not isinstance(_response_ecu, RollbackResponseEcu):
             raise TypeError
         self.data.ecu.append(_response_ecu.unwrap())  # type: ignore
+
+    def merge_from(self, _in: Union["RollbackResponse", v2.RollbackResponse]):
+        # NOTE: available_ecu_ids will not be merged
+        for _ecu in _in.ecu:
+            self.data.ecu.append(_ecu)
 
 
 ## status API
@@ -191,9 +202,6 @@ class StatusResponse(_StatusResponse, MessageWrapperProtocol):
         self.data.ecu.append(_response_ecu.export_pb())  # type: ignore
 
     def merge_from(self, _in: Union["StatusResponse", v2.StatusResponse]):
-        if isinstance(_in, StatusResponse):
-            _in = _in.unwrap()  # type: ignore
-
         # NOTE: available_ecu_ids will not be merged
         for _ecu in _in.ecu:
             self.data.ecu.append(_ecu)
@@ -230,6 +238,12 @@ class UpdateRequest(_UpdateRequest, MessageWrapperProtocol):
             if _ecu.ecu_id == ecu_id:
                 return UpdateRequestEcu.wrap(_ecu)
 
+    def if_contains_ecu(self, ecu_id: str) -> bool:
+        for _ecu in self.data.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return True
+        return False
+
     def iter_update_meta(self) -> Generator[UpdateRequestEcu, None, None]:
         for _ecu in self.data.ecu:
             yield UpdateRequestEcu.wrap(_ecu)
@@ -247,6 +261,10 @@ class UpdateResponse(_UpdateResponse, MessageWrapperProtocol):
     def iter_ecu(self) -> Generator[UpdateResponseEcu, None, None]:
         for _ecu in self.data.ecu:
             yield UpdateResponseEcu.wrap(_ecu)
+
+    def merge_from(self, _in: Union["UpdateResponse", v2.UpdateResponse]):
+        for _ecu in _in.ecu:
+            self.data.ecu.append(_ecu)
 
     def add_ecu(self, _response_ecu: UpdateResponseEcu):
         if not isinstance(_response_ecu, UpdateResponseEcu):
