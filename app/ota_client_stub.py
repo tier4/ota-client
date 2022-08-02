@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from functools import partial
 from multiprocessing import Process
-from typing import Callable, Coroutine, Dict, List, Optional
+from typing import Coroutine, Dict, List, Optional
 
 from app.boot_control import get_boot_controller
 from app.create_standby import get_standby_slot_creator
@@ -155,26 +155,26 @@ class _UpdateSession:
                 self.update_request = request
 
                 if self._ota_proxy:
-                    await self._loop.run_in_executor(
-                        self._executor,
-                        partial(
-                            self._ota_proxy.start,
-                            init_cache=init_cache,
-                            wait_on_scrub=True,
-                        ),
-                    )
-                    logger.info("ota_proxy server launched")
-                self.fsm.stub_pre_update_ready()
-            else:
-                logger.warning("ignore overlapping update request")
+                    try:
+                        await self._loop.run_in_executor(
+                            self._executor,
+                            partial(
+                                self._ota_proxy.start,
+                                init_cache=init_cache,
+                                wait_on_scrub=True,
+                            ),
+                        )
+                        logger.info("ota_proxy server launched")
+                        self.fsm.stub_pre_update_ready()
+                    except Exception as e:
+                        logger.error(f"failed to start ota_proxy: {e!r}")
+                        self.fsm.on_otaservice_failed()
 
     async def stop(self, *, update_succeed: bool):
         async with self._lock:
-            if self._started:
-                if self._ota_proxy:
-                    logger.info(
-                        f"stopping ota_proxy(cleanup_cache={update_succeed})..."
-                    )
+            if self._started and self._ota_proxy:
+                logger.info(f"stopping ota_proxy(cleanup_cache={update_succeed})...")
+                try:
                     await self._loop.run_in_executor(
                         self._executor,
                         partial(
@@ -182,6 +182,9 @@ class _UpdateSession:
                             cleanup_cache=update_succeed,
                         ),
                     )
+                except Exception as e:
+                    logger.error(f"failed to stop ota_proxy gracefully: {e!r}")
+                    self.fsm.on_otaservice_failed()
 
                 self._started = False
 
@@ -189,7 +192,6 @@ class _UpdateSession:
     async def my_ecu_update_tracker(
         cls,
         *,
-        ota_client_get_exp: Callable,
         fsm: OTAUpdateFSM,
         executor,
     ) -> bool:
@@ -198,12 +200,7 @@ class _UpdateSession:
             otaclient_get_exp: a callable that can retrieve otaclient last exp
         """
         _loop = asyncio.get_running_loop()
-        await _loop.run_in_executor(executor, fsm.stub_wait_for_local_update)
-
-        if ota_client_get_exp:
-            if await _loop.run_in_executor(executor, ota_client_get_exp):
-                return False
-        return True
+        return await _loop.run_in_executor(executor, fsm.stub_wait_for_local_update)
 
     async def update_tracker(
         self,
@@ -442,7 +439,6 @@ class OtaClientStub:
                 # NOTE: pass otaclient's get_last_failure method into the tracker
                 my_ecu_tracking_task = _UpdateSession.my_ecu_update_tracker(
                     executor=self._executor,
-                    ota_client_get_exp=self._ota_client.get_last_failure,
                     fsm=self._update_session.fsm,
                 )
 
