@@ -2,10 +2,12 @@ import asyncio
 import grpc.aio
 from typing import Optional
 
+from app.proto import wrapper
 from app.proto import otaclient_v2_pb2 as v2
 from app.proto import otaclient_v2_pb2_grpc as v2_grpc
 from app import log_util
 from app.configs import config as cfg
+from app.configs import server_cfg
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -13,82 +15,74 @@ logger = log_util.get_logger(
 
 
 class OtaClientCall:
-    def __init__(self, port=None):
-        self._port = port
-
-    async def update(self, request, ip_addr, port=None):
-        target_addr = f"{ip_addr}:{port if port else self._port}"
-        async with grpc.aio.insecure_channel(target_addr) as channel:
-            stub = v2_grpc.OtaClientServiceStub(channel)
-            response = await stub.Update(request)
-            return response
-
-    async def rollback(self, request, ip_addr, port=None):
-        target_addr = f"{ip_addr}:{port if port else self._port}"
-        async with grpc.aio.insecure_channel(target_addr) as channel:
-            stub = v2_grpc.OtaClientServiceStub(channel)
-            response = await stub.Rollback(request)
-            return response
-
-    async def status(self, request, ip_addr, port=None):
-        target_addr = f"{ip_addr}:{port if port else self._port}"
-        async with grpc.aio.insecure_channel(target_addr) as channel:
-            stub = v2_grpc.OtaClientServiceStub(channel)
-            response = await stub.Status(request)
-            return response
-
+    @staticmethod
     async def status_call(
-        self, ecu_id: str, ecu_addr: str, *, timeout=None
+        ecu_id: str,
+        ecu_ipaddr: str,
+        ecu_port: int = server_cfg.SERVER_PORT,
+        *,
+        timeout=None,
     ) -> Optional[v2.StatusResponse]:
         try:
-            return await asyncio.wait_for(
-                self.status(v2.StatusRequest(), ecu_addr),  # type: ignore
-                timeout=timeout,
-            )
+            ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
+            async with grpc.aio.insecure_channel(ecu_addr) as channel:
+                stub = v2_grpc.OtaClientServiceStub(channel)
+                resp = await stub.Status(v2.StatusRequest(), timeout=timeout)
+                return wrapper.StatusResponse.wrap(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
             # NOTE(20220801): for status querying, if the target ecu
             # is unreachable, just return nothing, instead of return
             # a response with result=RECOVERABLE
-            pass
+            logger.debug(f"{ecu_id=} failed to respond to status request on-time.")
 
+    @staticmethod
     async def update_call(
-        self,
         ecu_id: str,
-        ecu_addr: str,
+        ecu_ipaddr: str,
+        ecu_port: int = server_cfg.SERVER_PORT,
         *,
-        request: v2.UpdateRequest,
+        request: wrapper.UpdateRequest,
         timeout=None,
-    ) -> v2.UpdateResponse:
+    ) -> wrapper.UpdateResponse:
         try:
-            return await asyncio.wait_for(
-                self.update(request, ecu_addr),  # type: ignore
-                timeout=timeout,
-            )
+            ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
+            async with grpc.aio.insecure_channel(ecu_addr) as channel:
+                stub = v2_grpc.OtaClientServiceStub(channel)
+                resp = await stub.Update(request.unwrap(), timeout=timeout)
+                return wrapper.UpdateResponse.wrap(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            resp = v2.UpdateResponse()
-            ecu = resp.ecu.add()
-            ecu.ecu_id = ecu_id
-            ecu.result = v2.RECOVERABLE  # treat unreachable ecu as recoverable
-
+            resp = wrapper.UpdateResponse()
+            # treat unreachable ecu as recoverable
+            resp.add_ecu(
+                wrapper.UpdateResponseEcu(
+                    ecu_id=ecu_id,
+                    result=wrapper.FailureType.RECOVERABLE.value,
+                )
+            )
             return resp
 
+    @staticmethod
     async def rollback_call(
-        self,
         ecu_id: str,
-        ecu_addr: str,
+        ecu_ipaddr: str,
+        ecu_port: int = server_cfg.SERVER_PORT,
         *,
-        request: v2.RollbackRequest,
+        request: wrapper.RollbackRequest,
         timeout=None,
-    ) -> v2.RollbackResponse:
+    ) -> wrapper.RollbackResponse:
         try:
-            return await asyncio.wait_for(
-                self.rollback(request, ecu_addr),  # type: ignore
-                timeout=timeout,
-            )
+            ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
+            async with grpc.aio.insecure_channel(ecu_addr) as channel:
+                stub = v2_grpc.OtaClientServiceStub(channel)
+                resp = await stub.Rollback(request.unwrap(), timeout=timeout)
+                return wrapper.RollbackResponse.wrap(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            resp = v2.RollbackResponse()
-            ecu = resp.ecu.add()
-            ecu.ecu_id = ecu_id
-            ecu.result = v2.RECOVERABLE  # treat unreachable ecu as recoverable
-
+            resp = wrapper.RollbackResponse()
+            # treat unreachable ecu as recoverable
+            resp.add_ecu(
+                wrapper.RollbackResponseEcu(
+                    ecu_id=ecu_id,
+                    result=wrapper.FailureType.RECOVERABLE.value,
+                )
+            )
             return resp
