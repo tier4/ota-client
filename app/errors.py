@@ -64,6 +64,9 @@ class OTA_APIError(Exception):
     def get_errcode_str(self) -> str:
         return f"{self._err_prefix}{self.errcode.to_str()}"
 
+    def get_err_type(self) -> wrapper.FailureType:
+        return self.failure_type
+
     def get_err_reason(self, *, append_desc=True, append_detail=False) -> str:
         r"""Return a failure_reason str.
 
