@@ -358,7 +358,7 @@ class OTAClient(OTAClientProtocol):
             _status = wrapper.Status(
                 version=self.current_version,
                 status=self.live_ota_status.get_ota_status().value,
-                progress=_update_progress,
+                progress=_update_progress.unwrap(),  # type: ignore
             )
             if _last_failure := self.last_failure:
                 _status.failure = _last_failure.get_err_type().value
@@ -367,7 +367,7 @@ class OTAClient(OTAClientProtocol):
             return wrapper.StatusResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=wrapper.FailureType.NO_FAILURE.value,
-                status=_status,
+                status=_status.unwrap(),  # type: ignore
             )
         else:  # no update/rollback on-going
             _status = wrapper.Status(
@@ -381,5 +381,5 @@ class OTAClient(OTAClientProtocol):
             return wrapper.StatusResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=wrapper.FailureType.NO_FAILURE.value,
-                status=_status,
+                status=_status.unwrap(),  # type: ignore
             )

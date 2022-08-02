@@ -4,6 +4,7 @@ import typing
 import otaclient_v2_pb2 as v2
 from enum import Enum
 from google.protobuf import message as _message
+from google.protobuf.duration_pb2 import Duration
 from typing import (
     Any,
     ClassVar,
@@ -161,6 +162,10 @@ class StatusProgress(_StatusProgress, MessageWrapperProtocol):
 
     def get_snapshot(self) -> StatusProgress:
         return self.wrap(self.data)
+
+    def add_elapsed_time(self, _field_name: str, _value: int):
+        _field: Duration = getattr(self.data, _field_name)
+        _field.FromNanoseconds(_field.ToNanoseconds() + _value)
 
 
 class Status(_Status, MessageWrapperProtocol):
