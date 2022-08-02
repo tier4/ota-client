@@ -32,7 +32,7 @@ from app.update_stats import (
     RegInfProcessedStats,
     RegProcessOperation,
 )
-from app.update_phase import OTAUpdatePhase
+from app.proto import wrapper
 from app.ota_metadata import (
     PersistentInf,
     SymbolicLinkInf,
@@ -62,7 +62,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         *,
         update_meta: UpdateMeta,
         stats_collector: OTAUpdateStatsCollector,
-        update_phase_tracker: Callable[[OTAUpdatePhase], None],
+        update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
@@ -94,7 +94,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             self._downloader.configure_proxy(proxy)
 
     def _prepare_meta_files(self):
-        self.update_phase_tracker(OTAUpdatePhase.METADATA)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.METADATA)
         try:
             for fname, method in self.META_FILES.items():
                 list_info = getattr(self.metadata, method)()
@@ -116,7 +116,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             raise OTAErrorUnRecoverable from e
 
     def _cal_and_prepare_delta(self):
-        self.update_phase_tracker(OTAUpdatePhase.REGULAR)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
 
         # TODO: hardcoded regulars.txt
         # TODO 2: old_reg is not used currently
@@ -143,7 +143,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             raise UpdateDeltaGenerationFailed from e
 
         # NOTE: now apply dirs.txt moved to here
-        self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
         for entry in self.delta_bundle.new_dirs:
             entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
@@ -151,7 +151,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         """NOTE: just copy from legacy mode"""
         from app.copy_tree import CopyTree
 
-        self.update_phase_tracker(OTAUpdatePhase.PERSISTENT)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.PERSISTENT)
         _passwd_file = Path(cfg.PASSWD_FILE)
         _group_file = Path(cfg.GROUP_FILE)
         _copy_tree = CopyTree(
@@ -187,7 +187,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 SymbolicLinkInf(entry_line).link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):
-        self.update_phase_tracker(OTAUpdatePhase.REGULAR)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
         self._hardlink_register = HardlinkRegister()
 
         # limitation on on-going tasks/download
