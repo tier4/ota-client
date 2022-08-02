@@ -10,7 +10,7 @@ from concurrent.futures import CancelledError, Future
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Semaphore
-from typing import Callable, List, Optional, Set, Union
+from typing import Callable, Optional, Set, Union
 
 from app.log_util import get_logger
 from app.configs import config as cfg
@@ -289,7 +289,7 @@ class SimpleTasksTracker:
         self._in_num = 0
         self._done_num = 0
 
-        self._futs: List[Future] = []
+        self._futs: Set[Future] = set()
 
     def _terminate_pending_task(self):
         """Cancel all the pending tasks."""
@@ -302,7 +302,7 @@ class SimpleTasksTracker:
 
         self._se.acquire()
         self._in_num = next(self._in_counter)
-        self._futs.append(fut)
+        self._futs.add(fut)
 
     def task_collect_finished(self):
         self._register_finished = True
@@ -311,6 +311,7 @@ class SimpleTasksTracker:
         try:
             self._se.release()
             fut.result()
+            self._futs.discard(fut)
             self._done_num = next(self._done_counter)
         except CancelledError:
             pass  # ignored as this is not caused by fut itself
