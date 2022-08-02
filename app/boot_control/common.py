@@ -169,6 +169,15 @@ class CMDHelperFuncs:
             raise ValueError(msg) from None
 
     @classmethod
+    def get_uuid_str_by_dev(cls, dev: str) -> str:
+        """Return UUID string of input device.
+
+        Returns:
+            str like: "UUID=<uuid>"
+        """
+        return f"UUID={cls.get_uuid_by_dev(dev)}"
+
+    @classmethod
     def get_partuuid_str_by_dev(cls, dev: str) -> str:
         """Return PARTUUID string of input device.
 
@@ -316,9 +325,16 @@ class CMDHelperFuncs:
 
     @classmethod
     def mkfs_ext4(cls, dev: str):
+        _specify_uuid = ""
+        try:
+            # inherit previous uuid
+            _specify_uuid = f"-U {cls.get_uuid_by_dev(dev)}"
+        except ValueError:
+            pass
+
         try:
             logger.warning(f"format {dev} to ext4...")
-            _cmd = f"mkfs.ext4 -F {dev}"
+            _cmd = f"mkfs.ext4 {_specify_uuid} {dev}"
             subprocess_call(_cmd, raise_exception=True)
         except CalledProcessError as e:
             _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
