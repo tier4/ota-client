@@ -31,7 +31,7 @@ from app.errors import (
     BootControlPreRollbackFailed,
     BootControlPreUpdateFailed,
 )
-from app.ota_status import OTAStatusEnum
+from app.proto import wrapper
 from app import log_util
 
 assert (
@@ -641,32 +641,32 @@ class GrubController(
         # NOTE: for backward compatibility, only check otastatus file
         if not _ota_status:
             logger.info("initializing boot control files...")
-            _ota_status = OTAStatusEnum.INITIALIZED
+            _ota_status = wrapper.StatusOta.INITIALIZED
             self._boot_control.init_active_ota_partition_file()
             self._store_current_slot_in_use(self._boot_control.active_slot)
-            self._store_current_ota_status(OTAStatusEnum.INITIALIZED)
+            self._store_current_ota_status(wrapper.StatusOta.INITIALIZED)
 
         # populate slot_in_use file if it doesn't exist
         if not _slot_in_use:
             self._store_current_slot_in_use(self._boot_control.active_slot)
 
-        if _ota_status in [OTAStatusEnum.UPDATING, OTAStatusEnum.ROLLBACKING]:
+        if _ota_status in [wrapper.StatusOta.UPDATING, wrapper.StatusOta.ROLLBACKING]:
             if self._is_switching_boot():
                 self._boot_control.finalize_update_switch_boot(
                     abort_on_standby_missed=True
                 )
                 # switch ota_status
-                _ota_status = OTAStatusEnum.SUCCESS
+                _ota_status = wrapper.StatusOta.SUCCESS
             else:
-                if _ota_status == OTAStatusEnum.ROLLBACKING:
-                    _ota_status = OTAStatusEnum.ROLLBACK_FAILURE
+                if _ota_status == wrapper.StatusOta.ROLLBACKING:
+                    _ota_status = wrapper.StatusOta.ROLLBACK_FAILURE
                 else:
-                    _ota_status = OTAStatusEnum.FAILURE
+                    _ota_status = wrapper.StatusOta.FAILURE
         # other ota_status will remain the same
 
         # detect failed reboot, but only print error logging
         if (
-            _ota_status != OTAStatusEnum.INITIALIZED
+            _ota_status != wrapper.StatusOta.INITIALIZED
             and _slot_in_use
             and _slot_in_use != self._boot_control.active_slot
         ):
@@ -684,8 +684,8 @@ class GrubController(
     def _is_switching_boot(self):
         # evidence 1: ota_status should be updating/rollbacking at the first reboot
         _check_ota_status = self._load_current_ota_status() in [
-            OTAStatusEnum.UPDATING,
-            OTAStatusEnum.ROLLBACKING,
+            wrapper.StatusOta.UPDATING,
+            wrapper.StatusOta.ROLLBACKING,
         ]
 
         # NOTE(20220714): maintain backward compatibility, not using slot_in_use
@@ -708,12 +708,12 @@ class GrubController(
         )
         return res
 
-    def _finalize_update(self) -> OTAStatusEnum:
+    def _finalize_update(self) -> wrapper.StatusOta:
         if self._is_switching_boot():
             self._boot_control.finalize_update_switch_boot(abort_on_standby_missed=True)
-            return OTAStatusEnum.SUCCESS
+            return wrapper.StatusOta.SUCCESS
         else:
-            return OTAStatusEnum.FAILURE
+            return wrapper.StatusOta.FAILURE
 
     _finalize_rollback = _finalize_update
 
@@ -793,8 +793,8 @@ class GrubController(
     # load_version, get_ota_status
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""
-        self._store_standby_ota_status(OTAStatusEnum.FAILURE)
-        self._store_current_ota_status(OTAStatusEnum.FAILURE)
+        self._store_standby_ota_status(wrapper.StatusOta.FAILURE)
+        self._store_current_ota_status(wrapper.StatusOta.FAILURE)
         logger.warning("on failure try to unmounting standby slot...")
         self._umount_all(ignore_error=True)
 
@@ -811,8 +811,8 @@ class GrubController(
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
         try:
             # update ota_status files
-            self._store_current_ota_status(OTAStatusEnum.FAILURE)
-            self._store_standby_ota_status(OTAStatusEnum.UPDATING)
+            self._store_current_ota_status(wrapper.StatusOta.FAILURE)
+            self._store_standby_ota_status(wrapper.StatusOta.UPDATING)
             # update version file
             self._store_standby_version(version)
             # update slot_in_use file
@@ -859,8 +859,8 @@ class GrubController(
 
     def pre_rollback(self):
         try:
-            self._store_current_ota_status(OTAStatusEnum.FAILURE)
-            self._store_standby_ota_status(OTAStatusEnum.ROLLBACKING)
+            self._store_current_ota_status(wrapper.StatusOta.FAILURE)
+            self._store_standby_ota_status(wrapper.StatusOta.ROLLBACKING)
         except Exception as e:
             logger.error(f"failed on pre_rollback: {e!r}")
             raise BootControlPreRollbackFailed from e

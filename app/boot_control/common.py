@@ -12,7 +12,7 @@ from app.common import (
     subprocess_check_output,
     write_to_file_sync,
 )
-from app.ota_status import OTAStatusEnum
+from app.proto import wrapper
 
 
 logger = log_util.get_logger(
@@ -387,28 +387,28 @@ class SlotInUseMixin:
 class OTAStatusMixin:
     current_ota_status_dir: Path
     standby_ota_status_dir: Path
-    ota_status: OTAStatusEnum
+    ota_status: wrapper.StatusOta
 
-    def _store_current_ota_status(self, _status: OTAStatusEnum):
+    def _store_current_ota_status(self, _status: wrapper.StatusOta):
         write_to_file_sync(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
-    def _store_standby_ota_status(self, _status: OTAStatusEnum):
+    def _store_standby_ota_status(self, _status: wrapper.StatusOta):
         write_to_file_sync(
             self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
-    def _load_current_ota_status(self) -> Optional[OTAStatusEnum]:
+    def _load_current_ota_status(self) -> Optional[wrapper.StatusOta]:
         if _status_str := read_from_file(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
         ).upper():
             try:
-                return OTAStatusEnum[_status_str]
+                return wrapper.StatusOta[_status_str]
             except KeyError:
                 pass  # invalid status string
 
-    def get_ota_status(self) -> OTAStatusEnum:
+    def get_ota_status(self) -> wrapper.StatusOta:
         return self.ota_status
 
 
