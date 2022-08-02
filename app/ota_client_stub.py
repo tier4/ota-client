@@ -12,7 +12,6 @@ from typing import Callable, Coroutine, Dict, List, Optional
 from app.boot_control import get_boot_controller
 from app.create_standby import get_standby_slot_creator
 from app.ecu_info import EcuInfo
-from app.ota_status import OTAStatusEnum
 from app.ota_client import OTAClient, OTAUpdateFSM
 from app.ota_client_call import OtaClientCall
 from app.proto import wrapper
@@ -379,7 +378,7 @@ class OtaClientStub:
             # start this update session
             _init_cache = (
                 self._ota_client.live_ota_status.get_ota_status()
-                == OTAStatusEnum.SUCCESS
+                == wrapper.StatusOta.SUCCESS
             )
             await self._update_session.start(request, init_cache=_init_cache)
 

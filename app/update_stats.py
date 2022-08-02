@@ -120,9 +120,9 @@ class OTAUpdateStatsCollector:
                             staging_storage.regular_files_processed += 1
                             staging_storage[f"files_processed_{_suffix}"] += 1
                             staging_storage[f"file_size_processed_{_suffix}"] += st.size
-                            staging_storage[
-                                f"elapsed_time_{_suffix}"
-                            ] += st.elapsed_ns  # in nano-seconds
+                            staging_storage.add_elapsed_time(
+                                f"elapsed_time_{_suffix}", st.elapsed_ns
+                            )  # in nano-seconds
 
                             if _suffix == RegProcessOperation.OP_DOWNLOAD.value:
                                 staging_storage[f"errors_{_suffix}"] += st.errors
