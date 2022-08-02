@@ -347,7 +347,7 @@ class OtaClientStub:
         # for _get_subecu_status
         self._status_pulling_lock = asyncio.Lock()
         self._last_status_query = 0
-        self._cached_status: v2.StatusResponse = v2.StatusResponse()
+        self._cached_status = wrapper.StatusResponse()
 
         # ota local proxy
         _ota_proxy = None
@@ -530,7 +530,9 @@ class OtaClientStub:
 
         return response
 
-    async def status(self, _: Optional[v2.StatusRequest] = None) -> v2.StatusResponse:
+    async def status(
+        self, _: Optional[wrapper.StatusRequest] = None
+    ) -> wrapper.StatusResponse:
         """
         NOTE: if the cached status is older than <server_cfg.QUERY_SUBECU_STATUS_INTERVAL>,
         the caller should take the responsibility to update the cached status.
@@ -539,48 +541,40 @@ class OtaClientStub:
         if cur_time - self._last_status_query > server_cfg.STATUS_UPDATE_INTERVAL:
             async with self._status_pulling_lock:
                 self._last_status_query = cur_time
+                resp = wrapper.StatusResponse()
 
                 # get subecus' status
-                subecus_resp = v2.StatusResponse()
                 coros: List[Coroutine] = []
                 for subecu_id, subecu_addr in self.subecus_dict.items():
                     coros.append(
-                        self._ota_client_call.status_call(
+                        OtaClientCall.status_call(
                             subecu_id,
                             subecu_addr,
+                            server_cfg.SERVER_PORT,
                             timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                         )
                     )
-                subecu_resp: v2.StatusResponse
+                # gather the subecu and its child ecus status
                 for subecu_resp in await asyncio.gather(*coros):
                     if subecu_resp is None:
                         continue
+                    resp.merge_from(subecu_resp)
 
-                    # gather the subecu and its child ecus status
-                    for _ecu_resp in subecu_resp.ecu:  # type: ignore
-                        _ecu = subecus_resp.ecu.add()
-                        _ecu.CopyFrom(_ecu_resp)
-
-                # prepare final response
-                resp = v2.StatusResponse()
-                resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
-                ## append from subecus_resp
-                for ecu_status in subecus_resp.ecu:
-                    ecu = resp.ecu.add()
-                    ecu.CopyFrom(ecu_status)
-                ## append my_ecu status
-                my_ecu = resp.ecu.add()
+                # prepare my_ecu status
                 if my_ecu_status := self._ota_client.status():
-                    my_ecu.CopyFrom(my_ecu_status)
+                    resp.add_ecu(my_ecu_status)
                 else:
                     # otaclient status method doesn't return valid result
-                    my_ecu.ecu_id = self.my_ecu_id
-                    my_ecu.result = v2.RECOVERABLE
+                    resp.add_ecu(
+                        wrapper.StatusResponseEcu(
+                            ecu_id=self.my_ecu_id,
+                            result=wrapper.FailureType.RECOVERABLE.value,
+                        )
+                    )
 
                 # register the status to cache
+                resp.update_available_ecu_ids(*self._ecu_info.get_available_ecu_ids())
                 self._cached_status = resp
 
         # respond with the cached status
-        res = v2.StatusResponse()
-        res.CopyFrom(self._cached_status)
-        return res
+        return wrapper.StatusResponse.wrap(self._cached_status.data)
