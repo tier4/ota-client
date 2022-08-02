@@ -37,7 +37,7 @@ _StatusResponseEcu = typing.cast(Type[v2.StatusResponseEcu], _WrapperBase)
 _UpdateRequest = typing.cast(Type[v2.UpdateRequest], _WrapperBase)
 _UpdateRequestEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
 _UpdateResponse = typing.cast(Type[v2.UpdateResponse], _WrapperBase)
-_UpdateResponseEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
+_UpdateResponseEcu = typing.cast(Type[v2.UpdateResponseEcu], _WrapperBase)
 
 
 class MessageWrapperProtocol(Protocol):
@@ -92,10 +92,6 @@ class MessageWrapperProtocol(Protocol):
         _new_data = cls.proto_class()
         _new_data.CopyFrom(_in)
         return cls._wrap(_new_data)
-
-    def rewrap(self, _in: _message.Message):
-        """Replace the underlaying wrapped data instance."""
-        self.data = _in
 
     def unwrap(self):
         return self.data
