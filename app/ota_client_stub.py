@@ -17,7 +17,7 @@ from app.ecu_info import EcuInfo
 from app.ota_status import OTAStatusEnum
 from app.ota_client import OTAClient, OTAUpdateFSM
 from app.ota_client_call import OtaClientCall
-from app.proto import v2
+from app.proto import wrapper
 from app.proxy_info import proxy_cfg
 
 from app.configs import BOOT_LOADER, server_cfg, config as cfg
@@ -250,42 +250,39 @@ class _SubECUTracker:
         self.subecu_query_timeout = server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT
         self.interval = server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL
         self.tracked_ecus_dict: Dict[str, str] = tracked_ecus_dict
-        self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
 
-    async def _query_ecu(self, ecu_addr: str) -> ECUStatus:
+    async def _query_ecu(self, ecu_id: str, ecu_addr: str, ecu_port: int) -> ECUStatus:
         """Query ecu status API once."""
-        try:
-            resp: v2.StatusResponse = await asyncio.wait_for(
-                self._ota_client_call.status(v2.StatusRequest(), ecu_addr),  # type: ignore
-                timeout=self.subecu_query_timeout,
-            )
-
-            # if ANY OF the subecu and its child ecu are
-            # not in SUCCESS/FAILURE otastatus, or unreacable, return False
-            all_ready, all_success = True, True
-            for ecu in resp.ecu:
-                if ecu.result != v2.NO_FAILURE:
-                    all_ready = False
-                    break
-
-                _status = ecu.status.status
-                if _status in (v2.SUCCESS, v2.FAILURE):
-                    all_success &= _status == v2.SUCCESS
-                else:
-                    all_ready = False
-                    break
-
-            if all_ready:
-                if all_success:
-                    # this ecu and its subecus are all in SUCCESS
-                    return self.ECUStatus.SUCCESS
-                # one of this ecu and its subecu in FAILURE
-                return self.ECUStatus.FAILURE
-            # one of this ecu and its subecu are still in UPDATING/ROLLBACKING
-            return self.ECUStatus.NOT_READY
-        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            # this ecu is unreachable
+        resp = await OtaClientCall.status_call(
+            ecu_id, ecu_addr, ecu_port, timeout=self.subecu_query_timeout
+        )
+        # this subecu is unreachable
+        if resp is None:
             return self.ECUStatus.UNREACHABLE
+
+        # if ANY OF the subecu and its child ecu are
+        # not in SUCCESS/FAILURE otastatus, or unreacable, return False
+        all_ready, all_success = True, True
+        for ecu_id, ecu_result, ecu_status in resp.iter_ecu_status():
+            if ecu_result != wrapper.FailureType.NO_FAILURE:
+                all_ready = False
+                break
+
+            _status = ecu_status.status
+            if _status in (wrapper.StatusOta.SUCCESS, wrapper.StatusOta.FAILURE):
+                all_success &= _status == wrapper.StatusOta.SUCCESS
+            else:
+                all_ready = False
+                break
+
+        if all_ready:
+            if all_success:
+                # this ecu and its subecus are all in SUCCESS
+                return self.ECUStatus.SUCCESS
+            # one of this ecu and its subecu in FAILURE
+            return self.ECUStatus.FAILURE
+        # one of this ecu and its subecu are still in UPDATING/ROLLBACKING
+        return self.ECUStatus.NOT_READY
 
     async def ensure_tracked_ecu_ready(self) -> bool:
         """Loop pulling tracked ecus' status until are ready.
@@ -299,8 +296,14 @@ class _SubECUTracker:
         """
         while True:
             coros: List[Coroutine] = []
-            for _, subecu_addr in self.tracked_ecus_dict.items():
-                coros.append(self._query_ecu(subecu_addr))
+            for subecu_id, subecu_addr in self.tracked_ecus_dict.items():
+                coros.append(
+                    self._query_ecu(
+                        subecu_id,
+                        subecu_addr,
+                        server_cfg.SERVER_PORT,
+                    )
+                )
 
             all_ecus_success, all_ecus_ready = True, True
             for _ecustatus in await asyncio.gather(*coros):
