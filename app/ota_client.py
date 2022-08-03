@@ -13,6 +13,7 @@ from app.errors import (
     OTA_APIError,
     OTAError,
     OTAFailureType,
+    OTAProxyFailedToStart,
     OTARollbackError,
     OTAUpdateError,
 )
@@ -275,7 +276,7 @@ class _OTAUpdater:
                 logger.info("use local ota_proxy")
                 # wait for stub to setup the local ota_proxy server
                 if not fsm.client_wait_for_ota_proxy():
-                    raise OTAError("ota_proxy failed to start, abort")
+                    raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
                 self._downloader.configure_proxy(proxy)
 
             self._pre_update(version, url_base, cookies_json)
