@@ -54,12 +54,6 @@ class OTAFileCacheControl(enum.Enum):
 
         return res
 
-    @classmethod
-    def add_to(cls, target: str, input: "OTAFileCacheControl") -> str:
-        _policies_set = cls.parse_to_value_set(target)
-        _policies_set.add(input.value)
-        return ",".join(_policies_set)
-
 
 # file verification
 def file_sha256(filename: Union[Path, str]) -> str:
