@@ -11,6 +11,7 @@ from typing import Tuple
 
 from app.common import (
     SimpleTasksTracker,
+    copytree_identical,
     file_sha256,
     re_symlink_atomic,
     read_from_file,
@@ -104,6 +105,94 @@ def test_subprocess_check_output(file_t: Tuple[str, str, int]):
         == "abc"
     )
     assert subprocess_check_output(f"cat {_path}") == _TEST_FILE_CONTENT
+
+
+class Test_copytree_identical:
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path: Path):
+        """
+        a_dir/ # src
+            file_1(file)
+            dir_1(dir)/
+                dir_1_file_1(file)
+            symlink_1(symlink->dir_1)
+        b_dir/ # target
+            file_1(dir)/
+            dir_1(dir)/
+                dir_1_file_1(symlink->x3)
+                x3(file)
+            symlink_1(symlink->x4)
+            x4(dir)/
+            x5(symlink->x4)
+            x6(file)
+            x7(symlink->123123)
+        """
+        # populate a_dir
+        a_dir = tmp_path / "a_dir"
+        a_dir.mkdir()
+        file_1 = a_dir / "file_1"
+        file_1.write_text("file_1")
+        dir_1 = a_dir / "dir_1"
+        dir_1.mkdir()
+        dir_1_file_1 = dir_1 / "dir_1_file_1"
+        dir_1_file_1.write_text("dir_1_file_1")
+        symlink_1 = a_dir / "symlink_1"
+        symlink_1.symlink_to("dir_1")
+
+        # populate b_dir
+        b_dir = tmp_path / "b_dir"
+        b_dir.mkdir()
+        file_1 = b_dir / "file_1"
+        file_1.mkdir()
+        dir_1 = b_dir / "dir_1"
+        dir_1.mkdir()
+        dir_1_file_1 = dir_1 / "dir_1_file_1"
+        dir_1_file_1.symlink_to("x3")
+        x3 = dir_1 / "x3"
+        x3.write_text("aabbcc")
+        symlink_1 = b_dir / "symlink_1"
+        symlink_1.symlink_to("x4")
+        x4 = b_dir / "x4"
+        x4.mkdir()
+        x5 = b_dir / "x5"
+        x5.symlink_to("x4")
+        x6 = b_dir / "x6"
+        x6.write_text("123123")
+        x7 = b_dir / "x7"
+        x7.symlink_to("123123")
+
+        # register
+        self.a_dir = a_dir
+        self.b_dir = b_dir
+
+    def compare_dir(self):
+        _a_glob = set(map(lambda x: x.relative_to(self.a_dir), self.a_dir.glob("**/*")))
+        _b_glob = set(map(lambda x: x.relative_to(self.b_dir), self.b_dir.glob("**/*")))
+        assert _a_glob == _b_glob  # first check paths are identical
+
+        # then check each file/folder of the path
+        # NOTE/TODO: stats is not checked
+        for _path in _a_glob:
+            _a_path = self.a_dir / _path
+            _b_path = self.b_dir / _path
+            if _a_path.is_symlink():
+                assert _b_path.is_symlink() and os.readlink(_a_path) == os.readlink(
+                    _b_path
+                )
+            elif _a_path.is_dir():
+                assert _b_path.is_dir()
+
+            elif _a_path.is_file():
+                assert _b_path.is_file() and file_sha256(_a_path) == file_sha256(
+                    _b_path
+                )
+            else:
+                assert False, f"unexpected file type for {_path}"
+
+    def test_copytree_identical(self):
+        copytree_identical(self.a_dir, self.b_dir)
+        # check result
+        self.compare_dir()
 
 
 class Test_re_symlink_atomic:

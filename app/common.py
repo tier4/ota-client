@@ -158,16 +158,6 @@ def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
     os.chmod(dst, _stat.st_mode)
 
 
-def dst_symlink_as_src(src: Path, dst: Path):
-    """Make the dst a symlink link as src."""
-    if dst.is_symlink() or dst.is_file():
-        dst.unlink()
-    else:
-        raise TypeError("dst is not a symlink or normal file")
-
-    dst.symlink_to(os.readlink(src))
-
-
 def copytree_identical(src: Path, dst: Path):
     """Recursively copy from the src folder to dst folder.
 
@@ -195,9 +185,22 @@ def copytree_identical(src: Path, dst: Path):
         raise FileNotFoundError(f"{dst} is not found or not a dir")
 
     # phase1: populate files to the dst
-    for cur_dir, _, files in os.walk(src, topdown=True, followlinks=False):
+    for cur_dir, dirs, files in os.walk(src, topdown=True, followlinks=False):
         _cur_dir = Path(cur_dir)
         _cur_dir_on_dst = dst / _cur_dir.relative_to(src)
+
+        # NOTE(20220803): os.walk now lists symlinks pointed to dir
+        # in the <dirs> tuple, we have to handle this behavior
+        for _dir in dirs:
+            _src_dir = _cur_dir / _dir
+            _dst_dir = _cur_dir_on_dst / _dir
+            if _src_dir.is_symlink():  # this "dir" is a symlink to a dir
+                if not _dst_dir.is_symlink() and _dst_dir.is_dir():
+                    # if dst is a dir, remove it
+                    shutil.rmtree(_dst_dir, ignore_errors=True)
+                else:  # dst is symlink or file
+                    _dst_dir.unlink()
+                _dst_dir.symlink_to(os.readlink(_src_dir))
 
         # cover the edge case that dst is not a dir.
         if _cur_dir_on_dst.is_symlink() or not _cur_dir_on_dst.is_dir():
@@ -215,11 +218,18 @@ def copytree_identical(src: Path, dst: Path):
             #   delete the dst in advance
             if not _dst_f.is_symlink() and _dst_f.is_dir():
                 shutil.rmtree(_dst_f, ignore_errors=True)
+            else:
+                _dst_f.unlink(missing_ok=True)
 
             # copy/symlink dst as src
             #   if src is symlink, check symlink, re-link if needed
             if _src_f.is_symlink():
-                dst_symlink_as_src(_src_f, _dst_f)
+                if not _dst_f.is_symlink() and _dst_f.is_dir():
+                    # if dst is a dir, remove it
+                    shutil.rmtree(_dst_f, ignore_errors=True)
+                else:  # dst is symlink or file
+                    _dst_f.unlink()
+                _dst_f.symlink_to(os.readlink(_src_f))
             else:
                 # copy/override src to dst
                 shutil.copy(_src_f, _dst_f, follow_symlinks=False)
@@ -236,6 +246,14 @@ def copytree_identical(src: Path, dst: Path):
             dirs.clear()  # stop iterate the subfolders of this dir
             continue
 
+        # NOTE(20220803): os.walk now lists symlinks pointed to dir
+        # in the <dirs> tuple, we have to handle this behavior
+        for _dir in dirs:
+            _src_dir = _cur_dir_on_src / _dir
+            _dst_dir = _cur_dir_on_dst / _dir
+            if (not _src_dir.is_symlink()) and _dst_dir.is_symlink():
+                _dst_dir.unlink()
+
         for fname in files:
             _src_f = _cur_dir_on_src / fname
             if not (_src_f.is_symlink() or _src_f.is_file()):
@@ -250,6 +268,7 @@ def re_symlink_atomic(src: Path, target: Union[Path, str]):
 
     NOTE: os.rename is atomic when src and dst are on
     the same filesystem under linux.
+    NOTE 2: src should not exist or exist as file/symlink.
     """
     if not (src.is_symlink() and str(os.readlink(src)) == str(target)):
         tmp_link = Path(src).parent / f"tmp_link_{os.urandom(6).hex()}"
