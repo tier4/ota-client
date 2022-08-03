@@ -1,3 +1,4 @@
+import os
 import subprocess
 import time
 import pytest
@@ -11,6 +12,7 @@ from typing import Tuple
 from app.common import (
     SimpleTasksTracker,
     file_sha256,
+    re_symlink_atomic,
     read_from_file,
     subprocess_call,
     subprocess_check_output,
@@ -102,6 +104,52 @@ def test_subprocess_check_output(file_t: Tuple[str, str, int]):
         == "abc"
     )
     assert subprocess_check_output(f"cat {_path}") == _TEST_FILE_CONTENT
+
+
+class Test_re_symlink_atomic:
+    def test_symlink_to_file(self, tmp_path: Path):
+        _symlink = tmp_path / "_symlink"
+        _target = tmp_path / "_target"
+        _target.write_text("_target")
+
+        # test1: src symlink doesn't exist
+        re_symlink_atomic(_symlink, _target)
+        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
+        # test2: src symlink is a symlink that points to correct target
+        re_symlink_atomic(_symlink, _target)
+        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
+        # test3: src symlink is a symlink that points to wrong target
+        _symlink.unlink(missing_ok=True)
+        _symlink.symlink_to("/non-existed")
+        re_symlink_atomic(_symlink, _target)
+        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
+        # test4: src is a file
+        _symlink.unlink(missing_ok=True)
+        _symlink.write_text("123123123")
+        re_symlink_atomic(_symlink, _target)
+        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
+
+    def test_symlink_to_directory(self, tmp_path: Path):
+        _symlink = tmp_path / "_symlink"
+        _target = tmp_path / "_target"
+        _target.mkdir()
+
+        # test1: src symlink doesn't exist
+        re_symlink_atomic(_symlink, _target)
+        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
+        # test2: src symlink is a symlink that points to correct target
+        re_symlink_atomic(_symlink, _target)
+        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
+        # test3: src symlink is a symlink that points to wrong target
+        _symlink.unlink(missing_ok=True)
+        _symlink.symlink_to("/non-existed")
+        re_symlink_atomic(_symlink, _target)
+        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
+        # test4: src is a file
+        _symlink.unlink(missing_ok=True)
+        _symlink.write_text("123123123")
+        re_symlink_atomic(_symlink, _target)
+        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
 
 
 class TestSimpleTasksTracker:
