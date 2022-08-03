@@ -138,19 +138,19 @@ class _UpdateSession:
         self._executor = executor
 
         # session aware attributes
-        self._started = False
+        self._started = asyncio.Event()
         self.fsm = OTAUpdateFSM()
 
         # local ota_proxy server
         self._ota_proxy: Optional[OtaProxyWrapper] = ota_proxy
 
     def is_started(self) -> bool:
-        return self._started
+        return self._started.is_set()
 
     async def start(self, request, *, init_cache: bool = False):
         async with self._lock:
-            if not self._started:
-                self._started = True
+            if not self._started.is_set():
+                self._started.set()
                 self.fsm = OTAUpdateFSM()
                 self.update_request = request
 
@@ -172,7 +172,7 @@ class _UpdateSession:
 
     async def stop(self, *, update_succeed: bool):
         async with self._lock:
-            if self._started and self._ota_proxy:
+            if self._started.is_set() and self._ota_proxy:
                 logger.info(f"stopping ota_proxy(cleanup_cache={update_succeed})...")
                 try:
                     await self._loop.run_in_executor(
@@ -186,7 +186,7 @@ class _UpdateSession:
                     logger.error(f"failed to stop ota_proxy gracefully: {e!r}")
                     self.fsm.on_otaservice_failed()
 
-                self._started = False
+                self._started.clear()
 
     @classmethod
     async def my_ecu_update_tracker(
