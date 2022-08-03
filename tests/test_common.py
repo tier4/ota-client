@@ -1,12 +1,15 @@
-from pathlib import Path
 import subprocess
 import time
-from typing import Tuple
-from hashlib import sha256
 import pytest
 import random
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
+from pathlib import Path
+from typing import Tuple
 
 from app.common import (
+    SimpleTasksTracker,
     file_sha256,
     read_from_file,
     subprocess_call,
@@ -14,6 +17,8 @@ from app.common import (
     verify_file,
     write_to_file_sync,
 )
+
+logger = logging.getLogger(__name__)
 
 _TEST_FILE_CONTENT = "123456789abcdefgh" * 3000
 _TEST_FILE_SHA256 = sha256(_TEST_FILE_CONTENT.encode()).hexdigest()
@@ -100,15 +105,43 @@ def test_subprocess_check_output(file_t: Tuple[str, str, int]):
 
 
 class TestSimpleTasksTracker:
-    def worker_thread1(self):
-        pass
-
-    def worker_thread2(self):
-        pass
+    WAIT_CONST = 100_000_000
+    TASKS_COUNT = 3000
+    MAX_CONCURRENT = 60
 
     def workload(self, idx: int, *, total: int) -> int:
-        time.sleep(total - random.randint(0, idx))
+        time.sleep((total - random.randint(0, idx)) / self.WAIT_CONST)
         return idx
 
-    def test_main(self):
-        pass
+    def interrupt_workload(self, idx: int):
+        raise ValueError(f"interrupted at {idx}")
+
+    def extra_wait(self):
+        time.sleep(1)
+        logger.info("extra wait exits")
+
+    def test_successfully_completed(self):
+        _task_tracker = SimpleTasksTracker(max_concurrent=self.MAX_CONCURRENT)
+        with ThreadPoolExecutor() as pool:
+            for i in range(self.TASKS_COUNT):
+                fut = pool.submit(self.workload, i, total=self.TASKS_COUNT)
+                _task_tracker.add_task(fut)
+                fut.add_done_callback(_task_tracker.done_callback)
+            _task_tracker.task_collect_finished()
+            logger.info("tasks dispatching completed")
+            _task_tracker.wait(self.extra_wait)
+
+    def test_interrupted(self):
+        _task_tracker = SimpleTasksTracker(max_concurrent=self.MAX_CONCURRENT)
+        with ThreadPoolExecutor() as pool, pytest.raises(ValueError):
+            for i in range(self.TASKS_COUNT):
+                if i == self.TASKS_COUNT // 3 * 2:
+                    logger.info(f"interrupt workload called at {i}")
+                    fut = pool.submit(self.interrupt_workload, i)
+                else:
+                    fut = pool.submit(self.workload, i, total=self.TASKS_COUNT)
+                _task_tracker.add_task(fut)
+                fut.add_done_callback(_task_tracker.done_callback)
+            _task_tracker.task_collect_finished()
+            logger.info("tasks dispatching completed")
+            _task_tracker.wait(self.extra_wait)
