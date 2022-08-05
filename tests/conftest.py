@@ -47,7 +47,7 @@ def run_http_server_subprocess():
 
 
 @pytest.fixture(scope="session")
-def ab_slots(tmp_path_factory: Path) -> Tuple[str, str, str, str]:
+def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> Tuple[str, str, str, str]:
     """Prepare AB slots for the whole test session.
 
     The slot_a will be the active slot, it will be populated
@@ -63,18 +63,22 @@ def ab_slots(tmp_path_factory: Path) -> Tuple[str, str, str, str]:
         A tuple includes the path to A/B slots respectly.
     """
     # prepare slot_a
-    slot_a = tmp_path_factory / "slot_a"
-    shutil.copytree(OTA_IMAGE_DIR, slot_a, dirs_exist_ok=True, symlinks=True)
-    (slot_a / "var").rename("var_old")
-    (slot_a / "usr").rename("lib_old")
+    slot_a = tmp_path_factory.mktemp("slot_a")
+    shutil.copytree(
+        Path(OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
+    )
+    # simulate the diff between versions
+    shutil.move(str(slot_a / "var"), slot_a / "var_old")
+    shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
+    # boot dir is a separated folder, so delete the boot folder under slot_a
+    shutil.rmtree(slot_a / "boot", ignore_errors=True)
     # prepare slot_b
-    slot_b = tmp_path_factory / "slot_b"
-    slot_b.mkdir()
+    slot_b = tmp_path_factory.mktemp("slot_b")
 
     # boot dir
-    slot_a_boot_dir = tmp_path_factory / "slot_a_boot"
-    slot_a_boot_dir.mkdir()
-    shutil.copytree(Path(OTA_IMAGE_DIR) / "boot", slot_a_boot_dir, dirs_exist_ok=True)
-    slot_b_boot_dir = tmp_path_factory / "slot_b_boot"
-    slot_b_boot_dir.mkdir()
+    slot_a_boot_dir = tmp_path_factory.mktemp("slot_a_boot")
+    shutil.copytree(
+        Path(OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
+    )
+    slot_b_boot_dir = tmp_path_factory.mktemp("slot_b_boot")
     return str(slot_a), str(slot_b), str(slot_a_boot_dir), str(slot_b_boot_dir)
