@@ -21,6 +21,7 @@ from app.common import (
     verify_file,
     write_to_file_sync,
 )
+from tests.utils import compare_dir
 
 logger = logging.getLogger(__name__)
 
@@ -180,34 +181,12 @@ class Test_copytree_identical:
         self.a_dir = a_dir
         self.b_dir = b_dir
 
-    def compare_dir(self):
-        _a_glob = set(map(lambda x: x.relative_to(self.a_dir), self.a_dir.glob("**/*")))
-        _b_glob = set(map(lambda x: x.relative_to(self.b_dir), self.b_dir.glob("**/*")))
-        assert _a_glob == _b_glob  # first check paths are identical
-
-        # then check each file/folder of the path
-        # NOTE/TODO: stats is not checked
-        for _path in _a_glob:
-            _a_path = self.a_dir / _path
-            _b_path = self.b_dir / _path
-            if _a_path.is_symlink():
-                assert _b_path.is_symlink() and os.readlink(_a_path) == os.readlink(
-                    _b_path
-                )
-            elif _a_path.is_dir():
-                assert _b_path.is_dir()
-
-            elif _a_path.is_file():
-                assert _b_path.is_file() and file_sha256(_a_path) == file_sha256(
-                    _b_path
-                )
-            else:
-                assert False, f"unexpected file type for {_path}"
-
     def test_copytree_identical(self):
         copytree_identical(self.a_dir, self.b_dir)
         # check result
-        self.compare_dir()
+        assert compare_dir(
+            self.a_dir, self.b_dir
+        ), "diff found between slot a and slot b"
 
 
 class Test_re_symlink_atomic:
@@ -258,7 +237,7 @@ class Test_re_symlink_atomic:
 
 class TestSimpleTasksTracker:
     WAIT_CONST = 100_000_000
-    TASKS_COUNT = 3000
+    TASKS_COUNT = 1000
     MAX_CONCURRENT = 60
 
     def workload(self, idx: int, *, total: int) -> int:
