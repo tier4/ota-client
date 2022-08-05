@@ -5,6 +5,7 @@ from typing import Tuple
 from pytest_mock import MockerFixture
 
 from app.create_standby.interface import UpdateMeta
+from app.create_standby.legacy_mode import LegacyMode
 from app.create_standby.rebuild_mode import RebuildMode
 from app.ota_metadata import OtaMetadata
 from app.proto import wrapper
@@ -17,7 +18,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class Test_rebuild_mode:
+class _Common:
     @pytest.fixture(autouse=True)
     def prepare_ab_slots(self, ab_slots: Tuple[str, str, str, str]):
         (
@@ -35,6 +36,19 @@ class Test_rebuild_mode:
         shutil.rmtree(self.slot_b, ignore_errors=True)
 
     @pytest.fixture(autouse=True)
+    def generate_update_meta(self, prepare_mock):
+        self.update_meta = UpdateMeta(
+            cookies={},
+            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
+            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
+            boot_dir=str(self.slot_b_boot_dir),
+            standby_slot_mount_point=str(self.slot_b),
+            ref_slot_mount_point=str(self.slot_a),
+        )
+
+
+class Test_RebuildMode(_Common):
+    @pytest.fixture(autouse=True)
     def prepare_mock(self, prepare_ab_slots, mocker: MockerFixture):
         cfg_path = "app.create_standby.rebuild_mode.cfg"
         proxy_cfg_path = "app.create_standby.rebuild_mode.proxy_cfg"
@@ -50,17 +64,6 @@ class Test_rebuild_mode:
         # TODO: mock process_persistents here
         mocker.patch(f"{rebuild_mode_cls}._process_persistents")
 
-    @pytest.fixture(autouse=True)
-    def generate_update_meta(self, prepare_mock):
-        self.update_meta = UpdateMeta(
-            cookies={},
-            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
-            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
-            boot_dir=str(self.slot_b_boot_dir),
-            standby_slot_mount_point=str(self.slot_b),
-            ref_slot_mount_point=str(self.slot_a),
-        )
-
     def test_rebuild_mode(self, mocker: MockerFixture):
         update_stats_collector = mocker.MagicMock()
         update_phase_tracker = mocker.MagicMock()
@@ -74,6 +77,50 @@ class Test_rebuild_mode:
 
         # check status progress update
         update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.METADATA)
+        update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.REGULAR)
+        update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.DIRECTORY)
+        # update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.PERSISTENT)
+
+        # check slot populating result
+        # NOTE: merge contents from slot_b_boot_dir to slot_b
+        shutil.copytree(self.slot_b_boot_dir, self.slot_b / "boot", dirs_exist_ok=True)
+        # NOTE: for some reason tmp dir is created under OTA_IMAGE_DIR/data, but not listed
+        # in the regulars.txt, so we create one here to make the test passed
+        (self.slot_b / "tmp").mkdir(exist_ok=True)
+        compare_dir(Path(OTA_IMAGE_DIR) / "data", self.slot_b)
+
+
+class Test_LegacyMode(_Common):
+    @pytest.fixture(autouse=True)
+    def prepare_mock(self, prepare_ab_slots, mocker: MockerFixture):
+        module_root = "app.create_standby.legacy_mode"
+
+        cfg_path = f"{module_root}.cfg"
+        proxy_cfg_path = f"{module_root}.proxy_cfg"
+        mocker.patch(f"{cfg_path}.PASSWD_FILE", f"{self.slot_a}/etc/passwd")
+        mocker.patch(f"{cfg_path}.GROUP_FILE", f"{self.slot_a}/group")
+        mocker.patch(f"{proxy_cfg_path}.get_proxy_for_local_ota", return_value=None)
+
+        # mock RebuildMode
+        # TODO: mock save_meta here as save_meta will
+        # introduce diff between ota_image and slot b
+        legacy_mode_cls = f"{module_root}.LegacyMode"
+        # TODO: mock process_persistents here
+        mocker.patch(f"{legacy_mode_cls}._process_persistent")
+
+    def test_legacy_mode(self, mocker: MockerFixture):
+        update_stats_collector = mocker.MagicMock()
+        update_phase_tracker = mocker.MagicMock()
+
+        builder = LegacyMode(
+            update_meta=self.update_meta,
+            stats_collector=update_stats_collector,
+            update_phase_tracker=update_phase_tracker,
+        )
+        builder.create_standby_slot()
+
+        # check status progress update
+        # update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.METADATA)
         update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.REGULAR)
         update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.DIRECTORY)
         # update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.PERSISTENT)
