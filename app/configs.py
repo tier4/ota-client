@@ -12,7 +12,7 @@ class CreateStandbyMechanism(Enum):
 
 @dataclass(frozen=True)
 class OtaClientServerConfig:
-    SERVER_PORT: str = "50051"
+    SERVER_PORT: int = 50051
     WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT: float = 6
     QUERYING_SUBECU_STATUS_TIMEOUT: float = 30
     LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 10

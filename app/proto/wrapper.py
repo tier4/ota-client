@@ -4,6 +4,7 @@ import typing
 import otaclient_v2_pb2 as v2
 from enum import Enum
 from google.protobuf import message as _message
+from google.protobuf.duration_pb2 import Duration
 from typing import (
     Any,
     ClassVar,
@@ -37,7 +38,7 @@ _StatusResponseEcu = typing.cast(Type[v2.StatusResponseEcu], _WrapperBase)
 _UpdateRequest = typing.cast(Type[v2.UpdateRequest], _WrapperBase)
 _UpdateRequestEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
 _UpdateResponse = typing.cast(Type[v2.UpdateResponse], _WrapperBase)
-_UpdateResponseEcu = typing.cast(Type[v2.UpdateRequestEcu], _WrapperBase)
+_UpdateResponseEcu = typing.cast(Type[v2.UpdateResponseEcu], _WrapperBase)
 
 
 class MessageWrapperProtocol(Protocol):
@@ -93,10 +94,6 @@ class MessageWrapperProtocol(Protocol):
         _new_data.CopyFrom(_in)
         return cls._wrap(_new_data)
 
-    def rewrap(self, _in: _message.Message):
-        """Replace the underlaying wrapped data instance."""
-        self.data = _in
-
     def unwrap(self):
         return self.data
 
@@ -125,6 +122,12 @@ class RollbackRequest(_RollbackRequest, MessageWrapperProtocol):
     proto_class = v2.RollbackRequest
     data: v2.RollbackRequest
 
+    def if_contains_ecu(self, ecu_id: str) -> bool:
+        for _ecu in self.data.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return True
+        return False
+
 
 class RollbackResponseEcu(_RollbackResponseEcu, MessageWrapperProtocol):
     proto_class = v2.RollbackResponseEcu
@@ -146,6 +149,11 @@ class RollbackResponse(_RollbackResponse, MessageWrapperProtocol):
             raise TypeError
         self.data.ecu.append(_response_ecu.unwrap())  # type: ignore
 
+    def merge_from(self, _in: Union["RollbackResponse", v2.RollbackResponse]):
+        # NOTE: available_ecu_ids will not be merged
+        for _ecu in _in.ecu:
+            self.data.ecu.append(_ecu)
+
 
 ## status API
 class StatusProgress(_StatusProgress, MessageWrapperProtocol):
@@ -154,6 +162,10 @@ class StatusProgress(_StatusProgress, MessageWrapperProtocol):
 
     def get_snapshot(self) -> StatusProgress:
         return self.wrap(self.data)
+
+    def add_elapsed_time(self, _field_name: str, _value: int):
+        _field: Duration = getattr(self.data, _field_name)
+        _field.FromNanoseconds(_field.ToNanoseconds() + _value)
 
 
 class Status(_Status, MessageWrapperProtocol):
@@ -195,9 +207,6 @@ class StatusResponse(_StatusResponse, MessageWrapperProtocol):
         self.data.ecu.append(_response_ecu.export_pb())  # type: ignore
 
     def merge_from(self, _in: Union["StatusResponse", v2.StatusResponse]):
-        if isinstance(_in, StatusResponse):
-            _in = _in.unwrap()  # type: ignore
-
         # NOTE: available_ecu_ids will not be merged
         for _ecu in _in.ecu:
             self.data.ecu.append(_ecu)
@@ -234,6 +243,12 @@ class UpdateRequest(_UpdateRequest, MessageWrapperProtocol):
             if _ecu.ecu_id == ecu_id:
                 return UpdateRequestEcu.wrap(_ecu)
 
+    def if_contains_ecu(self, ecu_id: str) -> bool:
+        for _ecu in self.data.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return True
+        return False
+
     def iter_update_meta(self) -> Generator[UpdateRequestEcu, None, None]:
         for _ecu in self.data.ecu:
             yield UpdateRequestEcu.wrap(_ecu)
@@ -251,6 +266,10 @@ class UpdateResponse(_UpdateResponse, MessageWrapperProtocol):
     def iter_ecu(self) -> Generator[UpdateResponseEcu, None, None]:
         for _ecu in self.data.ecu:
             yield UpdateResponseEcu.wrap(_ecu)
+
+    def merge_from(self, _in: Union["UpdateResponse", v2.UpdateResponse]):
+        for _ecu in _in.ecu:
+            self.data.ecu.append(_ecu)
 
     def add_ecu(self, _response_ecu: UpdateResponseEcu):
         if not isinstance(_response_ecu, UpdateResponseEcu):

@@ -2,7 +2,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Protocol
 from app.ota_metadata import OtaMetadata
-from app.update_phase import OTAUpdatePhase
+from app.proto import wrapper
 from app.update_stats import OTAUpdateStatsCollector
 
 
@@ -31,13 +31,13 @@ class StandbySlotCreatorProtocol(Protocol):
     """
 
     stats_collector: OTAUpdateStatsCollector
-    update_phase_tracker: Callable[[OTAUpdatePhase], None]
+    update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None]
 
     def __init__(
         self,
         update_meta: UpdateMeta,
         stats_collector: OTAUpdateStatsCollector,
-        update_phase_tracker: Callable[[OTAUpdatePhase], None],
+        update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
     ) -> None:
         ...
 

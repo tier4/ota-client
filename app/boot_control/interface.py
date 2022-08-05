@@ -2,14 +2,14 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Protocol
 
-from app.ota_status import OTAStatusEnum
+from app.proto import wrapper
 
 
 class BootControllerProtocol(Protocol):
     """Boot controller protocol for otaclient."""
 
     @abstractmethod
-    def get_ota_status(self) -> OTAStatusEnum:
+    def get_ota_status(self) -> wrapper.StatusOta:
         """Get the stored ota_status of current active slot."""
 
     @abstractmethod

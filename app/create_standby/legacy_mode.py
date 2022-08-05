@@ -18,13 +18,13 @@ from app.downloader import (
     ExceedMaxRetryError,
 )
 from app.errors import NetworkError
-from app.update_phase import OTAUpdatePhase
 from app.ota_metadata import (
     DirectoryInf,
     PersistentInf,
     RegularInf,
     SymbolicLinkInf,
 )
+from app.proto import wrapper
 from app.proxy_info import proxy_cfg
 
 from app.create_standby.common import HardlinkRegister
@@ -81,7 +81,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
             self._downloader.configure_proxy(proxy)
 
     def _process_directory(self):
-        self.update_phase_tracker(OTAUpdatePhase.DIRECTORY)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
 
         list_info = self.metadata.get_directories_info()
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
@@ -109,7 +109,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     os.chmod(target_path, dirinf.mode)
 
     def _process_symlink(self):
-        self.update_phase_tracker(OTAUpdatePhase.SYMLINK)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.SYMLINK)
 
         list_info = self.metadata.get_symboliclinks_info()
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
@@ -132,7 +132,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     slinkf.link_at_mount_point(self.standby_slot_mp)
 
     def _process_regular(self):
-        self.update_phase_tracker(OTAUpdatePhase.REGULAR)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
 
         list_info = self.metadata.get_regulars_info()
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
@@ -152,7 +152,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
             self._create_regular_files(f.name)
 
     def _process_persistent(self):
-        self.update_phase_tracker(OTAUpdatePhase.PERSISTENT)
+        self.update_phase_tracker(wrapper.StatusProgressPhase.PERSISTENT)
 
         list_info = self.metadata.get_persistent_info()
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:

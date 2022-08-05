@@ -1,6 +1,5 @@
-from enum import Enum, unique
-
 from app.configs import config as cfg
+from app.proto import wrapper
 from app import log_util
 
 logger = log_util.get_logger(
@@ -8,36 +7,26 @@ logger = log_util.get_logger(
 )
 
 
-@unique
-class OTAStatusEnum(Enum):
-    INITIALIZED = 0
-    SUCCESS = 1
-    FAILURE = 2
-    UPDATING = 3
-    ROLLBACKING = 4
-    ROLLBACK_FAILURE = 5
-
-
 class LiveOTAStatus:
-    def __init__(self, ota_status: OTAStatusEnum) -> None:
+    def __init__(self, ota_status: wrapper.StatusOta) -> None:
         self.live_ota_status = ota_status
 
-    def get_ota_status(self) -> OTAStatusEnum:
+    def get_ota_status(self) -> wrapper.StatusOta:
         return self.live_ota_status
 
-    def set_ota_status(self, _status: OTAStatusEnum):
+    def set_ota_status(self, _status: wrapper.StatusOta):
         self.live_ota_status = _status
 
     def request_update(self) -> bool:
         return self.live_ota_status in [
-            OTAStatusEnum.INITIALIZED,
-            OTAStatusEnum.SUCCESS,
-            OTAStatusEnum.FAILURE,
-            OTAStatusEnum.ROLLBACK_FAILURE,
+            wrapper.StatusOta.INITIALIZED,
+            wrapper.StatusOta.SUCCESS,
+            wrapper.StatusOta.FAILURE,
+            wrapper.StatusOta.ROLLBACK_FAILURE,
         ]
 
     def request_rollback(self) -> bool:
         return self.live_ota_status in [
-            OTAStatusEnum.SUCCESS,
-            OTAStatusEnum.ROLLBACK_FAILURE,
+            wrapper.StatusOta.SUCCESS,
+            wrapper.StatusOta.ROLLBACK_FAILURE,
         ]

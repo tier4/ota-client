@@ -1,5 +1,6 @@
 import grpc.aio
 
+from app.proto import wrapper
 from app.proto import v2_grpc
 from app.proto import v2
 from app import log_util
@@ -17,17 +18,18 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         self._stub = ota_client_stub
 
     async def Update(self, request: v2.UpdateRequest, context) -> v2.UpdateResponse:
-        response = await self._stub.update(request)
-        return response
+        response = await self._stub.update(wrapper.UpdateRequest.wrap(request))
+        return response.unwrap()  # type: ignore
 
     async def Rollback(
         self, request: v2.RollbackRequest, context
     ) -> v2.RollbackResponse:
-        response = await self._stub.rollback(request)
-        return response
+        response = await self._stub.rollback(wrapper.RollbackRequest.wrap(request))
+        return response.unwrap()  # type: ignore
 
     async def Status(self, request: v2.StatusRequest, context) -> v2.StatusResponse:
-        return await self._stub.status(request)
+        response = await self._stub.status(wrapper.StatusRequest.wrap(request))
+        return response.unwrap()  # type: ignore
 
 
 async def service_start(port, service_list) -> grpc.aio.Server:

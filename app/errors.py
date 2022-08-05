@@ -2,17 +2,7 @@
 import traceback
 from enum import Enum, unique
 
-from app.proto import otaclient_v2_pb2 as v2
-
-
-@unique
-class OTAFailureType(Enum):
-    NO_FAILURE = 0
-    RECOVERABLE = 1
-    UNRECOVERABLE = 2
-
-    def to_str(self) -> str:
-        return f"{self.value:0>1}"
+from app.proto import wrapper
 
 
 @unique
@@ -45,7 +35,7 @@ class OTAError(Exception):
     It should always be captured by the OTAError at otaclient.py.
     """
 
-    failure_type: OTAFailureType
+    failure_type: wrapper.FailureType
     module: OTAModules
     errcode: "OTAErrorCode"
     desc: str = "no description available for this error"
@@ -74,6 +64,9 @@ class OTA_APIError(Exception):
 
     def get_errcode_str(self) -> str:
         return f"{self._err_prefix}{self.errcode.to_str()}"
+
+    def get_err_type(self) -> wrapper.FailureType:
+        return self.failure_type
 
     def get_err_reason(self, *, append_desc=True, append_detail=False) -> str:
         r"""Return a failure_reason str.
@@ -105,16 +98,6 @@ class OTA_APIError(Exception):
     def get_traceback(self, *, splitter="\n") -> str:
         """Format the traceback into a str with splitter as <splitter>."""
         return splitter.join(traceback.format_tb(self.__traceback__))
-
-    def register_to_v2_Status(self, _status: v2.Status):
-        if not isinstance(_status, v2.Status):
-            return
-        try:
-            _status.failure = getattr(v2.FailureType, self.failure_type.name)
-        except AttributeError:
-            pass
-
-        _status.failure_reason = self.get_err_reason()
 
 
 class OTAUpdateError(OTA_APIError):
@@ -173,7 +156,7 @@ _NETWORK_ERR_DEFAULT_DESC = (
 class NetworkError(OTAError):
     """Generic network error"""
 
-    failure_type: OTAFailureType = OTAFailureType.RECOVERABLE
+    failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
     module: OTAModules = OTAModules.Downloader
     errcode: OTAErrorCode = OTAErrorCode.E_NETWORK
     desc: str = _NETWORK_ERR_DEFAULT_DESC
@@ -192,7 +175,7 @@ _RECOVERABLE_DEFAULT_DESC = (
 
 
 class OTAErrorRecoverable(OTAError):
-    failure_type: OTAFailureType = OTAFailureType.RECOVERABLE
+    failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
     # followings are default values
     module: OTAModules = OTAModules.General
     errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_RECOVERABLE
@@ -272,7 +255,7 @@ _UNRECOVERABLE_DEFAULT_DESC = (
 
 
 class OTAErrorUnRecoverable(OTAError):
-    failure_type: OTAFailureType = OTAFailureType.RECOVERABLE
+    failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
     module: OTAModules = OTAModules.General
     errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
     desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: unspecific unrecoverable ota error, please contact technical support"

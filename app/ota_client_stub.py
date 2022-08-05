@@ -1,6 +1,4 @@
 import asyncio
-import grpc
-import grpc.aio
 import multiprocessing
 import threading
 import time
@@ -14,10 +12,9 @@ from typing import Coroutine, Dict, List, Optional
 from app.boot_control import get_boot_controller
 from app.create_standby import get_standby_slot_creator
 from app.ecu_info import EcuInfo
-from app.ota_status import OTAStatusEnum
 from app.ota_client import OTAClient, OTAUpdateFSM
 from app.ota_client_call import OtaClientCall
-from app.proto import v2
+from app.proto import wrapper
 from app.proxy_info import proxy_cfg
 
 from app.configs import BOOT_LOADER, server_cfg, config as cfg
@@ -247,42 +244,39 @@ class _SubECUTracker:
         self.subecu_query_timeout = server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT
         self.interval = server_cfg.LOOP_QUERYING_SUBECU_STATUS_INTERVAL
         self.tracked_ecus_dict: Dict[str, str] = tracked_ecus_dict
-        self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
 
-    async def _query_ecu(self, ecu_addr: str) -> ECUStatus:
+    async def _query_ecu(self, ecu_id: str, ecu_addr: str, ecu_port: int) -> ECUStatus:
         """Query ecu status API once."""
-        try:
-            resp: v2.StatusResponse = await asyncio.wait_for(
-                self._ota_client_call.status(v2.StatusRequest(), ecu_addr),  # type: ignore
-                timeout=self.subecu_query_timeout,
-            )
-
-            # if ANY OF the subecu and its child ecu are
-            # not in SUCCESS/FAILURE otastatus, or unreacable, return False
-            all_ready, all_success = True, True
-            for ecu in resp.ecu:
-                if ecu.result != v2.NO_FAILURE:
-                    all_ready = False
-                    break
-
-                _status = ecu.status.status
-                if _status in (v2.SUCCESS, v2.FAILURE):
-                    all_success &= _status == v2.SUCCESS
-                else:
-                    all_ready = False
-                    break
-
-            if all_ready:
-                if all_success:
-                    # this ecu and its subecus are all in SUCCESS
-                    return self.ECUStatus.SUCCESS
-                # one of this ecu and its subecu in FAILURE
-                return self.ECUStatus.FAILURE
-            # one of this ecu and its subecu are still in UPDATING/ROLLBACKING
-            return self.ECUStatus.NOT_READY
-        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            # this ecu is unreachable
+        resp = await OtaClientCall.status_call(
+            ecu_id, ecu_addr, ecu_port, timeout=self.subecu_query_timeout
+        )
+        # this subecu is unreachable
+        if resp is None:
             return self.ECUStatus.UNREACHABLE
+
+        # if ANY OF the subecu and its child ecu are
+        # not in SUCCESS/FAILURE otastatus, or unreacable, return False
+        all_ready, all_success = True, True
+        for ecu_id, ecu_result, ecu_status in resp.iter_ecu_status():
+            if ecu_result != wrapper.FailureType.NO_FAILURE:
+                all_ready = False
+                break
+
+            _status = ecu_status.status
+            if _status in (wrapper.StatusOta.SUCCESS, wrapper.StatusOta.FAILURE):
+                all_success &= _status == wrapper.StatusOta.SUCCESS
+            else:
+                all_ready = False
+                break
+
+        if all_ready:
+            if all_success:
+                # this ecu and its subecus are all in SUCCESS
+                return self.ECUStatus.SUCCESS
+            # one of this ecu and its subecu in FAILURE
+            return self.ECUStatus.FAILURE
+        # one of this ecu and its subecu are still in UPDATING/ROLLBACKING
+        return self.ECUStatus.NOT_READY
 
     async def ensure_tracked_ecu_ready(self) -> bool:
         """Loop pulling tracked ecus' status until are ready.
@@ -296,8 +290,14 @@ class _SubECUTracker:
         """
         while True:
             coros: List[Coroutine] = []
-            for _, subecu_addr in self.tracked_ecus_dict.items():
-                coros.append(self._query_ecu(subecu_addr))
+            for subecu_id, subecu_addr in self.tracked_ecus_dict.items():
+                coros.append(
+                    self._query_ecu(
+                        subecu_id,
+                        subecu_addr,
+                        server_cfg.SERVER_PORT,
+                    )
+                )
 
             all_ecus_success, all_ecus_ready = True, True
             for _ecustatus in await asyncio.gather(*coros):
@@ -337,12 +337,11 @@ class OtaClientStub:
             create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
             my_ecu_id=self.my_ecu_id,
         )
-        self._ota_client_call = OtaClientCall(server_cfg.SERVER_PORT)
 
         # for _get_subecu_status
         self._status_pulling_lock = asyncio.Lock()
         self._last_status_query = 0
-        self._cached_status: v2.StatusResponse = v2.StatusResponse()
+        self._cached_status = wrapper.StatusResponse()
 
         # ota local proxy
         _ota_proxy = None
@@ -354,25 +353,21 @@ class OtaClientStub:
             executor=self._executor,
         )
 
-    @staticmethod
-    def _find_request(update_request, ecu_id):
-        for request in update_request:
-            if request.ecu_id == ecu_id:
-                return request
-        return None
-
     ###### API stub method #######
     def host_addr(self):
         return self._ecu_info.get_ecu_ip_addr()
 
-    async def update(self, request: v2.UpdateRequest) -> v2.UpdateResponse:
+    async def update(self, request: wrapper.UpdateRequest) -> wrapper.UpdateResponse:
         logger.debug(f"receive update request: {request}")
-        response = v2.UpdateResponse()
+        response = wrapper.UpdateResponse()
 
         if self._update_session.is_started():
-            ecu = response.ecu.add()
-            ecu.ecu_id = self.my_ecu_id
-            ecu.result = v2.RECOVERABLE
+            response.add_ecu(
+                wrapper.UpdateResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=wrapper.FailureType.RECOVERABLE.value,
+                )
+            )
 
             logger.debug("ignore duplicated update request")
             return response
@@ -380,7 +375,7 @@ class OtaClientStub:
             # start this update session
             _init_cache = (
                 self._ota_client.live_ota_status.get_ota_status()
-                == OTAStatusEnum.SUCCESS
+                == wrapper.StatusOta.SUCCESS
             )
             await self._update_session.start(request, init_cache=_init_cache)
 
@@ -390,13 +385,14 @@ class OtaClientStub:
         # simultaneously dispatching update requests to all subecus without blocking
         coros: List[Coroutine] = []
         for _ecu_id, _ecu_ip in self.subecus_dict.items():
-            if OtaClientStub._find_request(request.ecu, _ecu_id):
+            if request.if_contains_ecu(_ecu_id):
                 # add to tracked ecu list
                 tracked_ecus_dict[_ecu_id] = _ecu_ip
                 coros.append(
-                    self._ota_client_call.update_call(
+                    OtaClientCall.update_call(
                         _ecu_id,
                         _ecu_ip,
+                        server_cfg.SERVER_PORT,
                         request=request,
                         timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
                     )
@@ -404,22 +400,23 @@ class OtaClientStub:
         logger.info(f"update: {tracked_ecus_dict=}")
 
         # wait for all sub ecu acknowledge ota update requests
-        update_resp: v2.UpdateResponse
+        update_resp: wrapper.UpdateResponse
         for update_resp in await asyncio.gather(*coros):
-            for _ecu_resp in update_resp.ecu:  # type: ignore
-                _ecu = response.ecu.add()
-                _ecu.CopyFrom(_ecu_resp)
+            response.merge_from(update_resp)
 
         # after all subecus ack the update request, update my ecu
         my_ecu_tracking_task: Optional[Coroutine] = None
-        if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
+        if entry := request.find_update_meta(self.my_ecu_id):
             if not self._ota_client.live_ota_status.request_update():
                 logger.warning(
                     f"ota_client should not take ota update under ota_status={self._ota_client.live_ota_status.get_ota_status()}"
                 )
-                ecu = response.ecu.add()
-                ecu.ecu_id = self.my_ecu_id
-                ecu.result = v2.RECOVERABLE
+                response.add_ecu(
+                    wrapper.UpdateResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=wrapper.FailureType.RECOVERABLE.value,
+                    )
+                )
             else:
                 logger.info(f"update my_ecu: {self.my_ecu_id=}, {entry=}")
                 # dispatch update to local otaclient
@@ -442,9 +439,12 @@ class OtaClientStub:
                     fsm=self._update_session.fsm,
                 )
 
-                ecu = response.ecu.add()
-                ecu.ecu_id = self.my_ecu_id
-                ecu.result = v2.NO_FAILURE
+                response.add_ecu(
+                    wrapper.UpdateResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=wrapper.FailureType.NO_FAILURE.value,
+                    )
+                )
 
         # NOTE(20220513): is it illegal that ecu itself is not requested to update
         # but its subecus do, but currently we just log errors for it
@@ -468,21 +468,24 @@ class OtaClientStub:
         logger.debug(f"update requests response: {response}")
         return response
 
-    async def rollback(self, request: v2.RollbackRequest) -> v2.RollbackResponse:
+    async def rollback(
+        self, request: wrapper.RollbackRequest
+    ) -> wrapper.RollbackResponse:
         logger.info(f"{request=}")
-        response = v2.RollbackResponse()
+        response = wrapper.RollbackResponse()
 
         # wait for all subecus to ack the requests
         tracked_ecus_dict: Dict[str, str] = {}
         coros: List[Coroutine] = []
         for _ecu_id, _ecu_ip in self.subecus_dict.items():
-            if OtaClientStub._find_request(request.ecu, _ecu_id):
+            if request.if_contains_ecu(_ecu_id):
                 # add to tracked ecu list
                 tracked_ecus_dict[_ecu_id] = _ecu_ip
                 coros.append(
-                    self._ota_client_call.rollback_call(
+                    OtaClientCall.rollback_call(
                         _ecu_id,
                         _ecu_ip,
+                        server_cfg.SERVER_PORT,
                         request=request,
                         # TODO: should rollback timeout has its own value?
                         timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
@@ -491,23 +494,23 @@ class OtaClientStub:
         logger.info(f"rollback: {tracked_ecus_dict=}")
 
         # wait for all sub ecu acknowledge ota rollback requests
-        rollback_resp: v2.UpdateResponse
         for rollback_resp in await asyncio.gather(*coros):
-            for _ecu_resp in rollback_resp.ecu:  # type: ignore
-                _ecu = response.ecu.add()
-                _ecu.CopyFrom(_ecu_resp)
+            response.merge_from(rollback_resp)
 
         # after all subecus response the request, rollback my ecu
-        if entry := OtaClientStub._find_request(request.ecu, self.my_ecu_id):
+        if entry := request.if_contains_ecu(self.my_ecu_id):
             if self._ota_client.live_ota_status.request_rollback():
                 logger.info(f"rollback my_ecu: {self.my_ecu_id=}, {entry=}")
                 # dispatch the rollback request to threadpool
                 self._executor.submit(self._ota_client.rollback)
 
                 # rollback request is permitted, prepare the response
-                ecu = response.ecu.add()
-                ecu.ecu_id = self.my_ecu_id
-                ecu.result = v2.NO_FAILURE
+                response.add_ecu(
+                    wrapper.RollbackResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=wrapper.FailureType.NO_FAILURE.value,
+                    )
+                )
             else:
                 # current ota_client's status indicates that
                 # the ota_client should not start an ota rollback
@@ -515,15 +518,20 @@ class OtaClientStub:
                     "ota_client should not take ota rollback under "
                     f"ota_status={self._ota_client.live_ota_status.get_ota_status()}"
                 )
-                ecu = response.ecu.add()
-                ecu.ecu_id = self.my_ecu_id
-                ecu.result = v2.RECOVERABLE
+                response.add_ecu(
+                    wrapper.RollbackResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=wrapper.FailureType.RECOVERABLE.value,
+                    )
+                )
         else:
             logger.warning("entries in rollback request doesn't include this ecu")
 
         return response
 
-    async def status(self, _: Optional[v2.StatusRequest] = None) -> v2.StatusResponse:
+    async def status(
+        self, _: Optional[wrapper.StatusRequest] = None
+    ) -> wrapper.StatusResponse:
         """
         NOTE: if the cached status is older than <server_cfg.QUERY_SUBECU_STATUS_INTERVAL>,
         the caller should take the responsibility to update the cached status.
@@ -532,48 +540,40 @@ class OtaClientStub:
         if cur_time - self._last_status_query > server_cfg.STATUS_UPDATE_INTERVAL:
             async with self._status_pulling_lock:
                 self._last_status_query = cur_time
+                resp = wrapper.StatusResponse()
 
                 # get subecus' status
-                subecus_resp = v2.StatusResponse()
                 coros: List[Coroutine] = []
                 for subecu_id, subecu_addr in self.subecus_dict.items():
                     coros.append(
-                        self._ota_client_call.status_call(
+                        OtaClientCall.status_call(
                             subecu_id,
                             subecu_addr,
+                            server_cfg.SERVER_PORT,
                             timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                         )
                     )
-                subecu_resp: v2.StatusResponse
+                # gather the subecu and its child ecus status
                 for subecu_resp in await asyncio.gather(*coros):
                     if subecu_resp is None:
                         continue
+                    resp.merge_from(subecu_resp)
 
-                    # gather the subecu and its child ecus status
-                    for _ecu_resp in subecu_resp.ecu:  # type: ignore
-                        _ecu = subecus_resp.ecu.add()
-                        _ecu.CopyFrom(_ecu_resp)
-
-                # prepare final response
-                resp = v2.StatusResponse()
-                resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
-                ## append from subecus_resp
-                for ecu_status in subecus_resp.ecu:
-                    ecu = resp.ecu.add()
-                    ecu.CopyFrom(ecu_status)
-                ## append my_ecu status
-                my_ecu = resp.ecu.add()
+                # prepare my_ecu status
                 if my_ecu_status := self._ota_client.status():
-                    my_ecu.CopyFrom(my_ecu_status)
+                    resp.add_ecu(my_ecu_status)
                 else:
                     # otaclient status method doesn't return valid result
-                    my_ecu.ecu_id = self.my_ecu_id
-                    my_ecu.result = v2.RECOVERABLE
+                    resp.add_ecu(
+                        wrapper.StatusResponseEcu(
+                            ecu_id=self.my_ecu_id,
+                            result=wrapper.FailureType.RECOVERABLE.value,
+                        )
+                    )
 
                 # register the status to cache
+                resp.update_available_ecu_ids(*self._ecu_info.get_available_ecu_ids())
                 self._cached_status = resp
 
         # respond with the cached status
-        res = v2.StatusResponse()
-        res.CopyFrom(self._cached_status)
-        return res
+        return wrapper.StatusResponse.wrap(self._cached_status.data)
