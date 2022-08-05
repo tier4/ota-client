@@ -26,7 +26,11 @@ WORKDIR /ota-image
 RUN wget -O /tmp/base_image.tar.gz ${BASE_IMG_URL} && \
     mkdir -p data && \
     tar zxf /tmp/base_image.tar.gz -C data && \
-    cp -a /boot/* data/boot
+    cp -a \
+        /boot/vmlinuz-${KERNEL_VERSION} \
+        /boot/initrd.img-${KERNEL_VERSION} \
+        /boot/config-${KERNEL_VERSION} \
+        /boot/System.map-${KERNEL_VERSION} data/boot
 
 # create file that needs url escaping
 RUN echo "url escaping is required" > data/a:b:c
