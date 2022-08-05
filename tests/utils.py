@@ -33,11 +33,13 @@ def run_http_server(addr: str, port: int, *, directory: str):
         httpd.serve_forever()
 
 
-def compare_dir(left: Path, right: Path) -> bool:
+def compare_dir(left: Path, right: Path):
     _a_glob = set(map(lambda x: x.relative_to(left), left.glob("**/*")))
     _b_glob = set(map(lambda x: x.relative_to(right), right.glob("**/*")))
     if not _a_glob == _b_glob:  # first check paths are identical
-        return False
+        raise ValueError(
+            f"slot ab mismatch, diff: {_a_glob.symmetric_difference(_b_glob)}"
+        )
 
     # then check each file/folder of the path
     # NOTE/TODO: stats is not checked
@@ -48,14 +50,13 @@ def compare_dir(left: Path, right: Path) -> bool:
             if not (
                 _b_path.is_symlink() and os.readlink(_a_path) == os.readlink(_b_path)
             ):
-                return False
+                raise ValueError(f"{_path}")
         elif _a_path.is_dir():
             if not _b_path.is_dir():
-                return False
+                raise ValueError(f"{_path}")
 
         elif _a_path.is_file():
             if not (_b_path.is_file() and file_sha256(_a_path) == file_sha256(_b_path)):
-                return False
+                raise ValueError(f"{_path}")
         else:
-            return False
-    return True
+            raise ValueError(f"{_path}")

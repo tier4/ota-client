@@ -184,9 +184,7 @@ class Test_copytree_identical:
     def test_copytree_identical(self):
         copytree_identical(self.a_dir, self.b_dir)
         # check result
-        assert compare_dir(
-            self.a_dir, self.b_dir
-        ), "diff found between slot a and slot b"
+        compare_dir(self.a_dir, self.b_dir)
 
 
 class Test_re_symlink_atomic:
