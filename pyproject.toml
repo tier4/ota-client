@@ -10,7 +10,7 @@ extend-exclude = '''(
 
 [tool.coverage.run]
 source_pkgs = ["app"]
-branch = true
+branch = false
 
 [tool.coverage.report]
 omit = ["app/proto/*pb2*"]
