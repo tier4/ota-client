@@ -12,6 +12,7 @@ class OTAModules(Enum):
     StandbySlotCreater = 2
     Downloader = 3
     API = 4
+    OTASERVICE = 5
 
     def to_str(self) -> str:
         return f"{self.value:0>2}"
@@ -123,6 +124,7 @@ class OTAErrorCode(Enum):
     E_UPDATEDELTA_GENERATION_FAILED = 206
     E_APPLY_OTAUPDATE_FAILED = 207
     E_BASE_OTAMETA_VERIFICATION_FAILED = 208
+    E_OTAPROXY_FAILED_TO_START = 209
 
     E_OTA_ERR_UNRECOVERABLE = 300
     E_BOOTCONTROL_PLATFORM_UNSUPPORTED = 301
@@ -236,6 +238,14 @@ class BaseOTAMetaVerificationFailed(OTAErrorRecoverable):
     module: OTAModules = OTAModules.API
     errcode: OTAErrorCode = OTAErrorCode.E_BASE_OTAMETA_VERIFICATION_FAILED
     desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: verification failed for base otameta"
+
+
+class OTAProxyFailedToStart(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.OTASERVICE
+    errcode: OTAErrorCode = OTAErrorCode.E_OTAPROXY_FAILED_TO_START
+    desc: str = (
+        f"{_RECOVERABLE_DEFAULT_DESC}: ota_proxy is required but failed to start"
+    )
 
 
 ### unrecoverable error ###
