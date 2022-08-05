@@ -13,6 +13,7 @@ from app.errors import (
     OTA_APIError,
     OTAError,
     OTAFailureType,
+    OTAProxyFailedToStart,
     OTARollbackError,
     OTAUpdateError,
 )
@@ -37,30 +38,67 @@ logger = log_util.get_logger(
 
 
 class OTAUpdateFSM:
+    WAIT_INTERVAL = 3
+
     def __init__(self) -> None:
         self._ota_proxy_ready = Event()
         self._otaclient_finish_update = Event()
         self._stub_cleanup_finish = Event()
+        self.otaclient_failed = Event()
+        self.otaservice_failed = Event()
+
+    def on_otaclient_failed(self):
+        self.otaclient_failed.set()
+
+    def on_otaservice_failed(self):
+        self.otaservice_failed.set()
 
     def stub_pre_update_ready(self):
         self._ota_proxy_ready.set()
 
-    def client_wait_for_ota_proxy(self, *, timeout: Optional[float] = None):
-        """Local otaclient wait for stub(to setup ota_proxy server)."""
-        self._ota_proxy_ready.wait(timeout=timeout)
-
     def client_finish_update(self):
         self._otaclient_finish_update.set()
-
-    def stub_wait_for_local_update(self, *, timeout: Optional[float] = None):
-        self._otaclient_finish_update.wait(timeout=timeout)
 
     def stub_cleanup_finished(self):
         self._stub_cleanup_finish.set()
 
-    def client_wait_for_reboot(self):
-        """Local otaclient should reboot after the stub cleanup finished."""
-        self._stub_cleanup_finish.wait()
+    def client_wait_for_ota_proxy(self) -> bool:
+        """Local otaclient wait for stub(to setup ota_proxy server).
+
+        Return:
+            A bool to indicate whether the ota_proxy launching is successful or not.
+        """
+        while (
+            not self.otaservice_failed.is_set() and not self._ota_proxy_ready.is_set()
+        ):
+            time.sleep(self.WAIT_INTERVAL)
+        return not self.otaclient_failed.is_set()
+
+    def client_wait_for_reboot(self) -> bool:
+        """Local otaclient should reboot after the stub cleanup finished.
+
+        Return:
+            A bool indicates whether the ota_client_stub cleans up successfully.
+        """
+        while (
+            not self.otaservice_failed.is_set()
+            and not self._stub_cleanup_finish.is_set()
+        ):
+            time.sleep(self.WAIT_INTERVAL)
+        return not self.otaclient_failed.is_set()
+
+    def stub_wait_for_local_update(self) -> bool:
+        """OTA client stub should wait for local update finish before cleanup.
+
+        Return:
+            A bool indicates whether the local update is successful or not.
+        """
+        while (
+            not self.otaclient_failed.is_set()
+            and not self._otaclient_finish_update.is_set()
+        ):
+            time.sleep(self.WAIT_INTERVAL)
+        return not self.otaclient_failed.is_set()
 
 
 class _OTAUpdater:
@@ -250,7 +288,8 @@ class _OTAUpdater:
             if proxy := proxy_cfg.get_proxy_for_local_ota():
                 logger.info("use local ota_proxy")
                 # wait for stub to setup the local ota_proxy server
-                fsm.client_wait_for_ota_proxy()
+                if not fsm.client_wait_for_ota_proxy():
+                    raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
                 self._downloader.configure_proxy(proxy)
 
             self._pre_update(version, url_base, cookies_json)
@@ -259,6 +298,7 @@ class _OTAUpdater:
             fsm.client_finish_update()
 
             logger.info("[update] leaving update, wait on all subecs...")
+            # NOTE: still reboot event local cleanup failed as the update itself is successful
             fsm.client_wait_for_reboot()
 
             logger.info("[update] apply post-update and reboot...")
@@ -339,6 +379,7 @@ class OTAClient(OTAClientProtocol):
         except OTAUpdateError as e:
             self.live_ota_status.set_ota_status(OTAStatusEnum.FAILURE)
             self.last_failure = e
+            fsm.on_otaclient_failed()
         finally:
             self._update_lock.release()
 
