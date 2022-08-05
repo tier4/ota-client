@@ -38,7 +38,7 @@ def compare_dir(left: Path, right: Path):
     _b_glob = set(map(lambda x: x.relative_to(right), right.glob("**/*")))
     if not _a_glob == _b_glob:  # first check paths are identical
         raise ValueError(
-            f"slot ab mismatch, diff: {_a_glob.symmetric_difference(_b_glob)}"
+            f"left and right mismatch, diff: {_a_glob.symmetric_difference(_b_glob)}"
         )
 
     # then check each file/folder of the path
