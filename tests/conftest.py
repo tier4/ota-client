@@ -15,8 +15,8 @@ enable_local_ota_proxy: false
 """
 
 OTA_IMAGE_DIR = "/ota-image"
-OTA_SERVER_ADDR = "127.0.0.1"
-OTA_SERVER_PORT = 8080
+OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
+OTA_IMAGE_SERVER_PORT = 8080
 
 
 @pytest.fixture(scope="session")
@@ -33,11 +33,11 @@ def proxy_cfg():
 def run_http_server_subprocess():
     _server_p = Process(
         target=run_http_server,
-        args=[OTA_SERVER_ADDR, OTA_SERVER_PORT],
+        args=[OTA_IMAGE_SERVER_ADDR, OTA_IMAGE_SERVER_PORT],
         kwargs={"directory": OTA_IMAGE_DIR},
     )
     logger.info(
-        f"start background ota-image server at http://{OTA_SERVER_ADDR}:{OTA_SERVER_PORT}"
+        f"start background ota-image server at http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
     )
     try:
         yield _server_p.start()
@@ -47,7 +47,7 @@ def run_http_server_subprocess():
 
 
 @pytest.fixture(scope="session")
-def ab_slots(tmp_path_factory: Path) -> Tuple[str, str]:
+def ab_slots(tmp_path_factory: Path) -> Tuple[str, str, str, str]:
     """Prepare AB slots for the whole test session.
 
     The slot_a will be the active slot, it will be populated
@@ -71,4 +71,10 @@ def ab_slots(tmp_path_factory: Path) -> Tuple[str, str]:
     slot_b = tmp_path_factory / "slot_b"
     slot_b.mkdir()
 
-    return str(slot_a), str(slot_b)
+    # boot dir
+    slot_a_boot_dir = tmp_path_factory / "slot_a_boot"
+    slot_a_boot_dir.mkdir()
+    shutil.copytree(Path(OTA_IMAGE_DIR) / "boot", slot_a_boot_dir, dirs_exist_ok=True)
+    slot_b_boot_dir = tmp_path_factory / "slot_b_boot"
+    slot_b_boot_dir.mkdir()
+    return str(slot_a), str(slot_b), str(slot_a_boot_dir), str(slot_b_boot_dir)
