@@ -3,63 +3,12 @@ import time
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from google.protobuf.duration_pb2 import Duration
 from queue import Empty, Queue
 from threading import Event, Lock
-from typing import Generator, List, Optional
+from typing import Generator, List
 
 from app.configs import config as cfg
-from app.proto import otaclient_v2_pb2 as v2
-from app.update_phase import OTAUpdatePhase
-
-
-@dataclasses.dataclass
-class OTAUpdateProgress:
-    """NOTE: check v2.StatusProgress message definition"""
-
-    total_regular_files: int = 0
-    total_regular_file_size: int = 0
-    regular_files_processed: int = 0
-    files_processed_copy: int = 0
-    files_processed_link: int = 0
-    files_processed_download: int = 0
-    file_size_processed_copy: int = 0
-    file_size_processed_link: int = 0
-    file_size_processed_download: int = 0
-    elapsed_time_copy: int = 0  # ns
-    elapsed_time_link: int = 0  # ns
-    elapsed_time_download: int = 0  # ns
-    errors_download: int = 0
-    total_elapsed_time: int = 0
-
-    def copy(self) -> "OTAUpdateProgress":
-        return dataclasses.replace(self)
-
-    def export_as_v2_StatusProgress(
-        self, _phase: Optional[OTAUpdatePhase]
-    ) -> v2.StatusProgress:
-        res = v2.StatusProgress()
-
-        if v2_phase := OTAUpdatePhase.convert_to_v2_StatusProgressPhase(_phase):
-            res.phase = v2_phase
-
-        for field in dataclasses.fields(self):
-            _key = field.name
-            _value = getattr(self, _key)
-
-            msg_field = getattr(res, _key, None)
-            if isinstance(msg_field, Duration):
-                msg_field.FromNanoseconds(_value)
-            elif msg_field is not None:
-                setattr(res, _key, _value)
-
-        return res
-
-    def __getitem__(self, _key: str) -> int:
-        return getattr(self, _key)
-
-    def __setitem__(self, _key: str, _value: int):
-        setattr(self, _key, _value)
+from app.proto import wrapper
 
 
 class RegProcessOperation(Enum):
@@ -88,7 +37,7 @@ class OTAUpdateStatsCollector:
     def __init__(self) -> None:
         self._lock = Lock()
         self._started = False
-        self.store = OTAUpdateProgress()
+        self.store = wrapper.StatusProgress()
 
         self.collect_interval = cfg.STATS_COLLECT_INTERVAL
         self.terminated = Event()
@@ -96,12 +45,12 @@ class OTAUpdateStatsCollector:
         self._staging: List[RegInfProcessedStats] = []
 
     @contextmanager
-    def _staging_changes(self) -> Generator[OTAUpdateProgress, None, None]:
+    def _staging_changes(self) -> Generator[wrapper.StatusProgress, None, None]:
         """Acquire a staging storage for updating the slot atomically.
 
         NOTE: it should be only one collecter that calling this method!
         """
-        staging_slot = self.store.copy()
+        staging_slot = self.store.get_snapshot()
         try:
             yield staging_slot
         finally:
@@ -131,7 +80,7 @@ class OTAUpdateStatsCollector:
             self.clear()  # cleanup stats storage
 
     def clear(self):
-        self.store = OTAUpdateProgress()
+        self.store = wrapper.StatusProgress()
 
     def set_total_regular_files(self, value: int):
         self.store.total_regular_files = value
@@ -139,15 +88,9 @@ class OTAUpdateStatsCollector:
     def set_total_regular_files_size(self, value: int):
         self.store.total_regular_file_size = value
 
-    def get_snapshot(self) -> OTAUpdateProgress:
+    def get_snapshot(self) -> wrapper.StatusProgress:
         """Return a copy of statistics storage."""
-        return self.store.copy()
-
-    def get_snapshot_as_v2_StatusProgress(
-        self, _phase: Optional[OTAUpdatePhase]
-    ) -> v2.StatusProgress:
-        _snapshot = self.store.copy()
-        return _snapshot.export_as_v2_StatusProgress(_phase)
+        return self.store.get_snapshot()
 
     def report(self, *stats: RegInfProcessedStats):
         for _stat in stats:
@@ -177,9 +120,9 @@ class OTAUpdateStatsCollector:
                             staging_storage.regular_files_processed += 1
                             staging_storage[f"files_processed_{_suffix}"] += 1
                             staging_storage[f"file_size_processed_{_suffix}"] += st.size
-                            staging_storage[
-                                f"elapsed_time_{_suffix}"
-                            ] += st.elapsed_ns  # in nano-seconds
+                            staging_storage.add_elapsed_time(
+                                f"elapsed_time_{_suffix}", st.elapsed_ns
+                            )  # in nano-seconds
 
                             if _suffix == RegProcessOperation.OP_DOWNLOAD.value:
                                 staging_storage[f"errors_{_suffix}"] += st.errors

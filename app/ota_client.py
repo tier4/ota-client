@@ -12,7 +12,6 @@ from app.errors import (
     NetworkError,
     OTA_APIError,
     OTAError,
-    OTAFailureType,
     OTAProxyFailedToStart,
     OTARollbackError,
     OTAUpdateError,
@@ -25,10 +24,9 @@ from app.downloader import DownloadError, Downloader
 from app.interface import OTAClientProtocol
 from app.errors import InvalidUpdateRequest
 from app.ota_metadata import OtaMetadata
-from app.ota_status import LiveOTAStatus, OTAStatusEnum
-from app.proto import otaclient_v2_pb2 as v2
+from app.ota_status import LiveOTAStatus
+from app.proto import wrapper
 from app.proxy_info import proxy_cfg
-from app.update_phase import OTAUpdatePhase
 from app.update_stats import OTAUpdateStatsCollector
 from app import log_util
 
@@ -118,7 +116,7 @@ class _OTAUpdater:
         self._create_standby_cls = create_standby_cls
 
         # init update status
-        self.update_phase: Optional[OTAUpdatePhase] = None
+        self.update_phase: Optional[wrapper.StatusProgressPhase] = None
         self.update_start_time = 0
         self.updating_version: str = ""
         self.failure_reason = ""
@@ -171,7 +169,7 @@ class _OTAUpdater:
 
         # set ota status
         self.updating_version = version
-        self.update_phase = OTAUpdatePhase.INITIAL
+        self.update_phase = wrapper.StatusProgressPhase.INITIAL
         self.update_start_time = time.time_ns()
         self.failure_reason = ""  # clean failure reason
 
@@ -180,7 +178,7 @@ class _OTAUpdater:
 
         # process metadata.jwt
         logger.debug("[update] process metadata...")
-        self.update_phase = OTAUpdatePhase.METADATA
+        self.update_phase = wrapper.StatusProgressPhase.METADATA
         try:
             metadata = self._process_metadata(url_base, cookies)
         except DownloadError as e:
@@ -225,10 +223,10 @@ class _OTAUpdater:
         logger.info("[_in_update] finished creating standby slot")
 
     def _post_update(self):
-        self._set_update_phase(OTAUpdatePhase.POST_PROCESSING)
+        self._set_update_phase(wrapper.StatusProgressPhase.POST_PROCESSING)
         self._boot_controller.post_update()
 
-    def _set_update_phase(self, _phase: OTAUpdatePhase):
+    def _set_update_phase(self, _phase: wrapper.StatusProgressPhase):
         self.update_phase = _phase
 
     def _get_update_phase(self):
@@ -241,15 +239,15 @@ class _OTAUpdater:
         self.update_stats_collector.stop()
         self._downloader.cleanup_proxy()
 
-    def update_progress(self) -> Tuple[str, v2.StatusProgress]:
+    def update_progress(self) -> Tuple[str, wrapper.StatusProgress]:
         """
         Returns:
             A tuple contains the version and the update_progress.
         """
-        update_progress = self.update_stats_collector.get_snapshot_as_v2_StatusProgress(
-            self.update_phase
-        )
-
+        update_progress = self.update_stats_collector.get_snapshot()
+        # set update phase
+        if self.update_phase is not None:
+            update_progress.phase = self.update_phase.value
         # set total_elapsed_time
         update_progress.total_elapsed_time.FromNanoseconds(
             time.time_ns() - self.update_start_time
@@ -345,8 +343,6 @@ class OTAClient(OTAClientProtocol):
     def _rollback(self):
         try:
             # enter rollback
-            self.failure_type = OTAFailureType.NO_FAILURE
-            self.failure_reason = ""
             self.boot_controller.pre_rollback()
 
             # leave rollback
@@ -373,11 +369,11 @@ class OTAClient(OTAClientProtocol):
             if self._update_lock.acquire(blocking=False):
                 logger.info("[update] entering...")
                 self.last_failure = None
-                self.live_ota_status.set_ota_status(OTAStatusEnum.UPDATING)
+                self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
                 self.updater.execute(version, url_base, cookies_json, fsm=fsm)
             # silently ignore overlapping request
         except OTAUpdateError as e:
-            self.live_ota_status.set_ota_status(OTAStatusEnum.FAILURE)
+            self.live_ota_status.set_ota_status(wrapper.StatusOta.FAILURE)
             self.last_failure = e
             fsm.on_otaclient_failed()
         finally:
@@ -388,41 +384,43 @@ class OTAClient(OTAClientProtocol):
             if self._rollback_lock.acquire(blocking=False):
                 logger.info("[rollback] entering...")
                 self.last_failure = None
-                self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACKING)
+                self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACKING)
                 self._rollback()
             # silently ignore overlapping request
         except OTARollbackError as e:
-            self.live_ota_status.set_ota_status(OTAStatusEnum.ROLLBACK_FAILURE)
+            self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACK_FAILURE)
             self.last_failure = e
         finally:
             self._rollback_lock.release()
 
-    def status(self) -> v2.StatusResponseEcu:
-        if self.live_ota_status.get_ota_status() == OTAStatusEnum.UPDATING:
+    def status(self) -> wrapper.StatusResponseEcu:
+        if self.live_ota_status.get_ota_status() == wrapper.StatusOta.UPDATING:
             _, _update_progress = self.updater.update_progress()
-            _status = v2.Status(
+            _status = wrapper.Status(
                 version=self.current_version,
-                status=self.live_ota_status.get_ota_status().name,
-                progress=_update_progress,
+                status=self.live_ota_status.get_ota_status().value,
+                progress=_update_progress.unwrap(),  # type: ignore
             )
-            if self.last_failure:
-                self.last_failure.register_to_v2_Status(_status)
+            if _last_failure := self.last_failure:
+                _status.failure = _last_failure.get_err_type().value
+                _status.failure_reason = _last_failure.get_err_reason()
 
-            return v2.StatusResponseEcu(
+            return wrapper.StatusResponseEcu(
                 ecu_id=self.my_ecu_id,
-                result=v2.NO_FAILURE,
-                status=_status,
+                result=wrapper.FailureType.NO_FAILURE.value,
+                status=_status.unwrap(),  # type: ignore
             )
         else:  # no update/rollback on-going
-            _status = v2.Status(
+            _status = wrapper.Status(
                 version=self.current_version,
-                status=self.live_ota_status.get_ota_status().name,
+                status=self.live_ota_status.get_ota_status().value,
             )
-            if self.last_failure:
-                self.last_failure.register_to_v2_Status(_status)
+            if _last_failure := self.last_failure:
+                _status.failure = _last_failure.get_err_type().value
+                _status.failure_reason = _last_failure.get_err_reason()
 
-            return v2.StatusResponseEcu(
+            return wrapper.StatusResponseEcu(
                 ecu_id=self.my_ecu_id,
-                result=v2.NO_FAILURE,
-                status=_status,
+                result=wrapper.FailureType.NO_FAILURE.value,
+                status=_status.unwrap(),  # type: ignore
             )

@@ -32,7 +32,7 @@ from app.errors import (
     BootControlPreRollbackFailed,
     BootControlPreUpdateFailed,
 )
-from app.ota_status import OTAStatusEnum
+from app.proto import wrapper
 
 assert (
     BOOT_LOADER == "cboot"
@@ -327,25 +327,28 @@ class CBootController(
         current_slot = Nvbootctrl.get_current_slot()
         if not (_ota_status and _slot_in_use):
             logger.info("initializing boot control files...")
-            _ota_status = OTAStatusEnum.INITIALIZED
+            _ota_status = wrapper.StatusOta.INITIALIZED
             self._store_current_slot_in_use(current_slot)
-            self._store_current_ota_status(OTAStatusEnum.INITIALIZED)
+            self._store_current_ota_status(wrapper.StatusOta.INITIALIZED)
 
-        if _ota_status in [OTAStatusEnum.UPDATING, OTAStatusEnum.ROLLBACKING]:
+        if _ota_status in [wrapper.StatusOta.UPDATING, wrapper.StatusOta.ROLLBACKING]:
             if self._is_switching_boot():
                 # set the current slot(switched slot) as boot successful
                 self._cboot_control.mark_current_slot_boot_successful()
                 # switch ota_status
-                _ota_status = OTAStatusEnum.SUCCESS
+                _ota_status = wrapper.StatusOta.SUCCESS
             else:
-                if _ota_status == OTAStatusEnum.ROLLBACKING:
-                    _ota_status = OTAStatusEnum.ROLLBACK_FAILURE
+                if _ota_status == wrapper.StatusOta.ROLLBACKING:
+                    _ota_status = wrapper.StatusOta.ROLLBACK_FAILURE
                 else:
-                    _ota_status = OTAStatusEnum.FAILURE
+                    _ota_status = wrapper.StatusOta.FAILURE
         # status except UPDATING/ROLLBACKING remained as it
 
         # detect failed reboot, but only print error logging
-        if _ota_status != OTAStatusEnum.INITIALIZED and _slot_in_use != current_slot:
+        if (
+            _ota_status != wrapper.StatusOta.INITIALIZED
+            and _slot_in_use != current_slot
+        ):
             logger.error(
                 f"boot into old slot {current_slot}, "
                 f"but slot_in_use indicates it should boot into {_slot_in_use}, "
@@ -364,8 +367,8 @@ class CBootController(
         # evidence 2: ota_status
         # the newly updated/rollbacked slot should have ota-status as updating/rollback
         _ota_status = self._load_current_ota_status() in [
-            OTAStatusEnum.UPDATING,
-            OTAStatusEnum.ROLLBACKING,
+            wrapper.StatusOta.UPDATING,
+            wrapper.StatusOta.ROLLBACKING,
         ]
 
         # evidence 3: slot in use
@@ -414,10 +417,10 @@ class CBootController(
 
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""
-        self._store_current_ota_status(OTAStatusEnum.FAILURE)
+        self._store_current_ota_status(wrapper.StatusOta.FAILURE)
         # when standby slot is not created, otastatus is not needed to be set
         if CMDHelperFuncs.is_target_mounted(self.standby_slot_mount_point):
-            self._store_standby_ota_status(OTAStatusEnum.FAILURE)
+            self._store_standby_ota_status(wrapper.StatusOta.FAILURE)
 
         logger.warning("on failure try to unmounting standby slot...")
         self._umount_all(ignore_error=True)
@@ -436,7 +439,7 @@ class CBootController(
         try:
             # store current slot status
             _target_slot = self._cboot_control.get_standby_slot()
-            self._store_current_ota_status(OTAStatusEnum.FAILURE)
+            self._store_current_ota_status(wrapper.StatusOta.FAILURE)
             self._store_current_slot_in_use(_target_slot)
 
             # setup updating
@@ -458,7 +461,7 @@ class CBootController(
             ).relative_to("/")
             _ota_status_dir.mkdir(exist_ok=True, parents=True)
             # store status to standby slot
-            self._store_standby_ota_status(OTAStatusEnum.UPDATING)
+            self._store_standby_ota_status(wrapper.StatusOta.UPDATING)
             self._store_standby_version(version)
             self._store_standby_slot_in_use(_target_slot)
 
@@ -497,13 +500,13 @@ class CBootController(
 
     def pre_rollback(self):
         try:
-            self._store_current_ota_status(OTAStatusEnum.FAILURE)
+            self._store_current_ota_status(wrapper.StatusOta.FAILURE)
             self._prepare_and_mount_standby(
                 self._cboot_control.get_standby_rootfs_dev(),
                 erase=False,
             )
             # store ROLLBACKING status to standby
-            self._store_standby_ota_status(OTAStatusEnum.ROLLBACKING)
+            self._store_standby_ota_status(wrapper.StatusOta.ROLLBACKING)
         except Exception as e:
             logger.error(f"failed on pre_rollback: {e!r}")
             # TODO: bootcontrol prerollback failure
