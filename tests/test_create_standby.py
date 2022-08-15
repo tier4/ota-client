@@ -9,6 +9,7 @@ from app.create_standby.legacy_mode import LegacyMode
 from app.create_standby.rebuild_mode import RebuildMode
 from app.ota_metadata import OtaMetadata
 from app.proto import wrapper
+from app.update_stats import OTAUpdateStatsCollector
 
 from tests.conftest import OTA_IMAGE_DIR, OTA_IMAGE_SERVER_PORT, OTA_IMAGE_SERVER_ADDR
 from tests.utils import compare_dir
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class _Common:
-    @pytest.fixture(autouse=True)
+    @pytest.fixture
     def prepare_ab_slots(self, ab_slots: Tuple[str, str, str, str]):
         (
             self.slot_a,
@@ -36,20 +37,19 @@ class _Common:
         shutil.rmtree(self.slot_b, ignore_errors=True)
 
     @pytest.fixture(autouse=True)
-    def generate_update_meta(self, prepare_mock):
-        self.update_meta = UpdateMeta(
-            cookies={},
-            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
-            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
-            boot_dir=str(self.slot_b_boot_dir),
-            standby_slot_mount_point=str(self.slot_b),
-            ref_slot_mount_point=str(self.slot_a),
-        )
+    def update_stats_collector(self):
+        _collector = OTAUpdateStatsCollector()
+        try:
+            self._collector = _collector
+            _collector.start()
+            yield
+        finally:
+            _collector.stop()
 
 
 class Test_RebuildMode(_Common):
     @pytest.fixture(autouse=True)
-    def prepare_mock(self, prepare_ab_slots, mocker: MockerFixture):
+    def prepare_mock(self, mocker: MockerFixture, prepare_ab_slots):
         cfg_path = "app.create_standby.rebuild_mode.cfg"
         proxy_cfg_path = "app.create_standby.rebuild_mode.proxy_cfg"
         mocker.patch(f"{cfg_path}.PASSWD_FILE", f"{self.slot_a}/etc/passwd")
@@ -64,13 +64,22 @@ class Test_RebuildMode(_Common):
         # TODO: mock process_persistents here
         mocker.patch(f"{rebuild_mode_cls}._process_persistents")
 
+        # prepare update meta
+        self.update_meta = UpdateMeta(
+            cookies={},
+            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
+            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
+            boot_dir=str(self.slot_b_boot_dir),
+            standby_slot_mount_point=str(self.slot_b),
+            ref_slot_mount_point=str(self.slot_a),
+        )
+
     def test_rebuild_mode(self, mocker: MockerFixture):
-        update_stats_collector = mocker.MagicMock()
         update_phase_tracker = mocker.MagicMock()
 
         builder = RebuildMode(
             update_meta=self.update_meta,
-            stats_collector=update_stats_collector,
+            stats_collector=self._collector,
             update_phase_tracker=update_phase_tracker,
         )
         builder.create_standby_slot()
@@ -80,6 +89,14 @@ class Test_RebuildMode(_Common):
         update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.REGULAR)
         update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.DIRECTORY)
         # update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.PERSISTENT)
+
+        # check collected update stats
+        _snapshot = self._collector.get_snapshot()
+        assert _snapshot.total_regular_files > 0
+        assert _snapshot.regular_files_processed > 0
+        assert _snapshot.file_size_processed_copy > 0
+        assert _snapshot.file_size_processed_download > 0
+        assert _snapshot.file_size_processed_link > 0
 
         # check slot populating result
         # NOTE: merge contents from slot_b_boot_dir to slot_b
@@ -108,13 +125,22 @@ class Test_LegacyMode(_Common):
         # TODO: mock process_persistents here
         mocker.patch(f"{legacy_mode_cls}._process_persistent")
 
+        # prepare update meta
+        self.update_meta = UpdateMeta(
+            cookies={},
+            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
+            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
+            boot_dir=str(self.slot_b_boot_dir),
+            standby_slot_mount_point=str(self.slot_b),
+            ref_slot_mount_point=str(self.slot_a),
+        )
+
     def test_legacy_mode(self, mocker: MockerFixture):
-        update_stats_collector = mocker.MagicMock()
         update_phase_tracker = mocker.MagicMock()
 
         builder = LegacyMode(
             update_meta=self.update_meta,
-            stats_collector=update_stats_collector,
+            stats_collector=self._collector,
             update_phase_tracker=update_phase_tracker,
         )
         builder.create_standby_slot()
@@ -124,6 +150,14 @@ class Test_LegacyMode(_Common):
         update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.REGULAR)
         update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.DIRECTORY)
         # update_phase_tracker.assert_any_call(wrapper.StatusProgressPhase.PERSISTENT)
+
+        # check collected update stats
+        _snapshot = self._collector.get_snapshot()
+        assert _snapshot.total_regular_files > 0
+        assert _snapshot.regular_files_processed > 0
+        assert _snapshot.file_size_processed_copy > 0
+        assert _snapshot.file_size_processed_download > 0
+        assert _snapshot.file_size_processed_link > 0
 
         # check slot populating result
         # NOTE: merge contents from slot_b_boot_dir to slot_b
