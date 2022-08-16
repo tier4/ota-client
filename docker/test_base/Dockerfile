@@ -58,4 +58,9 @@ RUN apt-get clean && \
         /var/lib/apt/lists/* \
         /var/tmp/*
 
+# copy and setup the entry_point.sh
+COPY docker/test_base/entry_point.sh /entry_point.sh
+RUN chmod +x /entry_point.sh
+
 WORKDIR /ota-client
+ENTRYPOINT [ "/entry_point.sh" ]
