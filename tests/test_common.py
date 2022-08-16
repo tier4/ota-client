@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 _TEST_FILE_CONTENT = "123456789abcdefgh" * 3000
 _TEST_FILE_SHA256 = sha256(_TEST_FILE_CONTENT.encode()).hexdigest()
-_TEST_FILE_LENGTH = len(_TEST_FILE_CONTENT)
+_TEST_FILE_LENGTH = len(_TEST_FILE_CONTENT.encode())
 
 
 @pytest.fixture
