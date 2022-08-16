@@ -211,18 +211,15 @@ def copytree_identical(src: Path, dst: Path):
             #   src is file but dst is a folder
             #   delete the dst in advance
             if not _dst_f.is_symlink() and _dst_f.is_dir():
+                # if dst is a dir, remove it
                 shutil.rmtree(_dst_f, ignore_errors=True)
             else:
+                # dst is symlink or file
                 _dst_f.unlink(missing_ok=True)
 
             # copy/symlink dst as src
             #   if src is symlink, check symlink, re-link if needed
             if _src_f.is_symlink():
-                if not _dst_f.is_symlink() and _dst_f.is_dir():
-                    # if dst is a dir, remove it
-                    shutil.rmtree(_dst_f, ignore_errors=True)
-                else:  # dst is symlink or file
-                    _dst_f.unlink()
                 _dst_f.symlink_to(os.readlink(_src_f))
             else:
                 # copy/override src to dst
