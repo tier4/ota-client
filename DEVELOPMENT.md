@@ -52,26 +52,27 @@ This `ota-test_base` image contains a copy of pre-build minimum `ota-image` unde
 docker-compose -f ./docker-compose.yml up --no-log-prefix
 ```
 
-### Run specific tests
+### Run specific tests manually by override the command
 
-Adjust the `docker-compose.yml` file to specify the test files you want to run as follow:
-
-```yaml
-   ...
-    command: >
-      bash -c 
-        "mkdir -p /ota-client/certs && 
-         cp -av /ota-client/tests/keys/root.pem /ota-client/certs/1.root.pem && 
-         cp -av /ota-client/tests/keys/interm.pem /ota-client/certs/1.interm.pem && 
-         python3 -m pytest ./tests/<test_files>"
-    container_name: ota-test
-   ...
-```
-
-and then launch the container to run the tests:
+Directly execute pytest is also possible by override the command:
 
 ```bash
-docker-compose -f ./docker-compose.yml up --no-log-prefix
+docker-compose -f ./docker-compose.yml run tester \
+   python3 -m pytest /ota-client/tests/<specific_test_file> [<test_file_2> [...]]
+```
+
+### Run specific tests manually by dropping to bash shell
+
+Directly drop to bash shell in the test base container as follow:
+
+```bash
+docker-compose -f ./docker-compose.yml run tester bash
+```
+
+And then run specific tests as you want:
+
+```bash
+python3 -m pytest /ota-client/tests/<specific_test_file> [<test_file_2> [...]]
 ```
 
 ## How to update protobuf
