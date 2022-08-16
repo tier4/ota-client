@@ -70,7 +70,7 @@ def file_sha256(filename: Union[Path, str]) -> str:
 def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
     if (
         fpath.is_symlink()
-        or not fpath.is_file()
+        or (not fpath.is_file())
         or (fsize is not None and fpath.stat().st_size != fsize)
     ):
         return False
@@ -189,7 +189,7 @@ def copytree_identical(src: Path, dst: Path):
             _src_dir = _cur_dir / _dir
             _dst_dir = _cur_dir_on_dst / _dir
             if _src_dir.is_symlink():  # this "dir" is a symlink to a dir
-                if not _dst_dir.is_symlink() and _dst_dir.is_dir():
+                if (not _dst_dir.is_symlink()) and _dst_dir.is_dir():
                     # if dst is a dir, remove it
                     shutil.rmtree(_dst_dir, ignore_errors=True)
                 else:  # dst is symlink or file
@@ -210,7 +210,7 @@ def copytree_identical(src: Path, dst: Path):
             # prepare dst
             #   src is file but dst is a folder
             #   delete the dst in advance
-            if not _dst_f.is_symlink() and _dst_f.is_dir():
+            if (not _dst_f.is_symlink()) and _dst_f.is_dir():
                 # if dst is a dir, remove it
                 shutil.rmtree(_dst_f, ignore_errors=True)
             else:
@@ -337,7 +337,7 @@ class SimpleTasksTracker:
         *,
         raise_exception: bool = True,
     ):
-        while not self._register_finished or self._done_num < self._in_num:
+        while (not self._register_finished) or self._done_num < self._in_num:
             if self._interrupted.is_set():
                 logger.error(f"{self.title} interrupted, abort")
                 break
