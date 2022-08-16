@@ -18,7 +18,7 @@ jobs:
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
-        uses: coroo/pytest-coverage-commentator@v1.0.2
+        uses: MishaKav/pytest-coverage-comment@v1.1.32
   python_lint_check:
     runs-on: ubuntu-20.04
     timeout-minutes: 3
