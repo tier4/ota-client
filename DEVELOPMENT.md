@@ -36,25 +36,42 @@ sudo python3 app/main.py
 
 ## How to test OTA client on the development PC
 
+### Build the image for testing
+
+Build the `ota-test_base` image for running tests under a container as follow:
+
+```bash
+docker-compose -f ./docker-compose.yml build
+```
+
+This `ota-test_base` image contains a copy of pre-build minimum `ota-image` under `/ota-image` folder, and pre-installed dependencies needed for running and testing OTA client.
+
 ### Run all tests at once
 
 ```bash
-docker-compose up --abort-on-container-exit
+docker-compose -f ./docker-compose.yml up --no-log-prefix
 ```
 
-### Run tests manually
+### Run specific tests
 
-Run server container.
+Adjust the `docker-compose.yml` file to specify the test files you want to run as follow:
 
-```bash
-docker-compose up server
+```yaml
+   ...
+    command: >
+      bash -c 
+        "mkdir -p /ota-client/certs && 
+         cp -av /ota-client/tests/keys/root.pem /ota-client/certs/1.root.pem && 
+         cp -av /ota-client/tests/keys/interm.pem /ota-client/certs/1.interm.pem && 
+         python3 -m pytest ./tests/<test_files>"
+    container_name: ota-test
+   ...
 ```
 
-On the another terminal, run client container and run pytest in the container manually.
+and then launch the container to run the tests:
 
 ```bash
-$ docker-compose -f docker-compose.yml -f docker-compose.dev.yml run --rm client
-# python3 -m pytest tests --cov=app
+docker-compose -f ./docker-compose.yml up --no-log-prefix
 ```
 
 ## How to update protobuf
