@@ -4,46 +4,58 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG KERNEL_VERSION="5.8.0-53-generic"
 ARG BASE_IMG_URL="http://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.1-base-amd64.tar.gz"
 ARG OTA_METADATA_REPO="https://github.com/tier4/ota-metadata"
+ENV OTA_CLIENT_DIR="/ota-client"
+ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
+ENV OTA_IMAGE_DIR="${OTA_IMAGE_SERVER_ROOT}/data"
+ENV VENV="${OTA_CLIENT_DIR}/.venv"
 
-# install deps
-COPY ./app/requirements.txt /tmp/requirements.txt
-COPY ./tests/requirements.txt /tmp/requirements-dev.txt
-RUN apt-get update && \
-    apt-get install -y \
+
+# install required packages
+RUN apt-get update -qq && \
+    apt-get install -y -qq \
         python3 \
-        python3-pip \ 
+        python3-pip \
+        python3-venv \
         wget \
         git \
-        linux-image-${KERNEL_VERSION} && \
-    python3 -m pip install --no-cache-dir -U pip && \
-    python3 -m pip install \
-        --no-cache-dir \
-        -r /tmp/requirements.txt \
-        -r /tmp/requirements-dev.txt
+        linux-image-${KERNEL_VERSION}
+# prepare virtual env
+RUN python3 -m venv ${VENV}
+ENV PATH="${VENV}/bin:${PATH}"
 
 # prepare ubuntu base
-WORKDIR /ota-image
-RUN wget -O /tmp/base_image.tar.gz ${BASE_IMG_URL} && \
-    mkdir -p data && \
-    tar zxf /tmp/base_image.tar.gz -C data && \
+WORKDIR ${OTA_IMAGE_SERVER_ROOT}
+RUN wget -q -O /tmp/base_image.tar.gz ${BASE_IMG_URL} && \
+    mkdir -p ${OTA_IMAGE_DIR} && \
+    tar zxf /tmp/base_image.tar.gz -C ${OTA_IMAGE_DIR} && \
     cp -a \
         /boot/vmlinuz-${KERNEL_VERSION} \
         /boot/initrd.img-${KERNEL_VERSION} \
         /boot/config-${KERNEL_VERSION} \
-        /boot/System.map-${KERNEL_VERSION} data/boot
+        /boot/System.map-${KERNEL_VERSION} ${OTA_IMAGE_DIR}/boot
 
-# create file that needs url escaping
-RUN echo "url escaping is required" > data/a:b:c
+# special treatment to the ota-image: create file that needs url escaping
+RUN echo "url escaping is required" > ${OTA_IMAGE_DIR}/a:b:c
+
+# install otaclient dependencies
+COPY ./app/requirements.txt /tmp/requirements.txt
+COPY ./tests/requirements.txt /tmp/requirements-dev.txt
+RUN python3 -m pip install --no-cache-dir -q -U pip && \
+    python3 -m pip install \
+        --no-cache-dir -q \
+        -r /tmp/requirements.txt \
+        -r /tmp/requirements-dev.txt
 
 # prepare build environment
 RUN git clone ${OTA_METADATA_REPO} && \
-    python3 -m pip install -r ota-metadata/metadata/ota_metadata/requirements.txt
+    python3 -m pip install --no-cache-dir -q \
+        -r ota-metadata/metadata/ota_metadata/requirements.txt
 
 # create ota-baseimage
 RUN python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
         --target-dir data --ignore-file ota-metadata/metadata/ignore.txt
-COPY tests/keys/sign.key sign.key
-COPY tests/keys/sign.pem sign.pem
+COPY ./tests/keys/sign.key sign.key
+COPY ./tests/keys/sign.pem sign.pem
 RUN python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
         --sign-key sign.key \
         --cert-file sign.pem \
@@ -53,14 +65,14 @@ RUN python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
 
 # cleanup
 RUN apt-get clean && \
-        rm -rf \
+    rm -rf \
         /tmp/* \
         /var/lib/apt/lists/* \
         /var/tmp/*
 
 # copy and setup the entry_point.sh
-COPY docker/test_base/entry_point.sh /entry_point.sh
+COPY ./docker/test_base/entry_point.sh /entry_point.sh
 RUN chmod +x /entry_point.sh
 
-WORKDIR /ota-client
+WORKDIR ${OTA_CLIENT_DIR}
 ENTRYPOINT [ "/entry_point.sh" ]
