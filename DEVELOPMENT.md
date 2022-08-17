@@ -49,7 +49,7 @@ This `ota-test_base` image contains a copy of pre-build minimum `ota-image` unde
 ### Run all tests at once
 
 ```bash
-docker-compose -f ./docker-compose.yml up --no-log-prefix
+docker-compose -f ./docker-compose.yml run --rm tester
 ```
 
 ### Run specific tests manually by override the command
@@ -57,7 +57,7 @@ docker-compose -f ./docker-compose.yml up --no-log-prefix
 Directly execute pytest is also possible by override the command:
 
 ```bash
-docker-compose -f ./docker-compose.yml run tester \
+docker-compose -f ./docker-compose.yml run --rm tester \
    python3 -m pytest /ota-client/tests/<specific_test_file> [<test_file_2> [...]]
 ```
 
@@ -66,12 +66,13 @@ docker-compose -f ./docker-compose.yml run tester \
 Directly drop to bash shell in the test base container as follow:
 
 ```bash
-docker-compose -f ./docker-compose.yml run tester bash
+docker-compose -f ./docker-compose.yml run --rm tester bash
 ```
 
 And then run specific tests as you want:
 
 ```bash
+# inside the container
 python3 -m pytest /ota-client/tests/<specific_test_file> [<test_file_2> [...]]
 ```
 
