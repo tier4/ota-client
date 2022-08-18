@@ -1,0 +1,143 @@
+r"""
+CBOOT switch boot mechanism follow(normal successful case):
+* Assume we are at slot-0, and apply an OTA update
+
+condition before OTA update:
+    current slot: 0, ota_status=SUCCESS, slot_in_use=0
+    standby slot: 1
+
+pre-update:
+    1. store current ota_status(=FAILURE)
+    2. store current slot_in_use(=1)
+    3. set standby_slot unbootable
+    4. prepare and mount standby(params: standby_rootfs_dev, erase_standby)
+    5. mount refroot(params: standby_rootfs_dev, current_rootfs_dev, standby_as_ref)
+    6. store standby ota_status(=UPDATING)
+    7. store standby slot_in_use(=1), standby_version
+post-update:
+    1. update extlinux_cfg file
+    2. (if external_rootfs_enabled) populate boot folder to bootdev
+    3. umount all
+    4. switch boot
+first-reboot
+init boot controller
+    1. makr current slot boot successful
+
+condition after OTA update:
+    current slot: 1, ota_status=SUCCESS, slot_in_use=1
+    standby slot: 0
+"""
+from functools import partial
+from pathlib import Path
+from typing import Tuple
+import typing
+import pytest
+import pytest_mock
+
+from app.boot_control.cboot import _CBootControl, Nvbootctrl
+from app.boot_control.common import CMDHelperFuncs
+
+
+class CbootFSM:
+    def __init__(self) -> None:
+        self.current_slot = 0
+        self.standby_slot = 1
+        self.current_slot_bootable = True
+        self.standby_slot_bootable = True
+
+    def mark_current_slot_as(self, bootable: bool):
+        self.current_slot_bootable = bootable
+
+    def mark_standby_slot_as(self, bootable: bool):
+        self.standby_slot_bootable = bootable
+
+    def switch_boot(self):
+        self.current_slot, self.standby_slot = self.standby_slot, self.current_slot
+        self.current_slot_bootable, self.standby_slot_bootable = (
+            self.standby_slot_bootable,
+            self.current_slot_bootable,
+        )
+
+
+class TestCBootControl:
+    """
+    current slot: 0, ota_status=SUCCESS, slot_in_use=0
+    standby slot: 1
+    """
+
+    @pytest.fixture(autouse=True)
+    def cboot_ab_slot(self, ab_slots: Tuple[str, str, str, str]):
+        """
+        # TODO: not considering rootfs on internal storage now
+        boot folder structure for cboot:
+            boot_dir/
+                ota-status/
+                    status
+                    version
+                    slot_in_use
+        """
+        (
+            self.slot_a,
+            self.slot_b,
+            self.slot_a_boot_dir,
+            self.slot_b_boot_dir,
+        ) = map(Path, ab_slots)
+
+        self.current_slot = "0"
+        self._fsm = CbootFSM()
+
+        # TODO: mock cfg
+        # TODO: prepare path
+        # TODO: prepare ota-status dir
+
+    @pytest.fixture(autouse=True)
+    def mock_setup(self, mocker: pytest_mock.MockerFixture, cboot_ab_slot):
+        ###### mocking _CBootControl ######
+        _CBootControl_mock = typing.cast(
+            _CBootControl, mocker.MagicMock(spec=_CBootControl)
+        )
+        # mock methods
+        _CBootControl_mock.get_current_slot.return_value = self._fsm.current_slot
+        _CBootControl_mock.get_standby_slot.return_value = self._fsm.standby_slot
+        _CBootControl_mock.mark_current_slot_boot_successful.side_effect = partial(
+            self._fsm.mark_current_slot_as, True
+        )
+        _CBootControl_mock.set_standby_slot_unbootable.side_effect = partial(
+            self._fsm.mark_standby_slot_as, False
+        )
+        _CBootControl_mock.switch_boot.side_effect = self._fsm.switch_boot
+        _CBootControl_mock.is_current_slot_marked_successful.return_value = (
+            self._fsm.current_slot_bootable
+        )
+        # NOTE: we only test external rootfs
+        _CBootControl_mock.is_external_rootfs_enabled.return_value = True
+        # make update_extlinux_cfg as it
+        _CBootControl_mock.update_extlinux_cfg = _CBootControl.update_extlinux_cfg
+
+        # patch the namespace
+        _CBootControl_path = "app.boot_control.cboot._CBootControl"
+        mocker.patch(_CBootControl_path, _CBootControl_mock)
+        # also bind the cboot_ctrl mock to test instance for latter use
+        self._CBootControl_mock = _CBootControl_mock
+
+        ###### mocking _CMDHelper ######
+        _CMDHelper_mock = typing.cast(
+            CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
+        )
+        _CMDHelper_path = "app.boot_control.common.CMDHelperFuncs"
+        mocker.patch(_CMDHelper_path, _CMDHelper_mock)
+        self._CMDHelper_mock = _CMDHelper_mock
+
+    def test_cboot_normal_update_stage_1(self):
+        """
+        test cboot first time init and apply update before first reboot
+        """
+        # TODO: apply update here
+        assert self._CMDHelper_mock.reboot.assert_called_once()
+        assert self._CBootControl_mock.switch_boot.assert_called_once()
+
+    def test_cboot_normal_update_stage_2(self):
+        """
+        test cboot init after first reboot
+        """
+        pass
