@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 _TEST_FILE_CONTENT = "123456789abcdefgh" * 3000
 _TEST_FILE_SHA256 = sha256(_TEST_FILE_CONTENT.encode()).hexdigest()
-_TEST_FILE_LENGTH = len(_TEST_FILE_CONTENT)
+_TEST_FILE_LENGTH = len(_TEST_FILE_CONTENT.encode())
 
 
 @pytest.fixture
@@ -129,9 +129,14 @@ class Test_copytree_identical:
         """
         a_dir/ # src
             file_1(file)
+            file_2(file)
             dir_1(dir)/
                 dir_1_file_1(file)
             symlink_1(symlink->dir_1)
+            symlink_2(symlink->file_1)
+            symlink_3(symlink->/non-existed)
+            circular_symlink1(symlink->circular_symlink2)
+            circular_symlink2(symlink->circular_symlink1)
         b_dir/ # target
             file_1(dir)/
             dir_1(dir)/
@@ -141,19 +146,33 @@ class Test_copytree_identical:
             x4(dir)/
             x5(symlink->x4)
             x6(file)
-            x7(symlink->123123)
+            x7(symlink->/non-existed)
+            symlink_3(symlink->file_2)
+            circular_symlink1(symlink->circular_symlink2)
+            circular_symlink2(symlink->circular_symlink1)
         """
         # populate a_dir
         a_dir = tmp_path / "a_dir"
         a_dir.mkdir()
         file_1 = a_dir / "file_1"
         file_1.write_text("file_1")
+        file_2 = a_dir / "file_2"
+        file_2.write_text("file_2")
         dir_1 = a_dir / "dir_1"
         dir_1.mkdir()
         dir_1_file_1 = dir_1 / "dir_1_file_1"
         dir_1_file_1.write_text("dir_1_file_1")
         symlink_1 = a_dir / "symlink_1"
         symlink_1.symlink_to("dir_1")
+
+        symlink_2 = a_dir / "symlink_2"
+        symlink_2.symlink_to("file_1")
+        symlink_3 = a_dir / "symlink_3"
+        symlink_3.symlink_to("/non-existed")
+        circular_symlink1 = a_dir / "circular_symlink1"
+        circular_symlink2 = a_dir / "circular_symlink2"
+        circular_symlink1.symlink_to("circular_symlink2")
+        circular_symlink2.symlink_to("circular_symlink1")
 
         # populate b_dir
         b_dir = tmp_path / "b_dir"
@@ -175,7 +194,13 @@ class Test_copytree_identical:
         x6 = b_dir / "x6"
         x6.write_text("123123")
         x7 = b_dir / "x7"
-        x7.symlink_to("123123")
+        x7.symlink_to("/non-existed")
+        symlink_3 = b_dir / "symlink_3"
+        symlink_3.symlink_to("file_2")
+        circular_symlink1 = b_dir / "circular_symlink1"
+        circular_symlink2 = b_dir / "circular_symlink2"
+        circular_symlink1.symlink_to("circular_symlink2")
+        circular_symlink2.symlink_to("circular_symlink1")
 
         # register
         self.a_dir = a_dir

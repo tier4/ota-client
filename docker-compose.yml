@@ -5,13 +5,8 @@ services:
       context: .
       dockerfile: ./docker/test_base/Dockerfile
     image: ota-test_base
-    network_mode: none
-    command: >
-      bash -c 
-        "mkdir -p /ota-client/certs && 
-         cp -av /ota-client/tests/keys/root.pem /ota-client/certs/1.root.pem && 
-         cp -av /ota-client/tests/keys/interm.pem /ota-client/certs/1.interm.pem && 
-         python3 -m pytest ./tests"
+    network_mode: bridge
+    command: "python3 -m pytest ./tests"
     container_name: ota-test
     volumes:
       - ./pyproject.toml:/ota-client/pyproject.toml:ro
