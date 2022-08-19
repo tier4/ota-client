@@ -1,14 +1,19 @@
 import dataclasses
 import time
 from enum import Enum
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from queue import Empty, Queue
-from threading import Event, Lock
+from threading import Event, Lock, Thread
 from typing import Generator, List
 
 from app.configs import config as cfg
 from app.proto import wrapper
+
+from app import log_util
+
+logger = log_util.get_logger(
+    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
 
 
 class RegProcessOperation(Enum):
@@ -65,16 +70,14 @@ class OTAUpdateStatsCollector:
         with self._lock:
             self.clear()
             if not self._started:
-                self._executor = ThreadPoolExecutor(
-                    max_workers=1, thread_name_prefix="update_stats_collector"
-                )
-                self._executor.submit(self.collector)
+                self._collector_thread = Thread(target=self.collector)
+                self._collector_thread.start()
+                self._started = True
 
     def stop(self):
         with self._lock:
             if self._started:
                 self.terminated.set()
-                self._executor.shutdown()
                 self._started = False
 
             self.clear()  # cleanup stats storage

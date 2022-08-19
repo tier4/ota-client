@@ -164,6 +164,7 @@ class Test_copytree_identical:
         dir_1_file_1.write_text("dir_1_file_1")
         symlink_1 = a_dir / "symlink_1"
         symlink_1.symlink_to("dir_1")
+
         symlink_2 = a_dir / "symlink_2"
         symlink_2.symlink_to("file_1")
         symlink_3 = a_dir / "symlink_3"
