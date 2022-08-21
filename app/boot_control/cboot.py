@@ -276,8 +276,6 @@ class CBootController(
     VersionControlMixin,
     BootControllerProtocol,
 ):
-    EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
-
     def __init__(self) -> None:
         self._cboot_control: _CBootControl = _CBootControl()
 
@@ -301,12 +299,11 @@ class CBootController(
         ### current slot
         self.current_ota_status_dir = Path(cfg.OTA_STATUS_DIR)
         self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
-
-        ## standby slot
-        ### NOTE: not yet available before ota update starts
-        self.standby_ota_status_dir = self.standby_slot_mount_point / Path(
-            cfg.OTA_STATUS_DIR
-        ).relative_to("/")
+        ### standby slot
+        # NOTE: might not yet be populated before OTA update applied!
+        self.standby_ota_status_dir = (
+            self.standby_slot_mount_point / "boot" / Path(cfg.OTA_STATUS_DIR).name
+        )
 
         # init ota-status
         self._init_boot_control()
@@ -448,12 +445,9 @@ class CBootController(
                 standby_as_ref=standby_as_ref,
             )
 
-            ### re-populate /boot/ota-status folder
+            ### re-populate /boot/ota-status folder for standby slot
             # create the ota-status folder unconditionally
-            _ota_status_dir = self.standby_slot_mount_point / Path(
-                cfg.OTA_STATUS_DIR
-            ).relative_to("/")
-            _ota_status_dir.mkdir(exist_ok=True, parents=True)
+            self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
             # store status to standby slot
             self._store_standby_ota_status(wrapper.StatusOta.UPDATING)
             self._store_standby_version(version)
@@ -468,7 +462,7 @@ class CBootController(
         try:
             # update extlinux_cfg file
             _extlinux_cfg = self.standby_slot_mount_point / Path(
-                self.EXTLINUX_FILE
+                cfg.EXTLINUX_FILE
             ).relative_to("/")
             self._cboot_control.update_extlinux_cfg(
                 dst=_extlinux_cfg,
