@@ -93,7 +93,7 @@ class TestCBootControl:
         self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dir)
         self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dir)
         self.slot_a_partuuid = ab_slots.slot_a_partuuid
-        self.slot_b_partuuid = ab_slots.slot_b_boot_dir
+        self.slot_b_partuuid = ab_slots.slot_b_partuuid
 
         self.current_slot = "0"
         self._fsm = CbootFSM()
