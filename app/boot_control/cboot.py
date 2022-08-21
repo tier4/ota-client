@@ -221,9 +221,6 @@ class _CBootControl:
     def get_current_rootfs_dev(self) -> str:
         return self.current_rootfs_dev
 
-    def get_current_boot_dev(self) -> str:
-        return self.current_boot_dev
-
     def get_standby_rootfs_dev(self) -> str:
         return self.standby_rootfs_dev
 
@@ -250,15 +247,12 @@ class _CBootControl:
         logger.info(f"switch boot to {slot=}")
         Nvbootctrl.set_active_boot_slot(slot)
 
-    def is_current_slot_bootable(self) -> bool:
-        slot = self.current_slot
-        return Nvbootctrl.is_slot_bootable(slot)
-
     def is_current_slot_marked_successful(self) -> bool:
         slot = self.current_slot
         return Nvbootctrl.is_slot_marked_successful(slot)
 
-    def update_extlinux_cfg(self, dst: Path, ref: Path):
+    @staticmethod
+    def update_extlinux_cfg(dst: Path, ref: Path, standby_slot_partuuid: str):
         def _replace(ma: re.Match, repl: str):
             append_l: str = ma.group(0)
             if append_l.startswith("#"):
@@ -269,7 +263,7 @@ class _CBootControl:
 
             return res
 
-        _repl_func = partial(_replace, repl=f"root={self.standby_slot_partuuid}")
+        _repl_func = partial(_replace, repl=f"root={standby_slot_partuuid}")
         write_to_file_sync(
             dst, re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text())
         )
@@ -477,7 +471,9 @@ class CBootController(
                 self.EXTLINUX_FILE
             ).relative_to("/")
             self._cboot_control.update_extlinux_cfg(
-                dst=_extlinux_cfg, ref=_extlinux_cfg
+                dst=_extlinux_cfg,
+                ref=_extlinux_cfg,
+                standby_slot_partuuid=self._cboot_control.standby_slot_partuuid,
             )
 
             # NOTE: we didn't prepare /boot/ota here,
