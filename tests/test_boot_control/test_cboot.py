@@ -29,7 +29,6 @@ condition after OTA update:
 """
 from functools import partial
 from pathlib import Path
-from typing import Tuple
 import typing
 import pytest
 import pytest_mock
@@ -37,6 +36,8 @@ import pytest_mock
 from app.boot_control.common import CMDHelperFuncs
 
 import logging
+
+from tests.utils import SlotMeta
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +72,13 @@ class TestCBootControl:
     standby slot: 1
     """
 
+    CURRENT_VERSION = "123.x"
     UPDATE_VERSION = "789.x"
+    EXTLNUX_CFG_SLOT_A = Path(__file__).parent / "extlinux.conf_slot_a"
+    EXTLNUX_CFG_SLOT_B = Path(__file__).parent / "extlinux.conf_slot_a"
 
     @pytest.fixture
-    def cboot_ab_slot(self, ab_slots: Tuple[str, str, str, str]):
+    def cboot_ab_slot(self, ab_slots: SlotMeta):
         """
         # TODO: not considering rootfs on internal storage now
         boot folder structure for cboot:
@@ -84,22 +88,33 @@ class TestCBootControl:
                     version
                     slot_in_use
         """
-        (
-            self.slot_a,
-            self.slot_b,
-            self.slot_a_boot_dir,
-            self.slot_b_boot_dir,
-        ) = map(Path, ab_slots)
+        self.slot_a = Path(ab_slots.slot_a)
+        self.slot_b = Path(ab_slots.slot_b)
+        self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dir)
+        self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dir)
+        self.slot_a_partuuid = ab_slots.slot_a_partuuid
+        self.slot_b_partuuid = ab_slots.slot_b_boot_dir
 
         self.current_slot = "0"
         self._fsm = CbootFSM()
 
-        # TODO: mock cfg
-        # TODO: prepare path
-        # TODO: prepare ota-status dir
-        # TODO: mock extlinux file
+        # prepare ota_status dir for slot_a
         self.slot_a_ota_status_dir = self.slot_a_boot_dir / "ota-status"
         self.slot_a_ota_status_dir.mkdir()
+        slot_a_ota_status = self.slot_a_ota_status_dir / "status"
+        slot_a_ota_status.write_text("SUCCESS")
+        slot_a_version = self.slot_a_ota_status_dir / "version"
+        slot_a_version.write_text(self.CURRENT_VERSION)
+        slot_a_slot_in_use = self.slot_a_ota_status_dir / "slot_in_use"
+        slot_a_slot_in_use.write_text("0")
+
+        # prepare extlinux file
+        extlinux_dir = self.slot_a_boot_dir / "extlinux"
+        extlinux_dir.mkdir()
+        extlinux_cfg = extlinux_dir / "extlinux.conf"
+        extlinux_cfg.write_text(self.EXTLNUX_CFG_SLOT_A.read_text())
+
+        # ota_status dir for slot_b
         self.slot_b_ota_status_dir = self.slot_b_boot_dir / "ota-status"
         self.slot_b_ota_status_dir.mkdir()
 
@@ -113,6 +128,7 @@ class TestCBootControl:
         _mocked_cboot_cfg.REF_ROOT_MOUNT_POINT = str(self.slot_a)
         _mocked_cboot_cfg.SEPARATE_BOOT_MOUNT_POINT = str(self.slot_b_boot_dir)
         _mocked_cboot_cfg.OTA_STATUS_DIR = str(self.slot_a_boot_dir / "ota-status")
+        mocker.patch("app.boot_control.cboot.cfg", _mocked_cboot_cfg)
 
     @pytest.fixture(autouse=True)
     def mock_setup(

@@ -1,0 +1,37 @@
+TIMEOUT 30
+DEFAULT Tier4 ISX021 GMSL2 Camera Device Tree Overlay
+
+MENU TITLE L4T boot options
+
+LABEL primary
+      MENU LABEL primary kernel
+      LINUX /boot/Image
+      INITRD /boot/initrd
+      FDT /boot/tegra194-rqx-58g.dtb
+      APPEND ${cbootargs} quiet root=PARTUUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb rw rootwait rootfstype=ext4 console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0 rootfstype=ext4
+
+# When testing a custom kernel, it is recommended that you create a backup of
+# the original kernel and add a new entry to this file so that the device can
+# fallback to the original kernel. To do this:
+#
+# 1, Make a backup of the original kernel
+#      sudo cp /boot/Image /boot/Image.backup
+#
+# 2, Copy your custom kernel into /boot/Image
+#
+# 3, Uncomment below menu setting lines for the original kernel
+#
+# 4, Reboot
+
+# LABEL backup
+#    MENU LABEL backup kernel
+#    LINUX /boot/Image.backup
+#    INITRD /boot/initrd
+#    APPEND ${cbootargs}
+
+LABEL Tier4 ISX021 GMSL2 Camera Device Tree Overlay
+	MENU LABEL Tier4 ISX021 GMSL2 Camera Device Tree Overlay
+	LINUX /boot/Image
+	FDT /boot/kernel_tegra194-rqx-58g-tier4-isx021-gmsl2-camera-device-tree-overlay.dtb
+	INITRD /boot/initrd
+	APPEND ${cbootargs} quiet root=PARTUUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb rw rootwait rootfstype=ext4 console=ttyTCU0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0 rootfstype=ext4
