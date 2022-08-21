@@ -3,9 +3,8 @@ import pytest
 import shutil
 from multiprocessing import Process
 from pathlib import Path
-from typing import Tuple
 
-from tests.utils import run_http_server
+from tests.utils import SlotMeta, run_http_server
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ def run_http_server_subprocess():
 
 
 @pytest.fixture(scope="session")
-def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> Tuple[str, str, str, str]:
+def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     """Prepare AB slots for the whole test session.
 
     The slot_a will be the active slot, it will be populated
@@ -56,13 +55,14 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> Tuple[str, str, str, s
 
     Structure:
         tmp_path_factory:
-            slot_a/ (active, populated with ota-image)
-            slot_b/ (standby)
+            slot_a/ (partuuid=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa) (active, populated with ota-image)
+            slot_b/ (partuuid=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb) (standby)
 
     Return:
         A tuple includes the path to A/B slots respectly.
     """
     # prepare slot_a
+    slot_a_partuuid = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
     slot_a = tmp_path_factory.mktemp("slot_a")
     shutil.copytree(
         Path(OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
@@ -72,7 +72,9 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> Tuple[str, str, str, s
     shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
     # boot dir is a separated folder, so delete the boot folder under slot_a
     shutil.rmtree(slot_a / "boot", ignore_errors=True)
+
     # prepare slot_b
+    slot_b_partuuid = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
     slot_b = tmp_path_factory.mktemp("slot_b")
 
     # boot dir
@@ -81,4 +83,11 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> Tuple[str, str, str, s
         Path(OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
     )
     slot_b_boot_dir = tmp_path_factory.mktemp("slot_b_boot")
-    return str(slot_a), str(slot_b), str(slot_a_boot_dir), str(slot_b_boot_dir)
+    return SlotMeta(
+        slot_a=str(slot_a),
+        slot_b=str(slot_b),
+        slot_a_boot_dir=str(slot_a_boot_dir),
+        slot_b_boot_dir=str(slot_b_boot_dir),
+        slot_a_partuuid=slot_a_partuuid,
+        slot_b_partuuid=slot_b_partuuid,
+    )

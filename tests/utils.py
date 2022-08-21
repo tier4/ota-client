@@ -1,13 +1,24 @@
 import asyncio
+import os
 import http.server as http_server
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from functools import partial
-import os
 from pathlib import Path
 
 import grpc
 from app.common import file_sha256
 from app.proto import otaclient_v2_pb2_grpc as v2_grpc
+
+
+@dataclass
+class SlotMeta:
+    slot_a: str
+    slot_b: str
+    slot_a_boot_dir: str
+    slot_b_boot_dir: str
+    slot_a_partuuid: str
+    slot_b_partuuid: str
 
 
 @asynccontextmanager
