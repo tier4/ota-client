@@ -34,8 +34,11 @@ import typing
 import pytest
 import pytest_mock
 
-from app.boot_control.cboot import _CBootControl, Nvbootctrl
 from app.boot_control.common import CMDHelperFuncs
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CbootFSM:
@@ -44,6 +47,8 @@ class CbootFSM:
         self.standby_slot = 1
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
+
+        self.is_boot_switched = False
 
     def mark_current_slot_as(self, bootable: bool):
         self.current_slot_bootable = bootable
@@ -57,6 +62,7 @@ class CbootFSM:
             self.standby_slot_bootable,
             self.current_slot_bootable,
         )
+        self.is_boot_switched = True
 
 
 class TestCBootControl:
@@ -65,12 +71,14 @@ class TestCBootControl:
     standby slot: 1
     """
 
-    @pytest.fixture(autouse=True)
+    UPDATE_VERSION = "789.x"
+
+    @pytest.fixture
     def cboot_ab_slot(self, ab_slots: Tuple[str, str, str, str]):
         """
         # TODO: not considering rootfs on internal storage now
         boot folder structure for cboot:
-            boot_dir/
+            boot_dir_{slot_a, slot_b}/
                 ota-status/
                     status
                     version
@@ -89,9 +97,32 @@ class TestCBootControl:
         # TODO: mock cfg
         # TODO: prepare path
         # TODO: prepare ota-status dir
+        # TODO: mock extlinux file
+        self.slot_a_ota_status_dir = self.slot_a_boot_dir / "ota-status"
+        self.slot_a_ota_status_dir.mkdir()
+        self.slot_b_ota_status_dir = self.slot_b_boot_dir / "ota-status"
+        self.slot_b_ota_status_dir.mkdir()
+
+    @pytest.fixture
+    def mock_cfg(self, mocker: pytest_mock.MockerFixture, cboot_ab_slot):
+        from app.configs import CBootControlConfig
+
+        mocker.patch("app.boot_control.cboot.BOOTLOADER", "cboot")
+        _mocked_cboot_cfg = CBootControlConfig()
+        _mocked_cboot_cfg.MOUNT_POINT = str(self.slot_b)
+        _mocked_cboot_cfg.REF_ROOT_MOUNT_POINT = str(self.slot_a)
+        _mocked_cboot_cfg.SEPARATE_BOOT_MOUNT_POINT = str(self.slot_b_boot_dir)
+        _mocked_cboot_cfg.OTA_STATUS_DIR = str(self.slot_a_boot_dir / "ota-status")
 
     @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: pytest_mock.MockerFixture, cboot_ab_slot):
+    def mock_setup(
+        self,
+        mocker: pytest_mock.MockerFixture,
+        mock_cfg,
+        cboot_ab_slot,
+    ):
+        from app.boot_control.cboot import _CBootControl
+
         ###### mocking _CBootControl ######
         _CBootControl_mock = typing.cast(
             _CBootControl, mocker.MagicMock(spec=_CBootControl)
@@ -128,16 +159,33 @@ class TestCBootControl:
         mocker.patch(_CMDHelper_path, _CMDHelper_mock)
         self._CMDHelper_mock = _CMDHelper_mock
 
-    def test_cboot_normal_update_stage_1(self):
-        """
-        test cboot first time init and apply update before first reboot
-        """
-        # TODO: apply update here
-        assert self._CMDHelper_mock.reboot.assert_called_once()
-        assert self._CBootControl_mock.switch_boot.assert_called_once()
+        ###### mocking CBootController ######
 
-    def test_cboot_normal_update_stage_2(self):
-        """
-        test cboot init after first reboot
-        """
-        pass
+    def test_cboot_normal_update(self, mocker: pytest_mock.MockerFixture):
+        from app.boot_control.cboot import CBootController
+
+        cboot_controller = CBootController()
+        # TODO: assert normal init
+
+        # test pre-update
+        cboot_controller.pre_update(
+            version=self.UPDATE_VERSION,
+            standby_as_ref=False,  # NOTE: not used
+            erase_standby=False,  # NOTE: not used
+        )
+        # TODO: assert pre-update ota-status
+
+        logger.info("pre-update completed, entering post-update...")
+        # test post-update
+        cboot_controller.post_update()
+        # TODO: assert post-update
+        # TODO: assert extlinux file is updated
+        # TODO: assert separate bootdev is populated
+        assert self._CBootControl_mock.switch_boot.assert_called_once()
+        assert self._CMDHelper_mock.reboot.assert_called_once()
+
+        logger.info("post-update completed, test init after first reboot...")
+        cboot_controller = CBootController()
+        # TODO: assert ota-status to be SUCCESS
+        # TODO: assert fsm status to be switched
+        assert self._fsm.is_boot_switched
