@@ -55,14 +55,14 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
 
     Structure:
         tmp_path_factory:
-            slot_a/ (partuuid=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa) (active, populated with ota-image)
-            slot_b/ (partuuid=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb) (standby)
+            slot_a/ (partuuid(cboot)/uuid(grub)=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa) (active, populated with ota-image)
+            slot_b/ (partuuid(cboot)/uuid(grub)=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb) (standby)
 
     Return:
         A tuple includes the path to A/B slots respectly.
     """
     # prepare slot_a
-    slot_a_partuuid = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
+    slot_a_uuid = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
     slot_a = tmp_path_factory.mktemp("slot_a")
     shutil.copytree(
         Path(OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
@@ -74,20 +74,24 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     shutil.rmtree(slot_a / "boot", ignore_errors=True)
 
     # prepare slot_b
-    slot_b_partuuid = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
+    slot_b_uuid = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
     slot_b = tmp_path_factory.mktemp("slot_b")
 
-    # boot dir
-    slot_a_boot_dir = tmp_path_factory.mktemp("slot_a_boot")
+    # boot dev
+    slot_a_boot_dev = tmp_path_factory.mktemp("slot_a_boot")
+    slot_a_boot_dir = slot_a_boot_dev / "boot"
+    slot_a_boot_dir.mkdir()
     shutil.copytree(
         Path(OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
     )
-    slot_b_boot_dir = tmp_path_factory.mktemp("slot_b_boot")
+    slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
+    slot_b_boot_dir = slot_b_boot_dev / "boot"
+    slot_b_boot_dir.mkdir()
     return SlotMeta(
         slot_a=str(slot_a),
         slot_b=str(slot_b),
-        slot_a_boot_dir=str(slot_a_boot_dir),
-        slot_b_boot_dir=str(slot_b_boot_dir),
-        slot_a_partuuid=slot_a_partuuid,
-        slot_b_partuuid=slot_b_partuuid,
+        slot_a_boot_dev=str(slot_a_boot_dev),
+        slot_b_boot_dev=str(slot_b_boot_dev),
+        slot_a_uuid=slot_a_uuid,
+        slot_b_uuid=slot_b_uuid,
     )

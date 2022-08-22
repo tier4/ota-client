@@ -23,8 +23,8 @@ class _Common:
     def prepare_ab_slots(self, ab_slots: SlotMeta):
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
-        self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dir)
-        self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dir)
+        self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
+        self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
 
         # cleanup slot_b
         shutil.rmtree(self.slot_b, ignore_errors=True)

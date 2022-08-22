@@ -13,12 +13,21 @@ from app.proto import otaclient_v2_pb2_grpc as v2_grpc
 
 @dataclass
 class SlotMeta:
+    """
+    NOTE: For test setup convenience, even for grub controller scheme that
+        doesn't use separate boot dev, we still simluate a separate boot dev.
+
+        For grub controller, we use <boot_dev>/boot/ota-status as ota-partition folder,
+        and use a general boot dir to store ota-partition files.
+        For cboot controller, we use <boot_dev> directly.
+    """
+
     slot_a: str
     slot_b: str
-    slot_a_boot_dir: str
-    slot_b_boot_dir: str
-    slot_a_partuuid: str
-    slot_b_partuuid: str
+    slot_a_boot_dev: str
+    slot_b_boot_dev: str
+    slot_a_uuid: str
+    slot_b_uuid: str
 
 
 @asynccontextmanager
@@ -49,7 +58,9 @@ def compare_dir(left: Path, right: Path):
     _b_glob = set(map(lambda x: x.relative_to(right), right.glob("**/*")))
     if not _a_glob == _b_glob:  # first check paths are identical
         raise ValueError(
-            f"left and right mismatch, diff: {_a_glob.symmetric_difference(_b_glob)}"
+            f"left and right mismatch, diff: {_a_glob.symmetric_difference(_b_glob)}\n"
+            f"{_a_glob=}\n"
+            f"{_b_glob=}"
         )
 
     # then check each file/folder of the path
