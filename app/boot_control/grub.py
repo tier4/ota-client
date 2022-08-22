@@ -19,7 +19,6 @@ from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     re_symlink_atomic,
     read_from_file,
-    subprocess_call,
     subprocess_check_output,
     write_to_file_sync,
 )
@@ -587,7 +586,7 @@ class _GrubControl:
             read_from_file(self.grub_file),
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
         )
-        subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+        CMDHelperFuncs.reboot()
         logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
 
     finalize_update_switch_boot = reprepare_active_ota_partition_file
