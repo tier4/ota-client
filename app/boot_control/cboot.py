@@ -227,6 +227,9 @@ class _CBootControl:
     def get_standby_slot(self) -> str:
         return self.standby_slot
 
+    def get_standby_partuuid(self) -> str:
+        return self.standby_slot_partuuid
+
     def get_standby_boot_dev(self) -> str:
         return self.standby_boot_dev
 
@@ -315,7 +318,7 @@ class CBootController(
         # load ota_status str and slot_in_use
         _ota_status = self._load_current_ota_status()
         _slot_in_use = self._load_current_slot_in_use()
-        current_slot = Nvbootctrl.get_current_slot()
+        current_slot = self._cboot_control.get_current_slot()
         if not (_ota_status and _slot_in_use):
             logger.info("initializing boot control files...")
             _ota_status = wrapper.StatusOta.INITIALIZED
@@ -467,7 +470,7 @@ class CBootController(
             self._cboot_control.update_extlinux_cfg(
                 dst=_extlinux_cfg,
                 ref=_extlinux_cfg,
-                standby_slot_partuuid=self._cboot_control.standby_slot_partuuid,
+                standby_slot_partuuid=self._cboot_control.get_standby_partuuid(),
             )
 
             # NOTE: we didn't prepare /boot/ota here,
