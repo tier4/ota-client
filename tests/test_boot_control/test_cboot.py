@@ -63,9 +63,9 @@ class CbootFSM:
 
     def get_standby_partuuid(self):
         if self.standby_slot == self.SLOT_B:
-            return self.SLOT_B_PARTUUID
+            return f"PARTUUID={self.SLOT_B_PARTUUID}"
         else:
-            return self.SLOT_A_PARTUUID
+            return f"PARTUUID={self.SLOT_A_PARTUUID}"
 
     def is_current_slot_bootable(self):
         return self.current_slot_bootable
@@ -92,7 +92,7 @@ class TestCBootControl:
     CURRENT_VERSION = "123.x"
     UPDATE_VERSION = "789.x"
     EXTLNUX_CFG_SLOT_A = Path(__file__).parent / "extlinux.conf_slot_a"
-    EXTLNUX_CFG_SLOT_B = Path(__file__).parent / "extlinux.conf_slot_a"
+    EXTLNUX_CFG_SLOT_B = Path(__file__).parent / "extlinux.conf_slot_b"
 
     def cfg_for_slot_a_as_current(self):
         """
@@ -238,7 +238,7 @@ class TestCBootControl:
         mocker.patch(_cfg_patch_path, self.cfg_for_slot_a_as_current())
         logger.info("init cboot controller...")
         cboot_controller = CBootController()
-        # TODO: assert normal init
+        assert (self.slot_a / "boot/ota-status/status").read_text() == "SUCCESS"
 
         # test pre-update
         cboot_controller.pre_update(
@@ -271,7 +271,9 @@ class TestCBootControl:
 
         # test post-update
         cboot_controller.post_update()
-        # TODO: assert extlinux file is updated
+        assert (
+            self.slot_b_boot_dev / "boot/extlinux/extlinux.conf"
+        ).read_text() == self.EXTLNUX_CFG_SLOT_B.read_text()
         self._CBootControl_mock.switch_boot.assert_called_once()
         self._CMDHelper_mock.reboot.assert_called_once()
         # assert separate bootdev is populated correctly
