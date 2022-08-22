@@ -485,3 +485,7 @@ class PrepareMountMixin:
     def _umount_all(self, *, ignore_error: bool = False):
         CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
         CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=ignore_error)
+
+
+def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
+    return read_from_file(target, missing_ok=False)

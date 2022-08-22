@@ -14,6 +14,7 @@ from app.boot_control.common import (
     PrepareMountMixin,
     SlotInUseMixin,
     VersionControlMixin,
+    cat_proc_cmdline,
 )
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
@@ -372,7 +373,7 @@ class _GrubControl:
 
     def _get_current_booted_kernel_and_initrd(self) -> Tuple[str, str]:
         """Return the name of booted kernel and initrd."""
-        boot_cmdline = read_from_file("/proc/cmdline")
+        boot_cmdline = cat_proc_cmdline()
         if kernel_ma := re.search(
             r"BOOT_IMAGE=.*(?P<kernel>vmlinuz-(?P<ver>[\w\.\-]*))",
             boot_cmdline,
