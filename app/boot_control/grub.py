@@ -156,8 +156,9 @@ class GrubHelper:
     @classmethod
     def get_entry(cls, grub_cfg: str, *, kernel_ver: str) -> Tuple[int, GrubMenuEntry]:
         for index, entry_ma in enumerate(cls.menuentry_pa.finditer(grub_cfg)):
-            if kernel_ver == entry_ma.group("kernel_ver"):
-                return index, GrubMenuEntry(entry_ma)
+            if _linux := cls.linux_pa.search(entry_ma.group()):
+                if kernel_ver == _linux.group("ver"):
+                    return index, GrubMenuEntry(entry_ma)
 
         raise ValueError(f"requested entry for {kernel_ver} not found")
 
