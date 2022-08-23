@@ -14,14 +14,14 @@ from app.boot_control.common import (
     PrepareMountMixin,
     SlotInUseMixin,
     VersionControlMixin,
+    cat_proc_cmdline,
 )
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     re_symlink_atomic,
-    read_from_file,
-    subprocess_call,
+    read_str_from_file,
     subprocess_check_output,
-    write_to_file_sync,
+    write_str_to_file_sync,
 )
 from app.configs import BOOT_LOADER, grub_cfg as cfg
 from app.errors import (
@@ -304,13 +304,10 @@ class _SymlinkABPartitionDetecter:
     ota-partition -> ota-partition.sda3, then sda2 is the standby slot.
     """
 
-    OTA_PARTITION_FILE: str = cfg.BOOT_OTA_PARTITION_FILE
-    BOOT_DIR: str = cfg.BOOT_DIR
-
     @classmethod
     def _get_active_slot_by_symlink(cls) -> str:
         try:
-            ota_partition_symlink = Path(cls.BOOT_DIR) / cls.OTA_PARTITION_FILE
+            ota_partition_symlink = Path(cfg.BOOT_DIR) / cfg.BOOT_OTA_PARTITION_FILE
             active_ota_partition_file = os.readlink(ota_partition_symlink)
 
             return Path(active_ota_partition_file).suffix.strip(".")
@@ -322,13 +319,13 @@ class _SymlinkABPartitionDetecter:
         """
         NOTE: expecting to have only 2 ota-partition files for A/B partition each.
         """
-        boot_dir = Path(cls.BOOT_DIR)
+        boot_dir = Path(cfg.BOOT_DIR)
         try:
-            ota_partition_fs = list(boot_dir.glob(f"{cls.OTA_PARTITION_FILE}.*"))
+            ota_partition_fs = list(boot_dir.glob(f"{cfg.BOOT_OTA_PARTITION_FILE}.*"))
 
             active_slot = cls._get_active_slot_by_symlink()
             active_slot_ota_partition_file = (
-                boot_dir / f"{cls.OTA_PARTITION_FILE}.{active_slot}"
+                boot_dir / f"{cfg.BOOT_OTA_PARTITION_FILE}.{active_slot}"
             )
             ota_partition_fs.remove(active_slot_ota_partition_file)
 
@@ -352,7 +349,7 @@ class _GrubControl:
         self.standby_slot = ab_detecter.get_standby_slot()
         logger.info(f"{self.active_slot=}, {self.standby_slot=}")
 
-        self.boot_dir = Path("/boot")
+        self.boot_dir = Path(cfg.BOOT_DIR)
         self.grub_file = Path(cfg.GRUB_CFG_PATH)
         self.grub_default_file = Path(cfg.DEFAULT_GRUB_PATH)
 
@@ -373,7 +370,7 @@ class _GrubControl:
 
     def _get_current_booted_kernel_and_initrd(self) -> Tuple[str, str]:
         """Return the name of booted kernel and initrd."""
-        boot_cmdline = read_from_file("/proc/cmdline")
+        boot_cmdline = cat_proc_cmdline()
         if kernel_ma := re.search(
             r"BOOT_IMAGE=.*(?P<kernel>vmlinuz-(?P<ver>[\w\.\-]*))",
             boot_cmdline,
@@ -384,7 +381,7 @@ class _GrubControl:
 
         # lookup the grub file and find the booted entry
         _, entry = GrubHelper.get_entry(
-            read_from_file(self.grub_file), kernel_ver=kernel_ver
+            read_str_from_file(self.grub_file), kernel_ver=kernel_ver
         )
         logger.info(f"detected booted param: {entry.linux=}, {entry.initrd=}")
         return entry.linux, entry.initrd
@@ -465,7 +462,7 @@ class _GrubControl:
             default_entry_idx=active_slot_entry_idx,
         )
         logger.debug(f"generated grub_default: {pformat(_out)}")
-        write_to_file_sync(self.grub_default_file, _out)
+        write_str_to_file_sync(self.grub_default_file, _out)
 
         # step4: populate new active grub_file
         # update the ota.standby entry's rootfs uuid to standby slot's uuid
@@ -476,7 +473,7 @@ class _GrubControl:
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
             rootfs_str=f"root={standby_uuid_str}",
         ):
-            write_to_file_sync(self.active_grub_file, grub_cfg_updated)
+            write_str_to_file_sync(self.active_grub_file, grub_cfg_updated)
             logger.info(f"standby rootfs: {standby_uuid_str}")
             logger.debug(f"generated grub_cfg: {pformat(grub_cfg_updated)}")
         else:
@@ -489,7 +486,7 @@ class _GrubControl:
 
             logger.warning(msg)
             logger.info(f"generated grub_cfg: {pformat(grub_cfg)}")
-            write_to_file_sync(self.active_grub_file, grub_cfg)
+            write_str_to_file_sync(self.active_grub_file, grub_cfg)
 
         # finally, symlink /boot/grub.cfg to ../ota-partition/grub.cfg
         ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
@@ -584,10 +581,10 @@ class _GrubControl:
     def grub_reboot_to_standby(self):
         self.reprepare_standby_ota_partition_file()
         idx, _ = GrubHelper.get_entry(
-            read_from_file(self.grub_file),
+            read_str_from_file(self.grub_file),
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
         )
-        subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+        CMDHelperFuncs.reboot()
         logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
 
     finalize_update_switch_boot = reprepare_active_ota_partition_file
@@ -732,7 +729,7 @@ class GrubController(
         )
 
         # standby partition fstab (to be merged)
-        fstab_standby = read_from_file(standby_slot_fstab, missing_ok=False)
+        fstab_standby = read_str_from_file(standby_slot_fstab, missing_ok=False)
         fstab_standby_dict: Dict[str, re.Match] = {}
         for line in fstab_standby.splitlines():
             if ma := fstab_entry_pa.match(line):
@@ -742,7 +739,7 @@ class GrubController(
 
         # merge entries
         merged: List[str] = []
-        fstab_active = read_from_file(active_slot_fstab, missing_ok=False)
+        fstab_active = read_str_from_file(active_slot_fstab, missing_ok=False)
         for line in fstab_active.splitlines():
             if ma := fstab_entry_pa.match(line):
                 mp = ma.group("mount_point")
@@ -764,7 +761,7 @@ class GrubController(
             merged.append("\t".join(ma.groups()))
 
         # write to standby fstab
-        write_to_file_sync(standby_slot_fstab, "\n".join(merged))
+        write_str_to_file_sync(standby_slot_fstab, "\n".join(merged))
 
     def cleanup_standby_ota_partition_folder(self):
         """Cleanup old files under the standby ota-partition folder."""
