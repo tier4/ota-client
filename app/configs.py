@@ -101,6 +101,7 @@ class CBootControlConfig(BaseConfig):
     BOOTLOADER: str = "cboot"
     CHIP_ID_MODEL_MAP: Dict[int, str] = field(default_factory=lambda: {0x19: "rqx_580"})
     OTA_STATUS_DIR: str = "/boot/ota-status"
+    EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
 
     # mount point
     SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"

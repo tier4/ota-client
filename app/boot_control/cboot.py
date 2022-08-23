@@ -18,10 +18,10 @@ from app.boot_control.common import (
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     copytree_identical,
-    read_from_file,
+    read_str_from_file,
     subprocess_call,
     subprocess_check_output,
-    write_to_file_sync,
+    write_str_to_file_sync,
 )
 from app.configs import BOOT_LOADER, cboot_cfg as cfg
 from app.errors import (
@@ -149,7 +149,7 @@ class _CBootControl:
         try:
             # NOTE: only support rqx-580, rqx-58g platform right now!
             # detect the chip id
-            self.chip_id = read_from_file(self.TEGRA_CHIP_ID_PATH)
+            self.chip_id = read_str_from_file(self.TEGRA_CHIP_ID_PATH)
             if not self.chip_id or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
                 raise NotImplementedError(
                     f"unsupported platform found (chip_id: {self.chip_id}), abort"
@@ -275,7 +275,7 @@ class _CBootControl:
             return res
 
         _repl_func = partial(_replace, repl=f"root={partuuid_str}")
-        write_to_file_sync(
+        write_str_to_file_sync(
             dst, re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text())
         )
 
