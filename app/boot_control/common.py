@@ -381,6 +381,14 @@ class CMDHelperFuncs:
             logger.exception("failed to reboot")
             raise
 
+    @classmethod
+    def grub_reboot(cls, idx: int):
+        try:
+            subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+        except CalledProcessError:
+            logger.exception(f"failed to grub-reboot to {idx}")
+            raise
+
 
 ###### helper mixins ######
 class SlotInUseMixin:

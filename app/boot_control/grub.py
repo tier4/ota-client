@@ -580,7 +580,7 @@ class _GrubControl:
             read_str_from_file(self.grub_file),
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
         )
-        CMDHelperFuncs.reboot()
+        CMDHelperFuncs.grub_reboot(idx)
         logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
 
     finalize_update_switch_boot = reprepare_active_ota_partition_file
