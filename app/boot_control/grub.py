@@ -53,25 +53,23 @@ class GrubMenuEntry:
     initrd: initrd.img-<ver>
     """
 
-    linux_ver: str
-    title: str
-    menuentry: str
     linux: str
+    linux_ver: str
+    menuentry: str
     initrd: str
-    rootfs_str: str
+    rootfs_uuid_str: str
 
     def __init__(self, ma: re.Match) -> None:
         """
         NOTE: check GrubHelper for capturing group definition
         """
-        self.linux_ver = ma.group("kernel_ver")
-        self.title = ma.group("title")
         self.menuentry = ma.group("menu_entry")
 
         # get linux and initrd from menuentry
-        if linux_ma := GrubHelper.linux_pa.search(self.menuentry):
-            self.linux = linux_ma.group("kernel")
-            self.rootfs_uuid_str = linux_ma.group("rootfs_str")
+        if _linux := GrubHelper.linux_pa.search(self.menuentry):
+            self.linux_ver = _linux.group("ver")
+            self.linux = Path(_linux.group("kernel_path")).name
+            self.rootfs_uuid_str = _linux.group("rootfs_uuid_str")
         if initrd_ma := GrubHelper.initrd_pa.search(self.menuentry):
             self.initrd = initrd_ma.group("initrd")
 
@@ -90,11 +88,11 @@ class GrubHelper:
     )
     linux_pa: ClassVar[re.Pattern] = re.compile(
         r"(?P<load_linux>^\s+linux\s+(?P<kernel_path>.*vmlinuz-(?P<ver>[\.\w\-]*)))"
-        r"\s+(?P<cmdline>.*(?P<rootfs>root=(?P<rootfs_str>[\w\-=]*)).*)\s*$",
+        r"\s+(?P<cmdline>.*(?P<rootfs>root=(?P<rootfs_uuid_str>[\w\-=]*)).*)\s*$",
         re.MULTILINE,
     )
     rootfs_pa: ClassVar[re.Pattern] = re.compile(
-        r"(?P<rootfs>root=(?P<rootfs_str>[\w\-=]*))"
+        r"(?P<rootfs>root=(?P<rootfs_uuid_str>[\w\-=]*))"
     )
 
     initrd_pa: ClassVar[re.Pattern] = re.compile(
@@ -128,7 +126,8 @@ class GrubHelper:
         Params:
             grub_cfg: input grub_cfg str
             kernel_ver: kernel version str for the target entry
-            rootfs_str: a str that indicates which rootfs device to use
+            rootfs_str: a str that indicates which rootfs device to use,
+                like root=UUID=<uuid>
         """
         new_entry_block: Optional[str] = None
         entry_l, entry_r = None, None
