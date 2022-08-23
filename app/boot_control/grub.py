@@ -19,9 +19,9 @@ from app.boot_control.common import (
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     re_symlink_atomic,
-    read_from_file,
+    read_str_from_file,
     subprocess_check_output,
-    write_to_file_sync,
+    write_str_to_file_sync,
 )
 from app.configs import BOOT_LOADER, grub_cfg as cfg
 from app.errors import (
@@ -53,25 +53,23 @@ class GrubMenuEntry:
     initrd: initrd.img-<ver>
     """
 
-    linux_ver: str
-    title: str
-    menuentry: str
     linux: str
+    linux_ver: str
+    menuentry: str
     initrd: str
-    rootfs_str: str
+    rootfs_uuid_str: str
 
     def __init__(self, ma: re.Match) -> None:
         """
         NOTE: check GrubHelper for capturing group definition
         """
-        self.linux_ver = ma.group("kernel_ver")
-        self.title = ma.group("title")
         self.menuentry = ma.group("menu_entry")
 
         # get linux and initrd from menuentry
-        if linux_ma := GrubHelper.linux_pa.search(self.menuentry):
-            self.linux = linux_ma.group("kernel")
-            self.rootfs_uuid_str = linux_ma.group("rootfs_str")
+        if _linux := GrubHelper.linux_pa.search(self.menuentry):
+            self.linux_ver = _linux.group("ver")
+            self.linux = Path(_linux.group("kernel_path")).name
+            self.rootfs_uuid_str = _linux.group("rootfs_uuid_str")
         if initrd_ma := GrubHelper.initrd_pa.search(self.menuentry):
             self.initrd = initrd_ma.group("initrd")
 
@@ -83,20 +81,20 @@ class GrubHelper:
     menuentry_pa: ClassVar[re.Pattern] = re.compile(
         # whole capture group
         r"^(?P<menu_entry>\s*menuentry\s+"
-        # menuentry title:
-        # format: <os>, with Linux <kernel_ver>[ [<recovery>] [<os_probe>]]
-        r"'(?P<title>[^,]*, +with +Linux +(?P<kernel_ver>[^'\s]*)(?P<other>( *\([^\)]*\))*)?)'"
         r"[^\{]*"  # menuentry options
         r"\{(?P<entry>[^\}]*)\}"  # menuentry block
         r")",  # end of whole capture
         re.MULTILINE | re.DOTALL,
     )
     linux_pa: ClassVar[re.Pattern] = re.compile(
-        r"(?P<left>^\s+linux.*(?P<kernel>vmlinuz-(?P<ver>[\.\w\-]*)) +.*)"
-        r"(?P<rootfs>root=(?P<rootfs_str>[\w\-=]*))"
-        r"(?P<right>.*)",
+        r"(?P<load_linux>^\s+linux\s+(?P<kernel_path>.*vmlinuz-(?P<ver>[\.\w\-]*)))"
+        r"\s+(?P<cmdline>.*(?P<rootfs>root=(?P<rootfs_uuid_str>[\w\-=]*)).*)\s*$",
         re.MULTILINE,
     )
+    rootfs_pa: ClassVar[re.Pattern] = re.compile(
+        r"(?P<rootfs>root=(?P<rootfs_uuid_str>[\w\-=]*))"
+    )
+
     initrd_pa: ClassVar[re.Pattern] = re.compile(
         r"^\s+initrd.*(?P<initrd>initrd.img-(?P<ver>[\.\w-]*))", re.MULTILINE
     )
@@ -120,49 +118,74 @@ class GrubHelper:
 
     @classmethod
     def update_entry_rootfs(
-        cls, grub_cfg: str, *, kernel_ver: str, rootfs_str: str
+        cls,
+        grub_cfg: str,
+        *,
+        kernel_ver: str,
+        rootfs_str: str,
+        start: int = 0,
     ) -> Optional[str]:
-        """Read in grub_cfg and return updated one.
-        NOTE: we only update normal entry for the <kernel_ver>,
-        recovery mode or other special entry will be ignored.
+        """Read in grub_cfg, update all entries' rootfs with <rootfs_str>,
+            and then return the updated one.
 
         Params:
             grub_cfg: input grub_cfg str
             kernel_ver: kernel version str for the target entry
-            rootfs_str: a str that indicates which rootfs device to use
+            rootfs_str: a str that indicates which rootfs device to use,
+                like root=UUID=<uuid>
         """
         new_entry_block: Optional[str] = None
         entry_l, entry_r = None, None
+        is_updated = False
 
         # loop over normal entry, find the target entry,
         # and then replace the rootfs string
-        for entry in cls.menuentry_pa.finditer(grub_cfg):
+        for entry in cls.menuentry_pa.finditer(grub_cfg, start):
             entry_l, entry_r = entry.span()
             entry_block = entry.group()
-            # NOTE: ignore recovery entry
-            if entry.group("kernel_ver") == kernel_ver and not entry.group("other"):
-                if linux_line := cls.linux_pa.search(entry_block):
-                    linux_line_l, linux_line_r = linux_line.span()
-                    new_linux_line = "%s%s%s" % (
-                        linux_line.group("left"),
-                        rootfs_str,
-                        linux_line.group("right"),
+            # parse the entry block
+            if _linux := cls.linux_pa.search(entry_block):
+                if _linux.group("ver") == kernel_ver:
+                    linux_line_l, linux_line_r = _linux.span()
+                    _new_linux_line, _count = cls.rootfs_pa.subn(
+                        rootfs_str, _linux.group()
                     )
-                    new_entry_block = (
-                        f"{entry_block[:linux_line_l]}"
-                        f"{new_linux_line}"
-                        f"{entry_block[linux_line_r:]}"
-                    )
-                    break
+                    if _count == 1:
+                        # replace rootfs string
+                        new_entry_block = "%s%s%s" % (
+                            entry_block[:linux_line_l],
+                            _new_linux_line,
+                            entry_block[linux_line_r:],
+                        )
+                        is_updated = True
+                        break
 
-        if new_entry_block is not None:
-            return f"{grub_cfg[:entry_l]}{new_entry_block}{grub_cfg[entry_r:]}"
+        if is_updated and new_entry_block is not None:
+            updated_grub_cfg = (
+                f"{grub_cfg[:entry_l]}{new_entry_block}{grub_cfg[entry_r:]}"
+            )
+
+            # keep finding next entry
+            return cls.update_entry_rootfs(
+                updated_grub_cfg,
+                kernel_ver=kernel_ver,
+                rootfs_str=rootfs_str,
+                start=len(grub_cfg[:entry_l]) + len(new_entry_block),
+            )
+        else:  # no more new matched entry, return the input grub_cfg
+            return grub_cfg
 
     @classmethod
     def get_entry(cls, grub_cfg: str, *, kernel_ver: str) -> Tuple[int, GrubMenuEntry]:
+        """Find the FIRST entry that matches the <kernel_ver>.
+        NOTE: assume that the FIRST matching entry is the normal entry,
+              which is correct in most cases(recovery entry will always
+              be after the normal boot entry.)
+        """
         for index, entry_ma in enumerate(cls.menuentry_pa.finditer(grub_cfg)):
-            if kernel_ver == entry_ma.group("kernel_ver"):
-                return index, GrubMenuEntry(entry_ma)
+            if _linux := cls.linux_pa.search(entry_ma.group()):
+                if kernel_ver == _linux.group("ver"):
+                    return index, GrubMenuEntry(entry_ma)
 
         raise ValueError(f"requested entry for {kernel_ver} not found")
 
@@ -381,7 +404,7 @@ class _GrubControl:
 
         # lookup the grub file and find the booted entry
         _, entry = GrubHelper.get_entry(
-            read_from_file(self.grub_file), kernel_ver=kernel_ver
+            read_str_from_file(self.grub_file), kernel_ver=kernel_ver
         )
         logger.info(f"detected booted param: {entry.linux=}, {entry.initrd=}")
         return entry.linux, entry.initrd
@@ -462,7 +485,7 @@ class _GrubControl:
             default_entry_idx=active_slot_entry_idx,
         )
         logger.debug(f"generated grub_default: {pformat(_out)}")
-        write_to_file_sync(self.grub_default_file, _out)
+        write_str_to_file_sync(self.grub_default_file, _out)
 
         # step4: populate new active grub_file
         # update the ota.standby entry's rootfs uuid to standby slot's uuid
@@ -473,7 +496,7 @@ class _GrubControl:
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
             rootfs_str=f"root={standby_uuid_str}",
         ):
-            write_to_file_sync(self.active_grub_file, grub_cfg_updated)
+            write_str_to_file_sync(self.active_grub_file, grub_cfg_updated)
             logger.info(f"standby rootfs: {standby_uuid_str}")
             logger.debug(f"generated grub_cfg: {pformat(grub_cfg_updated)}")
         else:
@@ -486,7 +509,7 @@ class _GrubControl:
 
             logger.warning(msg)
             logger.info(f"generated grub_cfg: {pformat(grub_cfg)}")
-            write_to_file_sync(self.active_grub_file, grub_cfg)
+            write_str_to_file_sync(self.active_grub_file, grub_cfg)
 
         # finally, symlink /boot/grub.cfg to ../ota-partition/grub.cfg
         ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
@@ -581,10 +604,10 @@ class _GrubControl:
     def grub_reboot_to_standby(self):
         self.reprepare_standby_ota_partition_file()
         idx, _ = GrubHelper.get_entry(
-            read_from_file(self.grub_file),
+            read_str_from_file(self.grub_file),
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
         )
-        CMDHelperFuncs.reboot()
+        CMDHelperFuncs.grub_reboot(idx)
         logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
 
     finalize_update_switch_boot = reprepare_active_ota_partition_file
@@ -729,7 +752,7 @@ class GrubController(
         )
 
         # standby partition fstab (to be merged)
-        fstab_standby = read_from_file(standby_slot_fstab, missing_ok=False)
+        fstab_standby = read_str_from_file(standby_slot_fstab, missing_ok=False)
         fstab_standby_dict: Dict[str, re.Match] = {}
         for line in fstab_standby.splitlines():
             if ma := fstab_entry_pa.match(line):
@@ -739,7 +762,7 @@ class GrubController(
 
         # merge entries
         merged: List[str] = []
-        fstab_active = read_from_file(active_slot_fstab, missing_ok=False)
+        fstab_active = read_str_from_file(active_slot_fstab, missing_ok=False)
         for line in fstab_active.splitlines():
             if ma := fstab_entry_pa.match(line):
                 mp = ma.group("mount_point")
@@ -761,7 +784,7 @@ class GrubController(
             merged.append("\t".join(ma.groups()))
 
         # write to standby fstab
-        write_to_file_sync(standby_slot_fstab, "\n".join(merged))
+        write_str_to_file_sync(standby_slot_fstab, "\n".join(merged))
 
     def cleanup_standby_ota_partition_folder(self):
         """Cleanup old files under the standby ota-partition folder."""

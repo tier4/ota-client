@@ -14,7 +14,7 @@ except ModuleNotFoundError:
     sys.path.insert(0, str(project_dir))
 
 from app import log_util
-from app.common import read_from_file, write_to_file_sync
+from app.common import read_str_from_file, write_str_to_file_sync
 from app.configs import config as cfg
 from app.ota_client_service import launch_otaclient_grpc_server
 
@@ -31,13 +31,13 @@ def _check_other_otaclient():
     # create a lock file to prevent multiple ota-client instances start
     lock_file = Path("/var/run/ota-client.lock")
     our_pid = os.getpid()
-    if pid := read_from_file(lock_file):
+    if pid := read_str_from_file(lock_file):
         # running process will have a folder under /proc
         if Path(f"/proc/{pid}").is_dir():
             msg = f"another instance of ota-client(pid: {pid}) is running, abort"
             sys.exit(msg)
     # write our pid to the lock file
-    write_to_file_sync(lock_file, f"{our_pid}")
+    write_str_to_file_sync(lock_file, f"{our_pid}")
 
 
 def main():

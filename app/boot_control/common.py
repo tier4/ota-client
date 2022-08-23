@@ -7,10 +7,10 @@ from typing import Callable, List, Optional, Union
 from app import log_util
 from app.configs import config as cfg
 from app.common import (
-    read_from_file,
+    read_str_from_file,
     subprocess_call,
     subprocess_check_output,
-    write_to_file_sync,
+    write_str_to_file_sync,
 )
 from app.proto import wrapper
 
@@ -381,6 +381,14 @@ class CMDHelperFuncs:
             logger.exception("failed to reboot")
             raise
 
+    @classmethod
+    def grub_reboot(cls, idx: int):
+        try:
+            subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+        except CalledProcessError:
+            logger.exception(f"failed to grub-reboot to {idx}")
+            raise
+
 
 ###### helper mixins ######
 class SlotInUseMixin:
@@ -388,13 +396,17 @@ class SlotInUseMixin:
     standby_ota_status_dir: Path
 
     def _store_current_slot_in_use(self, _slot: str):
-        write_to_file_sync(self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
+        write_str_to_file_sync(
+            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
+        )
 
     def _store_standby_slot_in_use(self, _slot: str):
-        write_to_file_sync(self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot)
+        write_str_to_file_sync(
+            self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
+        )
 
     def _load_current_slot_in_use(self) -> Optional[str]:
-        if res := read_from_file(
+        if res := read_str_from_file(
             self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, default=""
         ):
             return res
@@ -406,17 +418,17 @@ class OTAStatusMixin:
     ota_status: wrapper.StatusOta
 
     def _store_current_ota_status(self, _status: wrapper.StatusOta):
-        write_to_file_sync(
+        write_str_to_file_sync(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
     def _store_standby_ota_status(self, _status: wrapper.StatusOta):
-        write_to_file_sync(
+        write_str_to_file_sync(
             self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
     def _load_current_ota_status(self) -> Optional[wrapper.StatusOta]:
-        if _status_str := read_from_file(
+        if _status_str := read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
         ).upper():
             try:
@@ -433,13 +445,13 @@ class VersionControlMixin:
     standby_ota_status_dir: Path
 
     def _store_standby_version(self, _version: str):
-        write_to_file_sync(
+        write_str_to_file_sync(
             self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
             _version,
         )
 
     def load_version(self) -> str:
-        _version = read_from_file(
+        _version = read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
             missing_ok=True,
             default="",
@@ -488,4 +500,4 @@ class PrepareMountMixin:
 
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
-    return read_from_file(target, missing_ok=False)
+    return read_str_from_file(target, missing_ok=False)

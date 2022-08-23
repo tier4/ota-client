@@ -61,7 +61,7 @@ class CbootFSM:
     def get_standby_slot(self):
         return self.standby_slot
 
-    def get_standby_partuuid(self):
+    def get_standby_partuuid_str(self):
         if self.standby_slot == self.SLOT_B:
             return f"PARTUUID={self.SLOT_B_PARTUUID}"
         else:
@@ -191,8 +191,8 @@ class TestCBootControl:
         _CBootControl_mock.get_standby_slot = mocker.MagicMock(
             wraps=self._fsm.get_standby_slot
         )
-        _CBootControl_mock.get_standby_partuuid = mocker.MagicMock(
-            wraps=self._fsm.get_standby_partuuid
+        _CBootControl_mock.get_standby_rootfs_partuuid_str = mocker.MagicMock(
+            wraps=self._fsm.get_standby_partuuid_str
         )
         _CBootControl_mock.mark_current_slot_boot_successful.side_effect = partial(
             self._fsm.mark_current_slot_as, True
