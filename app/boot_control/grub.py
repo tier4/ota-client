@@ -83,20 +83,20 @@ class GrubHelper:
     menuentry_pa: ClassVar[re.Pattern] = re.compile(
         # whole capture group
         r"^(?P<menu_entry>\s*menuentry\s+"
-        # menuentry title:
-        # format: <os>, with Linux <kernel_ver>[ [<recovery>] [<os_probe>]]
-        r"'(?P<title>[^,]*, +with +Linux +(?P<kernel_ver>[^'\s]*)(?P<other>( *\([^\)]*\))*)?)'"
         r"[^\{]*"  # menuentry options
         r"\{(?P<entry>[^\}]*)\}"  # menuentry block
         r")",  # end of whole capture
         re.MULTILINE | re.DOTALL,
     )
     linux_pa: ClassVar[re.Pattern] = re.compile(
-        r"(?P<left>^\s+linux.*(?P<kernel>vmlinuz-(?P<ver>[\.\w\-]*)) +.*)"
-        r"(?P<rootfs>root=(?P<rootfs_str>[\w\-=]*))"
-        r"(?P<right>.*)",
+        r"(?P<load_linux>^\s+linux\s+(?P<kernel_path>.*vmlinuz-(?P<ver>[\.\w\-]*)))"
+        r"\s+(?P<cmdline>.*(?P<rootfs>root=(?P<rootfs_str>[\w\-=]*)).*)\s*$",
         re.MULTILINE,
     )
+    rootfs_pa: ClassVar[re.Pattern] = re.compile(
+        r"(?P<rootfs>root=(?P<rootfs_str>[\w\-=]*))"
+    )
+
     initrd_pa: ClassVar[re.Pattern] = re.compile(
         r"^\s+initrd.*(?P<initrd>initrd.img-(?P<ver>[\.\w-]*))", re.MULTILINE
     )
