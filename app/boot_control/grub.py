@@ -122,9 +122,8 @@ class GrubHelper:
     def update_entry_rootfs(
         cls, grub_cfg: str, *, kernel_ver: str, rootfs_str: str
     ) -> Optional[str]:
-        """Read in grub_cfg and return updated one.
-        NOTE: we only update normal entry for the <kernel_ver>,
-        recovery mode or other special entry will be ignored.
+        """Read in grub_cfg, update all entries' rootfs with <rootfs_str>,
+            and then return the updated one.
 
         Params:
             grub_cfg: input grub_cfg str
@@ -139,21 +138,17 @@ class GrubHelper:
         for entry in cls.menuentry_pa.finditer(grub_cfg):
             entry_l, entry_r = entry.span()
             entry_block = entry.group()
-            # NOTE: ignore recovery entry
-            if entry.group("kernel_ver") == kernel_ver and not entry.group("other"):
-                if linux_line := cls.linux_pa.search(entry_block):
-                    linux_line_l, linux_line_r = linux_line.span()
-                    new_linux_line = "%s%s%s" % (
-                        linux_line.group("left"),
-                        rootfs_str,
-                        linux_line.group("right"),
+            # parse the entry block
+            if _linux := cls.linux_pa.search(entry_block):
+                if _linux.group("ver") == kernel_ver:
+                    linux_line_l, linux_line_r = _linux.span()
+                    _linux_line = _linux.group()
+                    # replace rootfs string
+                    new_entry_block = "%s%s%s" % (
+                        entry_block[:linux_line_l],
+                        cls.rootfs_pa.sub(rootfs_str, _linux_line),
+                        entry_block[linux_line_r:],
                     )
-                    new_entry_block = (
-                        f"{entry_block[:linux_line_l]}"
-                        f"{new_linux_line}"
-                        f"{entry_block[linux_line_r:]}"
-                    )
-                    break
 
         if new_entry_block is not None:
             return f"{grub_cfg[:entry_l]}{new_entry_block}{grub_cfg[entry_r:]}"
