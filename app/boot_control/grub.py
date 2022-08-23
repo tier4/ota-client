@@ -118,7 +118,12 @@ class GrubHelper:
 
     @classmethod
     def update_entry_rootfs(
-        cls, grub_cfg: str, *, kernel_ver: str, rootfs_str: str
+        cls,
+        grub_cfg: str,
+        *,
+        kernel_ver: str,
+        rootfs_str: str,
+        start: int = 0,
     ) -> Optional[str]:
         """Read in grub_cfg, update all entries' rootfs with <rootfs_str>,
             and then return the updated one.
@@ -131,26 +136,44 @@ class GrubHelper:
         """
         new_entry_block: Optional[str] = None
         entry_l, entry_r = None, None
+        is_updated = False
 
         # loop over normal entry, find the target entry,
         # and then replace the rootfs string
-        for entry in cls.menuentry_pa.finditer(grub_cfg):
+        for entry in cls.menuentry_pa.finditer(grub_cfg, start):
             entry_l, entry_r = entry.span()
             entry_block = entry.group()
             # parse the entry block
             if _linux := cls.linux_pa.search(entry_block):
                 if _linux.group("ver") == kernel_ver:
                     linux_line_l, linux_line_r = _linux.span()
-                    _linux_line = _linux.group()
-                    # replace rootfs string
-                    new_entry_block = "%s%s%s" % (
-                        entry_block[:linux_line_l],
-                        cls.rootfs_pa.sub(rootfs_str, _linux_line),
-                        entry_block[linux_line_r:],
+                    _new_linux_line, _count = cls.rootfs_pa.subn(
+                        rootfs_str, _linux.group()
                     )
+                    if _count == 1:
+                        # replace rootfs string
+                        new_entry_block = "%s%s%s" % (
+                            entry_block[:linux_line_l],
+                            _new_linux_line,
+                            entry_block[linux_line_r:],
+                        )
+                        is_updated = True
+                        break
 
-        if new_entry_block is not None:
-            return f"{grub_cfg[:entry_l]}{new_entry_block}{grub_cfg[entry_r:]}"
+        if is_updated and new_entry_block is not None:
+            updated_grub_cfg = (
+                f"{grub_cfg[:entry_l]}{new_entry_block}{grub_cfg[entry_r:]}"
+            )
+
+            # keep finding next entry
+            return cls.update_entry_rootfs(
+                updated_grub_cfg,
+                kernel_ver=kernel_ver,
+                rootfs_str=rootfs_str,
+                start=len(grub_cfg[:entry_l]) + len(new_entry_block),
+            )
+        else:  # no more new matched entry, return the input grub_cfg
+            return grub_cfg
 
     @classmethod
     def get_entry(cls, grub_cfg: str, *, kernel_ver: str) -> Tuple[int, GrubMenuEntry]:
