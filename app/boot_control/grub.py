@@ -177,6 +177,11 @@ class GrubHelper:
 
     @classmethod
     def get_entry(cls, grub_cfg: str, *, kernel_ver: str) -> Tuple[int, GrubMenuEntry]:
+        """Find the FIRST entry that matches the <kernel_ver>.
+        NOTE: assume that the FIRST matching entry is the normal entry,
+              which is correct in most cases(recovery entry will always
+              be after the normal boot entry.)
+        """
         for index, entry_ma in enumerate(cls.menuentry_pa.finditer(grub_cfg)):
             if _linux := cls.linux_pa.search(entry_ma.group()):
                 if kernel_ver == _linux.group("ver"):
