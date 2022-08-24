@@ -105,7 +105,7 @@ class TestCBootControl:
         _mocked_cboot_cfg.REF_ROOT_MOUNT_POINT = str(self.slot_a)
         # NOTE: SEPARATE_BOOT_MOUNT_POINT is the root of the boot device!
         _mocked_cboot_cfg.SEPARATE_BOOT_MOUNT_POINT = str(self.slot_b_boot_dev)
-        _mocked_cboot_cfg.OTA_STATUS_DIR = str(self.slot_a / "boot/ota-status")
+        _mocked_cboot_cfg.ACTIVE_ROOTFS_PATH = str(self.slot_a)
         return _mocked_cboot_cfg
 
     def cfg_for_slot_b_as_current(self):
@@ -116,7 +116,7 @@ class TestCBootControl:
         _mocked_cboot_cfg.REF_ROOT_MOUNT_POINT = str(self.slot_b)
         # NOTE: SEPARATE_BOOT_MOUNT_POINT is the root of the boot device!
         _mocked_cboot_cfg.SEPARATE_BOOT_MOUNT_POINT = str(self.slot_a_boot_dev)
-        _mocked_cboot_cfg.OTA_STATUS_DIR = str(self.slot_b / "boot/ota-status")
+        _mocked_cboot_cfg.ACTIVE_ROOTFS_PATH = str(self.slot_b)
         return _mocked_cboot_cfg
 
     @pytest.fixture(autouse=True)
