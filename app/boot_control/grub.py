@@ -20,6 +20,7 @@ from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     re_symlink_atomic,
     read_str_from_file,
+    subprocess_call,
     subprocess_check_output,
     write_str_to_file_sync,
 )
@@ -136,7 +137,6 @@ class GrubHelper:
         """
         new_entry_block: Optional[str] = None
         entry_l, entry_r = None, None
-        is_updated = False
 
         # loop over normal entry, find the target entry,
         # and then replace the rootfs string
@@ -152,15 +152,14 @@ class GrubHelper:
                     )
                     if _count == 1:
                         # replace rootfs string
-                        new_entry_block = "%s%s%s" % (
-                            entry_block[:linux_line_l],
-                            _new_linux_line,
-                            entry_block[linux_line_r:],
+                        new_entry_block = (
+                            f"{entry_block[:linux_line_l]}"
+                            f"{_new_linux_line}"
+                            f"{entry_block[linux_line_r:]}"
                         )
-                        is_updated = True
                         break
 
-        if is_updated and new_entry_block is not None:
+        if new_entry_block is not None:
             updated_grub_cfg = (
                 f"{grub_cfg[:entry_l]}{new_entry_block}{grub_cfg[entry_r:]}"
             )
@@ -218,14 +217,22 @@ class GrubHelper:
 
         return "\n".join(res)
 
-    @classmethod
-    def grub_mkconfig(cls) -> str:
+    @staticmethod
+    def grub_mkconfig() -> str:
         try:
             return subprocess_check_output("grub-mkconfig", raise_exception=True)
         except CalledProcessError as e:
             raise ValueError(
                 f"grub-mkconfig failed: {e.returncode=}, {e.stderr=}, {e.stdout=}"
             )
+
+    @staticmethod
+    def grub_reboot(idx: int):
+        try:
+            subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+        except CalledProcessError:
+            logger.exception(f"failed to grub-reboot to {idx}")
+            raise
 
 
 class GrubABPartitionDetecter:
@@ -607,7 +614,7 @@ class _GrubControl:
             read_str_from_file(self.grub_file),
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
         )
-        CMDHelperFuncs.grub_reboot(idx)
+        GrubHelper.grub_reboot(idx)
         logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
 
     finalize_update_switch_boot = reprepare_active_ota_partition_file
