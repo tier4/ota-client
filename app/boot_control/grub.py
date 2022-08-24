@@ -137,7 +137,6 @@ class GrubHelper:
         """
         new_entry_block: Optional[str] = None
         entry_l, entry_r = None, None
-        is_updated = False
 
         # loop over normal entry, find the target entry,
         # and then replace the rootfs string
@@ -153,15 +152,14 @@ class GrubHelper:
                     )
                     if _count == 1:
                         # replace rootfs string
-                        new_entry_block = "%s%s%s" % (
-                            entry_block[:linux_line_l],
-                            _new_linux_line,
-                            entry_block[linux_line_r:],
+                        new_entry_block = (
+                            f"{entry_block[:linux_line_l]}"
+                            f"{_new_linux_line}"
+                            f"{entry_block[linux_line_r:]}"
                         )
-                        is_updated = True
                         break
 
-        if is_updated and new_entry_block is not None:
+        if new_entry_block is not None:
             updated_grub_cfg = (
                 f"{grub_cfg[:entry_l]}{new_entry_block}{grub_cfg[entry_r:]}"
             )
