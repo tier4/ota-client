@@ -78,7 +78,7 @@ def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
 
 
 # handled file read/write
-def read_from_file(path: Union[Path, str], *, missing_ok=True, default="") -> str:
+def read_str_from_file(path: Union[Path, str], *, missing_ok=True, default="") -> str:
     """
     Params:
         missing_ok: if set to False, FileNotFoundError will be raised to upper
@@ -93,11 +93,11 @@ def read_from_file(path: Union[Path, str], *, missing_ok=True, default="") -> st
         raise
 
 
-def write_to_file(path: Path, input: str):
+def write_str_to_file(path: Path, input: str):
     path.write_text(input)
 
 
-def write_to_file_sync(path: Union[Path, str], input: str):
+def write_str_to_file_sync(path: Union[Path, str], input: str):
     with open(path, "w") as f:
         f.write(input)
         f.flush()

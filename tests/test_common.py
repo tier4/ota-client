@@ -15,11 +15,11 @@ from app.common import (
     copytree_identical,
     file_sha256,
     re_symlink_atomic,
-    read_from_file,
+    read_str_from_file,
     subprocess_call,
     subprocess_check_output,
     verify_file,
-    write_to_file_sync,
+    write_str_to_file_sync,
 )
 from tests.utils import compare_dir
 
@@ -77,16 +77,16 @@ def test_read_from_file(file_t: Tuple[str, str, int]):
     with open(_path, "a") as f:
         f.write(_append)
 
-    assert read_from_file(_path) == _TEST_FILE_CONTENT
-    assert read_from_file("/non-existed", missing_ok=True, default="") == ""
-    assert read_from_file("/non-existed", missing_ok=True, default="abc") == "abc"
+    assert read_str_from_file(_path) == _TEST_FILE_CONTENT
+    assert read_str_from_file("/non-existed", missing_ok=True, default="") == ""
+    assert read_str_from_file("/non-existed", missing_ok=True, default="abc") == "abc"
     with pytest.raises(FileNotFoundError):
-        read_from_file("/non-existed", missing_ok=False)
+        read_str_from_file("/non-existed", missing_ok=False)
 
 
 def test_write_to_file_sync(tmp_path: Path):
     _path = tmp_path / "write_to_file"
-    write_to_file_sync(_path, _TEST_FILE_CONTENT)
+    write_str_to_file_sync(_path, _TEST_FILE_CONTENT)
     assert _path.read_text() == _TEST_FILE_CONTENT
 
 

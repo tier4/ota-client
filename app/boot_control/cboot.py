@@ -18,10 +18,10 @@ from app.boot_control.common import (
 from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     copytree_identical,
-    read_from_file,
+    read_str_from_file,
     subprocess_call,
     subprocess_check_output,
-    write_to_file_sync,
+    write_str_to_file_sync,
 )
 from app.configs import BOOT_LOADER, cboot_cfg as cfg
 from app.errors import (
@@ -149,7 +149,7 @@ class _CBootControl:
         try:
             # NOTE: only support rqx-580, rqx-58g platform right now!
             # detect the chip id
-            self.chip_id = read_from_file(self.TEGRA_CHIP_ID_PATH)
+            self.chip_id = read_str_from_file(self.TEGRA_CHIP_ID_PATH)
             if not self.chip_id or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
                 raise NotImplementedError(
                     f"unsupported platform found (chip_id: {self.chip_id}), abort"
@@ -181,14 +181,14 @@ class _CBootControl:
             logger.debug("rootfs on external storage detected, nvme rootfs is enable")
             self.is_rootfs_on_external = True
             self.standby_rootfs_dev = f"/dev/{Nvbootctrl.NVME_DEV}p{standby_partid}"
-            self.standby_slot_partuuid = CMDHelperFuncs.get_partuuid_str_by_dev(
+            self.standby_slot_partuuid_str = CMDHelperFuncs.get_partuuid_str_by_dev(
                 self.standby_rootfs_dev
             )
         elif self.current_rootfs_dev.find(Nvbootctrl.EMMC_DEV) != -1:
             logger.debug("using internal storage as rootfs")
             self.is_rootfs_on_external = False
             self.standby_rootfs_dev = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
-            self.standby_slot_partuuid = CMDHelperFuncs.get_partuuid_str_by_dev(
+            self.standby_slot_partuuid_str = CMDHelperFuncs.get_partuuid_str_by_dev(
                 self.standby_rootfs_dev
             )
         else:
@@ -221,14 +221,14 @@ class _CBootControl:
     def get_current_rootfs_dev(self) -> str:
         return self.current_rootfs_dev
 
-    def get_current_boot_dev(self) -> str:
-        return self.current_boot_dev
-
     def get_standby_rootfs_dev(self) -> str:
         return self.standby_rootfs_dev
 
     def get_standby_slot(self) -> str:
         return self.standby_slot
+
+    def get_standby_rootfs_partuuid_str(self) -> str:
+        return self.standby_slot_partuuid_str
 
     def get_standby_boot_dev(self) -> str:
         return self.standby_boot_dev
@@ -250,15 +250,20 @@ class _CBootControl:
         logger.info(f"switch boot to {slot=}")
         Nvbootctrl.set_active_boot_slot(slot)
 
-    def is_current_slot_bootable(self) -> bool:
-        slot = self.current_slot
-        return Nvbootctrl.is_slot_bootable(slot)
-
     def is_current_slot_marked_successful(self) -> bool:
         slot = self.current_slot
         return Nvbootctrl.is_slot_marked_successful(slot)
 
-    def update_extlinux_cfg(self, dst: Path, ref: Path):
+    @staticmethod
+    def update_extlinux_cfg(dst: Path, ref: Path, partuuid_str: str):
+        """Write dst extlinux.conf based on reference extlinux.conf and partuuid_str.
+
+        Params:
+            dst: path to dst extlinux.conf file
+            ref: reference extlinux.conf file
+            partuuid_str: rootfs specification string like "PARTUUID=<partuuid>"
+        """
+
         def _replace(ma: re.Match, repl: str):
             append_l: str = ma.group(0)
             if append_l.startswith("#"):
@@ -269,8 +274,8 @@ class _CBootControl:
 
             return res
 
-        _repl_func = partial(_replace, repl=f"root={self.standby_slot_partuuid}")
-        write_to_file_sync(
+        _repl_func = partial(_replace, repl=f"root={partuuid_str}")
+        write_str_to_file_sync(
             dst, re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text())
         )
 
@@ -282,8 +287,6 @@ class CBootController(
     VersionControlMixin,
     BootControllerProtocol,
 ):
-    EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
-
     def __init__(self) -> None:
         self._cboot_control: _CBootControl = _CBootControl()
 
@@ -305,11 +308,12 @@ class CBootController(
 
         ## ota-status dir
         ### current slot
-        self.current_ota_status_dir = Path(cfg.OTA_STATUS_DIR)
+        self.current_ota_status_dir = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
+            cfg.OTA_STATUS_DIR
+        ).relative_to("/")
         self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
-
-        ## standby slot
-        ### NOTE: not yet available before ota update starts
+        ### standby slot
+        # NOTE: might not yet be populated before OTA update applied!
         self.standby_ota_status_dir = self.standby_slot_mount_point / Path(
             cfg.OTA_STATUS_DIR
         ).relative_to("/")
@@ -324,7 +328,7 @@ class CBootController(
         # load ota_status str and slot_in_use
         _ota_status = self._load_current_ota_status()
         _slot_in_use = self._load_current_slot_in_use()
-        current_slot = Nvbootctrl.get_current_slot()
+        current_slot = self._cboot_control.get_current_slot()
         if not (_ota_status and _slot_in_use):
             logger.info("initializing boot control files...")
             _ota_status = wrapper.StatusOta.INITIALIZED
@@ -454,12 +458,9 @@ class CBootController(
                 standby_as_ref=standby_as_ref,
             )
 
-            ### re-populate /boot/ota-status folder
+            ### re-populate /boot/ota-status folder for standby slot
             # create the ota-status folder unconditionally
-            _ota_status_dir = self.standby_slot_mount_point / Path(
-                cfg.OTA_STATUS_DIR
-            ).relative_to("/")
-            _ota_status_dir.mkdir(exist_ok=True, parents=True)
+            self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
             # store status to standby slot
             self._store_standby_ota_status(wrapper.StatusOta.UPDATING)
             self._store_standby_version(version)
@@ -474,10 +475,12 @@ class CBootController(
         try:
             # update extlinux_cfg file
             _extlinux_cfg = self.standby_slot_mount_point / Path(
-                self.EXTLINUX_FILE
+                cfg.EXTLINUX_FILE
             ).relative_to("/")
             self._cboot_control.update_extlinux_cfg(
-                dst=_extlinux_cfg, ref=_extlinux_cfg
+                dst=_extlinux_cfg,
+                ref=_extlinux_cfg,
+                partuuid_str=self._cboot_control.get_standby_rootfs_partuuid_str(),
             )
 
             # NOTE: we didn't prepare /boot/ota here,
