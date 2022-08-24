@@ -20,6 +20,7 @@ from app.boot_control.interface import BootControllerProtocol
 from app.common import (
     re_symlink_atomic,
     read_str_from_file,
+    subprocess_call,
     subprocess_check_output,
     write_str_to_file_sync,
 )
@@ -218,14 +219,22 @@ class GrubHelper:
 
         return "\n".join(res)
 
-    @classmethod
-    def grub_mkconfig(cls) -> str:
+    @staticmethod
+    def grub_mkconfig() -> str:
         try:
             return subprocess_check_output("grub-mkconfig", raise_exception=True)
         except CalledProcessError as e:
             raise ValueError(
                 f"grub-mkconfig failed: {e.returncode=}, {e.stderr=}, {e.stdout=}"
             )
+
+    @staticmethod
+    def grub_reboot(idx: int):
+        try:
+            subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+        except CalledProcessError:
+            logger.exception(f"failed to grub-reboot to {idx}")
+            raise
 
 
 class GrubABPartitionDetecter:
@@ -607,7 +616,7 @@ class _GrubControl:
             read_str_from_file(self.grub_file),
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
         )
-        CMDHelperFuncs.grub_reboot(idx)
+        GrubHelper.grub_reboot(idx)
         logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
 
     finalize_update_switch_boot = reprepare_active_ota_partition_file
