@@ -43,6 +43,7 @@ class BaseConfig:
             "ota_status": INFO,
         }
     )
+    ACTIVE_ROOTFS_PATH: str = "/"
     BOOT_DIR: str = "/boot"
     ECU_INFO_FILE: str = "/boot/ota/ecu_info.yaml"
     PROXY_INFO_FILE: str = "/boot/ota/proxy_info.yaml"
