@@ -19,7 +19,6 @@ RUN apt-get update -qq && \
         wget \
         git && \
     apt-get install -y -qq \
-        grub-efi-amd64 \
         linux-image-${KERNEL_VERSION}
 
 # prepare ubuntu base
