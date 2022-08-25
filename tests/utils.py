@@ -26,8 +26,6 @@ class SlotMeta:
     slot_b: str
     slot_a_boot_dev: str
     slot_b_boot_dev: str
-    slot_a_uuid: str
-    slot_b_uuid: str
 
 
 @asynccontextmanager

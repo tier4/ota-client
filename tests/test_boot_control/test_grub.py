@@ -1,4 +1,3 @@
-from functools import wraps
 import shutil
 import typing
 import pytest
@@ -8,24 +7,15 @@ from pathlib import Path
 import logging
 
 from tests.utils import SlotMeta
+from tests.conftest import TestConfiguration as cfg
 
 logger = logging.getLogger(__name__)
 
-# NOTE: check ota-test_base Dockerfile
-KERNEL_VERSION = "5.8.0-53-generic"
-
 
 class GrubFSM:
-    SLOT_A_UUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
-    SLOT_B_UUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
-    CMDLINE_SLOT_A = r"BOOT_IMAGE=/vmlinuz-5.8.0-53-generic root=UUID=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa ro quiet splash"
-    CMDLINE_SLOT_B = r"BOOT_IMAGE=/vmlinuz-ota.standby root=UUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb ro quiet splash"
-    SLOT_A = "sda2"  # startup slot
-    SLOT_B = "sda3"
-
     def __init__(self) -> None:
-        self.current_slot = self.SLOT_A
-        self.standby_slot = self.SLOT_B
+        self.current_slot = cfg.SLOT_A_ID_GRUB
+        self.standby_slot = cfg.SLOT_B_ID_GRUB
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
 
@@ -45,19 +35,19 @@ class GrubFSM:
 
     def get_uuid_str_by_dev(self, dev: str):
         if dev == self.get_standby_rootfs_dev():
-            return f"UUID={self.SLOT_B_UUID}"
+            return f"UUID={cfg.SLOT_B_UUID}"
         else:
-            return f"UUID={self.SLOT_A_UUID}"
+            return f"UUID={cfg.SLOT_A_UUID}"
 
     def switch_boot(self):
         self.current_slot, self.standby_slot = self.standby_slot, self.current_slot
         self.is_boot_switched = True
 
     def cat_proc_cmdline(self):
-        if self.current_slot == self.SLOT_A:
-            return self.CMDLINE_SLOT_A
+        if self.current_slot == cfg.SLOT_A_ID_GRUB:
+            return cfg.CMDLINE_SLOT_A
         else:
-            return self.CMDLINE_SLOT_B
+            return cfg.CMDLINE_SLOT_B
 
 
 class GrubMkConfigFSM:
@@ -97,8 +87,6 @@ class GrubMkConfigFSM:
 
 
 class TestGrubControl:
-    CURRENT_VERSION = "123.x"
-    UPDATE_VERSION = "789.x"
     FSTAB_ORIGIN = (Path(__file__).parent / "fstab_origin").read_text()
     DEFAULT_GRUB = (Path(__file__).parent / "default_grub").read_text()
 
@@ -142,38 +130,42 @@ class TestGrubControl:
 
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
-        self.boot_dir = tmp_path / "boot"
-        self.slot_a_ota_partition_dir = self.boot_dir / "ota-partition.sda2"
-        self.slot_b_ota_partition_dir = self.boot_dir / "ota-partition.sda3"
+        self.boot_dir = tmp_path / Path(cfg.BOOT_DIR).relative_to("/")
+        self.slot_a_ota_partition_dir = (
+            self.boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
+        )
+        self.slot_b_ota_partition_dir = (
+            self.boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
+        )
         # copy the contents from pre-populated boot_dir to test /boot folder
         # NOTE: check kernel version from the ota-test_base image Dockerfile
         shutil.copytree(
-            Path(ab_slots.slot_a_boot_dev) / "boot",
+            Path(ab_slots.slot_a_boot_dev) / Path(cfg.BOOT_DIR).relative_to("/"),
             self.boot_dir,
             dirs_exist_ok=True,
         )
         # NOTE: dummy ota-image doesn't have grub installed,
         #       so we need to prepare /etc/default/grub by ourself
-        default_grub = self.slot_a / "etc/default/grub"
+        default_grub = self.slot_a / Path(cfg.DEFAULT_GRUB_FILE).relative_to("/")
         default_grub.write_text((Path(__file__).parent / "default_grub").read_text())
 
         # prepare fstab file
-        slot_a_fstab_file = self.slot_a / "etc/fstab"
+        slot_a_fstab_file = self.slot_a / Path(cfg.FSTAB_FILE).relative_to("/")
         slot_a_fstab_file.write_text(self.FSTAB_ORIGIN)
-        slot_b_etc_dir = self.slot_b / "etc"
-        slot_b_etc_dir.mkdir()
-        fstab_file = slot_b_etc_dir / "fstab"
-        fstab_file.write_text(self.FSTAB_ORIGIN)
+        slot_b_fstab_file = self.slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
+        slot_b_fstab_file.parent.mkdir(parents=True, exist_ok=True)
+        slot_b_fstab_file.write_text(self.FSTAB_ORIGIN)
 
         # prepare grub file for slot_a
-        grub_dir = self.boot_dir / "grub"
-        grub_dir.mkdir()
-        grub_file = grub_dir / "grub.cfg"
-        grub_file.write_text(self._grub_mkconfig_fsm.GRUB_CFG_SLOT_A_NON_OTAPARTITION)
+        init_grub_file = self.boot_dir / Path(cfg.GRUB_FILE).relative_to("/boot")
+        init_grub_file.parent.mkdir(parents=True, exist_ok=True)
+        init_grub_file.write_text(
+            self._grub_mkconfig_fsm.GRUB_CFG_SLOT_A_NON_OTAPARTITION
+        )
 
     @pytest.fixture(autouse=True)
     def patch_current_used_boot_controller(self, mocker: pytest_mock.MockerFixture):
-        mocker.patch("app.configs.BOOT_LOADER", "grub")
+        mocker.patch(f"{cfg.CONFIGS_MODULE_PATH}.BOOT_LOADER", "grub")
 
     @pytest.fixture(autouse=True)
     def mock_setup(
@@ -207,7 +199,9 @@ class TestGrubControl:
 
         ###### mocking GrubHelper ######
         _grub_reboot_mock = mocker.MagicMock()
-        mocker.patch("app.boot_control.grub.GrubHelper.grub_reboot", _grub_reboot_mock)
+        mocker.patch(
+            f"{cfg.GRUB_MODULE_PATH}.GrubHelper.grub_reboot", _grub_reboot_mock
+        )
         # bind to test instance
         self._grub_reboot_mock = _grub_reboot_mock
 
@@ -223,34 +217,38 @@ class TestGrubControl:
         self._CMDHelper_mock = _CMDHelper_mock
 
         ###### mock GrubHelper ######
-        _grub_mkconfig_path = "app.boot_control.grub.GrubHelper.grub_mkconfig"
+        _grub_mkconfig_path = f"{cfg.GRUB_MODULE_PATH}.GrubHelper.grub_mkconfig"
         mocker.patch(
             _grub_mkconfig_path,
-            return_value=self._grub_mkconfig_fsm.grub_mkconfig(),
+            wraps=self._grub_mkconfig_fsm.grub_mkconfig,
         )
 
         ###### patching ######
         # patch CMDHelper
         # NOTE: also remember to patch CMDHelperFuncs in common
-        _CMDHelper_at_common_path = "app.boot_control.common.CMDHelperFuncs"
-        _CMDHelper_at_grub_path = "app.boot_control.grub.CMDHelperFuncs"
+        _CMDHelper_at_common_path = (
+            f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs"
+        )
+        _CMDHelper_at_grub_path = f"{cfg.GRUB_MODULE_PATH}.CMDHelperFuncs"
         mocker.patch(_CMDHelper_at_common_path, _CMDHelper_mock)
         mocker.patch(_CMDHelper_at_grub_path, _CMDHelper_mock)
         # patch _GrubABPartitionDetecter
-        _GrubABPartitionDetecter_path = "app.boot_control.grub.GrubABPartitionDetecter"
+        _GrubABPartitionDetecter_path = (
+            f"{cfg.GRUB_MODULE_PATH}.GrubABPartitionDetecter"
+        )
         mocker.patch(
             _GrubABPartitionDetecter_path, return_value=_GrubABPartitionDetecter_mock
         )
         # patch reading from /proc/cmdline
         mocker.patch(
-            "app.boot_control.grub.cat_proc_cmdline",
+            f"{cfg.GRUB_MODULE_PATH}.cat_proc_cmdline",
             mocker.MagicMock(wraps=self._fsm.cat_proc_cmdline),
         )
 
     def test_grub_normal_update(self, mocker: pytest_mock.MockerFixture):
         from app.boot_control.grub import GrubController
 
-        _cfg_patch_path = "app.boot_control.grub.cfg"
+        _cfg_patch_path = f"{cfg.GRUB_MODULE_PATH}.cfg"
 
         ###### stage 1 ######
         # test init from non-ota-partition enabled system
@@ -265,15 +263,15 @@ class TestGrubControl:
 
         # test pre-update
         grub_controller.pre_update(
-            version=self.UPDATE_VERSION,
+            version=cfg.UPDATE_VERSION,
             standby_as_ref=False,  # NOTE: not used
             erase_standby=False,  # NOTE: not used
         )
 
         # NOTE: we have to copy the new kernel files to the slot_b's boot dir
         #       this is done by the create_standby module
-        _kernel = f"vmlinuz-{KERNEL_VERSION}"
-        _initrd = f"initrd.img-{KERNEL_VERSION}"
+        _kernel = f"{cfg.KERNEL_PREFIX}-{cfg.KERNEL_VERSION}"
+        _initrd = f"{cfg.INITRD_PREFIX}-{cfg.KERNEL_VERSION}"
         shutil.copy(
             self.slot_a_ota_partition_dir / _kernel, self.slot_b_ota_partition_dir
         )
@@ -295,7 +293,7 @@ class TestGrubControl:
 
         # NOTE: dummy ota-image doesn't have grub installed,
         #       so we need to prepare /etc/default/grub by ourself
-        default_grub = self.slot_b / "etc/default/grub"
+        default_grub = self.slot_b / Path(cfg.DEFAULT_GRUB_FILE).relative_to("/")
         default_grub.parent.mkdir(parents=True, exist_ok=True)
         default_grub.write_text(self.DEFAULT_GRUB)
 
