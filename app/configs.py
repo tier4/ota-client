@@ -87,7 +87,6 @@ class GrubControlConfig(BaseConfig):
     FSTAB_FILE_PATH: str = "/etc/fstab"
     GRUB_DIR: str = "/boot/grub"
     GRUB_CFG_PATH: str = "/boot/grub/grub.cfg"
-    CUSTOM_CFG_PATH: str = "/boot/grub/custom.cfg"
     DEFAULT_GRUB_PATH: str = "/etc/default/grub"
     BOOT_OTA_PARTITION_FILE: str = "ota-partition"
 
@@ -103,8 +102,6 @@ class CBootControlConfig(BaseConfig):
     CHIP_ID_MODEL_MAP: Dict[int, str] = field(default_factory=lambda: {0x19: "rqx_580"})
     OTA_STATUS_DIR: str = "/boot/ota-status"
     EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
-
-    # mount point
     SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
 
 

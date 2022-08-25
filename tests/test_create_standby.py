@@ -1,7 +1,6 @@
 import shutil
 import pytest
 from pathlib import Path
-from typing import Tuple
 from pytest_mock import MockerFixture
 
 from app.create_standby.interface import UpdateMeta
@@ -11,8 +10,8 @@ from app.ota_metadata import OtaMetadata
 from app.proto import wrapper
 from app.update_stats import OTAUpdateStatsCollector
 
-from tests.conftest import OTA_IMAGE_DIR, OTA_IMAGE_SERVER_PORT, OTA_IMAGE_SERVER_ADDR
-from tests.utils import compare_dir
+from tests.conftest import TestConfiguration as cfg
+from tests.utils import SlotMeta, compare_dir
 
 import logging
 
@@ -21,13 +20,11 @@ logger = logging.getLogger(__name__)
 
 class _Common:
     @pytest.fixture
-    def prepare_ab_slots(self, ab_slots: Tuple[str, str, str, str]):
-        (
-            self.slot_a,
-            self.slot_b,
-            self.slot_a_boot_dir,
-            self.slot_b_boot_dir,
-        ) = map(Path, ab_slots)
+    def prepare_ab_slots(self, ab_slots: SlotMeta):
+        self.slot_a = Path(ab_slots.slot_a)
+        self.slot_b = Path(ab_slots.slot_b)
+        self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
+        self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
 
         # cleanup slot_b
         shutil.rmtree(self.slot_b, ignore_errors=True)
@@ -67,8 +64,10 @@ class Test_RebuildMode(_Common):
         # prepare update meta
         self.update_meta = UpdateMeta(
             cookies={},
-            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
-            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
+            metadata=OtaMetadata(
+                (Path(cfg.OTA_IMAGE_DIR) / "metadata.jwt").read_text()
+            ),
+            url_base=f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}",
             boot_dir=str(self.slot_b_boot_dir),
             standby_slot_mount_point=str(self.slot_b),
             ref_slot_mount_point=str(self.slot_a),
@@ -104,7 +103,7 @@ class Test_RebuildMode(_Common):
         # NOTE: for some reason tmp dir is created under OTA_IMAGE_DIR/data, but not listed
         # in the regulars.txt, so we create one here to make the test passed
         (self.slot_b / "tmp").mkdir(exist_ok=True)
-        compare_dir(Path(OTA_IMAGE_DIR) / "data", self.slot_b)
+        compare_dir(Path(cfg.OTA_IMAGE_DIR) / "data", self.slot_b)
 
 
 class Test_LegacyMode(_Common):
@@ -128,8 +127,10 @@ class Test_LegacyMode(_Common):
         # prepare update meta
         self.update_meta = UpdateMeta(
             cookies={},
-            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
-            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
+            metadata=OtaMetadata(
+                (Path(cfg.OTA_IMAGE_DIR) / "metadata.jwt").read_text()
+            ),
+            url_base=f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}",
             boot_dir=str(self.slot_b_boot_dir),
             standby_slot_mount_point=str(self.slot_b),
             ref_slot_mount_point=str(self.slot_a),
@@ -165,4 +166,4 @@ class Test_LegacyMode(_Common):
         # NOTE: for some reason tmp dir is created under OTA_IMAGE_DIR/data, but not listed
         # in the regulars.txt, so we create one here to make the test passed
         (self.slot_b / "tmp").mkdir(exist_ok=True)
-        compare_dir(Path(OTA_IMAGE_DIR) / "data", self.slot_b)
+        compare_dir(Path(cfg.OTA_IMAGE_DIR) / "data", self.slot_b)
