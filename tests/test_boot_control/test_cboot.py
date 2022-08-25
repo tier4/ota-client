@@ -37,19 +37,15 @@ import pytest_mock
 import logging
 
 from tests.utils import SlotMeta, compare_dir
+from tests.conftest import TestConfiguration as cfg
 
 logger = logging.getLogger(__name__)
 
 
 class CbootFSM:
-    SLOT_A_PARTUUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
-    SLOT_B_PARTUUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
-    SLOT_A = "0"  # current, start up
-    SLOT_B = "1"
-
     def __init__(self) -> None:
-        self.current_slot = self.SLOT_A
-        self.standby_slot = self.SLOT_B
+        self.current_slot = cfg.SLOT_A_ID_CBOOT
+        self.standby_slot = cfg.SLOT_B_ID_CBOOT
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
 
@@ -62,10 +58,10 @@ class CbootFSM:
         return self.standby_slot
 
     def get_standby_partuuid_str(self):
-        if self.standby_slot == self.SLOT_B:
-            return f"PARTUUID={self.SLOT_B_PARTUUID}"
+        if self.standby_slot == cfg.SLOT_B_ID_CBOOT:
+            return f"PARTUUID={cfg.SLOT_B_PARTUUID}"
         else:
-            return f"PARTUUID={self.SLOT_A_PARTUUID}"
+            return f"PARTUUID={cfg.SLOT_A_PARTUUID}"
 
     def is_current_slot_bootable(self):
         return self.current_slot_bootable
@@ -89,8 +85,6 @@ class CbootFSM:
 
 
 class TestCBootControl:
-    CURRENT_VERSION = "123.x"
-    UPDATE_VERSION = "789.x"
     EXTLNUX_CFG_SLOT_A = Path(__file__).parent / "extlinux.conf_slot_a"
     EXTLNUX_CFG_SLOT_B = Path(__file__).parent / "extlinux.conf_slot_b"
 
@@ -138,22 +132,25 @@ class TestCBootControl:
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dev = Path(ab_slots.slot_a_boot_dev)
         self.slot_b_boot_dev = Path(ab_slots.slot_b_boot_dev)
-        # NOTE: we use partuuid in cboot
-        self.slot_a_uuid = ab_slots.slot_a_uuid
-        self.slot_b_uuid = ab_slots.slot_b_uuid
+        self.slot_a_uuid = cfg.SLOT_A_PARTUUID
+        self.slot_b_uuid = cfg.SLOT_B_PARTUUID
 
         # prepare ota_status dir for slot_a
-        self.slot_a_ota_status_dir = self.slot_a / "boot/ota-status"
+        self.slot_a_ota_status_dir = self.slot_a / Path(cfg.OTA_STATUS_DIR).relative_to(
+            "/"
+        )
         self.slot_a_ota_status_dir.mkdir(parents=True)
         slot_a_ota_status = self.slot_a_ota_status_dir / "status"
         slot_a_ota_status.write_text("SUCCESS")
         slot_a_version = self.slot_a_ota_status_dir / "version"
-        slot_a_version.write_text(self.CURRENT_VERSION)
+        slot_a_version.write_text(cfg.CURRENT_VERSION)
         slot_a_slot_in_use = self.slot_a_ota_status_dir / "slot_in_use"
-        slot_a_slot_in_use.write_text("0")
+        slot_a_slot_in_use.write_text(cfg.SLOT_A_ID_CBOOT)
         # also prepare a copy of boot folder to rootfs
         shutil.copytree(
-            self.slot_a_boot_dev / "boot", self.slot_a / "boot", dirs_exist_ok=True
+            self.slot_a_boot_dev / Path(cfg.BOOT_DIR).relative_to("/"),
+            self.slot_a / Path(cfg.BOOT_DIR).relative_to("/"),
+            dirs_exist_ok=True,
         )
 
         # prepare extlinux file
@@ -163,7 +160,9 @@ class TestCBootControl:
         extlinux_cfg.write_text(self.EXTLNUX_CFG_SLOT_A.read_text())
 
         # ota_status dir for slot_b(separate boot dev)
-        self.slot_b_ota_status_dir = self.slot_b / "boot/ota-status"
+        self.slot_b_ota_status_dir = self.slot_b / Path(cfg.OTA_STATUS_DIR).relative_to(
+            "/"
+        )
 
     @pytest.fixture
     def mock_setup(
@@ -173,9 +172,6 @@ class TestCBootControl:
     ):
         from app.boot_control.cboot import _CBootControl
         from app.boot_control.common import CMDHelperFuncs
-
-        _common_module_path = "app.boot_control.common"
-        _cboot_module_path = "app.boot_control.cboot"
 
         ###### start fsm ######
         self._fsm = CbootFSM()
@@ -218,12 +214,14 @@ class TestCBootControl:
 
         ###### patching ######
         # patch _CBootControl
-        _CBootControl_path = f"{_cboot_module_path}._CBootControl"
+        _CBootControl_path = f"{cfg.CBOOT_MODULE_PATH}._CBootControl"
         mocker.patch(_CBootControl_path, return_value=_CBootControl_mock)
         # patch CMDHelperFuncs
         # NOTE: also remember to patch CMDHelperFuncs in common
-        mocker.patch(f"{_cboot_module_path}.CMDHelperFuncs", _CMDHelper_mock)
-        mocker.patch(f"{_common_module_path}.CMDHelperFuncs", _CMDHelper_mock)
+        mocker.patch(f"{cfg.CBOOT_MODULE_PATH}.CMDHelperFuncs", _CMDHelper_mock)
+        mocker.patch(
+            f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs", _CMDHelper_mock
+        )
 
         ###### binding mocked object to test instance ######
         self._CBootControl_mock = _CBootControl_mock
@@ -232,32 +230,39 @@ class TestCBootControl:
     def test_cboot_normal_update(self, mocker: pytest_mock.MockerFixture, mock_setup):
         from app.boot_control.cboot import CBootController
 
-        _cfg_patch_path = "app.boot_control.cboot.cfg"
+        _cfg_patch_path = f"{cfg.CBOOT_MODULE_PATH}.cfg"
+        _relative_ota_status_path = Path(cfg.OTA_STATUS_DIR).relative_to("/")
 
         ###### stage 1 ######
         mocker.patch(_cfg_patch_path, self.cfg_for_slot_a_as_current())
         logger.info("init cboot controller...")
         cboot_controller = CBootController()
-        assert (self.slot_a / "boot/ota-status/status").read_text() == "SUCCESS"
+        assert (
+            self.slot_a / _relative_ota_status_path / "status"
+        ).read_text() == "SUCCESS"
 
         # test pre-update
         cboot_controller.pre_update(
-            version=self.UPDATE_VERSION,
+            version=cfg.UPDATE_VERSION,
             standby_as_ref=False,  # NOTE: not used
             erase_standby=False,  # NOTE: not used
         )
         # assert current slot ota-status
-        assert (self.slot_a / "boot/ota-status/status").read_text() == "FAILURE"
+        assert (
+            self.slot_a / _relative_ota_status_path / "status"
+        ).read_text() == "FAILURE"
         assert (
             self.slot_a / "boot/ota-status/slot_in_use"
         ).read_text() == self._fsm.get_standby_slot()
         # assert standby slot ota-status
-        assert (self.slot_b / "boot/ota-status/status").read_text() == "UPDATING"
         assert (
-            self.slot_b / "boot/ota-status/version"
-        ).read_text() == self.UPDATE_VERSION
+            self.slot_b / _relative_ota_status_path / "status"
+        ).read_text() == "UPDATING"
         assert (
-            self.slot_b / "boot/ota-status/slot_in_use"
+            self.slot_b / _relative_ota_status_path / "version"
+        ).read_text() == cfg.UPDATE_VERSION
+        assert (
+            self.slot_b / _relative_ota_status_path / "slot_in_use"
         ).read_text() == self._fsm.get_standby_slot()
 
         logger.info("pre-update completed, entering post-update...")
@@ -283,5 +288,7 @@ class TestCBootControl:
         logger.info("post-update completed, test init after first reboot...")
         mocker.patch(_cfg_patch_path, self.cfg_for_slot_b_as_current())
         cboot_controller = CBootController()
-        assert (self.slot_b / "boot/ota-status/status").read_text() == "SUCCESS"
+        assert (
+            self.slot_b / _relative_ota_status_path / "status"
+        ).read_text() == "SUCCESS"
         assert self._fsm.is_boot_switched
