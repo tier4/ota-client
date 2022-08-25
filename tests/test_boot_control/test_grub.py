@@ -1,3 +1,4 @@
+import os
 import shutil
 import typing
 import pytest
@@ -51,29 +52,32 @@ class GrubFSM:
 
 
 class GrubMkConfigFSM:
+    # generated on non-ota-partition system
     GRUB_CFG_SLOT_A_NON_OTAPARTITION = (
         Path(__file__).parent / "grub.cfg_slot_a_non_otapartition"
     ).read_text()
-    GRUB_CFG_SLOT_A_OTAPARTITION = (
-        Path(__file__).parent / "grub.cfg_slot_a"
+    # (slot_a as active) generated and not yet updated on ota-partition system
+    GRUB_CFG_SLOT_A_GENERATED = (Path(__file__).parent / "grub.cfg_slot_a").read_text()
+    # (slot_a as active) ota standby rootfs updated
+    GRUB_CFG_SLOT_A_UPDATED = (
+        Path(__file__).parent / "grub.cfg_slot_a_updated"
     ).read_text()
-    GRUB_CFG_SLOT_A_POST_UPDATE = (
-        Path(__file__).parent / "grub.cfg_slot_a_post_update"
-    ).read_text()
-    GRUB_CFG_SLOT_B = (Path(__file__).parent / "grub.cfg_slot_b").read_text()
-    GRUB_CFG_SLOT_B_POST_INIT = (
-        Path(__file__).parent / "grub.cfg_slot_b_post_init"
+    # (slot_b as active) generated and not yet updated on ota-partition system
+    GRUB_CFG_SLOT_B_GENERATED = (Path(__file__).parent / "grub.cfg_slot_b").read_text()
+    # (slot_b as active) ota standby rootfs updated
+    GRUB_CFG_SLOT_B_UPDATED = (
+        Path(__file__).parent / "grub.cfg_slot_b_updated"
     ).read_text()
 
     _MAPPING = {
-        0: GRUB_CFG_SLOT_A_OTAPARTITION,  # slot_a init1
-        1: GRUB_CFG_SLOT_A_OTAPARTITION,  # slot_a init2
+        0: GRUB_CFG_SLOT_A_GENERATED,  # slot_a init1
+        1: GRUB_CFG_SLOT_A_GENERATED,  # slot_a init2
         #
-        2: GRUB_CFG_SLOT_A_OTAPARTITION,  # slot_a post_update1
-        3: GRUB_CFG_SLOT_A_OTAPARTITION,  # slot_a post_update2
+        2: GRUB_CFG_SLOT_A_GENERATED,  # slot_a post_update1
+        3: GRUB_CFG_SLOT_A_GENERATED,  # slot_a post_update2
         #
-        4: GRUB_CFG_SLOT_B,  # slot_b pre_init
-        5: GRUB_CFG_SLOT_B,
+        4: GRUB_CFG_SLOT_B_GENERATED,  # slot_b pre_init
+        5: GRUB_CFG_SLOT_B_GENERATED,
     }
 
     def __init__(self) -> None:
@@ -88,6 +92,7 @@ class GrubMkConfigFSM:
 
 class TestGrubControl:
     FSTAB_ORIGIN = (Path(__file__).parent / "fstab_origin").read_text()
+    FSTAB_UPDATED = (Path(__file__).parent / "fstab_updated").read_text()
     DEFAULT_GRUB = (Path(__file__).parent / "default_grub").read_text()
 
     def cfg_for_slot_a_as_current(self):
@@ -257,9 +262,15 @@ class TestGrubControl:
         mocker.patch(_cfg_patch_path, self.cfg_for_slot_a_as_current())
 
         grub_controller = GrubController()
-        # TODO: assert normal init
-        # TODO: assert symlink
-        # TODO: assert grub.cfg
+        assert (self.slot_a_ota_partition_dir / "status").read_text() == "INITIALIZED"
+        # assert ota-partition file points to slot_a ota-partition folder
+        assert (
+            os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
+            == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
+        )
+        assert (
+            self.boot_dir / "grub/grub.cfg"
+        ).read_text() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED
 
         # test pre-update
         grub_controller.pre_update(
@@ -267,7 +278,9 @@ class TestGrubControl:
             standby_as_ref=False,  # NOTE: not used
             erase_standby=False,  # NOTE: not used
         )
-
+        # update slot_b, slot_a_ota_status->FAILURE, slot_b_ota_status->UPDATING
+        assert (self.slot_a_ota_partition_dir / "status").read_text() == "FAILURE"
+        assert (self.slot_b_ota_partition_dir / "status").read_text() == "UPDATING"
         # NOTE: we have to copy the new kernel files to the slot_b's boot dir
         #       this is done by the create_standby module
         _kernel = f"{cfg.KERNEL_PREFIX}-{cfg.KERNEL_VERSION}"
@@ -282,11 +295,15 @@ class TestGrubControl:
         logger.info("pre-update completed, entering post-update...")
         # test post-update
         grub_controller.post_update()
-        # TODO: assert post-update
-        # TODO: assert fstab
-        # TODO: assert grub.cfg
+        assert (
+            self.slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
+        ).read_text() == self.FSTAB_UPDATED
+        assert (
+            self.boot_dir / "grub/grub.cfg"
+        ).read_text() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED
         # NOTE: check grub.cfg_slot_a_post_update, the target entry is 0
         self._grub_reboot_mock.assert_called_once_with(0)
+        self._CMDHelper_mock.reboot.assert_called_once()
 
         ###### stage 2 ######
         # test init after first reboot
@@ -301,9 +318,23 @@ class TestGrubControl:
         # mock cfg
         mocker.patch(_cfg_patch_path, self.cfg_for_slot_b_as_current())
 
-        # test first reboot init
-        assert (self.slot_b_ota_partition_dir / "status").read_text() == "UPDATING"
-        grub_controller = GrubController()
-        assert (self.slot_b_ota_partition_dir / "status").read_text() == "SUCCESS"
+        ### test pre-init ###
         assert self._fsm.is_boot_switched
-        # TODO: assert version is updated
+        assert (self.slot_b_ota_partition_dir / "status").read_text() == "UPDATING"
+        # assert ota-partition file is not yet switched before first reboot init
+        assert (
+            os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
+            == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
+        )
+
+        ### test first reboot init ###
+        grub_controller = GrubController()
+        # assert ota-partition file switch to slot_b ota-partition folder after first reboot init
+        assert (
+            os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
+            == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
+        )
+        assert (self.slot_b_ota_partition_dir / "status").read_text() == "SUCCESS"
+        assert (
+            self.slot_b_ota_partition_dir / "version"
+        ).read_text() == cfg.UPDATE_VERSION
