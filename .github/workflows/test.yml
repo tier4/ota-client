@@ -14,6 +14,7 @@ jobs:
           docker-compose -f ./docker-compose.yml build
       - name: Execute pytest with coverage trace under ota-test_base container
         run: |
+          set -o pipefail
           docker-compose -f ./docker-compose.yml up --no-log-prefix | tee pytest-coverage.txt
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
