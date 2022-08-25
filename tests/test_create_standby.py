@@ -10,7 +10,7 @@ from app.ota_metadata import OtaMetadata
 from app.proto import wrapper
 from app.update_stats import OTAUpdateStatsCollector
 
-from tests.conftest import OTA_IMAGE_DIR, OTA_IMAGE_SERVER_PORT, OTA_IMAGE_SERVER_ADDR
+from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
 
 import logging
@@ -64,8 +64,10 @@ class Test_RebuildMode(_Common):
         # prepare update meta
         self.update_meta = UpdateMeta(
             cookies={},
-            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
-            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
+            metadata=OtaMetadata(
+                (Path(cfg.OTA_IMAGE_DIR) / "metadata.jwt").read_text()
+            ),
+            url_base=f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}",
             boot_dir=str(self.slot_b_boot_dir),
             standby_slot_mount_point=str(self.slot_b),
             ref_slot_mount_point=str(self.slot_a),
@@ -101,7 +103,7 @@ class Test_RebuildMode(_Common):
         # NOTE: for some reason tmp dir is created under OTA_IMAGE_DIR/data, but not listed
         # in the regulars.txt, so we create one here to make the test passed
         (self.slot_b / "tmp").mkdir(exist_ok=True)
-        compare_dir(Path(OTA_IMAGE_DIR) / "data", self.slot_b)
+        compare_dir(Path(cfg.OTA_IMAGE_DIR) / "data", self.slot_b)
 
 
 class Test_LegacyMode(_Common):
@@ -125,8 +127,10 @@ class Test_LegacyMode(_Common):
         # prepare update meta
         self.update_meta = UpdateMeta(
             cookies={},
-            metadata=OtaMetadata((Path(OTA_IMAGE_DIR) / "metadata.jwt").read_text()),
-            url_base=f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}",
+            metadata=OtaMetadata(
+                (Path(cfg.OTA_IMAGE_DIR) / "metadata.jwt").read_text()
+            ),
+            url_base=f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}",
             boot_dir=str(self.slot_b_boot_dir),
             standby_slot_mount_point=str(self.slot_b),
             ref_slot_mount_point=str(self.slot_a),
@@ -162,4 +166,4 @@ class Test_LegacyMode(_Common):
         # NOTE: for some reason tmp dir is created under OTA_IMAGE_DIR/data, but not listed
         # in the regulars.txt, so we create one here to make the test passed
         (self.slot_b / "tmp").mkdir(exist_ok=True)
-        compare_dir(Path(OTA_IMAGE_DIR) / "data", self.slot_b)
+        compare_dir(Path(cfg.OTA_IMAGE_DIR) / "data", self.slot_b)
