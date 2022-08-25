@@ -20,6 +20,8 @@ class _dummy_OtaClientStub:
 
 
 class TestMain:
+    OTACLIENT_LOCK_FILE = "/var/run/ota-client.lock"
+
     @pytest.fixture(autouse=True)
     def patch_main(self, mocker: MockerFixture, tmp_path: Path):
         mocker.patch("app.ota_client_service.OtaClientStub", _dummy_OtaClientStub)
@@ -43,6 +45,7 @@ class TestMain:
         _p = Process(target=_waiting)
         try:
             _p.start()
+            Path(self.OTACLIENT_LOCK_FILE).write_text(f"{_p.pid}")
             yield _p.pid
         finally:
             _p.kill()
@@ -53,19 +56,15 @@ class TestMain:
         main()
         assert caplog.records[0].msg == "started"
         assert caplog.records[1].msg == FIRST_LINE_LOG
-        assert Path("/var/run/ota-client.lock").read_text() == f"{os.getpid()}"
+        assert Path(self.OTACLIENT_LOCK_FILE).read_text() == f"{os.getpid()}"
 
     def test_with_other_otaclient_started(self, background_process):
         from app.main import main
 
         _other_pid = f"{background_process}"
-        _lock_file = Path("/var/run/ota-client.lock")
-        _lock_file.write_text(_other_pid)
-        _our_pid = f"{os.getpid()}"
-
         with pytest.raises(ValueError):
             main()
         self._sys_exit_mocker.assert_called_once_with(
             f"another instance of ota-client(pid: {_other_pid}) is running, abort"
         )
-        assert Path("/var/run/ota-client.lock").read_text() != _our_pid
+        assert Path(self.OTACLIENT_LOCK_FILE).read_text() == _other_pid
