@@ -152,7 +152,7 @@ else
   set linux_gfx_mode=text
 fi
 export linux_gfx_mode
-menuentry 'some title for ota.standby' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-ota.standby-advanced-aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa' {
+menuentry 'Ubuntu, with Linux 5.8.0-53-generic' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.8.0-43-generic-advanced-aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa' {
 	recordfail
 	load_video
 	gfxmode $linux_gfx_mode
@@ -166,12 +166,12 @@ menuentry 'some title for ota.standby' --class ubuntu --class gnu-linux --class 
 	else
 	  search --no-floppy --fs-uuid --set=root ca573144-b0a4-44f6-a750-45a169c3c6e7
 	fi
-	echo	'Loading Linux ota.standby ...'
-	linux	/vmlinuz-ota.standby root=UUID=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa ro  quiet splash $vt_handoff
+	echo	'Loading Linux 5.8.0-53-generic ...'
+	linux	/vmlinuz-5.8.0-53-generic root=UUID=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa ro  quiet splash $vt_handoff
 	echo	'Loading initial ramdisk ...'
-	initrd	/initrd.img-ota.standby
+	initrd	/initrd.img-5.8.0-53-generic
 }
-menuentry 'some title for ota.standby (recovery mode)' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-ota.standby-recovery-aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa' {
+menuentry 'Ubuntu, with Linux 5.8.0-53-generic (recovery mode)' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-5.8.0-43-generic-recovery-aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa' {
 	recordfail
 	load_video
 	insmod gzio
@@ -184,47 +184,10 @@ menuentry 'some title for ota.standby (recovery mode)' --class ubuntu --class gn
 	else
 	  search --no-floppy --fs-uuid --set=root ca573144-b0a4-44f6-a750-45a169c3c6e7
 	fi
-	echo	'Loading Linux ota.standby ...'
-	linux	/vmlinuz-ota.standby root=UUID=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa ro single nomodeset dis_ucode_ldr 
+	echo	'Loading Linux 5.8.0-53-generic ...'
+	linux	/vmlinuz-5.8.0-53-generic root=UUID=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa ro single nomodeset dis_ucode_ldr 
 	echo	'Loading initial ramdisk ...'
-	initrd	/initrd.img-ota.standby
-}
-menuentry 'some title for ota' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-ota-advanced-aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa' {
-	recordfail
-	load_video
-	gfxmode $linux_gfx_mode
-	insmod gzio
-	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
-	insmod part_msdos
-	insmod ext2
-	set root='hd0,msdos1'
-	if [ x$feature_platform_search_hint = xy ]; then
-	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,msdos1 --hint-efi=hd0,msdos1 --hint-baremetal=ahci0,msdos1  ca573144-b0a4-44f6-a750-45a169c3c6e7
-	else
-	  search --no-floppy --fs-uuid --set=root ca573144-b0a4-44f6-a750-45a169c3c6e7
-	fi
-	echo	'Loading Linux ota ...'
-	linux	/vmlinuz-ota root=UUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb ro  quiet splash $vt_handoff
-	echo	'Loading initial ramdisk ...'
-	initrd	/initrd.img-ota
-}
-menuentry 'some title for ota (recovery mode)' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-ota-recovery-aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa' {
-	recordfail
-	load_video
-	insmod gzio
-	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
-	insmod part_msdos
-	insmod ext2
-	set root='hd0,msdos1'
-	if [ x$feature_platform_search_hint = xy ]; then
-	  search --no-floppy --fs-uuid --set=root --hint-bios=hd0,msdos1 --hint-efi=hd0,msdos1 --hint-baremetal=ahci0,msdos1  ca573144-b0a4-44f6-a750-45a169c3c6e7
-	else
-	  search --no-floppy --fs-uuid --set=root ca573144-b0a4-44f6-a750-45a169c3c6e7
-	fi
-	echo	'Loading Linux ota ...'
-	linux	/vmlinuz-ota root=UUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb ro single nomodeset dis_ucode_ldr 
-	echo	'Loading initial ramdisk ...'
-	initrd	/initrd.img-ota
+	initrd	/initrd.img-5.8.0-53-generic
 }
 
 ### END /etc/grub.d/10_linux ###
