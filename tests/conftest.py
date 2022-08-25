@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import logging
 import pytest
 import shutil
@@ -8,14 +9,59 @@ from tests.utils import SlotMeta, run_http_server
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class TestConfiguration:
+    # dummy ota-image setting
+    OTA_IMAGE_DIR = "/ota-image"
+    OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
+    OTA_IMAGE_SERVER_PORT = 8080
+    KERNEL_VERSION = "5.8.0-53-generic"
+    CURRENT_VERSION = "123.x"
+    UPDATE_VERSION = "789.x"
+
+    # slots settings for testing
+    SLOT_A_UUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
+    SLOT_A_PARTUUID = SLOT_A_UUID
+    SLOT_B_UUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
+    SLOT_B_PARTUUID = SLOT_B_UUID
+    SLOT_A_ID_GRUB = "sda2"
+    SLOT_B_ID_GRUB = "sda3"
+    SLOT_A_ID_CBOOT = "0"
+    SLOT_B_ID_CBOOT = "1"
+
+    # common configuration
+    CONFIGS_MODULE_PATH = "app.configs"
+    OTA_DIR = "/boot/ota"
+    BOOT_DIR = "/boot"
+    BOOT_CONTROL_COMMON_MODULE_PATH = "app.boot_control.common"
+    OTA_KERNEL_LABEL = "ota"
+    OTA_STANDBY_KERNEL_LABEL = "ota.standby"
+
+    # cboot specific conf
+    CBOOT_MODULE_PATH = "app.boot_control.cboot"
+    OTA_STATUS_DIR = "/boot/ota-status"
+    OTA_PARTITION_DIRNAME = "ota-partition"
+
+    # grub specific conf
+    KERNEL_PREFIX = "vmlinuz"
+    INITRD_PREFIX = "initrd.img"
+    GRUB_MODULE_PATH = "app.boot_control.grub"
+    GRUB_FILE = "/boot/grub/grub.cfg"
+    DEFAULT_GRUB_FILE = "/etc/default/grub"
+    FSTAB_FILE = "/etc/fstab"
+    CMDLINE_SLOT_A = (
+        f"BOOT_IMAGE=/vmlinuz-{KERNEL_VERSION} root=UUID={SLOT_A_UUID} ro quiet splash"
+    )
+    CMDLINE_SLOT_B = f"BOOT_IMAGE=/vmlinuz-{OTA_STANDBY_KERNEL_LABEL} root=UUID={SLOT_B_UUID} ro quiet splash"
+
+
+cfg = TestConfiguration
+
 # not enable proxy when doing test
 DEFUALT_PROXY_INFO = """
 enable_local_ota_proxy: false
 """
-
-OTA_IMAGE_DIR = "/ota-image"
-OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
-OTA_IMAGE_SERVER_PORT = 8080
 
 
 @pytest.fixture(scope="session")
@@ -32,11 +78,11 @@ def proxy_cfg():
 def run_http_server_subprocess():
     _server_p = Process(
         target=run_http_server,
-        args=[OTA_IMAGE_SERVER_ADDR, OTA_IMAGE_SERVER_PORT],
-        kwargs={"directory": OTA_IMAGE_DIR},
+        args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
+        kwargs={"directory": cfg.OTA_IMAGE_DIR},
     )
     logger.info(
-        f"start background ota-image server at http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
+        f"start background ota-image server at http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     )
     try:
         yield _server_p.start()
@@ -62,10 +108,9 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
         A tuple includes the path to A/B slots respectly.
     """
     # prepare slot_a
-    slot_a_uuid = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
     slot_a = tmp_path_factory.mktemp("slot_a")
     shutil.copytree(
-        Path(OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
+        Path(cfg.OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
     )
     # simulate the diff between versions
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
@@ -74,7 +119,6 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     shutil.rmtree(slot_a / "boot", ignore_errors=True)
 
     # prepare slot_b
-    slot_b_uuid = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
     slot_b = tmp_path_factory.mktemp("slot_b")
 
     # boot dev
@@ -82,7 +126,7 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     slot_a_boot_dir = slot_a_boot_dev / "boot"
     slot_a_boot_dir.mkdir()
     shutil.copytree(
-        Path(OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
+        Path(cfg.OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
     )
     slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
     slot_b_boot_dir = slot_b_boot_dev / "boot"
@@ -92,6 +136,4 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
         slot_b=str(slot_b),
         slot_a_boot_dev=str(slot_a_boot_dev),
         slot_b_boot_dev=str(slot_b_boot_dev),
-        slot_a_uuid=slot_a_uuid,
-        slot_b_uuid=slot_b_uuid,
     )
