@@ -381,7 +381,9 @@ class _GrubControl:
 
         self.boot_dir = Path(cfg.BOOT_DIR)
         self.grub_file = Path(cfg.GRUB_CFG_PATH)
-        self.grub_default_file = Path(cfg.DEFAULT_GRUB_PATH)
+        self.grub_default_file = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
+            cfg.DEFAULT_GRUB_PATH
+        ).relative_to("/")
 
         self.ota_partition_folder = self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
         self.active_ota_partition_folder = (
@@ -864,10 +866,12 @@ class GrubController(
     def post_update(self):
         try:
             # update fstab
-            active_fstab = Path(cfg.FSTAB_FILE_PATH)
-            standby_fstab = self.standby_slot_mount_point / active_fstab.relative_to(
-                "/"
-            )
+            active_fstab = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
+                cfg.FSTAB_FILE_PATH
+            ).relative_to("/")
+            standby_fstab = self.standby_slot_mount_point / Path(
+                cfg.FSTAB_FILE_PATH
+            ).relative_to("/")
             self._update_fstab(
                 standby_slot_fstab=standby_fstab,
                 active_slot_fstab=active_fstab,
