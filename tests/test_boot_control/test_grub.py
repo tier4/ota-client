@@ -297,7 +297,7 @@ class TestGrubControl:
         grub_controller.post_update()
         assert (
             self.slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
-        ).read_text() == self.FSTAB_UPDATED
+        ).read_text() == self.FSTAB_UPDATED.strip()
         assert (
             self.boot_dir / "grub/grub.cfg"
         ).read_text() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED
