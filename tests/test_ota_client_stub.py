@@ -1,7 +1,11 @@
-from pathlib import Path
-from typing import List
+import asyncio
 import pytest
 import pytest_mock
+import time
+import typing
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import List
 
 from tests.utils import DummySubECU
 from tests.conftest import TestConfiguration as cfg
@@ -61,8 +65,71 @@ class TestOtaProxyWrapper:
 
 
 class Test_UpdateSession:
-    # TODO: check update session's start and interrupted/restart
-    pass
+    LOCAL_UPDATE_TIME_COST = 1
+    SUBECU_UPDATE_TIME_COST = 2
+
+    @pytest.fixture(autouse=True)
+    def _setup_executor(self):
+        try:
+            self._executor = ThreadPoolExecutor()
+            yield
+        finally:
+            self._executor.shutdown()
+
+    @pytest.fixture(autouse=True)
+    def mock_setup(self, mocker: pytest_mock.MockerFixture):
+        from app.ota_client import OTAUpdateFSM
+
+        _ota_update_fsm = typing.cast(OTAUpdateFSM, mocker.MagicMock(spec=OTAUpdateFSM))
+        _ota_update_fsm.stub_wait_for_local_update = mocker.MagicMock(
+            wraps=self._local_update_waiter
+        )
+        mocker.patch(
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAUpdateFSM",
+            return_value=_ota_update_fsm,
+        )
+        self._fsm = _ota_update_fsm
+
+    def _local_update_waiter(self):
+        time.sleep(self.LOCAL_UPDATE_TIME_COST)
+        return True
+
+    async def _subecu_update(self):
+        await asyncio.sleep(self.SUBECU_UPDATE_TIME_COST)
+        return True
+
+    async def test_my_ecu_update_tracker(self):
+        from app.ota_client_stub import _UpdateSession
+
+        await _UpdateSession.my_ecu_update_tracker(
+            fsm=self._fsm,
+            executor=self._executor,
+        )
+        self._fsm.stub_wait_for_local_update.assert_called_once()
+
+    async def test_update_tracker(self):
+        from app.ota_client_stub import _UpdateSession
+
+        # launch update session
+        _update_session = _UpdateSession(executor=self._executor)
+
+        ###### prepare tracking coro ######
+        _my_ecu_tracking_task = _update_session.my_ecu_update_tracker(
+            fsm=self._fsm,
+            executor=self._executor,
+        )
+        _subecu_tracking_task = self._subecu_update()
+
+        await _update_session.start(None)
+        await _update_session.update_tracker(
+            my_ecu_tracking_task=_my_ecu_tracking_task,
+            subecu_tracking_task=_subecu_tracking_task,
+        )
+
+        ###### assert ######
+        assert not _update_session.is_started()
+        self._fsm.stub_wait_for_local_update.assert_called_once()
+        self._fsm.stub_cleanup_finished.assert_called_once()
 
 
 class Test_SubECUTracker:
