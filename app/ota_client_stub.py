@@ -183,7 +183,7 @@ class _UpdateSession:
                     logger.error(f"failed to stop ota_proxy gracefully: {e!r}")
                     self.fsm.on_otaservice_failed()
 
-                self._started.clear()
+            self._started.clear()
 
     @classmethod
     async def my_ecu_update_tracker(
