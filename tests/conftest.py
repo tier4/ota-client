@@ -12,10 +12,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TestConfiguration:
+    # module paths
+    BOOT_CONTROL_COMMON_MODULE_PATH = "app.boot_control.common"
+    CONFIGS_MODULE_PATH = "app.configs"
+    CBOOT_MODULE_PATH = "app.boot_control.cboot"
+    OTACLIENT_MODULE_PATH = "app.ota_client"
+    OTACLIENT_STUB_MODULE_PATH = "app.ota_client_stub"
+    OTAPROXY_MODULE_PATH = "ota_proxy"
+
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
     OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
     OTA_IMAGE_SERVER_PORT = 8080
+    OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
     KERNEL_VERSION = "5.8.0-53-generic"
     CURRENT_VERSION = "123.x"
     UPDATE_VERSION = "789.x"
@@ -31,15 +40,12 @@ class TestConfiguration:
     SLOT_B_ID_CBOOT = "1"
 
     # common configuration
-    CONFIGS_MODULE_PATH = "app.configs"
     OTA_DIR = "/boot/ota"
     BOOT_DIR = "/boot"
-    BOOT_CONTROL_COMMON_MODULE_PATH = "app.boot_control.common"
     OTA_KERNEL_LABEL = "ota"
     OTA_STANDBY_KERNEL_LABEL = "ota.standby"
 
     # cboot specific conf
-    CBOOT_MODULE_PATH = "app.boot_control.cboot"
     OTA_STATUS_DIR = "/boot/ota-status"
     OTA_PARTITION_DIRNAME = "ota-partition"
 
