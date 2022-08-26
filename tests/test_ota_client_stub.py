@@ -15,11 +15,15 @@ class _DummySubECUsGroup:
     def __init__(self, ecu_id_list: List[str]) -> None:
         self._ecu_dict = {ecu_id: DummySubECU(ecu_id=ecu_id) for ecu_id in ecu_id_list}
 
-    def start_update(self, ecu_id, *args, request, **kwargs):
+    async def start_update(self, ecu_id, *args, request, **kwargs):
         self._ecu_dict[ecu_id].start()
         return request
 
-    def get_status(self, ecu_id, *args, **kwargs):
+    def start_update_all(self):
+        for _, ecu in self._ecu_dict.items():
+            ecu.start()
+
+    async def get_status(self, ecu_id, *args, **kwargs):
         return self._ecu_dict[ecu_id].status()
 
 
@@ -133,8 +137,32 @@ class Test_UpdateSession:
 
 
 class Test_SubECUTracker:
-    # TODO: remember to mock the QUERYING_SUBECU_STATUS_TIMEOUT to a small number
-    pass
+    @pytest.fixture
+    def setup_subecus(self):
+        self._subecu_dict = {"p1": "", "p2": ""}
+        self._subecs = _DummySubECUsGroup(list(self._subecu_dict.keys()))
+
+    @pytest.fixture(autouse=True)
+    def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_subecus):
+        from app.ota_client_call import OtaClientCall
+
+        _ota_client_call = typing.cast(
+            OtaClientCall, mocker.MagicMock(spec=OtaClientCall)
+        )
+        _ota_client_call.status_call = mocker.MagicMock(wraps=self._subecs.get_status)
+
+        # patch
+        mocker.patch(
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OtaClientCall", _ota_client_call
+        )
+        self._ota_client_call = _ota_client_call
+
+    async def test__SubECUTracker(self):
+        from app.ota_client_stub import _SubECUTracker
+
+        self._subecs.start_update_all()
+        _subecu_tracker = _SubECUTracker(self._subecu_dict)
+        assert await _subecu_tracker.ensure_tracked_ecu_ready()
 
 
 class TestOtaClientStub:
