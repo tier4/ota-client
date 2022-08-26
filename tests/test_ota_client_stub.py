@@ -3,13 +3,12 @@ import pytest
 import pytest_mock
 import time
 import typing
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List
 from app.proto import wrapper
 
 from tests.utils import DummySubECU
-from tests.conftest import TestConfiguration as cfg
+from tests.conftest import ThreadpoolExecutorFixtureMixin, TestConfiguration as cfg
 
 import logging
 
@@ -90,24 +89,13 @@ class TestOtaProxyWrapper:
         )
 
 
-class Test_UpdateSession:
+class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTACLIENT_STUB_MODULE_PATH}"
     LOCAL_UPDATE_TIME_COST = 1
     SUBECU_UPDATE_TIME_COST = 2
 
     @pytest.fixture(autouse=True)
-    def _setup_executor(self, mocker: pytest_mock.MockerFixture):
-        try:
-            self._executor = ThreadPoolExecutor()
-            mocker.patch(
-                f"{cfg.OTACLIENT_STUB_MODULE_PATH}.ThreadPoolExecutor",
-                return_value=self._executor,
-            )
-            yield
-        finally:
-            self._executor.shutdown()
-
-    @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: pytest_mock.MockerFixture):
+    def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_executor):
         from app.ota_client import OTAUpdateFSM
 
         _ota_update_fsm = typing.cast(OTAUpdateFSM, mocker.MagicMock(spec=OTAUpdateFSM))
@@ -191,7 +179,8 @@ class Test_SubECUTracker:
         assert await _subecu_tracker.ensure_tracked_ecu_ready()
 
 
-class TestOtaClientStub:
+class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTACLIENT_STUB_MODULE_PATH}"
     # TODO: updater/rollback: test whether the all the subecus received update requests or not
     # TODO: status
 
@@ -213,19 +202,7 @@ class TestOtaClientStub:
         )
 
     @pytest.fixture(autouse=True)
-    def _setup_executor(self, mocker: pytest_mock.MockerFixture):
-        try:
-            self._executor = ThreadPoolExecutor()
-            mocker.patch(
-                f"{cfg.OTACLIENT_STUB_MODULE_PATH}.ThreadPoolExecutor",
-                return_value=self._executor,
-            )
-            yield
-        finally:
-            self._executor.shutdown()
-
-    @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_ecus):
+    def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_ecus, setup_executor):
         from app.ecu_info import EcuInfo
         from app.ota_client import OTAClient, OTAUpdateFSM
         from app.ota_client_call import OtaClientCall
