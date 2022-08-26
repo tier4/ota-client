@@ -21,6 +21,8 @@ class TestConfiguration:
     UPDATE_VERSION = "789.x"
 
     # slots settings for testing
+    # NOTE: grub use UUID and cboot use PARTUUID, SLOT_<slot>_UUID/PARTUUID are different
+    #       things, just happens to have the same value for only for test convenience,
     SLOT_A_UUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
     SLOT_A_PARTUUID = SLOT_A_UUID
     SLOT_B_UUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
