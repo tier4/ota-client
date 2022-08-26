@@ -6,22 +6,44 @@ import typing
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List
+from app.proto import wrapper
 
 from tests.utils import DummySubECU
 from tests.conftest import TestConfiguration as cfg
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class _DummySubECUsGroup:
     def __init__(self, ecu_id_list: List[str]) -> None:
         self._ecu_dict = {ecu_id: DummySubECU(ecu_id=ecu_id) for ecu_id in ecu_id_list}
+        self._if_received_update = {ecu_id: False for ecu_id in ecu_id_list}
 
     async def start_update(self, ecu_id, *args, request, **kwargs):
+        logger.info(f"update request for {ecu_id=}")
         self._ecu_dict[ecu_id].start()
-        return request
+        self._if_received_update[ecu_id] = True
+        return wrapper.UpdateResponse(
+            ecu=[
+                wrapper.v2.UpdateResponseEcu(
+                    ecu_id=ecu_id,
+                    result=wrapper.FailureType.NO_FAILURE.value,
+                )
+            ]
+        )
+
+    def if_all_subecus_received_update(self):
+        _res = True
+        for _, v in self._if_received_update.items():
+            _res &= v
+        return _res
 
     def start_update_all(self):
-        for _, ecu in self._ecu_dict.items():
+        for ecu_id, ecu in self._ecu_dict.items():
             ecu.start()
+            self._if_received_update[ecu_id] = True
 
     async def get_status(self, ecu_id, *args, **kwargs):
         return self._ecu_dict[ecu_id].status()
@@ -73,9 +95,13 @@ class Test_UpdateSession:
     SUBECU_UPDATE_TIME_COST = 2
 
     @pytest.fixture(autouse=True)
-    def _setup_executor(self):
+    def _setup_executor(self, mocker: pytest_mock.MockerFixture):
         try:
             self._executor = ThreadPoolExecutor()
+            mocker.patch(
+                f"{cfg.OTACLIENT_STUB_MODULE_PATH}.ThreadPoolExecutor",
+                return_value=self._executor,
+            )
             yield
         finally:
             self._executor.shutdown()
@@ -166,6 +192,117 @@ class Test_SubECUTracker:
 
 
 class TestOtaClientStub:
-    pass
     # TODO: updater/rollback: test whether the all the subecus received update requests or not
     # TODO: status
+
+    @pytest.fixture
+    def setup_ecus(self):
+        self._my_ecuid = "autoware"
+        self._subecu_dict = {"p1": "", "p2": ""}
+        self._subecs = _DummySubECUsGroup(list(self._subecu_dict.keys()))
+        self._subecu_list_ecu_info = [
+            {"ecu_id": "p1", "ip_addr": ""},
+            {"ecu_id": "p2", "ip_addr": ""},
+        ]
+        self.update_request = wrapper.UpdateRequest(
+            ecu=[
+                {"ecu_id": "autoware"},
+                {"ecu_id": "p1"},
+                {"ecu_id": "p2"},
+            ]
+        )
+
+    @pytest.fixture(autouse=True)
+    def _setup_executor(self, mocker: pytest_mock.MockerFixture):
+        try:
+            self._executor = ThreadPoolExecutor()
+            mocker.patch(
+                f"{cfg.OTACLIENT_STUB_MODULE_PATH}.ThreadPoolExecutor",
+                return_value=self._executor,
+            )
+            yield
+        finally:
+            self._executor.shutdown()
+
+    @pytest.fixture(autouse=True)
+    def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_ecus):
+        from app.ecu_info import EcuInfo
+        from app.ota_client import OTAClient, OTAUpdateFSM
+        from app.ota_client_call import OtaClientCall
+
+        ###### mock otaclient_call ######
+        self._ota_client_call = typing.cast(
+            OtaClientCall, mocker.MagicMock(spec=OtaClientCall)
+        )
+        self._ota_client_call.status_call = mocker.MagicMock(
+            wraps=self._subecs.get_status
+        )
+        self._ota_client_call.update_call = mocker.MagicMock(
+            wraps=self._subecs.start_update
+        )
+
+        ###### mock otaupdate_fsm ######
+        _wait_for_update_finished = asyncio.Event()
+
+        def _all_update_finished():
+            logger.info("all update finished!")
+            _wait_for_update_finished.set()
+
+        _ota_update_fsm = typing.cast(OTAUpdateFSM, mocker.MagicMock(spec=OTAUpdateFSM))
+        _ota_update_fsm.stub_cleanup_finished.side_effect = _all_update_finished
+        _ota_update_fsm.stub_wait_for_local_update.return_value = True
+        mocker.patch(
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAUpdateFSM",
+            return_value=_ota_update_fsm,
+        )
+        self._fsm = _ota_update_fsm
+        self._wait_for_update_finished = _wait_for_update_finished
+
+        ###### mock ecu_info ######
+        _ecu_info_mock = typing.cast(EcuInfo, mocker.MagicMock(spec=EcuInfo))
+        _ecu_info_mock.get_ecu_id.return_value = self._my_ecuid
+        _ecu_info_mock.get_available_ecu_ids.return_value = list(
+            self._subecu_dict.keys()
+        ) + [self._my_ecuid]
+        _ecu_info_mock.get_secondary_ecus.return_value = self._subecu_list_ecu_info
+
+        ###### mock otaclient ######
+        self._ota_client_mock = typing.cast(OTAClient, mocker.MagicMock())
+        self._ota_client_mock.live_ota_status.request_update.return_value = True
+
+        def _received_local_update(*args, **kwargs):
+            logger.info("my ecu received update request!")
+
+        self._ota_client_mock.update.side_effect = _received_local_update
+
+        ###### patch ######
+        mocker.patch(
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.EcuInfo", return_value=_ecu_info_mock
+        )
+        mocker.patch(
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAClient",
+            return_value=self._ota_client_mock,
+        )
+        mocker.patch(
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.proxy_cfg.enable_local_ota_proxy", False
+        )
+        mocker.patch(
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OtaClientCall", self._ota_client_call
+        )
+
+    async def test_update(self):
+        from app.ota_client_stub import OtaClientStub
+
+        _ota_client_stub = OtaClientStub()
+        # TODO: inspect response
+        await _ota_client_stub.update(self.update_request)
+
+        # wait for update finished
+        await self._wait_for_update_finished.wait()
+
+        # assert ota updates for subecus are dispatched
+        assert self._subecs.if_all_subecus_received_update()
+        # assert local update is dispatched
+        self._ota_client_mock.update.assert_called_once()
+        # assert update finished
+        self._fsm.stub_cleanup_finished.assert_called_once()
