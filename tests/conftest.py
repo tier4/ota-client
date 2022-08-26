@@ -1,7 +1,9 @@
-from dataclasses import dataclass
 import logging
 import pytest
+import pytest_mock
 import shutil
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from multiprocessing import Process
 from pathlib import Path
 
@@ -128,3 +130,19 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
         slot_a_boot_dev=str(slot_a_boot_dev),
         slot_b_boot_dev=str(slot_b_boot_dev),
     )
+
+
+class ThreadpoolExecutorFixtureMixin:
+    THTREADPOOL_EXECUTOR_PATCH_PATH: str
+
+    @pytest.fixture
+    def setup_executor(self, mocker: pytest_mock.MockerFixture):
+        try:
+            self._executor = ThreadPoolExecutor()
+            mocker.patch(
+                f"{self.THTREADPOOL_EXECUTOR_PATCH_PATH}.ThreadPoolExecutor",
+                return_value=self._executor,
+            )
+            yield
+        finally:
+            self._executor.shutdown()
