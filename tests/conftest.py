@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import logging
 import pytest
 import pytest_mock
