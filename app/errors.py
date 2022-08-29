@@ -6,6 +6,43 @@ from app.proto import wrapper
 
 
 @unique
+class OTAErrorCode(Enum):
+    E_UNSPECIFIC = 0
+
+    E_NETWORK = 100
+    E_OTAMETA_DOWNLOAD_FAILED = 101
+
+    E_OTA_ERR_RECOVERABLE = 200
+    E_OTAUPDATE_BUSY = 201
+    E_INVALID_STATUS_FOR_OTAUPDATE = 202
+    E_INVALID_OTAUPDATE_REQUEST = 203
+    E_INVALID_STATUS_FOR_OTAROLLBACK = 204
+    E_OTAMETA_VERIFICATION_FAILED = 205
+    E_UPDATEDELTA_GENERATION_FAILED = 206
+    E_APPLY_OTAUPDATE_FAILED = 207
+    E_BASE_OTAMETA_VERIFICATION_FAILED = 208
+    E_OTAPROXY_FAILED_TO_START = 209
+
+    E_OTA_ERR_UNRECOVERABLE = 300
+    E_BOOTCONTROL_PLATFORM_UNSUPPORTED = 301
+    E_BOOTCONTROL_INIT_ERR = 302
+    E_BOOTCONTROL_PREUPDATE_FAILED = 303
+    E_BOOTCONTROL_POSTUPDATE_FAILED = 304
+    E_BOOTCONTROL_POSTROLLBACK_FAILED = 305
+    E_STANDBY_SLOT_SPACE_NOT_ENOUGH_ERROR = 306
+    E_BOOTCONTROL_PREROLLBACK_FAILED = 307
+
+    def to_str(self) -> str:
+        return f"{self.value:0>3}"
+
+    def get_errcode(self) -> int:
+        return self.value
+
+    def get_errname(self) -> str:
+        return self.name
+
+
+@unique
 class OTAModules(Enum):
     General = 0
     BootController = 1
@@ -35,9 +72,9 @@ class OTAError(Exception):
     It should always be captured by the OTAError at otaclient.py.
     """
 
-    failure_type: wrapper.FailureType
-    module: OTAModules
-    errcode: "OTAErrorCode"
+    failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
+    module: OTAModules = OTAModules.General
+    errcode: OTAErrorCode = OTAErrorCode.E_UNSPECIFIC
     desc: str = "no description available for this error"
 
 
@@ -48,7 +85,7 @@ class OTA_APIError(Exception):
     This exception must be created by wrapping an OTAClientError.
     """
 
-    api: OTAAPI
+    api: OTAAPI = OTAAPI.Unspecific
     _err_prefix = "E"
 
     def __init__(self, ota_err: OTAError, *args: object) -> None:
@@ -106,43 +143,6 @@ class OTAUpdateError(OTA_APIError):
 
 class OTARollbackError(OTA_APIError):
     api = OTAAPI.Rollback
-
-
-@unique
-class OTAErrorCode(Enum):
-    E_UNSPECIFIC = 0
-
-    E_NETWORK = 100
-    E_OTAMETA_DOWNLOAD_FAILED = 101
-
-    E_OTA_ERR_RECOVERABLE = 200
-    E_OTAUPDATE_BUSY = 201
-    E_INVALID_STATUS_FOR_OTAUPDATE = 202
-    E_INVALID_OTAUPDATE_REQUEST = 203
-    E_INVALID_STATUS_FOR_OTAROLLBACK = 204
-    E_OTAMETA_VERIFICATION_FAILED = 205
-    E_UPDATEDELTA_GENERATION_FAILED = 206
-    E_APPLY_OTAUPDATE_FAILED = 207
-    E_BASE_OTAMETA_VERIFICATION_FAILED = 208
-    E_OTAPROXY_FAILED_TO_START = 209
-
-    E_OTA_ERR_UNRECOVERABLE = 300
-    E_BOOTCONTROL_PLATFORM_UNSUPPORTED = 301
-    E_BOOTCONTROL_INIT_ERR = 302
-    E_BOOTCONTROL_PREUPDATE_FAILED = 303
-    E_BOOTCONTROL_POSTUPDATE_FAILED = 304
-    E_BOOTCONTROL_POSTROLLBACK_FAILED = 305
-    E_STANDBY_SLOT_SPACE_NOT_ENOUGH_ERROR = 306
-    E_BOOTCONTROL_PREROLLBACK_FAILED = 307
-
-    def to_str(self) -> str:
-        return f"{self.value:0>3}"
-
-    def get_errcode(self) -> int:
-        return self.value
-
-    def get_errname(self) -> str:
-        return self.name
 
 
 ###### error exception classes ######
