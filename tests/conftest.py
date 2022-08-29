@@ -2,6 +2,7 @@ import logging
 import pytest
 import pytest_mock
 import shutil
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from multiprocessing import Process
@@ -74,11 +75,15 @@ def run_http_server_subprocess():
         args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
         kwargs={"directory": cfg.OTA_IMAGE_DIR},
     )
-    logger.info(
-        f"start background ota-image server at http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
-    )
     try:
-        yield _server_p.start()
+        _server_p.start()
+        # NOTE: wait for 2 seconds for the server to fully start
+        time.sleep(2)
+        logger.info(
+            "start background ota-image server at "
+            f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
+        )
+        yield
     finally:
         logger.info("shutdown background ota-image server")
         _server_p.kill()
