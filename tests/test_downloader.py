@@ -90,7 +90,7 @@ class TestDownloader:
         )
 
         # directly load the mocker adapter to the Downloader session
-        _downloader.session.mount("http://127.0.0.1:8080", _mock_adapter)
+        _downloader.session.mount(cfg.OTA_IMAGE_URL, _mock_adapter)
         with pytest.raises(expected_ota_download_err) as e:
             _downloader.download(
                 self.TEST_FILE,

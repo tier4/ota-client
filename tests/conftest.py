@@ -34,6 +34,8 @@ class TestConfiguration:
     UPDATE_VERSION = "789.x"
 
     # slots settings for testing
+    # NOTE: grub use UUID and cboot use PARTUUID, SLOT_<slot>_UUID/PARTUUID are different
+    #       things, just happens to have the same value for only for test convenience,
     SLOT_A_UUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
     SLOT_A_PARTUUID = SLOT_A_UUID
     SLOT_B_UUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
@@ -80,10 +82,7 @@ def run_http_server_subprocess():
         _server_p.start()
         # NOTE: wait for 2 seconds for the server to fully start
         time.sleep(2)
-        logger.info(
-            "start background ota-image server at "
-            f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
-        )
+        logger.info(f"start background ota-image server on {cfg.OTA_IMAGE_URL}")
         yield
     finally:
         logger.info("shutdown background ota-image server")
