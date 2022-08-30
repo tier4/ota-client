@@ -131,7 +131,7 @@ class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
         # launch update session
         _update_session = _UpdateSession(executor=self._executor)
 
-        ###### prepare tracking coro ######
+        ###### prepare tracking coroutine ######
         _my_ecu_tracking_task = _update_session.my_ecu_update_tracker(
             fsm=self._fsm,
             executor=self._executor,
