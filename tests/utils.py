@@ -29,23 +29,6 @@ class SlotMeta:
     slot_b_boot_dev: str
 
 
-@dataclass
-class SlotMeta:
-    """
-    NOTE: For test setup convenience, even for grub controller scheme that
-        doesn't use separate boot dev, we still simluate a separate boot dev.
-
-        For grub controller, we use <boot_dev>/boot/ota-status as ota-partition folder,
-        and use a general boot dir to store ota-partition files.
-        For cboot controller, we use <boot_dev> directly.
-    """
-
-    slot_a: str
-    slot_b: str
-    slot_a_boot_dev: str
-    slot_b_boot_dev: str
-
-
 @asynccontextmanager
 async def run_otaclient_server(otaclient_service_v2, listen_addr):
     server = grpc.aio.server()
