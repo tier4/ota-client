@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 import http.server as http_server
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import grpc
 from app.common import file_sha256
-from app.proto import otaclient_v2_pb2_grpc as v2_grpc
+from app.proto import otaclient_v2_pb2_grpc as v2_grpc, wrapper
 
 
 @dataclass
@@ -80,3 +81,65 @@ def compare_dir(left: Path, right: Path):
                 raise ValueError(f"{_path}")
         else:
             raise ValueError(f"{_path}")
+
+
+class DummySubECU:
+    SUCCESS_RESPONSE = wrapper.v2.Status(
+        status=wrapper.StatusOta.SUCCESS.value,
+        failure=wrapper.FailureType.NO_FAILURE.value,
+    )
+    UPDATING_RESPONSE = wrapper.v2.Status(
+        status=wrapper.StatusOta.UPDATING.value,
+        failure=wrapper.FailureType.NO_FAILURE.value,
+    )
+    UPDATE_TIME_COST = 3
+    REBOOT_TIME_COST = 1
+
+    def __init__(self, ecu_id) -> None:
+        self._receive_update_time = None
+        self.ecu_id = ecu_id
+
+    def start(self):
+        self._receive_update_request = time.time()
+
+    def status(self):
+        # update not yet started
+        if self._receive_update_time is None:
+            res = wrapper.StatusResponse(
+                ecu=[
+                    wrapper.v2.StatusResponseEcu(
+                        ecu_id=self.ecu_id,
+                        status=self.SUCCESS_RESPONSE,
+                    )
+                ],
+                available_ecu_ids=[self.ecu_id],
+            )
+            return res
+        # update finished
+        if (
+            self._receive_update_time + self.UPDATE_TIME_COST + self.REBOOT_TIME_COST
+        ) >= time.time():
+            res = wrapper.StatusResponse(
+                ecu=[
+                    wrapper.v2.StatusResponseEcu(
+                        ecu_id=self.ecu_id,
+                        status=self.SUCCESS_RESPONSE,
+                    )
+                ],
+                available_ecu_ids=[self.ecu_id],
+            )
+            return res
+        # rebooting
+        if (self._receive_update_time + self.UPDATE_TIME_COST) >= time.time():
+            return None
+        # updating
+        res = wrapper.StatusResponse(
+            ecu=[
+                wrapper.v2.StatusResponseEcu(
+                    ecu_id=self.ecu_id,
+                    status=self.UPDATING_RESPONSE,
+                )
+            ],
+            available_ecu_ids=[self.ecu_id],
+        )
+        return res

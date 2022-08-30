@@ -1,5 +1,8 @@
+import os
+import time
 import grpc.aio
 import pytest
+from multiprocessing import Process
 from pathlib import Path
 from pytest_mock import MockerFixture
 from pytest import LogCaptureFixture
@@ -16,26 +19,52 @@ class _dummy_OtaClientStub:
         return "127.0.0.1"
 
 
-@pytest.fixture
-def patch_main(mocker: MockerFixture, tmp_path: Path):
-    mocker.patch("app.ota_client_service.OtaClientStub", _dummy_OtaClientStub)
-    mocker.patch("app.main._check_other_otaclient")
-    mocker.patch(
-        "app.ota_client_service.service_wait_for_termination",
-        _terminate_server,
-    )
+class TestMain:
+    OTACLIENT_LOCK_FILE = "/var/run/ota-client.lock"
 
-    version_file = tmp_path / "version.txt"
-    version_file.write_text(FIRST_LINE_LOG)
-    mocker.patch("app.main.VERSION_FILE", version_file)
+    @pytest.fixture(autouse=True)
+    def patch_main(self, mocker: MockerFixture, tmp_path: Path):
+        mocker.patch("app.ota_client_service.OtaClientStub", _dummy_OtaClientStub)
+        mocker.patch(
+            "app.ota_client_service.service_wait_for_termination",
+            _terminate_server,
+        )
 
+        self._sys_exit_mocker = mocker.MagicMock(side_effect=ValueError)
+        mocker.patch("app.main.sys.exit", self._sys_exit_mocker)
 
-def test_main_with_version(
-    patch_main,
-    caplog: LogCaptureFixture,
-):
-    from app.main import main
+        version_file = tmp_path / "version.txt"
+        version_file.write_text(FIRST_LINE_LOG)
+        mocker.patch("app.main.VERSION_FILE", version_file)
 
-    main()
-    assert caplog.records[0].msg == "started"
-    assert caplog.records[1].msg == FIRST_LINE_LOG
+    @pytest.fixture
+    def background_process(self):
+        def _waiting():
+            time.sleep(1234)
+
+        _p = Process(target=_waiting)
+        try:
+            _p.start()
+            Path(self.OTACLIENT_LOCK_FILE).write_text(f"{_p.pid}")
+            yield _p.pid
+        finally:
+            _p.kill()
+
+    def test_main_with_version(self, caplog: LogCaptureFixture):
+        from app.main import main
+
+        main()
+        assert caplog.records[0].msg == "started"
+        assert caplog.records[1].msg == FIRST_LINE_LOG
+        assert Path(self.OTACLIENT_LOCK_FILE).read_text() == f"{os.getpid()}"
+
+    def test_with_other_otaclient_started(self, background_process):
+        from app.main import main
+
+        _other_pid = f"{background_process}"
+        with pytest.raises(ValueError):
+            main()
+        self._sys_exit_mocker.assert_called_once_with(
+            f"another instance of ota-client(pid: {_other_pid}) is running, abort"
+        )
+        assert Path(self.OTACLIENT_LOCK_FILE).read_text() == _other_pid

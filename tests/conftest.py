@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 import logging
 import pytest
+import pytest_mock
 import shutil
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from multiprocessing import Process
 from pathlib import Path
 
@@ -12,10 +16,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TestConfiguration:
+    # module paths
+    BOOT_CONTROL_COMMON_MODULE_PATH = "app.boot_control.common"
+    CONFIGS_MODULE_PATH = "app.configs"
+    CBOOT_MODULE_PATH = "app.boot_control.cboot"
+    OTACLIENT_MODULE_PATH = "app.ota_client"
+    OTACLIENT_STUB_MODULE_PATH = "app.ota_client_stub"
+    OTAPROXY_MODULE_PATH = "ota_proxy"
+
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
     OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
     OTA_IMAGE_SERVER_PORT = 8080
+    OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
     KERNEL_VERSION = "5.8.0-53-generic"
     CURRENT_VERSION = "123.x"
     UPDATE_VERSION = "789.x"
@@ -33,15 +46,12 @@ class TestConfiguration:
     SLOT_B_ID_CBOOT = "1"
 
     # common configuration
-    CONFIGS_MODULE_PATH = "app.configs"
     OTA_DIR = "/boot/ota"
     BOOT_DIR = "/boot"
-    BOOT_CONTROL_COMMON_MODULE_PATH = "app.boot_control.common"
     OTA_KERNEL_LABEL = "ota"
     OTA_STANDBY_KERNEL_LABEL = "ota.standby"
 
     # cboot specific conf
-    CBOOT_MODULE_PATH = "app.boot_control.cboot"
     OTA_STATUS_DIR = "/boot/ota-status"
     OTA_PARTITION_DIRNAME = "ota-partition"
 
@@ -68,11 +78,12 @@ def run_http_server_subprocess():
         args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
         kwargs={"directory": cfg.OTA_IMAGE_DIR},
     )
-    logger.info(
-        f"start background ota-image server at http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
-    )
     try:
-        yield _server_p.start()
+        _server_p.start()
+        # NOTE: wait for 2 seconds for the server to fully start
+        time.sleep(2)
+        logger.info(f"start background ota-image server on {cfg.OTA_IMAGE_URL}")
+        yield
     finally:
         logger.info("shutdown background ota-image server")
         _server_p.kill()
@@ -124,3 +135,19 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
         slot_a_boot_dev=str(slot_a_boot_dev),
         slot_b_boot_dev=str(slot_b_boot_dev),
     )
+
+
+class ThreadpoolExecutorFixtureMixin:
+    THTREADPOOL_EXECUTOR_PATCH_PATH: str
+
+    @pytest.fixture
+    def setup_executor(self, mocker: pytest_mock.MockerFixture):
+        try:
+            self._executor = ThreadPoolExecutor()
+            mocker.patch(
+                f"{self.THTREADPOOL_EXECUTOR_PATCH_PATH}.ThreadPoolExecutor",
+                return_value=self._executor,
+            )
+            yield
+        finally:
+            self._executor.shutdown()
