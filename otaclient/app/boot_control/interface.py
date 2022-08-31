@@ -2,7 +2,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Protocol
 
-from app.proto import wrapper
+from ..proto import wrapper
 
 
 class BootControllerProtocol(Protocol):

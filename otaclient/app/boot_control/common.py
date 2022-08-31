@@ -4,15 +4,15 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Callable, List, Optional, Union
 
-from app import log_util
-from app.configs import config as cfg
-from app.common import (
+from .. import log_util
+from ..configs import config as cfg
+from ..common import (
     read_str_from_file,
     subprocess_call,
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from app.proto import wrapper
+from ..proto import wrapper
 
 
 logger = log_util.get_logger(

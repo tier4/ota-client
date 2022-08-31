@@ -7,7 +7,25 @@ from typing import ClassVar, Dict, List, Optional, Tuple
 from pathlib import Path
 from pprint import pformat
 
-from app.boot_control.common import (
+from ..common import (
+    re_symlink_atomic,
+    read_str_from_file,
+    subprocess_call,
+    subprocess_check_output,
+    write_str_to_file_sync,
+)
+from ..configs import BOOT_LOADER, grub_cfg as cfg
+from ..errors import (
+    BootControlInitError,
+    BootControlPostRollbackFailed,
+    BootControlPostUpdateFailed,
+    BootControlPreRollbackFailed,
+    BootControlPreUpdateFailed,
+)
+from ..proto import wrapper
+from .. import log_util
+
+from .common import (
     ABPartitionError,
     CMDHelperFuncs,
     OTAStatusMixin,
@@ -16,24 +34,7 @@ from app.boot_control.common import (
     VersionControlMixin,
     cat_proc_cmdline,
 )
-from app.boot_control.interface import BootControllerProtocol
-from app.common import (
-    re_symlink_atomic,
-    read_str_from_file,
-    subprocess_call,
-    subprocess_check_output,
-    write_str_to_file_sync,
-)
-from app.configs import BOOT_LOADER, grub_cfg as cfg
-from app.errors import (
-    BootControlInitError,
-    BootControlPostRollbackFailed,
-    BootControlPostUpdateFailed,
-    BootControlPreRollbackFailed,
-    BootControlPreUpdateFailed,
-)
-from app.proto import wrapper
-from app import log_util
+from .interface import BootControllerProtocol
 
 assert (
     BOOT_LOADER == "grub"

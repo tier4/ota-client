@@ -23,11 +23,11 @@ from typing import (
 )
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
-from app.common import file_sha256
-from app.configs import config as cfg
-from app.ota_metadata import DirectoryInf, RegularInf
-from app import log_util
-from app.update_stats import (
+from ..common import file_sha256
+from ..configs import config as cfg
+from ..ota_metadata import DirectoryInf, RegularInf
+from .. import log_util
+from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
     RegProcessOperation,

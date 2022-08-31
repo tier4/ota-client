@@ -6,35 +6,35 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable
 from urllib.parse import urljoin
-from app.errors import ApplyOTAUpdateFailed, OTAError, StandbySlotSpaceNotEnoughError
 
-from app.common import SimpleTasksTracker, OTAFileCacheControl
-from app.configs import config as cfg
-from app.copy_tree import CopyTree
-from app.downloader import (
+from ..errors import ApplyOTAUpdateFailed, OTAError, StandbySlotSpaceNotEnoughError
+from ..common import SimpleTasksTracker, OTAFileCacheControl
+from ..configs import config as cfg
+from ..copy_tree import CopyTree
+from ..downloader import (
     ChunkStreamingError,
     DownloadFailedSpaceNotEnough,
     Downloader,
     ExceedMaxRetryError,
 )
-from app.errors import NetworkError
-from app.ota_metadata import (
+from ..errors import NetworkError
+from ..ota_metadata import (
     DirectoryInf,
     PersistentInf,
     RegularInf,
     SymbolicLinkInf,
 )
-from app.proto import wrapper
-from app.proxy_info import proxy_cfg
-
-from app.create_standby.common import HardlinkRegister
-from app.create_standby.interface import StandbySlotCreatorProtocol, UpdateMeta
-from app.update_stats import (
+from ..proto import wrapper
+from ..proxy_info import proxy_cfg
+from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
     RegProcessOperation,
 )
-from app import log_util
+from .. import log_util
+
+from .common import HardlinkRegister
+from .interface import StandbySlotCreatorProtocol, UpdateMeta
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

@@ -12,10 +12,10 @@ from requests.exceptions import (
     StreamConsumedError,
 )
 
-from app.configs import config as cfg
-from app.common import OTAFileCacheControl
+from .configs import config as cfg
+from .common import OTAFileCacheControl
 
-from app import log_util
+from . import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

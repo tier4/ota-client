@@ -9,16 +9,16 @@ from functools import partial
 from multiprocessing import Process
 from typing import Coroutine, Dict, List, Optional
 
-from app.boot_control import get_boot_controller
-from app.create_standby import get_standby_slot_creator
-from app.ecu_info import EcuInfo
-from app.ota_client import OTAClient, OTAUpdateFSM
-from app.ota_client_call import OtaClientCall
-from app.proto import wrapper
-from app.proxy_info import proxy_cfg
+from .boot_control import get_boot_controller
+from .create_standby import get_standby_slot_creator
+from .ecu_info import EcuInfo
+from .ota_client import OTAClient, OTAUpdateFSM
+from .ota_client_call import OtaClientCall
+from .proto import wrapper
+from .proxy_info import proxy_cfg
 
-from app.configs import BOOT_LOADER, server_cfg, config as cfg
-from app import log_util
+from .configs import BOOT_LOADER, server_cfg, config as cfg
+from . import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -38,7 +38,7 @@ class OtaProxyWrapper:
     def launch_entry(init_cache, *, scrub_cache_event):
         async def _start_uvicorn(init_cache: bool, *, scrub_cache_event):
             import uvicorn
-            from ota_proxy import App, OTACache
+            from otaclient.ota_proxy import App, OTACache
 
             _ota_cache = OTACache(
                 cache_enabled=proxy_cfg.enable_local_ota_proxy_cache,
@@ -107,7 +107,7 @@ class OtaProxyWrapper:
 
         NOTE: cache folder cleanup is done here.
         """
-        from ota_proxy.config import config as proxy_srv_cfg
+        from otaclient.ota_proxy.config import config as proxy_srv_cfg
         import shutil
 
         with self._lock:

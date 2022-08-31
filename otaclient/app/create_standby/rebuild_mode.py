@@ -5,21 +5,19 @@ from pathlib import Path
 from threading import Semaphore
 from typing import Callable, ClassVar, Dict, List
 from urllib.parse import urljoin
-from app.errors import NetworkError, OTAError, StandbySlotSpaceNotEnoughError
 
-from app.common import SimpleTasksTracker, OTAFileCacheControl
-from app.create_standby.common import HardlinkRegister, RegularInfSet, DeltaGenerator
-from app.create_standby.interface import StandbySlotCreatorProtocol, UpdateMeta
-from app.configs import config as cfg
-from app.errors import (
+from ..errors import NetworkError, OTAError, StandbySlotSpaceNotEnoughError
+from ..common import SimpleTasksTracker, OTAFileCacheControl
+from ..configs import config as cfg
+from ..errors import (
     ApplyOTAUpdateFailed,
     OTAErrorUnRecoverable,
     OTAMetaDownloadFailed,
     OTAMetaVerificationFailed,
     UpdateDeltaGenerationFailed,
 )
-from app.proxy_info import proxy_cfg
-from app.downloader import (
+from ..proxy_info import proxy_cfg
+from ..downloader import (
     ChunkStreamingError,
     DestinationNotAvailableError,
     Downloader,
@@ -27,18 +25,20 @@ from app.downloader import (
     HashVerificaitonError,
     DownloadFailedSpaceNotEnough,
 )
-from app.update_stats import (
+from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
     RegProcessOperation,
 )
-from app.proto import wrapper
-from app.ota_metadata import (
+from ..proto import wrapper
+from ..ota_metadata import (
     PersistentInf,
     SymbolicLinkInf,
 )
+from .. import log_util
 
-from app import log_util
+from .common import HardlinkRegister, RegularInfSet, DeltaGenerator
+from .interface import StandbySlotCreatorProtocol, UpdateMeta
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -149,7 +149,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _process_persistents(self):
         """NOTE: just copy from legacy mode"""
-        from app.copy_tree import CopyTree
+        from ..copy_tree import CopyTree
 
         self.update_phase_tracker(wrapper.StatusProgressPhase.PERSISTENT)
         _passwd_file = Path(cfg.PASSWD_FILE)

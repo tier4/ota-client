@@ -1,11 +1,11 @@
 import grpc.aio
 
-from app.proto import wrapper
-from app.proto import v2_grpc
-from app.proto import v2
-from app import log_util
-from app.ota_client_stub import OtaClientStub
-from app.configs import server_cfg, config as cfg
+from .proto import wrapper
+from .proto import v2_grpc
+from .proto import v2
+from . import log_util
+from .ota_client_stub import OtaClientStub
+from .configs import server_cfg, config as cfg
 
 
 logger = log_util.get_logger(

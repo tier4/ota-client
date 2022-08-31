@@ -4,9 +4,9 @@ from dataclasses import dataclass, fields
 from typing import Any, ClassVar, Dict
 from pathlib import Path
 
-from app import log_util
-from app.configs import config as cfg
-from app.configs import server_cfg
+from . import log_util
+from .configs import config as cfg
+from .configs import server_cfg
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

@@ -3,20 +3,10 @@ import os
 import sys
 from pathlib import Path
 
-try:
-    import app  # noqa
-    import ota_proxy  # noqa
-except ModuleNotFoundError:
-    # NOTE: support for legacy way to launch otaclient
-    # by directly execute `sudo python3 main.py`
-    # add otaclient project base folder to the sys.path
-    project_dir = Path(__file__).absolute().parent.parent
-    sys.path.insert(0, str(project_dir))
-
-from app import log_util
-from app.common import read_str_from_file, write_str_to_file_sync
-from app.configs import config as cfg
-from app.ota_client_service import launch_otaclient_grpc_server
+from . import log_util
+from .common import read_str_from_file, write_str_to_file_sync
+from .configs import config as cfg
+from .ota_client_service import launch_otaclient_grpc_server
 
 
 logger = log_util.get_logger(

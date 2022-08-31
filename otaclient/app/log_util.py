@@ -1,10 +1,8 @@
 import os
-import sys
 import yaml
 import logging
-from pathlib import Path
 
-from app.configs import config as cfg
+from .configs import config as cfg
 
 _logger = None
 
@@ -33,10 +31,7 @@ def _get_logger(name: str, level: int) -> logging.Logger:
     logger.setLevel(level)
     http_logging_host = os.environ.get("HTTP_LOGGING_SERVER")
     if http_logging_host:
-        sys.path.append(
-            str(Path(__file__).parent.parent / "aws-iot-log-server" / "app")
-        )
-        from custom_http_handler import CustomHttpHandler
+        from otaclient.aws_iot_log_server import CustomHttpHandler
 
         h = CustomHttpHandler(host=http_logging_host, url=_get_ecu_id())
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)

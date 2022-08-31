@@ -10,9 +10,9 @@ from pprint import pformat
 from functools import partial
 from typing import Any, ClassVar, Optional, Union
 
-from app.configs import config as cfg
-from app.common import verify_file
-from app import log_util
+from .configs import config as cfg
+from .common import verify_file
+from . import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

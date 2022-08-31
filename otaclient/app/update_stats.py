@@ -6,10 +6,10 @@ from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Generator, List
 
-from app.configs import config as cfg
-from app.proto import wrapper
+from .configs import config as cfg
+from .proto import wrapper
 
-from app import log_util
+from . import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

@@ -1,9 +1,9 @@
 from abc import abstractmethod
 from typing import Protocol, Type
 
-from app.boot_control.interface import BootControllerProtocol
-from app.create_standby.interface import StandbySlotCreatorProtocol
-from app.proto import otaclient_v2_pb2 as v2
+from .boot_control.interface import BootControllerProtocol
+from .create_standby.interface import StandbySlotCreatorProtocol
+from .proto import otaclient_v2_pb2 as v2
 
 
 class OTAClientProtocol(Protocol):

@@ -2,12 +2,12 @@ import asyncio
 import grpc.aio
 from typing import Optional
 
-from app.proto import wrapper
-from app.proto import otaclient_v2_pb2 as v2
-from app.proto import otaclient_v2_pb2_grpc as v2_grpc
-from app import log_util
-from app.configs import config as cfg
-from app.configs import server_cfg
+from .proto import wrapper
+from .proto import otaclient_v2_pb2 as v2
+from .proto import otaclient_v2_pb2_grpc as v2_grpc
+from . import log_util
+from .configs import config as cfg
+from .configs import server_cfg
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

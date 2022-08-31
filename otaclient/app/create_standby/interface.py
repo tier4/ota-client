@@ -1,9 +1,9 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Protocol
-from app.ota_metadata import OtaMetadata
-from app.proto import wrapper
-from app.update_stats import OTAUpdateStatsCollector
+from ..ota_metadata import OtaMetadata
+from ..proto import wrapper
+from ..update_stats import OTAUpdateStatsCollector
 
 
 @dataclass

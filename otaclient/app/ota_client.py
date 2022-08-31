@@ -7,7 +7,7 @@ from threading import Event, Lock
 from typing import Any, Dict, Optional, Tuple, Type
 from urllib.parse import urlparse
 
-from app.errors import (
+from .errors import (
     BaseOTAMetaVerificationFailed,
     NetworkError,
     OTA_APIError,
@@ -16,19 +16,19 @@ from app.errors import (
     OTARollbackError,
     OTAUpdateError,
 )
-from app.boot_control import BootControllerProtocol
-from app.common import OTAFileCacheControl
-from app.configs import config as cfg
-from app.create_standby import StandbySlotCreatorProtocol, UpdateMeta
-from app.downloader import DownloadError, Downloader
-from app.interface import OTAClientProtocol
-from app.errors import InvalidUpdateRequest
-from app.ota_metadata import OtaMetadata
-from app.ota_status import LiveOTAStatus
-from app.proto import wrapper
-from app.proxy_info import proxy_cfg
-from app.update_stats import OTAUpdateStatsCollector
-from app import log_util
+from .boot_control import BootControllerProtocol
+from .common import OTAFileCacheControl
+from .configs import config as cfg
+from .create_standby import StandbySlotCreatorProtocol, UpdateMeta
+from .downloader import DownloadError, Downloader
+from .interface import OTAClientProtocol
+from .errors import InvalidUpdateRequest
+from .ota_metadata import OtaMetadata
+from .ota_status import LiveOTAStatus
+from .proto import wrapper
+from .proxy_info import proxy_cfg
+from .update_stats import OTAUpdateStatsCollector
+from . import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

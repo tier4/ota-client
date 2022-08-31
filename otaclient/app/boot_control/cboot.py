@@ -5,8 +5,26 @@ from functools import partial
 from subprocess import CalledProcessError
 from typing import Optional
 
-from app import log_util
-from app.boot_control.common import (
+from .. import log_util
+from ..common import (
+    copytree_identical,
+    read_str_from_file,
+    subprocess_call,
+    subprocess_check_output,
+    write_str_to_file_sync,
+)
+from ..configs import BOOT_LOADER, cboot_cfg as cfg
+from ..errors import (
+    BootControlInitError,
+    BootControlPlatformUnsupported,
+    BootControlPostRollbackFailed,
+    BootControlPostUpdateFailed,
+    BootControlPreRollbackFailed,
+    BootControlPreUpdateFailed,
+)
+from ..proto import wrapper
+
+from .common import (
     MountError,
     OTAStatusMixin,
     _BootControlError,
@@ -15,24 +33,7 @@ from app.boot_control.common import (
     SlotInUseMixin,
     VersionControlMixin,
 )
-from app.boot_control.interface import BootControllerProtocol
-from app.common import (
-    copytree_identical,
-    read_str_from_file,
-    subprocess_call,
-    subprocess_check_output,
-    write_str_to_file_sync,
-)
-from app.configs import BOOT_LOADER, cboot_cfg as cfg
-from app.errors import (
-    BootControlInitError,
-    BootControlPlatformUnsupported,
-    BootControlPostRollbackFailed,
-    BootControlPostUpdateFailed,
-    BootControlPreRollbackFailed,
-    BootControlPreUpdateFailed,
-)
-from app.proto import wrapper
+from .interface import BootControllerProtocol
 
 assert (
     BOOT_LOADER == "cboot"

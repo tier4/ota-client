@@ -2,7 +2,7 @@
 import traceback
 from enum import Enum, unique
 
-from app.proto import wrapper
+from .proto import wrapper
 
 
 @unique
