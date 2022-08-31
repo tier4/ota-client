@@ -4,7 +4,7 @@ import pytest
 
 class TestGreengarssConfig:
     def test_parse_config(self, shared_datadir):
-        from greengrass_config import GreengrassConfig
+        from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
 
         config = GreengrassConfig.parse_config(
             os.path.join(shared_datadir, "greengrass/config.json")
@@ -16,7 +16,7 @@ class TestGreengarssConfig:
         assert config.get("thing_name") == "foo-bar"
 
     def test_parse_config_no_file(self):
-        from greengrass_config import GreengrassConfig
+        from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
 
         with pytest.raises(Exception) as e:
             GreengrassConfig.parse_config("no_file")
@@ -24,7 +24,7 @@ class TestGreengarssConfig:
         assert str(e.value) == "[Errno 2] No such file or directory: 'no_file'"
 
     def test_parse_config_invalid_thing_arn(self, shared_datadir):
-        from greengrass_config import GreengrassConfig
+        from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
 
         with pytest.raises(Exception) as e:
             GreengrassConfig.parse_config(

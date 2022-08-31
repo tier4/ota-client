@@ -1,10 +1,10 @@
 import pytest
-import sys
-import os
+from pathlib import Path
 
 
-@pytest.fixture(autouse=True)
-def pythonpath():
-    sys.path.append(
-        os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../app/")
-    )
+@pytest.fixture
+def shared_datadir(tmp_path: Path):
+    _shared_datadir = tmp_path / "_shared_datadir"
+    _shared_datadir.symlink_to(Path(__file__).parent / "data")
+
+    return _shared_datadir
