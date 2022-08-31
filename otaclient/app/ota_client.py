@@ -164,7 +164,10 @@ class _OTAUpdater:
         # parse cookies
         try:
             cookies: Dict[str, Any] = json.loads(cookies_json)
-        except JSONDecodeError as e:
+            assert isinstance(
+                cookies, dict
+            ), f"invalid cookies, expecting to be parsed into dict but {type(cookies)}"
+        except (JSONDecodeError, AssertionError) as e:
             raise InvalidUpdateRequest from e
 
         # set ota status
