@@ -3,7 +3,7 @@ services:
   tester:
     build:
       context: ../
-      dockerfile: ../docker/test_base/Dockerfile
+      dockerfile: ./docker/test_base/Dockerfile
     image: ota-test_base
     network_mode: bridge
     command: "python3 -m pytest"
