@@ -37,7 +37,7 @@ RUN echo "url escaping is required" > ${OTA_IMAGE_DIR}/a:b:c
 
 # install otaclient dependencies
 RUN python3 -m venv ${VENV}
-COPY ./app/requirements.txt /tmp/requirements.txt
+COPY ./otaclient/requirements.txt /tmp/requirements.txt
 COPY ./tests/requirements.txt /tmp/requirements-dev.txt
 RUN source ${VENV}/bin/activate && \
     python3 -m pip install --no-cache-dir -q -U pip && \
