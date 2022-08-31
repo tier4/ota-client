@@ -1,4 +1,4 @@
-from ota_client.app import main
+from otaclient.app import main
 
 if __name__ == "__main__":
     main.main()
