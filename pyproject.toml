@@ -27,4 +27,5 @@ log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
 log_cli = true
 log_cli_level = "INFO"
+pythonpath = ["otaclient"]
 testpaths = ["/ota-client/tests"]
