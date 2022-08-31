@@ -1,8 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer
 
-from aws_iot_logger import AwsIotLogger
-from http_server import HttpHandler
+from .aws_iot_logger import AwsIotLogger
+from .http_server import HttpHandler
 
 
 def sender(
@@ -68,7 +68,7 @@ def main(
 
 if __name__ == "__main__":
     import argparse
-    from greengrass_config import GreengrassConfig
+    from .greengrass_config import GreengrassConfig
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--host", help="host name", default="localhost")

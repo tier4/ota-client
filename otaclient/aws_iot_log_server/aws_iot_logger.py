@@ -7,8 +7,8 @@ from queue import Queue, Empty
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypedDict, List
 
-from boto3_session import Boto3Session
-from configs import LOG_FORMAT
+from .boto3_session import Boto3Session
+from .configs import LOG_FORMAT
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

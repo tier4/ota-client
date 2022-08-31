@@ -7,7 +7,7 @@ import logging
 import datetime
 from pytz import utc
 
-from configs import LOG_FORMAT
+from .configs import LOG_FORMAT
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

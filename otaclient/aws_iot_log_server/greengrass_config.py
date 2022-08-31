@@ -2,7 +2,7 @@ import logging
 import json
 import re
 
-from configs import LOG_FORMAT
+from .configs import LOG_FORMAT
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
