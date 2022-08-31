@@ -1,55 +1,32 @@
-from ota_error import OtaErrorBusy
-from enum import Enum, unique
-from configs import config as cfg
-import log_util
+from app.configs import config as cfg
+from app.proto import wrapper
+from app import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
 
-@unique
-class OtaStatus(Enum):
-    INITIALIZED = 0
-    SUCCESS = 1
-    FAILURE = 2
-    UPDATING = 3
-    ROLLBACKING = 4
-    ROLLBACK_FAILURE = 5
+class LiveOTAStatus:
+    def __init__(self, ota_status: wrapper.StatusOta) -> None:
+        self.live_ota_status = ota_status
 
+    def get_ota_status(self) -> wrapper.StatusOta:
+        return self.live_ota_status
 
-class OtaStatusControlMixin:
-    def _attributes_dependencies(self):
-        """
-        placeholder method
-        attributes that needed for this mixin to work
+    def set_ota_status(self, _status: wrapper.StatusOta):
+        self.live_ota_status = _status
 
-        these attributes will be initialized in OtaClient
-        """
-        self._ota_status: OtaStatus = None
+    def request_update(self) -> bool:
+        return self.live_ota_status in [
+            wrapper.StatusOta.INITIALIZED,
+            wrapper.StatusOta.SUCCESS,
+            wrapper.StatusOta.FAILURE,
+            wrapper.StatusOta.ROLLBACK_FAILURE,
+        ]
 
-    def get_ota_status(self):
-        return self._ota_status
-
-    def set_ota_status(self, ota_status):
-        logger.info(f"{ota_status=}")
-        self._ota_status = ota_status
-
-    def check_update_status(self):
-        logger.debug("check if ota_status is valid for updating...")
-        # check status
-        if self._ota_status not in [
-            OtaStatus.INITIALIZED,
-            OtaStatus.SUCCESS,
-            OtaStatus.FAILURE,
-            OtaStatus.ROLLBACK_FAILURE,
-        ]:
-            raise OtaErrorBusy(f"status={self._ota_status} is illegal for update")
-
-    def check_rollback_status(self):
-        # check status
-        if self._ota_status not in [
-            OtaStatus.SUCCESS,
-            OtaStatus.ROLLBACK_FAILURE,
-        ]:
-            raise OtaErrorBusy(f"status={self._ota_status} is illegal for rollback")
+    def request_rollback(self) -> bool:
+        return self.live_ota_status in [
+            wrapper.StatusOta.SUCCESS,
+            wrapper.StatusOta.ROLLBACK_FAILURE,
+        ]

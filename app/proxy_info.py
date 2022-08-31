@@ -4,9 +4,9 @@ from dataclasses import dataclass, fields
 from typing import Any, ClassVar, Dict
 from pathlib import Path
 
-from configs import config as cfg
-from configs import server_cfg
-import log_util
+from app import log_util
+from app.configs import config as cfg
+from app.configs import server_cfg
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -37,7 +37,7 @@ enable_local_ota_proxy: false
 # typically, we can only enable ota cache on the gateway ECU.
 enable_local_ota_proxy_cache: false
 
-# for internal ECU, upper_ota_proxy is required, 
+# for internal ECU, upper_ota_proxy is required,
 # internal ECU will use this proxy to request for ota update.
 # upper ota proxy must be an HTTP URL.
 upper_ota_proxy: <upper_ota_proxy_URL: str>
@@ -68,7 +68,7 @@ class ProxyInfo:
     gateway: bool = True
     # to be compatible with mainECU
     enable_local_ota_proxy_cache: bool = True
-    upper_ota_proxy: str = None
+    upper_ota_proxy: str = ""
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
     local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
 

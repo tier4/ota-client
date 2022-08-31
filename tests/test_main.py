@@ -1,36 +1,70 @@
+import os
+import time
+import grpc.aio
 import pytest
+from multiprocessing import Process
+from pathlib import Path
+from pytest_mock import MockerFixture
+from pytest import LogCaptureFixture
+
+FIRST_LINE_LOG = "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
 
 
-@pytest.fixture
-def patch(mocker):
-    import random
-    from ota_client import OtaClient
-    from ota_client_call import OtaClientCall
-    from ota_client_service import OtaClientServiceV2
-
-    mocker.patch.object(OtaClient, "__init__", return_value=None)
-    mocker.patch.object(OtaClientCall, "__init__", return_value=None)
-    mocker.patch.object(OtaClientServiceV2, "__init__", return_value=None)
-    mocker.patch("main.service_start", return_value=None)
-    mocker.patch("main.service_wait_for_termination", return_value=None)
-    mocker.patch("main.os.getpid", lambda: random.getrandbits(64))
+async def _terminate_server(server: grpc.aio.Server):
+    await server.stop(None)
 
 
-def test_main(patch, mocker):
-    from main import main
+class _dummy_OtaClientStub:
+    def host_addr(self) -> str:
+        return "127.0.0.1"
 
-    main()
 
+class TestMain:
+    OTACLIENT_LOCK_FILE = "/var/run/ota-client.lock"
 
-def test_main_with_version(patch, mocker, tmp_path, caplog):
-    from main import main
+    @pytest.fixture(autouse=True)
+    def patch_main(self, mocker: MockerFixture, tmp_path: Path):
+        mocker.patch("app.ota_client_service.OtaClientStub", _dummy_OtaClientStub)
+        mocker.patch(
+            "app.ota_client_service.service_wait_for_termination",
+            _terminate_server,
+        )
 
-    version = tmp_path / "version.txt"
-    version.write_text("d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit")
-    mocker.patch("main.VERSION_FILE", version)
+        self._sys_exit_mocker = mocker.MagicMock(side_effect=ValueError)
+        mocker.patch("app.main.sys.exit", self._sys_exit_mocker)
 
-    main()
-    assert caplog.records[0].msg == "started"
-    assert (
-        caplog.records[1].msg == "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
-    )
+        version_file = tmp_path / "version.txt"
+        version_file.write_text(FIRST_LINE_LOG)
+        mocker.patch("app.main.VERSION_FILE", version_file)
+
+    @pytest.fixture
+    def background_process(self):
+        def _waiting():
+            time.sleep(1234)
+
+        _p = Process(target=_waiting)
+        try:
+            _p.start()
+            Path(self.OTACLIENT_LOCK_FILE).write_text(f"{_p.pid}")
+            yield _p.pid
+        finally:
+            _p.kill()
+
+    def test_main_with_version(self, caplog: LogCaptureFixture):
+        from app.main import main
+
+        main()
+        assert caplog.records[0].msg == "started"
+        assert caplog.records[1].msg == FIRST_LINE_LOG
+        assert Path(self.OTACLIENT_LOCK_FILE).read_text() == f"{os.getpid()}"
+
+    def test_with_other_otaclient_started(self, background_process):
+        from app.main import main
+
+        _other_pid = f"{background_process}"
+        with pytest.raises(ValueError):
+            main()
+        self._sys_exit_mocker.assert_called_once_with(
+            f"another instance of ota-client(pid: {_other_pid}) is running, abort"
+        )
+        assert Path(self.OTACLIENT_LOCK_FILE).read_text() == _other_pid

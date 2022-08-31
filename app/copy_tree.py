@@ -3,9 +3,8 @@ import stat
 import shutil
 from pathlib import Path
 
-import log_util
-from configs import config as cfg
-from ota_error import OtaErrorUnrecoverable
+from app import log_util
+from app.configs import config as cfg
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -28,7 +27,7 @@ class CopyTree:
     def copy_with_parents(self, src: Path, dst_dir: Path):
         dst_path = dst_dir
         if not dst_path.is_dir() or dst_path.is_symlink():
-            raise OtaErrorUnrecoverable(f"{dst_path} should be plain directory")
+            raise ValueError(f"{dst_path} should be plain directory")
 
         for parent in reversed(list(src.parents)):
             self._copy_preserve(parent, dst_path)
@@ -79,7 +78,7 @@ class CopyTree:
 
     def _copy_preserve(self, src: Path, dst_dir: Path):
         if not dst_dir.is_dir() or dst_dir.is_symlink():
-            raise OtaErrorUnrecoverable(f"{dst_dir} should be plain directory")
+            raise ValueError(f"{dst_dir} should be plain directory")
 
         dst_path = dst_dir / src.name
         # src is plain directory?
@@ -102,13 +101,13 @@ class CopyTree:
                 dst_path.unlink()
             if dst_path.is_dir():
                 logger.info(f"{src}: {dst_path} exists as a directory")
-                shutil.rmtree(dst_path)
+                shutil.rmtree(dst_path, ignore_errors=True)
 
             logger.info(f"copying file {dst_dir / src.name}")
             shutil.copy2(src, dst_path, follow_symlinks=False)
             self._copy_stat(src, dst_path)
         else:
-            raise OtaErrorUnrecoverable(f"{src} unintended file type")
+            raise ValueError(f"{src} unintended file type")
 
     def _copy_recursive(self, src: Path, dst_dir: Path):
         self._copy_preserve(src, dst_dir)

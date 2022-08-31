@@ -1,18 +1,18 @@
-#!/usr/bin/env python3
-
 import base64
 import json
+import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from OpenSSL import crypto
 from pathlib import Path
 from pprint import pformat
 from functools import partial
-from ota_error import OtaErrorRecoverable
-from configs import config as cfg
-from typing import ClassVar, Optional
+from typing import Any, ClassVar, Optional, Union
 
-import log_util
+from app.configs import config as cfg
+from app.common import verify_file
+from app import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -47,10 +47,10 @@ class OtaMetadata:
         self.__metadata_jwt = ota_metadata_jwt
         self.__metadata_dict = self._parse_metadata(ota_metadata_jwt)
         logger.info(f"metadata_dict={pformat(self.__metadata_dict)}")
-        self._certs_dir = OtaMetadata.CERTS_DIR
+        self._certs_dir = self.CERTS_DIR
         logger.info(f"certs_dir={self._certs_dir}")
 
-    def verify(self, certificate: str):
+    def verify(self, certificate: bytes):
         """"""
         # verify certificate itself before hand.
         self._verify_certificate(certificate)
@@ -63,7 +63,7 @@ class OtaMetadata:
             crypto.verify(cert, self._signature, verify_data, "sha256")
         except Exception as e:
             logger.exception("verify")
-            raise OtaErrorRecoverable(e)
+            raise ValueError(e)
 
     def get_directories_info(self):
         """
@@ -185,12 +185,14 @@ class OtaMetadata:
         jwt_list = self.__metadata_jwt.split(".")
         return jwt_list[0] + "." + jwt_list[1]
 
-    def _verify_certificate(self, certificate: str):
+    def _verify_certificate(self, certificate: bytes):
         ca_set_prefix = set()
         # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
         for cert in self._certs_dir.glob("*.*.pem"):
-            m = re.match(r"(.*)\..*.pem", cert.name)
-            ca_set_prefix.add(m.group(1))
+            if m := re.match(r"(.*)\..*.pem", cert.name):
+                ca_set_prefix.add(m.group(1))
+            else:
+                raise ValueError("no pem file is found")
         if len(ca_set_prefix) == 0:
             logger.warning("there is no root or intermediate certificate")
             return
@@ -202,7 +204,7 @@ class OtaMetadata:
             cert_to_verify = load_pem(certificate)
         except crypto.Error:
             logger.exception(f"invalid certificate {certificate}")
-            raise OtaErrorRecoverable(f"invalid certificate {certificate}")
+            raise ValueError(f"invalid certificate {certificate}")
 
         for ca_prefix in sorted(ca_set_prefix):
             certs_list = [
@@ -213,7 +215,7 @@ class OtaMetadata:
             store = crypto.X509Store()
             for c in certs_list:
                 logger.info(f"cert {c}")
-                store.add_cert(load_pem(open(c).read()))
+                store.add_cert(load_pem(c.read_bytes()))
 
             try:
                 store_ctx = crypto.X509StoreContext(store, cert_to_verify)
@@ -224,7 +226,7 @@ class OtaMetadata:
                 logger.info(f"verify against {ca_prefix} failed: {e}")
 
         logger.error(f"certificate {certificate} could not be verified")
-        raise OtaErrorRecoverable(f"certificate {certificate} could not be verified")
+        raise ValueError(f"certificate {certificate} could not be verified")
 
 
 # meta files entry classes
@@ -248,7 +250,7 @@ class _BaseInf:
     )
 
     def __init__(self, info: str):
-        match_res: re.Match = self._base_pattern.match(info.strip())
+        match_res: Optional[re.Match] = self._base_pattern.match(info.strip())
         assert match_res is not None, f"match base_inf failed: {info}"
 
         self.mode = int(match_res.group("mode"), 8)
@@ -261,6 +263,8 @@ class _BaseInf:
 class DirectoryInf(_BaseInf):
     """Directory file information class for dirs.txt.
     format: mode,uid,gid,'dir/name'
+
+    NOTE: only use path for hash key
     """
 
     path: Path
@@ -270,6 +274,23 @@ class DirectoryInf(_BaseInf):
         self.path = Path(de_escape(self._left[1:-1]))
 
         del self._left
+
+    def __eq__(self, _other: Any) -> bool:
+        if isinstance(_other, DirectoryInf):
+            return _other.path == self.path
+        elif isinstance(_other, Path):
+            return _other == self.path
+        else:
+            return False
+
+    def __hash__(self) -> int:
+        return hash(self.path)
+
+    def mkdir_relative_to_mount_point(self, mount_point: Union[Path, str]):
+        _target = Path(mount_point) / self.path.relative_to("/")
+        _target.mkdir(parents=True, exist_ok=True)
+        os.chmod(_target, self.mode)
+        os.chown(_target, self.uid, self.gid)
 
 
 @dataclass
@@ -297,6 +318,13 @@ class SymbolicLinkInf(_BaseInf):
 
         del self._left
 
+    def link_at_mount_point(self, mount_point: Union[Path, str]):
+        # NOTE: symbolic link in /boot directory is not supported. We don't use it.
+        _newlink = Path(mount_point) / self.slink.relative_to("/")
+        _newlink.symlink_to(self.srcpath)
+        # set the permission on the file itself
+        os.chown(_newlink, self.uid, self.gid, follow_symlinks=False)
+
 
 @dataclass
 class PersistentInf:
@@ -308,7 +336,7 @@ class PersistentInf:
     path: Path
 
     def __init__(self, info: str):
-        self.path = Path(de_escape(info[1:-1]))
+        self.path = Path(de_escape(info.strip()[1:-1]))
 
 
 @dataclass
@@ -319,6 +347,7 @@ class RegularInf:
     example: 0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'path/to/file',1234,12345678
 
     NOTE: size and inode sections are both optional, if inode exists, size must exist.
+    NOTE 2: path should always be relative to '/', not relative to any mount point!
     """
 
     mode: int
@@ -327,6 +356,7 @@ class RegularInf:
     nlink: int
     sha256hash: str
     path: Path
+    _base: str
     size: Optional[int] = None
     inode: Optional[str] = None
 
@@ -334,21 +364,99 @@ class RegularInf:
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'(,(?P<size>\d+)(,(?P<inode>\d+))?)?"
     )
 
-    def __init__(self, _input: str):
-        _ma = self._reginf_pa.match(_input)
+    @classmethod
+    def parse_reginf(cls, _input: str):
+        _ma = cls._reginf_pa.match(_input)
         assert _ma is not None, f"matching reg_inf failed for {_input}"
 
-        self.mode = int(_ma.group("mode"), 8)
-        self.uid = int(_ma.group("uid"))
-        self.gid = int(_ma.group("gid"))
-        self.nlink = int(_ma.group("nlink"))
-        self.sha256hash = _ma.group("hash")
-        self.path = Path(de_escape(_ma.group("path")))
+        mode = int(_ma.group("mode"), 8)
+        uid = int(_ma.group("uid"))
+        gid = int(_ma.group("gid"))
+        nlink = int(_ma.group("nlink"))
+        sha256hash = _ma.group("hash")
+        path = Path(de_escape(_ma.group("path")))
 
-        _size = _ma.group("size")
-        if _size:
-            self.size = int(_size)
+        # special treatment for /boot folder
+        _base = "/boot" if str(path).startswith("/boot") else "/"
+
+        size, inode = None, None
+        if _size := _ma.group("size"):
+            size = int(_size)
             # ensure that size exists before parsing inode
             # it's OK to skip checking of inode,
             # as un-existed inode will be matched to None
-            self.inode = _ma.group("inode")
+            inode = _ma.group("inode")
+
+        return cls(
+            mode=mode,
+            uid=uid,
+            gid=gid,
+            path=path,
+            nlink=nlink,
+            sha256hash=sha256hash,
+            size=size,
+            inode=inode,
+            _base=_base,
+        )
+
+    def __hash__(self) -> int:
+        """Only use path to distinguish unique RegularInf."""
+        return hash(self.path)
+
+    def __eq__(self, _other) -> bool:
+        """
+        NOTE: also take Path as _other
+        """
+        if isinstance(_other, Path):
+            return self.path == _other
+
+        if isinstance(_other, self.__class__):
+            return self.path == _other.path
+
+        return False
+
+    def make_relative_to_mount_point(self, mp: Union[Path, str]) -> Path:
+        return Path(mp) / self.path.relative_to(self._base)
+
+    def verify_file(self, *, src_mount_point: Union[Path, str]) -> bool:
+        """Verify file that with the path relative to <src_mount_point>."""
+        return verify_file(
+            self.make_relative_to_mount_point(src_mount_point),
+            self.sha256hash,
+            self.size,
+        )
+
+    def copy_relative_to_mount_point(
+        self, dst_mount_point: Union[Path, str], /, *, src_mount_point: Path
+    ):
+        """Copy file to the path that relative to dst_mount_point, from src_mount_point."""
+        _src = self.make_relative_to_mount_point(src_mount_point)
+        _dst = self.make_relative_to_mount_point(dst_mount_point)
+        shutil.copy2(_src, _dst, follow_symlinks=False)
+        # still ensure permission on dst
+        os.chown(_dst, self.uid, self.gid)
+        os.chmod(_dst, self.mode)
+
+    def copy_to_dst(self, dst: Union[Path, str], /, *, src_mount_point: Path):
+        """Copy file pointed by self to the dst."""
+        _src = self.make_relative_to_mount_point(src_mount_point)
+        shutil.copy2(_src, dst, follow_symlinks=False)
+        # still ensure permission on dst
+        os.chown(dst, self.uid, self.gid)
+        os.chmod(dst, self.mode)
+
+    def copy_from_src(self, src: Union[Path, str], *, dst_mount_point: Path):
+        """Copy file from src to dst pointed by regular_inf."""
+        _dst = self.make_relative_to_mount_point(dst_mount_point)
+        shutil.copy2(src, _dst, follow_symlinks=False)
+        # still ensure permission on dst
+        os.chown(_dst, self.uid, self.gid)
+        os.chmod(_dst, self.mode)
+
+    def move_from_src(self, src: Union[Path, str], *, dst_mount_point: Path):
+        """Copy file from src to dst pointed by regular_inf."""
+        _dst = self.make_relative_to_mount_point(dst_mount_point)
+        shutil.move(str(src), _dst)
+        # still ensure permission on dst
+        os.chown(_dst, self.uid, self.gid)
+        os.chmod(_dst, self.mode)

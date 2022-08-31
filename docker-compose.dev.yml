@@ -1,9 +1,0 @@
-version: "3"
-services:
-  client:
-    command: >
-      bash -c
-      "mkdir -p /ota-client/certs
-      && cp -av /ota-client/tests/keys/root.pem /ota-client/certs/1.root.pem
-      && cp -av /ota-client/tests/keys/interm.pem /ota-client/certs/1.interm.pem
-      && bash"

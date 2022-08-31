@@ -45,7 +45,7 @@ _DEFAULT: Dict[str, Any] = {
     "enable_local_ota_proxy": True,
     "gateway": True,
     "enable_local_ota_proxy_cache": True,
-    "upper_ota_proxy": None,
+    "upper_ota_proxy": "",
     "local_ota_proxy_listen_addr": "0.0.0.0",
     "local_ota_proxy_listen_port": 8082,
 }
@@ -92,7 +92,7 @@ _DEFAULT: Dict[str, Any] = {
     ),
 )
 def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: Dict[str, Any]):
-    from proxy_info import parse_proxy_info
+    from app.proxy_info import parse_proxy_info
 
     proxy_info_file = tmp_path / "proxy_info.yml"
     proxy_info_file.write_text(_input_yaml)
