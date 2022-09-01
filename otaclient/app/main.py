@@ -3,7 +3,8 @@ import os
 import sys
 from pathlib import Path
 
-from . import log_util, __version__  # type: ignore
+from otaclient import __version__  # type: ignore
+from . import log_util
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg
 from .ota_client_service import launch_otaclient_grpc_server
