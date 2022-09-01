@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import aiofiles
 import aiohttp
@@ -13,7 +14,6 @@ from pathlib import Path
 from queue import Queue
 from threading import Event, Lock
 from typing import (
-    Any,
     Callable,
     Dict,
     AsyncGenerator,
@@ -209,7 +209,8 @@ class LRUCacheHelper:
         _cur_bucket_idx = self.BSIZE_LIST.index(_cur_bucket_size)
 
         # first check the upper bucket
-        for _bucket_size in self.BSIZE_LIST[_cur_bucket_idx + 1 :]:
+        _next_idx = _cur_bucket_idx + 1
+        for _bucket_size in self.BSIZE_LIST[_next_idx:]:
             res = self._db.rotate_cache(_bucket_size, self.BSIZE_DICT[_bucket_size])
             if res:
                 return res
@@ -584,7 +585,7 @@ class OTACache:
         if self._scrub_cache_event:
             self._scrub_cache_event.set()
 
-        logger.debug(f"ota_cache started")
+        logger.debug("ota_cache started")
 
     async def close(self):
         """Shutdowns OTACache instance.
@@ -648,7 +649,7 @@ class OTACache:
                     self._storage_below_hard_limit_event.clear()
             except FileNotFoundError:
                 logger.error(
-                    f"background free space check failed as cache folder disappeared"
+                    "background free space check failed as cache folder disappeared"
                 )
                 self._storage_below_soft_limit_event.clear()
                 self._storage_below_hard_limit_event.clear()

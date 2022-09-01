@@ -3,11 +3,10 @@ import os
 import sys
 from pathlib import Path
 
-from . import log_util
+from . import log_util, __version__  # type: ignore
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg
 from .ota_client_service import launch_otaclient_grpc_server
-
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -37,7 +36,7 @@ def main():
     if version_file.is_file():
         version = open(version_file).read()
         logger.info(version)
-
+    logger.info(f"otaclient version: {__version__}")
     _check_other_otaclient()
 
     # start the otaclient grpc server

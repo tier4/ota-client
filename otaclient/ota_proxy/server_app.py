@@ -1,8 +1,7 @@
 import asyncio
 import aiohttp
 from http import HTTPStatus
-from threading import Lock
-from typing import Dict, List
+from typing import Any, Dict, List, Union
 
 from . import ota_cache
 from .config import OTAFileCacheControl, config as cfg
@@ -82,7 +81,7 @@ class App:
 
         return res
 
-    async def _respond_with_error(self, status: HTTPStatus, msg: str, send):
+    async def _respond_with_error(self, status: Union[HTTPStatus, int], msg: str, send):
         """Helper method for sending errors back to client"""
         await send(
             {
@@ -108,7 +107,9 @@ class App:
         else:
             await send({"type": "http.response.body", "body": b""})
 
-    async def _init_response(self, status: HTTPStatus, headers: dict, send):
+    async def _init_response(
+        self, status: HTTPStatus, headers: List[Dict[str, Any]], send
+    ):
         """Helper method for constructing and sending HTTP response back to client
 
         Args:
