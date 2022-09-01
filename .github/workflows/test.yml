@@ -39,10 +39,10 @@ jobs:
           python -m pip install -q -r tests/requirements.txt
       - name: Lint codes without modification
         run: | 
-          $pythonLocation/bin/python -m black . --check
+          $pythonLocation/bin/python -m black ./otaclient --check
       - name: Lint codes for syntax check
         run: |
-          $pythonLocation/bin/python -m flake8 ./app
+          $pythonLocation/bin/python -m flake8 ./otaclient
 
   markdown_lint_check:
     runs-on: ubuntu-20.04
