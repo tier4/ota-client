@@ -1,3 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.4.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "otaclient"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "LICENSE.md"}
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: Unix",
+  "Programming Language :: Python :: 3",
+]
+dynamic = ["dependencies", "optional-dependencies", "version"]
+
+[project.urls]
+Source = "https://github.com/tier4/ota-client"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["otaclient/requirements.txt"]}
+
+[tool.setuptools.dynamic.optional-dependencies]
+test = {file = ["tests/requirements.txt"]}
+
+[tool.setuptools.packages.find]
+include = ["otaclient*"]
+namespaces = false
+
+[tool.setuptools_scm]
+write_to = "otaclient/_version.py"
+
 [tool.black]
 line-length = 88
 target-version = ['py38']
@@ -28,4 +60,4 @@ log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(m
 log_cli = true
 log_cli_level = "INFO"
 pythonpath = ["otaclient"]
-testpaths = ["/ota-client/tests"]
+testpaths = ["./tests"]
