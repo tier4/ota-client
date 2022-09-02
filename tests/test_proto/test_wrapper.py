@@ -2,8 +2,8 @@ import pytest
 from google.protobuf import message as _message
 from typing import Any, Type
 
-from app.proto import wrapper
-from app.proto import v2
+from otaclient.app.proto import wrapper
+from otaclient.app.proto import v2
 
 
 @pytest.mark.parametrize(

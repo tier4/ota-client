@@ -5,7 +5,7 @@ import time
 import typing
 from pathlib import Path
 from typing import List
-from app.proto import wrapper
+from otaclient.app.proto import wrapper
 
 from tests.utils import DummySubECU
 from tests.conftest import ThreadpoolExecutorFixtureMixin, TestConfiguration as cfg
@@ -51,8 +51,8 @@ class _DummySubECUsGroup:
 class TestOtaProxyWrapper:
     @pytest.fixture
     def mock_cfg(self, tmp_path: Path, mocker: pytest_mock.MockerFixture):
-        from app.proxy_info import ProxyInfo
-        from ota_proxy.config import Config
+        from otaclient.app.proxy_info import ProxyInfo
+        from otaclient.ota_proxy.config import Config
 
         _proxy_cfg = ProxyInfo()
         _proxy_cfg.enable_local_ota_proxy = True
@@ -67,7 +67,7 @@ class TestOtaProxyWrapper:
 
     @pytest.fixture
     def ota_proxy_instance(self, mocker: pytest_mock.MockerFixture, mock_cfg):
-        from app.ota_client_stub import OtaProxyWrapper
+        from otaclient.app.ota_client_stub import OtaProxyWrapper
 
         _ota_proxy_wrapper = OtaProxyWrapper()
         self._ota_proxy_instance = _ota_proxy_wrapper
@@ -96,7 +96,7 @@ class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_executor):
-        from app.ota_client import OTAUpdateFSM
+        from otaclient.app.ota_client import OTAUpdateFSM
 
         _ota_update_fsm = typing.cast(OTAUpdateFSM, mocker.MagicMock(spec=OTAUpdateFSM))
         _ota_update_fsm.stub_wait_for_local_update = mocker.MagicMock(
@@ -117,7 +117,7 @@ class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
         return True
 
     async def test_my_ecu_update_tracker(self):
-        from app.ota_client_stub import _UpdateSession
+        from otaclient.app.ota_client_stub import _UpdateSession
 
         await _UpdateSession.my_ecu_update_tracker(
             fsm=self._fsm,
@@ -126,7 +126,7 @@ class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
         self._fsm.stub_wait_for_local_update.assert_called_once()
 
     async def test_update_tracker(self):
-        from app.ota_client_stub import _UpdateSession
+        from otaclient.app.ota_client_stub import _UpdateSession
 
         # launch update session
         _update_session = _UpdateSession(executor=self._executor)
@@ -158,7 +158,7 @@ class Test_SubECUTracker:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_subecus):
-        from app.ota_client_call import OtaClientCall
+        from otaclient.app.ota_client_call import OtaClientCall
 
         _ota_client_call = typing.cast(
             OtaClientCall, mocker.MagicMock(spec=OtaClientCall)
@@ -172,7 +172,7 @@ class Test_SubECUTracker:
         self._ota_client_call = _ota_client_call
 
     async def test__SubECUTracker(self):
-        from app.ota_client_stub import _SubECUTracker
+        from otaclient.app.ota_client_stub import _SubECUTracker
 
         self._subecs.start_update_all()
         _subecu_tracker = _SubECUTracker(self._subecu_dict)
@@ -203,9 +203,9 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_ecus, setup_executor):
-        from app.ecu_info import EcuInfo
-        from app.ota_client import OTAClient, OTAUpdateFSM
-        from app.ota_client_call import OtaClientCall
+        from otaclient.app.ecu_info import EcuInfo
+        from otaclient.app.ota_client import OTAClient, OTAUpdateFSM
+        from otaclient.app.ota_client_call import OtaClientCall
 
         ###### mock otaclient_call ######
         self._ota_client_call = typing.cast(
@@ -268,7 +268,7 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
         )
 
     async def test_update(self):
-        from app.ota_client_stub import OtaClientStub
+        from otaclient.app.ota_client_stub import OtaClientStub
 
         _ota_client_stub = OtaClientStub()
         # TODO: inspect response

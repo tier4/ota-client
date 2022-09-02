@@ -276,7 +276,7 @@ crontab:x:2105:
 
 
 def test_copy_tree_src_dir(mocker, tmp_path):
-    from app.copy_tree import CopyTree
+    from otaclient.app.copy_tree import CopyTree
 
     (
         dst,
@@ -359,7 +359,7 @@ def test_copy_tree_src_dir(mocker, tmp_path):
 
 
 def test_copy_tree_src_file(mocker, tmp_path):
-    from app.copy_tree import CopyTree
+    from otaclient.app.copy_tree import CopyTree
 
     (
         dst,
@@ -433,7 +433,7 @@ def test_copy_tree_src_file(mocker, tmp_path):
 
 
 def test_copy_tree_B_exists(mocker, tmp_path):
-    from app.copy_tree import CopyTree
+    from otaclient.app.copy_tree import CopyTree
 
     (
         dst,
@@ -523,7 +523,7 @@ def test_copy_tree_B_exists(mocker, tmp_path):
 
 
 def test_copy_tree_with_symlink_overwrite(mocker, tmp_path):
-    from app.copy_tree import CopyTree
+    from otaclient.app.copy_tree import CopyTree
 
     (
         dst,
@@ -572,7 +572,7 @@ def test_copy_tree_with_symlink_overwrite(mocker, tmp_path):
 
 
 def test_copy_tree_src_dir_dst_file(mocker, tmp_path):
-    from app.copy_tree import CopyTree
+    from otaclient.app.copy_tree import CopyTree
 
     (
         dst,
@@ -662,7 +662,7 @@ def test_copy_tree_src_dir_dst_file(mocker, tmp_path):
 
 
 def test_copy_tree_src_file_dst_dir(mocker, tmp_path):
-    from app.copy_tree import CopyTree
+    from otaclient.app.copy_tree import CopyTree
 
     (
         dst,

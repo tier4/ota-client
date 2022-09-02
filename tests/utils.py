@@ -8,8 +8,8 @@ from functools import partial
 from pathlib import Path
 
 import grpc
-from app.common import file_sha256
-from app.proto import otaclient_v2_pb2_grpc as v2_grpc, wrapper
+from otaclient.app.common import file_sha256
+from otaclient.app.proto import otaclient_v2_pb2_grpc as v2_grpc, wrapper
 
 
 @dataclass

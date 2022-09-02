@@ -96,7 +96,7 @@ def generate_jwt(pyaload_str, test_dir):
 
 @pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
 def test_ota_metadata(dir_test: Path, payload_str):
-    from app.ota_metadata import OtaMetadata
+    from otaclient.app.ota_metadata import OtaMetadata
 
     metadata = OtaMetadata(generate_jwt(payload_str, dir_test))
     assert metadata.get_directories_info() == DIR_INFO
@@ -116,7 +116,7 @@ def test_ota_metadata(dir_test: Path, payload_str):
 
 @pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
 def test_ota_metadata_exception(dir_test: Path, payload_str):
-    from app.ota_metadata import OtaMetadata
+    from otaclient.app.ota_metadata import OtaMetadata
 
     metadata = OtaMetadata(generate_jwt(payload_str, dir_test))
     with pytest.raises(ValueError):
@@ -132,7 +132,7 @@ def test_ota_metadata_with_verify_certificate(
     dir_test: Path,
     payload_str: str,
 ):
-    from app.ota_metadata import OtaMetadata
+    from otaclient.app.ota_metadata import OtaMetadata
 
     certs_dir = tmp_path / "certs"
     certs_dir.mkdir()
@@ -171,7 +171,7 @@ def test_ota_metadata_with_verify_certificate_exception(
     tmp_path: Path,
     payload_str,
 ):
-    from app.ota_metadata import OtaMetadata
+    from otaclient.app.ota_metadata import OtaMetadata
 
     certs_dir = tmp_path / "certs"
     certs_dir.mkdir()
@@ -252,7 +252,7 @@ def test_RegularInf(
     size: int,
     inode: str,
 ):
-    from app.ota_metadata import RegularInf
+    from otaclient.app.ota_metadata import RegularInf
 
     entry = RegularInf.parse_reginf(_input)
     assert entry.mode == mode
@@ -278,7 +278,7 @@ def test_RegularInf(
     ),
 )
 def test_DirectoryInf(_input: str, mode: int, uid: int, gid: int, path: str):
-    from app.ota_metadata import DirectoryInf
+    from otaclient.app.ota_metadata import DirectoryInf
 
     entry = DirectoryInf(_input)
 
@@ -305,7 +305,7 @@ def test_DirectoryInf(_input: str, mode: int, uid: int, gid: int, path: str):
 def test_SymbolicLinkInf(
     _input: str, mode: int, uid: int, gid: int, link: str, target: str
 ):
-    from app.ota_metadata import SymbolicLinkInf
+    from otaclient.app.ota_metadata import SymbolicLinkInf
 
     entry = SymbolicLinkInf(_input)
 
@@ -326,7 +326,7 @@ def test_SymbolicLinkInf(
     ),
 )
 def test_PersistentInf(_input: str, path: str):
-    from app.ota_metadata import PersistentInf
+    from otaclient.app.ota_metadata import PersistentInf
 
     entry = PersistentInf(_input)
     assert str(entry.path) == path

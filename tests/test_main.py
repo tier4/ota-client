@@ -7,22 +7,22 @@ from pytest_mock import MockerFixture
 from pytest import LogCaptureFixture
 
 from otaclient.app.configs import OTACLIENT_LOCK_FILE
+from tests.conftest import TestConfiguration as cfg
 
 FIRST_LINE_LOG = "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
-MAIN_MODULE_PATH = "otaclient.app.main"
 
 
 class TestMain:
     @pytest.fixture(autouse=True)
     def patch_main(self, mocker: MockerFixture, tmp_path: Path):
-        mocker.patch(f"{MAIN_MODULE_PATH}.launch_otaclient_grpc_server")
+        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.launch_otaclient_grpc_server")
 
         self._sys_exit_mocker = mocker.MagicMock(side_effect=ValueError)
-        mocker.patch(f"{MAIN_MODULE_PATH}.sys.exit", self._sys_exit_mocker)
+        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.sys.exit", self._sys_exit_mocker)
 
         version_file = tmp_path / "version.txt"
         version_file.write_text(FIRST_LINE_LOG)
-        mocker.patch(f"{MAIN_MODULE_PATH}.EXTRA_VERSION_FILE", version_file)
+        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.EXTRA_VERSION_FILE", version_file)
 
     @pytest.fixture
     def background_process(self):

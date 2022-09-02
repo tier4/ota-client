@@ -9,7 +9,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Set, Tuple
 
-from app.common import (
+from otaclient.app.common import (
     OTAFileCacheControl,
     SimpleTasksTracker,
     copytree_identical,

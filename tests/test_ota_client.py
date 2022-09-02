@@ -5,10 +5,10 @@ import pytest_mock
 from pathlib import Path
 from unittest.mock import ANY
 
-from app.boot_control import BootControllerProtocol
-from app.create_standby import StandbySlotCreatorProtocol
-from app.errors import OTAErrorRecoverable, OTAUpdateError
-from app.proto import wrapper
+from otaclient.app.boot_control import BootControllerProtocol
+from otaclient.app.create_standby import StandbySlotCreatorProtocol
+from otaclient.app.errors import OTAErrorRecoverable, OTAUpdateError
+from otaclient.app.proto import wrapper
 
 from tests.conftest import TestConfiguration as cfg
 
@@ -16,7 +16,7 @@ from tests.conftest import TestConfiguration as cfg
 class Test_OTAUpdater:
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture):
-        from app.proxy_info import ProxyInfo
+        from otaclient.app.proxy_info import ProxyInfo
 
         ###### mock boot_controller ######
         self._boot_control = typing.cast(
@@ -40,7 +40,7 @@ class Test_OTAUpdater:
         )
 
     def test_OTAUpdater(self, mocker: pytest_mock.MockerFixture):
-        from app.ota_client import _OTAUpdater, OTAUpdateFSM
+        from otaclient.app.ota_client import _OTAUpdater, OTAUpdateFSM
 
         _updater = _OTAUpdater(
             self._boot_control,
@@ -77,7 +77,7 @@ class Test_OTAClient:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, tmp_path: Path, mocker: pytest_mock.MockerFixture):
-        from app.ota_client import _OTAUpdater, OTAUpdateFSM
+        from otaclient.app.ota_client import _OTAUpdater, OTAUpdateFSM
 
         ###### mock setup ######
         ### mock boot_control ###
@@ -117,7 +117,7 @@ class Test_OTAClient:
         )
 
     def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
-        from app.ota_client import OTAClient
+        from otaclient.app.ota_client import OTAClient
 
         _ota_client = OTAClient(
             boot_control_cls=mocker.MagicMock(return_value=self._boot_control_mock),
@@ -148,7 +148,7 @@ class Test_OTAClient:
         self._fsm.on_otaclient_failed.assert_not_called()
 
     def test_update_interrupted(self, mocker: pytest_mock.MockerFixture):
-        from app.ota_client import OTAClient
+        from otaclient.app.ota_client import OTAClient
 
         _ota_client = OTAClient(
             boot_control_cls=mocker.MagicMock(return_value=self._boot_control_mock),
@@ -185,7 +185,7 @@ class Test_OTAClient:
         pass
 
     def test_status_not_in_update(self, mocker: pytest_mock.MockerFixture):
-        from app.ota_client import OTAClient
+        from otaclient.app.ota_client import OTAClient
 
         _ota_client = OTAClient(
             boot_control_cls=mocker.MagicMock(return_value=self._boot_control_mock),
@@ -204,7 +204,7 @@ class Test_OTAClient:
         )
 
     def test_status_in_update(self, mocker: pytest_mock.MockerFixture):
-        from app.ota_client import OTAClient
+        from otaclient.app.ota_client import OTAClient
 
         _ota_client = OTAClient(
             boot_control_cls=mocker.MagicMock(return_value=self._boot_control_mock),

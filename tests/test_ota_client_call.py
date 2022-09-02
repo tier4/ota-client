@@ -1,8 +1,8 @@
 import grpc
 import pytest_asyncio
-from app.ota_client_call import OtaClientCall
+from otaclient.app.ota_client_call import OtaClientCall
 
-from app.proto import v2, v2_grpc, wrapper
+from otaclient.app.proto import v2, v2_grpc, wrapper
 
 
 class _DummyOTAClientService(v2_grpc.OtaClientServiceServicer):

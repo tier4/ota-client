@@ -51,7 +51,7 @@ def test_ecu_info(
     ip_addr,
     available_ecu_ids,
 ):
-    from app.ecu_info import EcuInfo
+    from otaclient.app.ecu_info import EcuInfo
 
     boot_dir = tmp_path / "boot"
     boot_dir.mkdir()
