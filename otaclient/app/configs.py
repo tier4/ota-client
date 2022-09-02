@@ -1,7 +1,11 @@
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from logging import INFO
+from pathlib import Path
 from typing import Dict
+
+EXTRA_VERSION_FILE = str(Path(__file__).parent.parent / "version.txt")
+OTACLIENT_LOCK_FILE = "/var/run/otaclient.lock"
 
 
 class CreateStandbyMechanism(Enum):
