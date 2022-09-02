@@ -24,5 +24,5 @@ TESTS_DEPENDENCIES="${OTA_CLIENT_DIR}/tests/requirements.txt"
     python3 -m pip install --no-cache-dir -q -r $TESTS_DEPENDENCIES
 
 # exec the input params
-echo "execute command: $@"
-exec bash <<< "$@"
+echo "execute command..."
+exec "$@"

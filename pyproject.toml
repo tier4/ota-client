@@ -47,12 +47,12 @@ source_pkgs = ["otaclient.app"]
 branch = false
 
 [tool.coverage.report]
-omit = ["**/*_v2_pb2*"]
+omit = [".*_v2_pb2.*"]
 show_missing = true
 
 [tool.pyright]
 exclude = ["**/__pycache__"]
-ignore = ["**/*_v2_pb2.*"]
+ignore = [".*_v2_pb2.*"]
 pythonVersion = "3.8"
 
 [tool.pytest.ini_options]
