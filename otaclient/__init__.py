@@ -5,10 +5,12 @@ try:
     # otaclient._version, check pyproject.toml for settings
     from ._version import version as __version__, version_tuple
 except ImportError:
+    from otaclient.app.configs import EXTRA_VERSION_FILE
+
     # try import version from VERSION file if any
-    version_file = Path(__file__).parent / "app/version.txt"
-    if version_file.is_file():
-        __version__ = version_file.read_text()
+    _extra_version = Path(EXTRA_VERSION_FILE)
+    if _extra_version.is_file():
+        __version__ = _extra_version.read_text()
     version_tuple = (0, 0, "unknown")
 
 __all__ = ["__version__", "version_tuple"]
