@@ -21,6 +21,7 @@ class TestDownloader:
     TEST_FILE = "metadata.jwt"
     TEST_FILE_PATH = Path(cfg.OTA_IMAGE_DIR) / TEST_FILE
     TEST_FILE_SHA256 = file_sha256(TEST_FILE_PATH)
+    TEST_FILE_SIZE = len(TEST_FILE_PATH.read_bytes())
 
     DOWNLOADER_MODULE_PATH = "app.downloader"
 
@@ -100,6 +101,24 @@ class TestDownloader:
             )
         # assert exception catched
         assert isinstance(e.value.__cause__, inject_requests_err)
+
+    def test_raise_streaming_error_on_incompleted_download(self, tmp_path: Path):
+        from otaclient.app.downloader import Downloader
+
+        _downloader = Downloader()
+        _target_path = tmp_path / self.TEST_FILE
+
+        with pytest.raises(ChunkStreamingError) as e:
+            _downloader.download(
+                self.TEST_FILE,
+                _target_path,
+                digest=self.TEST_FILE_SHA256,
+                # input wrong size to simulate incomplete download
+                size=self.TEST_FILE_SIZE // 2,
+                url_base=cfg.OTA_IMAGE_URL,
+            )
+
+        assert isinstance(e.value.__cause__, ValueError)
 
     @pytest.mark.parametrize(
         "inject_requests_err, expected_ota_download_err",

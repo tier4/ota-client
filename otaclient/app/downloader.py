@@ -14,7 +14,6 @@ from requests.exceptions import (
 
 from .configs import config as cfg
 from .common import OTAFileCacheControl
-
 from . import log_util
 
 logger = log_util.get_logger(
@@ -184,6 +183,7 @@ class Downloader:
         path: Union[Path, str],
         dst: Union[Path, str],
         digest: Optional[str] = None,
+        size: Optional[int] = None,
         *,
         url_base: str,
         cookies: Optional[Dict[str, str]] = None,
@@ -212,11 +212,13 @@ class Downloader:
             raise ExceedMaxRetryError(url, dst) from e
 
         hash_f = sha256()
+        _downloaded_size = 0
         try:
             with open(dst, "wb") as f:
                 for chunk in response.iter_content(chunk_size=self.CHUNK_SIZE):
                     hash_f.update(chunk)
                     f.write(chunk)
+                    _downloaded_size += len(chunk)
         except (ChunkedEncodingError, ConnectionError, StreamConsumedError) as e:
             raise ChunkStreamingError(url, dst) from e
         except FileNotFoundError as e:
@@ -225,6 +227,12 @@ class Downloader:
             # space not enough error
             if e.errno == errno.ENOSPC:
                 raise DownloadFailedSpaceNotEnough(url, dst) from None
+
+        # throw a network error if the file is not fully downloaded
+        if size is not None and size != _downloaded_size:
+            raise ChunkStreamingError(url, dst) from ValueError(
+                "partial download detected"
+            )
 
         calc_digest = hash_f.hexdigest()
         if digest and calc_digest != digest:

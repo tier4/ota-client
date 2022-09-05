@@ -241,7 +241,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     cur_stat.errors = self._downloader.download(
                         entry.path,
                         _local_copy,
-                        entry.sha256hash,
+                        digest=entry.sha256hash,
+                        size=entry.size,
                         url_base=self.image_base_url,
                         cookies=self.cookies,
                     )
