@@ -3,12 +3,12 @@ import pytest
 from pathlib import Path
 from pytest_mock import MockerFixture
 
-from app.create_standby.interface import UpdateMeta
-from app.create_standby.legacy_mode import LegacyMode
-from app.create_standby.rebuild_mode import RebuildMode
-from app.ota_metadata import OtaMetadata
-from app.proto import wrapper
-from app.update_stats import OTAUpdateStatsCollector
+from otaclient.app.create_standby.interface import UpdateMeta
+from otaclient.app.create_standby.legacy_mode import LegacyMode
+from otaclient.app.create_standby.rebuild_mode import RebuildMode
+from otaclient.app.ota_metadata import OtaMetadata
+from otaclient.app.proto import wrapper
+from otaclient.app.update_stats import OTAUpdateStatsCollector
 
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
@@ -47,8 +47,8 @@ class _Common:
 class Test_RebuildMode(_Common):
     @pytest.fixture(autouse=True)
     def prepare_mock(self, mocker: MockerFixture, prepare_ab_slots):
-        cfg_path = "app.create_standby.rebuild_mode.cfg"
-        proxy_cfg_path = "app.create_standby.rebuild_mode.proxy_cfg"
+        cfg_path = f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.cfg"
+        proxy_cfg_path = f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.proxy_cfg"
         mocker.patch(f"{cfg_path}.PASSWD_FILE", f"{self.slot_a}/etc/passwd")
         mocker.patch(f"{cfg_path}.GROUP_FILE", f"{self.slot_a}/group")
         mocker.patch(f"{proxy_cfg_path}.get_proxy_for_local_ota", return_value=None)
@@ -56,7 +56,7 @@ class Test_RebuildMode(_Common):
         # mock RebuildMode
         # TODO: mock save_meta here as save_meta will
         # introduce diff between ota_image and slot b
-        rebuild_mode_cls = "app.create_standby.rebuild_mode.RebuildMode"
+        rebuild_mode_cls = f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.RebuildMode"
         mocker.patch(f"{rebuild_mode_cls}._save_meta")
         # TODO: mock process_persistents here
         mocker.patch(f"{rebuild_mode_cls}._process_persistents")
@@ -109,7 +109,7 @@ class Test_RebuildMode(_Common):
 class Test_LegacyMode(_Common):
     @pytest.fixture(autouse=True)
     def prepare_mock(self, prepare_ab_slots, mocker: MockerFixture):
-        module_root = "app.create_standby.legacy_mode"
+        module_root = f"{cfg.CREATE_STANDBY_MODULE_PATH}.legacy_mode"
 
         cfg_path = f"{module_root}.cfg"
         proxy_cfg_path = f"{module_root}.proxy_cfg"

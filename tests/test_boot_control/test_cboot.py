@@ -92,7 +92,7 @@ class TestCBootControl:
         """
         NOTE: we always only refer to ota-status dir at the rootfs!
         """
-        from app.configs import CBootControlConfig
+        from otaclient.app.configs import CBootControlConfig
 
         _mocked_cboot_cfg = CBootControlConfig()
         _mocked_cboot_cfg.MOUNT_POINT = str(self.slot_b)
@@ -103,7 +103,7 @@ class TestCBootControl:
         return _mocked_cboot_cfg
 
     def cfg_for_slot_b_as_current(self):
-        from app.configs import CBootControlConfig
+        from otaclient.app.configs import CBootControlConfig
 
         _mocked_cboot_cfg = CBootControlConfig()
         _mocked_cboot_cfg.MOUNT_POINT = str(self.slot_a)
@@ -115,7 +115,7 @@ class TestCBootControl:
 
     @pytest.fixture(autouse=True)
     def patch_current_used_boot_controller(self, mocker: pytest_mock.MockerFixture):
-        mocker.patch("app.configs.BOOT_LOADER", "cboot")
+        mocker.patch(f"{cfg.CONFIGS_MODULE_PATH}.BOOT_LOADER", "cboot")
 
     @pytest.fixture
     def cboot_ab_slot(self, ab_slots: SlotMeta):
@@ -170,8 +170,8 @@ class TestCBootControl:
         mocker: pytest_mock.MockerFixture,
         cboot_ab_slot,
     ):
-        from app.boot_control.cboot import _CBootControl
-        from app.boot_control.common import CMDHelperFuncs
+        from otaclient.app.boot_control.cboot import _CBootControl
+        from otaclient.app.boot_control.common import CMDHelperFuncs
 
         ###### start fsm ######
         self._fsm = CbootFSM()
@@ -228,7 +228,7 @@ class TestCBootControl:
         self._CMDHelper_mock = _CMDHelper_mock
 
     def test_cboot_normal_update(self, mocker: pytest_mock.MockerFixture, mock_setup):
-        from app.boot_control.cboot import CBootController
+        from otaclient.app.boot_control.cboot import CBootController
 
         _cfg_patch_path = f"{cfg.CBOOT_MODULE_PATH}.cfg"
         _relative_ota_status_path = Path(cfg.OTA_STATUS_DIR).relative_to("/")

@@ -92,7 +92,7 @@ _DEFAULT: Dict[str, Any] = {
     ),
 )
 def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: Dict[str, Any]):
-    from app.proxy_info import parse_proxy_info
+    from otaclient.app.proxy_info import parse_proxy_info
 
     proxy_info_file = tmp_path / "proxy_info.yml"
     proxy_info_file.write_text(_input_yaml)

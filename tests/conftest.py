@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import logging
 import pytest
 import pytest_mock
@@ -17,12 +16,15 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TestConfiguration:
     # module paths
-    BOOT_CONTROL_COMMON_MODULE_PATH = "app.boot_control.common"
-    CONFIGS_MODULE_PATH = "app.configs"
-    CBOOT_MODULE_PATH = "app.boot_control.cboot"
-    OTACLIENT_MODULE_PATH = "app.ota_client"
-    OTACLIENT_STUB_MODULE_PATH = "app.ota_client_stub"
-    OTAPROXY_MODULE_PATH = "ota_proxy"
+    BOOT_CONTROL_COMMON_MODULE_PATH = "otaclient.app.boot_control.common"
+    CONFIGS_MODULE_PATH = "otaclient.app.configs"
+    CBOOT_MODULE_PATH = "otaclient.app.boot_control.cboot"
+    GRUB_MODULE_PATH = "otaclient.app.boot_control.grub"
+    OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
+    OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
+    OTAPROXY_MODULE_PATH = "otaclient.ota_proxy"
+    CREATE_STANDBY_MODULE_PATH = "otaclient.app.create_standby"
+    MAIN_MODULE_PATH = "otaclient.app.main"
 
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
@@ -58,7 +60,6 @@ class TestConfiguration:
     # grub specific conf
     KERNEL_PREFIX = "vmlinuz"
     INITRD_PREFIX = "initrd.img"
-    GRUB_MODULE_PATH = "app.boot_control.grub"
     GRUB_FILE = "/boot/grub/grub.cfg"
     DEFAULT_GRUB_FILE = "/etc/default/grub"
     FSTAB_FILE = "/etc/fstab"

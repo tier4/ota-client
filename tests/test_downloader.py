@@ -5,8 +5,8 @@ import requests_mock
 import typing
 from pathlib import Path
 
-from app.common import file_sha256
-from app.downloader import (
+from otaclient.app.common import file_sha256
+from otaclient.app.downloader import (
     ChunkStreamingError,
     ExceedMaxRetryError,
     HashVerificaitonError,
@@ -30,7 +30,7 @@ class TestDownloader:
         mocker.patch(f"{_cfg_path}.DOWNLOAD_BACKOFF_MAX", 2)
 
     def test_normal_download(self, tmp_path: Path):
-        from app.downloader import Downloader
+        from otaclient.app.downloader import Downloader
 
         _downloader = Downloader()
         _target_path = tmp_path / self.TEST_FILE
@@ -47,7 +47,7 @@ class TestDownloader:
         assert file_sha256(_target_path) == self.TEST_FILE_SHA256
 
     def test_download_mismatch_sha256(self, tmp_path: Path):
-        from app.downloader import Downloader
+        from otaclient.app.downloader import Downloader
 
         _downloader = Downloader()
         _target_path = tmp_path / self.TEST_FILE
@@ -77,7 +77,7 @@ class TestDownloader:
         inject_requests_err,
         expected_ota_download_err,
     ):
-        from app.downloader import Downloader
+        from otaclient.app.downloader import Downloader
 
         _downloader = Downloader()
         _target_path = tmp_path / self.TEST_FILE
@@ -116,7 +116,7 @@ class TestDownloader:
         inject_requests_err,
         expected_ota_download_err,
     ):
-        from app.downloader import Downloader
+        from otaclient.app.downloader import Downloader
 
         _downloader = Downloader()
         _target_path = tmp_path / self.TEST_FILE
@@ -140,7 +140,7 @@ class TestDownloader:
     def test_retry_headers_injection(
         self, tmp_path: Path, mocker: pytest_mock.MockerFixture
     ):
-        from app.downloader import Downloader
+        from otaclient.app.downloader import Downloader
 
         _downloader = Downloader()
         _target_path = tmp_path / self.TEST_FILE
