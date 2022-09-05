@@ -1,4 +1,3 @@
-import random
 import pytest
 import pytest_mock
 import requests
@@ -114,9 +113,8 @@ class TestDownloader:
                 self.TEST_FILE,
                 _target_path,
                 digest=self.TEST_FILE_SHA256,
-                size=random.randint(
-                    1, self.TEST_FILE_SIZE // 2
-                ),  # input wrong size to simulate incomplete download
+                # input wrong size to simulate incomplete download
+                size=self.TEST_FILE_SIZE // 2,
                 url_base=cfg.OTA_IMAGE_URL,
             )
 
