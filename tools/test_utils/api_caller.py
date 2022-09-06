@@ -6,12 +6,12 @@ from pathlib import Path
 try:
     import otaclient  # noqa: F401
 except ImportError:
-    sys.path.insert(0, str(Path(__file__).parent.parent / "otaclient"))
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
-from . import status_call, update_call, logutil
+from . import _logutil, _status_call, _update_call
 
-logger = logutil.get_logger(__name__)
+logger = _logutil.get_logger(__name__)
 
 
 def main(args: argparse.Namespace):
@@ -19,32 +19,36 @@ def main(args: argparse.Namespace):
         ecu_info = yaml.safe_load(f)
 
     target_ecu_id = args.target
-    ecu_id = None
-    ecu_ip, ecu_port = None, None
+    # load main ecu info
+    ecu_id = ecu_info.get("ecu_id")
+    ecu_ip = ecu_info.get("ip_addr")
+    ecu_port = 50051
 
-    # search for target by ecu_id
-    for subecu in ecu_info.get("secondaries", []):
-        if subecu.get("ecu_id") == target_ecu_id:
-            ecu_id = subecu.get("ecu_id")
-            ecu_ip = subecu.get("ip_addr")
-            ecu_port = int(subecu.get("port", 50051))
-            break
-
-    if ecu_id is None or ecu_ip is None or ecu_port is None:
-        logger.critical(f"target ecu {target_ecu_id} is not found")
-        sys.exit(-1)
+    if target_ecu_id != ecu_info.get("ecu_id"):
+        found = False
+        # search for target by ecu_id
+        for subecu in ecu_info.get("secondaries", []):
+            if subecu.get("ecu_id") == target_ecu_id:
+                ecu_id = subecu.get("ecu_id")
+                ecu_ip = subecu.get("ip_addr")
+                ecu_port = int(subecu.get("port", 50051))
+                found = True
+                break
+        if not found:
+            logger.critical(f"target ecu {target_ecu_id} is not found")
+            sys.exit(-1)
 
     logger.debug(f"target ecu: {ecu_id=}, {ecu_ip=}")
     cmd = args.command
     if cmd == "update":
-        update_call.call_update(
+        _update_call.call_update(
             ecu_id,
             ecu_ip,
             ecu_port,
             request_file=args.request,
         )
     elif cmd == "status":
-        status_call.call_status(
+        _status_call.call_status(
             ecu_id,
             ecu_ip,
             ecu_port,
@@ -60,14 +64,14 @@ if __name__ == "__main__":
         "-c",
         "--ecu_info",
         type=str,
-        default="ecu_info.yaml",
+        default="test_utils/ecu_info.yaml",
         help="ecu_info file to configure the caller",
     )
     parser.add_argument("command", help="API to call, available API: update, status")
     parser.add_argument(
         "-t",
         "--target",
-        default="main",
+        default="autoware",
         help="indicate the API call's target",
     )
     parser.add_argument(
@@ -80,7 +84,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-r",
         "--request",
-        default="update_request.yaml",
+        default="test_utils/update_request.yaml",
         help="(update) yaml file that contains the request to send",
     )
 
@@ -89,7 +93,7 @@ if __name__ == "__main__":
         parser.error(f"unknown API: {args.command} (available: update, status)")
     if not Path(args.ecu_info).is_file():
         parser.error(f"ecu_info file {args.ecu_info} not found!")
-    if not Path(args.request).is_file():
+    if args.command == "update" and not Path(args.request).is_file():
         parser.error(f"update request file {args.request} not found!")
 
     main(args)

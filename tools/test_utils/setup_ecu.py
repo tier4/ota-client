@@ -1,169 +1,142 @@
-import path_loader
-
 import argparse
-from typing import List
+import asyncio
 import grpc
 import yaml
-import time
-import signal
+import sys
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
+from typing import List
 
-import app.otaclient_v2_pb2_grpc as v2_grpc
-import app.otaclient_v2_pb2 as v2
+try:
+    import otaclient  # noqa: F401
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import logutil
-import logging
+from otaclient.app.ota_client_service import service_wait_for_termination
+from otaclient.app.proto import v2_grpc, v2
+from . import _logutil
 
-logger: logging.Logger = logutil.get_logger(__name__, logging.DEBUG)
+logger = _logutil.get_logger(__name__)
 
-_DEFAULT_PORT = "50051"
+_DEFAULT_PORT = 50051
 _MODE = {"standalone", "mainecu", "subecus"}
 
 
 class MiniOtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
-    def __init__(self, ecu_id: dict):
+    UPDATE_TIME_COST = 10
+    REBOOT_INTERVAL = 5
+
+    def __init__(self, ecu_id: str):
         self.ecu_id = ecu_id
+        self._lock = asyncio.Lock()
+        self._in_update = asyncio.Event()
+        self._rebooting = asyncio.Event()
 
-        self._executor = ThreadPoolExecutor()
-        # critical zone
-        self._lock = Lock()
-        self._update_finished = True
-        # end of critical zone
+    async def _on_update(self):
+        await asyncio.sleep(self.UPDATE_TIME_COST)
+        logger.debug(f"{self.ecu_id=} finished update, rebooting...")
+        self._rebooting.set()
+        await asyncio.sleep(self.REBOOT_INTERVAL)
+        self._rebooting.clear()
+        self._in_update.clear()
 
-    def _update_counter(self):
-        with self._lock:
-            time.sleep(20)
-            self._update_finished = True
-
-    def Update(self, request, context: grpc.ServicerContext):
+    async def Update(self, request: v2.UpdateRequest, context: grpc.ServicerContext):
         peer = context.peer()
-        logger.debug(f"receive update request from {peer=}")
+        logger.debug(f"{self.ecu_id}: update request from {peer=}")
         logger.debug(f"{request=}")
+
+        # return if not listed as target
+        found = False
+        for ecu in request.ecu:
+            if ecu.ecu_id == self.ecu_id:
+                found = True
+                break
+        if not found:
+            logger.debug(f"{self.ecu_id}, Update: not listed as update target, abort")
+            return v2.UpdateResponse()
 
         results = v2.UpdateResponse()
-        ecu = results.ecu.add()
-        ecu.ecu_id = self.ecu_id
-        ecu.result = v2.NO_FAILURE
-
-        with self._lock:
-            self._update_finished = False
-            self._executor.submit(self._update_counter)
+        if self._in_update.is_set():
+            resp_ecu = v2.UpdateResponseEcu(
+                ecu_id=self.ecu_id,
+                result=v2.RECOVERABLE,
+            )
+            results.ecu.append(resp_ecu)
+        else:
+            logger.debug("start update")
+            self._in_update.set()
+            asyncio.create_task(self._on_update())
 
         return results
 
-    def Rollback(self, request, context: grpc.ServicerContext):
-        # NOTE: not yet used!
+    async def Status(self, _, context: grpc.ServicerContext):
         peer = context.peer()
-        logger.info(f"receive rollback request from {peer=}")
-        logger.debug(f"{request=}")
+        logger.debug(f"{self.ecu_id}: status request from {peer=}")
+        if self._rebooting.is_set():
+            return v2.StatusResponse()
 
-        results = v2.RollbackResponse()
-        return results
+        result_ecu = v2.StatusResponseEcu(
+            ecu_id=self.ecu_id,
+            result=v2.NO_FAILURE,
+        )
 
-    def Status(self, request, context: grpc.ServicerContext):
-        peer = context.peer()
-        logger.debug(f"receive status request from {peer=}")
+        ecu_status = result_ecu.status
+        if self._in_update.is_set():
+            ecu_status.status = v2.UPDATING
+        else:
+            ecu_status.status = v2.SUCCESS
 
         result = v2.StatusResponse()
-        ecu = result.ecu.add()
-        ecu.ecu_id = self.ecu_id
-        ecu.result = v2.NO_FAILURE
-
-        ecu_status = ecu.status
-        if self._update_finished:
-            ecu_status.status = v2.SUCCESS
-        else:
-            ecu_status.status = v2.UPDATING
-
+        result.ecu.append(result_ecu)
         return result
 
 
-def server_start(
-    pool: ThreadPoolExecutor, ecu_id: str, ip: str, port: str = "50051"
-) -> grpc.server:
+async def launch_otaclient(ecu_id, ecu_ip, ecu_port):
+    server = grpc.aio.server()
     service = MiniOtaClientServiceV2(ecu_id)
-
-    server = grpc.server(pool)
     v2_grpc.add_OtaClientServiceServicer_to_server(service, server)
 
-    server.add_insecure_port(f"{ip}:{port}")
-    server.start()
-    logger.info(f"start {ecu_id=} at {ip}:{port}")
-
-    return server
+    server.add_insecure_port(f"{ecu_ip}:{ecu_port}")
+    await server.start()
+    await service_wait_for_termination(server)
 
 
-def mainecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.server]:
+async def mainecu_mode(ecu_info_file: str):
     ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
+    ecu_id = ecu_info["ecu_id"]
+    ecu_ip = ecu_info["ip_addr"]
+    ecu_port = int(ecu_info.get("port", _DEFAULT_PORT))
 
-    server = server_start(
-        ecu_id=ecu_info["ecu_id"],
-        pool=executor,
-        ip=ecu_info["ip_addr"],
-        port=ecu_info.get("port", _DEFAULT_PORT),
-    )
-
-    return [server]
+    logger.info(f"start {ecu_id=} at {ecu_ip}:{ecu_port}")
+    await launch_otaclient(ecu_id, ecu_ip, ecu_port)
 
 
-def subecu_mode(executor: ThreadPoolExecutor, ecu_info_file: str) -> List[grpc.server]:
+async def subecu_mode(ecu_info_file: str):
     ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
 
     # schedule the servers to the thread pool
-    futures = []
+    tasks: List[asyncio.Task] = []
     for subecu in ecu_info["secondaries"]:
-        futures.append(
-            executor.submit(
-                server_start,
-                ecu_id=subecu["ecu_id"],
-                pool=executor,
-                ip=subecu["ip_addr"],
-                port=subecu.get("port", _DEFAULT_PORT),
-            )
-        )
+        ecu_id = subecu["ecu_id"]
+        ecu_ip = subecu["ip_addr"]
+        ecu_port = int(subecu.get("port", _DEFAULT_PORT))
+        logger.info(f"start {ecu_id=} at {ecu_ip}:{ecu_port}")
+        tasks.append(asyncio.create_task(launch_otaclient(ecu_id, ecu_ip, ecu_port)))
 
-    servers = [f.result() for f in futures]
-    return servers
+    await asyncio.gather(*tasks)
 
 
-def standalone_mode(
-    executor: ThreadPoolExecutor, args: argparse.Namespace
-) -> List[grpc.server]:
-    server = server_start(
-        ecu_id="standalone",
-        pool=executor,
-        ip=args.ip,
-        port=args.port,
-    )
-
-    return [server]
-
-
-def load_ecu_info(ecu_info_file: str) -> dict:
-    with open(ecu_info_file, "r") as f:
-        return yaml.safe_load(f)
-
-
-def _sign_handler_wrapper(server_list: List[grpc.server], executor: ThreadPoolExecutor):
-    def _sign_handler(signum, frame):
-        logger.info(f"receive signal {signum}")
-        if signum == signal.SIGINT:
-            logger.warning("terminating all servers...")
-            for s in server_list:
-                s.stop(None)
-            logger.info("close the threadpool")
-            executor.shutdown()
-        raise InterruptedError("terminating the mini ota_client servers")
-
-    return _sign_handler
+async def standalone_mode(args: argparse.Namespace):
+    await launch_otaclient("standalone", args.ip, args.port)
 
 
 if __name__ == "__main__":
-    logger.debug(f"load path by {path_loader.__name__}")
-    parser = argparse.ArgumentParser(description="calling main ECU's API")
-    parser.add_argument("-c", "--ecu_info", default="ecu_info.yaml", help="ecu_info")
+    parser = argparse.ArgumentParser(
+        description="calling main ECU's API",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-c", "--ecu_info", default="test_utils/ecu_info.yaml", help="ecu_info"
+    )
     parser.add_argument(
         "mode",
         default="standalone",
@@ -177,38 +150,31 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ip",
         default="127.0.0.1",
-        help="(standalone) listen at IP(default: localhost)",
+        help="(standalone) listen at IP",
     )
     parser.add_argument(
         "--port",
         default=_DEFAULT_PORT,
-        help=f"(standalone) use port PORT(default: {_DEFAULT_PORT})",
+        help="(standalone) use port PORT",
     )
 
     args = parser.parse_args()
 
     if args.mode not in _MODE:
         parser.error(f"invalid mode {args.mode}, should be one of {_MODE}")
-
     if args.mode != "standalone" and not Path(args.ecu_info).is_file():
         parser.error(
             f"invalid ecu_info_file {args.ecu_info!r}. ecu_info.yaml is required for non-standalone mode"
         )
 
-    executor = ThreadPoolExecutor()
-    servers_list: List[grpc.server] = []
     if args.mode == "subecus":
         logger.info("subecus mode")
-        servers_list = subecu_mode(executor, args.ecu_info)
+        coro = subecu_mode(args.ecu_info)
     elif args.mode == "mainecu":
         logger.info("mainecu mode")
-        servers_list = mainecu_mode(executor, args.ecu_info)
-    elif args.mode == "standalone":
+        coro = mainecu_mode(args.ecu_info)
+    else:
         logger.info("standalone mode")
-        servers_list = standalone_mode(executor, args)
+        coro = standalone_mode(args)
 
-    # cleanup the executor in the sign handler
-    signal.signal(signal.SIGINT, _sign_handler_wrapper(servers_list, executor))
-
-    while True:
-        time.sleep(2)  # wait for the SIGINT
+    asyncio.run(coro)

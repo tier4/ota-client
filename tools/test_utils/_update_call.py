@@ -2,11 +2,11 @@ import asyncio
 import yaml
 
 from otaclient.app.ota_client_call import OtaClientCall
-from otaclient.app.proto import wrapper
+from otaclient.app.proto import wrapper, v2
 
-from . import logutil
+from . import _logutil
 
-logger = logutil.get_logger(__name__)
+logger = _logutil.get_logger(__name__)
 
 
 def load_external_update_request(request_yaml_file: str) -> wrapper.UpdateRequest:
@@ -16,7 +16,7 @@ def load_external_update_request(request_yaml_file: str) -> wrapper.UpdateReques
 
         request = wrapper.UpdateRequest()
         for request_ecu in request_yaml:
-            request.ecu.append(wrapper.UpdateRequestEcu(**request_ecu))
+            request.ecu.append(v2.UpdateRequestEcu(**request_ecu))
     return request
 
 

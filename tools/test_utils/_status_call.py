@@ -4,9 +4,9 @@ from typing import Optional
 
 from otaclient.app.ota_client_call import OtaClientCall
 
-from . import logutil
+from . import _logutil
 
-logger = logutil.get_logger(__name__)
+logger = _logutil.get_logger(__name__)
 
 
 def call_status(
