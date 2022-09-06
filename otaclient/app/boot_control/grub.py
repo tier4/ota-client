@@ -112,7 +112,7 @@ class GrubHelper:
 
     grub_default_options: ClassVar[Dict[str, str]] = {
         "GRUB_TIMEOUT_STYLE": "menu",
-        "GRUB_TIMEOUT": "10",
+        "GRUB_TIMEOUT": "0",
         "GRUB_DISABLE_SUBMENU": "y",
         "GRUB_DISABLE_OS_PROBER": "true",
         "GRUB_DISABLE_RECOVERY": "true",
