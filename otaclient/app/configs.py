@@ -71,7 +71,7 @@ class BaseConfig:
     # ota-client behavior setting
     CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
     LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
-    DOWNLOAD_RETRY: int = 5
+    DOWNLOAD_RETRY: int = 10
     DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
     MAX_CONCURRENT_DOWNLOAD: int = 8
     MAX_CONCURRENT_TASKS: int = 128
