@@ -18,20 +18,46 @@ Python 3.8.10
 
 Appropriate partitioning and configurations are required. See [docs/README.md](docs/README.md).
 
-### Setup
+Installation guide is available at [docs/INSTALLATION.md](docs/INSTALLATION.md).
+
+### Run otaclient directly
 
 ```bash
-sudo apt install -y python3-setuptools
-sudo python3 -m pip install -U pip
-git clone https://github.com/tier4/ota-client
-cd ota-client
-sudo python3 -m pip install -r app/requirements.txt
+# with virtualenv activated
+python3 -m otaclient
+# or
+python3 -m otaclient.app
 ```
 
-### Run
+### Run otaclient installed at custom location
+
+If we install the otaclient to custom directory instead of the default location, we must indicate python the path to the install location.
+
+#### method 1: indicate path by **PYTHONPATH**
 
 ```bash
-sudo python3 app/main.py
+# we have to append the /opt/ota to the PYTHONPATH, to tell the 
+# python interpreter to search otaclient package under /opt/ota, instead of 
+# using the one install under <virtualenv>/lib/python3.8/site-packages
+
+# with venv activated: 
+PYTHONPATH=/opt/ota python3 -m otaclient
+# or
+PYTHONPATH=/opt/ota python3 -m otaclient.app
+```
+
+#### method 2: change working dir to the install location
+
+```bash
+# change work dir to /opt/ota
+cd /opt/ota
+
+# with venv activated:
+# NOTE:python will insert current working dir at index 0 in `sys.path`
+# under /opt/ota folder, so that python will first use otaclient under /opt/ota
+python3 -m otaclient 
+# or
+python3 -m otaclient.app
 ```
 
 ## How to test OTA client on the development PC
@@ -41,7 +67,7 @@ sudo python3 app/main.py
 Build the `ota-test_base` image for running tests under a container as follow:
 
 ```bash
-docker-compose -f ./docker-compose.yml build
+docker-compose -f docker/docker-compose_tests.yml build
 ```
 
 This `ota-test_base` image contains a copy of pre-build minimum `ota-image` under `/ota-image` folder, and pre-installed dependencies needed for running and testing OTA client.
@@ -49,7 +75,7 @@ This `ota-test_base` image contains a copy of pre-build minimum `ota-image` unde
 ### Run all tests at once
 
 ```bash
-docker-compose -f ./docker-compose.yml run --rm tester
+docker-compose -f docker/docker-compose_tests.yml run --rm tester
 ```
 
 ### Run specific tests manually by override the command
@@ -57,7 +83,7 @@ docker-compose -f ./docker-compose.yml run --rm tester
 Directly execute pytest is also possible by override the command:
 
 ```bash
-docker-compose -f ./docker-compose.yml run --rm tester \
+docker-compose -f docker/docker-compose_tests.yml run --rm tester \
    python3 -m pytest /ota-client/tests/<specific_test_file> [<test_file_2> [...]]
 ```
 
@@ -66,7 +92,7 @@ docker-compose -f ./docker-compose.yml run --rm tester \
 Directly drop to bash shell in the test base container as follow:
 
 ```bash
-docker-compose -f ./docker-compose.yml run --rm tester bash
+docker-compose -f docker/docker-compose_tests.yml run --rm tester bash
 ```
 
 And then run specific tests as you want:
