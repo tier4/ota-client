@@ -6,6 +6,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from pytest_mock import MockerFixture
 
+from tests.conftest import TestConfiguration as cfg
+
 
 @pytest.fixture
 def dir_test() -> Path:
@@ -148,7 +150,7 @@ def test_ota_metadata_with_verify_certificate(
     cert_b_1.write_bytes(Path(dir_test / "keys" / "root.pem").read_bytes())
     cert_b_2.write_bytes(Path(dir_test / "keys" / "interm.pem").read_bytes())
 
-    mocker.patch.object(OtaMetadata, "CERTS_DIR", certs_dir)
+    mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg.CERTS_DIR", str(certs_dir))
 
     metadata = OtaMetadata(generate_jwt(payload_str, dir_test))
     assert metadata.get_directories_info() == DIR_INFO
@@ -182,7 +184,7 @@ def test_ota_metadata_with_verify_certificate_exception(
     cert_a_1.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
     cert_a_2.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
 
-    mocker.patch.object(OtaMetadata, "CERTS_DIR", certs_dir)
+    mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg.CERTS_DIR", str(certs_dir))
 
     metadata = OtaMetadata(generate_jwt(payload_str, dir_test))
     assert metadata.get_directories_info() == DIR_INFO
