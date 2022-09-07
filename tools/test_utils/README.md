@@ -7,12 +7,10 @@ This test utils set provides lib to directly query otaclient `update/status/roll
 This test_utils can be used to setup a test environment consists of a real otaclient(either on VM or on actually ECU) as main ECU,
 and setup many dummy subECUs that can receive update request and return the expected status report.
 
-### 1. Install the otaclient
+### 1. Install the otaclient's dependencies
 
-Install the otaclient and its dependencies to your virtual environment.
+`test_utils` depends on otaclient, so you need to install at least the dependencies of otaclient.
 Please refer to [docs/INSTALLATION.md](docs/INSTALLATION.md).
-
-And then you can use the test_utils from any location within your virtual environment.
 
 ### 2. Update the `ecu_info.yaml` and `update_request.yaml` accordingly
 
