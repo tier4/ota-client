@@ -16,7 +16,7 @@ source ${VENV}/bin/activate
 # setup dependencies unconditionally
 # NOTE: if we only do minor modified to the requirements.txt,
 #       we don't have to rebuild the image, just call pip here
-APP_DEPENDENCIES="${OTA_CLIENT_DIR}/app/requirements.txt"
+APP_DEPENDENCIES="${OTA_CLIENT_DIR}/otaclient/requirements.txt"
 [ -f "$APP_DEPENDENCIES" ] && echo "setup app dependencies..." && \
     python3 -m pip install --no-cache-dir -q -r $APP_DEPENDENCIES
 TESTS_DEPENDENCIES="${OTA_CLIENT_DIR}/tests/requirements.txt"
