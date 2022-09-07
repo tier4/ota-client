@@ -1,10 +1,14 @@
 import requests
+import pycurl
 import json
 import botocore.credentials
 import botocore.session
 import boto3
 import logging
 import datetime
+import shlex
+import subprocess
+import re
 from pytz import utc
 
 from .configs import LOG_FORMAT
@@ -15,6 +19,23 @@ _sh = logging.StreamHandler()
 fmt = logging.Formatter(fmt=LOG_FORMAT)
 _sh.setFormatter(fmt)
 logger.addHandler(_sh)
+
+
+def get_tpm2_token_url(token):
+    cmd = "p11tool --list-token-urls"
+    try:
+        tokens = (
+            subprocess.check_output(shlex.split(cmd), stderr=subprocess.PIPE)
+            .decode()
+            .strip()
+        )
+        pa = re.compile(fr"^pkcs11:.*token={token}.*$", re.MULTILINE)
+        for ma in pa.finditer(tokens):
+            return ma.group(0)
+    except subprocess.CalledProcessError as e:
+        msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
+        logger.warning(msg)
+        return None
 
 
 class Boto3Session:
@@ -51,27 +72,60 @@ class Boto3Session:
 
         return boto3.Session(botocore_session=session)
 
+    def _get_body(self, url, use_pycurl=False):
+        if use_pycurl:  # pycurl implementation
+            headers = [f"x-amzn-iot-thingname:{self._thing_name}"]
+            connection = pycurl.Curl()
+            connection.setopt(connection.URL, url)
+
+            tpm2_priv = get_tpm2_token_url("greengrass")
+            if tpm2_priv:
+                connection.setopt(pycurl.SSLENGINE, "pkcs11")
+                connection.setopt(pycurl.SSLKEYTYPE, "eng")
+                private_key = (
+                    f"{tpm2_priv};object=greengrasskey;pin-value=greengrasspin"
+                )
+            else:
+                private_key = self._private_key
+
+            # server auth option
+            connection.setopt(connection.SSL_VERIFYPEER, True)
+            connection.setopt(connection.CAINFO, self._ca_cert)
+            connection.setopt(connection.CAPATH, None)
+            connection.setopt(connection.SSL_VERIFYHOST, 2)
+
+            # client auth option
+            connection.setopt(connection.SSLCERT, self._cert)
+            connection.setopt(connection.SSLKEY, private_key)
+            connection.setopt(connection.HTTPHEADER, headers)
+
+            response = connection.perform_rs()
+            connection.close()
+            return json.loads(response)
+        else:  # requests implementation
+            # ref: https://docs.aws.amazon.com/ja_jp/iot/latest/developerguide/authorizing-direct-aws.html
+            headers = {"x-amzn-iot-thingname": self._thing_name}
+            logger.info(f"url: {url}, headers: {headers}")
+            try:
+                response = requests.get(
+                    url,
+                    verify=self._ca_cert,
+                    cert=(self._cert, self._private_key),
+                    headers=headers,
+                )
+                response.raise_for_status()
+                return json.loads(response.text)
+            except requests.exceptions.RequestException:
+                logger.warning("requests error")
+                raise
+
     def _refresh(self, session_duration: int = 0) -> dict:
-        # ref: https://docs.aws.amazon.com/ja_jp/iot/latest/developerguide/authorizing-direct-aws.html
         url = f"https://{self._credential_provider_endpoint}/role-aliases/{self._role_alias}/credentials"
-        headers = {"x-amzn-iot-thingname": self._thing_name}
-        logger.info(f"url: {url}, headers: {headers}")
-        try:
-            response = requests.get(
-                url,
-                verify=self._ca_cert,
-                cert=(self._cert, self._private_key),
-                headers=headers,
-            )
-            response.raise_for_status()
-        except requests.exceptions.RequestException:
-            logger.warning("requests error")
-            raise
 
         try:
-            body = json.loads(response.text)
+            body = self._get_body(url, use_pycurl=True)
         except json.JSONDecodeError:
-            logger.exception(f"invalid response: resp={response.text}")
+            logger.exception(f"invalid response: resp={body}")
             raise
 
         expiry_time = body.get("credentials", {}).get("expiration")
