@@ -22,6 +22,7 @@ class TestConfiguration:
     GRUB_MODULE_PATH = "otaclient.app.boot_control.grub"
     OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
+    OTAMETA_MODULE_PATH = "otaclient.app.ota_metadata"
     OTAPROXY_MODULE_PATH = "otaclient.ota_proxy"
     CREATE_STANDBY_MODULE_PATH = "otaclient.app.create_standby"
     MAIN_MODULE_PATH = "otaclient.app.main"
