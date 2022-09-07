@@ -7,7 +7,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3.8 /opt/ota/client/app/main.py
+ExecStart=/bin/bash -c 'source /opt/ota/.venv/bin/activate && PYTHONPATH=/opt/ota /usr/bin/python3 -m otaclient'
 Restart=always
 
 [Install]

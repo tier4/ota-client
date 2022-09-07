@@ -9,7 +9,7 @@ Here we take installing otaclient to `/opt/ota/otaclient` as example.
 ### 1. git clone the specific branch/tag to a temporary folder
 
 ```bash
-git clone https://github.com/tier4/ota-client -b <tag|branch> /tmp
+git clone https://github.com/tier4/ota-client -b <tag|branch> /tmp/ota-client
 ```
 
 ### 2. prepare virtual env and activate it

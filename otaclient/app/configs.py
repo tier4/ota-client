@@ -4,7 +4,12 @@ from logging import INFO
 from pathlib import Path
 from typing import Dict
 
-EXTRA_VERSION_FILE = str(Path(__file__).parent.parent / "version.txt")
+from otaclient import __file__ as _otaclient__init__
+
+_OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
+
+# NOTE: VERSION file is installed under otaclient package root
+EXTRA_VERSION_FILE = str(_OTACLIENT_PACKAGE_ROOT / "version.txt")
 OTACLIENT_LOCK_FILE = "/var/run/otaclient.lock"
 
 
@@ -30,6 +35,9 @@ class OtaClientServerConfig:
 @dataclass
 class BaseConfig:
     """Platform neutral configuration."""
+
+    # NOTE: certs dir is located at the otaclient package root
+    CERTS_DIR = str(_OTACLIENT_PACKAGE_ROOT / "certs")
 
     DEFAULT_LOG_LEVEL: int = INFO
     LOG_LEVEL_TABLE: Dict[str, int] = field(
@@ -71,7 +79,7 @@ class BaseConfig:
     # ota-client behavior setting
     CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
     LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
-    DOWNLOAD_RETRY: int = 5
+    DOWNLOAD_RETRY: int = 10
     DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
     MAX_CONCURRENT_DOWNLOAD: int = 8
     MAX_CONCURRENT_TASKS: int = 128
