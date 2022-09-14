@@ -290,13 +290,20 @@ class _SubECUTracker:
               2. this method will block until all tracked ecus are ready,
               2. if subecu is unreachable, this tracker will still keep pulling.
         """
-        # NOTE(20220914): it might be an edge condition that this tracker starts
+        # NOTE(20220914): It might be an edge condition that this tracker starts
         #                 faster than the subecus start their own update progress,
-        #                 so we wait for 30s here before loop pulling status.
+        #                 but the tracker is not able to tell the differences between
+        #                 SUCCESS status before update starts, or SUCCESS status after
+        #                 ota update applied.
+        #
+        #                 If the tracker receives unintended SUCCESS status from subecu,
+        #                 it will finish tracking and returns immediately.
+        #
+        #                 To avoid this unintended behavior, we wait for subecus for
+        #                 _WAIT_FOR_SUBECUS_SWITCH_OTASTATUS seconds to ensure subecus are in
+        #                 UPDATING status before we start loop pulling the subecus' status.
         await asyncio.sleep(self._WAIT_FOR_SUBECUS_SWITCH_OTASTATUS)
-        logger.info(
-            f"start to loop pulling subecus({self.tracked_ecus_dict=}) status..."
-        )
+        logger.info(f"start loop pulling subecus({self.tracked_ecus_dict=}) status...")
         while True:
             coros: List[Coroutine] = []
             for subecu_id, subecu_addr in self.tracked_ecus_dict.items():
