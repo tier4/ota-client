@@ -170,9 +170,6 @@ class _OTAUpdater:
         except (JSONDecodeError, AssertionError) as e:
             raise InvalidUpdateRequest from e
 
-        # init ota_update_stats collector
-        self.update_stats_collector.start(restart=True)
-
         # process metadata.jwt
         logger.debug("[update] process metadata...")
         self.update_phase = wrapper.StatusProgressPhase.METADATA
@@ -282,6 +279,10 @@ class _OTAUpdater:
                 if not fsm.client_wait_for_ota_proxy():
                     raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
                 self._downloader.configure_proxy(proxy)
+
+            # launch collector
+            # init ota_update_stats collector
+            self.update_stats_collector.start()
 
             # start the update, pre_update
             self.updating_version = version
