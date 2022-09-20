@@ -39,7 +39,14 @@ class _DummySubECUsGroup:
             _res &= v
         return _res
 
+    def if_all_subecus_updated_successfully(self):
+        _res = True
+        for _, ecu in self._ecu_dict.items():
+            _res &= ecu._update_succeeded
+        return _res
+
     def start_update_all(self):
+        logger.info(f"start update for all dummy subecus: {self._ecu_dict}")
         for ecu_id, ecu in self._ecu_dict.items():
             ecu.start()
             self._if_received_update[ecu_id] = True
@@ -154,7 +161,8 @@ class Test_SubECUTracker:
     @pytest.fixture
     def setup_subecus(self):
         self._subecu_dict = {"p1": "", "p2": ""}
-        self._subecs = _DummySubECUsGroup(list(self._subecu_dict.keys()))
+        self._subecus = _DummySubECUsGroup(list(self._subecu_dict.keys()))
+        logger.debug(f"setup dummy subecus: {self._subecu_dict}")
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_subecus):
@@ -163,7 +171,7 @@ class Test_SubECUTracker:
         _ota_client_call = typing.cast(
             OtaClientCall, mocker.MagicMock(spec=OtaClientCall)
         )
-        _ota_client_call.status_call = mocker.MagicMock(wraps=self._subecs.get_status)
+        _ota_client_call.status_call = mocker.MagicMock(wraps=self._subecus.get_status)
 
         # patch
         mocker.patch(
@@ -174,9 +182,11 @@ class Test_SubECUTracker:
     async def test__SubECUTracker(self):
         from otaclient.app.ota_client_stub import _SubECUTracker
 
-        self._subecs.start_update_all()
+        self._subecus.start_update_all()
+        assert self._subecus.if_all_subecus_received_update()
         _subecu_tracker = _SubECUTracker(self._subecu_dict)
         assert await _subecu_tracker.ensure_tracked_ecu_ready()
+        assert self._subecus.if_all_subecus_updated_successfully()
 
 
 class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):

@@ -160,7 +160,7 @@ class _OTAUpdater:
             metadata.verify(cert_file.read_bytes())
             return metadata
 
-    def _pre_update(self, version: str, url_base: str, cookies_json: str):
+    def _pre_update(self, url_base: str, cookies_json: str):
         # parse cookies
         try:
             cookies: Dict[str, Any] = json.loads(cookies_json)
@@ -169,15 +169,6 @@ class _OTAUpdater:
             ), f"invalid cookies, expecting to be parsed into dict but {type(cookies)}"
         except (JSONDecodeError, AssertionError) as e:
             raise InvalidUpdateRequest from e
-
-        # set ota status
-        self.updating_version = version
-        self.update_phase = wrapper.StatusProgressPhase.INITIAL
-        self.update_start_time = time.time_ns()
-        self.failure_reason = ""  # clean failure reason
-
-        # init ota_update_stats collector
-        self.update_stats_collector.start(restart=True)
 
         # process metadata.jwt
         logger.debug("[update] process metadata...")
@@ -224,10 +215,6 @@ class _OTAUpdater:
         # start to constructing standby bank
         _standby_slot_creator.create_standby_slot()
         logger.info("[_in_update] finished creating standby slot")
-
-    def _post_update(self):
-        self._set_update_phase(wrapper.StatusProgressPhase.POST_PROCESSING)
-        self._boot_controller.post_update()
 
     def _set_update_phase(self, _phase: wrapper.StatusProgressPhase):
         self.update_phase = _phase
@@ -293,17 +280,28 @@ class _OTAUpdater:
                     raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
                 self._downloader.configure_proxy(proxy)
 
-            self._pre_update(version, url_base, cookies_json)
+            # launch collector
+            # init ota_update_stats collector
+            self.update_stats_collector.start()
 
+            # start the update, pre_update
+            self.updating_version = version
+            self.update_phase = wrapper.StatusProgressPhase.INITIAL
+            self.update_start_time = time.time_ns()
+            self.failure_reason = ""  # clean failure reason
+            self._pre_update(url_base, cookies_json)
+
+            # in_update
             self._in_update()
+            # local update finished, set the status to POST_PROCESSING
             fsm.client_finish_update()
+            self.update_phase = wrapper.StatusProgressPhase.POST_PROCESSING
 
+            # post_update
             logger.info("[update] leaving update, wait on all subecs...")
             # NOTE: still reboot event local cleanup failed as the update itself is successful
             fsm.client_wait_for_reboot()
-
-            logger.info("[update] apply post-update and reboot...")
-            self._post_update()
+            self._boot_controller.post_update()
             # NOTE: no need to call shutdown method here, keep the update_progress
             #       as it as we are still in updating before rebooting
         except OTAError as e:

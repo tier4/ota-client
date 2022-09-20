@@ -41,13 +41,13 @@ class RegInfProcessedStats:
 class OTAUpdateStatsCollector:
     def __init__(self) -> None:
         self._lock = Lock()
-        self._started = False
         self.store = wrapper.StatusProgress()
 
         self.collect_interval = cfg.STATS_COLLECT_INTERVAL
         self.terminated = Event()
         self._que: Queue[RegInfProcessedStats] = Queue()
         self._staging: List[RegInfProcessedStats] = []
+        self._collector_thread = None
 
     @contextmanager
     def _staging_changes(self) -> Generator[wrapper.StatusProgress, None, None]:
@@ -61,29 +61,35 @@ class OTAUpdateStatsCollector:
         finally:
             self.store = staging_slot
 
+    def _clear(self):
+        self.store = wrapper.StatusProgress()
+        self._staging.clear()
+        self._que = Queue()
+
     ###### public API ######
 
-    def start(self, *, restart=False):
-        if restart and self._started:
+    def start(self):
+        if not self.terminated.is_set():
             self.stop()
 
         with self._lock:
-            self.clear()
-            if not self._started:
+            if self.terminated.is_set():
+                self.terminated.clear()
                 self._collector_thread = Thread(target=self.collector)
                 self._collector_thread.start()
-                self._started = True
+            else:
+                logger.warning("detect active collector, abort lauching new collector")
 
     def stop(self):
         with self._lock:
-            if self._started:
+            if not self.terminated.is_set():
                 self.terminated.set()
-                self._started = False
-
-            self.clear()  # cleanup stats storage
-
-    def clear(self):
-        self.store = wrapper.StatusProgress()
+                if self._collector_thread is not None:
+                    # wait for the collector thread to stop
+                    self._collector_thread.join()
+                    self._collector_thread = None
+                # cleanup stats storage
+                self._clear()
 
     def set_total_regular_files(self, value: int):
         self.store.total_regular_files = value

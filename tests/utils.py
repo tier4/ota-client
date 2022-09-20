@@ -7,9 +7,14 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+
 import grpc
 from otaclient.app.common import file_sha256
 from otaclient.app.proto import otaclient_v2_pb2_grpc as v2_grpc, wrapper
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -92,19 +97,23 @@ class DummySubECU:
         status=wrapper.StatusOta.UPDATING.value,
         failure=wrapper.FailureType.NO_FAILURE.value,
     )
-    UPDATE_TIME_COST = 3
+    UPDATE_TIME_COST = 6
     REBOOT_TIME_COST = 1
 
     def __init__(self, ecu_id) -> None:
         self._receive_update_time = None
+        self._update_succeeded = False
         self.ecu_id = ecu_id
 
     def start(self):
-        self._receive_update_request = time.time()
+        logger.debug(f"dummy subecu: start update at {time.time()=}")
+        self._receive_update_time = time.time()
 
     def status(self):
+        logger.debug(f"{self.ecu_id=}, status API called...")
         # update not yet started
         if self._receive_update_time is None:
+            logger.debug(f"{self.ecu_id=}, update not yet started")
             res = wrapper.StatusResponse(
                 ecu=[
                     wrapper.v2.StatusResponseEcu(
@@ -116,9 +125,12 @@ class DummySubECU:
             )
             return res
         # update finished
-        if (
+        if time.time() >= (
             self._receive_update_time + self.UPDATE_TIME_COST + self.REBOOT_TIME_COST
-        ) >= time.time():
+        ):
+            logger.debug(
+                f"update finished for {self.ecu_id=}, {self._receive_update_time=}, {time.time()=}"
+            )
             res = wrapper.StatusResponse(
                 ecu=[
                     wrapper.v2.StatusResponseEcu(
@@ -128,11 +140,14 @@ class DummySubECU:
                 ],
                 available_ecu_ids=[self.ecu_id],
             )
+            self._update_succeeded = True
             return res
         # rebooting
-        if (self._receive_update_time + self.UPDATE_TIME_COST) >= time.time():
+        if time.time() >= (self._receive_update_time + self.UPDATE_TIME_COST):
+            logger.debug(f"{self.ecu_id=}, rebooting")
             return None
         # updating
+        logger.debug(f"{self.ecu_id=}, updating")
         res = wrapper.StatusResponse(
             ecu=[
                 wrapper.v2.StatusResponseEcu(
