@@ -21,27 +21,6 @@ fmt = logging.Formatter(fmt=LOG_FORMAT)
 _sh.setFormatter(fmt)
 logger.addHandler(_sh)
 
-TPM_TOKEN = "greengrass"
-TPM_LABEL = "greengrass"
-TPM_USER_PIN = "greengrass"
-GREENGRASS_CONFIG = "/greengrass/v2/init_config/config.yaml"
-
-
-def get_private_key():
-    # "pkcs11:token=${TOKEN_NAME};object=${PRIVATE_KEY_LABEL};pin-value=${USER_PIN};type=private"
-    # /greengrass/v2/init_config/config.yaml
-    try:
-        with open(GREENGRASS_CONFIG) as f:
-            ggcfg = yaml.safe_load(f)
-            if ggcfg['system']['privateKeyPath'].startsWith("pkcs11:"):
-                return True, ggcfg['system']['privateKeyPath']
-
-    except subprocess.CalledProcessError as e:
-        msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
-        logger.warning(msg)
-        return None
-
-
 class Boto3Session:
     def __init__(
         self,
@@ -82,15 +61,9 @@ class Boto3Session:
             connection = pycurl.Curl()
             connection.setopt(connection.URL, url)
 
-            tpm2_priv = get_tpm2_token_url(TPM_TOKEN)
-            if tpm2_priv:
+            if self._private_key.startswith("pkcs11:"):
                 connection.setopt(pycurl.SSLENGINE, "pkcs11")
                 connection.setopt(pycurl.SSLKEYTYPE, "eng")
-                private_key = (
-                    f"{tpm2_priv};object=greengrasskey;pin-value=greengrasspin"
-                )
-            else:
-                private_key = self._private_key
 
             # server auth option
             connection.setopt(connection.SSL_VERIFYPEER, True)
