@@ -1,15 +1,11 @@
 import requests
 import pycurl
 import json
-import yaml
 import botocore.credentials
 import botocore.session
 import boto3
 import logging
 import datetime
-import shlex
-import subprocess
-import re
 from pytz import utc
 
 from .configs import LOG_FORMAT
