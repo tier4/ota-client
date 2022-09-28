@@ -13,6 +13,11 @@ if __name__ == "__main__":
     parser.add_argument("--aws_role_alias", required=True)
     parser.add_argument("--aws_cloudwatch_log_group", required=True)
     parser.add_argument(
+        "--greengrass_v2_config",
+        help="greengrass v2 config.yaml.\n"
+        "If this option is specified, it is evaluated prior to the following.",
+    )
+    parser.add_argument(
         "--greengrass_config",
         help="greengrass config.json.\n"
         "If this option is not specified, the following arguments are required:",
@@ -30,8 +35,8 @@ if __name__ == "__main__":
         aws_role_alias=args.aws_role_alias,
         aws_cloudwatch_log_group=args.aws_cloudwatch_log_group,
     )
-    if args.greengrass_config:
-        ggcfg = GreengrassConfig.parse_config(args.greengrass_config)
+    if args.greengrass_config or args.greengrass_v2_config:
+        ggcfg = GreengrassConfig.parse_config(args.greengrass_config, args.greengrass_v2_config)
         kwargs.update(
             dict(
                 ca_cert_file=ggcfg["ca_cert"],

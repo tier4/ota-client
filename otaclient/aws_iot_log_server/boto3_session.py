@@ -1,6 +1,7 @@
 import requests
 import pycurl
 import json
+import yaml
 import botocore.credentials
 import botocore.session
 import boto3
@@ -20,18 +21,21 @@ fmt = logging.Formatter(fmt=LOG_FORMAT)
 _sh.setFormatter(fmt)
 logger.addHandler(_sh)
 
+TPM_TOKEN = "greengrass"
+TPM_LABEL = "greengrass"
+TPM_USER_PIN = "greengrass"
+GREENGRASS_CONFIG = "/greengrass/v2/init_config/config.yaml"
 
-def get_tpm2_token_url(token):
-    cmd = "p11tool --list-token-urls"
+
+def get_private_key():
+    # "pkcs11:token=${TOKEN_NAME};object=${PRIVATE_KEY_LABEL};pin-value=${USER_PIN};type=private"
+    # /greengrass/v2/init_config/config.yaml
     try:
-        tokens = (
-            subprocess.check_output(shlex.split(cmd), stderr=subprocess.PIPE)
-            .decode()
-            .strip()
-        )
-        pa = re.compile(fr"^pkcs11:.*token={token}.*$", re.MULTILINE)
-        for ma in pa.finditer(tokens):
-            return ma.group(0)
+        with open(GREENGRASS_CONFIG) as f:
+            ggcfg = yaml.safe_load(f)
+            if ggcfg['system']['privateKeyPath'].startsWith("pkcs11:"):
+                return True, ggcfg['system']['privateKeyPath']
+
     except subprocess.CalledProcessError as e:
         msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
         logger.warning(msg)
@@ -78,7 +82,7 @@ class Boto3Session:
             connection = pycurl.Curl()
             connection.setopt(connection.URL, url)
 
-            tpm2_priv = get_tpm2_token_url("greengrass")
+            tpm2_priv = get_tpm2_token_url(TPM_TOKEN)
             if tpm2_priv:
                 connection.setopt(pycurl.SSLENGINE, "pkcs11")
                 connection.setopt(pycurl.SSLKEYTYPE, "eng")
