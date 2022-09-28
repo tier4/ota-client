@@ -2,7 +2,7 @@ pyOpenSSL==20.0.1
 jwt==1.2.0
 cryptography==3.4.8
 grpcio==1.48.1
-protobuf==3.20.1
+protobuf==3.20.2
 PyYAML>=3.12
 requests==2.25.1
 watchtower==1.0.6
