@@ -51,7 +51,9 @@ if __name__ == "__main__":
         aws_cloudwatch_log_group=args.aws_cloudwatch_log_group,
     )
     if args.greengrass_config or args.greengrass_v2_config:
-        ggcfg = GreengrassConfig.parse_config(args.greengrass_config, args.greengrass_v2_config)
+        ggcfg = GreengrassConfig.parse_config(
+            args.greengrass_config, args.greengrass_v2_config
+        )
         kwargs.update(
             dict(
                 ca_cert_file=ggcfg["ca_cert"],

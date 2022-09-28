@@ -94,10 +94,10 @@ class GreengrassConfig:
             logger.exception(f"invalid yaml format: {e}")
             raise
 
-        ca_path = cfg['system']['rootCaPath']
-        private_key_path = cfg['system']['privateKeyPath']
-        certificate_path = cfg['system']['certificateFilePath']
-        thing_name = cfg['system']['thingName']
+        ca_path = cfg["system"]["rootCaPath"]
+        private_key_path = cfg["system"]["privateKeyPath"]
+        certificate_path = cfg["system"]["certificateFilePath"]
+        thing_name = cfg["system"]["thingName"]
         # When greengrass_v2 uses TPM2.0, both private and certificate should be specified with pkcs11 notation.
         # But certificate file is required for this module, so replace it to the actual file name and check if it exists.
         if certificate_path.startswith("pkcs11:"):
@@ -105,7 +105,7 @@ class GreengrassConfig:
             with open(certificate_path) as f:
                 pass
 
-        region = cfg['services']['aws.greengrass.Nucleus']['configuration']['awsRegion']
+        region = cfg["services"]["aws.greengrass.Nucleus"]["configuration"]["awsRegion"]
 
         return {
             "ca_cert": ca_path,

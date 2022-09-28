@@ -32,6 +32,7 @@ fmt = logging.Formatter(fmt=LOG_FORMAT)
 _sh.setFormatter(fmt)
 logger.addHandler(_sh)
 
+
 class Boto3Session:
     def __init__(
         self,
