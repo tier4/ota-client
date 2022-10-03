@@ -18,6 +18,7 @@ RUN apt-get update -qq && \
         python3-venv \
 	libcurl4-openssl-dev \
 	libssl-dev \
+	gcc \
         wget \
         git && \
     apt-get install -y -qq \
