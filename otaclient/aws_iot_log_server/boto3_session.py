@@ -85,7 +85,7 @@ class Boto3Session:
 
             # client auth option
             connection.setopt(connection.SSLCERT, self._cert)
-            connection.setopt(connection.SSLKEY, private_key)
+            connection.setopt(connection.SSLKEY, self._private_key)
             connection.setopt(connection.HTTPHEADER, headers)
 
             response = connection.perform_rs()

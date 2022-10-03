@@ -33,7 +33,7 @@ class GreengrassConfig:
     def parse_config(v1_config, v2_config) -> dict:
         try:
             return GreengrassConfig.parse_v2_config(v2_config)
-        except:
+        except Exception:
             return GreengrassConfig.parse_v1_config(v1_config)
 
     @staticmethod
