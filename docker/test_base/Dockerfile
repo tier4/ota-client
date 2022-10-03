@@ -16,6 +16,8 @@ RUN apt-get update -qq && \
         python3-minimal \
         python3-pip \
         python3-venv \
+	libcurl4-openssl-dev \
+	libssl-dev \
         wget \
         git && \
     apt-get install -y -qq \
