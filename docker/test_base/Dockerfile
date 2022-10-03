@@ -34,7 +34,7 @@ RUN wget -q -O /tmp/base_image.tar.gz ${BASE_IMG_URL} && \
 
 # special treatment to the ota-image: create file that needs url escaping
 # NOTE: include special identifiers #?; into the pathname
-RUN echo "url escaping is required" > "${OTA_IMAGE_DIR}/'path;adfae?query=str#fragement'"
+RUN echo "url escaping is required" > "${OTA_IMAGE_DIR}/path;adfae?query=str#fragement"
 
 # install otaclient dependencies
 RUN python3 -m venv ${VENV}
