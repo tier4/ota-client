@@ -89,6 +89,9 @@ class Boto3Session:
             connection.setopt(connection.HTTPHEADER, headers)
 
             response = connection.perform_rs()
+            status = connection.getinfo(pycurl.HTTP_CODE)
+            if status // 100 != 2:
+                raise Exception(f"response error: {status=}")
             connection.close()
             return json.loads(response)
         else:  # requests implementation
