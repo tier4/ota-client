@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import aiofiles
 import aiohttp
+import bisect
 import shutil
 import time
 import weakref
@@ -32,17 +33,20 @@ from typing import (
     Callable,
     Dict,
     AsyncGenerator,
+    Generic,
     List,
+    Optional,
     Set,
     Tuple,
     TypeVar,
     Union,
+    cast,
 )
 from urllib.parse import SplitResult, quote, urlsplit
 
-
-from .db import CacheMeta, OTACacheDB, DBProxy
-from .config import OTAFileCacheControl, config as cfg
+from .cache_control import OTAFileCacheControl
+from ._db import CacheMeta, OTACacheDB, OTACacheDBProxy
+from .config import config as cfg
 
 import logging
 
@@ -57,7 +61,7 @@ def get_backoff(n: int, factor: float, _max: float) -> float:
 _WEAKREF = TypeVar("_WEAKREF")
 
 
-class OngoingCacheTracker:
+class OngoingCacheTracker(Generic[_WEAKREF]):
     """A tracker for an on-going cache entry.
 
     This entry will disappear automatically when writer finished
@@ -95,7 +99,7 @@ class OngoingCacheTracker:
             del self._ref_holer
 
 
-class OngoingCachingRegister:
+class OngoingCachingRegister(Generic[_WEAKREF]):
     """A tracker register class that provides cache streaming
         on same requested file from multiple caller.
 
@@ -106,16 +110,18 @@ class OngoingCachingRegister:
     def __init__(self, base_dir: str):
         self._base_dir = Path(base_dir)
         self._lock = Lock()
-        self._url_ref_dict: Dict[bytes, asyncio.Event] = weakref.WeakValueDictionary()
-        self._ref_tracker_dict: Dict[
-            asyncio.Event, OngoingCacheTracker
-        ] = weakref.WeakKeyDictionary()
+        self._url_ref_dict = cast(
+            Dict[_WEAKREF, asyncio.Event], weakref.WeakValueDictionary()
+        )
+        self._ref_tracker_dict = cast(
+            Dict[asyncio.Event, OngoingCacheTracker], weakref.WeakKeyDictionary()
+        )
 
     def _finalizer(self, fn: str):
         # cleanup(unlink) the tmp file
         (self._base_dir / fn).unlink(missing_ok=True)
 
-    async def get_tracker(self, url: str) -> Tuple[OngoingCacheTracker, bool]:
+    async def get_tracker(self, url: _WEAKREF) -> Tuple[OngoingCacheTracker, bool]:
         _ref = self._url_ref_dict.get(url)
         if _ref:
             await _ref.wait()  # wait for writer to fully initialized
@@ -150,31 +156,8 @@ class LRUCacheHelper:
     BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
     def __init__(self):
-        self._db: OTACacheDB = DBProxy(cfg.DB_FILE)
+        self._db = OTACacheDBProxy(cfg.DB_FILE)
         self._closed = False
-
-    def _bin_search(self, file_size: int) -> int:
-        """NOTE: The interval is Left-closed and right-opened."""
-        if file_size < 0:
-            raise ValueError(f"invalid file size {file_size}")
-
-        s, e = 0, len(self.BSIZE_LIST) - 1
-        if file_size < self.BSIZE_LIST[-1]:
-            while True:
-                if abs(e - s) <= 1:
-                    break
-
-                mid = (s + e) // 2
-                if file_size < self.BSIZE_LIST[mid]:
-                    e = mid
-                else:
-                    s = mid
-
-            target_size = self.BSIZE_LIST[s]
-        else:
-            target_size = self.BSIZE_LIST[-1]
-
-        return target_size
 
     def close(self):
         if not self._closed:
@@ -183,8 +166,8 @@ class LRUCacheHelper:
     def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
-        entry.bucket = self._bin_search(entry.size)
-        entry.last_access = datetime.now().timestamp()
+        entry.bucket = bisect.bisect_right(self.BSIZE_LIST, entry.size) - 1
+        entry.last_access = int(datetime.now().timestamp())
 
         if self._db.insert_entry(entry) != 1:
             logger.warning(f"db: failed to add {entry=}")
@@ -193,18 +176,14 @@ class LRUCacheHelper:
             logger.debug(f"db: commit {entry=} successfully")
             return True
 
-    def lookup_entry(self, url: str) -> CacheMeta:
-        return self._db.lookup_url(url)
+    def lookup_entry_by_url(self, url: str) -> Optional[CacheMeta]:
+        return self._db.lookup_entry(CacheMeta.url, url)
 
-    def remove_entry(self, *, url: str = None, _hash: str = None) -> bool:
-        """Remove one entry from database by url or hash."""
-        if url and self._db.remove_entries_by_urls(url) == 1:
-            return True
+    def remove_entry_by_url(self, url: str) -> bool:
+        return self._db.remove_entries(CacheMeta.url, url) > 0
 
-        if _hash and self._db.remove_entries_by_hashes(_hash) == 1:
-            return True
-
-        return False
+    def remove_entry_by_hash(self, _hash: str) -> bool:
+        return self._db.remove_entries(CacheMeta.sha256hash, _hash) > 0
 
     def rotate_cache(self, size: int) -> Union[List[str], None]:
         """Wrapper method for calling the database LRU cache rotating method.
@@ -220,7 +199,7 @@ class LRUCacheHelper:
         if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
             return []
 
-        _cur_bucket_size = self._bin_search(size)
+        _cur_bucket_size = bisect.bisect_right(self.BSIZE_LIST, size) - 1
         _cur_bucket_idx = self.BSIZE_LIST.index(_cur_bucket_size)
 
         # first check the upper bucket
@@ -254,15 +233,15 @@ class OTAFile:
             local storage space is enough for caching.
     """
 
-    PIPE_READ_BACKOFF_MAX: int = 6
-    PIPE_READ_BACKOFF_FACTOR: int = 0.001
+    PIPE_READ_BACKOFF_MAX = 6
+    PIPE_READ_BACKOFF_FACTOR = 0.001
 
     def __init__(
         self,
         fp: AsyncGenerator[bytes, None],
         meta: CacheMeta,
         *,
-        below_hard_limit_event: Event = None,
+        below_hard_limit_event: Event,
     ):
         self._base_dir = Path(cfg.BASE_DIR)
         self._storage_below_hard_limit = below_hard_limit_event
@@ -318,12 +297,12 @@ class OTAFile:
                         # to stop streaming to the caching thread
                         self._cache_tee_aborted.set()
                     else:
+                        _timout = get_backoff(
+                            err_count,
+                            self.PIPE_READ_BACKOFF_FACTOR,
+                            self.PIPE_READ_BACKOFF_MAX,
+                        )
                         try:
-                            _timout = get_backoff(
-                                err_count,
-                                self.PIPE_READ_BACKOFF_FACTOR,
-                                self.PIPE_READ_BACKOFF_MAX,
-                            )
                             data = self._queue.get(timeout=_timout)
                             err_count = 0
 
@@ -348,7 +327,7 @@ class OTAFile:
                 self.cached_success = True
 
                 _hash = _sha256hash_f.hexdigest()
-                self.meta.hash = _hash
+                self.meta.sha256hash = _hash
                 self.meta.size = _size
 
                 # for 0 size file, register the entry only
@@ -418,8 +397,8 @@ class OTACacheScrubHelper:
         self._excutor = ProcessPoolExecutor()
 
     @staticmethod
-    def _check_entry(base_dir: Path, meta: CacheMeta) -> Union[CacheMeta, bool]:
-        f = base_dir / meta.hash
+    def _check_entry(base_dir: Path, meta: CacheMeta) -> Tuple[CacheMeta, bool]:
+        f = base_dir / meta.sha256hash
         if f.is_file():
             hash_f = sha256()
             # calculate file's hash and check against meta
@@ -431,7 +410,7 @@ class OTACacheScrubHelper:
                     else:
                         break
 
-            if hash_f.hexdigest() == meta.hash:
+            if hash_f.hexdigest() == meta.sha256hash:
                 return meta, True
 
         # check failed, try to remove the cache entry
@@ -467,10 +446,10 @@ class OTACacheScrubHelper:
                     logger.debug(f"invalid db entry found: {meta.url}")
                     dangling_db_entry.append(meta.url)
                 else:
-                    valid_cache_entry.add(meta.hash)
+                    valid_cache_entry.add(meta.sha256hash)
 
             # delete the invalid entry from the database
-            self._db.remove_entries_by_urls(*dangling_db_entry)
+            self._db.remove_entries(CacheMeta.url, *dangling_db_entry)
 
             # loop over all files under cache folder,
             # if entry's hash is not presented in the valid_cache_entry set,
@@ -518,9 +497,9 @@ class OTACache:
         *,
         cache_enabled: bool,
         init_cache: bool,
-        upper_proxy: str = None,
+        upper_proxy: Optional[str] = None,
         enable_https: bool = False,
-        scrub_cache_event: "Event" = None,
+        scrub_cache_event: Optional["Event"] = None,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -893,7 +872,7 @@ class OTACache:
                 content_type=response.headers.get(
                     "content-type", "application/octet-stream"
                 ),
-            )
+            )  # type: ignore
 
             async for data, _ in response.content.iter_chunks():
                 yield data
@@ -903,7 +882,7 @@ class OTACache:
         raw_url: str,
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
-        tracker: OngoingCacheTracker = None,
+        tracker: Optional[OngoingCacheTracker] = None,
     ) -> "Tuple[AsyncGenerator[bytes, None], CacheMeta]":
         """Open file descriptor by opening connection to the remote OTA file server.
 
@@ -952,7 +931,7 @@ class OTACache:
         # start the fp
         try:
             res = self._remote_fp(url, raw_url, cookies, extra_headers)
-            meta = await res.__anext__()
+            meta: CacheMeta = await res.__anext__()  # type: ignore
 
             if tracker is not None:
                 # prepare the temp file in advance(touch the file)
@@ -976,7 +955,7 @@ class OTACache:
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
         cache_control_policies: Set[OTAFileCacheControl],
-    ) -> Tuple[AsyncGenerator[bytes, None], CacheMeta]:
+    ) -> Optional[Tuple[AsyncGenerator[bytes, None], CacheMeta]]:
         """Exposed API to retrieve a file descriptor.
 
         This method retrieves a file descriptor for incoming client request.
@@ -1019,11 +998,10 @@ class OTACache:
 
         # cache enabled, lookup the database
         no_cache_available = True
-        meta_db_entry = self._lru_helper.lookup_entry(url)
-        if meta_db_entry:  # cache hit
+        if meta_db_entry := self._lru_helper.lookup_entry_by_url(url):  # cache hit
             logger.debug(f"cache hit for {url=}\n, {meta_db_entry=}")
 
-            cache_path: Path = self._base_dir / meta_db_entry.hash
+            cache_path: Path = self._base_dir / meta_db_entry.sha256hash
             # clear the cache entry if the ota_client instructs so
             if retry_cache:
                 logger.warning(
@@ -1034,7 +1012,7 @@ class OTACache:
             if not cache_path.is_file():
                 # invalid cache entry found in the db, cleanup it
                 logger.warning(f"dangling cache entry found: {meta_db_entry=}")
-                self._lru_helper.remove_entry(url=url)
+                self._lru_helper.remove_entry_by_url(url)
             else:
                 no_cache_available = False
 
@@ -1076,8 +1054,8 @@ class OTACache:
                 return fp, _tracker.meta
 
         # case 3: cache is available and valid, use cache
-        else:
+        elif meta_db_entry:
             logger.debug(f"use cache for {url=}")
-            fp = await self._open_fp_by_cache(meta_db_entry.hash)
+            fp = await self._open_fp_by_cache(meta_db_entry.sha256hash)
             # use cache
             return fp, meta_db_entry
