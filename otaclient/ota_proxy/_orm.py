@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from ast import parse
 import functools
 import sqlite3
 from dataclasses import asdict, astuple, dataclass, fields
@@ -111,14 +112,17 @@ class ColumnDescriptor(Generic[FV]):
 @dataclass
 class ORMBase(Generic[FV]):
     @classmethod
-    def row_to_meta(cls, row: Union[sqlite3.Row, Dict[str, Any]]):
+    def row_to_meta(cls, row: Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]):
         parsed = {}
-        for field in fields(cls):
+        for idx, field in enumerate(fields(cls)):
             try:
                 field_name = field.name
-                parsed[field_name] = row[field_name]
+                if isinstance(row, tuple):
+                    parsed[field_name] = row[idx]
+                else:
+                    parsed[field_name] = row[field_name]
             except (IndexError, KeyError):
-                pass
+                continue
         return cls(**parsed)
 
     @classmethod
