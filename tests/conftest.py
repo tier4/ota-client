@@ -84,8 +84,12 @@ class TestConfiguration:
     )
     CMDLINE_SLOT_B = f"BOOT_IMAGE=/vmlinuz-{OTA_STANDBY_KERNEL_LABEL} root=UUID={SLOT_B_UUID} ro quiet splash"
 
+    # otaproxy settings
+    OTA_PROXY_SERVER_ADDR = "127.0.0.1"
+    OTA_PROXY_SERVER_PORT = 18080
 
-cfg = TestConfiguration
+
+cfg = TestConfiguration()
 
 
 @pytest.fixture(autouse=True, scope="session")

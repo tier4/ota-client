@@ -8,6 +8,7 @@ ENV OTA_CLIENT_DIR="/ota-client"
 ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
 ENV OTA_IMAGE_DIR="${OTA_IMAGE_SERVER_ROOT}/data"
 ENV VENV="${OTA_CLIENT_DIR}/.venv"
+ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 
 
 # install required packages
@@ -33,7 +34,8 @@ RUN wget -q -O /tmp/base_image.tar.gz ${BASE_IMG_URL} && \
         /boot/System.map-${KERNEL_VERSION} ${OTA_IMAGE_DIR}/boot
 
 # special treatment to the ota-image: create file that needs url escaping
-RUN echo "url escaping is required" > ${OTA_IMAGE_DIR}/a:b:c
+# NOTE: include special identifiers #?; into the pathname
+RUN echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"
 
 # install otaclient dependencies
 RUN python3 -m venv ${VENV}
