@@ -123,6 +123,6 @@ class TestOTAProxyServer:
             assert (
                 row["url"] == unquote(SPECIAL_FILE_URL)
                 and row["last_access"] < time.time()
-                and row["hash"] == SPECIAL_FILE_SHA256HASH
+                and row["sha256hash"] == SPECIAL_FILE_SHA256HASH
                 and row["size"] == len(SPECIAL_FILE_CONTENT.encode())
             )
