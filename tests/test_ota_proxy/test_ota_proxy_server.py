@@ -109,6 +109,7 @@ class TestOTAProxyServer:
                 assert (resp_text := await resp.text(encoding="utf-8"))
         # assert the contents is the same across cache, response and original
         original = Path(SPECIAL_FILE_FPATH).read_text(encoding="utf-8")
+        await asyncio.sleep(0.5)  # wait sometime to ensure cache entry is saved
         cache_entry = Path(self.ota_cache_dir / SPECIAL_FILE_SHA256HASH).read_text(
             encoding="utf-8"
         )
