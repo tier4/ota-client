@@ -267,7 +267,8 @@ def _proxy_wrapper(func: Callable) -> Callable:
 def create_db_proxy(name: str, *, source_cls: Type) -> Type:
     _new_cls = type(name, (_ProxyBase,), {})
     for attr_n, attr in source_cls.__dict__.items():
-        if not attr_n.startswith("_") and callable(attr):
+        # NOTE: not proxy the close method as we should call the proxy's close method
+        if not attr_n.startswith("_") and callable(attr) and attr_n != "close":
             # assigned wrapped method to the proxy cls
             setattr(
                 _new_cls,
