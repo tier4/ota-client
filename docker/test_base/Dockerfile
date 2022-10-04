@@ -8,7 +8,7 @@ ENV OTA_CLIENT_DIR="/ota-client"
 ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
 ENV OTA_IMAGE_DIR="${OTA_IMAGE_SERVER_ROOT}/data"
 ENV VENV="${OTA_CLIENT_DIR}/.venv"
-ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragement"
+ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 
 
 # install required packages
