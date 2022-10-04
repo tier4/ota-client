@@ -12,7 +12,7 @@ from tests.conftest import cfg
 logger = logging.getLogger(__name__)
 
 # check the test_base/Dockerfile::SPECIAL_FILE
-SPECIAL_FILE_NAME = r"path;adf.ae?qu.er\y=str#fragement"
+SPECIAL_FILE_NAME = r"path;adf.ae?qu.er\y=str#fragファイルement"
 SPECIAL_FILE_CONTENT = SPECIAL_FILE_NAME
 SPECIAL_FILE_PATH = f"/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_URL = f"{cfg.OTA_IMAGE_URL}{quote(SPECIAL_FILE_PATH)}"
@@ -106,10 +106,12 @@ class TestOTAProxyServer:
                 url=SPECIAL_FILE_URL, proxy=self.OTA_PROXY_URL
             ) as resp:
                 assert resp.status == 200
-                assert (resp_text := await resp.text())
+                assert (resp_text := await resp.text(encoding="utf-8"))
         # assert the contents is the same across cache, response and original
-        original = Path(SPECIAL_FILE_FPATH).read_text()
-        cache_entry = Path(self.ota_cache_dir / SPECIAL_FILE_SHA256HASH).read_text()
+        original = Path(SPECIAL_FILE_FPATH).read_text(encoding="utf-8")
+        cache_entry = Path(self.ota_cache_dir / SPECIAL_FILE_SHA256HASH).read_text(
+            encoding="utf-8"
+        )
         assert original == cache_entry == resp_text
 
         # shutdown the otaproxy server before inspecting the database
