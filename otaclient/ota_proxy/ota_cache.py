@@ -38,7 +38,7 @@ from typing import (
     TypeVar,
     Union,
 )
-from urllib.parse import quote, urlparse
+from urllib.parse import SplitResult, quote, urlsplit
 
 
 from .db import CacheMeta, OTACacheDB, DBProxy
@@ -921,16 +921,28 @@ class OTACache:
         Raises:
             Any errors that happen during open/handling the connection to the remote server.
         """
-        url_parsed = urlparse(raw_url)
-
-        # NOTE: raw_url is unquoted, we must quote it again before we send it to the remote
-        url_parsed = url_parsed._replace(path=quote(url_parsed.path))
-        if self._enable_https:
-            url_parsed = url_parsed._replace(scheme="https")
-        else:
-            url_parsed = url_parsed._replace(scheme="http")
-
-        url = url_parsed.geturl()
+        # NOTE: raw_url(get from uvicorn) is unquoted, we must quote it again before we send it to the remote
+        # NOTE(20221003): as otaproxy, we should treat all contents after netloc as path and not touch it,
+        #                 because we should forward the request as it to the remote.
+        # NOTE(20221003): unconditionally set scheme to https if enable_https, else unconditionally set to http
+        _raw_parse = urlsplit(raw_url)
+        # get the base of the raw_url, which is <scheme>://<netloc>
+        _raw_base = SplitResult(
+            scheme=_raw_parse.scheme,
+            netloc=_raw_parse.netloc,
+            path="",
+            query="",
+            fragment="",
+        ).geturl()
+        # get the leftover part of URL besides base as path, and then quote it
+        # finally, regenerate proper quoted url
+        url = SplitResult(
+            scheme="https" if self._enable_https else "http",
+            netloc=_raw_parse.netloc,
+            path=quote(raw_url.replace(_raw_base, "", 1)),
+            query="",
+            fragment="",
+        ).geturl()
 
         # if there is no upper_ota_proxy,
         # trim the custom headers away
