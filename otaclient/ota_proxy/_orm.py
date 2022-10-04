@@ -111,11 +111,15 @@ class ColumnDescriptor(Generic[FV]):
 @dataclass
 class ORMBase(Generic[FV]):
     @classmethod
-    def row_to_meta(cls, row: sqlite3.Row):
-        try:
-            return cls(**{field.name: row[field.name] for field in fields(cls)})
-        except IndexError:
-            return cls()
+    def row_to_meta(cls, row: Union[sqlite3.Row, Dict[str, Any]]):
+        parsed = {}
+        for field in fields(cls):
+            try:
+                field_name = field.name
+                parsed[field_name] = row[field_name]
+            except (IndexError, KeyError):
+                pass
+        return cls(**parsed)
 
     @classmethod
     def get_create_table_stmt(cls, table_name: str) -> str:
