@@ -15,20 +15,26 @@ class TestORM:
         @dataclass
         class TableCls(ORMBase):
             str_field: ColumnDescriptor[str] = ColumnDescriptor(
-                str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
+                0,
+                str,
+                "TEXT",
+                "UNIQUE",
+                "NOT NULL",
+                "PRIMARY KEY",
+                default="invalid_url",
             )
             int_field: ColumnDescriptor[int] = ColumnDescriptor(
-                int, "INTEGER", "NOT NULL", type_guard=(int, float)
+                1, int, "INTEGER", "NOT NULL", type_guard=(int, float)
             )
             float_field: ColumnDescriptor[float] = ColumnDescriptor(
-                float, "INTEGER", "NOT NULL", type_guard=(int, float)
+                2, float, "INTEGER", "NOT NULL", type_guard=(int, float)
             )
-            op_str_field: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
+            op_str_field: ColumnDescriptor[str] = ColumnDescriptor(3, str, "TEXT")
             op_int_field: ColumnDescriptor[int] = ColumnDescriptor(
-                int, "INTEGER", type_guard=(int, float)
+                4, int, "INTEGER", type_guard=(int, float)
             )
             null_field: ColumnDescriptor[NULL_TYPE] = ColumnDescriptor(
-                NULL_TYPE, "NULL"
+                5, NULL_TYPE, "NULL"
             )
 
         cls.table_cls = TableCls
@@ -58,9 +64,9 @@ class TestORM:
     def test_parse_and_export(self, row, as_dict: Dict[str, Any], as_tuple: Tuple[Any]):
         table_cls = self.table_cls
         parsed = table_cls.row_to_meta(row)
-        assert parsed.to_dict() == as_dict
-        assert parsed.to_tuple() == as_tuple
-        assert table_cls.row_to_meta(parsed.to_tuple()).to_dict() == as_dict
+        assert parsed.asdict() == as_dict
+        assert parsed.astuple() == as_tuple
+        assert table_cls.row_to_meta(parsed.astuple()).asdict() == as_dict
 
     @pytest.mark.parametrize(
         "table_name, expected",
@@ -93,9 +99,9 @@ class TestORM:
             "null_field",
         ),
     )
-    def test_get_col_and_contains_field(self, name: str):
+    def test_contains_field(self, name: str):
         table_cls = self.table_cls
-        assert (col_descriptor := table_cls.get_col(name))
+        assert (col_descriptor := getattr(table_cls, name))
         assert table_cls.contains_field(name)
         assert col_descriptor is table_cls.__dict__[name]
         assert col_descriptor and table_cls.contains_field(col_descriptor)
@@ -131,7 +137,7 @@ class TestORM:
             assert (
                 conn.execute(
                     f"INSERT INTO {table_name} VALUES ({table_cls.get_shape()})",
-                    row_inst.to_tuple(),
+                    row_inst.astuple(),
                 ).rowcount
                 == 1
             )
@@ -139,7 +145,7 @@ class TestORM:
             cur = conn.execute(f"SELECT * from {table_name}", ())
             row_parsed = table_cls.row_to_meta(cur.fetchone())
             assert row_parsed == row_inst
-            assert row_parsed.to_dict() == row_inst.to_dict()
+            assert row_parsed.asdict() == row_inst.asdict()
 
         conn.close()
 

@@ -52,7 +52,7 @@ class ColumnDescriptor(Generic[FV]):
         default: Optional[FV] = None,
     ) -> None:
         self.constrains = " ".join(constrains)  # TODO: constrains validation
-        self.default = self.field_type() if default is None else default
+        self.default = field_type() if default is None else default
         self.field_type = field_type
         self.index = index
         self.type_guard_enabled = False if type_guard is False else True
