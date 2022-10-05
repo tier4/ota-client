@@ -32,22 +32,22 @@ logger.setLevel(cfg.LOG_LEVEL)
 @dataclass
 class CacheMeta(ORMBase):
     url: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
+        0, str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
     )
     bucket: ColumnDescriptor[int] = ColumnDescriptor(
-        int, "INTEGER", "NOT NULL", type_guard=True
+        1, int, "INTEGER", "NOT NULL", type_guard=True
     )
     last_access: ColumnDescriptor[int] = ColumnDescriptor(
-        int, "INTEGER", "NOT NULL", type_guard=(int, float)
+        2, int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
     sha256hash: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "NOT NULL", default="invalid_hash"
+        3, str, "TEXT", "NOT NULL", default="invalid_hash"
     )
     size: ColumnDescriptor[int] = ColumnDescriptor(
-        int, "INTEGER", "NOT NULL", type_guard=(int, float)
+        4, int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
-    content_type: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
-    content_encoding: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
+    content_type: ColumnDescriptor[str] = ColumnDescriptor(5, str, "TEXT")
+    content_encoding: ColumnDescriptor[str] = ColumnDescriptor(6, str, "TEXT")
 
 
 class OTACacheDB:
@@ -160,7 +160,7 @@ class OTACacheDB:
         with self._con as con:
             cur = con.executemany(
                 f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES ({CacheMeta.get_shape()})",
-                [m.to_tuple() for m in cache_meta],
+                [m.astuple() for m in cache_meta],
             )
             return cur.rowcount
 

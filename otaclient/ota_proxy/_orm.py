@@ -11,10 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from ast import parse
-import functools
 import sqlite3
 from dataclasses import asdict, astuple, dataclass, fields
+from io import StringIO
 from typing import (
     Any,
     Callable,
@@ -43,31 +42,28 @@ FV = TypeVar("FV", bound=SQLITE_DATATYPES)  # field value type
 TYPE_CHECKER = Callable[[Any], bool]
 
 
-@dataclass
 class ColumnDescriptor(Generic[FV]):
-    type_checker: TYPE_CHECKER
-    field_type: Type[FV]
-
     def __init__(
         self,
+        index: int,
         field_type: Type[FV],
         *constrains: str,
         type_guard: Union[Tuple[Type, ...], TYPE_CHECKER, bool] = False,
         default: Optional[FV] = None,
     ) -> None:
-        # type checker
-        self._enable_type_check = False if type_guard is False else True
+        self.constrains = " ".join(constrains)  # TODO: constrains validation
+        self.default = self.field_type() if default is None else default
+        self.field_type = field_type
+        self.index = index
+        self.type_guard_enabled = False if type_guard is False else True
+
+        # init type checker callable
         # default to check over the specific field type
         self.type_checker = lambda x: isinstance(x, field_type)
         if isinstance(type_guard, tuple):  # check over a list of types
             self.type_checker = lambda x: isinstance(x, type_guard)
         elif callable(type_guard):  # custom type guard function
             self.type_checker = type_guard
-
-        self.field_type = field_type
-        self.constrains = " ".join(constrains)  # TODO: constrains validation
-        self._default = self.field_type() if default is None else default
-        super().__init__()
 
     @overload
     def __get__(self, obj: None, objtype: type) -> "ColumnDescriptor[FV]":
@@ -89,12 +85,15 @@ class ColumnDescriptor(Generic[FV]):
     def __set__(self, obj, value: Any) -> None:
         # handle dataclass's default value setting behavior and NULL type assignment
         if isinstance(value, type(self)) or self.field_type == NULL_TYPE:
-            return setattr(obj, self._private_name, self._default)
+            return setattr(obj, self._private_name, self.default)
+        # use default value if value is None and field type is not NULL
+        if value is None and self.field_type != NULL_TYPE:
+            value = self.default
         # handle normal value setting
-        if self._enable_type_check and not self.type_checker(value):
+        if self.type_guard_enabled and not self.type_checker(value):
             raise TypeError(f"type_guard: expect {self.field_type}, get {type(value)}")
         # apply type conversion before assign
-        setattr(obj, self._private_name, self.field_type(value))  # type: ignore
+        setattr(obj, self._private_name, self.field_type(value))
 
     def __set_name__(self, owner: type, name: str):
         self.owner = owner
@@ -110,19 +109,19 @@ class ColumnDescriptor(Generic[FV]):
 
 
 @dataclass
-class ORMBase(Generic[FV]):
+class ORMBase:
     @classmethod
     def row_to_meta(cls, row: Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]):
         parsed = {}
-        for idx, field in enumerate(fields(cls)):
+        for field in fields(cls):
             try:
-                field_name = field.name
+                col: ColumnDescriptor = getattr(cls, field.name)
                 if isinstance(row, tuple):
-                    parsed[field_name] = row[idx]
+                    parsed[col.name] = row[col.index]
                 else:
-                    parsed[field_name] = row[field_name]
+                    parsed[col.name] = row[col.name]
             except (IndexError, KeyError):
-                continue
+                continue  # silently ignore unknonw input fields
         return cls(**parsed)
 
     @classmethod
@@ -130,20 +129,14 @@ class ORMBase(Generic[FV]):
         _col_descriptors: List[ColumnDescriptor] = [
             getattr(cls, field.name) for field in fields(cls)
         ]
-        return (
-            f"CREATE TABLE {table_name}("
-            + ", ".join(
-                [f"{col._field_name} {col.constrains}" for col in _col_descriptors]
+        with StringIO() as buffer:
+            buffer.write(f"CREATE TABLE {table_name}")
+            buffer.write("(")
+            buffer.write(
+                ", ".join([f"{col.name} {col.constrains}" for col in _col_descriptors])
             )
-            + ")"
-        )
-
-    @classmethod
-    def get_col(cls, name: str) -> Optional[ColumnDescriptor]:
-        try:
-            return getattr(cls, name)
-        except AttributeError:
-            return
+            buffer.write(")")
+            return buffer.getvalue()
 
     @classmethod
     def contains_field(cls, _input: Union[str, ColumnDescriptor]) -> bool:
@@ -152,12 +145,11 @@ class ORMBase(Generic[FV]):
         return isinstance(getattr(cls, _input), ColumnDescriptor)
 
     @classmethod
-    @functools.lru_cache
     def get_shape(cls) -> str:
         return ",".join(["?"] * len(fields(cls)))
 
-    def to_tuple(self) -> Tuple[FV]:
+    def astuple(self) -> Tuple[SQLITE_DATATYPES, ...]:
         return astuple(self)
 
-    def to_dict(self) -> Dict[str, FV]:
+    def asdict(self) -> Dict[str, SQLITE_DATATYPES]:
         return asdict(self)
