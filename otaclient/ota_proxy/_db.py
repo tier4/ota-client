@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
 
 
-@dataclass
+@dataclass(eq=False)
 class CacheMeta(ORMBase):
     url: ColumnDescriptor[str] = ColumnDescriptor(
         0, str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"

@@ -110,6 +110,21 @@ class ColumnDescriptor(Generic[FV]):
 
 @dataclass
 class ORMBase:
+    def __hash__(self) -> int:
+        """
+        compute the hash with all stored fields' value
+        """
+        return hash(astuple(self))
+
+    def __eq__(self, __o: object) -> bool:
+        if not isinstance(__o, self.__class__):
+            return False
+        for field in fields(self):
+            field_name = field.name
+            if getattr(self, field_name) != getattr(__o, field_name):
+                return False
+        return True
+
     @classmethod
     def row_to_meta(cls, row: Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]):
         parsed = {}
