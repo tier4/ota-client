@@ -153,8 +153,8 @@ class LRUCacheHelper:
     BSIZE_LIST = list(cfg.BUCKET_FILE_SIZE_DICT.keys())
     BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
-    def __init__(self):
-        self._db = OTACacheDBProxy(cfg.DB_FILE)
+    def __init__(self, db_f):
+        self._db = OTACacheDBProxy(db_f)
         self._closed = False
 
     def close(self):
@@ -197,20 +197,18 @@ class LRUCacheHelper:
         if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
             return []
 
-        _cur_bucket_size = bisect.bisect_right(self.BSIZE_LIST, size) - 1
-        _cur_bucket_idx = self.BSIZE_LIST.index(_cur_bucket_size)
+        _cur_bucket_idx = bisect.bisect_right(self.BSIZE_LIST, size) - 1
+        _cur_bucket_size = self.BSIZE_LIST[_cur_bucket_idx]
 
         # first check the upper bucket
         _next_idx = _cur_bucket_idx + 1
         for _bucket_size in self.BSIZE_LIST[_next_idx:]:
-            res = self._db.rotate_cache(_bucket_size, self.BSIZE_DICT[_bucket_size])
-            if res:
+            if res := self._db.rotate_cache(_next_idx, self.BSIZE_DICT[_bucket_size]):
                 return res
+            _next_idx += 1
 
         # if cannot find one entry at any upper bucket, check current bucket
-        return self._db.rotate_cache(
-            _cur_bucket_size, self.BSIZE_DICT[_cur_bucket_size]
-        )
+        return self._db.rotate_cache(_cur_bucket_idx, self.BSIZE_DICT[_cur_bucket_size])
 
 
 class OTAFile:

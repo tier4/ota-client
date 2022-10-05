@@ -169,7 +169,7 @@ class OTACacheDB:
             cur = con.execute(f"SELECT * FROM {self.TABLE_NAME}", ())
             return [CacheMeta.row_to_meta(row) for row in cur.fetchall()]
 
-    def rotate_cache(self, bucket: int, num: int) -> Optional[List[str]]:
+    def rotate_cache(self, bucket_idx: int, num: int) -> Optional[List[str]]:
         """Rotate cache entries in LRU flavour.
 
         Args:
@@ -191,7 +191,7 @@ class OTACacheDB:
                     f"SELECT COUNT(*) FROM {self.TABLE_NAME} WHERE {bucket_fn}=? "
                     f"ORDER BY {last_access_fn} LIMIT ?"
                 ),
-                (bucket, num),
+                (bucket_idx, num),
             )
             if not (_raw_res := cur.fetchone()):
                 return
@@ -209,7 +209,7 @@ class OTACacheDB:
                         f"ORDER BY {last_access_fn} "
                         "LIMIT ?"
                     ),
-                    (bucket, num),
+                    (bucket_idx, num),
                 )
                 _rows = cur.fetchall()
 
@@ -221,7 +221,7 @@ class OTACacheDB:
                         f"ORDER BY {last_access_fn} "
                         "LIMIT ?"
                     ),
-                    (bucket, num),
+                    (bucket_idx, num),
                 )
                 return [row[CacheMeta.sha256hash.name] for row in _rows]
 
