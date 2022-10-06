@@ -17,7 +17,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional, Type, Callable, cast
+from typing import Any, List, Optional, Type, Callable, Union, cast
 
 from .config import config as cfg
 from ._orm import ColumnDescriptor, ORMBase
@@ -58,9 +58,9 @@ class OTACacheDB:
         ),
     ]
 
-    def __init__(self, db_file: str, init=False):
+    def __init__(self, db_file: Union[str, Path], init=False):
         logger.debug("init database...")
-        self._db_file = db_file
+        self._db_file = Path(db_file)
         self._connect_db(init)
 
     def close(self):
@@ -79,7 +79,7 @@ class OTACacheDB:
             Raises sqlite3.Error if database init/configuration failed.
         """
         if init:
-            Path(self._db_file).unlink(missing_ok=True)
+            self._db_file.unlink(missing_ok=True)
 
         self._con = sqlite3.connect(
             self._db_file,
@@ -232,7 +232,7 @@ class _ProxyBase:
         # NOTE: set init to False always as we only operate db when using proxy
         self._thread_local.db = OTACacheDB(db_f, init=False)
 
-    def __init__(self, db_f: str, *, init=False):
+    def __init__(self, db_f: Union[str, Path], *, init=False):
         """Init the database connecting thread pool."""
         self._thread_local = threading.local()
         self._executor = ThreadPoolExecutor(

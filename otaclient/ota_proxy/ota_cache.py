@@ -16,8 +16,10 @@ import asyncio
 import aiofiles
 import aiohttp
 import bisect
+import logging
 import shutil
 import time
+import threading
 import weakref
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import datetime
@@ -26,8 +28,8 @@ from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from queue import Queue
-from threading import Event, Lock
 from typing import (
+    TYPE_CHECKING,
     Callable,
     Dict,
     AsyncGenerator,
@@ -46,7 +48,8 @@ from .cache_control import OTAFileCacheControl
 from ._db import CacheMeta, OTACacheDB, OTACacheDBProxy
 from .config import config as cfg
 
-import logging
+if TYPE_CHECKING:
+    import multiprocessing
 
 logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
@@ -69,7 +72,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
     def __init__(self, fn: str, ref_holder: _WEAKREF):
         self.fn = fn
         self.writer_ready = asyncio.Event()
-        self.cache_done = Event()
+        self.cache_done = threading.Event()
         self._is_failed = False
         self._ref_holer = ref_holder
 
@@ -105,9 +108,9 @@ class OngoingCachingRegister(Generic[_WEAKREF]):
         with weakref to automatically cleanup finished sessions.
     """
 
-    def __init__(self, base_dir: str):
+    def __init__(self, base_dir: Union[str, Path]):
         self._base_dir = Path(base_dir)
-        self._lock = Lock()
+        self._lock = threading.Lock()
         self._url_ref_dict = cast(
             Dict[_WEAKREF, asyncio.Event], weakref.WeakValueDictionary()
         )
@@ -153,7 +156,7 @@ class LRUCacheHelper:
     BSIZE_LIST = list(cfg.BUCKET_FILE_SIZE_DICT.keys())
     BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
-    def __init__(self, db_f):
+    def __init__(self, db_f: Union[str, Path]):
         self._db = OTACacheDBProxy(db_f)
         self._closed = False
 
@@ -237,7 +240,7 @@ class OTAFile:
         fp: AsyncGenerator[bytes, None],
         meta: CacheMeta,
         *,
-        below_hard_limit_event: Event,
+        below_hard_limit_event: threading.Event,
     ):
         self._base_dir = Path(cfg.BASE_DIR)
         self._storage_below_hard_limit = below_hard_limit_event
@@ -246,10 +249,10 @@ class OTAFile:
         self._fp = fp
 
         # life cycle
-        self.closed = Event()
+        self.closed = threading.Event()
         # whether the fp finishes its work(successful or not)
         self.cached_success = False
-        self._cache_tee_aborted = Event()
+        self._cache_tee_aborted = threading.Event()
         self._queue = Queue()
 
     def background_write_cache(
@@ -384,12 +387,10 @@ class OTAFile:
 class OTACacheScrubHelper:
     """Helper to scrub ota caches."""
 
-    DB_FILE: str = cfg.DB_FILE
-    BASE_DIR: str = cfg.BASE_DIR
-
-    def __init__(self):
-        self._db = OTACacheDB(self.DB_FILE)
-        self._base_dir = Path(self.BASE_DIR)
+    def __init__(self, db_file=cfg.DB_FILE, base_dir=cfg.BASE_DIR):
+        self._db = OTACacheDB(db_file)
+        self._db_file = Path(db_file)
+        self._base_dir = Path(base_dir)
         self._excutor = ProcessPoolExecutor()
 
     @staticmethod
@@ -424,7 +425,7 @@ class OTACacheScrubHelper:
             # NOTE: pre-add db related files into the set
             # to prevent db related files being deleted
             # NOTE 2: cache_db related files: <cache_db>, <cache_db>-shm, <cache_db>-wal, <cache>-journal
-            db_file = Path(self.DB_FILE).name
+            db_file = self._db_file.name
             valid_cache_entry = {
                 db_file,
                 f"{db_file}-shm",
@@ -493,10 +494,13 @@ class OTACache:
         *,
         cache_enabled: bool,
         init_cache: bool,
+        base_dir: Union[str, Path] = cfg.BASE_DIR,
+        db_file: str = cfg.DB_FILE,
         upper_proxy: Optional[str] = None,
         enable_https: bool = False,
-        scrub_cache_event: Optional["Event"] = None,
+        scrub_cache_event: "Optional[multiprocessing.Event]" = None,  # type: ignore
     ):
+
         """Init ota_cache instance with configurations."""
         logger.info(
             f"init ota_cache({cache_enabled=}, {init_cache=}, {upper_proxy=}, {enable_https=})"
@@ -504,14 +508,15 @@ class OTACache:
         self._closed = True
 
         self._chunk_size = cfg.CHUNK_SIZE
-        self._base_dir = Path(cfg.BASE_DIR)
+        self._base_dir = Path(base_dir)
+        self._db_file = Path(db_file)
         self._cache_enabled = cache_enabled
         self._init_cache = init_cache
         self._enable_https = enable_https
         self._executor = ThreadPoolExecutor(thread_name_prefix="ota_cache_executor")
 
-        self._storage_below_hard_limit_event = Event()
-        self._storage_below_soft_limit_event = Event()
+        self._storage_below_hard_limit_event = threading.Event()
+        self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
 
         self._scrub_cache_event = scrub_cache_event
@@ -558,9 +563,9 @@ class OTACache:
             self._executor.submit(self._background_check_free_space)
 
             # init cache helper
-            self._lru_helper = LRUCacheHelper()
+            self._lru_helper = LRUCacheHelper(self._db_file)
             # init cache streaming provider
-            self._on_going_caching = OngoingCachingRegister(cfg.BASE_DIR)
+            self._on_going_caching = OngoingCachingRegister(self._base_dir)
 
             if self._upper_proxy:
                 # if upper proxy presented, force disable https
