@@ -241,8 +241,9 @@ class OTAFile:
         meta: CacheMeta,
         *,
         below_hard_limit_event: threading.Event,
+        base_dir: Union[str, Path],
     ):
-        self._base_dir = Path(cfg.BASE_DIR)
+        self._base_dir = Path(base_dir)
         self._storage_below_hard_limit = below_hard_limit_event
         # NOTE: the hash and size in the meta are not set yet
         self.meta = meta
@@ -387,7 +388,7 @@ class OTAFile:
 class OTACacheScrubHelper:
     """Helper to scrub ota caches."""
 
-    def __init__(self, db_file=cfg.DB_FILE, base_dir=cfg.BASE_DIR):
+    def __init__(self, db_file, base_dir):
         self._db = OTACacheDB(db_file)
         self._db_file = Path(db_file)
         self._base_dir = Path(base_dir)
@@ -494,13 +495,12 @@ class OTACache:
         *,
         cache_enabled: bool,
         init_cache: bool,
-        base_dir: Union[str, Path] = cfg.BASE_DIR,
-        db_file: str = cfg.DB_FILE,
+        base_dir: Optional[Union[str, Path]] = None,
+        db_file: Optional[Union[str, Path]] = None,
         upper_proxy: Optional[str] = None,
         enable_https: bool = False,
         scrub_cache_event: "Optional[multiprocessing.Event]" = None,  # type: ignore
     ):
-
         """Init ota_cache instance with configurations."""
         logger.info(
             f"init ota_cache({cache_enabled=}, {init_cache=}, {upper_proxy=}, {enable_https=})"
@@ -508,8 +508,8 @@ class OTACache:
         self._closed = True
 
         self._chunk_size = cfg.CHUNK_SIZE
-        self._base_dir = Path(base_dir)
-        self._db_file = Path(db_file)
+        self._base_dir = Path(base_dir) if base_dir else Path(cfg.BASE_DIR)
+        self._db_file = Path(db_file) if db_file else Path(cfg.DB_FILE)
         self._cache_enabled = cache_enabled
         self._init_cache = init_cache
         self._enable_https = enable_https
@@ -553,10 +553,13 @@ class OTACache:
                 # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
                 # init only
-                OTACacheDB(cfg.DB_FILE, init=True)
+                _init_only = OTACacheDB(self._db_file, init=True)
+                _init_only.close()
             else:
                 # scrub the cache folder
-                _scrub_cache = OTACacheScrubHelper()
+                _scrub_cache = OTACacheScrubHelper(
+                    db_file=self._db_file, base_dir=self._base_dir
+                )
                 _scrub_cache.scrub_cache()
 
             # dispatch a background task to pulling the disk usage info
@@ -1032,6 +1035,7 @@ class OTACache:
                     _remote_fp,
                     meta,
                     below_hard_limit_event=self._storage_below_hard_limit_event,
+                    base_dir=self._base_dir,
                 )
 
                 # NOTE: bind the tracker to the callback function
