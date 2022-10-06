@@ -108,23 +108,17 @@ class ColumnDescriptor(Generic[FV]):
         return self.type_checker(value)
 
 
-@dataclass
-class ORMBase:
-    def __hash__(self) -> int:
-        """
-        compute the hash with all stored fields' value
-        """
-        return hash(astuple(self))
+class ORMeta(type):
+    """This metaclass transfer the new class into a dataclass subclass."""
 
-    def __eq__(self, __o: object) -> bool:
-        if not isinstance(__o, self.__class__):
-            return False
-        for field in fields(self):
-            field_name = field.name
-            if getattr(self, field_name) != getattr(__o, field_name):
-                return False
-        return True
+    def __new__(cls, cls_name: str, bases: Tuple[type, ...], classdict: Dict[str, Any]):
+        new_cls: type = super().__new__(cls, cls_name, bases, classdict)
+        # we will define our own eq and hash logics, disable dataclass'
+        # eq method and hash method generation
+        return dataclass(eq=False, unsafe_hash=False)(new_cls)
 
+
+class ORMBase(metaclass=ORMeta):
     @classmethod
     def row_to_meta(cls, row: Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]):
         parsed = {}
@@ -162,6 +156,19 @@ class ORMBase:
     @classmethod
     def get_shape(cls) -> str:
         return ",".join(["?"] * len(fields(cls)))
+
+    def __hash__(self) -> int:
+        """compute the hash with all stored fields' value."""
+        return hash(astuple(self))
+
+    def __eq__(self, __o: object) -> bool:
+        if not isinstance(__o, self.__class__):
+            return False
+        for field in fields(self):
+            field_name = field.name
+            if getattr(self, field_name) != getattr(__o, field_name):
+                return False
+        return True
 
     def astuple(self) -> Tuple[SQLITE_DATATYPES, ...]:
         return astuple(self)

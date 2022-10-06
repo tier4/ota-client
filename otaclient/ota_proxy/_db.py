@@ -15,7 +15,6 @@ import functools
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional, Type, Callable, cast
@@ -29,7 +28,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(cfg.LOG_LEVEL)
 
 
-@dataclass(eq=False)
 class CacheMeta(ORMBase):
     url: ColumnDescriptor[str] = ColumnDescriptor(
         0, str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
