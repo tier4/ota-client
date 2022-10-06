@@ -167,7 +167,7 @@ class LRUCacheHelper:
     def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
-        entry.bucket = bisect.bisect_right(self.BSIZE_LIST, entry.size) - 1
+        entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.size) - 1
         entry.last_access = int(datetime.now().timestamp())
 
         if self._db.insert_entry(entry) != 1:

@@ -32,7 +32,7 @@ class CacheMeta(ORMBase):
     url: ColumnDescriptor[str] = ColumnDescriptor(
         0, str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
     )
-    bucket: ColumnDescriptor[int] = ColumnDescriptor(
+    bucket_idx: ColumnDescriptor[int] = ColumnDescriptor(
         1, int, "INTEGER", "NOT NULL", type_guard=True
     )
     last_access: ColumnDescriptor[int] = ColumnDescriptor(
@@ -54,7 +54,7 @@ class OTACacheDB:
         (
             "CREATE INDEX IF NOT EXISTS "
             f"bucket_last_access_idx_{TABLE_NAME} "
-            f"ON {TABLE_NAME}({CacheMeta.bucket.name}, {CacheMeta.last_access.name})"
+            f"ON {TABLE_NAME}({CacheMeta.bucket_idx.name}, {CacheMeta.last_access.name})"
         ),
     ]
 
@@ -179,7 +179,7 @@ class OTACacheDB:
                 or None if no enough entries for space reserving.
         """
         bucket_fn, last_access_fn = (
-            CacheMeta.bucket.name,
+            CacheMeta.bucket_idx.name,
             CacheMeta.last_access.name,
         )
         # first, check whether we have required number of entries in the bucket
