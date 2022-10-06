@@ -5,7 +5,6 @@ import pytest
 import uvicorn
 from hashlib import sha256
 from urllib.parse import quote, unquote
-from pytest_mock import MockerFixture
 from pathlib import Path
 from tests.conftest import cfg
 
@@ -44,25 +43,16 @@ class TestOTAProxyServer:
         return self
 
     @pytest.fixture(autouse=True)
-    async def setup_ota_proxy_server(
-        self, test_inst, tmp_path: Path, mocker: MockerFixture
-    ):
+    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path):
         self = test_inst  # use real test inst as self, see test_inst fixture above
         import uvicorn
         from otaclient.ota_proxy import App, OTACache
-        from otaclient.ota_proxy.config import Config
 
         ota_cache_dir = tmp_path / "ota-cache"
         ota_cache_dir.mkdir(parents=True, exist_ok=True)
         ota_cachedb = ota_cache_dir / "cachedb"
         self.ota_cache_dir = ota_cache_dir  # bind to test inst
         self.ota_cachedb = ota_cachedb
-        # mock the ota-cache dir location
-        ota_proxy_cfg = Config()
-        ota_proxy_cfg.BASE_DIR = str(ota_cache_dir)
-        ota_proxy_cfg.DB_FILE = str(ota_cachedb)
-        mocker.patch(f"{cfg.OTAPROXY_MODULE_PATH}.ota_cache.cfg", ota_proxy_cfg)
-        self.ota_proxy_cfg = ota_proxy_cfg
 
         # create a OTACache instance within the test process
         _ota_cache = OTACache(
@@ -70,6 +60,8 @@ class TestOTAProxyServer:
             upper_proxy="",
             enable_https=False,
             init_cache=True,
+            base_dir=ota_cache_dir,
+            db_file=ota_cachedb,
         )
         _config = uvicorn.Config(
             App(_ota_cache),
@@ -99,6 +91,7 @@ class TestOTAProxyServer:
         """
         import aiohttp
         import sqlite3
+        from otaclient.ota_proxy import config as cfg
 
         # get the special file via otaproxy from the ota image server
         async with aiohttp.ClientSession() as session:
@@ -119,7 +112,7 @@ class TestOTAProxyServer:
         # assert the cache entry existed in the database
         with sqlite3.connect(self.ota_cachedb) as conn:
             conn.row_factory = sqlite3.Row
-            cur = conn.execute(f"SELECT * FROM {self.ota_proxy_cfg.TABLE_NAME}")
+            cur = conn.execute(f"SELECT * FROM {cfg.TABLE_NAME}")
             # check db definition for details
             row = cur.fetchone()
             assert (

@@ -172,7 +172,9 @@ class TestOTACacheDB:
             for _i in range(rotate_num):
                 entries.append(
                     CacheMeta(
-                        url=f"{target_size}#{_i}", bucket=target_size, size=target_size
+                        url=f"{target_size}#{_i}",
+                        bucket_idx=target_size,
+                        size=target_size,
                     )
                 )
         return entries
@@ -213,7 +215,7 @@ class TestOTACacheDB:
         """
         bucket_size = 8 * (1024**2)
         assert (
-            self.ota_cache_db.remove_entries(CacheMeta.bucket, bucket_size)
+            self.ota_cache_db.remove_entries(CacheMeta.bucket_idx, bucket_size)
             == cfg.BUCKET_FILE_SIZE_DICT[bucket_size]
         )
         assert (
