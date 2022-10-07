@@ -449,7 +449,7 @@ class OTACacheScrubHelper:
             # we treat it as dangling cache entry and delete it
             for entry in self._base_dir.glob("*"):
                 if entry.name not in valid_cache_entry:
-                    logger.warning(f"dangling cache entry found: {entry.name}")
+                    logger.debug(f"dangling cache entry found: {entry.name}")
                     f = self._base_dir / entry.name
                     f.unlink(missing_ok=True)
 
