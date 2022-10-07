@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, List, Optional, Type, Callable, Union, cast
 
 from .config import config as cfg
-from ._orm import ColumnDescriptor, ORMBase
+from .orm import ColumnDescriptor, ORMBase
 
 import logging
 

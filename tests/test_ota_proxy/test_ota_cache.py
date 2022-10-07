@@ -25,7 +25,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Dict, List, Tuple, Coroutine
 
-from otaclient.ota_proxy._db import CacheMeta
+from otaclient.ota_proxy.db import CacheMeta
 from otaclient.ota_proxy import config as cfg
 from otaclient.ota_proxy.ota_cache import LRUCacheHelper, OngoingCachingRegister
 

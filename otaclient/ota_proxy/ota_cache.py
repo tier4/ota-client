@@ -47,7 +47,7 @@ from typing import (
 from urllib.parse import SplitResult, quote, urlsplit
 
 from .cache_control import OTAFileCacheControl
-from ._db import CacheMeta, OTACacheDB, OTACacheDBProxy
+from .db import CacheMeta, OTACacheDB, OTACacheDBProxy
 from .config import config as cfg
 
 if TYPE_CHECKING:
