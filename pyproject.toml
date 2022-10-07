@@ -43,7 +43,6 @@ extend-exclude = '''(
 )'''
 
 [tool.coverage.run]
-source_pkgs = ["otaclient.app"]
 branch = false
 
 [tool.coverage.report]
@@ -56,7 +55,7 @@ ignore = ["**/*_v2_pb2*"]
 pythonVersion = "3.8"
 
 [tool.pytest.ini_options]
-addopts = "--cov=otaclient/app"
+addopts = "--cov=otaclient.app --cov=otaclient.ota_proxy"
 asyncio_mode = "auto"
 log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
