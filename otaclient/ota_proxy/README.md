@@ -39,34 +39,16 @@ Runtime configuration is configured by setting up `ota-cache` instance when laun
 
 ### standalone
 
-User should write a launcher to setup the `ota-cache`, and then launch the `ota-proxy` with it.
+User can launch standalone ota_proxy server as follow:
 
-```python
-# example launcher
-import uvicorn
-from ota_proxy import OTACache, App
-
-# if the launcher needs to ensure the ota-proxy is ready,
-# user can create an instance of multiprocessing.Event, 
-# pass it to the ota_cache instance. Then ota-proxy will
-# set the Event after it finished setting up and ready for serving requests.
-ota_cache = OTACache(
-    cache_enabled=True, 
-    init_cache=False, 
-    enable_https=False
-    )
-
-uvicorn.run(
-    App(ota_cache),
-    host="0.0.0.0",
-    port=8082,
-    log_level="error",
-    lifespan="on",
-    workers=1,
-    loop="asyncio",
-    http="h11",
-)
+```bash
+# launch ota_proxy on 127.0.0.1:23456 with cache enabled.
+python3 -m otaclient.ota_proxy \
+    --host "127.0.0.1" --port 23456 \
+    --enable-cache
 ```
+
+Check `python3 -m otaclient.ota_proxy --help` for all available arguments.
 
 ### Integration in ota-client
 
