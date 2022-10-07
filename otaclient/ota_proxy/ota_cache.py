@@ -100,7 +100,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
             del self._ref_holer
 
 
-class OngoingCachingRegister(Generic[_WEAKREF]):
+class OngoingCachingRegister:
     """A tracker register class that provides cache streaming
         on same requested file from multiple caller.
 
@@ -112,7 +112,7 @@ class OngoingCachingRegister(Generic[_WEAKREF]):
         self._base_dir = Path(base_dir)
         self._lock = threading.Lock()
         self._url_ref_dict = cast(
-            Dict[_WEAKREF, asyncio.Event], weakref.WeakValueDictionary()
+            Dict[str, asyncio.Event], weakref.WeakValueDictionary()
         )
         self._ref_tracker_dict = cast(
             Dict[asyncio.Event, OngoingCacheTracker], weakref.WeakKeyDictionary()
@@ -122,9 +122,8 @@ class OngoingCachingRegister(Generic[_WEAKREF]):
         # cleanup(unlink) the tmp file
         (self._base_dir / fn).unlink(missing_ok=True)
 
-    async def get_tracker(self, url: _WEAKREF) -> Tuple[OngoingCacheTracker, bool]:
-        _ref = self._url_ref_dict.get(url)
-        if _ref:
+    async def get_tracker(self, url: str) -> Tuple[OngoingCacheTracker, bool]:
+        if _ref := self._url_ref_dict.get(url):
             await _ref.wait()  # wait for writer to fully initialized
             _tracker = self._ref_tracker_dict[_ref]
             return _tracker, False
