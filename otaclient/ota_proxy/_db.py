@@ -59,30 +59,23 @@ class OTACacheDB:
     ]
 
     def __init__(self, db_file: Union[str, Path], init=False):
-        logger.debug("init database...")
-        self._db_file = Path(db_file)
-        self._connect_db(init)
-
-    def close(self):
-        self._con.close()
-
-    def _connect_db(self, init: bool):
         """Connects to database(and initialize database if needed).
 
         If database doesn't have required table, or init==True,
         we will initialize the table here.
 
         Args:
+            db_file: target to connect to
             init: whether to init database table or not
 
         Raise:
             Raises sqlite3.Error if database init/configuration failed.
         """
         if init:
-            self._db_file.unlink(missing_ok=True)
+            Path(db_file).unlink(missing_ok=True)
 
         self._con = sqlite3.connect(
-            self._db_file,
+            db_file,
             check_same_thread=True,  # one thread per connection in the threadpool
             # isolation_level=None,  # enable autocommit mode
         )
@@ -118,32 +111,54 @@ class OTACacheDB:
             logger.debug(f"init db failed: {e!r}")
             raise e
 
+    def close(self):
+        self._con.close()
+
     def remove_entries(self, fd: ColumnDescriptor, *_inputs: Any) -> int:
+        """Remove entri(es) indicated by field(s).
+
+        Args:
+            fd: field descriptor of the column
+            *_inputs: a list of field value(s)
+
+        Returns:
+            returns affected rows count.
+        """
         if not _inputs:
             return 0
         if CacheMeta.contains_field(fd) and all(map(fd.check_type, _inputs)):
             with self._con as con:
                 _regulated_input = [(i,) for i in _inputs]
-                cur = con.executemany(
+                return con.executemany(
                     f"DELETE FROM {self.TABLE_NAME} WHERE {fd._field_name}=?",
                     _regulated_input,
-                )
-                return cur.rowcount
-        logger.debug(f"invalid inputs detected: {_inputs=}")
-        return 0
+                ).rowcount
+        else:
+            logger.debug(f"invalid inputs detected: {_inputs=}")
+            return 0
 
     def lookup_entry(self, fd: ColumnDescriptor, _input: Any) -> Optional[CacheMeta]:
+        """Lookup entry by field value.
+
+        NOTE: lookup via this method will trigger update to <last_access> field
+
+        Args:
+            fd: field descriptor of the column
+            _input: field value
+
+        Returns:
+            An instance of CacheMeta representing the cache entry, or None if lookup failed.
+        """
         if not CacheMeta.contains_field(fd) or not fd.check_type(_input):
             return
-        with self._con as con:
-            cur = con.execute(
+        with self._con as con:  # put the lookup and update into one session
+            if row := con.execute(
                 f"SELECT * FROM {self.TABLE_NAME} WHERE {fd.name}=?",
                 (_input,),
-            )
-            if row := cur.fetchone():
+            ).fetchone():
                 # warm up the cache(update last_access timestamp) here
                 res = CacheMeta.row_to_meta(row)
-                cur = con.execute(
+                con.execute(
                     (
                         f"UPDATE {self.TABLE_NAME} SET {CacheMeta.last_access.name}=? "
                         f"WHERE {CacheMeta.url.name}=?"
@@ -153,16 +168,28 @@ class OTACacheDB:
                 return res
 
     def insert_entry(self, *cache_meta: CacheMeta) -> int:
+        """Insert an entry into the ota cache table.
+
+        Args:
+            cache_meta: a list of CacheMeta instances to be inserted
+
+        Returns:
+            Returns inserted rows count.
+        """
         if not cache_meta:
             return 0
         with self._con as con:
-            cur = con.executemany(
+            return con.executemany(
                 f"INSERT OR REPLACE INTO {self.TABLE_NAME} VALUES ({CacheMeta.get_shape()})",
                 [m.astuple() for m in cache_meta],
-            )
-            return cur.rowcount
+            ).rowcount
 
     def lookup_all(self) -> List[CacheMeta]:
+        """Lookup all entries in the ota cache table.
+
+        Returns:
+            A list of CacheMeta instances representing each entry.
+        """
         with self._con as con:
             cur = con.execute(f"SELECT * FROM {self.TABLE_NAME}", ())
             return [CacheMeta.row_to_meta(row) for row in cur.fetchall()]
@@ -171,7 +198,7 @@ class OTACacheDB:
         """Rotate cache entries in LRU flavour.
 
         Args:
-            bucket: which bucket for space reserving
+            bucket_idx: which bucket for space reserving
             num: num of entries needed to be deleted in this bucket
 
         Return:
@@ -200,7 +227,7 @@ class OTACacheDB:
             # if we have enough entries for space reserving
             if _raw_res[0] >= num:
                 # first select those entries
-                cur = con.execute(
+                _rows = con.execute(
                     (
                         f"SELECT * FROM {self.TABLE_NAME} "
                         f"WHERE {bucket_fn}=? "
@@ -208,9 +235,7 @@ class OTACacheDB:
                         "LIMIT ?"
                     ),
                     (bucket_idx, num),
-                )
-                _rows = cur.fetchall()
-
+                ).fetchall()
                 # and then delete those entries with same conditions
                 con.execute(
                     (
@@ -225,7 +250,7 @@ class OTACacheDB:
 
 
 class _ProxyBase:
-    """A proxy class for OTACacheDB that dispatches all requests into a threadpool."""
+    """A proxy class base for OTACacheDB that dispatches all requests into a threadpool."""
 
     def _thread_initializer(self, db_f):
         """Init a db connection for each thread worker"""
@@ -246,7 +271,7 @@ class _ProxyBase:
 
 
 def _proxy_wrapper(func: Callable) -> Callable:
-    """NOTE: this wrapper should only used for _ProxyBase"""
+    """NOTE: this wrapper should only be used for _ProxyBase"""
     func_name = func.__name__
 
     @functools.wraps(func)
@@ -263,6 +288,11 @@ def _proxy_wrapper(func: Callable) -> Callable:
 
 
 def create_db_proxy(name: str, *, source_cls: Type) -> Type:
+    """Class factory for creating a proxy class for OTACacheDB.
+
+    All methods of OTACacheDB will be proxied to corresponding wrapper methods,
+    the wrapper will proxy the request to the thread pool.
+    """
     _new_cls = type(name, (_ProxyBase,), {})
     for attr_n, attr in source_cls.__dict__.items():
         # NOTE: not proxy the close method as we should call the proxy's close method
