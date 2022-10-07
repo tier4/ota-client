@@ -43,6 +43,15 @@ TYPE_CHECKER = Callable[[Any], bool]
 
 
 class ColumnDescriptor(Generic[FV]):
+    """ColumnDescriptor represents a column in a sqlite3 table,
+    implemented the python descriptor protocol.
+
+    When accessed as attribute of TableCls(subclass of ORMBase) instance,
+    it will return the value of the column/field.
+    When accessed as attribute of the TableCls class,
+    it will return the ColumnDescriptor itself.
+    """
+
     def __init__(
         self,
         index: int,
@@ -119,6 +128,11 @@ class ORMeta(type):
 
 
 class ORMBase(metaclass=ORMeta):
+    """Base class for defining a sqlite3 table programatically.
+
+    Subclass of this base class is also a subclass of dataclass.
+    """
+
     @classmethod
     def row_to_meta(cls, row: Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]):
         parsed = {}
@@ -135,6 +149,14 @@ class ORMBase(metaclass=ORMeta):
 
     @classmethod
     def get_create_table_stmt(cls, table_name: str) -> str:
+        """Generate the sqlite query statement to create the defined table in database.
+
+        Args:
+            table_name: the name of table to be created
+
+        Returns:
+            query statement to create the table defined by this class.
+        """
         _col_descriptors: List[ColumnDescriptor] = [
             getattr(cls, field.name) for field in fields(cls)
         ]
@@ -149,12 +171,14 @@ class ORMBase(metaclass=ORMeta):
 
     @classmethod
     def contains_field(cls, _input: Union[str, ColumnDescriptor]) -> bool:
+        """Check if this table contains field indicated by <_input>."""
         if isinstance(_input, ColumnDescriptor):
             return _input.owner.__name__ == cls.__name__
         return isinstance(getattr(cls, _input), ColumnDescriptor)
 
     @classmethod
     def get_shape(cls) -> str:
+        """Used by insert row query."""
         return ",".join(["?"] * len(fields(cls)))
 
     def __hash__(self) -> int:
