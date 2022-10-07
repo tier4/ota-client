@@ -8,7 +8,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Tuple, Coroutine
 
 from otaclient.ota_proxy._db import CacheMeta
 from otaclient.ota_proxy import config as cfg
@@ -64,6 +64,7 @@ class TestLRUCacheHelper:
         assert self.cache_helper.remove_entry_by_url(target_url)
 
     def test_rotate_cache(self):
+        """Ensure the LRUHelper properly rotates the cache entries."""
         # test 1: reserve space for 256 * (1024**2) bucket
         # the later bucket is empty, so we expect this bucket to be cleaned up
         target_bucket = 256 * (1024**2)
@@ -146,3 +147,85 @@ class TestOTAFile:
         assert cached_file.is_file() and cached_file.read_bytes() == self.test_data
         # ensure the retrieved bytes
         assert retrieved_data.getvalue() == self.test_data
+
+
+class TestOngoingCachingRegister:
+    URL = "common_url"
+    WORKS_NUM = 128
+
+    @pytest.fixture(autouse=True)
+    def setup_test(self, tmp_path: Path):
+        self.base_dir = tmp_path / "base_dir"
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.register = OngoingCachingRegister(self.base_dir)
+
+        # events
+        # NOTE: we don't have Barrier in asyncio lib, so
+        #       use Semaphore to simulate one
+        self.register_finish = asyncio.Semaphore(self.WORKS_NUM)
+        self.sync_event = asyncio.Event()
+        self.writer_done_event = asyncio.Event()
+
+    async def _wait_for_registeration_finish(self):
+        while not self.register_finish.locked():
+            await asyncio.sleep(0.16)
+        logger.info("registeration finished")
+
+    async def _worker(
+        self,
+        idx: int,
+    ) -> Tuple[bool, CacheMeta]:
+        """
+        Returns tuple of bool indicates whether the worker is writter, and CacheMeta
+        from tracker.
+        """
+        # simulate multiple works subscribing the register
+        await self.sync_event.wait()
+        await asyncio.sleep(random.randrange(100, 200) // 100)
+        _tracker, _is_writer = await self.register.get_tracker(self.URL)
+        await self.register_finish.acquire()
+        if _is_writer:
+            logger.info(f"#{idx} is provider")
+            # NOTE: use last_access field to store worker index
+            await _tracker.writer_on_ready(CacheMeta(last_access=idx))
+            # simulate waiting for writer finished downloading
+            await self.writer_done_event.wait()
+            _tracker.writer_on_finish()
+            return True, _tracker.meta
+        else:
+            logger.debug(f"#{idx} is subscriber")
+            # wait for writter become ready
+            await _tracker.writer_ready.wait()
+            return False, _tracker.meta
+
+    async def test_OngoingCachingRegister(self):
+        coros: List[Coroutine] = []
+        for idx in range(self.WORKS_NUM):
+            coros.append(self._worker(idx))
+        random.shuffle(coros)  # shuffle the corotines to simulate unordered access
+        tasks = [asyncio.create_task(c) for c in coros]
+        logger.info(f"{self.WORKS_NUM} workers have been dispatched")
+
+        # start all the worker
+        self.sync_event.set()
+        logger.info("all workers start to subscribe to the register")
+        await self._wait_for_registeration_finish()  # wait for all workers finish subscribing
+        self.writer_done_event.set()  # writer finished
+
+        ###### check the test result ######
+        meta_set, writer_meta = set(), None
+        for is_writer, meta in await asyncio.gather(*tasks):
+            meta_set.add(meta)
+            if is_writer:
+                writer_meta = meta
+        # ensure only one meta presented in the set, and it should be
+        # the meta from the writer/provider, all the subscriber should use
+        # the meta from the writer/provider.
+        assert len(meta_set) == 1 and writer_meta in meta_set
+
+        # ensure that the entry in the register is garbage collected
+        assert (
+            len(self.register._url_ref_dict)
+            == len(self.register._ref_tracker_dict)
+            == 0
+        )
