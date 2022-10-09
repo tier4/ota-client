@@ -13,10 +13,11 @@
 # limitations under the License.
 
 
-import sqlite3
+from __future__ import annotations
 from dataclasses import asdict, astuple, dataclass, fields
 from io import StringIO
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
@@ -30,6 +31,9 @@ from typing import (
     cast,
     overload,
 )
+
+if TYPE_CHECKING:
+    import sqlite3
 
 NULL_TYPE = cast(Type, type(None))
 SQLITE_DATATYPES = Union[
@@ -149,7 +153,7 @@ class ORMBase(metaclass=ORMeta):
     """
 
     @classmethod
-    def row_to_meta(cls, row: Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]):
+    def row_to_meta(cls, row: "Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]"):
         parsed = {}
         for field in fields(cls):
             try:

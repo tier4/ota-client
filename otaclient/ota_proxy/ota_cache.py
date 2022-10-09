@@ -252,7 +252,8 @@ class OTAFile:
         self._fp = fp
 
         # life cycle
-        self.closed = threading.Event()
+        self.fp_closed = threading.Event()
+        self._fp_finished = threading.Event()
         # whether the fp finishes its work(successful or not)
         self.cached_success = False
         self._cache_tee_aborted = threading.Event()
@@ -288,44 +289,46 @@ class OTAFile:
 
             with open(self.temp_fpath, "wb") as dst_f:
                 err_count = 0
-                while not self.closed.is_set() or not self._queue.empty():
+                while not self.fp_closed.is_set() or not self._queue.empty():
+                    # reach storage hard limit, abort caching
                     if not self._storage_below_hard_limit.is_set():
-                        # reach storage hard limit, abort caching
                         logger.debug(
                             f"not enough free space during caching url={self.meta.url}, abort"
                         )
-
-                        # signal the streaming coro
-                        # to stop streaming to the caching thread
+                        # signal the get_chunks method to stop
+                        # streaming to the caching thread
                         self._cache_tee_aborted.set()
-                    else:
-                        _timout = get_backoff(
-                            err_count,
-                            self.PIPE_READ_BACKOFF_FACTOR,
-                            self.PIPE_READ_BACKOFF_MAX,
-                        )
-                        try:
-                            data = self._queue.get(timeout=_timout)
-                            err_count = 0
+                        # and then breakout the loop
+                        break
 
-                            if len(data) > 0:
-                                _sha256hash_f.update(data)
-                                _size += dst_f.write(data)
-                        except Exception:
-                            if _timout >= self.PIPE_READ_BACKOFF_MAX:
-                                # abort caching due to potential dead streaming coro
-                                logger.error(
-                                    f"failed to cache {self.meta.url}: timeout getting data from queue"
-                                )
-                                self._cache_tee_aborted.set()
-
-                                break
-                            else:
-                                err_count += 1
+                    # get data chunk from stream
+                    _timout = get_backoff(
+                        err_count,
+                        self.PIPE_READ_BACKOFF_FACTOR,
+                        self.PIPE_READ_BACKOFF_MAX,
+                    )
+                    try:
+                        if data := self._queue.get(timeout=_timout):
+                            _sha256hash_f.update(data)
+                            _size += dst_f.write(data)
+                        err_count = 0
+                    except Exception:  # data retrieving timeout
+                        if _timout >= self.PIPE_READ_BACKOFF_MAX:
+                            # abort caching due to potential dead streaming coro
+                            logger.error(
+                                f"failed to cache {self.meta.url}: timeout getting data from queue"
+                            )
+                            # signal get_chunks to stop streaming chunks to caching thread
+                            self._cache_tee_aborted.set()
+                            break
+                        err_count += 1
 
             # post caching
-            if self.closed.is_set() and not self._cache_tee_aborted.is_set():
-                # label this OTAFile as successful
+            if (
+                self.fp_closed.is_set()
+                and self._fp_finished.is_set()
+                and not self._cache_tee_aborted.is_set()
+            ):
                 self.cached_success = True
 
                 _hash = _sha256hash_f.hexdigest()
@@ -344,8 +347,8 @@ class OTAFile:
                         # this might caused by entry with same file contents
                         logger.debug(f"entry {_hash} existed, ignored")
 
-            # NOTE: if queue is empty but self._finished is not set,
-            # it may indicate that an unfinished caching might happen
+            # NOTE: if queue is empty/fp_closed is set but self._finished is not set,
+            #       it may indicate that an unfinished caching might happen
 
         except Exception as e:
             logger.debug(f"failed on writing cache for {tracker.fn}: {e!r}")
@@ -363,7 +366,7 @@ class OTAFile:
         Returns:
             An AsyncIterator for upper caller to yield data chunks from.
         """
-        if self.closed.is_set():
+        if self.fp_closed.is_set():
             raise ValueError("file is closed")
 
         try:
@@ -373,18 +376,16 @@ class OTAFile:
                 # if caching thread indicates so
                 if not self._cache_tee_aborted.is_set():
                     self._queue.put_nowait(chunk)
-
                 # to uvicorn thread
                 yield chunk
+            self._fp_finished.set()
         except Exception as e:
             # if any exception happens, signal the caching thread
             self._cache_tee_aborted.set()
-
             logger.exception("cache tee failed")
             raise e from None
         finally:
-            # always close the file if get_chunk finished
-            self.closed.set()
+            self.fp_closed.set()
 
 
 class OTACacheScrubHelper:
