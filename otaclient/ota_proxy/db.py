@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import functools
 import sqlite3
 import threading
@@ -32,22 +33,22 @@ logger.setLevel(cfg.LOG_LEVEL)
 
 class CacheMeta(ORMBase):
     url: ColumnDescriptor[str] = ColumnDescriptor(
-        0, str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
+        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
     )
     bucket_idx: ColumnDescriptor[int] = ColumnDescriptor(
-        1, int, "INTEGER", "NOT NULL", type_guard=True
+        int, "INTEGER", "NOT NULL", type_guard=True
     )
     last_access: ColumnDescriptor[int] = ColumnDescriptor(
-        2, int, "INTEGER", "NOT NULL", type_guard=(int, float)
+        int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
     sha256hash: ColumnDescriptor[str] = ColumnDescriptor(
-        3, str, "TEXT", "NOT NULL", default="invalid_hash"
+        str, "TEXT", "NOT NULL", default="invalid_hash"
     )
     size: ColumnDescriptor[int] = ColumnDescriptor(
-        4, int, "INTEGER", "NOT NULL", type_guard=(int, float)
+        int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
-    content_type: ColumnDescriptor[str] = ColumnDescriptor(5, str, "TEXT")
-    content_encoding: ColumnDescriptor[str] = ColumnDescriptor(6, str, "TEXT")
+    content_type: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
+    content_encoding: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
 
 
 class OTACacheDB:

@@ -33,7 +33,6 @@ class TestORM:
         @dataclass
         class TableCls(ORMBase):
             str_field: ColumnDescriptor[str] = ColumnDescriptor(
-                0,
                 str,
                 "TEXT",
                 "UNIQUE",
@@ -42,17 +41,17 @@ class TestORM:
                 default="invalid_url",
             )
             int_field: ColumnDescriptor[int] = ColumnDescriptor(
-                1, int, "INTEGER", "NOT NULL", type_guard=(int, float)
+                int, "INTEGER", "NOT NULL", type_guard=(int, float)
             )
             float_field: ColumnDescriptor[float] = ColumnDescriptor(
-                2, float, "INTEGER", "NOT NULL", type_guard=(int, float)
+                float, "INTEGER", "NOT NULL", type_guard=(int, float)
             )
-            op_str_field: ColumnDescriptor[str] = ColumnDescriptor(3, str, "TEXT")
+            op_str_field: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
             op_int_field: ColumnDescriptor[int] = ColumnDescriptor(
-                4, int, "INTEGER", type_guard=(int, float)
+                int, "INTEGER", type_guard=(int, float)
             )
             null_field: ColumnDescriptor[NULL_TYPE] = ColumnDescriptor(
-                5, NULL_TYPE, "NULL"
+                NULL_TYPE, "NULL"
             )
 
         self.table_cls = TableCls
