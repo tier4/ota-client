@@ -56,16 +56,16 @@ class ColumnDescriptor(Generic[FV]):
 
     def __init__(
         self,
-        index: int,
         field_type: Type[FV],
         *constrains: str,
         type_guard: Union[Tuple[Type, ...], TYPE_CHECKER, bool] = False,
         default: Optional[FV] = None,
     ) -> None:
+        # whether this field should be included in table def or not
+        self._skipped = False
         self.constrains = " ".join(constrains)  # TODO: constrains validation
         self.default = field_type() if default is None else default
         self.field_type = field_type
-        self.index = index
         self.type_guard_enabled = False if type_guard is False else True
 
         # init type checker callable
@@ -87,13 +87,15 @@ class ColumnDescriptor(Generic[FV]):
         ...
 
     def __get__(self, obj, objtype=None) -> Union[FV, "ColumnDescriptor[FV]"]:
-        if obj is not None:
+        if not self._skipped and obj is not None:
             if isinstance(obj, type):
                 return self  # bound inst is type, treated same as accessed via class
             return getattr(obj, self._private_name)  # access via instance
         return self  # access via class, return the descriptor
 
     def __set__(self, obj, value: Any) -> None:
+        if self._skipped:
+            return
         # handle dataclass's default value setting behavior and NULL type assignment
         if isinstance(value, type(self)) or self.field_type == NULL_TYPE:
             return setattr(obj, self._private_name, self.default)
@@ -108,6 +110,10 @@ class ColumnDescriptor(Generic[FV]):
 
     def __set_name__(self, owner: type, name: str):
         self.owner = owner
+        try:
+            self._index = list(owner.__annotations__).index(name)
+        except (AttributeError, ValueError):
+            self._skipped = True  # skipped due to annotation missing
         self._field_name = name
         self._private_name = f"_{owner.__name__}_{name}"
 
@@ -115,18 +121,25 @@ class ColumnDescriptor(Generic[FV]):
     def name(self) -> str:
         return self._field_name
 
+    @property
+    def index(self) -> int:
+        return self._index
+
     def check_type(self, value: Any) -> bool:
         return self.type_checker(value)
 
 
 class ORMeta(type):
-    """This metaclass transfer the new class into a dataclass subclass."""
+    """This metaclass is for generating customized <TableCls>."""
 
     def __new__(cls, cls_name: str, bases: Tuple[type, ...], classdict: Dict[str, Any]):
         new_cls: type = super().__new__(cls, cls_name, bases, classdict)
-        # we will define our own eq and hash logics, disable dataclass'
-        # eq method and hash method generation
-        return dataclass(eq=False, unsafe_hash=False)(new_cls)
+        if len(new_cls.__mro__) > 2:  # <TableCls>, ORMBase, object
+            # we will define our own eq and hash logics, disable dataclass'
+            # eq method and hash method generation
+            return dataclass(eq=False, unsafe_hash=False)(new_cls)
+        else:  # ORMBase, object
+            return new_cls
 
 
 class ORMBase(metaclass=ORMeta):
