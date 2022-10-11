@@ -18,12 +18,19 @@ import json
 import os
 import re
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from OpenSSL import crypto
 from pathlib import Path
 from pprint import pformat
 from functools import partial
-from typing import Any, ClassVar, Optional, Union
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Union,
+)
 
 from .configs import config as cfg
 from .common import verify_file
@@ -34,175 +41,59 @@ logger = log_util.get_logger(
 )
 
 
-class OtaMetadata:
-    """
-    OTA Metadata Class
-    """
+@dataclass
+class MetaFile:
+    file: str
+    sha256hash: str
 
-    """
-    The root and intermediate certificates exist under certs_dir.
-    When A.root.pem, A.intermediate.pem, B.root.pem, and B.intermediate.pem
-    exist, the groups of A* and the groups of B* are handled as a chained
-    certificate.
-    verify function verifies specified certificate with them.
-    Certificates file name format should be: '.*\\..*.pem'
-    NOTE:
-    If there is no root or intermediate certificate, certification verification
-    is not performed.
-    """
 
-    def __init__(self, ota_metadata_jwt):
-        """
-        OTA metadata parser
-            url : metadata server URL
-            cookie : signed cookie
-            metadata_jwt : metadata JWT file name
-        """
-        self.__metadata_jwt = ota_metadata_jwt
-        self.__metadata_dict = self._parse_metadata(ota_metadata_jwt)
-        logger.info(f"metadata_dict={pformat(self.__metadata_dict)}")
-        self._certs_dir = Path(cfg.CERTS_DIR)
-        logger.info(f"certs_dir={self._certs_dir}")
+class _MetaFileDescriptor:
+    HASH_KEY = "hash"  # version1
 
-    def verify(self, certificate: bytes):
-        """"""
-        # verify certificate itself before hand.
-        self._verify_certificate(certificate)
+    def __get__(self, obj, objtype=None) -> "Union[MetaFile, _MetaFileDescriptor]":
+        if obj and not isinstance(obj, type):
+            return getattr(obj, self._private_name)  # access via instance
+        return self  # access via class, return the descriptor
 
-        # verify metadata.jwt
-        try:
-            cert = crypto.load_certificate(crypto.FILETYPE_PEM, certificate)
-            verify_data = self._get_header_payload().encode()
-            logger.debug(f"verify data: {verify_data}")
-            crypto.verify(cert, self._signature, verify_data, "sha256")
-        except Exception as e:
-            logger.exception("verify")
-            raise ValueError(e)
+    def __set__(self, obj, value: Any) -> None:
+        if isinstance(value, dict):  # only set value when input is valid
+            setattr(
+                obj,
+                self._private_name,
+                MetaFile(file=value[self._file_fn], sha256hash=value[self.HASH_KEY]),
+            )
 
-    def get_directories_info(self):
-        """
-        return
-            directory file info list: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["directory"]
+    def __set_name__(self, owner: type, name: str):
+        self.owner = owner
+        self._file_fn = name
+        self._private_name = f"_{owner.__name__}_{name}"
 
-    def get_symboliclinks_info(self):
-        """
-        return
-            symboliclink file info: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["symboliclink"]
 
-    def get_regulars_info(self):
-        """
-        return
-            regular file info: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["regular"]
+class ParseMetadataHelper:
+    def __init__(self, metadata_jwt: str, *, certs_dir: str):
+        self.cert_dir = Path(certs_dir)
+        # pre_parse metadata_jwt
+        jwt_list = metadata_jwt.split(".")
+        self.header_json = base64.urlsafe_b64decode(jwt_list[0])
+        self.payload_json = base64.urlsafe_b64decode(jwt_list[1])
+        self.signature = base64.urlsafe_b64decode(jwt_list[2])
+        logger.debug(
+            f"JWT header: {self.header_json.decode()}\n"
+            f"JWT payload: {self.payload_json.decode()}"
+            f"JWT signature: {self.signature}"
+        )
+        # parse metadata payload
+        self.ota_metadata = OTAMetadata.parse_payload(self.payload_json)
+        logger.info(f"metadata={pformat(self.ota_metadata)}")
 
-    def get_persistent_info(self):
+    def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
         """
-        return
-            persistent file info: { "file": file name, "hash": file hash }
+        Raises:
+            Raise ValueError on verification failed.
         """
-        return self.__metadata_dict["persistent"]
-
-    def get_rootfsdir_info(self):
-        """
-        return
-            rootfs_directory info: {"file": dir name }
-        """
-        return self.__metadata_dict["rootfs_directory"]
-
-    def get_certificate_info(self):
-        """
-        return
-            certificate file info: { "file": file name, "hash": file hash }
-        """
-        return self.__metadata_dict["certificate"]
-
-    def get_total_regular_file_size(self):
-        """
-        return
-            total regular file size: int
-        """
-        size = self.__metadata_dict.get("total_regular_size", {}).get("file")
-        return None if size is None else int(size)
-
-    """ private functions from here """
-
-    def _jwt_decode(self, jwt):
-        """
-        JWT decode
-            return payload.json
-        """
-        jwt_list = jwt.split(".")
-
-        header_json = base64.urlsafe_b64decode(jwt_list[0]).decode()
-        logger.debug(f"JWT header: {header_json}")
-        payload_json = base64.urlsafe_b64decode(jwt_list[1]).decode()
-        logger.debug(f"JWT payload: {payload_json}")
-        signature = base64.urlsafe_b64decode(jwt_list[2])
-        logger.debug(f"JWT signature: {signature}")
-
-        return header_json, payload_json, signature
-
-    def _parse_payload(self, payload_json):
-        """
-        Parse payload json file
-        """
-        keys_version = {
-            "directory",
-            "symboliclink",
-            "regular",
-            "certificate",
-            "persistent",
-            "rootfs_directory",
-            "total_regular_size",
-        }
-        hash_key = "hash"
-        payload = json.loads(payload_json)
-        payload_dict = {
-            "version": list(entry.values())[0]
-            for entry in payload
-            if entry.get("version")
-        }
-
-        if payload_dict["version"] != 1:
-            logger.warning(f"metadata version is {payload_dict['version']}.")
-
-        for entry in payload:
-            for key in keys_version:
-                if key in entry.keys():
-                    payload_dict[key] = {}
-                    payload_dict[key]["file"] = entry.get(key)
-                    if hash_key in entry:
-                        payload_dict[key][hash_key] = entry.get(hash_key)
-        return payload_dict
-
-    def _parse_metadata(self, metadata_jwt):
-        """
-        Parse metadata.jwt
-        """
-        (
-            self._header_json,
-            self._payload_json,
-            self._signature,
-        ) = self._jwt_decode(metadata_jwt)
-        # parse metadata.jwt payload
-        return self._parse_payload(self._payload_json)
-
-    def _get_header_payload(self):
-        """
-        Get Header and Payload urlsafe base64 string
-        """
-        jwt_list = self.__metadata_jwt.split(".")
-        return jwt_list[0] + "." + jwt_list[1]
-
-    def _verify_certificate(self, certificate: bytes):
         ca_set_prefix = set()
         # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
-        for cert in self._certs_dir.glob("*.*.pem"):
+        for cert in self.cert_dir.glob("*.*.pem"):
             if m := re.match(r"(.*)\..*.pem", cert.name):
                 ca_set_prefix.add(m.group(1))
             else:
@@ -215,15 +106,14 @@ class OtaMetadata:
         load_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
 
         try:
-            cert_to_verify = load_pem(certificate)
+            cert_to_verify = load_pem(metadata_cert)
         except crypto.Error:
-            logger.exception(f"invalid certificate {certificate}")
-            raise ValueError(f"invalid certificate {certificate}")
+            logger.exception(f"invalid certificate {metadata_cert}")
+            raise ValueError(f"invalid certificate {metadata_cert}")
 
         for ca_prefix in sorted(ca_set_prefix):
             certs_list = [
-                self._certs_dir / c.name
-                for c in self._certs_dir.glob(f"{ca_prefix}.*.pem")
+                self.cert_dir / c.name for c in self.cert_dir.glob(f"{ca_prefix}.*.pem")
             ]
 
             store = crypto.X509Store()
@@ -239,8 +129,93 @@ class OtaMetadata:
             except crypto.X509StoreContextError as e:
                 logger.info(f"verify against {ca_prefix} failed: {e}")
 
-        logger.error(f"certificate {certificate} could not be verified")
-        raise ValueError(f"certificate {certificate} could not be verified")
+        logger.error(f"certificate {metadata_cert} could not be verified")
+        raise ValueError(f"certificate {metadata_cert} could not be verified")
+
+    def _verify_metadata(self, metadata_cert: bytes):
+        """
+        Raises:
+            Raise ValueError on validation failed.
+        """
+        try:
+            cert = crypto.load_certificate(crypto.FILETYPE_PEM, metadata_cert)
+            logger.debug(f"verify data: {self.header_json.decode()}")
+            crypto.verify(cert, self.signature, self.header_json, "sha256")
+        except Exception as e:
+            logger.exception("verify")
+            raise ValueError(e)
+
+    def get_otametadata(self) -> "OTAMetadata":
+        """Get parsed OTAMetaData.
+
+        Returns:
+            A instance of OTAMetaData representing the parsed(but not yet verified) metadata.
+        """
+        return self.ota_metadata
+
+    def verify_metadata(self, metadata_cert: bytes):
+        """Verify metadata_jwt against metadata cert and local pinned CA certs.
+
+        Raises:
+            Raise ValueError on verification failed.
+        """
+        # step1: verify the cert itself against local pinned CA cert
+        self._verify_metadata_cert(metadata_cert)
+        # step2: verify the metadata against input metadata_cert
+        self._verify_metadata(metadata_cert)
+
+
+@dataclass
+class OTAMetadata:
+    """OTA Metadata Class.
+
+    The root and intermediate certificates exist under certs_dir.
+    When A.root.pem, A.intermediate.pem, B.root.pem, and B.intermediate.pem
+    exist, the groups of A* and the groups of B* are handled as a chained
+    certificate.
+    verify function verifies specified certificate with them.
+    Certificates file name format should be: '.*\\..*.pem'
+    NOTE:
+    If there is no root or intermediate certificate, certification verification
+    is not performed.
+    """
+
+    SCHEME_VERSION: ClassVar[int] = 1
+    VERSION_KEY: ClassVar[str] = "version"
+    # metadata scheme
+    version: int = 1
+    total_regular_size: int = 0  # in bytes
+    rootfs_directory: str = ""
+    compressed_rootfs_directory: Optional[str] = None
+    directory: _MetaFileDescriptor = _MetaFileDescriptor()
+    symboliclink: _MetaFileDescriptor = _MetaFileDescriptor()
+    regular: _MetaFileDescriptor = _MetaFileDescriptor()
+    persistent: _MetaFileDescriptor = _MetaFileDescriptor()
+    certificate: _MetaFileDescriptor = _MetaFileDescriptor()
+
+    @classmethod
+    def parse_payload(cls, _input: Union[str, bytes]) -> "OTAMetadata":
+        # NOTE: in version1, payload is a list of dict
+        payload: List[Dict[str, Any]] = json.loads(_input)
+        if not payload or not isinstance(payload, list):
+            raise ValueError(f"invalid payload: {_input}")
+
+        res = cls()
+        for entry in payload:
+            # if entry is version, check version compatibility
+            if (
+                cls.VERSION_KEY in entry
+                and entry[cls.VERSION_KEY] != cls.SCHEME_VERSION
+            ):
+                logger.warning(f"metadata version is {entry['version']}.")
+            # parse other fields
+            for f in fields(cls):
+                if (fn := f.name) in entry:
+                    if isinstance(getattr(cls, fn), _MetaFileDescriptor):
+                        setattr(res, fn, entry)
+                    else:
+                        setattr(res, fn, entry[fn])
+        return res
 
 
 # meta files entry classes
