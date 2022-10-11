@@ -103,8 +103,6 @@ class OTACacheDB:
                 ### db performance tunning
                 # enable WAL mode
                 con.execute("PRAGMA journal_mode = WAL;")
-                # set synchronous mode
-                con.execute("PRAGMA synchronous = normal;")
                 # set temp_store to memory
                 con.execute("PRAGMA temp_store = memory;")
                 # enable mmap (size in bytes)
