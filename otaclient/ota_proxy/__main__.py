@@ -23,7 +23,7 @@ if __name__ == "__main__":
         description="ota_proxy server with local cache feature",
     )
     parser.add_argument("--host", help="server listen ip", default="0.0.0.0")
-    parser.add_argument("--port", help="server listen port", default=8080)
+    parser.add_argument("--port", help="server listen port", default=8080, type=int)
     parser.add_argument(
         "--upper-proxy",
         help="upper proxy that used for requesting remote",
@@ -45,7 +45,7 @@ if __name__ == "__main__":
         "--init-cache",
         help="cleanup remaining cache if any",
         action="store_true",
-        default=True,
+        default=False,
     )
     args = parser.parse_args()
 
@@ -63,7 +63,7 @@ if __name__ == "__main__":
             App(_ota_cache),
             host=args.host,
             port=args.port,
-            log_level="info",
+            log_level="error",
             lifespan="on",
             loop="asyncio",
             http="h11",

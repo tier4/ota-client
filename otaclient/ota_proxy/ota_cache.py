@@ -447,7 +447,7 @@ class OTACacheScrubHelper:
         self._db = OTACacheDB(db_file)
         self._db_file = Path(db_file)
         self._base_dir = Path(base_dir)
-        self._excutor = ProcessPoolExecutor()
+        self._excutor = ThreadPoolExecutor()
 
     @staticmethod
     def _check_entry(base_dir: Path, meta: CacheMeta) -> Tuple[CacheMeta, bool]:
