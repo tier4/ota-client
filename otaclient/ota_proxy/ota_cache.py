@@ -23,7 +23,7 @@ import shutil
 import time
 import threading
 import weakref
-from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import Executor, ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
 from hashlib import sha256
