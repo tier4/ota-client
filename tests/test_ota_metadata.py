@@ -19,14 +19,8 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
-from pytest_mock import MockerFixture
 
-from tests.conftest import TestConfiguration as cfg
-
-
-@pytest.fixture
-def dir_test() -> Path:
-    return Path(__file__).parent
+from otaclient.app.ota_metadata import ParseMetadataHelper
 
 
 HEADER = """\
@@ -76,7 +70,7 @@ PERSISTENT_HASH = "3195ded730474d0181257204ba0fd79766721ab62ace395f20decd44983cb
 PERSISTENT_INFO = {"file": PERSISTENT_FNAME, "hash": PERSISTENT_HASH}
 
 ROOTFS_DIR = "data"
-ROOTFS_DIR_INFO = {"file": ROOTFS_DIR}
+ROOTFS_DIR_INFO = ROOTFS_DIR
 
 CERTIFICATE_FNAME = "ota-intermediate.pem"
 CERTIFICATE_HASH = "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c62ed2"
@@ -89,9 +83,9 @@ def sign(sign_key_file, data: str):
     with open(sign_key_file, "rb") as f:
         priv = serialization.load_pem_private_key(f.read(), password=None)
     return urlsafe_b64encode(
-        priv.sign(
+        priv.sign(  # type: ignore
             data.encode(),
-            ec.ECDSA(hashes.SHA256()),
+            ec.ECDSA(hashes.SHA256()),  # type: ignore
         ),
     )
 
@@ -102,55 +96,61 @@ def urlsafe_b64encode(data):
     return base64.urlsafe_b64encode(data).decode()
 
 
-def generate_jwt(pyaload_str, test_dir):
+def generate_jwt(payload_str: str, test_dir: Path):
     sign_key_file = test_dir / "keys" / "sign.key"
 
     header = urlsafe_b64encode(HEADER)
-    payload = urlsafe_b64encode(pyaload_str)
+    payload = urlsafe_b64encode(payload_str)
     signature = sign(sign_key_file, f"{header}.{payload}")
     return f"{header}.{payload}.{signature}"
 
 
+@pytest.fixture
+def dir_test() -> Path:
+    return Path(__file__).parent
+
+
 @pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
-def test_ota_metadata(dir_test: Path, payload_str):
-    from otaclient.app.ota_metadata import OtaMetadata
-
-    metadata = OtaMetadata(generate_jwt(payload_str, dir_test))
-    assert metadata.get_directories_info() == DIR_INFO
-    assert metadata.get_symboliclinks_info() == SYMLINK_INFO
-    assert metadata.get_regulars_info() == REGULAR_INFO
-    assert metadata.get_persistent_info() == PERSISTENT_INFO
-    assert metadata.get_rootfsdir_info() == ROOTFS_DIR_INFO
-    assert metadata.get_certificate_info() == CERTIFICATE_INFO
-
+def test_ota_metadata(dir_test: Path, payload_str: str):
+    certs_dir = dir_test / "keys"
     sign_pem = dir_test / "keys" / "sign.pem"
-    metadata.verify(sign_pem.read_bytes())
+
+    metadata_jwt = generate_jwt(payload_str, dir_test)
+    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    metadata = parser.get_otametadata()
+    assert metadata.directory.asdict() == DIR_INFO
+    assert metadata.symboliclink.asdict() == SYMLINK_INFO
+    assert metadata.regular.asdict() == REGULAR_INFO
+    assert metadata.persistent.asdict() == PERSISTENT_INFO
+    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert metadata.rootfs_directory == ROOTFS_DIR_INFO
+
+    parser.verify_metadata(sign_pem.read_bytes())
     if "total_regular_size" in payload_str:
-        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
+        assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.get_total_regular_file_size() is None
+        assert metadata.total_regular_size is None
 
 
 @pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
 def test_ota_metadata_exception(dir_test: Path, payload_str):
-    from otaclient.app.ota_metadata import OtaMetadata
+    certs_dir = dir_test / "keys"
+    sign_pem = dir_test / "keys" / "sign.pem"
 
-    metadata = OtaMetadata(generate_jwt(payload_str, dir_test))
+    metadata_jwt = generate_jwt(payload_str, dir_test)
+    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
     with pytest.raises(ValueError):
-        # sing.key is invalid pem
-        sign_key = dir_test / "keys" / "sign.key"
-        metadata.verify(sign_key.read_bytes())
+        # sing.key is not a valid cert
+        sign_pem = dir_test / "keys" / "sign.key"
+        parser.verify_metadata(sign_pem.read_bytes())
 
 
 @pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
 def test_ota_metadata_with_verify_certificate(
-    mocker: MockerFixture,
     tmp_path: Path,
     dir_test: Path,
     payload_str: str,
 ):
-    from otaclient.app.ota_metadata import OtaMetadata
-
     certs_dir = tmp_path / "certs"
     certs_dir.mkdir()
     cert_a_1 = certs_dir / "a.1.pem"
@@ -165,31 +165,28 @@ def test_ota_metadata_with_verify_certificate(
     cert_b_1.write_bytes(Path(dir_test / "keys" / "root.pem").read_bytes())
     cert_b_2.write_bytes(Path(dir_test / "keys" / "interm.pem").read_bytes())
 
-    mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg.CERTS_DIR", str(certs_dir))
-
-    metadata = OtaMetadata(generate_jwt(payload_str, dir_test))
-    assert metadata.get_directories_info() == DIR_INFO
-    assert metadata.get_symboliclinks_info() == SYMLINK_INFO
-    assert metadata.get_regulars_info() == REGULAR_INFO
-    assert metadata.get_persistent_info() == PERSISTENT_INFO
-    assert metadata.get_rootfsdir_info() == ROOTFS_DIR_INFO
-    assert metadata.get_certificate_info() == CERTIFICATE_INFO
-    metadata.verify(Path(dir_test / "keys" / "sign.pem").read_bytes())
+    metadata_jwt = generate_jwt(payload_str, dir_test)
+    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    metadata = parser.get_otametadata()
+    assert metadata.directory.asdict() == DIR_INFO
+    assert metadata.symboliclink.asdict() == SYMLINK_INFO
+    assert metadata.regular.asdict() == REGULAR_INFO
+    assert metadata.persistent.asdict() == PERSISTENT_INFO
+    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert metadata.rootfs_directory == ROOTFS_DIR_INFO
+    parser.verify_metadata(Path(dir_test / "keys" / "sign.pem").read_bytes())
     if "total_regular_size" in payload_str:
-        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
+        assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.get_total_regular_file_size() is None
+        assert metadata.total_regular_size is None
 
 
 @pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
 def test_ota_metadata_with_verify_certificate_exception(
-    mocker: MockerFixture,
     dir_test: Path,
     tmp_path: Path,
     payload_str,
 ):
-    from otaclient.app.ota_metadata import OtaMetadata
-
     certs_dir = tmp_path / "certs"
     certs_dir.mkdir()
     cert_a_1 = certs_dir / "a.1.pem"
@@ -199,21 +196,23 @@ def test_ota_metadata_with_verify_certificate_exception(
     cert_a_1.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
     cert_a_2.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
 
-    mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg.CERTS_DIR", str(certs_dir))
-
-    metadata = OtaMetadata(generate_jwt(payload_str, dir_test))
-    assert metadata.get_directories_info() == DIR_INFO
-    assert metadata.get_symboliclinks_info() == SYMLINK_INFO
-    assert metadata.get_regulars_info() == REGULAR_INFO
-    assert metadata.get_persistent_info() == PERSISTENT_INFO
-    assert metadata.get_rootfsdir_info() == ROOTFS_DIR_INFO
-    assert metadata.get_certificate_info() == CERTIFICATE_INFO
+    metadata_jwt = generate_jwt(payload_str, dir_test)
+    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    metadata = parser.get_otametadata()
+    assert metadata.directory.asdict() == DIR_INFO
+    assert metadata.symboliclink.asdict() == SYMLINK_INFO
+    assert metadata.regular.asdict() == REGULAR_INFO
+    assert metadata.persistent.asdict() == PERSISTENT_INFO
+    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert metadata.rootfs_directory == ROOTFS_DIR_INFO
     with pytest.raises(ValueError):
-        metadata.verify(Path(dir_test / "keys" / "sign.pem").read_bytes())
+        # NOTE: intentionally use sign.key as sign cert here,
+        #       to test verify against invalid cert
+        parser.verify_metadata(Path(dir_test / "keys" / "sign.key").read_bytes())
     if "total_regular_size" in payload_str:
-        assert metadata.get_total_regular_file_size() == TOTAL_REGULAR_SIZE
+        assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.get_total_regular_file_size() is None
+        assert metadata.total_regular_size is None
 
 
 # try to include as any special characters as possible
