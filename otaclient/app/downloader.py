@@ -26,8 +26,9 @@ from typing import Any, Callable, Dict, Optional, Union
 from requests.adapters import HTTPAdapter
 from requests.exceptions import (
     HTTPError,
-    RequestException,
     ChunkedEncodingError,
+    ConnectionError,
+    RequestException,
     RetryError,
 )
 from urllib3.util.retry import Retry
@@ -232,7 +233,7 @@ class Downloader:
                     _downloaded_bytes += len(data)
         except RetryError as e:
             raise ExceedMaxRetryError(url, dst, f"{e!r}")
-        except ChunkedEncodingError as e:
+        except (ChunkedEncodingError, ConnectionError) as e:
             # streaming interrupted
             raise ChunkStreamingError(url, dst) from e
         except HTTPError as e:
