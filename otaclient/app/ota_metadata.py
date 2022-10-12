@@ -28,6 +28,7 @@ from typing import (
     ClassVar,
     Dict,
     Generic,
+    Iterator,
     List,
     Optional,
     TypeVar,
@@ -117,7 +118,7 @@ class MetaFieldDescriptor(Generic[FV]):
 class ParseMetadataHelper:
     HASH_ALG = "sha256"
 
-    def __init__(self, metadata_jwt: str, *, certs_dir: str):
+    def __init__(self, metadata_jwt: str, *, certs_dir: Union[str, Path]):
         self.cert_dir = Path(certs_dir)
 
         # pre_parse metadata_jwt
@@ -273,6 +274,15 @@ class OTAMetadata:
                 if (fn := f.name) in entry:
                     setattr(res, fn, entry)
         return res
+
+    def get_metafiles(self) -> Iterator[MetaFile]:
+        for f in fields(self):
+            if (
+                (fd := getattr(self.__class__, f.name))
+                and isinstance(fd, MetaFieldDescriptor)
+                and fd.field_type is MetaFile
+            ):
+                yield getattr(self, f.name)
 
 
 # meta files entry classes

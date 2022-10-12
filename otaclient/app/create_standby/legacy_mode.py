@@ -80,8 +80,9 @@ class LegacyMode(StandbySlotCreatorProtocol):
         self.boot_dir = Path(update_meta.boot_dir)
 
         # the location of image at the ota server root
-        self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
-        self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
+        self.image_base_url = urljoin(
+            update_meta.url_base, f"{self.metadata.rootfs_directory}/"
+        )
 
         # internal used vars
         self._passwd_file = Path(cfg.PASSWD_FILE)
@@ -98,13 +99,13 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def _process_directory(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
 
-        list_info = self.metadata.get_directories_info()
+        list_info = self.metadata.directory
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
             # NOTE: do not use cache when fetching dir list
             self._downloader.download(
-                list_info["file"],
+                list_info.file,
                 Path(f.name),
-                list_info["hash"],
+                list_info.hash,
                 cookies=self.cookies,
                 url_base=self.url_base,
                 headers={
@@ -126,13 +127,13 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def _process_symlink(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.SYMLINK)
 
-        list_info = self.metadata.get_symboliclinks_info()
+        list_info = self.metadata.symboliclink
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
             # NOTE: do not use cache when fetching symlink list
             self._downloader.download(
-                list_info["file"],
+                list_info.file,
                 Path(f.name),
-                list_info["hash"],
+                list_info.hash,
                 url_base=self.url_base,
                 cookies=self.cookies,
                 headers={
@@ -149,14 +150,14 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def _process_regular(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
 
-        list_info = self.metadata.get_regulars_info()
+        list_info = self.metadata.regular
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
             # download the regulars.txt
             # NOTE: do not use cache when fetching regular files list
             self._downloader.download(
-                list_info["file"],
+                list_info.file,
                 Path(f.name),
-                list_info["hash"],
+                list_info.hash,
                 url_base=self.url_base,
                 cookies=self.cookies,
                 headers={
@@ -169,13 +170,13 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def _process_persistent(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.PERSISTENT)
 
-        list_info = self.metadata.get_persistent_info()
+        list_info = self.metadata.persistent
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
             # NOTE: do not use cache when fetching persist files list
             self._downloader.download(
-                list_info["file"],
+                list_info.file,
                 Path(f.name),
-                list_info["hash"],
+                list_info.hash,
                 url_base=self.url_base,
                 cookies=self.cookies,
                 headers={

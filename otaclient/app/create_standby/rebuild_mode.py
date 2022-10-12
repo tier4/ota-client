@@ -18,7 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Semaphore
-from typing import Callable, ClassVar, Dict, List
+from typing import Callable, List
 from urllib.parse import urljoin
 
 from ..errors import NetworkError, OTAError, StandbySlotSpaceNotEnoughError
@@ -65,12 +65,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
     MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
     OTA_TMP_STORE = cfg.OTA_TMP_STORE
     META_FOLDER = cfg.META_FOLDER
-    META_FILES: ClassVar[Dict[str, str]] = {
-        "dirs.txt": "get_directories_info",
-        "regulars.txt": "get_regulars_info",
-        "persistents.txt": "get_persistent_info",
-        "symlinks.txt": "get_symboliclinks_info",
-    }
 
     def __init__(
         self,
@@ -91,8 +85,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self.reference_slot_mp = Path(update_meta.ref_slot_mount_point)
 
         # the location of image at the ota server root
-        self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
-        self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
+        self.image_base_url = urljoin(
+            update_meta.url_base, f"{self.metadata.rootfs_directory}/"
+        )
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
@@ -111,12 +106,11 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _prepare_meta_files(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.METADATA)
         try:
-            for fname, method in self.META_FILES.items():
-                list_info = getattr(self.metadata, method)()
+            for meta_f in self.metadata.get_metafiles():
                 self._downloader.download(
-                    path=list_info["file"],
-                    dst=self._recycle_folder / fname,
-                    digest=list_info["hash"],
+                    path=meta_f.file,
+                    dst=self._recycle_folder / meta_f.file,
+                    digest=meta_f.hash,
                     url_base=self.url_base,
                     cookies=self.cookies,
                     headers={
@@ -192,8 +186,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")
-        for fname, _ in self.META_FILES.items():
-            _src = self._recycle_folder / fname
+        for meta_f in self.metadata.get_metafiles():
+            _src = self._recycle_folder / meta_f.file
             shutil.copy(_src, _dst)
 
     def _process_symlinks(self):

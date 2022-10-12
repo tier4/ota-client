@@ -38,7 +38,7 @@ from .create_standby import StandbySlotCreatorProtocol, UpdateMeta
 from .downloader import DownloadError, Downloader
 from .interface import OTAClientProtocol
 from .errors import InvalidUpdateRequest
-from .ota_metadata import OtaMetadata
+from .ota_metadata import ParseMetadataHelper
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
 from .proxy_info import proxy_cfg
@@ -155,11 +155,14 @@ class _OTAUpdater:
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
-            metadata = OtaMetadata(meta_file.read_text())
+            _parser = ParseMetadataHelper(
+                meta_file.read_text(), certs_dir=cfg.CERTS_DIR
+            )
+            metadata = _parser.get_otametadata()
 
             # download certificate and verify metadata against this certificate
-            cert_info = metadata.get_certificate_info()
-            cert_fname, cert_hash = cert_info["file"], cert_info["hash"]
+            cert_info = metadata.certificate
+            cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file: Path = Path(d) / cert_fname
             self._downloader.download(
                 cert_fname,
@@ -172,7 +175,7 @@ class _OTAUpdater:
                 },
             )
 
-            metadata.verify(cert_file.read_bytes())
+            _parser.verify_metadata(cert_file.read_bytes())
             return metadata
 
     def _pre_update(self, url_base: str, cookies_json: str):
@@ -206,7 +209,7 @@ class _OTAUpdater:
         )
 
         # set total_regular_file_size to stats store
-        if total_regular_file_size := metadata.get_total_regular_file_size():
+        if total_regular_file_size := metadata.total_regular_size:
             self.update_stats_collector.set_total_regular_files_size(
                 total_regular_file_size
             )
