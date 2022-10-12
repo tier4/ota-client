@@ -13,23 +13,26 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import base64
 import json
 import os
 import re
 import shutil
-from dataclasses import dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from OpenSSL import crypto
 from pathlib import Path
-from pprint import pformat
 from functools import partial
 from typing import (
     Any,
     ClassVar,
     Dict,
+    Generic,
     List,
     Optional,
+    TypeVar,
     Union,
+    overload,
 )
 
 from .configs import config as cfg
@@ -40,28 +43,70 @@ logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+FV = TypeVar("FV")
+
 
 @dataclass
 class MetaFile:
     file: str
-    sha256hash: str
+    hash: str
+
+    def asdict(self):
+        return asdict(self)
 
 
-class _MetaFileDescriptor:
+class MetaFieldDescriptor(Generic[FV]):
     HASH_KEY = "hash"  # version1
 
-    def __get__(self, obj, objtype=None) -> "Union[MetaFile, _MetaFileDescriptor]":
+    def __init__(self, field_type: type, *, default=None) -> None:
+        self.field_type = field_type
+        # NOTE: if field not presented, set to None
+        self.default = default
+
+    @overload
+    def __get__(self, obj: None, objtype: type) -> "MetaFieldDescriptor":
+        """Descriptor accessed via class."""
+        ...
+
+    @overload
+    def __get__(self, obj, objtype: type) -> FV:
+        """Descriptor accessed via bound instance."""
+        ...
+
+    def __get__(self, obj, objtype=None) -> "Union[FV, MetaFieldDescriptor]":
         if obj and not isinstance(obj, type):
             return getattr(obj, self._private_name)  # access via instance
         return self  # access via class, return the descriptor
 
     def __set__(self, obj, value: Any) -> None:
-        if isinstance(value, dict):  # only set value when input is valid
-            setattr(
-                obj,
-                self._private_name,
-                MetaFile(file=value[self._file_fn], sha256hash=value[self.HASH_KEY]),
-            )
+        if isinstance(value, type(self)):
+            setattr(obj, self._private_name, self.default)
+            return  # handle dataclass default value setting
+
+        if isinstance(value, dict):
+            """
+            expecting input like
+                {
+                    "version": 1
+                }
+            or
+                {
+                    "symboliclink": "symlinks.txt",
+                    "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
+                },
+            """
+            # special treatment for MetaFile field
+            if self.field_type is MetaFile:
+                setattr(
+                    obj,
+                    self._private_name,
+                    MetaFile(file=value[self._file_fn], hash=value[self.HASH_KEY]),
+                )
+            else:
+                # use <field_type> to do default conversion before assignment
+                setattr(obj, self._private_name, self.field_type(value[self._file_fn]))
+        else:
+            setattr(obj, self._private_name, self.field_type(value))
 
     def __set_name__(self, owner: type, name: str):
         self.owner = owner
@@ -70,24 +115,33 @@ class _MetaFileDescriptor:
 
 
 class ParseMetadataHelper:
+    HASH_ALG = "sha256"
+
     def __init__(self, metadata_jwt: str, *, certs_dir: str):
         self.cert_dir = Path(certs_dir)
+
         # pre_parse metadata_jwt
         jwt_list = metadata_jwt.split(".")
-        self.header_json = base64.urlsafe_b64decode(jwt_list[0])
-        self.payload_json = base64.urlsafe_b64decode(jwt_list[1])
-        self.signature = base64.urlsafe_b64decode(jwt_list[2])
+        # the content(b64encoded, bytes) of metadata
+        self.metadata_bytes = ".".join(jwt_list[:2]).encode()
+        # the signature of content
+        self.metadata_signature = base64.urlsafe_b64decode(jwt_list[2])
+        # header(bytes) and payload(bytes) parts of metadata content
+        self.header_bytes = base64.urlsafe_b64decode(jwt_list[0])
+        self.payload_bytes = base64.urlsafe_b64decode(jwt_list[1])
         logger.debug(
-            f"JWT header: {self.header_json.decode()}\n"
-            f"JWT payload: {self.payload_json.decode()}"
-            f"JWT signature: {self.signature}"
+            f"JWT header: {self.header_bytes.decode()}\n"
+            f"JWT payload: {self.payload_bytes.decode()}\n"
+            f"JWT signature: {self.metadata_signature}"
         )
-        # parse metadata payload
-        self.ota_metadata = OTAMetadata.parse_payload(self.payload_json)
-        logger.info(f"metadata={pformat(self.ota_metadata)}")
+
+        # parse metadata payload into OTAMetadata
+        self.ota_metadata = OTAMetadata.parse_payload(self.payload_bytes)
+        logger.debug(f"metadata={self.ota_metadata!r}")
 
     def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
-        """
+        """Verify the metadata's sign cert against local pinned CA.
+
         Raises:
             Raise ValueError on verification failed.
         """
@@ -139,8 +193,13 @@ class ParseMetadataHelper:
         """
         try:
             cert = crypto.load_certificate(crypto.FILETYPE_PEM, metadata_cert)
-            logger.debug(f"verify data: {self.header_json.decode()}")
-            crypto.verify(cert, self.signature, self.header_json, "sha256")
+            logger.debug(f"verify data: {self.metadata_bytes=}")
+            crypto.verify(
+                cert,
+                self.metadata_signature,
+                self.metadata_bytes,
+                self.HASH_ALG,
+            )
         except Exception as e:
             logger.exception("verify")
             raise ValueError(e)
@@ -183,15 +242,16 @@ class OTAMetadata:
     SCHEME_VERSION: ClassVar[int] = 1
     VERSION_KEY: ClassVar[str] = "version"
     # metadata scheme
-    version: int = 1
-    total_regular_size: int = 0  # in bytes
-    rootfs_directory: str = ""
-    compressed_rootfs_directory: Optional[str] = None
-    directory: _MetaFileDescriptor = _MetaFileDescriptor()
-    symboliclink: _MetaFileDescriptor = _MetaFileDescriptor()
-    regular: _MetaFileDescriptor = _MetaFileDescriptor()
-    persistent: _MetaFileDescriptor = _MetaFileDescriptor()
-    certificate: _MetaFileDescriptor = _MetaFileDescriptor()
+    version: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)
+    total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)  # in bytes
+    rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(str)
+    compressed_rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(str)
+    # metadata files definition
+    directory: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
+    symboliclink: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
+    regular: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
+    persistent: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
+    certificate: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
 
     @classmethod
     def parse_payload(cls, _input: Union[str, bytes]) -> "OTAMetadata":
@@ -211,10 +271,7 @@ class OTAMetadata:
             # parse other fields
             for f in fields(cls):
                 if (fn := f.name) in entry:
-                    if isinstance(getattr(cls, fn), _MetaFileDescriptor):
-                        setattr(res, fn, entry)
-                    else:
-                        setattr(res, fn, entry[fn])
+                    setattr(res, fn, entry)
         return res
 
 
