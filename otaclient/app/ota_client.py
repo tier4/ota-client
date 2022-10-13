@@ -20,7 +20,7 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Dict, Optional, Tuple, Type
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from .errors import (
     BaseOTAMetaVerificationFailed,
@@ -145,12 +145,12 @@ class _OTAUpdater:
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             meta_file = Path(d) / "metadata.jwt"
             # NOTE: do not use cache when fetching metadata
+            metadata_jwt_url = urljoin(f"{url_base.rstrip('/')}/", "metadata.jwt")
             self._downloader.download(
-                "metadata.jwt",
+                metadata_jwt_url,
                 meta_file,
-                None,
-                url_base=url_base,
                 cookies=cookies,
+                proxies=self.proxies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
@@ -165,11 +165,11 @@ class _OTAUpdater:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file: Path = Path(d) / cert_fname
             self._downloader.download(
-                cert_fname,
+                urljoin(f"{url_base.rstrip('/')}/", cert_fname),
                 cert_file,
-                cert_hash,
-                url_base=url_base,
+                digest=cert_hash,
                 cookies=cookies,
+                proxies=self.proxies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
@@ -229,6 +229,7 @@ class _OTAUpdater:
             update_meta=self._updatemeta,
             stats_collector=self.update_stats_collector,
             update_phase_tracker=self._set_update_phase,
+            downloader=self._downloader,
         )
         # start to constructing standby bank
         _standby_slot_creator.create_standby_slot()
@@ -244,8 +245,8 @@ class _OTAUpdater:
 
     def shutdown(self):
         self.update_phase = None
+        self.proxies = None
         self.update_stats_collector.stop()
-        self._downloader.cleanup_proxy()
 
     def update_progress(self) -> Tuple[str, wrapper.StatusProgress]:
         """
@@ -290,13 +291,15 @@ class _OTAUpdater:
             url_base = _url_base._replace(path=_path).geturl()
 
             # configure proxy if needed before entering update
-            self._downloader.cleanup_proxy()
+            self.proxies = None
             if proxy := proxy_cfg.get_proxy_for_local_ota():
                 logger.info("use local ota_proxy")
                 # wait for stub to setup the local ota_proxy server
                 if not fsm.client_wait_for_ota_proxy():
                     raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
-                self._downloader.configure_proxy(proxy)
+                # NOTE(20221013): check requests document for how to set proxy,
+                #                 we only support using http proxy here.
+                self.proxies = {"http": proxy}
 
             # launch collector
             # init ota_update_stats collector
