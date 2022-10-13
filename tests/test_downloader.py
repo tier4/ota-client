@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urljoin
 
 
-from otaclient.app.common import file_sha256
+from otaclient.app.common import file_sha256, urljoin_ensure_base
 from otaclient.app.downloader import (
     Downloader,
     DestinationNotAvailableError,
@@ -116,7 +116,7 @@ class TestDownloader:
     def test_normal_download(self, tmp_path: Path):
         _target_path = tmp_path / self.TEST_FILE
 
-        url = urljoin(f"{cfg.OTA_IMAGE_URL.rstrip('/')}/", self.TEST_FILE)
+        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
         _error = self.downloader.download(
             url,
             _target_path,
@@ -130,7 +130,7 @@ class TestDownloader:
     def test_download_mismatch_sha256(self, tmp_path: Path):
         _target_path = tmp_path / self.TEST_FILE
 
-        url = urljoin(f"{cfg.OTA_IMAGE_URL.rstrip('/')}/", self.TEST_FILE)
+        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(HashVerificaitonError):
             self.downloader.download(
                 url,
@@ -177,7 +177,7 @@ class TestDownloader:
 
         _downloader = Downloader()
         _target_path = tmp_path / self.TEST_FILE
-        url = urljoin(f"{cfg.OTA_IMAGE_URL.rstrip('/')}/", self.TEST_FILE)
+        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(expected_ota_download_err):
             _downloader.download(
                 url,

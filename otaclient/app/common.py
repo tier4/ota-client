@@ -26,6 +26,7 @@ from hashlib import sha256
 from pathlib import Path
 from threading import Event, Semaphore
 from typing import Callable, Optional, Set, Union
+from urllib.parse import urljoin
 
 from .log_util import get_logger
 from .configs import config as cfg
@@ -284,6 +285,17 @@ def re_symlink_atomic(src: Path, target: Union[Path, str]):
         except Exception:
             tmp_link.unlink(missing_ok=True)
             raise
+
+
+def urljoin_ensure_base(base: str, url: str):
+    """
+    NOTE: this method ensure the base_url will be preserved.
+          for example:
+            base="http://example.com/data", url="path/to/file"
+          with urljoin, joined url will be "http://example.com/path/to/file",
+          with this func, joined url will be "http://example.com/data/path/to/file"
+    """
+    return urljoin(f"{base.rstrip('/')}/", url)
 
 
 class SimpleTasksTracker:

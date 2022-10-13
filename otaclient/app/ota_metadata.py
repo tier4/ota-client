@@ -20,7 +20,7 @@ import os
 import re
 import shutil
 from dataclasses import asdict, dataclass, field, fields
-from urllib.parse import quote, urljoin
+from urllib.parse import quote
 from OpenSSL import crypto
 from pathlib import Path
 from functools import partial
@@ -39,7 +39,7 @@ from typing import (
 )
 
 from .configs import config as cfg
-from .common import verify_file
+from .common import urljoin_ensure_base, verify_file
 from . import log_util
 
 logger = log_util.get_logger(
@@ -288,17 +288,17 @@ class OTAMetadata:
 
     def get_image_data_url(self, base_url: str) -> str:
         if getattr(self, "_data_url", None) is None:
-            _base_url = f"{base_url.rstrip('/')}/"  # ensure base_url ends with /
-            self._data_url = urljoin(_base_url, self.rootfs_directory.lstrip("/"))
-        return f"{self._data_url.rstrip('/')}/"
+            self._data_url = urljoin_ensure_base(
+                base_url, f"{self.rootfs_directory.strip('/')}/"
+            )
+        return self._data_url
 
     def get_image_compressed_data_url(self, base_url: str) -> str:
         if getattr(self, "_compressed_data_url", None) is None:
-            _base_url = f"{base_url.rstrip('/')}/"  # ensure base_url ends with /
-            self._compressed_data_url = urljoin(
-                _base_url, self.compressed_rootfs_directory.lstrip("/")
+            self._compressed_data_url = urljoin_ensure_base(
+                base_url, f"{self.compressed_rootfs_directory.strip('/')}/"
             )
-        return f"{self._compressed_data_url.rstrip('/')}/"
+        return self._compressed_data_url
 
     def get_download_url(
         self, reg_inf: RegularInf, *, base_url: str
@@ -316,7 +316,7 @@ class OTAMetadata:
             and reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG
         ):
             return (
-                urljoin(
+                urljoin_ensure_base(
                     self.get_image_compressed_data_url(base_url),
                     quote(f"{reg_inf.sha256hash}.{reg_inf.compressed_alg}"),
                 ),
@@ -326,7 +326,7 @@ class OTAMetadata:
         # example: http://example.com/base_url/data/rootfs/full/path/file
         else:
             return (
-                urljoin(
+                urljoin_ensure_base(
                     self.get_image_data_url(base_url),
                     quote(str(reg_inf.path.relative_to("/"))),
                 ),

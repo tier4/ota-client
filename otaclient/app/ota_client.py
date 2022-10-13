@@ -20,7 +20,7 @@ from json.decoder import JSONDecodeError
 from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Dict, Optional, Tuple, Type
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from .errors import (
     BaseOTAMetaVerificationFailed,
@@ -32,7 +32,7 @@ from .errors import (
     OTAUpdateError,
 )
 from .boot_control import BootControllerProtocol
-from .common import OTAFileCacheControl
+from .common import OTAFileCacheControl, urljoin_ensure_base
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol, UpdateMeta
 from .downloader import DownloadError, Downloader
@@ -145,7 +145,7 @@ class _OTAUpdater:
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             meta_file = Path(d) / "metadata.jwt"
             # NOTE: do not use cache when fetching metadata
-            metadata_jwt_url = urljoin(f"{url_base.rstrip('/')}/", "metadata.jwt")
+            metadata_jwt_url = urljoin_ensure_base(url_base, "metadata.jwt")
             self._downloader.download(
                 metadata_jwt_url,
                 meta_file,
@@ -165,7 +165,7 @@ class _OTAUpdater:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file: Path = Path(d) / cert_fname
             self._downloader.download(
-                urljoin(f"{url_base.rstrip('/')}/", cert_fname),
+                urljoin_ensure_base(url_base, cert_fname),
                 cert_file,
                 digest=cert_hash,
                 cookies=cookies,
