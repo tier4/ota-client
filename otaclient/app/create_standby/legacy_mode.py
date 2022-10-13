@@ -19,10 +19,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urljoin
 
 from ..errors import ApplyOTAUpdateFailed, OTAError, StandbySlotSpaceNotEnoughError
-from ..common import SimpleTasksTracker, OTAFileCacheControl
+from ..common import SimpleTasksTracker, OTAFileCacheControl, urljoin_ensure_base
 from ..configs import config as cfg
 from ..copy_tree import CopyTree
 from ..downloader import (
@@ -69,7 +68,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
-        self.url_base = f"{update_meta.url_base.rstrip('/')}/"
+        self.url_base = update_meta.url_base
 
         self.stats_collector = stats_collector
         self.update_phase_tracker: Callable = update_phase_tracker
@@ -94,7 +93,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         list_info = self.metadata.directory
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
-            url = urljoin(self.url_base, list_info.file)
+            url = urljoin_ensure_base(self.url_base, list_info.file)
             # NOTE: do not use cache when fetching dir list
             self._downloader.download(
                 url,
@@ -123,7 +122,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         list_info = self.metadata.symboliclink
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
-            url = urljoin(self.url_base, list_info.file)
+            url = urljoin_ensure_base(self.url_base, list_info.file)
             # NOTE: do not use cache when fetching symlink list
             self._downloader.download(
                 url,
@@ -147,7 +146,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         list_info = self.metadata.regular
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
-            url = urljoin(self.url_base, list_info.file)
+            url = urljoin_ensure_base(self.url_base, list_info.file)
             # download the regulars.txt
             # NOTE: do not use cache when fetching regular files list
             self._downloader.download(
@@ -168,7 +167,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
 
         list_info = self.metadata.persistent
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
-            url = urljoin(self.url_base, list_info.file)
+            url = urljoin_ensure_base(self.url_base, list_info.file)
             # NOTE: do not use cache when fetching persist files list
             self._downloader.download(
                 url,

@@ -18,10 +18,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, List
-from urllib.parse import quote, urljoin
+from urllib.parse import quote
 
 from ..errors import NetworkError, OTAError, StandbySlotSpaceNotEnoughError
-from ..common import SimpleTasksTracker, OTAFileCacheControl
+from ..common import SimpleTasksTracker, OTAFileCacheControl, urljoin_ensure_base
 from ..configs import config as cfg
 from ..errors import (
     ApplyOTAUpdateFailed,
@@ -75,7 +75,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
-        self.url_base = f"{update_meta.url_base.rstrip('/')}/"
+        self.url_base = update_meta.url_base
         self.stats_collector = stats_collector
         self.update_phase_tracker = update_phase_tracker
 
@@ -103,7 +103,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self.update_phase_tracker(wrapper.StatusProgressPhase.METADATA)
         try:
             for meta_f in self.metadata.get_metafiles():
-                meta_f_url = urljoin(self.url_base, quote(meta_f.file))
+                meta_f_url = urljoin_ensure_base(self.url_base, quote(meta_f.file))
                 self._downloader.download(
                     meta_f_url,
                     self._recycle_folder / meta_f.file,
