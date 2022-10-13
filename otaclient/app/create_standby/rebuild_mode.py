@@ -124,15 +124,16 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _cal_and_prepare_delta(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
 
-        # TODO: hardcoded regulars.txt
         # TODO 2: old_reg is not used currently
         logger.info("generating delta...")
 
+        regular_inf_fname = self.metadata.regular.file
+        dir_inf_fname = self.metadata.directory.file
         try:
             delta_calculator = DeltaGenerator(
-                old_reg=Path(self.META_FOLDER) / "regulars.txt",
-                new_reg=self._recycle_folder / "regulars.txt",
-                new_dirs=self._recycle_folder / "dirs.txt",
+                old_reg=Path(self.META_FOLDER) / regular_inf_fname,
+                new_reg=self._recycle_folder / regular_inf_fname,
+                new_dirs=self._recycle_folder / dir_inf_fname,
                 ref_root=self.reference_slot_mp,
                 recycle_folder=self._recycle_folder,
                 stats_collector=self.stats_collector,
@@ -167,7 +168,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             dst_group_file=self.standby_slot_mp / _group_file.relative_to("/"),
         )
 
-        with open(self._recycle_folder / "persistents.txt", "r") as f:
+        persist_inf_fname = self.metadata.persistent.file
+        with open(self._recycle_folder / persist_inf_fname, "r") as f:
             for entry_line in f:
                 perinf = PersistentInf(entry_line)
                 if (
@@ -188,7 +190,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             shutil.copy(_src, _dst)
 
     def _process_symlinks(self):
-        with open(self._recycle_folder / "symlinks.txt", "r") as f:
+        symlink_inf_fname = self.metadata.symboliclink.file
+        with open(self._recycle_folder / symlink_inf_fname, "r") as f:
             for entry_line in f:
                 SymbolicLinkInf(entry_line).link_at_mount_point(self.standby_slot_mp)
 
