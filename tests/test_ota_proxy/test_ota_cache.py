@@ -18,6 +18,7 @@ import logging
 import pytest
 import random
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 from pathlib import Path
 from typing import Dict, List, Tuple, Coroutine
 
@@ -39,7 +40,7 @@ class TestLRUCacheHelper:
                     url=url,
                     bucket_idx=target_size,
                     size=target_size,
-                    sha256hash=str(target_size),
+                    sha256hash=sha256(str(target_size).encode()).hexdigest(),
                 )
 
         return entries
@@ -95,7 +96,7 @@ class TestLRUCacheHelper:
         # test 2: reserve space for 16 * 1024 bucket
         # the next bucket is not empty, so we expecte to remove one entry from the next bucket
         target_bucket, next_bucket = 16 * 1024, 32 * 1024
-        expected_hash = str(next_bucket)
+        expected_hash = sha256(str(next_bucket).encode()).hexdigest()
         assert (
             entries_to_be_removed := self.cache_helper.rotate_cache(target_bucket)
         ) and entries_to_be_removed[0] == expected_hash

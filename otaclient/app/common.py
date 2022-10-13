@@ -56,16 +56,6 @@ class OTAFileCacheControl(enum.Enum):
     header = "Ota-File-Cache-Control"
     header_lower = "ota-file-cache-control"
 
-    @classmethod
-    def parse_to_enum_set(cls, input: str) -> Set["OTAFileCacheControl"]:
-        res = set()
-        for policy in input.split(","):
-            try:
-                res.add(OTAFileCacheControl[policy.strip()])
-            except KeyError:
-                pass
-        return res
-
 
 # file verification
 def file_sha256(filename: Union[Path, str]) -> str:
