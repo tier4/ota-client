@@ -325,7 +325,7 @@ class SimpleTasksTracker:
         if self._interrupted.is_set() or self._register_finished:
             return
 
-        self._se.acquire()
+        self._se.acquire(blocking=True)
         self._in_num = next(self._in_counter)
         self._futs.add(fut)
 
