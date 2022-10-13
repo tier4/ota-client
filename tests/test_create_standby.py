@@ -21,6 +21,7 @@ from pytest_mock import MockerFixture
 from otaclient.app.create_standby.interface import UpdateMeta
 from otaclient.app.create_standby.legacy_mode import LegacyMode
 from otaclient.app.create_standby.rebuild_mode import RebuildMode
+from otaclient.app.downloader import Downloader
 from otaclient.app.ota_metadata import ParseMetadataHelper
 from otaclient.app.proto import wrapper
 from otaclient.app.update_stats import OTAUpdateStatsCollector
@@ -57,6 +58,14 @@ class _Common:
             yield
         finally:
             _collector.stop()
+
+    @pytest.fixture(autouse=True)
+    def prepare_downloader(self):
+        try:
+            self._downloader = Downloader()
+            yield
+        finally:
+            self._downloader.shutdown()
 
     @pytest.fixture
     def prepare_certsdir(self):
@@ -103,6 +112,7 @@ class Test_RebuildMode(_Common):
             update_meta=self.update_meta,
             stats_collector=self._collector,
             update_phase_tracker=update_phase_tracker,
+            downloader=self._downloader,
         )
         builder.create_standby_slot()
 
@@ -169,6 +179,7 @@ class Test_LegacyMode(_Common):
             update_meta=self.update_meta,
             stats_collector=self._collector,
             update_phase_tracker=update_phase_tracker,
+            downloader=self._downloader,
         )
         builder.create_standby_slot()
 
