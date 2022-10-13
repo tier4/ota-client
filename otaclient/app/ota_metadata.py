@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 from dataclasses import asdict, dataclass, field, fields
+from urllib.parse import urljoin
 from OpenSSL import crypto
 from pathlib import Path
 from functools import partial
@@ -283,6 +284,20 @@ class OTAMetadata:
                 and fd.field_type is MetaFile
             ):
                 yield getattr(self, f.name)
+
+    def get_image_data_url(self, base_url: str) -> str:
+        if getattr(self, "_data_url", None) is None:
+            _base_url = f"{base_url.rstrip('/')}/"  # ensure base_url ends with /
+            self._data_url = urljoin(_base_url, self.rootfs_directory.lstrip("/"))
+        return self._data_url
+
+    def get_image_compressed_data_url(self, base_url: str) -> str:
+        if getattr(self, "_compressed_data_url", None) is None:
+            _base_url = f"{base_url.rstrip('/')}/"  # ensure base_url ends with /
+            self._compressed_data_url = urljoin(
+                _base_url, self.compressed_rootfs_directory.lstrip("/")
+            )
+        return self._compressed_data_url
 
 
 # meta files entry classes
