@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from logging import INFO
 from pathlib import Path
-from typing import Dict, Set
+from typing import Dict, Tuple
 
 from otaclient import __file__ as _otaclient__init__
 
@@ -107,7 +107,7 @@ class BaseConfig:
     META_FOLDER: str = "/opt/ota/image-meta"
 
     # compressed OTA image support
-    SUPPORTED_COMPRESS_ALG: Set[str] = {"zst"}
+    SUPPORTED_COMPRESS_ALG: Tuple[str] = ("zst",)
 
 
 @dataclass

@@ -290,7 +290,7 @@ class OTAMetadata:
         if getattr(self, "_data_url", None) is None:
             _base_url = f"{base_url.rstrip('/')}/"  # ensure base_url ends with /
             self._data_url = urljoin(_base_url, self.rootfs_directory.lstrip("/"))
-        return self._data_url
+        return f"{self._data_url.rstrip('/')}/"
 
     def get_image_compressed_data_url(self, base_url: str) -> str:
         if getattr(self, "_compressed_data_url", None) is None:
@@ -298,7 +298,7 @@ class OTAMetadata:
             self._compressed_data_url = urljoin(
                 _base_url, self.compressed_rootfs_directory.lstrip("/")
             )
-        return self._compressed_data_url
+        return f"{self._compressed_data_url.rstrip('/')}/"
 
     def get_download_url(
         self, reg_inf: RegularInf, *, base_url: str

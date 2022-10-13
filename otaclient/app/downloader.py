@@ -142,8 +142,6 @@ class Downloader:
     RETRY_ON_STATUS_CODE = {413, 429, 500, 502, 503, 504}
 
     def _thread_initializer(self):
-        self._local = threading.local()
-
         ### setup the requests.Session ###
         session = requests.Session()
         # init retry mechanism
@@ -183,6 +181,7 @@ class Downloader:
         return self._local._zstd_dctx
 
     def __init__(self) -> None:
+        self._local = threading.local()
         self._executor = ThreadPoolExecutor(
             max_workers=min(self.MAX_DOWNLOAD_THREADS, (os.cpu_count() or 1) + 4),
             thread_name_prefix="downloader",
