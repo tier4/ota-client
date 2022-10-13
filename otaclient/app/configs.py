@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from logging import INFO
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Set
 
 from otaclient import __file__ as _otaclient__init__
 
@@ -96,14 +96,18 @@ class BaseConfig:
     LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
     DOWNLOAD_RETRY: int = 10
     DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
-    MAX_CONCURRENT_DOWNLOAD: int = 8
     MAX_CONCURRENT_TASKS: int = 128
+    MAX_DOWNLOAD_THREAD: int = 3
+    MAX_CONCURRENT_DOWNLOAD_PER_THREAD: int = 3
     STATS_COLLECT_INTERVAL: int = 1  # second
     ## standby creation mode, default to rebuild now
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
     # NOTE: the following 2 folders are meant to be located under standby_slot
     OTA_TMP_STORE: str = "/ota-tmp"
     META_FOLDER: str = "/opt/ota/image-meta"
+
+    # compressed OTA image support
+    SUPPORTED_COMPRESS_ALG: Set[str] = {"zst"}
 
 
 @dataclass

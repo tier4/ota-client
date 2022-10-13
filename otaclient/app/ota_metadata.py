@@ -20,7 +20,7 @@ import os
 import re
 import shutil
 from dataclasses import asdict, dataclass, field, fields
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 from OpenSSL import crypto
 from pathlib import Path
 from functools import partial
@@ -299,6 +299,28 @@ class OTAMetadata:
             )
         return self._compressed_data_url
 
+    def get_download_url(self, reg_inf: RegularInf, *, base_url: str) -> str:
+        """
+        NOTE: compressed file is located under another OTA image remote folder
+        """
+        # v2 OTA image, with zst compression enabled
+        # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.zst
+        if (
+            reg_inf.compressed_alg
+            and reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG
+        ):
+            return urljoin(
+                self.get_image_compressed_data_url(base_url),
+                quote(f"{reg_inf.sha256hash}.{reg_inf.compressed_alg}"),
+            )
+        # v1 OTA image, uncompressed and use full path as URL path
+        # example: http://example.com/base_url/data/rootfs/full/path/file
+        else:
+            return urljoin(
+                self.get_image_data_url(base_url),
+                quote(str(reg_inf.path.relative_to("/"))),
+            )
+
 
 # meta files entry classes
 
@@ -414,8 +436,8 @@ class PersistentInf:
 class RegularInf:
     """RegularInf scheme for regulars.txt.
 
-    format: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode]]
-    example: 0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'path/to/file',1234,12345678
+    format: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode,[compressed_alg]]]
+    example: 0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'path/to/file',1234,12345678,zst
 
     NOTE: size and inode sections are both optional, if inode exists, size must exist.
     NOTE 2: path should always be relative to '/', not relative to any mount point!
@@ -430,9 +452,14 @@ class RegularInf:
     _base: str
     size: Optional[int] = None
     inode: Optional[str] = None
+    compressed_alg: Optional[str] = None
 
+    # NOTE(20221013): support previous regular_inf cvs version
+    #                 that doesn't contain size, inode and compressed_alg fields.
     _reginf_pa: ClassVar[re.Pattern] = re.compile(
-        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'(,(?P<size>\d+)(,(?P<inode>\d+))?)?"
+        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+)"
+        r",(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'"
+        r"(,(?P<size>\d+)(,(?P<inode>\d+)(,(?P<compressed_alg>\w+))?)?)?"
     )
 
     @classmethod
@@ -450,13 +477,15 @@ class RegularInf:
         # special treatment for /boot folder
         _base = "/boot" if str(path).startswith("/boot") else "/"
 
-        size, inode = None, None
+        size, inode, compressed_alg = None, None, None
         if _size := _ma.group("size"):
             size = int(_size)
             # ensure that size exists before parsing inode
-            # it's OK to skip checking of inode,
-            # as un-existed inode will be matched to None
+            # and compressed_alg field.
+            # it's OK to skip checking as un-existed fields
+            # will be None anyway.
             inode = _ma.group("inode")
+            compressed_alg = _ma.group("compressed_alg")
 
         return cls(
             mode=mode,
@@ -467,6 +496,7 @@ class RegularInf:
             sha256hash=sha256hash,
             size=size,
             inode=inode,
+            compressed_alg=compressed_alg,
             _base=_base,
         )
 
