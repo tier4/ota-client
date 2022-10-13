@@ -133,7 +133,7 @@ class Downloader:
         r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     )
     MAX_DOWNLOAD_THREADS = cfg.MAX_DOWNLOAD_THREAD
-    MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD_PER_THREAD
+    MAX_CONCURRENT_DOWNLOAD = cfg.DOWNLOADER_CONNPOOL_SIZE_PER_THREAD
     CHUNK_SIZE = cfg.CHUNK_SIZE
     RETRY_COUNT = cfg.DOWNLOAD_RETRY
     BACKOFF_FACTOR = 1
@@ -267,10 +267,27 @@ class Downloader:
 
         return _err_count
 
-    def download(self, *args, **kwargs):
+    def download(
+        self,
+        url: str,
+        dst: Union[str, Path],
+        *,
+        size: Optional[int] = None,
+        digest: Optional[str] = None,
+        proxies: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        zstd_decompressed=False,
+    ):
         """Dispatcher for download tasks."""
         return self._executor.submit(
             self._download_task,
-            *args,
-            **kwargs,
+            url,
+            dst,
+            size=size,
+            digest=digest,
+            proxies=proxies,
+            cookies=cookies,
+            headers=headers,
+            zstd_decompressed=zstd_decompressed,
         ).result()
