@@ -306,25 +306,24 @@ class OTAMetadata:
 
     def get_download_url(
         self, reg_inf: RegularInf, *, base_url: str
-    ) -> Tuple[str, bool]:
+    ) -> Tuple[str, Optional[str]]:
         """
         NOTE: compressed file is located under another OTA image remote folder
 
         Returns:
             A tuple of download url and zstd_compression enable flag.
         """
-        # v2 OTA image, with zst compression enabled
-        # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.zst
+        # v2 OTA image, with compression enabled
+        # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
         if (
-            reg_inf.compressed_alg
-            and reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG
-        ):
+            compress_alg := reg_inf.compressed_alg
+        ) and compress_alg in cfg.SUPPORTED_COMPRESS_ALG:
             return (
                 urljoin_ensure_base(
                     self.get_image_compressed_data_url(base_url),
                     quote(f"{reg_inf.sha256hash}.{reg_inf.compressed_alg}"),
                 ),
-                True,
+                compress_alg,
             )
         # v1 OTA image, uncompressed and use full path as URL path
         # example: http://example.com/base_url/data/rootfs/full/path/file
@@ -334,7 +333,7 @@ class OTAMetadata:
                     self.get_image_data_url(base_url),
                     quote(str(reg_inf.path.relative_to("/"))),
                 ),
-                False,
+                None,
             )
 
 

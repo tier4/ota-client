@@ -107,7 +107,7 @@ class BaseConfig:
     META_FOLDER: str = "/opt/ota/image-meta"
 
     # compressed OTA image support
-    SUPPORTED_COMPRESS_ALG: Tuple[str] = ("zst",)
+    SUPPORTED_COMPRESS_ALG: Tuple[str, ...] = ("zst", "zstd")
 
 
 @dataclass

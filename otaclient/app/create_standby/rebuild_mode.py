@@ -244,7 +244,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             if not _local_copy_available:
                 cur_stat.op = RegProcessOperation.OP_DOWNLOAD
 
-                entry_url, zstd_enabled = self.metadata.get_download_url(
+                entry_url, compression_alg = self.metadata.get_download_url(
                     entry, base_url=self.url_base
                 )
                 cur_stat.errors = self._downloader.download(
@@ -254,7 +254,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     size=entry.size,
                     proxies=self.proxies,
                     cookies=self.cookies,
-                    zstd_decompressed=zstd_enabled,
+                    compression_alg=compression_alg,
                 )
                 _local_copy_available = True
 

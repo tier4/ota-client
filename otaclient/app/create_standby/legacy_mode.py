@@ -244,7 +244,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         )
                         processed.op = RegProcessOperation.OP_COPY
                     else:
-                        url, compressed = self.metadata.get_download_url(
+                        url, compression_alg = self.metadata.get_download_url(
                             reginf, base_url=self.url_base
                         )
                         processed.errors = self._downloader.download(
@@ -254,7 +254,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                             size=reginf.size,
                             proxies=self.proxies,
                             cookies=self.cookies,
-                            zstd_decompressed=compressed,
+                            compression_alg=compression_alg,
                         )
                         processed.op = RegProcessOperation.OP_DOWNLOAD
 
@@ -282,7 +282,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 )
                 processed.op = RegProcessOperation.OP_COPY
             else:
-                url, compressed = self.metadata.get_download_url(
+                url, compression_alg = self.metadata.get_download_url(
                     reginf, base_url=self.url_base
                 )
                 processed.errors = self._downloader.download(
@@ -292,7 +292,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     size=reginf.size,
                     proxies=self.proxies,
                     cookies=self.cookies,
-                    zstd_decompressed=compressed,
+                    compression_alg=compression_alg,
                 )
                 processed.op = RegProcessOperation.OP_DOWNLOAD
 
