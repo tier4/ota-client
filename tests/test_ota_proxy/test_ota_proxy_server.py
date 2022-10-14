@@ -1,12 +1,32 @@
+# Copyright 2022 TIER IV, INC. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+import aiohttp
 import asyncio
 import logging
 import time
 import pytest
+import random
+import shutil
 import uvicorn
 from hashlib import sha256
-from urllib.parse import quote, unquote
-from pytest_mock import MockerFixture
+from urllib.parse import quote, unquote, urljoin
 from pathlib import Path
+from typing import List
+
+from otaclient.app.ota_metadata import RegularInf
 from tests.conftest import cfg
 
 logger = logging.getLogger(__name__)
@@ -34,6 +54,8 @@ async def _start_uvicorn_server(server: uvicorn.Server):
 class TestOTAProxyServer:
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
+    REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
+    CLIENTS_NUM = 6
 
     @pytest.fixture
     def test_inst(self):
@@ -44,25 +66,16 @@ class TestOTAProxyServer:
         return self
 
     @pytest.fixture(autouse=True)
-    async def setup_ota_proxy_server(
-        self, test_inst, tmp_path: Path, mocker: MockerFixture
-    ):
+    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path):
         self = test_inst  # use real test inst as self, see test_inst fixture above
         import uvicorn
         from otaclient.ota_proxy import App, OTACache
-        from otaclient.ota_proxy.config import Config
 
         ota_cache_dir = tmp_path / "ota-cache"
         ota_cache_dir.mkdir(parents=True, exist_ok=True)
         ota_cachedb = ota_cache_dir / "cachedb"
         self.ota_cache_dir = ota_cache_dir  # bind to test inst
         self.ota_cachedb = ota_cachedb
-        # mock the ota-cache dir location
-        ota_proxy_cfg = Config()
-        ota_proxy_cfg.BASE_DIR = str(ota_cache_dir)
-        ota_proxy_cfg.DB_FILE = str(ota_cachedb)
-        mocker.patch(f"{cfg.OTAPROXY_MODULE_PATH}.ota_cache.cfg", ota_proxy_cfg)
-        self.ota_proxy_cfg = ota_proxy_cfg
 
         # create a OTACache instance within the test process
         _ota_cache = OTACache(
@@ -70,6 +83,8 @@ class TestOTAProxyServer:
             upper_proxy="",
             enable_https=False,
             init_cache=True,
+            base_dir=ota_cache_dir,
+            db_file=ota_cachedb,
         )
         _config = uvicorn.Config(
             App(_ota_cache),
@@ -87,18 +102,26 @@ class TestOTAProxyServer:
             await asyncio.sleep(1)  # wait before otaproxy server is ready
             yield
         finally:
+            shutil.rmtree(ota_cache_dir, ignore_errors=True)
             try:
                 await otaproxy_inst.shutdown()
             except Exception:
                 pass  # ignore exp on shutting down
+
+    @pytest.fixture(scope="class")
+    def parse_regulars(self):
+        regular_entries: List[RegularInf] = []
+        with open(self.REGULARS_TXT_PATH, "r") as f:
+            regular_entries = [RegularInf.parse_reginf(line) for line in f]
+        return regular_entries
 
     async def test_download_file_with_special_fname(self):
         """
         Test the basic functionality of ota_proxy:
             download and cache a file with special name
         """
-        import aiohttp
         import sqlite3
+        from otaclient.ota_proxy import config as cfg
 
         # get the special file via otaproxy from the ota image server
         async with aiohttp.ClientSession() as session:
@@ -107,9 +130,9 @@ class TestOTAProxyServer:
             ) as resp:
                 assert resp.status == 200
                 assert (resp_text := await resp.text(encoding="utf-8"))
+        await asyncio.sleep(1)  # wait sometime to ensure cache file is created
         # assert the contents is the same across cache, response and original
         original = Path(SPECIAL_FILE_FPATH).read_text(encoding="utf-8")
-        await asyncio.sleep(0.5)  # wait sometime to ensure cache entry is saved
         cache_entry = Path(self.ota_cache_dir / SPECIAL_FILE_SHA256HASH).read_text(
             encoding="utf-8"
         )
@@ -120,12 +143,41 @@ class TestOTAProxyServer:
         # assert the cache entry existed in the database
         with sqlite3.connect(self.ota_cachedb) as conn:
             conn.row_factory = sqlite3.Row
-            cur = conn.execute(f"SELECT * FROM {self.ota_proxy_cfg.TABLE_NAME}")
+            cur = conn.execute(f"SELECT * FROM {cfg.TABLE_NAME}")
             # check db definition for details
             row = cur.fetchone()
             assert (
                 row["url"] == unquote(SPECIAL_FILE_URL)
                 and row["last_access"] < time.time()
-                and row["hash"] == SPECIAL_FILE_SHA256HASH
+                and row["sha256hash"] == SPECIAL_FILE_SHA256HASH
                 and row["size"] == len(SPECIAL_FILE_CONTENT.encode())
             )
+
+    async def ota_image_downloader(self, regular_entries, sync_event: asyncio.Event):
+        """Test single client download the whole ota image."""
+        async with aiohttp.ClientSession() as session:
+            await sync_event.wait()
+            await asyncio.sleep(random.randrange(100, 200) // 100)
+            for entry in regular_entries:
+                url = urljoin(
+                    cfg.OTA_IMAGE_URL, quote(f'/data/{entry.path.relative_to("/")}')
+                )
+                async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
+                    hash_f = sha256()
+                    async for data, _ in resp.content.iter_chunks():
+                        hash_f.update(data)
+                    assert hash_f.hexdigest() == entry.sha256hash
+
+    async def test_multiple_clients_download_ota_image(self, parse_regulars):
+        sync_event = asyncio.Event()
+        tasks: List[asyncio.Task] = []
+        for _ in range(self.CLIENTS_NUM):
+            tasks.append(
+                asyncio.create_task(
+                    self.ota_image_downloader(parse_regulars, sync_event)
+                )
+            )
+        logger.info("all clients have started to download ota image...")
+        sync_event.set()
+
+        await asyncio.gather(*tasks, return_exceptions=False)
