@@ -143,7 +143,7 @@ class ParseMetadataHelper:
         logger.debug(f"metadata={self.ota_metadata!r}")
 
     def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
-        """Verify the metadata's sign cert against local pinned CA.
+        """Verify the metadata's sign certificate against local pinned CA.
 
         Raises:
             Raise ValueError on verification failed.
@@ -186,11 +186,14 @@ class ParseMetadataHelper:
             except crypto.X509StoreContextError as e:
                 logger.info(f"verify against {ca_prefix} failed: {e}")
 
-        logger.error(f"certificate {metadata_cert} could not be verified")
-        raise ValueError(f"certificate {metadata_cert} could not be verified")
+        logger.error(f"metadata sign certificate {metadata_cert} could not be verified")
+        raise ValueError(
+            f"metadata sign certificate {metadata_cert} could not be verified"
+        )
 
     def _verify_metadata(self, metadata_cert: bytes):
-        """
+        """Verify metadata against sign certificate.
+
         Raises:
             Raise ValueError on validation failed.
         """
@@ -203,9 +206,10 @@ class ParseMetadataHelper:
                 self.metadata_bytes,
                 self.HASH_ALG,
             )
-        except Exception as e:
-            logger.exception("verify")
-            raise ValueError(e)
+        except crypto.Error as e:
+            msg = f"failed to verify metadata against sign cert: {e!r}"
+            logger.error(msg)
+            raise ValueError(msg) from None
 
     def get_otametadata(self) -> "OTAMetadata":
         """Get parsed OTAMetaData.
