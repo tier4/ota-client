@@ -22,10 +22,9 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
-from typing import Set, Tuple
+from typing import Tuple
 
 from otaclient.app.common import (
-    OTAFileCacheControl,
     SimpleTasksTracker,
     copytree_identical,
     file_sha256,
@@ -51,20 +50,6 @@ def file_t(tmp_path: Path) -> Tuple[str, str, int]:
     test_f = tmp_path / "test_file"
     test_f.write_text(_TEST_FILE_CONTENT)
     return str(test_f), _TEST_FILE_SHA256, _TEST_FILE_LENGTH
-
-
-@pytest.mark.parametrize(
-    "_input, expected",
-    (
-        (
-            "use_cache,retry_caching",
-            {OTAFileCacheControl.use_cache, OTAFileCacheControl.retry_caching},
-        ),
-        ("no_cache", {OTAFileCacheControl.no_cache}),
-    ),
-)
-def test_parse_to_enum_set(_input: str, expected: Set[OTAFileCacheControl]):
-    assert OTAFileCacheControl.parse_to_enum_set(_input) == expected
 
 
 def test_file_sha256(file_t: Tuple[str, str, int]):

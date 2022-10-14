@@ -18,8 +18,9 @@ import aiohttp
 from http import HTTPStatus
 from typing import Any, Dict, List, Union
 
-from . import ota_cache
-from .config import OTAFileCacheControl, config as cfg
+from .cache_control import OTAFileCacheControl
+from .ota_cache import OTACache
+from .config import config as cfg
 
 import logging
 
@@ -56,7 +57,7 @@ class App:
         uvicorn.run(app, host="0.0.0.0", port=8082, log_level="debug", lifespan="on")
     """
 
-    def __init__(self, ota_cache: ota_cache.OTACache):
+    def __init__(self, ota_cache: OTACache):
         self._lock = asyncio.Lock()
         self._closed = True
         self._ota_cache = ota_cache
@@ -181,9 +182,17 @@ class App:
 
         respond_started = False
         try:
-            fp, meta = await self._ota_cache.retrieve_file(
+            _bundle = await self._ota_cache.retrieve_file(
                 url, cookies_dict, extra_headers, ota_cache_control_policies
             )
+            if _bundle is None:
+                await self._respond_with_error(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    f"failed to retrieve fp for {url}",
+                    send,
+                )
+                return
+            fp, meta = _bundle
 
             # NOTE: currently only record content_type and content_encoding
             headers = []
