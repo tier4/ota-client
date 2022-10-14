@@ -17,8 +17,10 @@ import asyncio
 import os
 import time
 import http.server as http_server
+import zstandard
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Union
 from functools import partial
 from pathlib import Path
 
@@ -173,3 +175,9 @@ class DummySubECU:
             available_ecu_ids=[self.ecu_id],
         )
         return res
+
+
+def zstd_compress_file(src: Union[str, Path], dst: Union[str, Path]):
+    cctx = zstandard.ZstdCompressor()
+    with open(src, "rb") as src_f, open(dst, "wb") as dst_f:
+        cctx.copy_stream(src_f, dst_f)

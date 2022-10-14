@@ -35,6 +35,7 @@ from otaclient.app.downloader import (
 )
 
 from tests.conftest import TestConfiguration as cfg
+from tests.utils import zstd_compress_file
 
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,17 @@ class TestDownloader:
     TEST_FILE_SHA256 = file_sha256(TEST_FILE_PATH)
     TEST_FILE_SIZE = len(TEST_FILE_PATH.read_bytes())
 
+    @pytest.fixture
+    def prepare_zstd_compressed_files(self):
+        # prepare a compressed file under OTA image dir,
+        # and then remove it after test finished
+        try:
+            self.zstd_compressed = Path(cfg.OTA_IMAGE_DIR) / f"{self.TEST_FILE}.zst"
+            zstd_compress_file(self.TEST_FILE_PATH, self.zstd_compressed)
+            yield
+        finally:
+            self.zstd_compressed.unlink(missing_ok=True)
+
     @pytest.fixture(autouse=True)
     def launch_downloader(self, mocker: pytest_mock.MockerFixture):
         mocker.patch.object(Downloader, "BACKOFF_MAX", 0.1)
@@ -124,6 +136,28 @@ class TestDownloader:
             size=self.TEST_FILE_SIZE,
         )
 
+        assert _error == 0
+        assert file_sha256(_target_path) == self.TEST_FILE_SHA256
+
+    def test_download_zstd_compressed_file(
+        self, tmp_path: Path, prepare_zstd_compressed_files
+    ):
+        _target_path = tmp_path / self.TEST_FILE
+
+        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, f"{self.TEST_FILE}.zst")
+        # first test directly download without decompression
+        _error = self.downloader.download(url, _target_path)
+        assert _error == 0
+        assert file_sha256(_target_path) == file_sha256(self.zstd_compressed)
+
+        # second, test dwonloader with transparent zstd decompression
+        _error = self.downloader.download(
+            url,
+            _target_path,
+            digest=self.TEST_FILE_SHA256,
+            size=self.TEST_FILE_SIZE,
+            compression_alg="zst",
+        )
         assert _error == 0
         assert file_sha256(_target_path) == self.TEST_FILE_SHA256
 
