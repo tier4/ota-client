@@ -475,7 +475,7 @@ class RegularInf:
     _reginf_pa: ClassVar[re.Pattern] = re.compile(
         r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+)"
         r",(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'"
-        r"(,(?P<size>\d+)(,(?P<inode>\d+)(,(?P<compressed_alg>\w+))?)?)?"
+        r"(,(?P<size>\d+)?(,(?P<inode>\d+)?(,(?P<compressed_alg>\w+)?)?)?)?"
     )
 
     @classmethod
