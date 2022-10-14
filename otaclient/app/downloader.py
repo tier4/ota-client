@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from abc import abstractmethod
 import errno
 import os
 import requests
@@ -22,7 +23,17 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import (
+    IO,
+    Any,
+    ByteString,
+    Callable,
+    Dict,
+    Iterator,
+    Optional,
+    Protocol,
+    Union,
+)
 from requests.adapters import HTTPAdapter
 from requests.exceptions import (
     HTTPError,
@@ -128,6 +139,32 @@ def _retry(retry: int, backoff_factor: float, backoff_max: int, func: Callable):
     return _wrapper
 
 
+class DecompressionAdapterProtocol(Protocol):
+    """DecompressionAdapter protocol for Downloader."""
+
+    @abstractmethod
+    def stream_decompressor(
+        self, src_stream: Union[IO[bytes], ByteString]
+    ) -> IO[bytes]:
+        """Decompresses the source stream.
+
+        This Method take a src_stream of compressed file and
+        return another stream that yields decompressed data chunks.
+        """
+
+
+class ZstdDecompressor(DecompressionAdapterProtocol):
+    """Zstd decompression support for Downloader."""
+
+    def __init__(self) -> None:
+        self._dctx = zstandard.ZstdDecompressor()
+
+    def stream_decompressor(
+        self, src_stream: Union[IO[bytes], ByteString]
+    ) -> IO[bytes]:
+        return self._dctx.stream_reader(src_stream)
+
+
 class Downloader:
     EMPTY_STR_SHA256 = (
         r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -167,18 +204,23 @@ class Downloader:
         session.mount("http://", adapter)
         self._local.session = session
 
-        ### setup zstd decompressor ###
-        self._local._zstd_dctx = zstandard.ZstdDecompressor()
+        ### compression support ###
+        self._local._compression_support_matrix = {}
+        # zstd decompression adapter
+        self._local._zstd = ZstdDecompressor()
+        self._local._compression_support_matrix["zst"] = self._local._zstd
+        self._local._compression_support_matrix["zstd"] = self._local._zstd
 
     @property
     def _session(self) -> requests.Session:
         """A thread-local private session."""
         return self._local.session
 
-    @property
-    def _zstd_dctx(self) -> zstandard.ZstdDecompressor:
-        """A thread-local private zstd decompressor."""
-        return self._local._zstd_dctx
+    def _get_decompressor(
+        self, compression_alg: str
+    ) -> Optional[DecompressionAdapterProtocol]:
+        """Get thread-local private decompressor adapter accordingly."""
+        return self._local._compression_support_matrix.get(compression_alg)
 
     def __init__(self) -> None:
         self._local = threading.local()
@@ -203,7 +245,7 @@ class Downloader:
         proxies: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
-        zstd_decompressed=False,
+        compression_alg: Optional[str] = None,
     ) -> int:
         # special treatment for empty file
         if dst == self.EMPTY_STR_SHA256 and not (dst_p := Path(dst)).is_file():
@@ -224,8 +266,11 @@ class Downloader:
                 raw_resp = resp.raw
                 if raw_resp.retries:
                     _err_count = len(raw_resp.retries.history)
-                if zstd_decompressed:
-                    raw_resp = self._zstd_dctx.stream_reader(raw_resp)
+                # support for compressed file
+                if compression_alg and (
+                    decompressor := self._get_decompressor(compression_alg)
+                ):
+                    raw_resp = decompressor.stream_decompressor(raw_resp)
                 while data := raw_resp.read(self.CHUNK_SIZE):
                     _hash_inst.update(data)
                     f.write(data)
@@ -276,7 +321,7 @@ class Downloader:
         proxies: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
-        zstd_decompressed=False,
+        compression_alg: Optional[str] = None,
     ):
         """Dispatcher for download tasks."""
         return self._executor.submit(
@@ -288,5 +333,5 @@ class Downloader:
             proxies=proxies,
             cookies=cookies,
             headers=headers,
-            zstd_decompressed=zstd_decompressed,
+            compression_alg=compression_alg,
         ).result()
