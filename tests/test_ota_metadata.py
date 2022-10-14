@@ -217,9 +217,46 @@ def test_ota_metadata_with_verify_certificate_exception(
 
 # try to include as any special characters as possible
 @pytest.mark.parametrize(
-    "_input,mode,uid, gid,nlink,  _hash,  path,  size, inode",
+    "_input,mode,uid, gid,nlink,  _hash,  path,  size, inode, compression_alg",
     (
-        # version 3: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode]]
+        # rev4: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode,[compression_alg]]]
+        (
+            r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',1234,12345678,zst",
+            int("0644", 8),
+            1000,
+            1000,
+            3,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            r"/aaa\,',233/to/file",
+            1234,
+            "12345678",
+            "zst",
+        ),
+        (
+            r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',1234,12345678,",
+            int("0644", 8),
+            1000,
+            1000,
+            3,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            r"/aaa\,',233/to/file",
+            1234,
+            "12345678",
+            None,
+        ),
+        (
+            r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',1234,,zst",
+            int("0644", 8),
+            1000,
+            1000,
+            3,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            r"/aaa\,',233/to/file",
+            1234,
+            None,
+            "zst",
+        ),
+        # rev3: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode]]
         (
             r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',1234,12345678",
             int("0644", 8),
@@ -230,8 +267,33 @@ def test_ota_metadata_with_verify_certificate_exception(
             r"/aaa\,',233/to/file",
             1234,
             "12345678",
+            None,  # (new in rev4)
         ),
-        # version 2: mode,uid,gid,link number,sha256sum,'path/to/file'[,size]
+        (
+            r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',1234,",
+            int("0644", 8),
+            1000,
+            1000,
+            3,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            r"/aaa\,',233/to/file",
+            1234,
+            None,
+            None,  # (new in rev4)
+        ),
+        (
+            r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',,",
+            int("0644", 8),
+            1000,
+            1000,
+            3,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            r"/aaa\,',233/to/file",
+            None,
+            None,
+            None,  # (new in rev4)
+        ),
+        # rev2: mode,uid,gid,link number,sha256sum,'path/to/file'[,size]
         (
             r"0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa,'\'',233/to/file',1234",
             int("0644", 8),
@@ -241,9 +303,10 @@ def test_ota_metadata_with_verify_certificate_exception(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa,',233/to/file",
             1234,
-            None,
+            None,  # (new in rev3)
+            None,  # (new in rev4)
         ),
-        # version 1: mode,uid,gid,link number,sha256sum,'path/to/file'
+        # rev1: mode,uid,gid,link number,sha256sum,'path/to/file'
         (
             r"0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa,'\'',233/to/file'",
             int("0644", 8),
@@ -252,8 +315,9 @@ def test_ota_metadata_with_verify_certificate_exception(
             1,
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa,',233/to/file",
-            None,
-            None,
+            None,  # (new in rev2)
+            None,  # (new in rev3)
+            None,  # (new in rev4)
         ),
     ),
 )
@@ -267,6 +331,7 @@ def test_RegularInf(
     path: str,
     size: int,
     inode: str,
+    compression_alg: str,
 ):
     from otaclient.app.ota_metadata import RegularInf
 
@@ -279,6 +344,7 @@ def test_RegularInf(
     assert str(entry.path) == path
     assert entry.size == size
     assert entry.inode == inode
+    assert entry.compressed_alg == compression_alg
 
 
 @pytest.mark.parametrize(
