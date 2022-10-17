@@ -14,3 +14,4 @@ uvicorn==0.18.3
 urllib3>=1.26.8
 aiohttp>=3.8.1
 aiofiles==0.8.0
+pycurl==7.45.1
