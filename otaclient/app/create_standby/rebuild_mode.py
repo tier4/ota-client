@@ -247,7 +247,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 entry_url, compression_alg = self.metadata.get_download_url(
                     entry, base_url=self.url_base
                 )
-                cur_stat.errors = self._downloader.download(
+                cur_stat.errors, _ = self._downloader.download(
                     entry_url,
                     _local_copy,
                     digest=entry.sha256hash,

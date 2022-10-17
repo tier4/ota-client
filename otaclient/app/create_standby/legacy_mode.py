@@ -247,7 +247,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         url, compression_alg = self.metadata.get_download_url(
                             reginf, base_url=self.url_base
                         )
-                        processed.errors = self._downloader.download(
+                        processed.errors, _ = self._downloader.download(
                             url,
                             dst,
                             digest=reginf.sha256hash,
@@ -285,7 +285,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 url, compression_alg = self.metadata.get_download_url(
                     reginf, base_url=self.url_base
                 )
-                processed.errors = self._downloader.download(
+                processed.errors, _ = self._downloader.download(
                     url,
                     dst,
                     digest=reginf.sha256hash,
@@ -300,6 +300,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 os.chown(dst, reginf.uid, reginf.gid)
                 os.chmod(dst, reginf.mode)
 
+        # TODO(20221017): should we report the real downloaded size(if compression enabled),
+        #                 or keep the previous behavior that report the original file size?
         processed.size = dst.stat().st_size
         processed.elapsed_ns = time.thread_time_ns() - begin_time
 

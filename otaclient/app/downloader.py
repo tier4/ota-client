@@ -31,6 +31,7 @@ from typing import (
     Dict,
     Optional,
     Protocol,
+    Tuple,
     Union,
 )
 from requests.adapters import HTTPAdapter
@@ -42,6 +43,7 @@ from requests.exceptions import (
     RetryError,
 )
 from urllib3.util.retry import Retry
+from urllib3.response import HTTPResponse
 
 from .configs import config as cfg
 from .common import OTAFileCacheControl
@@ -245,13 +247,17 @@ class Downloader:
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
-    ) -> int:
+    ) -> Tuple[int, int]:
         # special treatment for empty file
         if dst == self.EMPTY_STR_SHA256 and not (dst_p := Path(dst)).is_file():
             dst_p.write_bytes(b"")
-            return 0
+            return 0, 0
 
+        # NOTE: downloaded_bytes is the number of bytes we return to the caller(if compressed,
+        #       the number will be of the decompressed file)
         _hash_inst, _downloaded_bytes = self._hash_func(), 0
+        # NOTE: real_downloaded_bytes is the number of bytes we directly downloaded from remote
+        _real_downloaded_bytes = 0
         _err_count = 0
         try:
             with self._session.get(
@@ -262,18 +268,20 @@ class Downloader:
                 headers=headers,
             ) as resp, open(dst, "wb") as f:
                 resp.raise_for_status()
-                raw_resp = resp.raw
+                raw_resp: HTTPResponse = resp.raw
+                remote_fstream: IO[bytes] = resp.raw
                 if raw_resp.retries:
                     _err_count = len(raw_resp.retries.history)
                 # support for compressed file
                 if compression_alg and (
                     decompressor := self._get_decompressor(compression_alg)
                 ):
-                    raw_resp = decompressor.stream_decompressor(raw_resp)
-                while data := raw_resp.read(self.CHUNK_SIZE):
+                    remote_fstream = decompressor.stream_decompressor(remote_fstream)
+                while data := remote_fstream.read(self.CHUNK_SIZE):
                     _hash_inst.update(data)
                     f.write(data)
                     _downloaded_bytes += len(data)
+                _real_downloaded_bytes = raw_resp.tell()
         except RetryError as e:
             raise ExceedMaxRetryError(url, dst, f"{e!r}")
         except (ChunkedEncodingError, ConnectionError) as e:
@@ -308,7 +316,7 @@ class Downloader:
             logger.error(msg)
             raise HashVerificaitonError(url, dst, msg)
 
-        return _err_count
+        return _err_count, _real_downloaded_bytes
 
     def download(
         self,
@@ -321,8 +329,12 @@ class Downloader:
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
-    ):
-        """Dispatcher for download tasks."""
+    ) -> Tuple[int, int]:
+        """Dispatcher for download tasks.
+
+        Returns:
+            A tuple of ints, which are error counts and real downloaded bytes.
+        """
         return self._executor.submit(
             self._download_task,
             url,
