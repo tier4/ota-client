@@ -15,6 +15,7 @@
 
 import logging
 import json
+import yaml
 import re
 
 from .configs import LOG_FORMAT
@@ -29,7 +30,14 @@ logger.addHandler(_sh)
 
 class GreengrassConfig:
     @staticmethod
-    def parse_config(config) -> dict:
+    def parse_config(v1_config, v2_config) -> dict:
+        try:
+            return GreengrassConfig.parse_v2_config(v2_config)
+        except Exception:
+            return GreengrassConfig.parse_v1_config(v1_config)
+
+    @staticmethod
+    def parse_v1_config(config) -> dict:
         try:
             with open(config) as f:
                 cfg = json.load(f)
@@ -72,4 +80,37 @@ class GreengrassConfig:
             "cert": remove_prefix(certificate_path, "file://"),
             "region": region,
             "thing_name": remove_prefix(thing_name, "thing/"),
+        }
+
+    @staticmethod
+    def parse_v2_config(config) -> dict:
+        try:
+            with open(config) as f:
+                cfg = yaml.safe_load(f)
+        except FileNotFoundError:
+            logger.exception(f"config file is not found: file={config}")
+            raise
+        except yaml.YAMLError as e:
+            logger.exception(f"invalid yaml format: {e}")
+            raise
+
+        ca_path = cfg["system"]["rootCaPath"]
+        private_key_path = cfg["system"]["privateKeyPath"]
+        certificate_path = cfg["system"]["certificateFilePath"]
+        thing_name = cfg["system"]["thingName"]
+        # When greengrass_v2 uses TPM2.0, both private and certificate should be specified with pkcs11 notation.
+        # But certificate file is required for this module, so replace it to the actual file name and check if it exists.
+        if certificate_path.startswith("pkcs11:"):
+            certificate_path = "/greengrass/certs/gg.cert.pem"
+            with open(certificate_path) as f:
+                pass
+
+        region = cfg["services"]["aws.greengrass.Nucleus"]["configuration"]["awsRegion"]
+
+        return {
+            "ca_cert": ca_path,
+            "private_key": private_key_path,
+            "cert": certificate_path,
+            "region": region,
+            "thing_name": thing_name,
         }

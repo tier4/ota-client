@@ -14,6 +14,7 @@
 
 
 import requests
+import pycurl
 import json
 import botocore.credentials
 import botocore.session
@@ -66,27 +67,57 @@ class Boto3Session:
 
         return boto3.Session(botocore_session=session)
 
+    def _get_body(self, url, use_pycurl=False):
+        if use_pycurl:  # pycurl implementation
+            headers = [f"x-amzn-iot-thingname:{self._thing_name}"]
+            connection = pycurl.Curl()
+            connection.setopt(connection.URL, url)
+
+            if self._private_key.startswith("pkcs11:"):
+                connection.setopt(pycurl.SSLENGINE, "pkcs11")
+                connection.setopt(pycurl.SSLKEYTYPE, "eng")
+
+            # server auth option
+            connection.setopt(connection.SSL_VERIFYPEER, True)
+            connection.setopt(connection.CAINFO, self._ca_cert)
+            connection.setopt(connection.CAPATH, None)
+            connection.setopt(connection.SSL_VERIFYHOST, 2)
+
+            # client auth option
+            connection.setopt(connection.SSLCERT, self._cert)
+            connection.setopt(connection.SSLKEY, self._private_key)
+            connection.setopt(connection.HTTPHEADER, headers)
+
+            response = connection.perform_rs()
+            status = connection.getinfo(pycurl.HTTP_CODE)
+            if status // 100 != 2:
+                raise Exception(f"response error: {status=}")
+            connection.close()
+            return json.loads(response)
+        else:  # requests implementation
+            # ref: https://docs.aws.amazon.com/ja_jp/iot/latest/developerguide/authorizing-direct-aws.html
+            headers = {"x-amzn-iot-thingname": self._thing_name}
+            logger.info(f"url: {url}, headers: {headers}")
+            try:
+                response = requests.get(
+                    url,
+                    verify=self._ca_cert,
+                    cert=(self._cert, self._private_key),
+                    headers=headers,
+                )
+                response.raise_for_status()
+                return json.loads(response.text)
+            except requests.exceptions.RequestException:
+                logger.warning("requests error")
+                raise
+
     def _refresh(self, session_duration: int = 0) -> dict:
-        # ref: https://docs.aws.amazon.com/ja_jp/iot/latest/developerguide/authorizing-direct-aws.html
         url = f"https://{self._credential_provider_endpoint}/role-aliases/{self._role_alias}/credentials"
-        headers = {"x-amzn-iot-thingname": self._thing_name}
-        logger.info(f"url: {url}, headers: {headers}")
-        try:
-            response = requests.get(
-                url,
-                verify=self._ca_cert,
-                cert=(self._cert, self._private_key),
-                headers=headers,
-            )
-            response.raise_for_status()
-        except requests.exceptions.RequestException:
-            logger.warning("requests error")
-            raise
 
         try:
-            body = json.loads(response.text)
+            body = self._get_body(url, use_pycurl=True)
         except json.JSONDecodeError:
-            logger.exception(f"invalid response: resp={response.text}")
+            logger.exception(f"invalid response: resp={body}")
             raise
 
         expiry_time = body.get("credentials", {}).get("expiration")

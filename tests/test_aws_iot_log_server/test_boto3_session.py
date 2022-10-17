@@ -18,17 +18,27 @@ import os
 
 class TestBoto3Session:
     def test__refresh_credentials(self, mocker, shared_datadir):
+        import pycurl
         import requests
         from otaclient.aws_iot_log_server.boto3_session import Boto3Session
         from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
 
+        response = '{"credentials":{"accessKeyId":"123","secretAccessKey":"abc","sessionToken":"ABC","expiration":"2021-10-01T09:18:06Z"}}'
+
+        connection_mock = mocker.MagicMock()
+        connection_mock.perform_rs = mocker.MagicMock(return_value=response)
+        connection_mock.getinfo = mocker.MagicMock(return_value=200)
+        pycurl.Curl = mocker.MagicMock(return_value=connection_mock)
+
         resp_mock = mocker.MagicMock()
-        resp_mock.text = '{"credentials":{"accessKeyId":"123","secretAccessKey":"abc","sessionToken":"ABC","expiration":"2021-10-01T09:18:06Z"}}'
+        resp_mock.text = response
+
         requests.get = mocker.MagicMock(return_value=resp_mock)
         requests.raise_for_status = mocker.MagicMock()
 
         session_config = GreengrassConfig.parse_config(
-            os.path.join(os.path.join(shared_datadir, "greengrass/config.json"))
+            os.path.join(os.path.join(shared_datadir, "greengrass/config.json")),
+            None,
         )
         session = Boto3Session(
             session_config,

@@ -22,7 +22,8 @@ class TestGreengarssConfig:
         from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
 
         config = GreengrassConfig.parse_config(
-            os.path.join(shared_datadir, "greengrass/config.json")
+            os.path.join(shared_datadir, "greengrass/config.json"),
+            None,
         )
         assert config.get("ca_cert") == "/greengrass/certs/root.ca.pem"
         assert config.get("private_key") == "/greengrass/certs/gg.private.key"
@@ -34,7 +35,7 @@ class TestGreengarssConfig:
         from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
 
         with pytest.raises(Exception) as e:
-            GreengrassConfig.parse_config("no_file")
+            GreengrassConfig.parse_config("no_file", None)
 
         assert str(e.value) == "[Errno 2] No such file or directory: 'no_file'"
 
@@ -43,7 +44,34 @@ class TestGreengarssConfig:
 
         with pytest.raises(Exception) as e:
             GreengrassConfig.parse_config(
-                os.path.join(shared_datadir, "greengrass/config_invalid_thingArn.json")
+                os.path.join(shared_datadir, "greengrass/config_invalid_thingArn.json"),
+                None,
             )
 
         assert str(e.value) == "invalid thing arn: thing_arn=thing/foo-bar"
+
+    def test_parse_config_v2(self, shared_datadir):
+        from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
+
+        config = GreengrassConfig.parse_config(
+            os.path.join(shared_datadir, "greengrass/config.json"),
+            os.path.join(shared_datadir, "greengrass/config.yaml"),
+        )
+        assert config.get("ca_cert") == "/greengrass/certs/root.ca.pem"
+        assert config.get("private_key") == "/greengrass/certs/gg.private.key"
+        assert config.get("cert") == "/greengrass/certs/gg.cert.pem"
+        assert config.get("region") == "ap-northeast-1"
+        assert config.get("thing_name") == "foo-bar-v2"
+
+    def test_parse_config_illegal_v2(self, shared_datadir):
+        from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
+
+        config = GreengrassConfig.parse_config(
+            os.path.join(shared_datadir, "greengrass/config.json"),
+            os.path.join(shared_datadir, "greengrass/config.json"),  # illegal v2 format
+        )
+        assert config.get("ca_cert") == "/greengrass/certs/root.ca.pem"
+        assert config.get("private_key") == "/greengrass/certs/gg.private.key"
+        assert config.get("cert") == "/greengrass/certs/gg.cert.pem"
+        assert config.get("region") == "ap-northeast-1"
+        assert config.get("thing_name") == "foo-bar"
