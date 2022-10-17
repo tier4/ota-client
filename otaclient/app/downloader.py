@@ -29,7 +29,6 @@ from typing import (
     ByteString,
     Callable,
     Dict,
-    Iterator,
     Optional,
     Protocol,
     Union,
@@ -153,7 +152,7 @@ class DecompressionAdapterProtocol(Protocol):
         """
 
 
-class ZstdDecompressor(DecompressionAdapterProtocol):
+class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
     """Zstd decompression support for Downloader."""
 
     def __init__(self) -> None:
@@ -176,6 +175,7 @@ class Downloader:
     BACKOFF_FACTOR = 1
     OUTER_BACKOFF_FACTOR = 0.01
     BACKOFF_MAX = cfg.DOWNLOAD_BACKOFF_MAX
+    # retry on common serverside errors and clientside errors
     RETRY_ON_STATUS_CODE = {413, 429, 500, 502, 503, 504}
 
     def _thread_initializer(self):
@@ -191,7 +191,6 @@ class Downloader:
         retry_strategy = Retry(
             total=self.RETRY_COUNT,
             backoff_factor=self.BACKOFF_FACTOR,
-            # retry on common serverside errors and clientside errors
             status_forcelist=self.RETRY_ON_STATUS_CODE,
             allowed_methods=["GET"],
         )
@@ -207,7 +206,7 @@ class Downloader:
         ### compression support ###
         self._local._compression_support_matrix = {}
         # zstd decompression adapter
-        self._local._zstd = ZstdDecompressor()
+        self._local._zstd = ZstdDecompressionAdapter()
         self._local._compression_support_matrix["zst"] = self._local._zstd
         self._local._compression_support_matrix["zstd"] = self._local._zstd
 
