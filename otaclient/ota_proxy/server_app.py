@@ -215,16 +215,24 @@ class App:
             await self._respond_with_error(e.status, e.message, send)
             logger.exception(f"request for {url=} failed")
         except aiohttp.ClientConnectionError:
-            await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                "failed to connect to remote server",
-                send,
-            )
+            # terminate the transmission
+            if respond_started:
+                await send({"type": "http.response.body", "body": b""})
+            else:
+                await self._respond_with_error(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "failed to connect to remote server",
+                    send,
+                )
             logger.exception(f"request for {url=} failed")
         except aiohttp.ClientError as e:
-            await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
-            )
+            # terminate the transmission
+            if respond_started:
+                await send({"type": "http.response.body", "body": b""})
+            else:
+                await self._respond_with_error(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
+                )
             logger.exception(f"request for {url=} failed")
         except Exception as e:
             # exceptions rather than aiohttp error indicates
