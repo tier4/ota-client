@@ -15,6 +15,7 @@
 from abc import abstractmethod
 import errno
 import os
+from urllib.parse import urlsplit
 import requests
 import threading
 import time
@@ -247,11 +248,17 @@ class Downloader:
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
+        use_http_if_proxy_set: bool = True,
     ) -> Tuple[int, int]:
         # special treatment for empty file
         if dst == self.EMPTY_STR_SHA256 and not (dst_p := Path(dst)).is_file():
             dst_p.write_bytes(b"")
             return 0, 0
+
+        # NOTE: if proxy is set and use_http_if_proxy_set is true,
+        #       unconditionally change scheme to HTTP
+        if proxies and use_http_if_proxy_set and "http" in proxies:
+            url = urlsplit(url)._replace(scheme="http").geturl()
 
         # NOTE: downloaded_bytes is the number of bytes we return to the caller(if compressed,
         #       the number will be of the decompressed file)
@@ -329,6 +336,7 @@ class Downloader:
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
+        use_http_if_proxy_set: bool = True,
     ) -> Tuple[int, int]:
         """Dispatcher for download tasks.
 
@@ -345,4 +353,5 @@ class Downloader:
             cookies=cookies,
             headers=headers,
             compression_alg=compression_alg,
+            use_http_if_proxy_set=use_http_if_proxy_set,
         ).result()
