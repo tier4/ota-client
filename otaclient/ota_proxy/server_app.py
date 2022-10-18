@@ -19,6 +19,7 @@ from http import HTTPStatus
 from typing import Any, Dict, List, Union
 
 from .cache_control import OTAFileCacheControl
+from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 from .config import config as cfg
 
@@ -234,11 +235,22 @@ class App:
                     HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
                 )
             logger.exception(f"request for {url=} failed")
+        except BaseOTACacheError as e:
+            logger.exception(
+                f"request for {url=} failed due to handled ota_cache internal error"
+            )
+            # terminate the transmission
+            if respond_started:
+                await send({"type": "http.response.body", "body": b""})
+            else:
+                await self._respond_with_error(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, f"internal error: {e!r}", send
+                )
         except Exception as e:
             # exceptions rather than aiohttp error indicates
             # internal errors of ota_cache
             logger.exception(
-                f"request for {url=} failed due to ota_cache internal error"
+                f"request for {url=} failed due to unhandled ota_cache internal error"
             )
 
             # terminate the transmission
