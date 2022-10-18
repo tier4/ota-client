@@ -149,6 +149,7 @@ class TestOngoingCachingRegister:
             logger.debug(f"#{idx} is subscriber")
             # wait for writter become ready
             await _tracker.wait_for_writer(None)
+            _tracker.reader_on_done()
             return False, _tracker.meta
 
     async def test_OngoingCachingRegister(self):
