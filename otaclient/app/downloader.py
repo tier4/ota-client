@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import abstractmethod
 import errno
 import os
-from urllib.parse import urlsplit
 import requests
 import threading
 import time
 import zstandard
+import requests.exceptions
+import urllib3.exceptions
+from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
@@ -36,13 +37,7 @@ from typing import (
     Union,
 )
 from requests.adapters import HTTPAdapter
-from requests.exceptions import (
-    HTTPError,
-    ChunkedEncodingError,
-    ConnectionError,
-    RequestException,
-    RetryError,
-)
+from urllib.parse import urlsplit
 from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
 
@@ -289,16 +284,23 @@ class Downloader:
                     f.write(data)
                     _downloaded_bytes += len(data)
                 _real_downloaded_bytes = raw_resp.tell()
-        except RetryError as e:
+        except requests.exceptions.RetryError as e:
             raise ExceedMaxRetryError(url, dst, f"{e!r}")
-        except (ChunkedEncodingError, ConnectionError) as e:
+        except (
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ConnectionError,
+            urllib3.exceptions.ProtocolError,
+        ) as e:
             # streaming interrupted
             raise ChunkStreamingError(url, dst) from e
-        except HTTPError as e:
+        except requests.exceptions.HTTPError as e:
             # HTTPErrors that cannot be handled by retry,
             # include 403 and 404
             raise UnhandledHTTPError(url, dst, e.strerror)
-        except RequestException as e:
+        except (
+            requests.exceptions.RequestException,
+            urllib3.exceptions.HTTPError,
+        ) as e:
             # any errors that happens during handling request
             # and are not the above exceptions
             raise ExceedMaxRetryError(url, dst) from e
