@@ -282,7 +282,8 @@ class _OTAUpdater:
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        logger.info(f"{version=},{raw_url_base=},{cookies_json=}")
+        logger.info(f"{version=},{raw_url_base=}")
+        logger.debug(f"{cookies_json=}")
 
         try:
             # unconditionally regulate the url_base

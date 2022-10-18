@@ -104,7 +104,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
 
     def writer_on_failed(self):
         """NOTE: this method is cross-thread method"""
-        logger.warning(f"writer failed on {self.fn}, abort...")
+        logger.debug(f"writer failed on {self.fn}, abort...")
         self._is_failed.set()
 
         if not self._cache_done.is_set():

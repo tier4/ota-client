@@ -132,7 +132,7 @@ class ParseMetadataHelper:
         # header(bytes) and payload(bytes) parts of metadata content
         self.header_bytes = base64.urlsafe_b64decode(jwt_list[0])
         self.payload_bytes = base64.urlsafe_b64decode(jwt_list[1])
-        logger.debug(
+        logger.info(
             f"JWT header: {self.header_bytes.decode()}\n"
             f"JWT payload: {self.payload_bytes.decode()}\n"
             f"JWT signature: {self.metadata_signature}"
@@ -140,7 +140,7 @@ class ParseMetadataHelper:
 
         # parse metadata payload into OTAMetadata
         self.ota_metadata = OTAMetadata.parse_payload(self.payload_bytes)
-        logger.debug(f"metadata={self.ota_metadata!r}")
+        logger.info(f"metadata={self.ota_metadata!r}")
 
     def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
         """Verify the metadata's sign certificate against local pinned CA.
