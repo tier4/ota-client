@@ -100,7 +100,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         """
         if not self._cache_done.is_set():
             self._cache_done.set()
-            del self._ref_holer
+        del self._ref_holer
 
     def writer_on_failed(self):
         """NOTE: this method is cross-thread method"""
@@ -109,7 +109,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
 
         if not self._cache_done.is_set():
             self._cache_done.set()
-            del self._ref_holer
+        del self._ref_holer
 
 
 class OngoingCachingRegister:
@@ -429,6 +429,7 @@ class RemoteOTAFile:
         except Exception:  # connection failed
             self.fp_closed.set()
             self._cache_tee_aborted.set()
+            self._tracker.writer_on_failed()
             return
 
         await self._tracker.writer_on_ready(self.meta)
@@ -656,7 +657,7 @@ class OTACache:
     """
 
     CACHE_STREAM_BACKOFF_FACTOR: float = 0.1
-    CACHE_STREAM_TIMEOUT_MAX: float = 1
+    CACHE_STREAM_TIMEOUT_MAX: float = 3
 
     def __init__(
         self,
