@@ -18,6 +18,7 @@ import asyncio
 import logging
 import time
 import pytest
+import pytest_mock
 import random
 import shutil
 import uvicorn
@@ -66,7 +67,9 @@ class TestOTAProxyServer:
         return self
 
     @pytest.fixture(autouse=True)
-    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path):
+    async def setup_ota_proxy_server(
+        self, test_inst, tmp_path: Path, mocker: pytest_mock.MockerFixture
+    ):
         self = test_inst  # use real test inst as self, see test_inst fixture above
         import uvicorn
         from otaclient.ota_proxy import App, OTACache
@@ -76,6 +79,11 @@ class TestOTAProxyServer:
         ota_cachedb = ota_cache_dir / "cachedb"
         self.ota_cache_dir = ota_cache_dir  # bind to test inst
         self.ota_cachedb = ota_cachedb
+
+        # mock space availability detecting
+        # TODO: test different space availability
+        mocker.patch(f"{cfg.OTAPROXY_MODULE_PATH}.config.DISK_USE_LIMIT_HARD_P", 95)
+        mocker.patch(f"{cfg.OTAPROXY_MODULE_PATH}.config.DISK_USE_LIMIT_SOFT_P", 90)
 
         # create a OTACache instance within the test process
         _ota_cache = OTACache(
@@ -139,6 +147,7 @@ class TestOTAProxyServer:
         assert original == cache_entry == resp_text
 
         # shutdown the otaproxy server before inspecting the database
+        await asyncio.sleep(1)
         await self.otaproxy_inst.shutdown()
         # assert the cache entry existed in the database
         with sqlite3.connect(self.ota_cachedb) as conn:
@@ -181,3 +190,6 @@ class TestOTAProxyServer:
         sync_event.set()
 
         await asyncio.gather(*tasks, return_exceptions=False)
+        # check there is no tmp files left in the ota_cache dir
+        # ensure that the gc for multi-cache-streaming works
+        assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
