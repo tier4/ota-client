@@ -66,10 +66,8 @@ class TestOTAProxyServer:
         #   to get the test instance.
         return self
 
-    @pytest.fixture(autouse=True)
-    async def setup_ota_proxy_server(
-        self, test_inst, tmp_path: Path, mocker: pytest_mock.MockerFixture
-    ):
+    @pytest.fixture
+    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path):
         self = test_inst  # use real test inst as self, see test_inst fixture above
         import uvicorn
         from otaclient.ota_proxy import App, OTACache
@@ -79,11 +77,6 @@ class TestOTAProxyServer:
         ota_cachedb = ota_cache_dir / "cachedb"
         self.ota_cache_dir = ota_cache_dir  # bind to test inst
         self.ota_cachedb = ota_cachedb
-
-        # mock space availability detecting
-        # TODO: test different space availability
-        mocker.patch(f"{cfg.OTAPROXY_MODULE_PATH}.config.DISK_USE_LIMIT_HARD_P", 95)
-        mocker.patch(f"{cfg.OTAPROXY_MODULE_PATH}.config.DISK_USE_LIMIT_SOFT_P", 90)
 
         # create a OTACache instance within the test process
         _ota_cache = OTACache(
@@ -105,14 +98,49 @@ class TestOTAProxyServer:
         )
         otaproxy_inst = uvicorn.Server(_config)
         self.otaproxy_inst = otaproxy_inst
+        self.ota_cache = _ota_cache
+
+    @pytest.fixture(
+        params=["below_soft_limit", "below_hard_limit", "exceed_hard_limit"],
+        autouse=True,
+    )
+    async def launch_ota_proxy_server(
+        self,
+        mocker: pytest_mock.MockerFixture,
+        test_inst,
+        request,
+        setup_ota_proxy_server,
+    ):
+        """
+        NOTE: launch ota_proxy in different space availability condition
+        """
+        self = test_inst
+        # patch the OTACache's space availability check method
+        mocker.patch.object(
+            self.ota_cache,
+            "_background_check_free_space",
+            mocker.MagicMock(),
+        )
+        # directly set the event
+        self.space_availability = request.param
+        if request.param == "below_soft_limit":
+            self.ota_cache._storage_below_soft_limit_event.set()
+            self.ota_cache._storage_below_hard_limit_event.set()
+        elif request.param == "below_hard_limit":
+            self.ota_cache._storage_below_soft_limit_event.clear()
+            self.ota_cache._storage_below_hard_limit_event.set()
+        elif request.param == "exceed_hard_limit":
+            self.ota_cache._storage_below_soft_limit_event.clear()
+            self.ota_cache._storage_below_hard_limit_event.clear()
+
         try:
-            await _start_uvicorn_server(otaproxy_inst)
+            await _start_uvicorn_server(self.otaproxy_inst)
             await asyncio.sleep(1)  # wait before otaproxy server is ready
             yield
         finally:
-            shutil.rmtree(ota_cache_dir, ignore_errors=True)
+            shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
             try:
-                await otaproxy_inst.shutdown()
+                await self.otaproxy_inst.shutdown()
             except Exception:
                 pass  # ignore exp on shutting down
 
@@ -125,7 +153,7 @@ class TestOTAProxyServer:
 
     async def test_download_file_with_special_fname(self):
         """
-        Test the basic functionality of ota_proxy:
+        Test the basic functionality of ota_proxy under different space availability:
             download and cache a file with special name
         """
         import sqlite3
@@ -138,29 +166,39 @@ class TestOTAProxyServer:
             ) as resp:
                 assert resp.status == 200
                 assert (resp_text := await resp.text(encoding="utf-8"))
-        await asyncio.sleep(1)  # wait sometime to ensure cache file is created
         # assert the contents is the same across cache, response and original
         original = Path(SPECIAL_FILE_FPATH).read_text(encoding="utf-8")
-        cache_entry = Path(self.ota_cache_dir / SPECIAL_FILE_SHA256HASH).read_text(
-            encoding="utf-8"
-        )
-        assert original == cache_entry == resp_text
 
         # shutdown the otaproxy server before inspecting the database
-        await asyncio.sleep(1)
         await self.otaproxy_inst.shutdown()
-        # assert the cache entry existed in the database
-        with sqlite3.connect(self.ota_cachedb) as conn:
-            conn.row_factory = sqlite3.Row
-            cur = conn.execute(f"SELECT * FROM {cfg.TABLE_NAME}")
-            # check db definition for details
-            row = cur.fetchone()
-            assert (
-                row["url"] == unquote(SPECIAL_FILE_URL)
-                and row["last_access"] < time.time()
-                and row["sha256hash"] == SPECIAL_FILE_SHA256HASH
-                and row["size"] == len(SPECIAL_FILE_CONTENT.encode())
+
+        # Under different space availability, ota_proxy's behaviors are different
+        # 1. below soft limit, cache is enabled and cache entry will be presented
+        if self.space_availability == "below_soft_limit":
+            cache_entry = Path(self.ota_cache_dir / SPECIAL_FILE_SHA256HASH).read_text(
+                encoding="utf-8"
             )
+            assert original == cache_entry == resp_text
+            # assert the cache entry existed in the database
+            with sqlite3.connect(self.ota_cachedb) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.execute(f"SELECT * FROM {cfg.TABLE_NAME}")
+                # check db definition for details
+                row = cur.fetchone()
+                assert (
+                    row["url"] == unquote(SPECIAL_FILE_URL)
+                    and row["last_access"] < time.time()
+                    and row["sha256hash"] == SPECIAL_FILE_SHA256HASH
+                    and row["size"] == len(SPECIAL_FILE_CONTENT.encode())
+                )
+        # 2. exceed soft limit, below hard limit
+        #    cache is enabled, cache rotate will be executed, but since we only have one
+        #    entry, cache rotate will fail and no cache entry will be left.
+        elif self.space_availability == "below_hard_limit":
+            pass
+        # 3. exceed hard limit, cache will be disabled, no cache entry will be presented.
+        elif self.space_availability == "exceed_hard_limit":
+            pass
 
     async def ota_image_downloader(self, regular_entries, sync_event: asyncio.Event):
         """Test single client download the whole ota image."""
@@ -178,6 +216,7 @@ class TestOTAProxyServer:
                     assert hash_f.hexdigest() == entry.sha256hash
 
     async def test_multiple_clients_download_ota_image(self, parse_regulars):
+        """Test multiple client download the whole ota image simultaneously."""
         sync_event = asyncio.Event()
         tasks: List[asyncio.Task] = []
         for _ in range(self.CLIENTS_NUM):
