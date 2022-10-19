@@ -166,7 +166,6 @@ class TestDownloader:
             == _real_download_bytes_b
             == self.zstd_compressed.stat().st_size
         )
-        assert _real_download_bytes_b < self.TEST_FILE_PATH.stat().st_size
         assert file_sha256(_target_path) == self.TEST_FILE_SHA256
 
     def test_download_mismatch_sha256(self, tmp_path: Path):

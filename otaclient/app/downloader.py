@@ -192,6 +192,7 @@ class Downloader:
             status_forcelist=self.RETRY_ON_STATUS_CODE,
             allowed_methods=["GET"],
         )
+        # NOTE(20221019): download concurrent limitation is set here
         adapter = HTTPAdapter(
             pool_connections=self.MAX_CONCURRENT_DOWNLOAD,
             pool_maxsize=self.MAX_CONCURRENT_DOWNLOAD,

@@ -200,7 +200,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self._hardlink_register = HardlinkRegister()
 
         # limitation on on-going tasks
-        # NOTE(20221013): download limitation is implemented in downloader
         _tasks_tracker = SimpleTasksTracker(
             max_concurrent=self.MAX_CONCURRENT_TASKS,
             title="process_regulars",

@@ -304,7 +304,7 @@ RUN useradd -m ota-client -s /bin/bash && \
 
 Build the docker image with Dockerfile created above and export rootfs image from the docker instance.
 
-Metadata generation now support optional zstd compression, files can be compressed will be compressed and saved to another folder. Note that the original files will still be kept under main rootfs folder.
+Metadata generation now support optional zstd compression, files that can be compressed(file size or compression ratio reach threshold) will be compressed and saved to another folder. Note that the original files will still be kept under main rootfs folder.
 
 ```bash
 docker build -t ota-image .
@@ -316,7 +316,7 @@ sudo tar xf ota-image.tar -C rootfs
 
 Note: `sudo` is required to extract `ota-image.tar` since some privileged files need to be created.
 
-Generate metadata(with or with-out zstd compression) under extraced rootfs folder as follow:
+Generate metadata(with or without zstd compression) under extraced rootfs folder as follow:
 
 ```bash
 # optional zstd compression disabled
