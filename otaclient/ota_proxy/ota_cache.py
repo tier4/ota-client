@@ -67,12 +67,15 @@ _WEAKREF = TypeVar("_WEAKREF")
 class OngoingCacheTracker(Generic[_WEAKREF]):
     """A tracker for an on-going cache entry.
 
+    A tracker represents a temp cache entry under the <cache_dir>.
     This entry will disappear automatically when writer finished
-    caching and commit the cache to the database.
+    caching and commit the cache to the database, also the temp cache entry
+    will be cleaned up.
     """
 
     def __init__(self, fn: str, ref_holder: _WEAKREF):
         self.fn = fn
+        self.meta = None
         self._writer_ready = asyncio.Event()
         self._cache_done = threading.Event()
         self._is_failed = threading.Event()
@@ -87,21 +90,22 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
     def cache_done(self) -> bool:
         return self._cache_done.is_set()
 
-    async def wait_for_writer(self, timeout: Optional[float]):
-        await asyncio.wait_for(self._writer_ready.wait(), timeout=timeout)
-        if self.is_failed:
-            raise CacheMultiStreamingFailed("writer failed")
-
     async def writer_on_ready(self, meta: CacheMeta):
         """Register meta to the Tracker and get ready."""
         self.meta = meta
         self._writer_ready.set()
 
-    def reader_subscribe(self):
+    async def reader_subscribe(self, timeout: Optional[float]) -> bool:
+        """Reader subscribe this tracker.
+
+        Subscribe only succeeds when tracker is still on-going.
+        """
         try:
+            await asyncio.wait_for(self._writer_ready.wait(), timeout=timeout)
             self._subscriber_ref_holder.append(self._writer_ref_holder)
-        except AttributeError:
-            raise CacheMultiStreamingFailed("subscribe on closed tracker")
+            return not self.is_failed
+        except Exception:
+            return False
 
     def reader_on_done(self):
         try:
@@ -123,6 +127,13 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         self._is_failed.set()
         self._cache_done.set()
         del self._writer_ref_holder
+
+    def get_meta(self) -> Optional[CacheMeta]:
+        """
+        NOTE: only return on a successful cache
+        """
+        if not self.is_failed and self.cache_done:
+            return self.meta
 
 
 class OngoingCachingRegister:
@@ -147,7 +158,6 @@ class OngoingCachingRegister:
         if _ref := self._url_ref_dict.get(url):
             await _ref.wait()  # wait for writer to fully initialized
             _tracker = self._ref_tracker_dict[_ref]
-            _tracker.reader_subscribe()
             return _tracker, False
         else:
             _tmp_fn = f"tmp_{urandom(16).hex()}"
@@ -895,10 +905,9 @@ class OTACache:
                             tracker.writer_on_failed()
                     else:
                         # case 2: cache successful, but reserving space failed,
-                        # cleanup cache file
                         # NOTE(20221018): let gc to remove the tmp file
                         logger.debug(
-                            f"failed to reserve space for {meta.url=}, cleanup"
+                            f"failed to reserve space for {meta.url=}, cleanup tmp"
                         )
                         tracker.writer_on_finish()
                 else:
@@ -1066,13 +1075,21 @@ class OTACache:
             )
         # case 3.2: respond by cache streaming
         else:  # reader/subscriber
-            # if this tracker is failed, drop it
-            if _tracker.is_failed:
-                raise ValueError(f"cache corrupted on {_tracker.fn}, abort")
-            logger.debug(f"enable cache streaming for {raw_url=}")
-            # NOTE: before writer is ready, the meta attr in tracker is not set!
-            await _tracker.wait_for_writer(self.CACHE_STREAM_TIMEOUT_MAX)
-            fp = _FileDescriptorHelper.open_cache_stream(
-                _tracker, base_dir=self._base_dir, executor=self._executor
-            )
-            return fp, _tracker.meta
+            if await _tracker.reader_subscribe(self.CACHE_STREAM_TIMEOUT_MAX):
+                fp = _FileDescriptorHelper.open_cache_stream(
+                    _tracker, base_dir=self._base_dir, executor=self._executor
+                )
+                return fp, _tracker.meta  # type: ignore
+            else:
+                logger.debug(f"cache streaming tracker for {raw_url} closed")
+                # NOTE: try to get the hash value of the cached file
+                if _meta := _tracker.get_meta():
+                    logger.debug(f"use cache for {raw_url=}")
+                    fp = _FileDescriptorHelper.open_cache(
+                        _meta, base_dir=self._base_dir, executor=self._executor
+                    )
+                    return fp, _meta
+                else:
+                    raise CacheMultiStreamingFailed(
+                        f"subscribe on failed cache for {raw_url}"
+                    )
