@@ -144,13 +144,13 @@ class TestOngoingCachingRegister:
             # simulate waiting for writer finished downloading
             await self.writer_done_event.wait()
             _tracker.writer_on_finish()
-            return True, _tracker.meta
+            return True, _tracker.meta  # type: ignore
         else:
             logger.debug(f"#{idx} is subscriber")
             # wait for writter become ready
-            await _tracker.wait_for_writer(None)
+            await _tracker.reader_subscribe(None)
             _tracker.reader_on_done()
-            return False, _tracker.meta
+            return False, _tracker.meta  # type: ignore
 
     async def test_OngoingCachingRegister(self):
         coros: List[Coroutine] = []
