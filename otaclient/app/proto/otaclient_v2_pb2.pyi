@@ -64,7 +64,8 @@ class Status(_message.Message):
     def __init__(self, status: Optional[Union[StatusOta, str]] = ..., failure: Optional[Union[FailureType, str]] = ..., failure_reason: Optional[str] = ..., version: Optional[str] = ..., progress: Optional[Union[StatusProgress, Mapping]] = ...) -> None: ...
 
 class StatusProgress(_message.Message):
-    __slots__ = ["elapsed_time_copy", "elapsed_time_download", "elapsed_time_link", "errors_download", "file_size_processed_copy", "file_size_processed_download", "file_size_processed_link", "files_processed_copy", "files_processed_download", "files_processed_link", "phase", "regular_files_processed", "total_elapsed_time", "total_regular_file_size", "total_regular_files"]
+    __slots__ = ["download_bytes", "elapsed_time_copy", "elapsed_time_download", "elapsed_time_link", "errors_download", "file_size_processed_copy", "file_size_processed_download", "file_size_processed_link", "files_processed_copy", "files_processed_download", "files_processed_link", "phase", "regular_files_processed", "total_elapsed_time", "total_regular_file_size", "total_regular_files"]
+    DOWNLOAD_BYTES_FIELD_NUMBER: ClassVar[int]
     ELAPSED_TIME_COPY_FIELD_NUMBER: ClassVar[int]
     ELAPSED_TIME_DOWNLOAD_FIELD_NUMBER: ClassVar[int]
     ELAPSED_TIME_LINK_FIELD_NUMBER: ClassVar[int]
@@ -80,6 +81,7 @@ class StatusProgress(_message.Message):
     TOTAL_ELAPSED_TIME_FIELD_NUMBER: ClassVar[int]
     TOTAL_REGULAR_FILES_FIELD_NUMBER: ClassVar[int]
     TOTAL_REGULAR_FILE_SIZE_FIELD_NUMBER: ClassVar[int]
+    download_bytes: int
     elapsed_time_copy: _duration_pb2.Duration
     elapsed_time_download: _duration_pb2.Duration
     elapsed_time_link: _duration_pb2.Duration
@@ -95,7 +97,7 @@ class StatusProgress(_message.Message):
     total_elapsed_time: _duration_pb2.Duration
     total_regular_file_size: int
     total_regular_files: int
-    def __init__(self, phase: Optional[Union[StatusProgressPhase, str]] = ..., total_regular_files: Optional[int] = ..., regular_files_processed: Optional[int] = ..., files_processed_copy: Optional[int] = ..., files_processed_link: Optional[int] = ..., files_processed_download: Optional[int] = ..., file_size_processed_copy: Optional[int] = ..., file_size_processed_link: Optional[int] = ..., file_size_processed_download: Optional[int] = ..., elapsed_time_copy: Optional[Union[_duration_pb2.Duration, Mapping]] = ..., elapsed_time_link: Optional[Union[_duration_pb2.Duration, Mapping]] = ..., elapsed_time_download: Optional[Union[_duration_pb2.Duration, Mapping]] = ..., errors_download: Optional[int] = ..., total_regular_file_size: Optional[int] = ..., total_elapsed_time: Optional[Union[_duration_pb2.Duration, Mapping]] = ...) -> None: ...
+    def __init__(self, phase: Optional[Union[StatusProgressPhase, str]] = ..., total_regular_files: Optional[int] = ..., regular_files_processed: Optional[int] = ..., files_processed_copy: Optional[int] = ..., files_processed_link: Optional[int] = ..., files_processed_download: Optional[int] = ..., file_size_processed_copy: Optional[int] = ..., file_size_processed_link: Optional[int] = ..., file_size_processed_download: Optional[int] = ..., elapsed_time_copy: Optional[Union[_duration_pb2.Duration, Mapping]] = ..., elapsed_time_link: Optional[Union[_duration_pb2.Duration, Mapping]] = ..., elapsed_time_download: Optional[Union[_duration_pb2.Duration, Mapping]] = ..., errors_download: Optional[int] = ..., total_regular_file_size: Optional[int] = ..., total_elapsed_time: Optional[Union[_duration_pb2.Duration, Mapping]] = ..., download_bytes: Optional[int] = ...) -> None: ...
 
 class StatusRequest(_message.Message):
     __slots__ = []

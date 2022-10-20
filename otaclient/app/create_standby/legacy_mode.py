@@ -239,15 +239,19 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         src_mount_point=self.reference_slot_mp
                     ):
                         # copy file from active bank if hash is the same
+                        processed.op = RegProcessOperation.OP_COPY
                         reginf.copy_relative_to_mount_point(
                             self.standby_slot_mp, src_mount_point=self.reference_slot_mp
                         )
-                        processed.op = RegProcessOperation.OP_COPY
                     else:
+                        processed.op = RegProcessOperation.OP_DOWNLOAD
                         url, compression_alg = self.metadata.get_download_url(
                             reginf, base_url=self.url_base
                         )
-                        processed.errors, _ = self._downloader.download(
+                        (
+                            processed.errors,
+                            processed.download_bytes,
+                        ) = self._downloader.download(
                             url,
                             dst,
                             digest=reginf.sha256hash,
@@ -256,7 +260,6 @@ class LegacyMode(StandbySlotCreatorProtocol):
                             cookies=self.cookies,
                             compression_alg=compression_alg,
                         )
-                        processed.op = RegProcessOperation.OP_DOWNLOAD
 
                         # set file permission as RegInf says
                         os.chown(dst, reginf.uid, reginf.gid)
@@ -277,15 +280,16 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 src_mount_point=self.reference_slot_mp
             ):
                 # copy file from active bank if hash is the same
+                processed.op = RegProcessOperation.OP_COPY
                 reginf.copy_relative_to_mount_point(
                     self.standby_slot_mp, src_mount_point=self.reference_slot_mp
                 )
-                processed.op = RegProcessOperation.OP_COPY
             else:
+                processed.op = RegProcessOperation.OP_DOWNLOAD
                 url, compression_alg = self.metadata.get_download_url(
                     reginf, base_url=self.url_base
                 )
-                processed.errors, _ = self._downloader.download(
+                processed.errors, processed.download_bytes = self._downloader.download(
                     url,
                     dst,
                     digest=reginf.sha256hash,
@@ -294,7 +298,6 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     cookies=self.cookies,
                     compression_alg=compression_alg,
                 )
-                processed.op = RegProcessOperation.OP_DOWNLOAD
 
                 # set file permission as RegInf says
                 os.chown(dst, reginf.uid, reginf.gid)

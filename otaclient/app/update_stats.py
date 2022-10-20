@@ -41,16 +41,20 @@ class RegProcessOperation(Enum):
 @dataclasses.dataclass
 class RegInfProcessedStats:
     """processed_list have dictionaries as follows:
-    {"size": int}  # file size
-    {"elapsed_ns": int}  # elapsed time in nano-seconds
-    {"op": str}  # operation. "copy", "link" or "download"
-    {"errors": int}  # number of errors that occurred when downloading.
+    general fields:
+        {"size": int}  # processed file size
+        {"elapsed_ns": int}  # elapsed time in nano-seconds
+        {"op": str}  # operation. "copy", "link" or "download"
+    dedicated to download op
+        {"errors": int}  # number of errors that occurred when downloading.
+        {"download_bytes": int} # actual download size
     """
 
     op: RegProcessOperation = RegProcessOperation.OP_UNSPECIFIC
     size: int = 0
     elapsed_ns: int = 0
     errors: int = 0
+    download_bytes: int = 0
 
 
 class OTAUpdateStatsCollector:
@@ -150,6 +154,7 @@ class OTAUpdateStatsCollector:
 
                             if _suffix == RegProcessOperation.OP_DOWNLOAD.value:
                                 staging_storage[f"errors_{_suffix}"] += st.errors
+                                staging_storage.download_bytes += st.download_bytes
 
                 # cleanup already collected stats
                 self._staging.clear()

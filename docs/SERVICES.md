@@ -138,6 +138,7 @@ Response
 | errors_download | [uint64](#uint64) |  | total number of download error |
 | total_regular_file_size | [uint64](#uint64) |  | total regular file size |
 | total_elapsed_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | total elapsed time |
+| download_bytes | [uint64](#uint64) |  | data transfer volume during the whole OTA update process |
 
 
 
