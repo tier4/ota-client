@@ -42,12 +42,19 @@ class TestOTAUpdateStatsCollector:
     def workload(self, idx: int):
         """
         For odd idx, op is DOWNLOAD, for even idx, op is COPY
-        For each op, elapsed_ns is 1, size is 2
+        For each op, elapsed_ns is 1, size is 2, download_bytes is 1
         """
         op = RegProcessOperation.OP_DOWNLOAD
         if idx % 2 == 0:
             op = RegProcessOperation.OP_COPY
-        self._collector.report(RegInfProcessedStats(op=op, size=2, elapsed_ns=1))
+        self._collector.report(
+            RegInfProcessedStats(
+                op=op,
+                size=2,
+                download_bytes=1,
+                elapsed_ns=1,
+            )
+        )
 
     def test_ota_update_stats_collecting(self):
         self._collector.set_total_regular_files(self.TOTAL_FILE_NUM)
@@ -71,3 +78,5 @@ class TestOTAUpdateStatsCollector:
         )
         assert _snapshot.file_size_processed_copy == self.TOTAL_SIZE // 2
         assert _snapshot.file_size_processed_download == self.TOTAL_SIZE // 2
+        # actual download_bytes is half of the file_size_processed_download to simulate compression enabled scheme
+        assert _snapshot.download_bytes == _snapshot.file_size_processed_download // 2
