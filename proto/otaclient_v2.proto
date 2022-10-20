@@ -1,4 +1,4 @@
-// Copyright 2015 gRPC authors.
+// Copyright 2022 TIER IV, INC. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -152,6 +152,7 @@ message StatusProgress {
   uint64 errors_download = 13; // total number of download error
   uint64 total_regular_file_size = 14; // total regular file size
   google.protobuf.Duration total_elapsed_time = 15; // total elapsed time
+  uint64 download_bytes = 16; // data transfer volume during the whole OTA update process
 }
 
 message Status {
