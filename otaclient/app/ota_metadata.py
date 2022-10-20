@@ -113,6 +113,7 @@ class MetaFieldDescriptor(Generic[FV]):
 
     def __set_name__(self, owner: type, name: str):
         self.owner = owner
+        self.name = name
         self._file_fn = name
         self._private_name = f"_{owner.__name__}_{name}"
 
@@ -253,12 +254,13 @@ class OTAMetadata:
     total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)  # in bytes
     rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(str)
     compressed_rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(str)
+    # sign certificate
+    certificate: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
     # metadata files definition
     directory: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
     symboliclink: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
     regular: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
     persistent: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
-    certificate: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
 
     @classmethod
     def parse_payload(cls, _input: Union[str, bytes]) -> "OTAMetadata":
@@ -281,8 +283,22 @@ class OTAMetadata:
                     setattr(res, fn, entry)
         return res
 
-    def get_metafiles(self) -> Iterator[MetaFile]:
-        for f in fields(self):
+    def get_img_metafiles(self) -> Iterator[MetaFile]:
+        """Get the metafiles that describes the OTA image.
+
+        In version1, we have image metafiles as follow:
+            directory: all directories in the image,
+            symboliclink: all symlinks in the image,
+            regular: all normal/regular files in the image,
+            persistent: files that should be preserved across update.
+        """
+        _otameta_cls = self.__class__
+        for f in [
+            _otameta_cls.directory,
+            _otameta_cls.symboliclink,
+            _otameta_cls.regular,
+            _otameta_cls.persistent,
+        ]:
             if (
                 (fd := getattr(self.__class__, f.name))
                 and isinstance(fd, MetaFieldDescriptor)

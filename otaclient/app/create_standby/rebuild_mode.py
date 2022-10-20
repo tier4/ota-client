@@ -102,7 +102,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _prepare_meta_files(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.METADATA)
         try:
-            for meta_f in self.metadata.get_metafiles():
+            for meta_f in self.metadata.get_img_metafiles():
                 meta_f_url = urljoin_ensure_base(self.url_base, quote(meta_f.file))
                 self._downloader.download(
                     meta_f_url,
@@ -185,7 +185,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")
-        for meta_f in self.metadata.get_metafiles():
+        for meta_f in self.metadata.get_img_metafiles():
             _src = self._recycle_folder / meta_f.file
             shutil.copy(_src, _dst)
 
