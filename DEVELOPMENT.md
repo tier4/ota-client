@@ -105,11 +105,11 @@ python3 -m pytest /ota-client/tests/<specific_test_file> [<test_file_2> [...]]
 ## How to update protobuf
 
 OTA client service is using protobuf interface.
-After updating the protobuf files under `protobuf/*.proto`, some operations are required.
+After updating the protobuf files under `proto/*.proto`, some operations are required.
 
-## Updating app/otaclient_v2_pb2*py
+## Updating otaclient/app/proto/otaclient_v2_pb2*py
 
-The protobuf definition for python implementation under `app` directory should be updated.
+The protobuf definition for python implementation under `otaclient/app/proto` directory should be updated.
 
 ```bash
 python3 -m grpc_tools.protoc -I./proto --python_out=app --grpc_python_out=app ./proto/otaclient_v2.proto
