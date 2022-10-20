@@ -18,9 +18,9 @@ RUN apt-get update -qq && \
         python3-pip \
         python3-venv \
         python3-dev \
-	libcurl4-openssl-dev \
-	libssl-dev \
-	gcc \
+	    libcurl4-openssl-dev \
+	    libssl-dev \
+	    gcc \
         wget \
         git && \
     apt-get install -y -qq \
@@ -62,12 +62,15 @@ RUN source ota-metadata/.venv/bin/activate && \
     python3 -m pip install --no-cache-dir -q \
         -r ota-metadata/metadata/ota_metadata/requirements.txt && \
     python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
-        --target-dir data --ignore-file ota-metadata/metadata/ignore.txt && \
+        --target-dir data \
+        --compressed-dir data.zst \
+        --ignore-file ota-metadata/metadata/ignore.txt && \
     python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
         --sign-key sign.key \
         --cert-file sign.pem \
         --persistent-file ota-metadata/metadata/persistents.txt \
-        --rootfs-directory data && \
+        --rootfs-directory data \
+        --compressed-rootfs-directory data.zst && \
     cp ota-metadata/metadata/persistents.txt .
 
 # cleanup

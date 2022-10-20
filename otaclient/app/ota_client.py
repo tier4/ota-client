@@ -32,13 +32,13 @@ from .errors import (
     OTAUpdateError,
 )
 from .boot_control import BootControllerProtocol
-from .common import OTAFileCacheControl
+from .common import OTAFileCacheControl, urljoin_ensure_base
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol, UpdateMeta
 from .downloader import DownloadError, Downloader
 from .interface import OTAClientProtocol
 from .errors import InvalidUpdateRequest
-from .ota_metadata import OtaMetadata
+from .ota_metadata import ParseMetadataHelper
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
 from .proxy_info import proxy_cfg
@@ -145,34 +145,37 @@ class _OTAUpdater:
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             meta_file = Path(d) / "metadata.jwt"
             # NOTE: do not use cache when fetching metadata
+            metadata_jwt_url = urljoin_ensure_base(url_base, "metadata.jwt")
             self._downloader.download(
-                "metadata.jwt",
+                metadata_jwt_url,
                 meta_file,
-                None,
-                url_base=url_base,
                 cookies=cookies,
+                proxies=self.proxies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
-            metadata = OtaMetadata(meta_file.read_text())
+            _parser = ParseMetadataHelper(
+                meta_file.read_text(), certs_dir=cfg.CERTS_DIR
+            )
+            metadata = _parser.get_otametadata()
 
             # download certificate and verify metadata against this certificate
-            cert_info = metadata.get_certificate_info()
-            cert_fname, cert_hash = cert_info["file"], cert_info["hash"]
+            cert_info = metadata.certificate
+            cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file: Path = Path(d) / cert_fname
             self._downloader.download(
-                cert_fname,
+                urljoin_ensure_base(url_base, cert_fname),
                 cert_file,
-                cert_hash,
-                url_base=url_base,
+                digest=cert_hash,
                 cookies=cookies,
+                proxies=self.proxies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
 
-            metadata.verify(cert_file.read_bytes())
+            _parser.verify_metadata(cert_file.read_bytes())
             return metadata
 
     def _pre_update(self, url_base: str, cookies_json: str):
@@ -206,7 +209,7 @@ class _OTAUpdater:
         )
 
         # set total_regular_file_size to stats store
-        if total_regular_file_size := metadata.get_total_regular_file_size():
+        if total_regular_file_size := metadata.total_regular_size:
             self.update_stats_collector.set_total_regular_files_size(
                 total_regular_file_size
             )
@@ -226,6 +229,7 @@ class _OTAUpdater:
             update_meta=self._updatemeta,
             stats_collector=self.update_stats_collector,
             update_phase_tracker=self._set_update_phase,
+            downloader=self._downloader,
         )
         # start to constructing standby bank
         _standby_slot_creator.create_standby_slot()
@@ -241,8 +245,8 @@ class _OTAUpdater:
 
     def shutdown(self):
         self.update_phase = None
+        self.proxies = None
         self.update_stats_collector.stop()
-        self._downloader.cleanup_proxy()
 
     def update_progress(self) -> Tuple[str, wrapper.StatusProgress]:
         """
@@ -278,7 +282,8 @@ class _OTAUpdater:
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        logger.info(f"{version=},{raw_url_base=},{cookies_json=}")
+        logger.info(f"{version=},{raw_url_base=}")
+        logger.debug(f"{cookies_json=}")
 
         try:
             # unconditionally regulate the url_base
@@ -287,13 +292,15 @@ class _OTAUpdater:
             url_base = _url_base._replace(path=_path).geturl()
 
             # configure proxy if needed before entering update
-            self._downloader.cleanup_proxy()
+            self.proxies = None
             if proxy := proxy_cfg.get_proxy_for_local_ota():
                 logger.info("use local ota_proxy")
                 # wait for stub to setup the local ota_proxy server
                 if not fsm.client_wait_for_ota_proxy():
                     raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
-                self._downloader.configure_proxy(proxy)
+                # NOTE(20221013): check requests document for how to set proxy,
+                #                 we only support using http proxy here.
+                self.proxies = {"http": proxy}
 
             # launch collector
             # init ota_update_stats collector

@@ -21,7 +21,8 @@ from pytest_mock import MockerFixture
 from otaclient.app.create_standby.interface import UpdateMeta
 from otaclient.app.create_standby.legacy_mode import LegacyMode
 from otaclient.app.create_standby.rebuild_mode import RebuildMode
-from otaclient.app.ota_metadata import OtaMetadata
+from otaclient.app.downloader import Downloader
+from otaclient.app.ota_metadata import ParseMetadataHelper
 from otaclient.app.proto import wrapper
 from otaclient.app.update_stats import OTAUpdateStatsCollector
 
@@ -58,10 +59,23 @@ class _Common:
         finally:
             _collector.stop()
 
+    @pytest.fixture(autouse=True)
+    def prepare_downloader(self):
+        try:
+            self._downloader = Downloader()
+            yield
+        finally:
+            self._downloader.shutdown()
+
+    @pytest.fixture
+    def prepare_certsdir(self):
+        _test_dir = Path(__file__).parent
+        self.certs_dir = str(_test_dir / "keys")
+
 
 class Test_RebuildMode(_Common):
     @pytest.fixture(autouse=True)
-    def prepare_mock(self, mocker: MockerFixture, prepare_ab_slots):
+    def prepare_mock(self, mocker: MockerFixture, prepare_certsdir, prepare_ab_slots):
         cfg_path = f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.cfg"
         proxy_cfg_path = f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.proxy_cfg"
         mocker.patch(f"{cfg_path}.PASSWD_FILE", f"{self.slot_a}/etc/passwd")
@@ -77,11 +91,14 @@ class Test_RebuildMode(_Common):
         mocker.patch(f"{rebuild_mode_cls}._process_persistents")
 
         # prepare update meta
+        _parser = ParseMetadataHelper(
+            (Path(cfg.OTA_IMAGE_DIR) / "metadata.jwt").read_text(),
+            certs_dir=self.certs_dir,
+        )
+        ota_meta = _parser.get_otametadata()
         self.update_meta = UpdateMeta(
             cookies={},
-            metadata=OtaMetadata(
-                (Path(cfg.OTA_IMAGE_DIR) / "metadata.jwt").read_text()
-            ),
+            metadata=ota_meta,
             url_base=f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}",
             boot_dir=str(self.slot_b_boot_dir),
             standby_slot_mount_point=str(self.slot_b),
@@ -95,6 +112,7 @@ class Test_RebuildMode(_Common):
             update_meta=self.update_meta,
             stats_collector=self._collector,
             update_phase_tracker=update_phase_tracker,
+            downloader=self._downloader,
         )
         builder.create_standby_slot()
 
@@ -123,7 +141,7 @@ class Test_RebuildMode(_Common):
 
 class Test_LegacyMode(_Common):
     @pytest.fixture(autouse=True)
-    def prepare_mock(self, prepare_ab_slots, mocker: MockerFixture):
+    def prepare_mock(self, mocker: MockerFixture, prepare_certsdir, prepare_ab_slots):
         module_root = f"{cfg.CREATE_STANDBY_MODULE_PATH}.legacy_mode"
 
         cfg_path = f"{module_root}.cfg"
@@ -140,11 +158,14 @@ class Test_LegacyMode(_Common):
         mocker.patch(f"{legacy_mode_cls}._process_persistent")
 
         # prepare update meta
+        _parser = ParseMetadataHelper(
+            (Path(cfg.OTA_IMAGE_DIR) / "metadata.jwt").read_text(),
+            certs_dir=self.certs_dir,
+        )
+        ota_meta = _parser.get_otametadata()
         self.update_meta = UpdateMeta(
             cookies={},
-            metadata=OtaMetadata(
-                (Path(cfg.OTA_IMAGE_DIR) / "metadata.jwt").read_text()
-            ),
+            metadata=ota_meta,
             url_base=f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}",
             boot_dir=str(self.slot_b_boot_dir),
             standby_slot_mount_point=str(self.slot_b),
@@ -158,6 +179,7 @@ class Test_LegacyMode(_Common):
             update_meta=self.update_meta,
             stats_collector=self._collector,
             update_phase_tracker=update_phase_tracker,
+            downloader=self._downloader,
         )
         builder.create_standby_slot()
 

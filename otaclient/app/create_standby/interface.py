@@ -16,7 +16,9 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Protocol
-from ..ota_metadata import OtaMetadata
+
+from otaclient.app.downloader import Downloader
+from ..ota_metadata import OTAMetadata
 from ..proto import wrapper
 from ..update_stats import OTAUpdateStatsCollector
 
@@ -26,7 +28,7 @@ class UpdateMeta:
     """Meta info for standby slot creator to update slot."""
 
     cookies: Dict[str, Any]  # cookies needed for requesting remote ota files
-    metadata: OtaMetadata  # meta data for the update request
+    metadata: OTAMetadata  # meta data for the update request
     url_base: str  # base url of the remote ota image
     boot_dir: str  # where to populate files under /boot
     standby_slot_mount_point: str
@@ -53,6 +55,7 @@ class StandbySlotCreatorProtocol(Protocol):
         update_meta: UpdateMeta,
         stats_collector: OTAUpdateStatsCollector,
         update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
+        downloader: Downloader,
     ) -> None:
         ...
 

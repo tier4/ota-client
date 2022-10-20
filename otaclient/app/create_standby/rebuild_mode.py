@@ -17,12 +17,11 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Semaphore
-from typing import Callable, ClassVar, Dict, List
-from urllib.parse import urljoin
+from typing import Callable, List
+from urllib.parse import quote
 
 from ..errors import NetworkError, OTAError, StandbySlotSpaceNotEnoughError
-from ..common import SimpleTasksTracker, OTAFileCacheControl
+from ..common import SimpleTasksTracker, OTAFileCacheControl, urljoin_ensure_base
 from ..configs import config as cfg
 from ..errors import (
     ApplyOTAUpdateFailed,
@@ -35,6 +34,7 @@ from ..proxy_info import proxy_cfg
 from ..downloader import (
     ChunkStreamingError,
     DestinationNotAvailableError,
+    DownloadError,
     Downloader,
     ExceedMaxRetryError,
     HashVerificaitonError,
@@ -61,16 +61,9 @@ logger = log_util.get_logger(
 
 
 class RebuildMode(StandbySlotCreatorProtocol):
-    MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
     MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
     OTA_TMP_STORE = cfg.OTA_TMP_STORE
     META_FOLDER = cfg.META_FOLDER
-    META_FILES: ClassVar[Dict[str, str]] = {
-        "dirs.txt": "get_directories_info",
-        "regulars.txt": "get_regulars_info",
-        "persistents.txt": "get_persistent_info",
-        "symlinks.txt": "get_symboliclinks_info",
-    }
 
     def __init__(
         self,
@@ -78,6 +71,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         update_meta: UpdateMeta,
         stats_collector: OTAUpdateStatsCollector,
         update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
+        downloader: Downloader,
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
@@ -90,10 +84,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self.standby_slot_mp = Path(update_meta.standby_slot_mount_point)
         self.reference_slot_mp = Path(update_meta.ref_slot_mount_point)
 
-        # the location of image at the ota server root
-        self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
-        self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
-
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
         self._recycle_folder = self.standby_slot_mp / Path(
@@ -102,46 +92,48 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self._recycle_folder.mkdir()
 
         # configure the downloader
-        self._downloader = Downloader()
-        proxy = proxy_cfg.get_proxy_for_local_ota()
-        if proxy:
+        self._downloader = downloader
+        self.proxies = None
+        if proxy := proxy_cfg.get_proxy_for_local_ota():
             logger.info(f"use {proxy=} for downloading")
-            self._downloader.configure_proxy(proxy)
+            # NOTE: check requests doc for details
+            self.proxies = {"http": proxy}
 
     def _prepare_meta_files(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.METADATA)
         try:
-            for fname, method in self.META_FILES.items():
-                list_info = getattr(self.metadata, method)()
+            for meta_f in self.metadata.get_metafiles():
+                meta_f_url = urljoin_ensure_base(self.url_base, quote(meta_f.file))
                 self._downloader.download(
-                    path=list_info["file"],
-                    dst=self._recycle_folder / fname,
-                    digest=list_info["hash"],
-                    url_base=self.url_base,
+                    meta_f_url,
+                    self._recycle_folder / meta_f.file,
+                    digest=meta_f.hash,
+                    proxies=self.proxies,
                     cookies=self.cookies,
                     headers={
                         OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                     },
                 )
-        except (ExceedMaxRetryError, ChunkStreamingError) as e:
-            raise OTAMetaDownloadFailed from e
         except HashVerificaitonError as e:
             raise OTAMetaVerificationFailed from e
         except DestinationNotAvailableError as e:
             raise OTAErrorUnRecoverable from e
+        except DownloadError as e:
+            raise OTAMetaDownloadFailed from e
 
     def _cal_and_prepare_delta(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
 
-        # TODO: hardcoded regulars.txt
         # TODO 2: old_reg is not used currently
         logger.info("generating delta...")
 
+        regular_inf_fname = self.metadata.regular.file
+        dir_inf_fname = self.metadata.directory.file
         try:
             delta_calculator = DeltaGenerator(
-                old_reg=Path(self.META_FOLDER) / "regulars.txt",
-                new_reg=self._recycle_folder / "regulars.txt",
-                new_dirs=self._recycle_folder / "dirs.txt",
+                old_reg=Path(self.META_FOLDER) / regular_inf_fname,
+                new_reg=self._recycle_folder / regular_inf_fname,
+                new_dirs=self._recycle_folder / dir_inf_fname,
                 ref_root=self.reference_slot_mp,
                 recycle_folder=self._recycle_folder,
                 stats_collector=self.stats_collector,
@@ -176,7 +168,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             dst_group_file=self.standby_slot_mp / _group_file.relative_to("/"),
         )
 
-        with open(self._recycle_folder / "persistents.txt", "r") as f:
+        persist_inf_fname = self.metadata.persistent.file
+        with open(self._recycle_folder / persist_inf_fname, "r") as f:
             for entry_line in f:
                 perinf = PersistentInf(entry_line)
                 if (
@@ -192,12 +185,13 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")
-        for fname, _ in self.META_FILES.items():
-            _src = self._recycle_folder / fname
+        for meta_f in self.metadata.get_metafiles():
+            _src = self._recycle_folder / meta_f.file
             shutil.copy(_src, _dst)
 
     def _process_symlinks(self):
-        with open(self._recycle_folder / "symlinks.txt", "r") as f:
+        symlink_inf_fname = self.metadata.symboliclink.file
+        with open(self._recycle_folder / symlink_inf_fname, "r") as f:
             for entry_line in f:
                 SymbolicLinkInf(entry_line).link_at_mount_point(self.standby_slot_mp)
 
@@ -205,8 +199,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
         self._hardlink_register = HardlinkRegister()
 
-        # limitation on on-going tasks/download
-        _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
+        # limitation on on-going tasks
         _tasks_tracker = SimpleTasksTracker(
             max_concurrent=self.MAX_CONCURRENT_TASKS,
             title="process_regulars",
@@ -225,7 +218,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     self._apply_reginf_set,
                     _hash,
                     _regulars_set,
-                    download_se=_download_se,
                 )
                 _tasks_tracker.add_task(fut)
                 fut.add_done_callback(_tasks_tracker.done_callback)
@@ -236,9 +228,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             _tasks_tracker.task_collect_finished()
             _tasks_tracker.wait(self.stats_collector.wait_staging)
 
-    def _apply_reginf_set(
-        self, _hash: str, _regs_set: RegularInfSet, *, download_se: Semaphore
-    ):
+    def _apply_reginf_set(self, _hash: str, _regs_set: RegularInfSet):
         stats_list: List[RegInfProcessedStats] = []  # for ota stats report
 
         _local_copy = self._recycle_folder / _hash
@@ -252,15 +242,19 @@ class RebuildMode(StandbySlotCreatorProtocol):
             # prepare first copy for the hash group
             if not _local_copy_available:
                 cur_stat.op = RegProcessOperation.OP_DOWNLOAD
-                with download_se:  # limit on-going downloading
-                    cur_stat.errors = self._downloader.download(
-                        entry.path,
-                        _local_copy,
-                        digest=entry.sha256hash,
-                        size=entry.size,
-                        url_base=self.image_base_url,
-                        cookies=self.cookies,
-                    )
+
+                entry_url, compression_alg = self.metadata.get_download_url(
+                    entry, base_url=self.url_base
+                )
+                cur_stat.errors, _ = self._downloader.download(
+                    entry_url,
+                    _local_copy,
+                    digest=entry.sha256hash,
+                    size=entry.size,
+                    proxies=self.proxies,
+                    cookies=self.cookies,
+                    compression_alg=compression_alg,
+                )
                 _local_copy_available = True
 
             # record the size of this entry(by query the local copy)

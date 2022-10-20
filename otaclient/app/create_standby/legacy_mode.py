@@ -18,12 +18,10 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Semaphore
 from typing import Callable
-from urllib.parse import urljoin
 
 from ..errors import ApplyOTAUpdateFailed, OTAError, StandbySlotSpaceNotEnoughError
-from ..common import SimpleTasksTracker, OTAFileCacheControl
+from ..common import SimpleTasksTracker, OTAFileCacheControl, urljoin_ensure_base
 from ..configs import config as cfg
 from ..copy_tree import CopyTree
 from ..downloader import (
@@ -58,7 +56,6 @@ logger = log_util.get_logger(
 
 # implementation
 class LegacyMode(StandbySlotCreatorProtocol):
-    MAX_CONCURRENT_DOWNLOAD = cfg.MAX_CONCURRENT_DOWNLOAD
     MAX_CONCURRENT_TASKS = cfg.MAX_CONCURRENT_TASKS
 
     def __init__(
@@ -67,6 +64,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         update_meta: UpdateMeta,
         stats_collector: OTAUpdateStatsCollector,
         update_phase_tracker: Callable,
+        downloader: Downloader,
     ) -> None:
         self.cookies = update_meta.cookies
         self.metadata = update_meta.metadata
@@ -79,34 +77,30 @@ class LegacyMode(StandbySlotCreatorProtocol):
         self.standby_slot_mp = Path(update_meta.standby_slot_mount_point)
         self.boot_dir = Path(update_meta.boot_dir)
 
-        # the location of image at the ota server root
-        self.image_base_dir = self.metadata.get_rootfsdir_info()["file"]
-        self.image_base_url = urljoin(update_meta.url_base, f"{self.image_base_dir}/")
-
         # internal used vars
         self._passwd_file = Path(cfg.PASSWD_FILE)
         self._group_file = Path(cfg.GROUP_FILE)
 
         # configure the downloader
-        self._downloader = Downloader()
-        proxy = proxy_cfg.get_proxy_for_local_ota()
-        logger.info(f"configuring {proxy=}")
-
-        if proxy:
-            self._downloader.configure_proxy(proxy)
+        self._downloader = downloader
+        self.proxies = None
+        if proxy := proxy_cfg.get_proxy_for_local_ota():
+            logger.info(f"configuring {proxy=}")
+            self.proxies = {"http": proxy}
 
     def _process_directory(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
 
-        list_info = self.metadata.get_directories_info()
+        list_info = self.metadata.directory
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
+            url = urljoin_ensure_base(self.url_base, list_info.file)
             # NOTE: do not use cache when fetching dir list
             self._downloader.download(
-                list_info["file"],
+                url,
                 Path(f.name),
-                list_info["hash"],
+                digest=list_info.hash,
+                proxies=self.proxies,
                 cookies=self.cookies,
-                url_base=self.url_base,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
@@ -126,14 +120,15 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def _process_symlink(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.SYMLINK)
 
-        list_info = self.metadata.get_symboliclinks_info()
+        list_info = self.metadata.symboliclink
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
+            url = urljoin_ensure_base(self.url_base, list_info.file)
             # NOTE: do not use cache when fetching symlink list
             self._downloader.download(
-                list_info["file"],
+                url,
                 Path(f.name),
-                list_info["hash"],
-                url_base=self.url_base,
+                digest=list_info.hash,
+                proxies=self.proxies,
                 cookies=self.cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -149,15 +144,16 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def _process_regular(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
 
-        list_info = self.metadata.get_regulars_info()
+        list_info = self.metadata.regular
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
+            url = urljoin_ensure_base(self.url_base, list_info.file)
             # download the regulars.txt
             # NOTE: do not use cache when fetching regular files list
             self._downloader.download(
-                list_info["file"],
+                url,
                 Path(f.name),
-                list_info["hash"],
-                url_base=self.url_base,
+                digest=list_info.hash,
+                proxies=self.proxies,
                 cookies=self.cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -169,14 +165,15 @@ class LegacyMode(StandbySlotCreatorProtocol):
     def _process_persistent(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.PERSISTENT)
 
-        list_info = self.metadata.get_persistent_info()
+        list_info = self.metadata.persistent
         with tempfile.NamedTemporaryFile(prefix=__name__) as f:
+            url = urljoin_ensure_base(self.url_base, list_info.file)
             # NOTE: do not use cache when fetching persist files list
             self._downloader.download(
-                list_info["file"],
+                url,
                 Path(f.name),
-                list_info["hash"],
-                url_base=self.url_base,
+                digest=list_info.hash,
+                proxies=self.proxies,
                 cookies=self.cookies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
@@ -201,7 +198,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     ):  # NOTE: not equivalent to perinf.path.exists()
                         copy_tree.copy_with_parents(perinf.path, self.standby_slot_mp)
 
-    def _create_regular_file(self, reginf: RegularInf, *, download_se: Semaphore):
+    def _create_regular_file(self, reginf: RegularInf):
         # thread_time for multithreading function
         # NOTE: for multithreading implementation,
         # when a thread is sleeping, the GIL will be released
@@ -247,17 +244,19 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         )
                         processed.op = RegProcessOperation.OP_COPY
                     else:
-                        # limit the concurrent downloading tasks
-                        with download_se:
-                            processed.errors = self._downloader.download(
-                                reginf.path,
-                                dst,
-                                digest=reginf.sha256hash,
-                                size=reginf.size,
-                                url_base=self.image_base_url,
-                                cookies=self.cookies,
-                            )
-                            processed.op = RegProcessOperation.OP_DOWNLOAD
+                        url, compression_alg = self.metadata.get_download_url(
+                            reginf, base_url=self.url_base
+                        )
+                        processed.errors, _ = self._downloader.download(
+                            url,
+                            dst,
+                            digest=reginf.sha256hash,
+                            size=reginf.size,
+                            proxies=self.proxies,
+                            cookies=self.cookies,
+                            compression_alg=compression_alg,
+                        )
+                        processed.op = RegProcessOperation.OP_DOWNLOAD
 
                         # set file permission as RegInf says
                         os.chown(dst, reginf.uid, reginf.gid)
@@ -283,22 +282,26 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 )
                 processed.op = RegProcessOperation.OP_COPY
             else:
-                # limit the concurrent downloading tasks
-                with download_se:
-                    processed.errors = self._downloader.download(
-                        reginf.path,
-                        dst,
-                        digest=reginf.sha256hash,
-                        size=reginf.size,
-                        url_base=self.image_base_url,
-                        cookies=self.cookies,
-                    )
-                    processed.op = RegProcessOperation.OP_DOWNLOAD
+                url, compression_alg = self.metadata.get_download_url(
+                    reginf, base_url=self.url_base
+                )
+                processed.errors, _ = self._downloader.download(
+                    url,
+                    dst,
+                    digest=reginf.sha256hash,
+                    size=reginf.size,
+                    proxies=self.proxies,
+                    cookies=self.cookies,
+                    compression_alg=compression_alg,
+                )
+                processed.op = RegProcessOperation.OP_DOWNLOAD
 
                 # set file permission as RegInf says
                 os.chown(dst, reginf.uid, reginf.gid)
                 os.chmod(dst, reginf.mode)
 
+        # TODO(20221017): should we report the real downloaded size(if compression enabled),
+        #                 or keep the previous behavior that report the original file size?
         processed.size = dst.stat().st_size
         processed.elapsed_ns = time.thread_time_ns() - begin_time
 
@@ -317,7 +320,6 @@ class LegacyMode(StandbySlotCreatorProtocol):
         self._hardlink_register = HardlinkRegister()
 
         # limit the cocurrent tasks and downloading
-        _download_se = Semaphore(self.MAX_CONCURRENT_DOWNLOAD)
         _tasks_tracker = SimpleTasksTracker(
             max_concurrent=self.MAX_CONCURRENT_TASKS,
             title="process_regulars",
@@ -334,11 +336,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     logger.error(f"interrupt update due to {e!r}")
                     raise e
 
-                fut = pool.submit(
-                    self._create_regular_file,
-                    entry,
-                    download_se=_download_se,
-                )
+                fut = pool.submit(self._create_regular_file, entry)
                 _tasks_tracker.add_task(fut)
                 fut.add_done_callback(_tasks_tracker.done_callback)
 

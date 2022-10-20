@@ -304,6 +304,8 @@ RUN useradd -m ota-client -s /bin/bash && \
 
 Build the docker image with Dockerfile created above and export rootfs image from the docker instance.
 
+Metadata generation now support optional zstd compression, files that can be compressed(file size or compression ratio reach threshold) will be compressed and saved to another folder. Note that the original files will still be kept under main rootfs folder.
+
 ```bash
 docker build -t ota-image .
 docker create -it --rm --name ota-image ota-image
@@ -314,18 +316,39 @@ sudo tar xf ota-image.tar -C rootfs
 
 Note: `sudo` is required to extract `ota-image.tar` since some privileged files need to be created.
 
-Generate metadata and sign against rootfs exported above.
+Generate metadata(with or without zstd compression) under extraced rootfs folder as follow:
 
 ```bash
+# optional zstd compression disabled
 sudo python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
-    --target-dir rootfs \
+    --target-dir <rootfs_folder> \
     --ignore-file ota-metadata/metadata/ignore.txt
-cp ota-metadata/metadata/persistents.txt .
+# or
+# optional zstd compression enabled
+sudo python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
+    --target-dir <rootfs_folder> \
+    --compressed-dir <rootfs_compressed> \
+    --ignore-file ota-metadata/metadata/ignore.txt
+```
+
+Sign the generated metadata as follow:
+
+```bash
+# if compression is not enabled for OTA image
 sudo python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
     --sign-key sign.key \
     --cert-file sign.pem \
     --persistent-file persistents.txt \
-    --rootfs-directory rootfs
+    --rootfs-directory <rootfs_folder>
+# or
+# zstd compression enabled for OTA image
+sudo python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
+    --sign-key sign.key \
+    --cert-file sign.pem \
+    --persistent-file ota-metadata/metadata/persistents.txt \
+    --rootfs-directory <rootfs_folder> \
+    --compressed-rootfs-directory  <rootfs_compressed> 
+
 sudo chown -R $(whoami) rootfs
 ```
 
