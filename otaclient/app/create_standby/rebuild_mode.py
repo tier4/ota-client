@@ -242,11 +242,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
             # prepare first copy for the hash group
             if not _local_copy_available:
                 cur_stat.op = RegProcessOperation.OP_DOWNLOAD
-
                 entry_url, compression_alg = self.metadata.get_download_url(
                     entry, base_url=self.url_base
                 )
-                cur_stat.errors, _ = self._downloader.download(
+                cur_stat.errors, cur_stat.download_bytes = self._downloader.download(
                     entry_url,
                     _local_copy,
                     digest=entry.sha256hash,
