@@ -30,7 +30,7 @@ jobs:
           --outdir dist/
           .
 
-      - uses: actions/upload-artifact@v3
+      - name: release
+        uses: softprops/action-gh-release@v1
         with:
-          name: python package
-          path: dist/*.whl
+          files: dist/*.whl
