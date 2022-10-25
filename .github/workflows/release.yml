@@ -36,7 +36,7 @@ jobs:
           second_latest_tag=$(bash proto/pb2/latest_tag.sh second_latest)
           proto_diff=$(git diff --name-only ${second_latest_tag} ${latest_tag} proto/otaclient_v2.proto)
           echo "latest: ${latest_tag}, second latest: ${second_latest_tag}"
-          echo "proto diff: ${proto_diff}
+          echo "proto diff: ${proto_diff}"
           if [ "${proto_diff}" != "" ]; then
             cd proto
             make
