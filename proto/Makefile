@@ -11,6 +11,7 @@ DEPS = $(PB2_OUT_DIR)/v2/otaclient.proto \
 all: setup whl
 
 $(PB2_OUT_DIR)/v2/otaclient.proto: otaclient_v2.proto
+	mkdir -p $(dir $@)
 	cp -a $< $@
 
 $(PB2_OUT_DIR)/v2/otaclient_pb2_grpc.py $(PB2_OUT_DIR)/v2/otaclient_pb2.py: $(PB2_OUT_DIR)/v2/otaclient.proto
