@@ -32,6 +32,9 @@ jobs:
 
       - name: build a proto binary
         run: |
+          current_branch=$(git rev-parse --abbrev-ref HEAD)
+          tags=git tag -l --sort=-creatordate --merged ${current_branch}
+          echo "tags ${tags}"
           latest_tag=$(bash proto/pb2/latest_tag.sh)
           second_latest_tag=$(bash proto/pb2/latest_tag.sh second_latest)
           proto_diff=$(git diff --name-only ${second_latest_tag} ${latest_tag} proto/otaclient_v2.proto)
