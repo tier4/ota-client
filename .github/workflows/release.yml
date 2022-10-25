@@ -31,7 +31,7 @@ jobs:
           .
 
       - name: build a proto binary
-        run: >-
+        run: |
           cd proto
           make
 
