@@ -30,7 +30,14 @@ jobs:
           --outdir dist/
           .
 
+      - name: build a proto binary
+        run: >-
+          cd proto
+          make
+
       - name: release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/*.whl
+          files: |
+            dist/*.whl
+            proto/pb2/dist/*.whl
