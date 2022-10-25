@@ -39,4 +39,4 @@ whl: $(DEPS)
 
 .PHONY: clean
 clean:
-	rm -rf pb2/dist
+	rm -rf pb2/dist pb2/build/ pb2/otaclient_pb2*
