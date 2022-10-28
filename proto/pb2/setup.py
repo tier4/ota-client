@@ -17,7 +17,7 @@ from setuptools import setup, find_packages
 
 
 def get_version():
-    return open("../.version").read().stip()
+    return open("../.version").read().strip()
 
 
 pkg_name = "otaclient_pb2"

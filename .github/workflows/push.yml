@@ -1,14 +1,16 @@
 name: push main
 
 on:
-  push:
+  pull_request:
     branches:
       - main
       - test
+    types: [closed]
 
 jobs:
   update_version:
     runs-on: ubuntu-20.04
+    if: github.event.pull_request.merged == true
     timeout-minutes: 10
     steps:
       - name: checkout
@@ -36,6 +38,7 @@ jobs:
             echo ${proto_hash} > .proto_hash
             python3 increment_minor.py $(cat .version) > .version
           fi
+          make clean
 
       - uses: stefanzweifel/git-auto-commit-action@v3.0.0
         with:
