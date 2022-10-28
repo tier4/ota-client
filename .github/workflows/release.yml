@@ -12,17 +12,15 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
 
       - name: setup python
         uses: actions/setup-python@v1
         with:
           python-version: 3.8
 
-      - name: install build
+      - name: install packages
         run: >-
-          python -m pip install build
+          python -m pip install -r proto/requirements.txt
 
       - name: build a binary
         run: >-
@@ -34,18 +32,8 @@ jobs:
 
       - name: build a proto binary
         run: |
-          current_branch=$(git rev-parse --abbrev-ref HEAD)
-          tags=$(git tag -l --sort=-creatordate --merged ${current_branch})
-          echo "tags ${tags}"
-          latest_tag=$(bash proto/pb2/latest_tag.sh)
-          second_latest_tag=$(bash proto/pb2/latest_tag.sh second_latest)
-          proto_diff=$(git diff --name-only ${second_latest_tag} ${latest_tag} proto/otaclient_v2.proto)
-          echo "latest: ${latest_tag}, second latest: ${second_latest_tag}"
-          echo "proto diff: ${proto_diff}"
-          if [ "${proto_diff}" != "" ]; then
-            cd proto
-            make
-          fi
+          cd proto
+          make
 
       - name: release
         uses: softprops/action-gh-release@v1
