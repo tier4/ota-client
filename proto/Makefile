@@ -1,4 +1,3 @@
-MAKEFILE_DIR:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 PB2_OUT_BASE_DIR := pb2
 PB2_OUT_DIR := $(PB2_OUT_BASE_DIR)/otaclient_pb2
 
