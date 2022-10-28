@@ -14,14 +14,10 @@
 
 
 from setuptools import setup, find_packages
-import subprocess
 
 
 def get_version():
-    result = subprocess.run(
-        ["bash", "latest_tag.sh"], stdout=subprocess.PIPE, text=True
-    )
-    return result.stdout.strip()
+    return open("../.version").read().stip()
 
 
 pkg_name = "otaclient_pb2"

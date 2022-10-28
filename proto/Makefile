@@ -1,3 +1,4 @@
+MAKEFILE_DIR:=$(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 PB2_OUT_BASE_DIR := pb2
 PB2_OUT_DIR := $(PB2_OUT_BASE_DIR)/otaclient_pb2
 
@@ -21,17 +22,14 @@ $(PB2_OUT_DIR)/v2/otaclient_pb2_grpc.py $(PB2_OUT_DIR)/v2/otaclient_pb2.py: $(PB
 		--grpc_python_out=$(PB2_OUT_BASE_DIR) \
 		./$(PB2_OUT_DIR)/v2/otaclient.proto
 
-$(PB2_OUT_DIR)/__init__.py:
-	touch $@
-
-$(PB2_OUT_DIR)/v2/__init__.py:
+$(PB2_OUT_DIR)/__init__.py $(PB2_OUT_DIR)/v2/__init__.py:
 	touch $@
 
 .PHONY: setup
 setup:
 	python3 -m pip install --upgrade pip
 	python3 -m pip install --upgrade setuptools wheel
-	python3 -m pip install --upgrade grpcio-tools
+	python3 -m pip install -r ../tests/requirements.txt
 
 .PHONY: whl
 whl: $(DEPS)
