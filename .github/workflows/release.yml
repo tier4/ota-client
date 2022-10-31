@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    timeout-minutes: 10
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: setup python
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.8
+
+      - name: install packages
+        run: >-
+          python -m pip install -r proto/requirements.txt
+
+      - name: build a binary
+        run: >-
+          python -m
+          build
+          --wheel
+          --outdir dist/
+          .
+
+      - name: build a proto binary
+        run: |
+          cd proto
+          make
+
+      - name: release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.whl
+            proto/pb2/dist/*.whl
