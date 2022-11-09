@@ -38,10 +38,9 @@ from ..errors import (
 )
 from ..proto import wrapper
 
+from . import _errors as _errors
 from ._common import (
-    MountError,
     OTAStatusMixin,
-    _BootControlError,
     PrepareMountMixin,
     CMDHelperFuncs,
     SlotInUseMixin,
@@ -57,7 +56,7 @@ logger = log_util.get_logger(
 )
 
 
-class NvbootctrlError(_BootControlError):
+class NvbootctrlError(_errors.BootControlError):
     """Specific internal errors related to nvbootctrl cmd."""
 
 
@@ -422,7 +421,7 @@ class CBootController(
                 # finish populating new boot folder to boot dev,
                 # we can umount the boot dev right now
                 CMDHelperFuncs.umount(_boot_dir_mount_point)
-            except MountError as e:
+            except _errors.MountError as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
                 logger.error(_failure_msg)
                 # no need to raise to the caller
@@ -479,7 +478,7 @@ class CBootController(
             self._store_standby_slot_in_use(_target_slot)
 
             logger.info("pre-update setting finished")
-        except _BootControlError as e:
+        except _errors.BootControlError as e:
             logger.error(f"failed on pre_update: {e!r}")
             raise BootControlPreUpdateFailed from e
 
@@ -509,7 +508,7 @@ class CBootController(
             self._umount_all(ignore_error=True)
             self._cboot_control.switch_boot()
             CMDHelperFuncs.reboot()
-        except _BootControlError as e:
+        except _errors.BootControlError as e:
             logger.error(f"failed on post_update: {e!r}")
             raise BootControlPostUpdateFailed from e
 
@@ -531,6 +530,6 @@ class CBootController(
         try:
             self._cboot_control.switch_boot()
             CMDHelperFuncs.reboot()
-        except _BootControlError as e:
+        except _errors.BootControlError as e:
             logger.error(f"failed on post_rollback: {e!r}")
             raise BootControlPostRollbackFailed from e

@@ -38,8 +38,8 @@ from ..errors import (
 )
 from ..proto import wrapper
 
+from . import _errors as _errors
 from ._common import (
-    ABPartitionError,
     CMDHelperFuncs,
     OTAStatusMixin,
     PrepareMountMixin,
@@ -282,7 +282,7 @@ class GrubABPartitionDetecter:
         parent = CMDHelperFuncs.get_parent_dev(active_dev)
         boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
         if not boot_dev:
-            raise ABPartitionError("/boot is not mounted")
+            raise _errors.ABPartitionError("/boot is not mounted")
 
         # list children device file from parent device
         cmd = f"-Pp -o NAME,FSTYPE {parent}"
@@ -299,7 +299,9 @@ class GrubABPartitionDetecter:
                 ):
                     return m.group(1)
 
-        raise ABPartitionError(f"{parent=} has unexpected partition layout: {output=}")
+        raise _errors.ABPartitionError(
+            f"{parent=} has unexpected partition layout: {output=}"
+        )
 
     def _detect_active_slot(self) -> Tuple[str, str]:
         """
@@ -355,7 +357,7 @@ class _SymlinkABPartitionDetecter:
 
             return Path(active_ota_partition_file).suffix.strip(".")
         except FileNotFoundError:
-            raise ABPartitionError("ota-partition files are broken")
+            raise _errors.ABPartitionError("ota-partition files are broken")
 
     @classmethod
     def _get_standby_slot_by_symlink(cls) -> str:
@@ -374,7 +376,7 @@ class _SymlinkABPartitionDetecter:
 
             assert len(ota_partition_fs) == 1
         except (ValueError, AssertionError):
-            raise ABPartitionError("ota-partition files are broken")
+            raise _errors.ABPartitionError("ota-partition files are broken")
 
         (standby_ota_partition_file,) = ota_partition_fs
         return standby_ota_partition_file.suffix.strip(".")
