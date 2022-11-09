@@ -110,53 +110,6 @@ class BaseConfig:
     SUPPORTED_COMPRESS_ALG: Tuple[str, ...] = ("zst", "zstd")
 
 
-@dataclass
-class GrubControlConfig(BaseConfig):
-    """x86-64 platform, with grub as bootloader."""
-
-    BOOTLOADER: str = "grub"
-    FSTAB_FILE_PATH: str = "/etc/fstab"
-    GRUB_DIR: str = "/boot/grub"
-    GRUB_CFG_PATH: str = "/boot/grub/grub.cfg"
-    DEFAULT_GRUB_PATH: str = "/etc/default/grub"
-    BOOT_OTA_PARTITION_FILE: str = "ota-partition"
-
-
-@dataclass
-class CBootControlConfig(BaseConfig):
-    """arm platform, with cboot as bootloader.
-
-    NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
-    """
-
-    BOOTLOADER: str = "cboot"
-    CHIP_ID_MODEL_MAP: Dict[int, str] = field(default_factory=lambda: {0x19: "rqx_580"})
-    OTA_STATUS_DIR: str = "/boot/ota-status"
-    EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
-    SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
-
-
-# helper function to detect platform
-def _detect_bootloader():
-    import platform
-
-    machine, arch = platform.machine(), platform.processor()
-
-    if machine == "x86_64" or arch == "x86_64":
-        return "grub"
-    elif machine == "aarch64" or arch == "aarch64":
-        return "cboot"
-    else:
-        raise NotImplementedError(
-            f"cannot auto detect the bootloader for this platform: "
-            f"{machine=}, {arch=}"
-        )
-
-
-BOOT_LOADER = _detect_bootloader()
-
 # init cfgs
 server_cfg = OtaClientServerConfig()
-cboot_cfg = CBootControlConfig()
-grub_cfg = GrubControlConfig()
 config = BaseConfig()

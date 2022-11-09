@@ -29,7 +29,6 @@ from ..common import (
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from ..configs import BOOT_LOADER, grub_cfg as cfg
 from ..errors import (
     BootControlInitError,
     BootControlPostRollbackFailed,
@@ -38,9 +37,8 @@ from ..errors import (
     BootControlPreUpdateFailed,
 )
 from ..proto import wrapper
-from .. import log_util
 
-from .common import (
+from ._common import (
     ABPartitionError,
     CMDHelperFuncs,
     OTAStatusMixin,
@@ -49,11 +47,10 @@ from .common import (
     VersionControlMixin,
     cat_proc_cmdline,
 )
-from .interface import BootControllerProtocol
+from .configs import grub_cfg as cfg
+from .protocol import BootControllerProtocol
 
-assert (
-    BOOT_LOADER == "grub"
-), f"ERROR, use grub instead of detected {BOOT_LOADER=}, abort"
+from .. import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

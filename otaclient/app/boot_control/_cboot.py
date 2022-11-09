@@ -20,7 +20,6 @@ from functools import partial
 from subprocess import CalledProcessError
 from typing import Optional
 
-from .. import log_util
 from ..common import (
     copytree_identical,
     read_str_from_file,
@@ -28,7 +27,7 @@ from ..common import (
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from ..configs import BOOT_LOADER, cboot_cfg as cfg
+
 from ..errors import (
     BootControlInitError,
     BootControlPlatformUnsupported,
@@ -39,7 +38,7 @@ from ..errors import (
 )
 from ..proto import wrapper
 
-from .common import (
+from ._common import (
     MountError,
     OTAStatusMixin,
     _BootControlError,
@@ -48,11 +47,10 @@ from .common import (
     SlotInUseMixin,
     VersionControlMixin,
 )
-from .interface import BootControllerProtocol
+from .configs import cboot_cfg as cfg
+from .protocol import BootControllerProtocol
 
-assert (
-    BOOT_LOADER == "cboot"
-), f"ERROR, use cboot instead of detected {BOOT_LOADER=}, abort"
+from .. import log_util
 
 logger = log_util.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -159,13 +157,11 @@ class Nvbootctrl:
 
 
 class _CBootControl:
-    TEGRA_CHIP_ID_PATH = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
-
     def __init__(self):
         try:
             # NOTE: only support rqx-580, rqx-58g platform right now!
             # detect the chip id
-            self.chip_id = read_str_from_file(self.TEGRA_CHIP_ID_PATH)
+            self.chip_id = read_str_from_file(cfg.TEGRA_CHIP_ID_PATH)
             if not self.chip_id or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
                 raise NotImplementedError(
                     f"unsupported platform found (chip_id: {self.chip_id}), abort"

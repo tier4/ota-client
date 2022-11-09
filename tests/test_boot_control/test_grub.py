@@ -111,7 +111,7 @@ class TestGrubControl:
     DEFAULT_GRUB = (Path(__file__).parent / "default_grub").read_text()
 
     def cfg_for_slot_a_as_current(self):
-        from otaclient.app.configs import GrubControlConfig
+        from otaclient.app.boot_control.configs import GrubControlConfig
 
         _mocked_grub_cfg = GrubControlConfig()
         _mocked_grub_cfg.MOUNT_POINT = str(self.slot_b)
@@ -123,7 +123,7 @@ class TestGrubControl:
         return _mocked_grub_cfg
 
     def cfg_for_slot_b_as_current(self):
-        from otaclient.app.configs import GrubControlConfig
+        from otaclient.app.boot_control.configs import GrubControlConfig
 
         _mocked_grub_cfg = GrubControlConfig()
         _mocked_grub_cfg.MOUNT_POINT = str(self.slot_a)
@@ -184,18 +184,13 @@ class TestGrubControl:
         )
 
     @pytest.fixture(autouse=True)
-    def patch_current_used_boot_controller(self, mocker: pytest_mock.MockerFixture):
-        mocker.patch(f"{cfg.CONFIGS_MODULE_PATH}.BOOT_LOADER", "grub")
-
-    @pytest.fixture(autouse=True)
     def mock_setup(
         self,
         mocker: pytest_mock.MockerFixture,
-        patch_current_used_boot_controller,
         grub_ab_slot,
     ):
-        from otaclient.app.boot_control.grub import GrubABPartitionDetecter
-        from otaclient.app.boot_control.common import CMDHelperFuncs
+        from otaclient.app.boot_control._grub import GrubABPartitionDetecter
+        from otaclient.app.boot_control._common import CMDHelperFuncs
 
         ###### start fsm ######
         self._fsm = GrubFSM()
@@ -266,7 +261,7 @@ class TestGrubControl:
         )
 
     def test_grub_normal_update(self, mocker: pytest_mock.MockerFixture):
-        from otaclient.app.boot_control.grub import GrubController
+        from otaclient.app.boot_control._grub import GrubController
 
         _cfg_patch_path = f"{cfg.GRUB_MODULE_PATH}.cfg"
 

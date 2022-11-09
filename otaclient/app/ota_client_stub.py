@@ -24,7 +24,7 @@ from functools import partial
 from multiprocessing import Process
 from typing import Coroutine, Dict, List, Optional
 
-from .boot_control import get_boot_controller
+from .boot_control import get_boot_controller, detect_bootloader
 from .create_standby import get_standby_slot_creator
 from .ecu_info import EcuInfo
 from .ota_client import OTAClient, OTAUpdateFSM
@@ -32,7 +32,7 @@ from .ota_client_call import OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
-from .configs import BOOT_LOADER, server_cfg, config as cfg
+from .configs import server_cfg, config as cfg
 from . import log_util
 
 logger = log_util.get_logger(
@@ -363,8 +363,10 @@ class OtaClientStub:
 
         # NOTE: explicitly specific which mechanism to use
         # for boot control and create standby slot
+        # TODO: detect bootloader or load bootloader
+        bootloader_type = detect_bootloader()
         self._ota_client = OTAClient(
-            boot_control_cls=get_boot_controller(BOOT_LOADER),
+            boot_control_cls=get_boot_controller(bootloader_type),
             create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
             my_ecu_id=self.my_ecu_id,
         )
