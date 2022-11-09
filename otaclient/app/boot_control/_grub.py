@@ -38,7 +38,7 @@ from ..errors import (
 )
 from ..proto import wrapper
 
-from . import _errors as _errors
+from . import _errors
 from ._common import (
     CMDHelperFuncs,
     OTAStatusMixin,
