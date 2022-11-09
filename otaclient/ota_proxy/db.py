@@ -24,11 +24,9 @@ from typing import Any, List, Optional, Type, Callable, Union, cast
 
 from .config import config as cfg
 from .orm import ColumnDescriptor, ORMBase
+from .log_util import get_logger
 
-import logging
-
-logger = logging.getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL)
+logger = get_logger(__name__, cfg.LOG_LEVEL)
 
 
 class CacheMeta(ORMBase):

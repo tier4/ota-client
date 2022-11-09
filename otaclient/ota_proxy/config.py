@@ -52,5 +52,9 @@ class Config:
     TABLE_DEFINITION_VERSION = "v3"
     TABLE_NAME: str = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
+    LOG_FORMAT: str = (
+        "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s"
+    )
+
 
 config = Config()

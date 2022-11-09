@@ -18,7 +18,6 @@ import asyncio
 import aiofiles
 import aiohttp
 import bisect
-import logging
 import shutil
 import time
 import threading
@@ -49,12 +48,12 @@ from .cache_control import OTAFileCacheControl
 from .db import CacheMeta, OTACacheDB, OTACacheDBProxy
 from .errors import BaseOTACacheError, CacheStreamingFailed, CacheMultiStreamingFailed
 from .config import config as cfg
+from .log_util import get_logger
 
 if TYPE_CHECKING:
     import multiprocessing
 
-logger = logging.getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL)
+logger = get_logger(__name__, cfg.LOG_LEVEL)
 
 
 def get_backoff(n: int, factor: float, _max: float) -> float:

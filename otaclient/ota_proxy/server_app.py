@@ -22,11 +22,9 @@ from .cache_control import OTAFileCacheControl
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 from .config import config as cfg
+from .log_util import get_logger
 
-import logging
-
-logger = logging.getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL)
+logger = get_logger(__name__, cfg.LOG_LEVEL)
 
 # only expose app
 __all__ = ("App",)
