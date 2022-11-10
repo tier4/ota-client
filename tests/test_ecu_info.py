@@ -22,12 +22,12 @@ import yaml
 @pytest.mark.parametrize(
     "ecu_info_dict, secondary_ecus, ecu_id, ip_addr, available_ecu_ids",
     (
-        (None, [], "autoware", "localhost", ["autoware"]),
+        (None, [], "autoware", "127.0.0.1", ["autoware"]),
         (
             {"format_version": 1, "ecu_id": "autoware"},
             [],
             "autoware",
-            "localhost",
+            "127.0.0.1",
             ["autoware"],
         ),
         (
@@ -52,13 +52,12 @@ import yaml
                 {"ecu_id": "perception2", "ip_addr": "192.168.0.12"},
             ],
             "autoware",
-            "localhost",
+            "127.0.0.1",
             ["autoware", "perception1", "perception2"],
         ),
     ),
 )
 def test_ecu_info(
-    mocker: MockerFixture,
     tmp_path: Path,
     ecu_info_dict,
     secondary_ecus,
@@ -66,7 +65,7 @@ def test_ecu_info(
     ip_addr,
     available_ecu_ids,
 ):
-    from otaclient.app.ecu_info import EcuInfo
+    from otaclient.app.ecu_info import ECUInfo
 
     boot_dir = tmp_path / "boot"
     boot_dir.mkdir()
@@ -75,9 +74,8 @@ def test_ecu_info(
     if ecu_info_dict is not None:
         ecu_info_file.write_text(yaml.dump(ecu_info_dict))
 
-    mocker.patch.object(EcuInfo, "ECU_INFO_FILE", ecu_info_file)
-    ecu_info = EcuInfo()
-    assert ecu_info.get_secondary_ecus() == secondary_ecus
+    ecu_info = ECUInfo(ecu_info_file)
+    assert ecu_info.secondaries == secondary_ecus
     assert ecu_info.get_ecu_id() == ecu_id
     assert ecu_info.get_ecu_ip_addr() == ip_addr
     assert ecu_info.get_available_ecu_ids() == available_ecu_ids
