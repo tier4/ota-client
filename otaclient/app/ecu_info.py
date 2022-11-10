@@ -52,8 +52,8 @@ class ECUInfo:
     ecu_id: str
     ip_addr: str = "127.0.0.1"
     bootloader: str = BootloaderType.UNSPECIFIED.value
-    available_ecu_id: List[str] = field(default_factory=list)
-    secondaries: List[Dict[str, str]] = field(default_factory=list)
+    available_ecu_ids: list = field(default_factory=list)  # list[str]
+    secondaries: list = field(default_factory=list)  # list[dict[str, Any]]
     format_version: int = 1
 
     @classmethod
@@ -80,12 +80,17 @@ class ECUInfo:
                         f"{_field.name} contains invalid value={_option}, "
                         "ignored and set to default={_field.default}"
                     )
-                if _field.default is MISSING:
+                if _field.default is MISSING and _field.default_factory is MISSING:
                     raise ValueError(
                         f"required field {_field.name} is not presented, abort"
                     )
-                _ecu_info_dict[_field.name] = _field.default
+                _ecu_info_dict[_field.name] = (
+                    _field.default
+                    if _field.default is not MISSING
+                    else _field.default_factory()  # type: ignore
+                )
                 continue
+            # parsed _option is available
             if isinstance(_option, (list, dict)):
                 _ecu_info_dict[_field.name] = _option.copy()
             else:
@@ -111,4 +116,8 @@ class ECUInfo:
         return BootloaderType.parse_str(self.bootloader)
 
     def get_available_ecu_ids(self) -> List[str]:
-        return self.available_ecu_id.copy()
+        # onetime fix, if no availabe_ecu_id is specified,
+        # add my_ecu_id into the list
+        if len(self.available_ecu_ids) == 0:
+            self.available_ecu_ids.append(self.ecu_id)
+        return self.available_ecu_ids.copy()
