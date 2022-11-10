@@ -355,7 +355,7 @@ class OtaClientStub:
         # dispatch the requested operations to threadpool
         self._executor = ThreadPoolExecutor(thread_name_prefix="ota_client_stub")
 
-        self._ecu_info = ECUInfo(cfg.ECU_INFO_FILE)
+        self._ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
         self.my_ecu_id = self._ecu_info.get_ecu_id()
         self.subecus_dict: Dict[str, str] = {
             ecu_id: ecu_ip_addr
@@ -364,7 +364,9 @@ class OtaClientStub:
 
         # read ecu_info to get the booloader type,
         # if not specified, use detect_bootloader
-        if (bootloader_type := self._ecu_info.bootloader) == BootloaderType.UNSPECIFIED:
+        if (
+            bootloader_type := self._ecu_info.get_bootloader()
+        ) == BootloaderType.UNSPECIFIED:
             bootloader_type = detect_bootloader()
         # NOTE: inject bootloader and create_standby into otaclient
         self._ota_client = OTAClient(
