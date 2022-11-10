@@ -13,10 +13,15 @@
 # limitations under the License.
 
 
-from .cache_control import OTAFileCacheControl
-from .server_app import App
-from .ota_cache import OTACache
-from .config import config
-from . import log_setting
+import os
+import logging
+from .config import config as cfg
 
-__all__ = ("App", "OTACache", "OTAFileCacheControl", "config", "log_setting")
+logging.basicConfig(level=cfg.LOG_LEVEL, format=cfg.LOG_FORMAT)
+if http_logging_host := os.environ.get("HTTP_LOGGING_SERVER"):
+    from otaclient.aws_iot_log_server import CustomHttpHandler
+
+    h = CustomHttpHandler(host=http_logging_host, url="ota_proxy")
+    fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
+    h.setFormatter(fmt)
+    logging.addHandler(h)
