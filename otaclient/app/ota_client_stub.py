@@ -24,7 +24,7 @@ from functools import partial
 from multiprocessing import Process
 from typing import Coroutine, Dict, List, Optional
 
-from .boot_control import get_boot_controller, detect_bootloader
+from .boot_control import BootloaderType, get_boot_controller, detect_bootloader
 from .create_standby import get_standby_slot_creator
 from .ecu_info import ECUInfo
 from .ota_client import OTAClient, OTAUpdateFSM
@@ -362,10 +362,11 @@ class OtaClientStub:
             for ecu_id, ecu_ip_addr in self._ecu_info.iter_secondary_ecus()
         }
 
-        # NOTE: explicitly specific which mechanism to use
-        # for boot control and create standby slot
-        # TODO: detect bootloader or load bootloader
-        bootloader_type = detect_bootloader()
+        # read ecu_info to get the booloader type,
+        # if not specified, use detect_bootloader
+        if (bootloader_type := self._ecu_info.bootloader) == BootloaderType.UNSPECIFIED:
+            bootloader_type = detect_bootloader()
+        # NOTE: inject bootloader and create_standby into otaclient
         self._ota_client = OTAClient(
             boot_control_cls=get_boot_controller(bootloader_type),
             create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),

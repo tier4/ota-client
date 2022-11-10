@@ -59,7 +59,7 @@ class ECUInfo:
         self.ecu_id = ecu_info["ecu_id"]
         # optional fields
         self.ip_addr = ecu_info.get("ip_addr", "127.0.0.1")
-        self.bootloader_type = BootloaderType.parse_str(
+        self.bootloader = BootloaderType.parse_str(
             ecu_info.get("bootloader", "unspecified")
         )
         self.secondaries: List[Dict[str, str]] = ecu_info.get("secondaries", [])
