@@ -13,10 +13,10 @@
 # limitations under the License.
 
 
+from . import log_setting
 from .cache_control import OTAFileCacheControl
 from .server_app import App
 from .ota_cache import OTACache
 from .config import config
-from . import log_setting
 
 __all__ = ("App", "OTACache", "OTAFileCacheControl", "config", "log_setting")
