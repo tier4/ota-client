@@ -26,7 +26,6 @@ from .config import config as cfg
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL)
 
 # only expose app
 __all__ = ("App",)

@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-from logging import INFO
 from dataclasses import dataclass
 
 
@@ -43,11 +41,6 @@ class Config:
         512 * (1024**2): 0,  # not filtered
     }
     DB_FILE = f"{BASE_DIR}/cache_db"
-
-    LOG_LEVEL = INFO
-    LOG_FORMAT: str = (
-        "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s"
-    )
 
     # DB configuration/setup
     # ota-cache table
