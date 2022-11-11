@@ -28,7 +28,7 @@ from threading import Event, Semaphore
 from typing import Callable, Optional, Set, Union
 from urllib.parse import urljoin
 
-from .log_util import get_logger
+from .log_setting import get_logger
 from .configs import config as cfg
 
 logger = get_logger(__name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))

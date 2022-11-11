@@ -18,10 +18,10 @@ import stat
 import shutil
 from pathlib import Path
 
-from . import log_util
+from . import log_setting
 from .configs import config as cfg
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 

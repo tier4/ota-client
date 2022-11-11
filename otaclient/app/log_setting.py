@@ -19,7 +19,7 @@ import yaml
 from .configs import config as cfg
 
 
-# NOTE: EcuInfo imports this log_util so independent get_ecu_id are required.
+# NOTE: EcuInfo imports this log_setting so independent get_ecu_id are required.
 def get_ecu_id():
     try:
         with open(cfg.ECU_INFO_FILE) as f:

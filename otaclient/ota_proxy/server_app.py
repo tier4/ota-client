@@ -21,7 +21,6 @@ from typing import Any, Dict, List, Union
 from .cache_control import OTAFileCacheControl
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
-from .config import config as cfg
 
 import logging
 

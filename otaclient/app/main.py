@@ -22,11 +22,11 @@ from pathlib import Path
 from otaclient import __version__  # type: ignore
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg, EXTRA_VERSION_FILE, OTACLIENT_LOCK_FILE
-from .log_setting import configure_logging, _get_ecu_id
+from .log_setting import configure_logging, get_ecu_id
 from .ota_client_service import launch_otaclient_grpc_server
 
 # configure logging before any code being executed
-configure_logging(loglevel=cfg.DEFAULT_LOG_LEVEL, http_logging_url=_get_ecu_id())
+configure_logging(loglevel=cfg.DEFAULT_LOG_LEVEL, http_logging_url=get_ecu_id())
 logger = logging.getLogger(__name__)
 
 

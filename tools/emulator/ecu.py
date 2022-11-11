@@ -17,9 +17,9 @@ import time
 import otaclient_v2_pb2 as v2
 
 from configs import config as cfg
-import log_util
+import log_setting
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
