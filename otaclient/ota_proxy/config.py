@@ -45,6 +45,9 @@ class Config:
     DB_FILE = f"{BASE_DIR}/cache_db"
 
     LOG_LEVEL = INFO
+    LOG_FORMAT: str = (
+        "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s"
+    )
 
     # DB configuration/setup
     # ota-cache table
