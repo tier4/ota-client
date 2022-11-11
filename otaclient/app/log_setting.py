@@ -39,7 +39,9 @@ def get_logger(name: str, loglevel: int) -> logging.Logger:
 def configure_logging(loglevel: int, *, http_logging_url: str):
     """Configure logging with http handler."""
     # configure the root logger
-    logging.basicConfig(level=loglevel, format=cfg.LOG_FORMAT)
+    # NOTE: force to reload the basicConfig, this is for overriding setting
+    #       when launching subprocess.
+    logging.basicConfig(level=loglevel, format=cfg.LOG_FORMAT, force=True)
 
     # if http_logging is enabled, attach the http handler to the root logger
     if http_logging_host := os.environ.get("HTTP_LOGGING_SERVER"):
