@@ -20,13 +20,20 @@ from .configs import config as cfg
 
 
 # NOTE: EcuInfo imports this log_util so independent get_ecu_id are required.
-def _get_ecu_id():
+def get_ecu_id():
     try:
         with open(cfg.ECU_INFO_FILE) as f:
             ecu_info = yaml.load(f, Loader=yaml.SafeLoader)
             return ecu_info["ecu_id"]
     except Exception:
         return "autoware"
+
+
+def get_logger(name: str, loglevel: int) -> logging.Logger:
+    """Helper method to get logger with name and loglevel."""
+    logger = logging.getLogger(name)
+    logger.setLevel(loglevel)
+    return logger
 
 
 def configure_logging(loglevel: int, *, http_logging_url: str):
