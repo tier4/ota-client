@@ -15,6 +15,9 @@
 
 import argparse
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -71,4 +74,5 @@ if __name__ == "__main__":
         _server = uvicorn.Server(_config)
         await _server.serve()
 
+    logger.info(f"launch ota_proxy at {args.host}:{args.port}")
     asyncio.run(_launch_server())

@@ -28,7 +28,6 @@ from .orm import ColumnDescriptor, ORMBase
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL)
 
 
 class CacheMeta(ORMBase):

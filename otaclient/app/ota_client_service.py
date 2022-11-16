@@ -18,12 +18,12 @@ import grpc.aio
 from .proto import wrapper
 from .proto import v2_grpc
 from .proto import v2
-from . import log_util
+from . import log_setting
 from .ota_client_stub import OtaClientStub
 from .configs import server_cfg, config as cfg
 
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 

@@ -54,7 +54,6 @@ if TYPE_CHECKING:
     import multiprocessing
 
 logger = logging.getLogger(__name__)
-logger.setLevel(cfg.LOG_LEVEL)
 
 
 def get_backoff(n: int, factor: float, _max: float) -> float:

@@ -17,14 +17,15 @@ import asyncio
 import multiprocessing
 import threading
 import time
-
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from functools import partial
 from multiprocessing import Process
 from typing import Coroutine, Dict, List, Optional
 
+from . import log_setting
 from .boot_control import BootloaderType, get_boot_controller, detect_bootloader
+from .configs import server_cfg, config as cfg
 from .create_standby import get_standby_slot_creator
 from .ecu_info import ECUInfo
 from .ota_client import OTAClient, OTAUpdateFSM
@@ -32,10 +33,8 @@ from .ota_client_call import OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
-from .configs import server_cfg, config as cfg
-from . import log_util
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
@@ -51,6 +50,15 @@ class OtaProxyWrapper:
 
     @staticmethod
     def launch_entry(init_cache, *, scrub_cache_event):
+        """Main entry for ota_proxy in separate process.
+
+        NOTE: logging needs to be configured again.
+        """
+        # configure logging for ota_proxy process
+        log_setting.configure_logging(
+            loglevel=cfg.DEFAULT_LOG_LEVEL, http_logging_url="ota_proxy"
+        )
+
         async def _start_uvicorn(init_cache: bool, *, scrub_cache_event):
             import uvicorn
             from otaclient.ota_proxy import App, OTACache

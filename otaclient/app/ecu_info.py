@@ -19,11 +19,11 @@ from dataclasses import dataclass, field, fields, MISSING
 from pathlib import Path
 from typing import Iterator, Union, Dict, List, Tuple, Any
 
-from . import log_util
+from . import log_setting
 from .configs import config as cfg
 from .boot_control import BootloaderType
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 

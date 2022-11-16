@@ -41,14 +41,14 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 from ..common import file_sha256
 from ..configs import config as cfg
 from ..ota_metadata import DirectoryInf, RegularInf
-from .. import log_util
+from .. import log_setting
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
     RegProcessOperation,
 )
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 

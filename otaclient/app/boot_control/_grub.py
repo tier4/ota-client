@@ -22,6 +22,7 @@ from typing import ClassVar, Dict, List, Optional, Tuple
 from pathlib import Path
 from pprint import pformat
 
+from .. import log_setting
 from ..common import (
     re_symlink_atomic,
     read_str_from_file,
@@ -50,9 +51,8 @@ from ._common import (
 from .configs import grub_cfg as cfg
 from .protocol import BootControllerProtocol
 
-from .. import log_util
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
