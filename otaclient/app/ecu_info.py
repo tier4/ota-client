@@ -14,6 +14,7 @@
 r"""ECU metadatas definition."""
 
 import yaml
+from copy import deepcopy
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import Path
 from typing import Iterator, Union, Dict, List, Tuple, Any
@@ -58,7 +59,7 @@ class ECUInfo:
 
     @classmethod
     def parse_ecu_info(cls, ecu_info_file: Union[str, Path]) -> "ECUInfo":
-        ecu_info = DEFAULT_ECU_INFO.copy()
+        ecu_info = deepcopy(DEFAULT_ECU_INFO)
         try:
             ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
             assert isinstance(ecu_info, Dict)
@@ -89,22 +90,26 @@ class ECUInfo:
                     if _field.default is not MISSING
                     else _field.default_factory()  # type: ignore
                 )
-                continue
             # parsed _option is available
-            if isinstance(_option, (list, dict)):
-                _ecu_info_dict[_field.name] = _option.copy()
             else:
                 _ecu_info_dict[_field.name] = _option
 
         # initialize ECUInfo inst
-        return cls(**_ecu_info_dict)
+        return cls(**deepcopy(_ecu_info_dict))
 
     def iter_secondary_ecus(self) -> Iterator[Tuple[str, str]]:
         """
         Return a tuple contains ecu_id and ip_addr in str.
+
+        Format:
+            "ecu_id": str
+            "ip_addr": str
         """
         for subecu in self.secondaries:
-            yield subecu["ecu_id"], subecu.get("ip_addr", "127.0.0.1")
+            try:
+                yield subecu["ecu_id"], subecu["ip_addr"]
+            except KeyError:
+                raise ValueError(f"{subecu=} info is invalid")
 
     def get_ecu_id(self) -> str:
         return self.ecu_id
