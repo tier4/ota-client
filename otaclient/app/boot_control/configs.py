@@ -28,17 +28,30 @@ class BootloaderType(Enum):
     rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28
     """
 
-    UNSUPPORTED = "unsupported"
+    UNSPECIFIED = "unspecified"
     GRUB = "grub"
     CBOOT = "cboot"
     RPI_BOOT = "rpi_boot"
+
+    @classmethod
+    def parse_str(cls, _input: str) -> "BootloaderType":
+        res = cls.UNSPECIFIED
+        try:  # input is enum key(capitalized)
+            res = BootloaderType[_input]
+        except KeyError:
+            pass
+        try:  # input is enum value(uncapitalized)
+            res = BootloaderType(_input)
+        except ValueError:
+            pass
+        return res
 
 
 @dataclass
 class GrubControlConfig(BaseConfig):
     """x86-64 platform, with grub as bootloader."""
 
-    BOOTLOADER: str = "grub"
+    BOOTLOADER: BootloaderType = BootloaderType.GRUB
     FSTAB_FILE_PATH: str = "/etc/fstab"
     GRUB_DIR: str = "/boot/grub"
     GRUB_CFG_PATH: str = "/boot/grub/grub.cfg"
@@ -53,7 +66,7 @@ class CBootControlConfig(BaseConfig):
     NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
     """
 
-    BOOTLOADER: str = "cboot"
+    BOOTLOADER: BootloaderType = BootloaderType.CBOOT
     TEGRA_CHIP_ID_PATH: str = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
     CHIP_ID_MODEL_MAP: Dict[int, str] = field(default_factory=lambda: {0x19: "rqx_580"})
     OTA_STATUS_DIR: str = "/boot/ota-status"
@@ -63,6 +76,7 @@ class CBootControlConfig(BaseConfig):
 
 @dataclass
 class RPIBootControlConfig(BaseConfig):
+    BBOOTLOADER: BootloaderType = BootloaderType.RPI_BOOT
     RPI_MODEL_FILE: str = "/proc/device-tree/model"
     RPI_MODEL_HINT: str = r"Raspberry Pi"
 

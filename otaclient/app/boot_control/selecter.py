@@ -60,7 +60,7 @@ def detect_bootloader(raise_on_unknown=True) -> BootloaderType:
     # failed to detect bootloader
     if raise_on_unknown:
         raise ValueError(f"unsupported platform({machine=}, {arch=}) detected, abort")
-    return BootloaderType.UNSUPPORTED
+    return BootloaderType.UNSPECIFIED
 
 
 def get_boot_controller(
