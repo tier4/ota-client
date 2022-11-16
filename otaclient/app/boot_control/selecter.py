@@ -21,9 +21,9 @@ from .configs import BootloaderType, cboot_cfg, rpi_boot_cfg
 from .protocol import BootControllerProtocol
 
 from ..configs import config as cfg
-from .. import log_util
+from .. import log_setting
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
