@@ -22,6 +22,7 @@ from typing import ClassVar, Dict, List, Optional, Tuple
 from pathlib import Path
 from pprint import pformat
 
+from .. import log_setting
 from ..common import (
     re_symlink_atomic,
     read_str_from_file,
@@ -29,7 +30,6 @@ from ..common import (
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from ..configs import BOOT_LOADER, grub_cfg as cfg
 from ..errors import (
     BootControlInitError,
     BootControlPostRollbackFailed,
@@ -38,10 +38,9 @@ from ..errors import (
     BootControlPreUpdateFailed,
 )
 from ..proto import wrapper
-from .. import log_setting
 
-from .common import (
-    ABPartitionError,
+from . import _errors
+from ._common import (
     CMDHelperFuncs,
     OTAStatusMixin,
     PrepareMountMixin,
@@ -49,11 +48,9 @@ from .common import (
     VersionControlMixin,
     cat_proc_cmdline,
 )
-from .interface import BootControllerProtocol
+from .configs import grub_cfg as cfg
+from .protocol import BootControllerProtocol
 
-assert (
-    BOOT_LOADER == "grub"
-), f"ERROR, use grub instead of detected {BOOT_LOADER=}, abort"
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -285,7 +282,7 @@ class GrubABPartitionDetecter:
         parent = CMDHelperFuncs.get_parent_dev(active_dev)
         boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
         if not boot_dev:
-            raise ABPartitionError("/boot is not mounted")
+            raise _errors.ABPartitionError("/boot is not mounted")
 
         # list children device file from parent device
         cmd = f"-Pp -o NAME,FSTYPE {parent}"
@@ -302,7 +299,9 @@ class GrubABPartitionDetecter:
                 ):
                     return m.group(1)
 
-        raise ABPartitionError(f"{parent=} has unexpected partition layout: {output=}")
+        raise _errors.ABPartitionError(
+            f"{parent=} has unexpected partition layout: {output=}"
+        )
 
     def _detect_active_slot(self) -> Tuple[str, str]:
         """
@@ -358,7 +357,7 @@ class _SymlinkABPartitionDetecter:
 
             return Path(active_ota_partition_file).suffix.strip(".")
         except FileNotFoundError:
-            raise ABPartitionError("ota-partition files are broken")
+            raise _errors.ABPartitionError("ota-partition files are broken")
 
     @classmethod
     def _get_standby_slot_by_symlink(cls) -> str:
@@ -377,7 +376,7 @@ class _SymlinkABPartitionDetecter:
 
             assert len(ota_partition_fs) == 1
         except (ValueError, AssertionError):
-            raise ABPartitionError("ota-partition files are broken")
+            raise _errors.ABPartitionError("ota-partition files are broken")
 
         (standby_ota_partition_file,) = ota_partition_fs
         return standby_ota_partition_file.suffix.strip(".")

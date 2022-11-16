@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TestConfiguration:
     # module paths
-    BOOT_CONTROL_COMMON_MODULE_PATH = "otaclient.app.boot_control.common"
+    BOOT_CONTROL_COMMON_MODULE_PATH = "otaclient.app.boot_control._common"
     CONFIGS_MODULE_PATH = "otaclient.app.configs"
-    CBOOT_MODULE_PATH = "otaclient.app.boot_control.cboot"
-    GRUB_MODULE_PATH = "otaclient.app.boot_control.grub"
+    CBOOT_MODULE_PATH = "otaclient.app.boot_control._cboot"
+    GRUB_MODULE_PATH = "otaclient.app.boot_control._grub"
     OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
     OTAMETA_MODULE_PATH = "otaclient.app.ota_metadata"

@@ -11,46 +11,118 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+r"""ECU metadatas definition."""
 
 import yaml
+from copy import deepcopy
+from dataclasses import dataclass, field, fields, MISSING
+from pathlib import Path
+from typing import Iterator, Union, Dict, List, Tuple, Any
 
 from . import log_setting
 from .configs import config as cfg
+from .boot_control import BootloaderType
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
 
-class EcuInfo:
-    ECU_INFO_FILE = cfg.ECU_INFO_FILE
-    DEFAULT_ECU_INFO = {
-        "format_version": 1,  # current version is 1
-        "ecu_id": "autoware",  # should be unique for each ECU in vehicle
-    }
+DEFAULT_ECU_INFO = {
+    "format_version": 1,  # current version is 1
+    "ecu_id": "autoware",  # should be unique for each ECU in vehicle
+}
 
-    def __init__(self):
-        ecu_info_file = EcuInfo.ECU_INFO_FILE
-        self._ecu_info = self._load_ecu_info(ecu_info_file)
-        logger.info(f"ecu_info={self._ecu_info}")
 
-    def get_secondary_ecus(self):
-        return self._ecu_info.get("secondaries", [])
+@dataclass
+class ECUInfo:
+    """
+    Version 1 scheme example:
+        format_vesrion: 1
+        ecu_id: "autoware"
+        ip_addr: "0.0.0.0"
+        bootloader: "grub"
+        secondaries:
+            - ecu_id: "p1"
+              ip_addr: "0.0.0.0"
+        available_ecu_ids:
+            - "autoware"
+            - "p1
+    """
 
-    def get_ecu_id(self):
-        return self._ecu_info["ecu_id"]
+    ecu_id: str
+    ip_addr: str = "127.0.0.1"
+    bootloader: str = BootloaderType.UNSPECIFIED.value
+    available_ecu_ids: list = field(default_factory=list)  # list[str]
+    secondaries: list = field(default_factory=list)  # list[dict[str, Any]]
+    format_version: int = 1
 
-    def get_ecu_ip_addr(self):
-        return self._ecu_info.get("ip_addr", "localhost")
-
-    def get_available_ecu_ids(self):
-        return self._ecu_info.get("available_ecu_ids", [self.get_ecu_id()])
-
-    def _load_ecu_info(self, path: str):
+    @classmethod
+    def parse_ecu_info(cls, ecu_info_file: Union[str, Path]) -> "ECUInfo":
+        ecu_info = deepcopy(DEFAULT_ECU_INFO)
         try:
-            with open(path) as f:
-                ecu_info = yaml.safe_load(f)
+            ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
+            assert isinstance(ecu_info, Dict)
         except Exception:
-            return EcuInfo.DEFAULT_ECU_INFO
-        return ecu_info
+            logger.warning(
+                f"failed to load {ecu_info_file=} or config file corrupted, use default config"
+            )
+        logger.info(f"ecu_info={ecu_info}")
+
+        # load options
+        # NOTE: if option is not presented,
+        #       this option will be set to the default value
+        _ecu_info_dict: Dict[str, Any] = dict()
+        for _field in fields(cls):
+            _option = ecu_info.get(_field.name)
+            if not isinstance(_option, _field.type):
+                if _option is not None:
+                    logger.warning(
+                        f"{_field.name} contains invalid value={_option}, "
+                        "ignored and set to default={_field.default}"
+                    )
+                if _field.default is MISSING and _field.default_factory is MISSING:
+                    raise ValueError(
+                        f"required field {_field.name} is not presented, abort"
+                    )
+                _ecu_info_dict[_field.name] = (
+                    _field.default
+                    if _field.default is not MISSING
+                    else _field.default_factory()  # type: ignore
+                )
+            # parsed _option is available
+            else:
+                _ecu_info_dict[_field.name] = _option
+
+        # initialize ECUInfo inst
+        return cls(**deepcopy(_ecu_info_dict))
+
+    def iter_secondary_ecus(self) -> Iterator[Tuple[str, str]]:
+        """
+        Return a tuple contains ecu_id and ip_addr in str.
+
+        Format:
+            "ecu_id": str
+            "ip_addr": str
+        """
+        for subecu in self.secondaries:
+            try:
+                yield subecu["ecu_id"], subecu["ip_addr"]
+            except KeyError:
+                raise ValueError(f"{subecu=} info is invalid")
+
+    def get_ecu_id(self) -> str:
+        return self.ecu_id
+
+    def get_ecu_ip_addr(self) -> str:
+        return self.ip_addr
+
+    def get_bootloader(self) -> BootloaderType:
+        return BootloaderType.parse_str(self.bootloader)
+
+    def get_available_ecu_ids(self) -> List[str]:
+        # onetime fix, if no availabe_ecu_id is specified,
+        # add my_ecu_id into the list
+        if len(self.available_ecu_ids) == 0:
+            self.available_ecu_ids.append(self.ecu_id)
+        return self.available_ecu_ids.copy()

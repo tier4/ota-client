@@ -14,6 +14,7 @@
 
 
 import asyncio
+import json
 import pytest
 import pytest_mock
 import time
@@ -175,7 +176,7 @@ class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
 class Test_SubECUTracker:
     @pytest.fixture
     def setup_subecus(self):
-        self._subecu_dict = {"p1": "", "p2": ""}
+        self._subecu_dict = {"p1": "127.0.0.1", "p2": "127.0.0.1"}
         self._subecus = _DummySubECUsGroup(list(self._subecu_dict.keys()))
         logger.debug(f"setup dummy subecus: {self._subecu_dict}")
 
@@ -210,13 +211,13 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
     # TODO: status
 
     @pytest.fixture
-    def setup_ecus(self):
+    def setup_ecus(self, tmp_path: Path):
         self._my_ecuid = "autoware"
-        self._subecu_dict = {"p1": "", "p2": ""}
+        self._subecu_dict = {"p1": "127.0.0.1", "p2": "127.0.0.1"}
         self._subecs = _DummySubECUsGroup(list(self._subecu_dict.keys()))
         self._subecu_list_ecu_info = [
-            {"ecu_id": "p1", "ip_addr": ""},
-            {"ecu_id": "p2", "ip_addr": ""},
+            {"ecu_id": "p1", "ip_addr": "127.0.0.1"},
+            {"ecu_id": "p2", "ip_addr": "127.0.0.1"},
         ]
         self.update_request = wrapper.UpdateRequest(
             ecu=[
@@ -225,10 +226,27 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
                 {"ecu_id": "p2"},
             ]
         )
+        # prepare ecu info
+        ecu_info = {
+            "ecu_id": "autoware",
+            "secondaries": [
+                {"ecu_id": "p1", "ip_addr": "127.0.0.1"},
+                {"ecu_id": "p2", "ip_addr": "127.0.0.1"},
+            ],
+            "available_ecu_ids": ["autoware", "p1", "p2"],
+            "bootloader": "grub",
+        }
+        self.ecu_info_file = tmp_path / "ecu_info_file"
+        self.ecu_info_file.write_text(json.dumps(ecu_info))
 
     @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: pytest_mock.MockerFixture, setup_ecus, setup_executor):
-        from otaclient.app.ecu_info import EcuInfo
+    def mock_setup(
+        self,
+        mocker: pytest_mock.MockerFixture,
+        tmp_path: Path,
+        setup_ecus,
+        setup_executor,
+    ):
         from otaclient.app.ota_client import OTAClient, OTAUpdateFSM
         from otaclient.app.ota_client_call import OtaClientCall
 
@@ -260,14 +278,6 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
         self._fsm = _ota_update_fsm
         self._wait_for_update_finished = _wait_for_update_finished
 
-        ###### mock ecu_info ######
-        _ecu_info_mock = typing.cast(EcuInfo, mocker.MagicMock(spec=EcuInfo))
-        _ecu_info_mock.get_ecu_id.return_value = self._my_ecuid
-        _ecu_info_mock.get_available_ecu_ids.return_value = list(
-            self._subecu_dict.keys()
-        ) + [self._my_ecuid]
-        _ecu_info_mock.get_secondary_ecus.return_value = self._subecu_list_ecu_info
-
         ###### mock otaclient ######
         self._ota_client_mock = typing.cast(OTAClient, mocker.MagicMock())
         self._ota_client_mock.live_ota_status.request_update.return_value = True
@@ -279,7 +289,8 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
 
         ###### patch ######
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.EcuInfo", return_value=_ecu_info_mock
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.cfg.ECU_INFO_FILE",
+            str(self.ecu_info_file),
         )
         mocker.patch(
             f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAClient",

@@ -20,6 +20,7 @@ from functools import partial
 from subprocess import CalledProcessError
 from typing import Optional
 
+
 from .. import log_setting
 from ..common import (
     copytree_identical,
@@ -28,7 +29,7 @@ from ..common import (
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from ..configs import BOOT_LOADER, cboot_cfg as cfg
+
 from ..errors import (
     BootControlInitError,
     BootControlPlatformUnsupported,
@@ -39,27 +40,24 @@ from ..errors import (
 )
 from ..proto import wrapper
 
-from .common import (
-    MountError,
+from . import _errors
+from ._common import (
     OTAStatusMixin,
-    _BootControlError,
     PrepareMountMixin,
     CMDHelperFuncs,
     SlotInUseMixin,
     VersionControlMixin,
 )
-from .interface import BootControllerProtocol
+from .configs import cboot_cfg as cfg
+from .protocol import BootControllerProtocol
 
-assert (
-    BOOT_LOADER == "cboot"
-), f"ERROR, use cboot instead of detected {BOOT_LOADER=}, abort"
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
 
-class NvbootctrlError(_BootControlError):
+class NvbootctrlError(_errors.BootControlError):
     """Specific internal errors related to nvbootctrl cmd."""
 
 
@@ -159,13 +157,11 @@ class Nvbootctrl:
 
 
 class _CBootControl:
-    TEGRA_CHIP_ID_PATH = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
-
     def __init__(self):
         try:
             # NOTE: only support rqx-580, rqx-58g platform right now!
             # detect the chip id
-            self.chip_id = read_str_from_file(self.TEGRA_CHIP_ID_PATH)
+            self.chip_id = read_str_from_file(cfg.TEGRA_CHIP_ID_PATH)
             if not self.chip_id or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
                 raise NotImplementedError(
                     f"unsupported platform found (chip_id: {self.chip_id}), abort"
@@ -426,7 +422,7 @@ class CBootController(
                 # finish populating new boot folder to boot dev,
                 # we can umount the boot dev right now
                 CMDHelperFuncs.umount(_boot_dir_mount_point)
-            except MountError as e:
+            except _errors.MountError as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
                 logger.error(_failure_msg)
                 # no need to raise to the caller
@@ -483,7 +479,7 @@ class CBootController(
             self._store_standby_slot_in_use(_target_slot)
 
             logger.info("pre-update setting finished")
-        except _BootControlError as e:
+        except _errors.BootControlError as e:
             logger.error(f"failed on pre_update: {e!r}")
             raise BootControlPreUpdateFailed from e
 
@@ -513,7 +509,7 @@ class CBootController(
             self._umount_all(ignore_error=True)
             self._cboot_control.switch_boot()
             CMDHelperFuncs.reboot()
-        except _BootControlError as e:
+        except _errors.BootControlError as e:
             logger.error(f"failed on post_update: {e!r}")
             raise BootControlPostUpdateFailed from e
 
@@ -535,6 +531,6 @@ class CBootController(
         try:
             self._cboot_control.switch_boot()
             CMDHelperFuncs.reboot()
-        except _BootControlError as e:
+        except _errors.BootControlError as e:
             logger.error(f"failed on post_rollback: {e!r}")
             raise BootControlPostRollbackFailed from e
