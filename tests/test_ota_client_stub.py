@@ -176,7 +176,7 @@ class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
 class Test_SubECUTracker:
     @pytest.fixture
     def setup_subecus(self):
-        self._subecu_dict = {"p1": "", "p2": ""}
+        self._subecu_dict = {"p1": "127.0.0.1", "p2": "127.0.0.1"}
         self._subecus = _DummySubECUsGroup(list(self._subecu_dict.keys()))
         logger.debug(f"setup dummy subecus: {self._subecu_dict}")
 
@@ -213,11 +213,11 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
     @pytest.fixture
     def setup_ecus(self, tmp_path: Path):
         self._my_ecuid = "autoware"
-        self._subecu_dict = {"p1": "", "p2": ""}
+        self._subecu_dict = {"p1": "127.0.0.1", "p2": "127.0.0.1"}
         self._subecs = _DummySubECUsGroup(list(self._subecu_dict.keys()))
         self._subecu_list_ecu_info = [
-            {"ecu_id": "p1", "ip_addr": ""},
-            {"ecu_id": "p2", "ip_addr": ""},
+            {"ecu_id": "p1", "ip_addr": "127.0.0.1"},
+            {"ecu_id": "p2", "ip_addr": "127.0.0.1"},
         ]
         self.update_request = wrapper.UpdateRequest(
             ecu=[
@@ -229,7 +229,10 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
         # prepare ecu info
         ecu_info = {
             "ecu_id": "autoware",
-            "secondaries": [{"ecu_id": "p1"}, {"ecu_id": "p2"}],
+            "secondaries": [
+                {"ecu_id": "p1", "ip_addr": "127.0.0.1"},
+                {"ecu_id": "p2", "ip_addr": "127.0.0.1"},
+            ],
             "available_ecu_ids": ["autoware", "p1", "p2"],
             "bootloader": "grub",
         }
