@@ -17,9 +17,9 @@ from typing import Type
 from .interface import BootControllerProtocol
 
 from ..configs import BOOT_LOADER, config as cfg
-from .. import log_util
+from .. import log_setting
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 

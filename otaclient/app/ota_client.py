@@ -43,9 +43,9 @@ from .ota_status import LiveOTAStatus
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 from .update_stats import OTAUpdateStatsCollector
-from . import log_util
+from . import log_setting
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 

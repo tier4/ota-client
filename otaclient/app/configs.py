@@ -57,17 +57,14 @@ class BaseConfig:
     DEFAULT_LOG_LEVEL: int = INFO
     LOG_LEVEL_TABLE: Dict[str, int] = field(
         default_factory=lambda: {
-            "ecu_info": INFO,
-            "grub_control": INFO,
-            "grub_ota_partition": INFO,
-            "extlinux_control": INFO,
-            "main": INFO,
-            "ota_client": INFO,
-            "ota_client_call": INFO,
-            "ota_client_service": INFO,
-            "ota_client_stub": INFO,
-            "ota_metadata": INFO,
-            "ota_status": INFO,
+            "otaclient.app.boot_control.cboot": INFO,
+            "otaclient.app.boot_control.grub": INFO,
+            "otaclient.app.ota_client": INFO,
+            "otaclient.app.ota_client_service": INFO,
+            "otaclient.app.ota_client_stub": INFO,
+            "otaclient.app.ota_metadata": INFO,
+            "otaclient.app.downloader": INFO,
+            "otaclient.app.main": INFO,
         }
     )
     ACTIVE_ROOTFS_PATH: str = "/"

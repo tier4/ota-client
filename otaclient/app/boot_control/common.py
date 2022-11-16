@@ -19,7 +19,7 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Callable, List, Optional, Union
 
-from .. import log_util
+from .. import log_setting
 from ..configs import config as cfg
 from ..common import (
     read_str_from_file,
@@ -30,7 +30,7 @@ from ..common import (
 from ..proto import wrapper
 
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 

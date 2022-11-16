@@ -38,7 +38,7 @@ from ..errors import (
     BootControlPreUpdateFailed,
 )
 from ..proto import wrapper
-from .. import log_util
+from .. import log_setting
 
 from .common import (
     ABPartitionError,
@@ -55,7 +55,7 @@ assert (
     BOOT_LOADER == "grub"
 ), f"ERROR, use grub instead of detected {BOOT_LOADER=}, abort"
 
-logger = log_util.get_logger(
+logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
