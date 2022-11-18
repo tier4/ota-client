@@ -85,6 +85,16 @@ class CMDHelperFuncs:
     ###### derived helper methods ######
 
     @classmethod
+    def get_fslabel_by_dev(cls, dev: str) -> str:
+        """Return partuuid of input device."""
+        args = f"-in -o LABEL {dev}"
+        try:
+            return cls._lsblk(args, raise_exception=True)
+        except ValueError as e:
+            msg = f"failed to get fslabel for {dev}: {e}"
+            raise ValueError(msg) from None
+
+    @classmethod
     def get_partuuid_by_dev(cls, dev: str) -> str:
         """Return partuuid of input device."""
         args = f"-in -o PARTUUID {dev}"
@@ -125,6 +135,10 @@ class CMDHelperFuncs:
     @classmethod
     def get_dev_by_partlabel(cls, partlabel: str) -> str:
         return cls._findfs("PARTLABEL", partlabel)
+
+    @classmethod
+    def get_dev_by_fslabel(cls, fslabel: str) -> str:
+        return cls._findfs("LABEL", fslabel)
 
     @classmethod
     def get_dev_by_partuuid(cls, partuuid: str) -> str:

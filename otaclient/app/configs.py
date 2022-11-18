@@ -74,7 +74,13 @@ class BaseConfig:
     PASSWD_FILE: str = "/etc/passwd"
     GROUP_FILE: str = "/etc/group"
 
-    # status files
+    ### ota device specific configuration files ###
+    # this files should be placed under ota folder
+    ECU_INFO_FNAME: str = "ecu_info.yaml"
+    PROXY_INFO_FNAME: str = "proxy_info.yaml"
+
+    ### ota-status files ###
+    # this files should be placed under ota-status folder
     OTA_STATUS_FNAME: str = "status"
     OTA_VERSION_FNAME: str = "version"
     SLOT_IN_USE_FNAME: str = "slot_in_use"

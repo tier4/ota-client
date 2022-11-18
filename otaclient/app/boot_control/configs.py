@@ -80,6 +80,24 @@ class RPIBootControlConfig(BaseConfig):
     RPI_MODEL_FILE: str = "/proc/device-tree/model"
     RPI_MODEL_HINT: str = r"Raspberry Pi"
 
+    # slot configuration
+    SLOT_A_FSLABEL: str = "slot_a"
+    SLOT_B_FSLABEL: str = "slot_b"
+    SYSTEM_BOOT_FSLABEL: str = "system-boot"
+
+    # boot folders
+    SYSTEM_BOOT_MOUNT_POINT: str = "/boot/firmware"
+    OTA_STATUS_DIR: str = f"/boot/ota-status"
+    # NOTE: ota folder should be placed in shared system-boot partition
+    OTA_DIR: str = f"{SYSTEM_BOOT_MOUNT_POINT}/ota"
+
+    # boot related files
+    CONFIG_TXT = "config.txt"  # primary boot cfg
+    TRYBOOT_TXT = "tryboot.txt"  # tryboot boot cfg
+    VMLINUZ = "vmlinuz"
+    INITRD_IMG = "initrd.img"
+    CMDLINE_TXT = "cmdline.txt"
+
 
 grub_cfg = GrubControlConfig()
 cboot_cfg = CBootControlConfig()

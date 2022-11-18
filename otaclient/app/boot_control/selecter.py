@@ -76,5 +76,7 @@ def get_boot_controller(
 
         return CBootController
     if bootloader_type == BootloaderType.RPI_BOOT:
-        raise NotImplementedError("rpi support not yet implemented")
+        from ._rpi_boot import RPIBootController
+
+        return RPIBootController
     raise NotImplementedError
