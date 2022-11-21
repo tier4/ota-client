@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Type
 
 from .configs import BootloaderType, cboot_cfg, rpi_boot_cfg
+from ._errors import BootControlError
 from .protocol import BootControllerProtocol
 
 from ..configs import config as cfg
+from ..common import read_str_from_file
 from .. import log_setting
 
 logger = log_setting.get_logger(
@@ -53,7 +55,8 @@ def detect_bootloader(raise_on_unknown=True) -> BootloaderType:
         rpi_model_file = Path(rpi_boot_cfg.RPI_MODEL_FILE)
         if (
             rpi_model_file.is_file()
-            and rpi_model_file.read_text().find(rpi_boot_cfg.RPI_MODEL_HINT) != -1
+            and read_str_from_file(rpi_model_file).find(rpi_boot_cfg.RPI_MODEL_HINT)
+            != -1
         ):
             return BootloaderType.RPI_BOOT
 
@@ -79,4 +82,4 @@ def get_boot_controller(
         from ._rpi_boot import RPIBootController
 
         return RPIBootController
-    raise NotImplementedError
+    raise BootControlError from NotImplementedError(f"unsupported: {bootloader_type=}")

@@ -144,8 +144,8 @@ class _RPIBootControl:
         2. atomically replace config.txt with config.txt_active_slot
         """
         try:
-            replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
             replace_atomic(self.config_txt_active_slot, self.config_txt)
+            replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
         except Exception as e:
             raise BootControlInitError("failed to finalize boot switching") from e
 
@@ -163,9 +163,9 @@ class _RPIBootControl:
         try:
             _cmd = "reboot 0 tryboot"
             subprocess_call(_cmd, raise_exception=True)
-        except Exception:
+        except Exception as e:
             logger.exception("failed to reboot")
-            raise
+            raise BootControlPostUpdateFailed("failed to reboot with tryboot") from e
 
 
 class RPIBootController(
