@@ -364,7 +364,7 @@ class OTAStatusFilesControlMixin:
     ):
         """Check and/or init ota_status files for current slot."""
         # parse ota_status and slot_in_use
-        _ota_status = self._load_current_ota_status()
+        _ota_status = self._load_current_status()
         _slot_in_use = self._load_current_slot_in_use()
         if not (_ota_status and _slot_in_use):
             logger.info(
@@ -373,7 +373,7 @@ class OTAStatusFilesControlMixin:
             )
             _ota_status = wrapper.StatusOta.INITIALIZED
             self._store_current_slot_in_use(active_slot)
-            self._store_current_ota_status(wrapper.StatusOta.INITIALIZED)
+            self._store_current_status(wrapper.StatusOta.INITIALIZED)
         elif _ota_status == wrapper.StatusOta.UPDATING:
             if self._is_switching_boot(active_slot):
                 finalize_switching_boot()
@@ -398,7 +398,7 @@ class OTAStatusFilesControlMixin:
 
         logger.info(f"boot control init finished, ota_status is {_ota_status}")
         # store the ota_status to current disk
-        self._store_current_ota_status(_ota_status)
+        self._store_current_status(_ota_status)
         # bind ota_status enum to otaclient inst
         self.ota_status = _ota_status
 
@@ -422,17 +422,17 @@ class OTAStatusFilesControlMixin:
 
     # status control
 
-    def _store_current_ota_status(self, _status: wrapper.StatusOta):
+    def _store_current_status(self, _status: wrapper.StatusOta):
         write_str_to_file_sync(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
-    def _store_standby_ota_status(self, _status: wrapper.StatusOta):
+    def _store_standby_status(self, _status: wrapper.StatusOta):
         write_str_to_file_sync(
             self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
-    def _load_current_ota_status(self) -> Optional[wrapper.StatusOta]:
+    def _load_current_status(self) -> Optional[wrapper.StatusOta]:
         if _status_str := read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
         ).upper():
@@ -465,7 +465,7 @@ class OTAStatusFilesControlMixin:
     def _is_switching_boot(self, active_slot: str) -> bool:
         """Detect whether we should switch boot or not with ota_status files."""
         # evidence: ota_status
-        _is_updating_or_rollbacking = self._load_current_ota_status() in [
+        _is_updating_or_rollbacking = self._load_current_status() in [
             wrapper.StatusOta.UPDATING,
             wrapper.StatusOta.ROLLBACKING,
         ]
@@ -479,6 +479,34 @@ class OTAStatusFilesControlMixin:
             f"{_is_switching_slot=}"
         )
         return _is_updating_or_rollbacking and _is_switching_slot
+
+    # boot control used methods
+
+    def _pre_update_set_current_ota_status_files(self, *, standby_slot: str):
+        """On pre_update stage, set current slot's status to FAILURE
+        and set slot_in_use to standby slot."""
+        self._store_current_status(wrapper.StatusOta.FAILURE)
+        self._store_current_slot_in_use(standby_slot)
+
+    def _pre_update_set_standby_ota_status_files(
+        self, *, standby_slot: str, version: str
+    ):
+        """On pre_update stage, set standby slot's status to UPDATING,
+        set slot_in_use to standby slot, and set version."""
+        # create the ota-status folder unconditionally
+        self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
+        # store status to standby slot
+        self._store_standby_status(wrapper.StatusOta.UPDATING)
+        self._store_standby_version(version)
+        self._store_standby_slot_in_use(standby_slot)
+
+    def _pre_rollback_set_current_ota_status_files(self):
+        self._store_current_status(wrapper.StatusOta.FAILURE)
+
+    def _pre_rollback_set_standby_ota_status_files(self):
+        # store ROLLBACKING status to standby
+        self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
+        self._store_standby_status(wrapper.StatusOta.ROLLBACKING)
 
     # public methods
 
@@ -561,6 +589,10 @@ class PrepareMountMixin:
     standby_slot_mount_point: Path
     ref_slot_mount_point: Path
 
+    def _prepare_mount_points(self):
+        self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
+        self.ref_slot_mount_point.mkdir(exist_ok=True, parents=True)
+
     def _prepare_and_mount_standby(self, standby_slot_dev: str, *, erase=False):
         self.standby_slot_mount_point.mkdir(parents=True, exist_ok=True)
 
@@ -582,6 +614,7 @@ class PrepareMountMixin:
         active_dev: str,
         standby_as_ref: bool,
     ):
+        CMDHelperFuncs.umount(self.ref_slot_mount_point)
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=standby_dev,
             active_slot_dev=active_dev,
