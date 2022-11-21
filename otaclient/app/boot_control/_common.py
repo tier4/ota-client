@@ -363,6 +363,8 @@ class OTAStatusFilesControlMixin:
         finalize_switching_boot: Callable[[], Any],
     ):
         """Check and/or init ota_status files for current slot."""
+        self.current_ota_status_dir.mkdir(exist_ok=True, parents=True)
+
         # parse ota_status and slot_in_use
         _ota_status = self._load_current_status()
         _slot_in_use = self._load_current_slot_in_use()
