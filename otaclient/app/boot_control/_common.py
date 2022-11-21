@@ -16,7 +16,7 @@ r"""Shared utils for boot_controller."""
 
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Callable, Any
 
 from ._errors import BootControlError, MountError, MkfsError, MountFailedReason
 
@@ -333,6 +333,159 @@ class CMDHelperFuncs:
 
 
 ###### helper mixins ######
+
+
+class OTAStatusFilesControlMixin:
+    """Mixin methods to control ota_status files, including status, slot_in_use, version.
+
+    Expecting BootController inst to have the following inst vars:
+        current_ota_status_dir: Path
+        standby_ota_status_dir: Path
+        ota_status: wrapper.StatusOta
+
+    OTAStatus files:
+        status: current slot's OTA status
+        slot_in_use: expected active slot
+        version: image version in current slot
+
+    If status or slot_in_use file is missing, initialization is required.
+    status will be set to INITIALIZED, and slot_in_use will be set to current slot.
+    """
+
+    current_ota_status_dir: Path
+    standby_ota_status_dir: Path
+    ota_status: wrapper.StatusOta
+
+    def _init_ota_status_files(
+        self,
+        *,
+        active_slot: str,
+        finalize_switching_boot: Callable[[], Any],
+    ):
+        """Check and/or init ota_status files for current slot."""
+        # parse ota_status and slot_in_use
+        _ota_status = self._load_current_ota_status()
+        _slot_in_use = self._load_current_slot_in_use()
+        if not (_ota_status and _slot_in_use):
+            logger.info(
+                "ota_status files incompleted/not presented, "
+                "initializing boot control files..."
+            )
+            _ota_status = wrapper.StatusOta.INITIALIZED
+            self._store_current_slot_in_use(active_slot)
+            self._store_current_ota_status(wrapper.StatusOta.INITIALIZED)
+        elif _ota_status == wrapper.StatusOta.UPDATING:
+            if self._is_switching_boot(active_slot):
+                finalize_switching_boot()
+                _ota_status = wrapper.StatusOta.SUCCESS
+            else:
+                _ota_status = wrapper.StatusOta.FAILURE
+        elif _ota_status == wrapper.StatusOta.ROLLBACKING:
+            if self._is_switching_boot(active_slot):
+                finalize_switching_boot()
+                _ota_status = wrapper.StatusOta.SUCCESS
+            else:
+                _ota_status = wrapper.StatusOta.ROLLBACK_FAILURE
+        # status except UPDATING/ROLLBACKING remained as it
+
+        # detect failed reboot, but only print error logging currently
+        if _ota_status != wrapper.StatusOta.INITIALIZED and _slot_in_use != active_slot:
+            logger.error(
+                f"boot into old slot {active_slot}, "
+                f"but slot_in_use indicates it should boot into {_slot_in_use}, "
+                "this might indicate a failed finalization at first reboot after update/rollback"
+            )
+
+        logger.info(f"boot control init finished, ota_status is {_ota_status}")
+        # store the ota_status to current disk
+        self._store_current_ota_status(_ota_status)
+        # bind ota_status enum to otaclient inst
+        self.ota_status = _ota_status
+
+    # slot_in_use control
+
+    def _store_current_slot_in_use(self, _slot: str):
+        write_str_to_file_sync(
+            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
+        )
+
+    def _store_standby_slot_in_use(self, _slot: str):
+        write_str_to_file_sync(
+            self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
+        )
+
+    def _load_current_slot_in_use(self) -> Optional[str]:
+        if res := read_str_from_file(
+            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, default=""
+        ):
+            return res
+
+    # status control
+
+    def _store_current_ota_status(self, _status: wrapper.StatusOta):
+        write_str_to_file_sync(
+            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+        )
+
+    def _store_standby_ota_status(self, _status: wrapper.StatusOta):
+        write_str_to_file_sync(
+            self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+        )
+
+    def _load_current_ota_status(self) -> Optional[wrapper.StatusOta]:
+        if _status_str := read_str_from_file(
+            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
+        ).upper():
+            try:
+                return wrapper.StatusOta[_status_str]
+            except KeyError:
+                pass  # invalid status string
+
+    # version control
+
+    def _store_standby_version(self, _version: str):
+        write_str_to_file_sync(
+            self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            _version,
+        )
+
+    def load_version(self) -> str:
+        _version = read_str_from_file(
+            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            missing_ok=True,
+            default="",
+        )
+        if not _version:
+            logger.warning("version file not found, return empty version string")
+
+        return _version
+
+    # helper methods
+
+    def _is_switching_boot(self, active_slot: str) -> bool:
+        """Detect whether we should switch boot or not with ota_status files."""
+        # evidence: ota_status
+        _is_updating_or_rollbacking = self._load_current_ota_status() in [
+            wrapper.StatusOta.UPDATING,
+            wrapper.StatusOta.ROLLBACKING,
+        ]
+
+        # evidence: slot_in_use
+        _is_switching_slot = self._load_current_slot_in_use() == active_slot
+
+        logger.info(
+            f"[switch_boot detect result] \n"
+            f"{_is_updating_or_rollbacking=}, "
+            f"{_is_switching_slot=}"
+        )
+        return _is_updating_or_rollbacking and _is_switching_slot
+
+    # public methods
+
+    def get_ota_status(self) -> wrapper.StatusOta:
+        return self.ota_status
+
+
 class SlotInUseMixin:
     current_ota_status_dir: Path
     standby_ota_status_dir: Path
