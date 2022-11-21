@@ -29,11 +29,9 @@ from ..common import replace_atomic, subprocess_call
 
 from . import _errors
 from ._common import (
-    OTAStatusMixin,
+    OTAStatusFilesControlMixin,
     PrepareMountMixin,
     CMDHelperFuncs,
-    SlotInUseMixin,
-    VersionControlMixin,
 )
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
@@ -138,10 +136,11 @@ class _RPIBootControl:
         )
 
     def finalize_switching_boot(self):
-        """Finalize switching boot by swapping config.txt and tryboot.txt.
+        """Finalize switching boot by swapping config.txt and tryboot.txt if we should.
 
-        1. atomically replace tryboot.txt with tryboot.txt_standby_slot
-        2. atomically replace config.txt with config.txt_active_slot
+        Swiching boot mechanism:
+            1. atomically replace tryboot.txt with tryboot.txt_standby_slot
+            2. atomically replace config.txt with config.txt_active_slot
         """
         try:
             replace_atomic(self.config_txt_active_slot, self.config_txt)
@@ -170,9 +169,7 @@ class _RPIBootControl:
 
 class RPIBootController(
     PrepareMountMixin,
-    SlotInUseMixin,
-    OTAStatusMixin,
-    VersionControlMixin,
+    OTAStatusFilesControlMixin,
     BootControllerProtocol,
 ):
     """RPIBootController implements BootControllerProtocol for rpi4 support."""
@@ -202,6 +199,7 @@ class RPIBootController(
             os.mkdir(_refroot_mount_point)
         self.ref_slot_mount_point = Path(_refroot_mount_point)
 
+        ### init ota-status files ###
         # ota-status folder
         self.current_ota_status_dir = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
             cfg.OTA_STATUS_DIR
@@ -210,62 +208,11 @@ class RPIBootController(
         self.standby_ota_status_dir = self.standby_slot_mount_point / Path(
             cfg.OTA_STATUS_DIR
         ).relative_to(cfg.ACTIVE_ROOTFS_PATH)
-
-        ### init ota-status ###
-        self.ota_status = self._init_ota_status()
-
-    def _init_ota_status(self):
-        # parse ota_status and slot_in_use
-        _ota_status = self._load_current_ota_status()
-        _slot_in_use = self._load_current_slot_in_use()
-        if not (_ota_status and _slot_in_use):
-            logger.info("initializing boot control files...")
-            _ota_status = wrapper.StatusOta.INITIALIZED
-            self._store_current_slot_in_use(self.active_slot)
-            self._store_current_ota_status(wrapper.StatusOta.INITIALIZED)
-        elif _ota_status in [wrapper.StatusOta.UPDATING, wrapper.StatusOta.ROLLBACKING]:
-            if self._is_switching_boot():
-                self._rpiboot_control.finalize_switching_boot()
-                _ota_status = wrapper.StatusOta.SUCCESS
-            else:
-                if _ota_status == wrapper.StatusOta.ROLLBACKING:
-                    _ota_status = wrapper.StatusOta.ROLLBACK_FAILURE
-                else:
-                    _ota_status = wrapper.StatusOta.FAILURE
-        # status except UPDATING/ROLLBACKING remained as it
-        # store the ota_status
-        self._store_current_ota_status(_ota_status)
-
-        # detect failed reboot, but only print error logging currently
-        if (
-            _ota_status != wrapper.StatusOta.INITIALIZED
-            and _slot_in_use != self.active_slot
-        ):
-            logger.error(
-                f"boot into old slot {self.active_slot}, "
-                f"but slot_in_use indicates it should boot into {_slot_in_use}, "
-                "this might indicate a failed finalization at first reboot after update/rollback"
-            )
-
-        logger.info(f"boot control init finished, ota_status is {_ota_status}")
-        return _ota_status
-
-    def _is_switching_boot(self) -> bool:
-        # evidence: ota_status
-        _is_updating_or_rollbacking = self._load_current_ota_status() in [
-            wrapper.StatusOta.UPDATING,
-            wrapper.StatusOta.ROLLBACKING,
-        ]
-
-        # evidence: slot_in_use
-        _is_switching_slot = self._load_current_slot_in_use() == self.active_slot
-
-        logger.info(
-            f"[switch_boot detect result] \n"
-            f"{_is_updating_or_rollbacking=}, "
-            f"{_is_switching_slot=}"
+        # init ota_status files for current slot
+        self._init_ota_status_files(
+            active_slot=self.active_slot,
+            finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
         )
-        return _is_updating_or_rollbacking and _is_switching_slot
 
     def _copy_standby_kernel_and_initrd_img(self):
         """Copy the kernel and initrd_img file to system-boot for standby slot."""
