@@ -179,7 +179,7 @@ class _RPIBootControl:
     def reboot_tryboot(self):
         """Reboot with tryboot flag."""
         try:
-            _cmd = "reboot 0 tryboot"
+            _cmd = "reboot '0 tryboot'"
             subprocess_call(_cmd, raise_exception=True)
         except Exception as e:
             _err_msg = "failed to reboot"
