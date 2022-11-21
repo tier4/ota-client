@@ -280,14 +280,13 @@ def replace_atomic(src: Union[str, Path], dst: Union[str, Path]):
     NOTE: atomic is ensured by os.rename/os.replace under the same filesystem.
     """
     src, dst = Path(src), Path(dst)
-    # NOTE: is_file also return True if src is a symlink to a regular file
-    if not src.is_file() or src.is_symlink():
+    if not src.is_file():
         raise ValueError(f"{src=} is not a regular file or not exist")
 
     _tmp_file = dst.parent / f".tmp_{os.urandom(6).hex()}"
     try:
         # prepare a copy of src file under dst's parent folder
-        shutil.copy(src, _tmp_file, follow_symlinks=False)
+        shutil.copy(src, _tmp_file, follow_symlinks=True)
         # atomically rename/replace the dst file with the copy
         os.replace(_tmp_file, dst)
     except Exception:
