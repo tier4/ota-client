@@ -299,3 +299,9 @@ class RPIBootController(BootControllerProtocol):
         logger.warning("on failure try to unmounting standby slot...")
         self._ota_status_control.on_failure()
         self._mp_control.umount_all(ignore_error=True)
+
+    def load_version(self) -> str:
+        return self._ota_status_control.load_version()
+
+    def get_ota_status(self) -> wrapper.StatusOta:
+        return self._ota_status_control.ota_status
