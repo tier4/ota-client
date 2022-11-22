@@ -262,7 +262,7 @@ class CMDHelperFuncs:
 
         # if the target is mounted, try to unmount it.
         try:
-            _cmd = f"umount -f {target}"
+            _cmd = f"umount -l {target}"
             subprocess_call(_cmd, raise_exception=True)
         except CalledProcessError as e:
             _failure_msg = (
