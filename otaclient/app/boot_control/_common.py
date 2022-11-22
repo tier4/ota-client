@@ -324,6 +324,31 @@ class CMDHelperFuncs:
             raise MountError("refroot is expected to be mounted")
 
     @classmethod
+    def mount_ro(cls, *, target: str, mount_point: Union[str, Path]):
+        """Mount target on mount_point ro.
+
+        If the target is already mounted(i.e., when the target is active_slot),
+        we try to bind mount the dev. Otherwise, directly mount it.
+
+        This method bind mount the target as ro with make-private flag and make-unbindable flag,
+        to prevent ANY accidental writes/changes to the target.
+        """
+        # NOTE: set raise_exception to false to allow not mounted
+        #       not mounted dev will have empty return str
+        if _active_mount_point := CMDHelperFuncs.get_mount_point_by_dev(
+            target, raise_exception=False
+        ):
+            CMDHelperFuncs.bind_mount_ro(
+                _active_mount_point,
+                mount_point,
+            )
+        else:
+            # target is not mounted, we mount it by ourself
+            options = ["ro"]
+            args = ["--make-private", "--make-unbindable"]
+            cls._mount(target, str(mount_point), options=options, args=args)
+
+    @classmethod
     def reboot(cls):
         try:
             subprocess_call("reboot", raise_exception=True)
@@ -335,13 +360,8 @@ class CMDHelperFuncs:
 ###### helper mixins ######
 
 
-class OTAStatusFilesControlMixin:
-    """Mixin methods to control ota_status files, including status, slot_in_use, version.
-
-    Expecting BootController inst to have the following inst vars:
-        current_ota_status_dir: Path
-        standby_ota_status_dir: Path
-        ota_status: wrapper.StatusOta
+class OTAStatusFilesControl:
+    """Logics for controlling ota_status files, including status, slot_in_use, version.
 
     OTAStatus files:
         status: current slot's OTA status
@@ -352,16 +372,23 @@ class OTAStatusFilesControlMixin:
     status will be set to INITIALIZED, and slot_in_use will be set to current slot.
     """
 
-    current_ota_status_dir: Path
-    standby_ota_status_dir: Path
-    ota_status: wrapper.StatusOta
-
-    def _init_ota_status_files(
+    def __init__(
         self,
         *,
         active_slot: str,
-        finalize_switching_boot: Callable[[], Any],
-    ):
+        standby_slot: str,
+        current_ota_status_dir: Union[str, Path],
+        standby_ota_status_dir: Union[str, Path],
+        finalize_switching_boot: Callable[[], None],
+    ) -> None:
+        self.active_slot = active_slot
+        self.standby_slot = standby_slot
+        self.current_ota_status_dir = Path(current_ota_status_dir)
+        self.standby_ota_status_dir = Path(standby_ota_status_dir)
+        self.finalize_switching_boot = finalize_switching_boot
+        self._ota_status = self._init_ota_status_files()
+
+    def _init_ota_status_files(self) -> wrapper.StatusOta:
         """Check and/or init ota_status files for current slot."""
         self.current_ota_status_dir.mkdir(exist_ok=True, parents=True)
 
@@ -374,26 +401,29 @@ class OTAStatusFilesControlMixin:
                 "initializing boot control files..."
             )
             _ota_status = wrapper.StatusOta.INITIALIZED
-            self._store_current_slot_in_use(active_slot)
+            self._store_current_slot_in_use(self.active_slot)
             self._store_current_status(wrapper.StatusOta.INITIALIZED)
         elif _ota_status == wrapper.StatusOta.UPDATING:
-            if self._is_switching_boot(active_slot):
-                finalize_switching_boot()
+            if self._is_switching_boot(self.active_slot):
+                self.finalize_switching_boot()
                 _ota_status = wrapper.StatusOta.SUCCESS
             else:
                 _ota_status = wrapper.StatusOta.FAILURE
         elif _ota_status == wrapper.StatusOta.ROLLBACKING:
-            if self._is_switching_boot(active_slot):
-                finalize_switching_boot()
+            if self._is_switching_boot(self.active_slot):
+                self.finalize_switching_boot()
                 _ota_status = wrapper.StatusOta.SUCCESS
             else:
                 _ota_status = wrapper.StatusOta.ROLLBACK_FAILURE
         # status except UPDATING/ROLLBACKING remained as it
 
         # detect failed reboot, but only print error logging currently
-        if _ota_status != wrapper.StatusOta.INITIALIZED and _slot_in_use != active_slot:
+        if (
+            _ota_status != wrapper.StatusOta.INITIALIZED
+            and _slot_in_use != self.active_slot
+        ):
             logger.error(
-                f"boot into old slot {active_slot}, "
+                f"boot into old slot {self.active_slot}, "
                 f"but slot_in_use indicates it should boot into {_slot_in_use}, "
                 "this might indicate a failed finalization at first reboot after update/rollback"
             )
@@ -401,8 +431,8 @@ class OTAStatusFilesControlMixin:
         logger.info(f"boot control init finished, ota_status is {_ota_status}")
         # store the ota_status to current disk
         self._store_current_status(_ota_status)
-        # bind ota_status enum to otaclient inst
-        self.ota_status = _ota_status
+        # return ota_status for this inst
+        return _ota_status
 
     # slot_in_use control
 
@@ -451,17 +481,6 @@ class OTAStatusFilesControlMixin:
             _version,
         )
 
-    def load_version(self) -> str:
-        _version = read_str_from_file(
-            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
-            missing_ok=True,
-            default="",
-        )
-        if not _version:
-            logger.warning("version file not found, return empty version string")
-
-        return _version
-
     # helper methods
 
     def _is_switching_boot(self, active_slot: str) -> bool:
@@ -476,44 +495,65 @@ class OTAStatusFilesControlMixin:
         _is_switching_slot = self._load_current_slot_in_use() == active_slot
 
         logger.info(
-            f"[switch_boot detect result] \n"
+            f"switch_boot detecting result:"
             f"{_is_updating_or_rollbacking=}, "
             f"{_is_switching_slot=}"
         )
         return _is_updating_or_rollbacking and _is_switching_slot
 
+    # public methods
+
     # boot control used methods
 
-    def _pre_update_set_current_ota_status_files(self, *, standby_slot: str):
+    def pre_update_current(self):
         """On pre_update stage, set current slot's status to FAILURE
         and set slot_in_use to standby slot."""
         self._store_current_status(wrapper.StatusOta.FAILURE)
-        self._store_current_slot_in_use(standby_slot)
+        self._store_current_slot_in_use(self.standby_slot)
 
-    def _pre_update_set_standby_ota_status_files(
-        self, *, standby_slot: str, version: str
-    ):
+    def pre_update_standby(self, *, version: str):
         """On pre_update stage, set standby slot's status to UPDATING,
-        set slot_in_use to standby slot, and set version."""
+        set slot_in_use to standby slot, and set version.
+
+        NOTE: expecting standby slot to be mounted and ready for use!
+        """
         # create the ota-status folder unconditionally
         self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
         # store status to standby slot
         self._store_standby_status(wrapper.StatusOta.UPDATING)
         self._store_standby_version(version)
-        self._store_standby_slot_in_use(standby_slot)
+        self._store_standby_slot_in_use(self.standby_slot)
 
-    def _pre_rollback_set_current_ota_status_files(self):
+    def pre_rollback_current(self):
         self._store_current_status(wrapper.StatusOta.FAILURE)
 
-    def _pre_rollback_set_standby_ota_status_files(self):
+    def pre_rollback_standby(self):
         # store ROLLBACKING status to standby
         self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
         self._store_standby_status(wrapper.StatusOta.ROLLBACKING)
 
-    # public methods
+    def load_version(self) -> str:
+        _version = read_str_from_file(
+            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            missing_ok=True,
+            default="",
+        )
+        if not _version:
+            logger.warning("version file not found, return empty version string")
 
-    def get_ota_status(self) -> wrapper.StatusOta:
-        return self.ota_status
+        return _version
+
+    def on_failure(self):
+        """Store FAILURE to status file on failure."""
+        self._store_current_status(wrapper.StatusOta.FAILURE)
+        # when standby slot is not created, otastatus is not needed to be set
+        if self.standby_ota_status_dir.is_dir():
+            self._store_standby_status(wrapper.StatusOta.FAILURE)
+
+    @property
+    def ota_status(self) -> wrapper.StatusOta:
+        """Read only ota_status property."""
+        return self._ota_status
 
 
 class SlotInUseMixin:
@@ -627,6 +667,45 @@ class PrepareMountMixin:
     def _umount_all(self, *, ignore_error: bool = False):
         CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
         CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=ignore_error)
+
+
+class PrepareMountHelper:
+    """Helper class that provides methods for mounting."""
+
+    def __init__(
+        self,
+        *,
+        standby_slot_mount_point: Union[str, Path],
+        active_slot_mount_point: Union[str, Path],
+    ) -> None:
+        self.standby_slot_mount_point = Path(standby_slot_mount_point)
+        self.active_slot_mount_point = Path(active_slot_mount_point)
+        self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
+        self.active_slot_mount_point.mkdir(exist_ok=True, parents=True)
+        self.standby_boot_dir = self.standby_slot_mount_point / "boot"
+
+    def mount_standby(self, standby_slot_dev: str, *, erase=False):
+        # first try umount the dev
+        CMDHelperFuncs.umount(standby_slot_dev)
+        # format the whole standby slot if needed
+        if erase:
+            logger.warning(f"perform mkfs.ext4 on standby slot({standby_slot_dev})")
+            CMDHelperFuncs.mkfs_ext4(standby_slot_dev)
+        # try to mount the standby dev
+        CMDHelperFuncs.mount_rw(standby_slot_dev, self.standby_slot_mount_point)
+
+    def mount_active(self, active_slot_dev: str):
+        # first try umount the dev
+        CMDHelperFuncs.umount(self.active_slot_mount_point)
+        # mount active slot ro, unpropagated
+        CMDHelperFuncs.mount_ro(
+            target=active_slot_dev,
+            mount_point=self.active_slot_mount_point,
+        )
+
+    def umount_all(self, *, ignore_error: bool = False):
+        CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
+        CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=ignore_error)
 
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:

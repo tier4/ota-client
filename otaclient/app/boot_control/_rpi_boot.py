@@ -28,8 +28,8 @@ from ..common import replace_atomic, subprocess_call
 
 from . import _errors
 from ._common import (
-    OTAStatusFilesControlMixin,
-    PrepareMountMixin,
+    OTAStatusFilesControl,
+    PrepareMountHelper,
     CMDHelperFuncs,
 )
 from .configs import rpi_boot_cfg as cfg
@@ -187,40 +187,30 @@ class _RPIBootControl:
             raise BootControlPostUpdateFailed(_err_msg) from e
 
 
-class RPIBootController(
-    PrepareMountMixin,
-    OTAStatusFilesControlMixin,
-    BootControllerProtocol,
-):
+class RPIBootController(BootControllerProtocol):
     """RPIBootController implements BootControllerProtocol for rpi4 support."""
 
     def __init__(self) -> None:
         self._rpiboot_control = _RPIBootControl()
-        # slots
-        self.standby_slot = self._rpiboot_control.standby_slot
-        self.active_slot = self._rpiboot_control.active_slot
         # slots_dev
         self.standby_slot_dev = self._rpiboot_control.standby_slot_dev
         self.active_slot_dev = self._rpiboot_control.active_slot_dev
 
         ### mount point prepare ###
-        self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
-        self.standby_boot_dir = self.standby_slot_mount_point / "boot"
-        self.ref_slot_mount_point = Path(cfg.REF_ROOT_MOUNT_POINT)
-        self._prepare_mount_points()
+        self._mp_control = PrepareMountHelper(
+            standby_slot_mount_point=cfg.MOUNT_POINT,
+            active_slot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
+        )
 
         ### init ota-status files ###
-        # ota-status folder
-        self.current_ota_status_dir = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
-            cfg.OTA_STATUS_DIR
-        ).relative_to(cfg.ACTIVE_ROOTFS_PATH)
-        # NOTE: might not yet be populated before OTA update applied!
-        self.standby_ota_status_dir = self.standby_slot_mount_point / Path(
-            cfg.OTA_STATUS_DIR
-        ).relative_to(cfg.ACTIVE_ROOTFS_PATH)
-        # init ota_status files for current slot
-        self._init_ota_status_files(
-            active_slot=self.active_slot,
+        self._ota_status_control = OTAStatusFilesControl(
+            active_slot=self._rpiboot_control.active_slot,
+            standby_slot=self._rpiboot_control.standby_slot,
+            current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
+            / Path(cfg.OTA_STATUS_DIR).relative_to(cfg.ACTIVE_ROOTFS_PATH),
+            # NOTE: might not yet be populated before OTA update applied!
+            standby_ota_status_dir=Path(cfg.MOUNT_POINT)
+            / Path(cfg.OTA_STATUS_DIR).relative_to(cfg.ACTIVE_ROOTFS_PATH),
             finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
         )
 
@@ -228,8 +218,8 @@ class RPIBootController(
         """Copy the kernel and initrd_img file to system-boot for standby slot."""
         try:
             _kernel, _initrd_img = (
-                self.standby_boot_dir / cfg.VMLINUZ,
-                self.standby_boot_dir / cfg.INITRD_IMG,
+                self._mp_control.standby_boot_dir / cfg.VMLINUZ,
+                self._mp_control.standby_boot_dir / cfg.INITRD_IMG,
             )
             _kernel_sysboot, _initrd_img_sysboot = (
                 self._rpiboot_control.vmlinuz_standby_slot,
@@ -245,34 +235,25 @@ class RPIBootController(
     # APIs
 
     def get_standby_slot_path(self) -> Path:
-        return self.standby_slot_mount_point
+        return self._mp_control.standby_slot_mount_point
 
     def get_standby_boot_dir(self) -> Path:
-        return self.standby_boot_dir
+        return self._mp_control.standby_boot_dir
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
             ### udpate active slot's ota_status ###
-            self._pre_update_set_current_ota_status_files(
-                standby_slot=self.standby_slot
-            )
+            self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._prepare_and_mount_standby(
+            self._mp_control.mount_standby(
                 self.standby_slot_dev,
                 erase=erase_standby,
             )
-            self._mount_refroot(
-                standby_dev=self.standby_slot_dev,
-                active_dev=self.active_slot_dev,
-                standby_as_ref=standby_as_ref,
-            )
+            self._mp_control.mount_active(self.active_slot_dev)
 
             ### update standby slot's ota_status files ###
-            self._pre_update_set_standby_ota_status_files(
-                standby_slot=self.standby_slot, version=version
-            )
-
+            self._ota_status_control.pre_update_standby(version=version)
             logger.info("pre-update setting finished")
         except _errors.BootControlError as e:
             _err_msg = f"failed on pre_update: {e!r}"
@@ -281,12 +262,12 @@ class RPIBootController(
 
     def pre_rollback(self):
         try:
-            self._pre_rollback_set_current_ota_status_files()
-            self._prepare_and_mount_standby(
+            self._ota_status_control.pre_rollback_current()
+            self._mp_control.mount_standby(
                 self.standby_slot_dev,
                 erase=False,
             )
-            self._pre_rollback_set_standby_ota_status_files()
+            self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
@@ -295,6 +276,7 @@ class RPIBootController(
     def post_rollback(self):
         try:
             self._rpiboot_control.prepare_tryboot_txt()
+            self._mp_control.umount_all(ignore_error=True)
             self._rpiboot_control.reboot_tryboot()
         except OTAError:
             raise
@@ -305,6 +287,7 @@ class RPIBootController(
         try:
             self._copy_standby_kernel_and_initrd_img()
             self._rpiboot_control.prepare_tryboot_txt()
+            self._mp_control.umount_all(ignore_error=True)
             self._rpiboot_control.reboot_tryboot()
         except OTAError:
             raise
@@ -313,10 +296,6 @@ class RPIBootController(
 
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""
-        self._store_current_status(wrapper.StatusOta.FAILURE)
-        # when standby slot is not created, otastatus is not needed to be set
-        if CMDHelperFuncs.is_target_mounted(self.standby_slot_mount_point):
-            self._store_standby_status(wrapper.StatusOta.FAILURE)
-
         logger.warning("on failure try to unmounting standby slot...")
-        self._umount_all(ignore_error=True)
+        self._ota_status_control.on_failure()
+        self._mp_control.umount_all(ignore_error=True)
