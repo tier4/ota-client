@@ -152,7 +152,7 @@ class _RPIBootControl:
             / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
         )
 
-    def finalize_switching_boot(self):
+    def finalize_switching_boot(self) -> bool:
         """Finalize switching boot by swapping config.txt and tryboot.txt if we should.
 
         Swiching boot mechanism:
@@ -162,10 +162,11 @@ class _RPIBootControl:
         try:
             replace_atomic(self.config_txt_active_slot, self.config_txt)
             replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
+            return True
         except Exception as e:
-            _err_msg = "failed to finalize boot switching"
+            _err_msg = f"failed to finalize boot switching: {e!r}"
             logger.error(_err_msg)
-            raise BootControlInitError(_err_msg) from e
+            return False
 
     def prepare_tryboot_txt(self):
         """Copy the standby slot's config.txt as tryboot.txt."""

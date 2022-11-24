@@ -18,7 +18,12 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import List, Optional, Union, Callable, Any
 
-from ._errors import BootControlError, MountError, MkfsError, MountFailedReason
+from ._errors import (
+    BootControlError,
+    MountError,
+    MkfsError,
+    MountFailedReason,
+)
 
 from .. import log_setting
 from ..configs import config as cfg
@@ -28,6 +33,7 @@ from ..common import (
     subprocess_check_output,
     write_str_to_file_sync,
 )
+from ..errors import BootControlInitError
 from ..proto import wrapper
 
 
@@ -359,6 +365,8 @@ class CMDHelperFuncs:
 
 ###### helper mixins ######
 
+FinalizeSwitchBootFunc = Callable[[], bool]
+
 
 class OTAStatusFilesControl:
     """Logics for controlling ota_status files, including status, slot_in_use, version.
@@ -379,60 +387,77 @@ class OTAStatusFilesControl:
         standby_slot: str,
         current_ota_status_dir: Union[str, Path],
         standby_ota_status_dir: Union[str, Path],
-        finalize_switching_boot: Callable[[], None],
+        finalize_switching_boot: FinalizeSwitchBootFunc,
     ) -> None:
         self.active_slot = active_slot
         self.standby_slot = standby_slot
         self.current_ota_status_dir = Path(current_ota_status_dir)
         self.standby_ota_status_dir = Path(standby_ota_status_dir)
         self.finalize_switching_boot = finalize_switching_boot
-        self._ota_status = self._init_ota_status_files()
 
-    def _init_ota_status_files(self) -> wrapper.StatusOta:
+        # init ota_status files
+        self._init_ota_status_files()
+        logger.info(
+            f"ota_status files parsing completed, ota_status is {self._ota_status}"
+        )
+
+    def _init_ota_status_files(self):
         """Check and/or init ota_status files for current slot."""
         self.current_ota_status_dir.mkdir(exist_ok=True, parents=True)
 
         # parse ota_status and slot_in_use
         _ota_status = self._load_current_status()
         _slot_in_use = self._load_current_slot_in_use()
+
+        # initialize ota_status files if not presented/incompleted/invalid
         if not (_ota_status and _slot_in_use):
             logger.info(
                 "ota_status files incompleted/not presented, "
-                "initializing boot control files..."
+                "initializing and set status to INITIALIZED..."
             )
             _ota_status = wrapper.StatusOta.INITIALIZED
             self._store_current_slot_in_use(self.active_slot)
             self._store_current_status(wrapper.StatusOta.INITIALIZED)
-        elif _ota_status == wrapper.StatusOta.UPDATING:
-            if self._is_switching_boot(self.active_slot):
-                self.finalize_switching_boot()
-                _ota_status = wrapper.StatusOta.SUCCESS
-            else:
-                _ota_status = wrapper.StatusOta.FAILURE
-        elif _ota_status == wrapper.StatusOta.ROLLBACKING:
-            if self._is_switching_boot(self.active_slot):
-                self.finalize_switching_boot()
-                _ota_status = wrapper.StatusOta.SUCCESS
-            else:
-                _ota_status = wrapper.StatusOta.ROLLBACK_FAILURE
-        # status except UPDATING/ROLLBACKING remained as it
+            self._ota_status = _ota_status
+            return
 
-        # detect failed reboot, but only print error logging currently
-        if (
-            _ota_status != wrapper.StatusOta.INITIALIZED
-            and _slot_in_use != self.active_slot
-        ):
-            logger.error(
-                f"boot into old slot {self.active_slot}, "
-                f"but slot_in_use indicates it should boot into {_slot_in_use}, "
-                "this might indicate a failed finalization at first reboot after update/rollback"
-            )
+        # updating or rollbacking,
+        # with status==UPDATING or ROLLBACKING, we are expecting this is the first reboot
+        # during switching boot, and we should try finalizing the switch boot.
+        if _ota_status in [wrapper.StatusOta.UPDATING, wrapper.StatusOta.ROLLBACKING]:
+            # finalization failed or not in switching boot
+            if not (
+                self._is_switching_boot(self.active_slot)
+                and self.finalize_switching_boot()
+            ):
+                self._ota_status = (
+                    wrapper.StatusOta.ROLLBACK_FAILURE
+                    if _ota_status == wrapper.StatusOta.ROLLBACKING
+                    else wrapper.StatusOta.FAILURE
+                )
+                self._store_current_status(_ota_status)
+                _err_msg = "finalization failed on first reboot during switching boot"
+                logger.error(_err_msg)
+                raise BootControlInitError(_err_msg)
 
-        logger.info(f"boot control init finished, ota_status is {_ota_status}")
-        # store the ota_status to current disk
-        self._store_current_status(_ota_status)
-        # return ota_status for this inst
-        return _ota_status
+            # finalizing switch boot successfully
+            self._ota_status = wrapper.StatusOta.SUCCESS
+            self._store_current_status(_ota_status)
+            return
+
+        # status except UPDATING and ROLLBACKING(SUCCESS/FAILURE/ROLLBACK_FAILURE)
+        # remained as it
+        else:
+            self._ota_status = _ota_status
+            self._store_current_status(_ota_status)
+
+            # detect failed reboot, but only print error logging currently
+            if _slot_in_use != self.active_slot:
+                logger.error(
+                    f"boot into old slot {self.active_slot}, "
+                    f"but slot_in_use indicates it should boot into {_slot_in_use}, "
+                    "this might indicate a failed finalization at first reboot after update/rollback"
+                )
 
     # slot_in_use control
 
