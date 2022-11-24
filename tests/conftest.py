@@ -32,9 +32,11 @@ logger = logging.getLogger(__name__)
 class TestConfiguration:
     # module paths
     BOOT_CONTROL_COMMON_MODULE_PATH = "otaclient.app.boot_control._common"
+    BOOT_CONTROL_CONFIG_MODULE_PATH = "otaclient.app.boot_control.configs"
     CONFIGS_MODULE_PATH = "otaclient.app.configs"
     CBOOT_MODULE_PATH = "otaclient.app.boot_control._cboot"
     GRUB_MODULE_PATH = "otaclient.app.boot_control._grub"
+    RPI_BOOT_MODULE_PATH = "otaclient.app.boot_control._rpi_boot"
     OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
     OTAMETA_MODULE_PATH = "otaclient.app.ota_metadata"
@@ -135,7 +137,16 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
     shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
     # boot dir is a separated folder, so delete the boot folder under slot_a
-    shutil.rmtree(slot_a / "boot", ignore_errors=True)
+    # shutil.rmtree(slot_a / "boot", ignore_errors=True)
+    # manually create symlink to kernel and initrd.img
+    vmlinuz_symlink = slot_a / "boot" / TestConfiguration.KERNEL_PREFIX
+    vmlinuz_symlink.symlink_to(
+        f"{TestConfiguration.KERNEL_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
+    )
+    initrd_symlink = slot_a / "boot" / TestConfiguration.INITRD_PREFIX
+    initrd_symlink.symlink_to(
+        f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
+    )
 
     # prepare slot_b
     slot_b = tmp_path_factory.mktemp("slot_b")
