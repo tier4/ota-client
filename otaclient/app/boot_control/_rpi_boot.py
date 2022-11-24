@@ -106,7 +106,7 @@ class _RPIBootControl:
         # active slot
         self.config_txt_active_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self._active_slot}"
+            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.active_slot}"
         )
         if not self.config_txt_active_slot.is_file():
             _err_msg = f"missing {self.config_txt_active_slot=}"
@@ -114,7 +114,7 @@ class _RPIBootControl:
             raise BootControlInitError(_err_msg)
         self.cmdline_txt_active_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self._active_slot}"
+            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.active_slot}"
         )
         if not self.cmdline_txt_active_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_active_slot=}"
@@ -122,16 +122,16 @@ class _RPIBootControl:
             raise BootControlInitError(_err_msg)
         self.vmlinuz_active_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self._active_slot}"
+            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.active_slot}"
         )
         self.initrd_img_active_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self._active_slot}"
+            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.active_slot}"
         )
         # standby slot
         self.config_txt_standby_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self._standby_slot}"
+            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.standby_slot}"
         )
         if not self.config_txt_standby_slot.is_file():
             _err_msg = f"missing {self.config_txt_standby_slot=}"
@@ -139,7 +139,7 @@ class _RPIBootControl:
             raise BootControlInitError(_err_msg)
         self.cmdline_txt_standby_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self._standby_slot}"
+            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.standby_slot}"
         )
         if not self.cmdline_txt_standby_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_standby_slot=}"
@@ -147,11 +147,11 @@ class _RPIBootControl:
             raise BootControlInitError(_err_msg)
         self.vmlinuz_standby_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self._standby_slot}"
+            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.standby_slot}"
         )
         self.initrd_img_standby_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self._standby_slot}"
+            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
         )
 
     # exposed API methods/properties
@@ -227,10 +227,10 @@ class RPIBootController(BootControllerProtocol):
             active_slot=self._rpiboot_control.active_slot,
             standby_slot=self._rpiboot_control.standby_slot,
             current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
-            / Path(cfg.OTA_STATUS_DIR).relative_to(cfg.ACTIVE_ROOTFS_PATH),
+            / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
             # NOTE: might not yet be populated before OTA update applied!
             standby_ota_status_dir=Path(cfg.MOUNT_POINT)
-            / Path(cfg.OTA_STATUS_DIR).relative_to(cfg.ACTIVE_ROOTFS_PATH),
+            / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
             finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
         )
 
