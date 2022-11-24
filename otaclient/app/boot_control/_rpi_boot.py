@@ -75,12 +75,14 @@ class _RPIBootControl:
     def _init_slots_info(self):
         """Get current/standby slot info."""
         try:
-            self.active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
+            self._active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
                 cfg.ACTIVE_ROOTFS_PATH
             )
-            self.active_slot = CMDHelperFuncs.get_fslabel_by_dev(self.active_slot_dev)
-            self.standby_slot = self.AB_FLIPS[self.active_slot]
-            self.standby_slot_dev = CMDHelperFuncs.get_dev_by_fslabel(self.standby_slot)
+            self._active_slot = CMDHelperFuncs.get_fslabel_by_dev(self._active_slot_dev)
+            self._standby_slot = self.AB_FLIPS[self._active_slot]
+            self._standby_slot_dev = CMDHelperFuncs.get_dev_by_fslabel(
+                self._standby_slot
+            )
         except Exception as e:
             _err_msg = "failed to detect AB partition"
             logger.error(_err_msg)
@@ -104,7 +106,7 @@ class _RPIBootControl:
         # active slot
         self.config_txt_active_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.active_slot}"
+            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self._active_slot}"
         )
         if not self.config_txt_active_slot.is_file():
             _err_msg = f"missing {self.config_txt_active_slot=}"
@@ -112,7 +114,7 @@ class _RPIBootControl:
             raise BootControlInitError(_err_msg)
         self.cmdline_txt_active_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.active_slot}"
+            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self._active_slot}"
         )
         if not self.cmdline_txt_active_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_active_slot=}"
@@ -120,16 +122,16 @@ class _RPIBootControl:
             raise BootControlInitError(_err_msg)
         self.vmlinuz_active_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.active_slot}"
+            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self._active_slot}"
         )
         self.initrd_img_active_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.active_slot}"
+            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self._active_slot}"
         )
         # standby slot
         self.config_txt_standby_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self._standby_slot}"
         )
         if not self.config_txt_standby_slot.is_file():
             _err_msg = f"missing {self.config_txt_standby_slot=}"
@@ -137,7 +139,7 @@ class _RPIBootControl:
             raise BootControlInitError(_err_msg)
         self.cmdline_txt_standby_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self._standby_slot}"
         )
         if not self.cmdline_txt_standby_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_standby_slot=}"
@@ -145,12 +147,29 @@ class _RPIBootControl:
             raise BootControlInitError(_err_msg)
         self.vmlinuz_standby_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self._standby_slot}"
         )
         self.initrd_img_standby_slot = (
             Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self._standby_slot}"
         )
+
+    # exposed API methods/properties
+    @property
+    def active_slot(self) -> str:
+        return self._active_slot
+
+    @property
+    def standby_slot(self) -> str:
+        return self._standby_slot
+
+    @property
+    def standby_slot_dev(self) -> str:
+        return self.standby_slot_dev
+
+    @property
+    def active_slot_dev(self) -> str:
+        return self.active_slot_dev
 
     def finalize_switching_boot(self) -> bool:
         """Finalize switching boot by swapping config.txt and tryboot.txt if we should.
@@ -173,7 +192,7 @@ class _RPIBootControl:
         try:
             replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
         except Exception as e:
-            _err_msg = f"failed to prepare tryboot.txt for {self.standby_slot}"
+            _err_msg = f"failed to prepare tryboot.txt for {self._standby_slot}"
             logger.error(_err_msg)
             raise BootControlPostUpdateFailed(_err_msg) from e
 
