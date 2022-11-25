@@ -716,34 +716,63 @@ class SlotMountHelper:
         # standby slot /boot dir
         self.standby_boot_dir = self.standby_slot_mount_point / "boot"
 
-    def mount_standby(self, *, erase=False) -> None:
+    def mount_standby(
+        self, *, erase_standby: bool = False, raise_exc: bool = True
+    ) -> bool:
         """Mount standby slot dev to <standby_slot_mount_point>.
 
         Args:
-            erase: whether to format standby slot dev to ext4 before mounting.
-        """
-        # first try umount the dev
-        CMDHelperFuncs.umount(self.standby_slot_dev)
-        # format the whole standby slot if needed
-        if erase:
-            logger.warning(
-                f"perform mkfs.ext4 on standby slot({self.standby_slot_dev})"
-            )
-            CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev)
-        # try to mount the standby dev
-        CMDHelperFuncs.mount_rw(
-            self.standby_slot_dev,
-            self.standby_slot_mount_point,
-        )
+            erase_standby: whether to format standby slot dev to ext4 before mounting.
+            raise_exc: if exception occurs, raise it or not.
 
-    def mount_active(self) -> None:
-        # first try umount the dev
-        CMDHelperFuncs.umount(self.active_slot_mount_point)
-        # mount active slot ro, unpropagated
-        CMDHelperFuncs.mount_ro(
-            target=self.active_slot_dev,
-            mount_point=self.active_slot_mount_point,
-        )
+        Return:
+            A bool indicates whether the mount succeeded or not.
+        """
+        try:
+            # first try umount mount point and dev
+            CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=True)
+            if CMDHelperFuncs.is_target_mounted(self.standby_slot_dev):
+                CMDHelperFuncs.umount(self.standby_slot_dev)
+
+            # format the whole standby slot if needed
+            if erase_standby:
+                logger.warning(
+                    f"perform mkfs.ext4 on standby slot({self.standby_slot_dev})"
+                )
+                CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev)
+            # try to mount the standby dev
+            CMDHelperFuncs.mount_rw(
+                self.standby_slot_dev,
+                self.standby_slot_mount_point,
+            )
+            return True
+        except Exception:
+            if raise_exc:
+                raise
+            return False
+
+    def mount_active(self, *, raise_exc: bool = True) -> bool:
+        """Mount active rootfs ready-only.
+
+        Args:
+            raise_exc: if exception occurs, raise it or not.
+
+        Return:
+            A bool indicates whether the mount succeeded or not.
+        """
+        # first try umount the mount_point
+        try:
+            CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=True)
+            # mount active slot ro, unpropagated
+            CMDHelperFuncs.mount_ro(
+                target=self.active_slot_dev,
+                mount_point=self.active_slot_mount_point,
+            )
+            return True
+        except Exception:
+            if raise_exc:
+                raise
+            return False
 
     def umount_all(self, *, ignore_error: bool = False):
         CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
