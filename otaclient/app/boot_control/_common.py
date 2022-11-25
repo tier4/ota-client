@@ -694,37 +694,54 @@ class PrepareMountMixin:
         CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=ignore_error)
 
 
-class PrepareMountHelper:
-    """Helper class that provides methods for mounting."""
+class SlotMountHelper:
+    """Helper class that provides methods for mounting slots."""
 
     def __init__(
         self,
         *,
+        standby_slot_dev: Union[str, Path],
         standby_slot_mount_point: Union[str, Path],
+        active_slot_dev: Union[str, Path],
         active_slot_mount_point: Union[str, Path],
     ) -> None:
+        # dev
+        self.standby_slot_dev = str(standby_slot_dev)
+        self.active_slot_dev = str(active_slot_dev)
+        # mount points
         self.standby_slot_mount_point = Path(standby_slot_mount_point)
         self.active_slot_mount_point = Path(active_slot_mount_point)
         self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
         self.active_slot_mount_point.mkdir(exist_ok=True, parents=True)
+        # standby slot /boot dir
         self.standby_boot_dir = self.standby_slot_mount_point / "boot"
 
-    def mount_standby(self, standby_slot_dev: str, *, erase=False):
+    def mount_standby(self, *, erase=False) -> None:
+        """Mount standby slot dev to <standby_slot_mount_point>.
+
+        Args:
+            erase: whether to format standby slot dev to ext4 before mounting.
+        """
         # first try umount the dev
-        CMDHelperFuncs.umount(standby_slot_dev)
+        CMDHelperFuncs.umount(self.standby_slot_dev)
         # format the whole standby slot if needed
         if erase:
-            logger.warning(f"perform mkfs.ext4 on standby slot({standby_slot_dev})")
-            CMDHelperFuncs.mkfs_ext4(standby_slot_dev)
+            logger.warning(
+                f"perform mkfs.ext4 on standby slot({self.standby_slot_dev})"
+            )
+            CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev)
         # try to mount the standby dev
-        CMDHelperFuncs.mount_rw(standby_slot_dev, self.standby_slot_mount_point)
+        CMDHelperFuncs.mount_rw(
+            self.standby_slot_dev,
+            self.standby_slot_mount_point,
+        )
 
-    def mount_active(self, active_slot_dev: str):
+    def mount_active(self) -> None:
         # first try umount the dev
         CMDHelperFuncs.umount(self.active_slot_mount_point)
         # mount active slot ro, unpropagated
         CMDHelperFuncs.mount_ro(
-            target=active_slot_dev,
+            target=self.active_slot_dev,
             mount_point=self.active_slot_mount_point,
         )
 
