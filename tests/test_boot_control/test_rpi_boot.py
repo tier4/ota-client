@@ -15,16 +15,39 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class RPIBootABPartitionFSM:
+class _RPIBootTestCfg:
+    # slot config
     SLOT_A = rpi_boot_cfg.SLOT_A_FSLABEL
     SLOT_B = rpi_boot_cfg.SLOT_B_FSLABEL
+    SLOT_A_DEV = "slot_a_dev"
+    SLOT_B_DEV = "slot_b_dev"
     SEP_CHAR = "_"
 
+    # dummy boot files content
+    CONFIG_TXT_SLOT_A = "config_txt_slot_a"
+    CONFIG_TXT_SLOT_B = "config_txt_slot_b"
+    CMDLINE_TXT_SLOT_A = "cmdline_txt_slot_a"
+    CMDLINE_TXT_SLOT_B = "cmdline_txt_slot_b"
+
+    # module path
+    rpi_boot__RPIBootControl_MODULE = f"{cfg.RPI_BOOT_MODULE_PATH}._RPIBootControl"
+    rpi_boot_RPIBoot_CMDHelperFuncs_MODULE = (
+        f"{cfg.RPI_BOOT_MODULE_PATH}.CMDHelperFuncs"
+    )
+    boot_control_common_CMDHelperFuncs_MODULE = (
+        f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs"
+    )
+
+    # image version
+    VERSION = "rpi_boot_test"
+
+
+class RPIBootABPartitionFSM:
     def __init__(self) -> None:
-        self._active_slot = self.SLOT_A
-        self._standby_slot = self.SLOT_B
-        self._active_slot_dev = "slot_a_dev"
-        self._standby_slot_dev = "slot_b_dev"
+        self._active_slot = _RPIBootTestCfg.SLOT_A
+        self._standby_slot = _RPIBootTestCfg.SLOT_B
+        self._active_slot_dev = _RPIBootTestCfg.SLOT_A_DEV
+        self._standby_slot_dev = _RPIBootTestCfg.SLOT_B_DEV
         self.is_switched_boot = False
 
     def reboot_tryboot(self):
@@ -54,10 +77,6 @@ class TestRPIBootControl:
     Simulating otaclient starts from slot_a, and apply ota_update to slot_b
     """
 
-    SLOT_A = rpi_boot_cfg.SLOT_A_FSLABEL
-    SLOT_B = rpi_boot_cfg.SLOT_B_FSLABEL
-    SEP_CHAR = "_"
-
     @pytest.fixture
     def rpi_boot_ab_slot(self, tmp_path: Path, ab_slots: SlotMeta):
         self.slot_a_mp = Path(ab_slots.slot_a)
@@ -83,24 +102,34 @@ class TestRPIBootControl:
         # setup shared system-boot
         self.system_boot = tmp_path / "system-boot"
         self.system_boot.mkdir(parents=True, exist_ok=True)
+        # NOTE: primary config.txt is for slot_a at the beginning
+        (self.system_boot / f"{rpi_boot_cfg.CONFIG_TXT}").write_text(
+            _RPIBootTestCfg.CONFIG_TXT_SLOT_A
+        )
         # NOTE: rpi_boot controller now doesn't check the content of boot files, but only ensure the existence
         (
-            self.system_boot / f"{rpi_boot_cfg.CONFIG_TXT}{self.SEP_CHAR}{self.SLOT_A}"
-        ).write_text("slot_a_conf_txt")
+            self.system_boot
+            / f"{rpi_boot_cfg.CONFIG_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+        ).write_text(_RPIBootTestCfg.CONFIG_TXT_SLOT_A)
         (
-            self.system_boot / f"{rpi_boot_cfg.CONFIG_TXT}{self.SEP_CHAR}{self.SLOT_B}"
-        ).write_text("slot_b_conf_txt")
+            self.system_boot
+            / f"{rpi_boot_cfg.CONFIG_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+        ).write_text(_RPIBootTestCfg.CONFIG_TXT_SLOT_B)
         (
-            self.system_boot / f"{rpi_boot_cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.SLOT_A}"
-        ).write_text("slot_a_cmdline_txt")
+            self.system_boot
+            / f"{rpi_boot_cfg.CMDLINE_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+        ).write_text(_RPIBootTestCfg.CMDLINE_TXT_SLOT_A)
         (
-            self.system_boot / f"{rpi_boot_cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.SLOT_B}"
-        ).write_text("slot_b_cmdline_txt")
+            self.system_boot
+            / f"{rpi_boot_cfg.CMDLINE_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+        ).write_text(_RPIBootTestCfg.CMDLINE_TXT_SLOT_B)
         (
-            self.system_boot / f"{rpi_boot_cfg.VMLINUZ}{self.SEP_CHAR}{self.SLOT_A}"
+            self.system_boot
+            / f"{rpi_boot_cfg.VMLINUZ}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text("slot_a_vmlinux")
         (
-            self.system_boot / f"{rpi_boot_cfg.INITRD_IMG}{self.SEP_CHAR}{self.SLOT_A}"
+            self.system_boot
+            / f"{rpi_boot_cfg.INITRD_IMG}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text("slot_a_initrdimg")
 
     @pytest.fixture(autouse=True)
@@ -122,7 +151,7 @@ class TestRPIBootControl:
         )
 
         ### patch boot_control module ###
-        mocker.patch(f"{cfg.RPI_BOOT_MODULE_PATH}._RPIBootControl", _RPIBootControl)
+        mocker.patch(_RPIBootTestCfg.rpi_boot__RPIBootControl_MODULE, _RPIBootControl)
 
         # patch CMDHelperFuncs
         # NOTE: also remember to patch CMDHelperFuncs in common
@@ -130,9 +159,11 @@ class TestRPIBootControl:
             CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
         )
         self._CMDHelper_mock.is_target_mounted = mocker.Mock(return_value=True)
-        mocker.patch(f"{cfg.RPI_BOOT_MODULE_PATH}.CMDHelperFuncs", self._CMDHelper_mock)
         mocker.patch(
-            f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs",
+            _RPIBootTestCfg.rpi_boot_RPIBoot_CMDHelperFuncs_MODULE, self._CMDHelper_mock
+        )
+        mocker.patch(
+            _RPIBootTestCfg.boot_control_common_CMDHelperFuncs_MODULE,
             self._CMDHelper_mock,
         )
 
@@ -152,24 +183,28 @@ class TestRPIBootControl:
         rpi_boot_controller = RPIBootController()
 
         ### stage 2, pre_update ###
-        self.version = "rpi_boot test"
+        self.version = _RPIBootTestCfg.VERSION
         rpi_boot_controller.pre_update(
             version=self.version,
             standby_as_ref=False,
             erase_standby=False,
         )
         # make sure the ota-status is updated properly
-        assert (self.slot_a_ota_status_dir / "status").read_text() == "FAILURE"
-        assert (self.slot_b_ota_status_dir / "status").read_text() == "UPDATING"
+        assert (
+            self.slot_a_ota_status_dir / "status"
+        ).read_text() == wrapper.StatusOta.FAILURE.name
+        assert (
+            self.slot_b_ota_status_dir / "status"
+        ).read_text() == wrapper.StatusOta.UPDATING.name
         assert (
             (self.slot_a_ota_status_dir / "slot_in_use").read_text()
             == (self.slot_b_ota_status_dir / "slot_in_use").read_text()
-            == "slot_b"
+            == _RPIBootTestCfg.SLOT_B
         )
         # make sure the mount points are prepared
         # assert standby slot is mounted
         self._CMDHelper_mock.mount_rw.assert_called_once_with(
-            self._fsm._standby_slot_dev, self.slot_b_mp
+            target=self._fsm._standby_slot_dev, mount_point=self.slot_b_mp
         )
         # assert current slot is mounted
         self._CMDHelper_mock.mount_ro.assert_called_once_with(
@@ -202,6 +237,14 @@ class TestRPIBootControl:
         # make sure that retry boot is called
         rpi_boot_controller._rpiboot_control.reboot_tryboot.assert_called_once()
         assert self._fsm.is_switched_boot
+        # make sure tryboot.txt is presented and correct
+        assert (
+            self.system_boot / "tryboot.txt"
+        ).read_text() == _RPIBootTestCfg.CONFIG_TXT_SLOT_B
+        # make sure config.txt is untouched
+        assert (
+            self.system_boot / "config.txt"
+        ).read_text() == _RPIBootTestCfg.CONFIG_TXT_SLOT_A
 
         ### patch rpi_boot_cfg for stage 4 ###
         _rpi_boot_cfg_path = f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.rpi_boot_cfg"
@@ -217,4 +260,6 @@ class TestRPIBootControl:
             rpi_boot_controller._ota_status_control._load_current_slot_in_use()
             == "slot_b"
         )
-        assert (self.system_boot / "config.txt").read_text() == "slot_b_conf_txt"
+        assert (
+            self.system_boot / "config.txt"
+        ).read_text() == _RPIBootTestCfg.CONFIG_TXT_SLOT_B

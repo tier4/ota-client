@@ -15,7 +15,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict
+from typing import Dict, Literal
 from ..configs import BaseConfig
 
 
@@ -77,19 +77,19 @@ class CBootControlConfig(BaseConfig):
 @dataclass
 class RPIBootControlConfig(BaseConfig):
     BBOOTLOADER: BootloaderType = BootloaderType.RPI_BOOT
-    RPI_MODEL_FILE: str = "/proc/device-tree/model"
-    RPI_MODEL_HINT: str = r"Raspberry Pi"
+    RPI_MODEL_FILE = "/proc/device-tree/model"
+    RPI_MODEL_HINT = r"Raspberry Pi"
 
     # slot configuration
-    SLOT_A_FSLABEL: str = "slot_a"
-    SLOT_B_FSLABEL: str = "slot_b"
-    SYSTEM_BOOT_FSLABEL: str = "system-boot"
+    SLOT_A_FSLABEL = "slot_a"
+    SLOT_B_FSLABEL = "slot_b"
+    SYSTEM_BOOT_FSLABEL = "system-boot"
 
     # boot folders
-    SYSTEM_BOOT_MOUNT_POINT: str = "/boot/firmware"
-    OTA_STATUS_DIR: str = f"/boot/ota-status"
+    SYSTEM_BOOT_MOUNT_POINT = "/boot/firmware"
+    OTA_STATUS_DIR = f"/boot/ota-status"
     # NOTE: ota folder should be placed in shared system-boot partition
-    OTA_DIR: str = f"{SYSTEM_BOOT_MOUNT_POINT}/ota"
+    OTA_DIR = f"{SYSTEM_BOOT_MOUNT_POINT}/ota"
 
     # boot related files
     CONFIG_TXT = "config.txt"  # primary boot cfg
