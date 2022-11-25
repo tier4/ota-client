@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+r"""Boot control support for Raspberry pi 4."""
 from pathlib import Path
 
 from .. import log_setting
@@ -29,7 +31,7 @@ from ..common import replace_atomic, subprocess_call
 from . import _errors
 from ._common import (
     OTAStatusFilesControl,
-    PrepareMountHelper,
+    SlotMountHelper,
     CMDHelperFuncs,
 )
 from .configs import rpi_boot_cfg as cfg
@@ -41,15 +43,24 @@ logger = log_setting.get_logger(
 
 
 class _RPIBootControl:
-    """Actually logics for rpi4 support.
+    """Boot control helper for rpi4 support.
 
     Expected partition layout:
         /dev/sda:
-            - sda1: fslabel: systemb-boot
-            - sda2: fslabel: slot_a
-            - sda3: fslabel: slot_b
-
+            - sda1: fat32, fslabel=systemb-boot
+            - sda2: ext4, fslabel=slot_a
+            - sda3: ext4, fslabel=slot_b
     slot is the fslabel for each AB rootfs.
+
+    This class provides the following features:
+    1. AB partition detection,
+    2. boot files checking,
+    3. switch boot(tryboot.txt setup and tryboot reboot),
+    4. finalize switching boot.
+
+    Boot files for each slot have the following naming format:
+        <boot_file_fname>_<slot>
+    i.e., config.txt for slot_a will be config.txt_slot_a
     """
 
     SLOT_A = cfg.SLOT_A_FSLABEL
@@ -73,7 +84,7 @@ class _RPIBootControl:
         self._init_boot_files()
 
     def _init_slots_info(self):
-        """Get current/standby slot info."""
+        """Get current/standby slots info."""
         try:
             self._active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
                 cfg.ACTIVE_ROOTFS_PATH
@@ -91,13 +102,14 @@ class _RPIBootControl:
     def _init_boot_files(self):
         """Check the availability of boot files.
 
-        Expecting config.txt_<slot_suffix>, cmdline.txt_<slot_suffix>,
-        vmlinuz_<slot_suffix> and initrd.img_<slot_suffix> exists.
+        The following boot files will be checked:
+        1. config.txt_<slot_suffix> (required)
+        2. cmdline.txt_<slot_suffix> (required)
+        3. vmlinuz_<slot_suffix>
+        4. initrd.img_<slot_suffix>
 
-        If any of config.txt or cmdline.txt is missing, raise BootControlInitError.
-        In such case, a reinstall/setup of A/B partition boot files is required.
-
-        TODO: bootstrap boot files if any is missing.
+        If any of the required files are missing, BootControlInitError will be raised.
+        In such case, a reinstall/setup of AB partition boot files is required.
         """
         # boot file
         self.config_txt = self.system_boot_path / cfg.CONFIG_TXT
@@ -105,15 +117,14 @@ class _RPIBootControl:
 
         # active slot
         self.config_txt_active_slot = (
-            Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.active_slot}"
+            self.system_boot_path / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.active_slot}"
         )
         if not self.config_txt_active_slot.is_file():
             _err_msg = f"missing {self.config_txt_active_slot=}"
             logger.error(_err_msg)
             raise BootControlInitError(_err_msg)
         self.cmdline_txt_active_slot = (
-            Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+            self.system_boot_path
             / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.active_slot}"
         )
         if not self.cmdline_txt_active_slot.is_file():
@@ -121,16 +132,14 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise BootControlInitError(_err_msg)
         self.vmlinuz_active_slot = (
-            Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.active_slot}"
+            self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.active_slot}"
         )
         self.initrd_img_active_slot = (
-            Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.active_slot}"
+            self.system_boot_path / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.active_slot}"
         )
         # standby slot
         self.config_txt_standby_slot = (
-            Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+            self.system_boot_path
             / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.standby_slot}"
         )
         if not self.config_txt_standby_slot.is_file():
@@ -138,7 +147,7 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise BootControlInitError(_err_msg)
         self.cmdline_txt_standby_slot = (
-            Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+            self.system_boot_path
             / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.standby_slot}"
         )
         if not self.cmdline_txt_standby_slot.is_file():
@@ -146,11 +155,10 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise BootControlInitError(_err_msg)
         self.vmlinuz_standby_slot = (
-            Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-            / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.standby_slot}"
+            self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.standby_slot}"
         )
         self.initrd_img_standby_slot = (
-            Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+            self.system_boot_path
             / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
         )
 
@@ -177,6 +185,10 @@ class _RPIBootControl:
         Swiching boot mechanism:
             1. atomically replace tryboot.txt with tryboot.txt_standby_slot
             2. atomically replace config.txt with config.txt_active_slot
+
+        Returns:
+            A bool indicates whether the switch boot succeeded or not. Note that no exception
+                will be raised if finalizing failed.
         """
         try:
             replace_atomic(self.config_txt_active_slot, self.config_txt)
@@ -208,17 +220,16 @@ class _RPIBootControl:
 
 
 class RPIBootController(BootControllerProtocol):
-    """RPIBootController implements BootControllerProtocol for rpi4 support."""
+    """BootControllerProtocol implementation for rpi4 support."""
 
     def __init__(self) -> None:
         self._rpiboot_control = _RPIBootControl()
-        # slots_dev
-        self.standby_slot_dev = self._rpiboot_control.standby_slot_dev
-        self.active_slot_dev = self._rpiboot_control.active_slot_dev
 
         ### mount point prepare ###
-        self._mp_control = PrepareMountHelper(
+        self._mp_control = SlotMountHelper(
+            standby_slot_dev=self._rpiboot_control.standby_slot_dev,
             standby_slot_mount_point=cfg.MOUNT_POINT,
+            active_slot_dev=self._rpiboot_control.active_slot_dev,
             active_slot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
         )
 
@@ -262,31 +273,26 @@ class RPIBootController(BootControllerProtocol):
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
+            logger.info("rpi_boot: pre-update setup...")
             ### udpate active slot's ota_status ###
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._mp_control.mount_standby(
-                self.standby_slot_dev,
-                erase=erase_standby,
-            )
-            self._mp_control.mount_active(self.active_slot_dev)
+            self._mp_control.mount_standby(erase_standby=erase_standby)
+            self._mp_control.mount_active()
 
             ### update standby slot's ota_status files ###
             self._ota_status_control.pre_update_standby(version=version)
-            logger.info("pre-update setting finished")
-        except _errors.BootControlError as e:
+        except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
             raise BootControlPreUpdateFailed(_err_msg) from e
 
     def pre_rollback(self):
         try:
+            logger.info("rpi_boot: pre-rollback setup...")
             self._ota_status_control.pre_rollback_current()
-            self._mp_control.mount_standby(
-                self.standby_slot_dev,
-                erase=False,
-            )
+            self._mp_control.mount_standby(erase_standby=False)
             self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
@@ -295,6 +301,7 @@ class RPIBootController(BootControllerProtocol):
 
     def post_rollback(self):
         try:
+            logger.info("rpi_boot: post-rollback setup...")
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
             self._rpiboot_control.reboot_tryboot()
@@ -305,6 +312,7 @@ class RPIBootController(BootControllerProtocol):
 
     def post_update(self):
         try:
+            logger.info("rpi_boot: post-update setup...")
             self._copy_standby_kernel_and_initrd_img()
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
@@ -321,7 +329,7 @@ class RPIBootController(BootControllerProtocol):
         self._mp_control.umount_all(ignore_error=True)
 
     def load_version(self) -> str:
-        return self._ota_status_control.load_version()
+        return self._ota_status_control.load_active_slot_version()
 
     def get_ota_status(self) -> wrapper.StatusOta:
         return self._ota_status_control.ota_status

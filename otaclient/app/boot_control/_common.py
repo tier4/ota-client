@@ -557,7 +557,7 @@ class OTAStatusFilesControl:
         self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
         self._store_standby_status(wrapper.StatusOta.ROLLBACKING)
 
-    def load_version(self) -> str:
+    def load_active_slot_version(self) -> str:
         _version = read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
             missing_ok=True,
@@ -742,8 +742,8 @@ class SlotMountHelper:
                 CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev)
             # try to mount the standby dev
             CMDHelperFuncs.mount_rw(
-                self.standby_slot_dev,
-                self.standby_slot_mount_point,
+                target=self.standby_slot_dev,
+                mount_point=self.standby_slot_mount_point,
             )
             return True
         except Exception:
