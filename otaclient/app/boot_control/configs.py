@@ -15,7 +15,8 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Literal
+from typing import Dict
+
 from ..configs import BaseConfig
 
 
@@ -87,7 +88,7 @@ class RPIBootControlConfig(BaseConfig):
 
     # boot folders
     SYSTEM_BOOT_MOUNT_POINT = "/boot/firmware"
-    OTA_STATUS_DIR = f"/boot/ota-status"
+    OTA_STATUS_DIR = "/boot/ota-status"
     # NOTE: ota folder should be placed in shared system-boot partition
     OTA_DIR = f"{SYSTEM_BOOT_MOUNT_POINT}/ota"
 

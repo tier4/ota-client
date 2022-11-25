@@ -86,7 +86,7 @@ class TestRPIBootControl:
         self.slot_a_ota_status_dir = self.slot_a_mp / Path(
             rpi_boot_cfg.OTA_STATUS_DIR
         ).relative_to("/")
-        self.slot_a_ota_status_dir.mkdir(parents=True)
+        self.slot_a_ota_status_dir.mkdir(parents=True, exist_ok=True)
         slot_a_ota_status = self.slot_a_ota_status_dir / "status"
         slot_a_ota_status.write_text("SUCCESS")
         slot_a_version = self.slot_a_ota_status_dir / "version"

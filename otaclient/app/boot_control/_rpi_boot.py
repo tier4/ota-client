@@ -28,7 +28,6 @@ from ..errors import (
 from ..proto import wrapper
 from ..common import replace_atomic, subprocess_call
 
-from . import _errors
 from ._common import (
     OTAStatusFilesControl,
     SlotMountHelper,

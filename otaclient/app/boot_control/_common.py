@@ -16,7 +16,7 @@ r"""Shared utils for boot_controller."""
 
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Optional, Union, Callable, Any
+from typing import List, Optional, Union, Callable
 
 from ._errors import (
     BootControlError,
