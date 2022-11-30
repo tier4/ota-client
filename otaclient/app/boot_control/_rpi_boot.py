@@ -14,6 +14,7 @@
 
 
 r"""Boot control support for Raspberry pi 4."""
+import os
 from pathlib import Path
 
 from .. import log_setting
@@ -161,6 +162,32 @@ class _RPIBootControl:
             / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
         )
 
+    def _update_firmware(self):
+        """Call external flash_kernel system script to install new firmware.
+
+        NOTE: this script also flashes kernel and initrd.img to /boot/firmware besides
+        dtb files, so we should also handle that.
+        """
+        try:
+            # call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
+            # from current rootfs to system-boot partition
+            _cmd = "flash-kernel"
+            subprocess_call(_cmd, raise_exception=True)
+            os.sync()
+
+            # check if the vmlinuz and initrd.img presented in /boot/firmware(system-boot),
+            # if so, it means that flash-kernel works and copies the kernel, inird.img from /boot,
+            # then we rename vmlinuz and initrd.img to vmlinuz_<current_slot> and initrd.img_<current_slot>
+            _vmlinuz = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.VMLINUZ
+            _initrd_img = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.INITRD_IMG
+            if _vmlinuz.is_file():
+                os.replace(_vmlinuz, self.vmlinuz_active_slot)
+            if _initrd_img.is_file():
+                os.replace(_initrd_img, self.initrd_img_active_slot)
+        except Exception as e:
+            logger.error(f"_init_flash_kernel failed: {e!r}")
+            raise
+
     # exposed API methods/properties
     @property
     def active_slot(self) -> str:
@@ -184,12 +211,15 @@ class _RPIBootControl:
         Swiching boot mechanism:
             1. atomically replace tryboot.txt with tryboot.txt_standby_slot
             2. atomically replace config.txt with config.txt_active_slot
+        Also finalize_switching_boot will try to update the firmware by calling external
+        flash-kernel system script.
 
         Returns:
             A bool indicates whether the switch boot succeeded or not. Note that no exception
                 will be raised if finalizing failed.
         """
         try:
+            self._update_firmware()
             replace_atomic(self.config_txt_active_slot, self.config_txt)
             replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
             return True
@@ -244,8 +274,14 @@ class RPIBootController(BootControllerProtocol):
             finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
         )
 
-    def _copy_standby_kernel_and_initrd_img(self):
-        """Copy the kernel and initrd_img file to system-boot for standby slot."""
+    def _copy_kernel_for_standby_slot(self):
+        """Copy the kernel and initrd_img files from current slot /boot
+        to system-boot for standby slot.
+
+        This method checkouts the vmlinuz and initrd.img symlinks under /boot,
+        and copy them to /boot/firmware(system-boot partition) under the name
+        vmlinuz_<slot> and initrd.img_<slot>.
+        """
         try:
             _kernel, _initrd_img = (
                 self._mp_control.standby_boot_dir / cfg.VMLINUZ,
@@ -312,7 +348,7 @@ class RPIBootController(BootControllerProtocol):
     def post_update(self):
         try:
             logger.info("rpi_boot: post-update setup...")
-            self._copy_standby_kernel_and_initrd_img()
+            self._copy_kernel_for_standby_slot()
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
             self._rpiboot_control.reboot_tryboot()
