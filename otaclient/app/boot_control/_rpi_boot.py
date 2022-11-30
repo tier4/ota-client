@@ -171,6 +171,7 @@ class _RPIBootControl:
         try:
             # call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
             # from current rootfs to system-boot partition
+            logger.info("update firmware with flash-kernel...")
             _cmd = "flash-kernel"
             subprocess_call(_cmd, raise_exception=True)
             os.sync()
@@ -184,6 +185,7 @@ class _RPIBootControl:
                 os.replace(_vmlinuz, self.vmlinuz_active_slot)
             if _initrd_img.is_file():
                 os.replace(_initrd_img, self.initrd_img_active_slot)
+            logger.info("firmware updated")
         except Exception as e:
             logger.error(f"_init_flash_kernel failed: {e!r}")
             raise
@@ -199,11 +201,11 @@ class _RPIBootControl:
 
     @property
     def standby_slot_dev(self) -> str:
-        return self.standby_slot_dev
+        return self._standby_slot_dev
 
     @property
     def active_slot_dev(self) -> str:
-        return self.active_slot_dev
+        return self._active_slot_dev
 
     def finalize_switching_boot(self) -> bool:
         """Finalize switching boot by swapping config.txt and tryboot.txt if we should.
