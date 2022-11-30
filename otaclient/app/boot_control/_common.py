@@ -241,9 +241,10 @@ class CMDHelperFuncs:
 
     @classmethod
     def mount_rw(cls, target: str, mount_point: Union[Path, str]):
-        """
+        """Mount the target to the mount_point read-write.
+
         NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
-        mount events propagation to/from this mount point.
+              mount events propagation to/from this mount point.
         """
         options = ["rw"]
         args = ["--make-private", "--make-unbindable"]
@@ -251,9 +252,10 @@ class CMDHelperFuncs:
 
     @classmethod
     def bind_mount_ro(cls, target: str, mount_point: Union[Path, str]):
-        """
+        """Bind mount the target to the mount_point read-only.
+
         NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
-        mount events propagation to/from this mount point.
+              mount events propagation to/from this mount point.
         """
         options = ["bind", "ro"]
         args = ["--make-private", "--make-unbindable"]
@@ -331,12 +333,12 @@ class CMDHelperFuncs:
 
     @classmethod
     def mount_ro(cls, *, target: str, mount_point: Union[str, Path]):
-        """Mount target on mount_point ro.
+        """Mount target on mount_point read-only.
 
         If the target device is mounted, we bind mount the target device to mount_point,
         if the target device is not mounted, we directly mount it to the mount_point.
 
-        This method bind mount the target as ro with make-private flag and make-unbindable flag,
+        This method mount the target as ro with make-private flag and make-unbindable flag,
         to prevent ANY accidental writes/changes to the target.
         """
         # NOTE: set raise_exception to false to allow not mounted
