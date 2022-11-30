@@ -656,10 +656,6 @@ class PrepareMountMixin:
     standby_slot_mount_point: Path
     ref_slot_mount_point: Path
 
-    def _prepare_mount_points(self):
-        self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
-        self.ref_slot_mount_point.mkdir(exist_ok=True, parents=True)
-
     def _prepare_and_mount_standby(self, standby_slot_dev: str, *, erase=False):
         self.standby_slot_mount_point.mkdir(parents=True, exist_ok=True)
 
@@ -681,7 +677,6 @@ class PrepareMountMixin:
         active_dev: str,
         standby_as_ref: bool,
     ):
-        CMDHelperFuncs.umount(self.ref_slot_mount_point)
         CMDHelperFuncs.mount_refroot(
             standby_slot_dev=standby_dev,
             active_slot_dev=active_dev,
