@@ -333,8 +333,8 @@ class CMDHelperFuncs:
     def mount_ro(cls, *, target: str, mount_point: Union[str, Path]):
         """Mount target on mount_point ro.
 
-        If the target is already mounted(i.e., when the target is active_slot),
-        we try to bind mount the dev. Otherwise, directly mount it.
+        If the target device is mounted, we bind mount the target device to mount_point,
+        if the target device is not mounted, we directly mount it to the mount_point.
 
         This method bind mount the target as ro with make-private flag and make-unbindable flag,
         to prevent ANY accidental writes/changes to the target.
