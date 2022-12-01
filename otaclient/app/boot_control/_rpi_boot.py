@@ -162,20 +162,19 @@ class _RPIBootControl:
             / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
         )
 
-    def _update_firmware(self):
-        """Call external flash_kernel system script to install new firmware.
-
-        NOTE: this script also flashes kernel and initrd.img to /boot/firmware besides
-        dtb files, so we should also handle that.
+    def _flash_kernel(self):
+        """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
+        from current rootfs to system-boot partition.
         """
+        logger.info("update firmware with flash-kernel...")
         try:
-            # call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
-            # from current rootfs to system-boot partition
-            logger.info("update firmware with flash-kernel...")
-            _cmd = "flash-kernel"
-            subprocess_call(_cmd, raise_exception=True)
+            subprocess_call("flash-kernel", raise_exception=True)
             os.sync()
+        except Exception as e:
+            logger.error(f"flash-kernel failed: {e!r}")
+            raise
 
+        try:
             # check if the vmlinuz and initrd.img presented in /boot/firmware(system-boot),
             # if so, it means that flash-kernel works and copies the kernel, inird.img from /boot,
             # then we rename vmlinuz and initrd.img to vmlinuz_<current_slot> and initrd.img_<current_slot>
@@ -185,9 +184,22 @@ class _RPIBootControl:
                 os.replace(_vmlinuz, self.vmlinuz_active_slot)
             if _initrd_img.is_file():
                 os.replace(_initrd_img, self.initrd_img_active_slot)
-            logger.info("firmware updated")
         except Exception as e:
-            logger.error(f"_init_flash_kernel failed: {e!r}")
+            logger.error(f"apply new kernel,initrd.img for {self.active_slot} failed")
+            raise
+
+    def _update_firmware(self):
+        """Call external flash_kernel system script to install new firmware.
+
+        NOTE: this script also flashes kernel and initrd.img to /boot/firmware besides
+        dtb files, so we should also handle that.
+        """
+        try:
+            self._flash_kernel()
+            logger.info("firmware updated, reboot to apply the firmware...")
+            CMDHelperFuncs.reboot()
+        except Exception as e:
+            logger.error(f"firmware update failed: {e!r}")
             raise
 
     # exposed API methods/properties
@@ -242,6 +254,7 @@ class _RPIBootControl:
     def reboot_tryboot(self):
         """Reboot with tryboot flag."""
         try:
+            logger.info(f"tryboot reboot to {self.standby_slot}...")
             _cmd = "reboot '0 tryboot'"
             subprocess_call(_cmd, raise_exception=True)
         except Exception as e:
