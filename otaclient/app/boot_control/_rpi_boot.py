@@ -169,7 +169,7 @@ class _RPIBootControl:
             / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
         )
 
-    def _flash_kernel(self):
+    def _update_firmware(self):
         """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
         from current rootfs to system-boot partition.
         """
@@ -193,20 +193,6 @@ class _RPIBootControl:
                 os.replace(_initrd_img, self.initrd_img_active_slot)
         except Exception as e:
             logger.error(f"apply new kernel,initrd.img for {self.active_slot} failed")
-            raise
-
-    def _update_firmware(self):
-        """Call external flash_kernel system script to install new firmware.
-
-        NOTE: this script also flashes kernel and initrd.img to /boot/firmware besides
-        dtb files, so we should also handle that.
-        """
-        try:
-            self._flash_kernel()
-            logger.info("firmware updated, reboot to apply the firmware...")
-            CMDHelperFuncs.reboot()
-        except Exception as e:
-            logger.error(f"firmware update failed: {e!r}")
             raise
 
     # exposed API methods/properties
@@ -240,9 +226,11 @@ class _RPIBootControl:
                 will be raised if finalizing failed.
         """
         try:
-            self._update_firmware()
             replace_atomic(self.config_txt_active_slot, self.config_txt)
             replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
+            self._update_firmware()
+            # reboot to apply the new firmware
+            CMDHelperFuncs.reboot()
             return True
         except Exception as e:
             _err_msg = f"failed to finalize boot switching: {e!r}"
