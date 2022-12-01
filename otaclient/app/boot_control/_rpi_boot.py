@@ -15,6 +15,7 @@
 
 r"""Boot control support for Raspberry pi 4."""
 import os
+from string import Template
 from pathlib import Path
 
 from .. import log_setting
@@ -33,12 +34,18 @@ from ._common import (
     OTAStatusFilesControl,
     SlotMountHelper,
     CMDHelperFuncs,
+    write_str_to_file_sync,
 )
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
+)
+
+_FSTAB_TEMPLATE_STR = (
+    "LABEL=${rootfs_fslabel}\t/\text4\tdiscard,x-systemd.growfs\t0\t1\n"
+    "LABEL=system-boot\t/boot/firmware\tvfat\tdefaults\t0\t1\n"
 )
 
 
@@ -313,6 +320,27 @@ class RPIBootController(BootControllerProtocol):
             logger.error(_err_msg)
             raise BootControlPostUpdateFailed(_err_msg) from e
 
+    def _write_standby_fstab(self):
+        """Override the standby's fstab file.
+
+        The fstab file will contain 2 lines, one line for mounting rootfs,
+        another line is for mounting system-boot partition.
+        NOTE: slot id is the fslabel for slot's rootfs
+        """
+        try:
+            _fstab_fpath = self._mp_control.standby_slot_mount_point / Path(
+                cfg.FSTAB_FPATH
+            ).relative_to("/")
+            _updated_fstab_str = Template(_FSTAB_TEMPLATE_STR).substitute(
+                rootfs_fslabel=self._rpiboot_control.standby_slot
+            )
+            logger.debug(f"{_updated_fstab_str=}")
+            write_str_to_file_sync(_fstab_fpath, _updated_fstab_str)
+        except Exception as e:
+            _err_msg = f"failed to update fstab file for standby slot: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlPostUpdateFailed(_err_msg) from e
+
     # APIs
 
     def get_standby_slot_path(self) -> Path:
@@ -364,6 +392,7 @@ class RPIBootController(BootControllerProtocol):
         try:
             logger.info("rpi_boot: post-update setup...")
             self._copy_kernel_for_standby_slot()
+            self._write_standby_fstab()
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
             self._rpiboot_control.reboot_tryboot()
