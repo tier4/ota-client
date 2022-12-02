@@ -736,6 +736,7 @@ class SlotMountHelper:
         Return:
             A bool indicates whether the mount succeeded or not.
         """
+        logger.debug("mount standby slot rootfs dev...")
         try:
             # first try umount mount point and dev
             CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=True)
@@ -769,6 +770,7 @@ class SlotMountHelper:
             A bool indicates whether the mount succeeded or not.
         """
         # first try umount the mount_point
+        logger.debug(f"mount active slot rootfs dev...")
         try:
             CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=True)
             # mount active slot ro, unpropagated
@@ -783,6 +785,7 @@ class SlotMountHelper:
             return False
 
     def umount_all(self, *, ignore_error: bool = False):
+        logger.debug("unmount standby slot and active slot mount point...")
         CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
         CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=ignore_error)
 

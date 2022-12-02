@@ -293,7 +293,7 @@ class TestRPIBootControl:
         with pytest.raises(_RebootEXP):
             RPIBootController()  # NOTE: init only
         # --- assertions: --- #
-        # 1. assert that otaclient reboot the device
+        # 1. assert that otaclient reboots the device
         # 2. assert firmware update is called
         # 3. assert reboot is called
         # 4. assert switch boot finalized

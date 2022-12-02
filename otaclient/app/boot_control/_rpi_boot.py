@@ -92,6 +92,7 @@ class _RPIBootControl:
 
     def _init_slots_info(self):
         """Get current/standby slots info."""
+        logger.debug("checking and initializing slots info...")
         try:
             self._active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
                 cfg.ACTIVE_ROOTFS_PATH
@@ -118,6 +119,7 @@ class _RPIBootControl:
         If any of the required files are missing, BootControlInitError will be raised.
         In such case, a reinstall/setup of AB partition boot files is required.
         """
+        logger.debug("checking boot files...")
         # boot file
         self.config_txt = self.system_boot_path / cfg.CONFIG_TXT
         self.tryboot_txt = self.system_boot_path / cfg.TRYBOOT_TXT
@@ -190,7 +192,7 @@ class _RPIBootControl:
                 _initrd_img := Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.INITRD_IMG
             ).is_file():
                 os.replace(_initrd_img, self.initrd_img_active_slot)
-        except Exception as e:
+        except Exception:
             logger.error(f"apply new kernel,initrd.img for {self.active_slot} failed")
             raise
 
@@ -257,6 +259,7 @@ class _RPIBootControl:
                 # set the flag file
                 write_str_to_file_sync(_flag_file, "")
                 # reboot to the same slot to apply the new firmware
+                logger.info("2stage reboot: apply new firmware...")
                 CMDHelperFuncs.reboot()
                 return True
         except Exception as e:
@@ -276,8 +279,8 @@ class _RPIBootControl:
 
     def reboot_tryboot(self):
         """Reboot with tryboot flag."""
+        logger.info(f"tryboot reboot to {self.standby_slot}...")
         try:
-            logger.info(f"tryboot reboot to {self.standby_slot}...")
             _cmd = "reboot '0 tryboot'"
             subprocess_call(_cmd, raise_exception=True)
         except Exception as e:
@@ -291,16 +294,14 @@ class RPIBootController(BootControllerProtocol):
 
     def __init__(self) -> None:
         self._rpiboot_control = _RPIBootControl()
-
-        ### mount point prepare ###
+        # mount point prepare
         self._mp_control = SlotMountHelper(
             standby_slot_dev=self._rpiboot_control.standby_slot_dev,
             standby_slot_mount_point=cfg.MOUNT_POINT,
             active_slot_dev=self._rpiboot_control.active_slot_dev,
             active_slot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
         )
-
-        ### init ota-status files ###
+        # init ota-status files
         self._ota_status_control = OTAStatusFilesControl(
             active_slot=self._rpiboot_control.active_slot,
             standby_slot=self._rpiboot_control.standby_slot,
@@ -311,6 +312,7 @@ class RPIBootController(BootControllerProtocol):
             / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
             finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
         )
+        logger.debug("rpi_boot initialization finished")
 
     def _copy_kernel_for_standby_slot(self):
         """Copy the kernel and initrd_img files from current slot /boot
