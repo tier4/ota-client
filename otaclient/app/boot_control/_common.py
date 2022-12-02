@@ -770,7 +770,7 @@ class SlotMountHelper:
             A bool indicates whether the mount succeeded or not.
         """
         # first try umount the mount_point
-        logger.debug(f"mount active slot rootfs dev...")
+        logger.debug("mount active slot rootfs dev...")
         try:
             CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=True)
             # mount active slot ro, unpropagated

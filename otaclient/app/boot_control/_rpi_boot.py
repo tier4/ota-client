@@ -223,10 +223,10 @@ class _RPIBootControl:
             2. atomically replace config.txt with config.txt_active_slot
 
         Two-stage reboot:
-        In the first reboot after ota update applied, finalize_switching_boot will try
-        to update the firmware by calling external flash-kernel system script, finalize
-        the switch boot and then reboot again to apply the new firmware.
-        In the second reboot, finalize_switching_boot will do nothing but just return True.
+            In the first reboot after ota update applied, finalize_switching_boot will try
+            to update the firmware by calling external flash-kernel system script, finalize
+            the switch boot and then reboot again to apply the new firmware.
+            In the second reboot, finalize_switching_boot will do nothing but just return True.
 
         NOTE: we use a SWITCH_BOOT_FLAG_FILE to distinguish which reboot we are right now.
               If SWITCH_BOOT_FLAG_FILE presented, we know that we are second reboot,
