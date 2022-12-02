@@ -397,7 +397,18 @@ class OTAStatusFilesControl:
         self.standby_ota_status_dir = Path(standby_ota_status_dir)
         self.finalize_switching_boot = finalize_switching_boot
 
-        # init ota_status files
+        # NOTE: pre-assign live ota_status with the loaded ota_status,
+        #       and then update live ota_status in below.
+        #       The reason is for some platform, like raspberry pi 4B,
+        #       the finalize_switching_boot might be slow, so we first provide
+        #       live ota_status the same as loaded ota_status(or INITIALIZED),
+        #       then update it after the init_ota_status_files finished.
+        _loaded_ota_status = self._load_current_status()
+        self._ota_status = (
+            _loaded_ota_status
+            if _loaded_ota_status is not None
+            else wrapper.StatusOta.INITIALIZED
+        )
         self._init_ota_status_files()
         logger.info(
             f"ota_status files parsing completed, ota_status is {self._ota_status}"
@@ -407,7 +418,7 @@ class OTAStatusFilesControl:
         """Check and/or init ota_status files for current slot."""
         self.current_ota_status_dir.mkdir(exist_ok=True, parents=True)
 
-        # parse ota_status and slot_in_use
+        # load ota_status and slot_in_use file
         _loaded_ota_status = self._load_current_status()
         _loaded_slot_in_use = self._load_current_slot_in_use()
 
@@ -415,7 +426,7 @@ class OTAStatusFilesControl:
         if not (_loaded_ota_status and _loaded_slot_in_use):
             logger.info(
                 "ota_status files incompleted/not presented, "
-                "initializing and set status to INITIALIZED..."
+                "initializing and set/store status to INITIALIZED..."
             )
             self._store_current_slot_in_use(self.active_slot)
             self._store_current_status(wrapper.StatusOta.INITIALIZED)
