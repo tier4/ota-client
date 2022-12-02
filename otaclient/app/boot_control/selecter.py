@@ -53,12 +53,15 @@ def detect_bootloader(raise_on_unknown=True) -> BootloaderType:
             return BootloaderType.CBOOT
         # evidence: rpi device has a special file which reveals the rpi model
         rpi_model_file = Path(rpi_boot_cfg.RPI_MODEL_FILE)
-        if (
-            rpi_model_file.is_file()
-            and read_str_from_file(rpi_model_file).find(rpi_boot_cfg.RPI_MODEL_HINT)
-            != -1
-        ):
-            return BootloaderType.RPI_BOOT
+        if rpi_model_file.is_file():
+            if (_model_str := read_str_from_file(rpi_model_file)).find(
+                rpi_boot_cfg.RPI_MODEL_HINT
+            ) != -1:
+                return BootloaderType.RPI_BOOT
+            else:
+                logger.error(
+                    f"detect unsupported raspberry pi platform({_model_str=}), only {rpi_boot_cfg.RPI_MODEL_HINT} is supported"
+                )
 
     # failed to detect bootloader
     if raise_on_unknown:

@@ -79,7 +79,7 @@ class CBootControlConfig(BaseConfig):
 class RPIBootControlConfig(BaseConfig):
     BBOOTLOADER: BootloaderType = BootloaderType.RPI_BOOT
     RPI_MODEL_FILE = "/proc/device-tree/model"
-    RPI_MODEL_HINT = "Raspberry Pi"
+    RPI_MODEL_HINT = "Raspberry Pi 4 Model B"
 
     # slot configuration
     SLOT_A_FSLABEL = "slot_a"

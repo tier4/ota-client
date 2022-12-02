@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-r"""Boot control support for Raspberry pi 4."""
+r"""Boot control support for Raspberry pi 4 Model B."""
 import os
 from string import Template
 from pathlib import Path
