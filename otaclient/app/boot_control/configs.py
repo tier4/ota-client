@@ -79,7 +79,7 @@ class CBootControlConfig(BaseConfig):
 class RPIBootControlConfig(BaseConfig):
     BBOOTLOADER: BootloaderType = BootloaderType.RPI_BOOT
     RPI_MODEL_FILE = "/proc/device-tree/model"
-    RPI_MODEL_HINT = r"Raspberry Pi"
+    RPI_MODEL_HINT = "Raspberry Pi"
 
     # slot configuration
     SLOT_A_FSLABEL = "slot_a"
@@ -98,6 +98,7 @@ class RPIBootControlConfig(BaseConfig):
     VMLINUZ = "vmlinuz"
     INITRD_IMG = "initrd.img"
     CMDLINE_TXT = "cmdline.txt"
+    SWITCH_BOOT_FLAG_FILE = "._ota_switch_boot_finalized"
 
 
 grub_cfg = GrubControlConfig()
