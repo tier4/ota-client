@@ -48,5 +48,10 @@ class Config:
     TABLE_DEFINITION_VERSION = "v3"
     TABLE_NAME: str = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
+    # cache streaming behavior
+    STREAMING_WAIT_FOR_FIRST_BYTE = 1  # second
+    STREAMING_TIMEOUT = 10  # seconds
+    STREAMING_BACOFF_FACTOR = 0.01  # second
+
 
 config = Config()

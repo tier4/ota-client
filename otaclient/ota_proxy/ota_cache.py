@@ -275,10 +275,6 @@ class RemoteOTAFile:
             local storage space is enough for caching.
     """
 
-    PIPE_WAIT_FOR_START_TIMEOUT = 1
-    PIPE_READ_BACKOFF_MAX = 10
-    PIPE_READ_BACKOFF_FACTOR = 0.01
-
     def __init__(
         self,
         url: str,
@@ -324,8 +320,8 @@ class RemoteOTAFile:
             tracker: an OngoingCacheTracker to sync status with subscriber.
             callback: a callback function to do post-caching jobs.
         """
-        # NOTE: wait for server app start yielding data chunks
-        self._started.wait(timeout=self.PIPE_WAIT_FOR_START_TIMEOUT)
+        # NOTE: wait for server app start yielding data chunks from opened connection
+        self._started.wait(timeout=cfg.STREAMING_WAIT_FOR_FIRST_BYTE)
 
         # populate these 2 properties of CacheMeta in this method
         _hash, _size = "", 0
@@ -351,8 +347,8 @@ class RemoteOTAFile:
                     # get data chunk from stream
                     _timout = get_backoff(
                         err_count,
-                        self.PIPE_READ_BACKOFF_FACTOR,
-                        self.PIPE_READ_BACKOFF_MAX,
+                        cfg.STREAMING_BACOFF_FACTOR,
+                        cfg.STREAMING_TIMEOUT,
                     )
                     try:
                         if data := self._queue.get(timeout=_timout):
@@ -360,7 +356,7 @@ class RemoteOTAFile:
                             _size += dst_f.write(data)
                         err_count = 0
                     except Exception:  # data retrieving timeout
-                        if _timout >= self.PIPE_READ_BACKOFF_MAX:
+                        if _timout >= cfg.STREAMING_TIMEOUT:
                             # abort caching due to potential dead streaming coro
                             logger.error(
                                 f"failed to cache {self.meta.url}: timeout getting data from queue"
@@ -543,9 +539,6 @@ class OTACacheScrubHelper:
 
 
 class _FileDescriptorHelper:
-    CACHE_STREAM_WAIT_FOR_START = 1
-    CACHE_STREAM_BACKOFF_FACTOR = 0.01
-    CACHE_STREAM_TIMEOUT_MAX = 10
     CHUNK_SIZE = cfg.CHUNK_SIZE
 
     @classmethod
@@ -617,8 +610,7 @@ class _FileDescriptorHelper:
         executor: Executor,
     ) -> AsyncIterator[bytes]:
         # NOTE: wait sometime for the writer to write data
-        await asyncio.sleep(cls.CACHE_STREAM_WAIT_FOR_START)
-
+        await asyncio.sleep(cfg.STREAMING_WAIT_FOR_FIRST_BYTE)
         _bytes_streamed = 0
         try:
             fpath = Path(base_dir) / tracker.fn
@@ -646,10 +638,10 @@ class _FileDescriptorHelper:
                     ## writer blocked, retry ##
                     _wait = get_backoff(
                         retry_count,
-                        cls.CACHE_STREAM_BACKOFF_FACTOR,
-                        cls.CACHE_STREAM_TIMEOUT_MAX,
+                        cfg.STREAMING_BACOFF_FACTOR,
+                        cfg.STREAMING_TIMEOUT,
                     )
-                    if _wait < cls.CACHE_STREAM_TIMEOUT_MAX:
+                    if _wait < cfg.STREAMING_TIMEOUT:
                         await asyncio.sleep(_wait)
                         retry_count += 1
                     else:
@@ -683,8 +675,6 @@ class OTACache:
         base_dir: the location to store cached files.
         db_file: the location to store database file.
     """
-
-    CACHE_STREAM_BACKOFF_FACTOR: float = 0.1
 
     def __init__(
         self,
