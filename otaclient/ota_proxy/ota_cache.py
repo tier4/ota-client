@@ -72,6 +72,8 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
     will be cleaned up.
     """
 
+    READER_SUBSCRIBE_PULLING_INTERVAL = 1
+
     def __init__(self, fn: str, ref_holder: _WEAKREF):
         self.fn = fn
         self.meta = None
@@ -94,17 +96,18 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         self.meta = meta
         self._writer_ready.set()
 
-    async def reader_subscribe(self, timeout: Optional[float]) -> bool:
+    async def reader_subscribe(self) -> bool:
         """Reader subscribe this tracker.
 
         Subscribe only succeeds when tracker is still on-going.
         """
-        try:
-            await asyncio.wait_for(self._writer_ready.wait(), timeout=timeout)
-            self._subscriber_ref_holder.append(self._writer_ref_holder)
-            return not self.is_failed
-        except Exception:
-            return False
+        while not self._writer_ready.is_set():
+            if self._is_failed.is_set():
+                return False
+            await asyncio.sleep(self.READER_SUBSCRIBE_PULLING_INTERVAL)
+        # subscribe by adding a new ref
+        self._subscriber_ref_holder.append(self._writer_ref_holder)
+        return True
 
     def reader_on_done(self):
         try:
@@ -685,7 +688,6 @@ class OTACache:
     """
 
     CACHE_STREAM_BACKOFF_FACTOR: float = 0.1
-    CACHE_STREAM_TIMEOUT_MAX: float = 3
 
     def __init__(
         self,
@@ -1074,7 +1076,7 @@ class OTACache:
             )
         # case 3.2: respond by cache streaming
         else:  # reader/subscriber
-            if await _tracker.reader_subscribe(self.CACHE_STREAM_TIMEOUT_MAX):
+            if await _tracker.reader_subscribe():
                 fp = _FileDescriptorHelper.open_cache_stream(
                     _tracker, base_dir=self._base_dir, executor=self._executor
                 )
