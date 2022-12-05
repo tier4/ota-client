@@ -275,9 +275,9 @@ class RemoteOTAFile:
             local storage space is enough for caching.
     """
 
-    PIPE_WAIT_FOR_START_TIMEOUT = 0.5
-    PIPE_READ_BACKOFF_MAX = 6
-    PIPE_READ_BACKOFF_FACTOR = 0.001
+    PIPE_WAIT_FOR_START_TIMEOUT = 1
+    PIPE_READ_BACKOFF_MAX = 10
+    PIPE_READ_BACKOFF_FACTOR = 0.01
 
     def __init__(
         self,
@@ -301,7 +301,7 @@ class RemoteOTAFile:
         self._fp_finished = threading.Event()
         self._started = threading.Event()
         # whether the fp finishes its work(successful or not)
-        self.cached_success = False
+        self.cached_succeeded = False
         self._cache_tee_aborted = threading.Event()
         self._queue = Queue()
 
@@ -376,7 +376,7 @@ class RemoteOTAFile:
                 and self._fp_finished.is_set()
                 and not self._cache_tee_aborted.is_set()
             ):
-                self.cached_success = True
+                self.cached_succeeded = True
 
                 _hash = _sha256hash_f.hexdigest()
                 self.meta.sha256hash = _hash
@@ -396,11 +396,10 @@ class RemoteOTAFile:
 
             # NOTE: if queue is empty/fp_closed is set but self._finished is not set,
             #       it may indicate that an unfinished caching might happen
-
         except Exception as e:
             logger.debug(f"failed on writing cache for {self._tracker.fn}: {e!r}")
         finally:
-            # NOTE: always remember to call callback
+            # NOTE: always call callback, either succeeded or failed
             callback(self, self._tracker)
 
     async def _stream(self, fp) -> AsyncIterator[bytes]:
@@ -544,10 +543,9 @@ class OTACacheScrubHelper:
 
 
 class _FileDescriptorHelper:
-    CACHE_STREAMING_ENSURE_EOF = 0.03
-    CACHE_STREAM_WAIT_FOR_START = 0.05
-    CACHE_STREAM_BACKOFF_FACTOR = 0.1
-    CACHE_STREAM_TIMEOUT_MAX = 1
+    CACHE_STREAM_WAIT_FOR_START = 1
+    CACHE_STREAM_BACKOFF_FACTOR = 0.01
+    CACHE_STREAM_TIMEOUT_MAX = 10
     CHUNK_SIZE = cfg.CHUNK_SIZE
 
     @classmethod
@@ -621,30 +619,29 @@ class _FileDescriptorHelper:
         # NOTE: wait sometime for the writer to write data
         await asyncio.sleep(cls.CACHE_STREAM_WAIT_FOR_START)
 
+        _bytes_streamed = 0
         try:
             fpath = Path(base_dir) / tracker.fn
             async with aiofiles.open(fpath, "rb", executor=executor) as f:
-                retry_count, done = 0, False
+                retry_count = 0
                 while True:
                     ### get data chunk, yield it ###
                     if data := await f.read(cls.CHUNK_SIZE):
                         retry_count = 0
+                        _bytes_streamed += len(data)
                         yield data
                         continue
 
                     ### no new data chunk is received ###
-                    ## writer indicates caching finished ##
                     if tracker.cache_done:
-                        if tracker.is_failed:
-                            raise ValueError(f"corrupted cache on {tracker.fn}")
-                        # sleep and retry read data to ensure
-                        # no data chunk is missed
-                        if not done:
-                            await asyncio.sleep(cls.CACHE_STREAMING_ENSURE_EOF)
-                            done = True
-                            continue
-                        # stream finish, break out
-                        break
+                        if (_meta := tracker.get_meta()) is None:
+                            raise ValueError(
+                                f"missing meta for tracker({tracker.fn=}, {tracker.meta=}), aborted"
+                            )
+                        if not tracker.is_failed and _bytes_streamed == _meta.size:
+                            # cache streaming finished
+                            break
+                        # otherwise, cache streaming is not yet finished
 
                     ## writer blocked, retry ##
                     _wait = get_backoff(
@@ -659,7 +656,7 @@ class _FileDescriptorHelper:
                         # timeout on streaming cache entry
                         raise TimeoutError(f"timeout streaming on {tracker.fn}")
         except Exception as e:
-            raise CacheMultiStreamingFailed from e
+            raise CacheMultiStreamingFailed(f"{e!r}")
         finally:
             tracker.reader_on_done()
 
@@ -892,7 +889,7 @@ class OTACache:
         """
         meta = f.meta
         try:
-            if f.cached_success:
+            if f.cached_succeeded:
                 logger.debug(
                     f"caching successfully for {meta.url=}, try to commit cache..."
                 )
