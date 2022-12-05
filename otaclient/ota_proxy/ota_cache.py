@@ -138,10 +138,10 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         except AttributeError:
             pass
 
-    def get_meta(self) -> Optional[CacheMeta]:
+    def get_meta_on_success(self) -> Optional[CacheMeta]:
         """Get the cache entry meta associated with this tracker.
 
-        NOTE: only return on a successful cache.
+        NOTE: only return meta on a successful cache.
         """
         if self.cache_done and not self.is_failed:
             return self.meta
@@ -302,17 +302,12 @@ class RemoteOTAFile:
         self._tracker = tracker
 
         # life cycle
-        self.fp_closed = threading.Event()
-        self._fp_finished = threading.Event()
-        self._started = threading.Event()
-        # whether the fp finishes its work(successful or not)
-        self.cached_succeeded = False
-        self._cache_tee_aborted = threading.Event()
+        self._fd_eof = threading.Event()
         self._queue = Queue()
 
     def _background_write_cache(
         self,
-        callback: "Callable[[RemoteOTAFile, OngoingCacheTracker], None]",
+        commit_cache_entry_callback: "Callable[[OngoingCacheTracker], None]",
     ):
         """Caching files on to the local disk in the background thread.
 
@@ -329,9 +324,6 @@ class RemoteOTAFile:
             tracker: an OngoingCacheTracker to sync status with subscriber.
             callback: a callback function to do post-caching jobs.
         """
-        # NOTE: wait for server app start yielding data chunks from opened connection
-        self._started.wait(timeout=cfg.STREAMING_WAIT_FOR_FIRST_BYTE)
-
         # populate these 2 properties of CacheMeta in this method
         _hash, _size = "", 0
         _sha256hash_f = sha256()
@@ -341,17 +333,20 @@ class RemoteOTAFile:
 
             with open(temp_fpath, "wb") as dst_f:
                 err_count = 0
-                while not self.fp_closed.is_set() or not self._queue.empty():
+                while not self._fd_eof.is_set() or not self._queue.empty():
+                    # first check the tracker, the streamer might already failed
+                    if self._tracker.is_failed:
+                        raise ValueError("streamer failed")
+
                     # reach storage hard limit, abort caching
                     if not self._storage_below_hard_limit.is_set():
-                        logger.debug(
-                            f"not enough free space during caching url={self.meta.url}, abort"
-                        )
+                        _err_msg = f"not enough free space during caching url={self.meta.url}, abort"
+                        logger.debug(_err_msg)
                         # signal the get_chunks method to stop
-                        # streaming to the caching thread
-                        self._cache_tee_aborted.set()
+                        # streaming to the streamer thread
+                        self._tracker.writer_on_done(success=False)
                         # and then breakout the loop
-                        break
+                        raise ValueError(_err_msg)
 
                     # get data chunk from stream
                     _timout = get_backoff(
@@ -365,49 +360,38 @@ class RemoteOTAFile:
                             _size += dst_f.write(data)
                         err_count = 0
                     except Exception:  # data retrieving timeout
+                        err_count += 1
                         if _timout >= cfg.STREAMING_TIMEOUT:
                             # abort caching due to potential dead streaming coro
-                            logger.error(
-                                f"failed to cache {self.meta.url}: timeout getting data from queue"
-                            )
-                            # signal get_chunks to stop streaming chunks to caching thread
-                            self._cache_tee_aborted.set()
-                            break
-                        err_count += 1
+                            _err_msg = f"failed to cache {self.meta.url}: timeout getting data from queue"
+                            logger.error(_err_msg)
+                            # signal streamer to stop streaming
+                            raise ValueError(_err_msg)
 
-            # post caching
-            if (
-                self.fp_closed.is_set()
-                and self._fp_finished.is_set()
-                and not self._cache_tee_aborted.is_set()
-            ):
-                self.cached_succeeded = True
+            # caching succeeded, try to commit cache
+            self._tracker.writer_on_done(success=True)
+            commit_cache_entry_callback(self._tracker)
 
-                _hash = _sha256hash_f.hexdigest()
-                self.meta.sha256hash = _hash
-                self.meta.size = _size
+            _hash = _sha256hash_f.hexdigest()
+            self.meta.sha256hash = _hash
+            self.meta.size = _size
+            # for 0 size file, register the entry only
+            # but if the 0 size file doesn't exist, create one
+            if _size > 0 or not (self._base_dir / _hash).is_file():
+                logger.debug(f"successfully cached {self.meta.url}")
+                # NOTE: hardlink to new file name,
+                # tmp file cleanup will be conducted by CachingTracker
+                try:
+                    temp_fpath.link_to(self._base_dir / _hash)
+                except FileExistsError:
+                    # this might caused by entry with same file contents
+                    logger.debug(f"entry {_hash} existed, ignored")
 
-                # for 0 size file, register the entry only
-                # but if the 0 size file doesn't exist, create one
-                if _size > 0 or not (self._base_dir / _hash).is_file():
-                    logger.debug(f"successfully cached {self.meta.url}")
-                    # NOTE: hardlink to new file name,
-                    # tmp file cleanup will be conducted by CachingTracker
-                    try:
-                        temp_fpath.link_to(self._base_dir / _hash)
-                    except FileExistsError:
-                        # this might caused by entry with same file contents
-                        logger.debug(f"entry {_hash} existed, ignored")
-
-            # NOTE: if queue is empty/fp_closed is set but self._finished is not set,
-            #       it may indicate that an unfinished caching might happen
         except Exception as e:
             logger.debug(f"failed on writing cache for {self._tracker.fn}: {e!r}")
-        finally:
-            # NOTE: always call callback, either succeeded or failed
-            callback(self, self._tracker)
+            self._tracker.writer_on_done(success=False)
 
-    async def _stream(self, fp) -> AsyncIterator[bytes]:
+    async def _stream(self, fd) -> AsyncIterator[bytes]:
         """For caller(server App) to yield data chunks from.
 
         This method yields data chunks from selves' file descriptor,
@@ -417,28 +401,27 @@ class RemoteOTAFile:
         Returns:
             An AsyncIterator for upper caller to yield data chunks from.
         """
-        self._started.set()  # signal caching thread to start
         try:
-            async for chunk in fp:
+            async for chunk in fd:
                 # to caching thread
                 # stop teeing data chunk to caching thread
                 # if caching thread indicates so
-                if not self._cache_tee_aborted.is_set():
+                if not self._tracker.is_failed:
                     self._queue.put_nowait(chunk)
                 # to uvicorn thread
                 yield chunk
-            self._fp_finished.set()
         except Exception as e:
             # if any exception happens, signal the caching thread
-            self._cache_tee_aborted.set()
+            self._tracker.writer_on_done(success=False)
             logger.exception("cache tee failed")
             raise CacheStreamingFailed from e
         finally:
-            self.fp_closed.set()
+            # signal that the file descriptor is exhausted/interrupted
+            self._fd_eof.set()
 
     async def open_remote(
         self,
-        callback: "Callable[[RemoteOTAFile, OngoingCacheTracker], None]",
+        commit_cache_callback: "Callable[[OngoingCacheTracker], None]",
         *,
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
@@ -446,7 +429,7 @@ class RemoteOTAFile:
         upper_proxy: str,
         executor: Executor,
     ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
-        _remote_fp = _FileDescriptorHelper.open_remote(
+        _remote_fd = _FileDescriptorHelper.open_remote(
             self.url,
             self.meta,  # updated when remote response is received
             cookies,
@@ -455,10 +438,9 @@ class RemoteOTAFile:
             upper_proxy=upper_proxy,
         )
         try:
-            await _remote_fp.__anext__()  # open the remote connection
+            await _remote_fd.__anext__()  # open the remote connection
         except Exception:  # connection failed
-            self.fp_closed.set()
-            self._cache_tee_aborted.set()
+            self._fd_eof.set()
             self._tracker.writer_on_done(success=False)
             raise
 
@@ -466,9 +448,9 @@ class RemoteOTAFile:
         # dispatch local cache storing to thread pool
         executor.submit(
             self._background_write_cache,
-            callback,
+            commit_cache_callback,
         )
-        return self._stream(_remote_fp), self.meta
+        return self._stream(_remote_fd), self.meta
 
 
 class OTACacheScrubHelper:
@@ -618,12 +600,11 @@ class _FileDescriptorHelper:
         base_dir: Union[str, Path],
         executor: Executor,
     ) -> AsyncIterator[bytes]:
-        # NOTE: wait sometime for the writer to write data
-        await asyncio.sleep(cfg.STREAMING_WAIT_FOR_FIRST_BYTE)
         _bytes_streamed = 0
         try:
-            fpath = Path(base_dir) / tracker.fn
-            async with aiofiles.open(fpath, "rb", executor=executor) as f:
+            async with aiofiles.open(
+                Path(base_dir) / tracker.fn, "rb", executor=executor
+            ) as f:
                 retry_count = 0
                 while True:
                     ### get data chunk, yield it ###
@@ -635,14 +616,14 @@ class _FileDescriptorHelper:
 
                     ### no new data chunk is received ###
                     if tracker.cache_done:
-                        if (_meta := tracker.get_meta()) is None:
+                        if (_meta := tracker.get_meta_on_success()) is None:
                             raise ValueError(
-                                f"missing meta for tracker({tracker.fn=}, {tracker.meta=}), aborted"
+                                f"writer for {tracker.fn=}, {tracker.meta=} failed, abort"
                             )
+                        # check already read bytes, if it meets the meta.size,
+                        # then cache stream finished, otherwise we should keep pulling
                         if not tracker.is_failed and _bytes_streamed == _meta.size:
-                            # cache streaming finished
-                            break
-                        # otherwise, cache streaming is not yet finished
+                            return
 
                     ## writer blocked, retry ##
                     _wait = get_backoff(
@@ -654,8 +635,10 @@ class _FileDescriptorHelper:
                         await asyncio.sleep(_wait)
                         retry_count += 1
                     else:
-                        # timeout on streaming cache entry
-                        raise TimeoutError(f"timeout streaming on {tracker.fn}")
+                        # timeout on waiting data from writer
+                        raise TimeoutError(
+                            f"timeout waiting data from writer: {tracker.fn}"
+                        )
         except Exception as e:
             raise CacheMultiStreamingFailed(f"{e!r}")
         finally:
@@ -870,10 +853,8 @@ class OTACache:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
-    def _register_cache_callback(self, f: RemoteOTAFile, tracker: OngoingCacheTracker):
+    def _register_cache_callback(self, tracker: OngoingCacheTracker):
         """The callback for finishing up caching.
-
-        All caching should end up here, whether caching is successful or not.
 
         If caching is successful, and the space usage is reaching soft limit,
         we will try to ensure free space for already cached file.
@@ -881,46 +862,31 @@ class OTACache:
         in half way and f.cached_success will be False.)
 
         If space cannot be ensured, the cached file will be delete.
-
         If caching fails, the unfinished cached file will be cleanup.
 
         Args:
-            f: instance of OTAFile that registered with this callback.
             tracker: for cache writer, to sync status between subscriber.
         """
-        meta = f.meta
+        if (meta := tracker.get_meta_on_success()) is None:
+            return
+
         try:
-            if f.cached_succeeded:
-                logger.debug(
-                    f"caching successfully for {meta.url=}, try to commit cache..."
-                )
-                if not self._storage_below_soft_limit_event.is_set():
-                    # try to reserve space for the saved cache entry
-                    if self._reserve_space(meta.size):
-                        if not (
-                            _commit_succeeded := self._lru_helper.commit_entry(meta)
-                        ):
-                            logger.debug(f"failed to commit cache for {meta.url=}")
-                        tracker.writer_on_done(success=_commit_succeeded)
-                    else:
-                        # case 2: cache successful, but reserving space failed,
-                        # NOTE(20221018): let gc to remove the tmp file
-                        # NOTE(20221205): still keep the tmp file for other subscribers
-                        #                 until it has been gced(so set success=True)
-                        logger.debug(f"failed to reserve space for {meta.url=}")
-                        tracker.writer_on_done(success=True)
+            if not self._storage_below_soft_limit_event.is_set():
+                # try to reserve space for the saved cache entry
+                if self._reserve_space(meta.size):
+                    if not self._lru_helper.commit_entry(meta):
+                        logger.debug(f"failed to commit cache for {meta.url=}")
                 else:
-                    # case 3: commit cache and finish up
-                    if not (_commit_succeeded := self._lru_helper.commit_entry(meta)):
-                        logger.debug(f"failed to commit cache entry for {meta.url=}")
-                    tracker.writer_on_done(success=_commit_succeeded)
+                    # case 2: cache successful, but reserving space failed,
+                    # NOTE(20221018): let gc to remove the tmp file
+                    # NOTE(20221205): still keep the tmp file for other subscribers
+                    #                 until it has been gced(so set success=True)
+                    logger.debug(f"failed to reserve space for {meta.url=}")
             else:
-                # case 4: cache failed, cleanup dangling cache file
-                logger.debug(f"cache for {meta.url=} failed, cleanup")
-                # NOTE(20221018): let gc to remove the tmp file
-                tracker.writer_on_done(success=False)
+                # case 3: commit cache and finish up
+                if not self._lru_helper.commit_entry(meta):
+                    logger.debug(f"failed to commit cache entry for {meta.url=}")
         except Exception as e:
-            tracker.writer_on_done(success=False)
             logger.exception(f"failed on callback for {meta=}: {e!r}")
 
     def _process_raw_url(self, raw_url: str) -> str:
@@ -1078,9 +1044,8 @@ class OTACache:
                 )
                 return fp, _tracker.meta  # type: ignore
             else:
-                logger.debug(f"cache streaming tracker for {raw_url} closed")
                 # NOTE: try to get the hash value of the cached file
-                if _meta := _tracker.get_meta():
+                if _meta := _tracker.get_meta_on_success():
                     logger.debug(f"use cache for {raw_url=}")
                     fp = _FileDescriptorHelper.open_cache(
                         _meta, base_dir=self._base_dir, executor=self._executor
