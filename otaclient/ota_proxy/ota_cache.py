@@ -110,8 +110,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
             self._subscriber_ref_holder.append(self._writer_ref_holder)
             return True
         except AttributeError:
-            # the timing is that the writer just finished caching,
-            # so we reject subscribe
+            # just encount the end of writer caching, abort
             return False
 
     def reader_on_done(self):
@@ -120,26 +119,31 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         except IndexError:
             pass
 
-    def writer_on_finish(self):
-        """NOTE: must ensure cache entry is committed into the database
-            before calling this function!
-        NOTE 2: this method is cross-thread method
-        """
-        self._cache_done.set()
-        del self._writer_ref_holder
+    def writer_on_done(self, success: bool):
+        """Writer calls this method when caching is finished/interrupted.
 
-    def writer_on_failed(self):
-        """NOTE: this method is cross-thread method"""
-        logger.debug(f"writer failed on {self.fn}, abort...")
-        self._is_failed.set()
+        NOTE: must ensure cache entry is committed into the database
+        before calling this function!
+        NOTE 2: this method is cross-thread method
+
+        Arg:
+            success: indicates whether the caching is successful or not.
+        """
+        if not success:
+            logger.debug(f"writer failed on {self.fn}, abort...")
+            self._is_failed.set()
         self._cache_done.set()
-        del self._writer_ref_holder
+        try:
+            del self._writer_ref_holder
+        except AttributeError:
+            pass
 
     def get_meta(self) -> Optional[CacheMeta]:
+        """Get the cache entry meta associated with this tracker.
+
+        NOTE: only return on a successful cache.
         """
-        NOTE: only return on a successful cache
-        """
-        if not self.is_failed and self.cache_done:
+        if self.cache_done and not self.is_failed:
             return self.meta
 
 
@@ -455,7 +459,7 @@ class RemoteOTAFile:
         except Exception:  # connection failed
             self.fp_closed.set()
             self._cache_tee_aborted.set()
-            self._tracker.writer_on_failed()
+            self._tracker.writer_on_done(success=False)
             raise
 
         await self._tracker.writer_on_ready(self.meta)
@@ -893,32 +897,30 @@ class OTACache:
                 if not self._storage_below_soft_limit_event.is_set():
                     # try to reserve space for the saved cache entry
                     if self._reserve_space(meta.size):
-                        # case 1: commit cache and finish up
-                        if self._lru_helper.commit_entry(meta):
-                            tracker.writer_on_finish()
-                        else:
-                            tracker.writer_on_failed()
+                        if not (
+                            _commit_succeeded := self._lru_helper.commit_entry(meta)
+                        ):
+                            logger.debug(f"failed to commit cache for {meta.url=}")
+                        tracker.writer_on_done(success=_commit_succeeded)
                     else:
                         # case 2: cache successful, but reserving space failed,
                         # NOTE(20221018): let gc to remove the tmp file
-                        logger.debug(
-                            f"failed to reserve space for {meta.url=}, cleanup tmp"
-                        )
-                        tracker.writer_on_finish()
+                        # NOTE(20221205): still keep the tmp file for other subscribers
+                        #                 until it has been gced(so set success=True)
+                        logger.debug(f"failed to reserve space for {meta.url=}")
+                        tracker.writer_on_done(success=True)
                 else:
                     # case 3: commit cache and finish up
-                    if self._lru_helper.commit_entry(meta):
-                        tracker.writer_on_finish()
-                    else:
-                        tracker.writer_on_failed()
+                    if not (_commit_succeeded := self._lru_helper.commit_entry(meta)):
+                        logger.debug(f"failed to commit cache entry for {meta.url=}")
+                    tracker.writer_on_done(success=_commit_succeeded)
             else:
                 # case 4: cache failed, cleanup dangling cache file
                 logger.debug(f"cache for {meta.url=} failed, cleanup")
                 # NOTE(20221018): let gc to remove the tmp file
-                tracker.writer_on_failed()
-
+                tracker.writer_on_done(success=False)
         except Exception as e:
-            tracker.writer_on_failed()
+            tracker.writer_on_done(success=False)
             logger.exception(f"failed on callback for {meta=}: {e!r}")
 
     def _process_raw_url(self, raw_url: str) -> str:
