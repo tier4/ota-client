@@ -106,8 +106,13 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
                 return False
             await asyncio.sleep(self.READER_SUBSCRIBE_PULLING_INTERVAL)
         # subscribe by adding a new ref
-        self._subscriber_ref_holder.append(self._writer_ref_holder)
-        return True
+        try:
+            self._subscriber_ref_holder.append(self._writer_ref_holder)
+            return True
+        except AttributeError:
+            # the timing is that the writer just finished caching,
+            # so we reject subscribe
+            return False
 
     def reader_on_done(self):
         try:
@@ -723,7 +728,9 @@ class OTACache:
         # NOTE 2: disable aiohttp default timeout(5mins)
         # this timeout will be applied to the whole request, including downloading,
         # preventing large files to be downloaded.
-        timeout = aiohttp.ClientTimeout(total=None, sock_read=1)
+        timeout = aiohttp.ClientTimeout(
+            total=None, sock_read=cfg.STREAMING_WAIT_FOR_FIRST_BYTE
+        )
         self._session = aiohttp.ClientSession(
             auto_decompress=False, raise_for_status=True, timeout=timeout
         )
