@@ -368,13 +368,14 @@ class RemoteOTAFile:
                             # signal streamer to stop streaming
                             raise ValueError(_err_msg)
 
-            # caching succeeded, try to commit cache
-            self._tracker.writer_on_done(success=True)
-            commit_cache_entry_callback(self._tracker)
-
+            # cache successfully
+            # update meta
             _hash = _sha256hash_f.hexdigest()
             self.meta.sha256hash = _hash
             self.meta.size = _size
+            # commit cache entry
+            self._tracker.writer_on_done(success=True)
+            commit_cache_entry_callback(self._tracker)
             # for 0 size file, register the entry only
             # but if the 0 size file doesn't exist, create one
             if _size > 0 or not (self._base_dir / _hash).is_file():
