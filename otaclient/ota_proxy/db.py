@@ -261,7 +261,7 @@ class _ProxyBase:
         """Init the database connecting thread pool."""
         self._thread_local = threading.local()
         self._executor = ThreadPoolExecutor(
-            max_workers=3,
+            max_workers=cfg.DB_THREAD_POOL_SIZE,
             initializer=self._thread_initializer,
             initargs=(db_f,),
         )
