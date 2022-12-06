@@ -168,19 +168,22 @@ class OngoingCachingRegister:
         # cleanup(unlink) the tmp file when corresponding tracker is gced.
         (self._base_dir / fn).unlink(missing_ok=True)
 
-    async def get_tracker(self, url: str) -> Tuple[OngoingCacheTracker, bool]:
+    async def get_or_subscribe_tracker(
+        self, url: str
+    ) -> Tuple[Optional[OngoingCacheTracker], bool]:
+        # subscriber
         if _ref := self._url_ref_dict.get(url):
-            await _ref.wait()  # wait for writer to fully initialized
-            _tracker = self._ref_tracker_dict[_ref]
-            return _tracker, False
+            await _ref.wait()  # wait for writer tracker to be initialized
+            if await (_tracker := self._ref_tracker_dict[_ref]).reader_subscribe():
+                return _tracker, False
+            return None, False
+        # provider
         else:
             _tmp_fn = f"tmp_{urandom(16).hex()}"
-
-            _ref = asyncio.Event()
-            self._url_ref_dict[url] = _ref
-
-            _tracker = OngoingCacheTracker(_tmp_fn, _ref)
-            self._ref_tracker_dict[_ref] = _tracker
+            self._url_ref_dict[url] = (_ref := asyncio.Event())
+            self._ref_tracker_dict[_ref] = (
+                _tracker := OngoingCacheTracker(_tmp_fn, _ref)
+            )
             # cleanup tmp file when _tracker is gc.
             weakref.finalize(_tracker, self._finalizer, _tmp_fn)
 
@@ -586,18 +589,14 @@ class _FileDescriptorHelper:
             async for data, _ in response.content.iter_chunks():
                 yield data
 
-    @classmethod
-    async def open_cache(
-        cls,
-        cache_meta: CacheMeta,
+    @staticmethod
+    async def open_cached_file(
+        fpath: Union[str, Path],
         *,
-        base_dir: Union[str, Path],
         executor: Executor,
     ) -> AsyncIterator[bytes]:
-        async with aiofiles.open(
-            Path(base_dir) / cache_meta.sha256hash, "rb", executor=executor
-        ) as f:
-            while data := await f.read(cls.CHUNK_SIZE):
+        async with aiofiles.open(fpath, "rb", executor=executor) as f:
+            while data := await f.read(cfg.CHUNK_SIZE):
                 yield data
 
     @classmethod
@@ -1021,16 +1020,18 @@ class OTACache:
             raw_url, retry_cache=retry_cache
         ):
             logger.debug(f"use cache for {raw_url=}")
-            fp = _FileDescriptorHelper.open_cache(
-                meta_db_entry, base_dir=self._base_dir, executor=self._executor
+            fp = _FileDescriptorHelper.open_cached_file(
+                self._base_dir / meta_db_entry.sha256hash, executor=self._executor
             )
             return fp, meta_db_entry
 
         # case 3: no valid cache entry presented, try to cache the requested file
         logger.debug(f"no cache entry for {raw_url=}")
         # case 3.1: download and cache new file
-        _tracker, is_writer = await self._on_going_caching.get_tracker(raw_url)
-        if is_writer:  # writer/provider
+        _tracker, is_writer = await self._on_going_caching.get_or_subscribe_tracker(
+            raw_url
+        )
+        if is_writer and _tracker is not None:  # writer/provider
             ota_file = RemoteOTAFile(
                 self._process_raw_url(raw_url),
                 raw_url,
@@ -1047,21 +1048,15 @@ class OTACache:
                 executor=self._executor,
             )
         # case 3.2: respond by cache streaming
-        else:  # reader/subscriber
-            if await _tracker.reader_subscribe():
-                fp = _FileDescriptorHelper.open_cache_stream(
-                    _tracker, base_dir=self._base_dir, executor=self._executor
-                )
-                return fp, _tracker.meta  # type: ignore
-            else:
-                # NOTE: try to get the hash value of the cached file
-                if _meta := _tracker.get_meta_on_success():
-                    logger.debug(f"use cache for {raw_url=}")
-                    fp = _FileDescriptorHelper.open_cache(
-                        _meta, base_dir=self._base_dir, executor=self._executor
-                    )
-                    return fp, _meta
-                else:
-                    raise CacheMultiStreamingFailed(
-                        f"subscribe on failed cache for {raw_url}"
-                    )
+        elif _tracker is not None:  # reader/subscriber
+            return (
+                _FileDescriptorHelper.open_cache_stream(
+                    _tracker,
+                    base_dir=self._base_dir,
+                    executor=self._executor,
+                ),
+                _tracker.meta,
+            )  # type: ignore
+        else:
+            # NOTE: let the otaclient retry handle the edge condition
+            return None
