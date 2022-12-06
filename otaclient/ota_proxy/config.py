@@ -42,14 +42,15 @@ class Config:
     # DB configuration/setup
     # ota-cache table
     # NOTE: use table name to keep track of table scheme version
-    DB_THREAD_POOL_SIZE = 1
+    DB_THREAD_POOL_SIZE = 2
     TABLE_DEFINITION_VERSION = "v3"
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
     STREAMING_WAIT_FOR_FIRST_BYTE = 3  # second
     STREAMING_TIMEOUT = 10  # seconds
-    STREAMING_BACOFF_FACTOR = 0.01  # second
+    STREAMING_BACOFF_FACTOR = 0.1  # second
+    STREAMING_WAIT_FOR_WRITER = 0.1  # second
 
 
 config = Config()
