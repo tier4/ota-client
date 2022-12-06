@@ -15,7 +15,7 @@
 
 class Config:
     BASE_DIR = "/ota-cache"
-    CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
+    CHUNK_SIZE = 1 * 1024 * 1024  # 4MB
     DISK_USE_LIMIT_SOFT_P = 70  # in p%
     DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
@@ -42,15 +42,15 @@ class Config:
     # DB configuration/setup
     # ota-cache table
     # NOTE: use table name to keep track of table scheme version
-    DB_THREAD_POOL_SIZE = 2
+    DB_THREAD_POOL_SIZE = 3
     TABLE_DEFINITION_VERSION = "v3"
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
     STREAMING_WAIT_FOR_FIRST_BYTE = 3  # second
     STREAMING_TIMEOUT = 10  # seconds
-    STREAMING_BACOFF_FACTOR = 0.1  # second
-    STREAMING_WAIT_FOR_WRITER = 0.1  # second
+    STREAMING_BACOFF_FACTOR = 0.01  # second
+    STREAMING_WAIT_FOR_WRITER = 0  # second
 
 
 config = Config()
