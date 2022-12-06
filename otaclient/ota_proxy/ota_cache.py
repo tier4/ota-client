@@ -23,13 +23,13 @@ import shutil
 import time
 import threading
 import weakref
-from collections import deque
 from concurrent.futures import Executor, ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
 from hashlib import sha256
 from os import urandom
 from pathlib import Path
+from queue import Queue
 from typing import (
     TYPE_CHECKING,
     AsyncIterator,
@@ -309,7 +309,7 @@ class RemoteOTAFile:
 
         # life cycle
         self._fd_eof = threading.Event()
-        self._queue = deque()
+        self._queue = Queue()
 
     def _background_write_cache(
         self,
@@ -342,7 +342,7 @@ class RemoteOTAFile:
 
             with open(temp_fpath, "wb") as dst_f:
                 err_count = 0
-                while not self._fd_eof.is_set() or len(self._queue) > 0:
+                while not self._fd_eof.is_set() or not self._queue.empty():
                     # first check the tracker, the streamer might already failed
                     if self._tracker.is_failed:
                         raise ValueError("streamer failed")
@@ -351,30 +351,26 @@ class RemoteOTAFile:
                     if not self._storage_below_hard_limit.is_set():
                         _err_msg = f"not enough free space during caching url={self.meta.url}, abort"
                         logger.debug(_err_msg)
-                        # signal the get_chunks method to stop
-                        # streaming to the streamer thread
-                        self._tracker.writer_on_done(success=False)
                         # and then breakout the loop
                         raise ValueError(_err_msg)
 
                     # get data chunk from stream
-                    _timout = get_backoff(
+                    _timeout = get_backoff(
                         err_count,
-                        cfg.STREAMING_BACOFF_FACTOR,
+                        cfg.STREAMING_BACKOFF_FACTOR,
                         cfg.STREAMING_TIMEOUT,
                     )
                     try:
-                        time.sleep(_timout)
-                        if data := self._queue.popleft():
+                        if data := self._queue.get(timeout=_timeout):
                             _sha256hash_f.update(data)
                             _size += dst_f.write(data)
                         err_count = 0
-                    except IndexError:  # try to pop from empty deque
+                    except Exception:  # timeout waiting for data chunk
                         err_count += 1
-                        if _timout >= cfg.STREAMING_TIMEOUT:
+                        if _timeout >= cfg.STREAMING_TIMEOUT:
                             # abort caching due to potential dead streaming coro
                             _err_msg = f"failed to cache {self.meta.url}: timeout getting data from queue"
-                            logger.error(_err_msg)
+                            logger.debug(_err_msg)
                             # signal streamer to stop streaming
                             raise ValueError(_err_msg)
 
@@ -418,7 +414,7 @@ class RemoteOTAFile:
                 # stop teeing data chunk to caching thread
                 # if caching thread indicates so
                 if not self._tracker.is_failed:
-                    self._queue.append(chunk)
+                    self._queue.put_nowait(chunk)
                 # to uvicorn thread
                 yield chunk
         except Exception as e:
@@ -637,7 +633,7 @@ class _FileDescriptorHelper:
                     ## writer blocked, retry ##
                     _wait = get_backoff(
                         retry_count,
-                        cfg.STREAMING_BACOFF_FACTOR,
+                        cfg.STREAMING_BACKOFF_FACTOR,
                         cfg.STREAMING_TIMEOUT,
                     )
                     if _wait < cfg.STREAMING_TIMEOUT:

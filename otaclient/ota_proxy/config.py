@@ -49,7 +49,7 @@ class Config:
     # cache streaming behavior
     STREAMING_WAIT_FOR_FIRST_BYTE = 3  # second
     STREAMING_TIMEOUT = 10  # seconds
-    STREAMING_BACOFF_FACTOR = 0.01  # second
+    STREAMING_BACKOFF_FACTOR = 0.001  # second
     STREAMING_WAIT_FOR_WRITER = 0  # second
 
 
