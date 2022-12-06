@@ -23,13 +23,13 @@ import shutil
 import time
 import threading
 import weakref
+from collections import deque
 from concurrent.futures import Executor, ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
 from hashlib import sha256
 from os import urandom
 from pathlib import Path
-from queue import Queue
 from typing import (
     TYPE_CHECKING,
     AsyncIterator,
@@ -303,7 +303,7 @@ class RemoteOTAFile:
 
         # life cycle
         self._fd_eof = threading.Event()
-        self._queue = Queue()
+        self._queue = deque()
 
     def _background_write_cache(
         self,
@@ -333,7 +333,7 @@ class RemoteOTAFile:
 
             with open(temp_fpath, "wb") as dst_f:
                 err_count = 0
-                while not self._fd_eof.is_set() or not self._queue.empty():
+                while not self._fd_eof.is_set() or len(self._queue) > 0:
                     # first check the tracker, the streamer might already failed
                     if self._tracker.is_failed:
                         raise ValueError("streamer failed")
@@ -355,11 +355,12 @@ class RemoteOTAFile:
                         cfg.STREAMING_TIMEOUT,
                     )
                     try:
-                        if data := self._queue.get(timeout=_timout):
+                        time.sleep(_timout)
+                        if data := self._queue.popleft():
                             _sha256hash_f.update(data)
                             _size += dst_f.write(data)
                         err_count = 0
-                    except Exception:  # data retrieving timeout
+                    except IndexError:  # try to pop from empty deque
                         err_count += 1
                         if _timout >= cfg.STREAMING_TIMEOUT:
                             # abort caching due to potential dead streaming coro
@@ -408,7 +409,7 @@ class RemoteOTAFile:
                 # stop teeing data chunk to caching thread
                 # if caching thread indicates so
                 if not self._tracker.is_failed:
-                    self._queue.put_nowait(chunk)
+                    self._queue.append(chunk)
                 # to uvicorn thread
                 yield chunk
         except Exception as e:
