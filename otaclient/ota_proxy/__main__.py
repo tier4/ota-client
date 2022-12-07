@@ -16,6 +16,7 @@
 import argparse
 import asyncio
 import logging
+import uvloop
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +69,12 @@ if __name__ == "__main__":
             port=args.port,
             log_level="error",
             lifespan="on",
-            loop="asyncio",
+            loop="uvloop",
             http="h11",
         )
         _server = uvicorn.Server(_config)
         await _server.serve()
 
     logger.info(f"launch ota_proxy at {args.host}:{args.port}")
+    uvloop.install()
     asyncio.run(_launch_server())
