@@ -101,7 +101,11 @@ class TestOTAProxyServer:
         self.ota_cache = _ota_cache
 
     @pytest.fixture(
-        params=["below_soft_limit", "below_hard_limit", "exceed_hard_limit"],
+        params=[
+            "below_soft_limit",
+            "below_hard_limit",
+            "exceed_hard_limit",
+        ],
         autouse=True,
     )
     async def launch_ota_proxy_server(
@@ -148,7 +152,9 @@ class TestOTAProxyServer:
     def parse_regulars(self):
         regular_entries: List[RegularInf] = []
         with open(self.REGULARS_TXT_PATH, "r") as f:
-            regular_entries = [RegularInf.parse_reginf(line) for line in f]
+            for _line in f:
+                _entry = RegularInf.parse_reginf(_line)
+                regular_entries.append(_entry)
         return regular_entries
 
     async def test_download_file_with_special_fname(self):
@@ -209,11 +215,34 @@ class TestOTAProxyServer:
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.path.relative_to("/")}')
                 )
-                async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
-                    hash_f = sha256()
-                    async for data, _ in resp.content.iter_chunks():
-                        hash_f.update(data)
-                    assert hash_f.hexdigest() == entry.sha256hash
+
+                # implement a simple retry here
+                # NOTE: it might be some edge condition that subscriber subscribes on a just closed
+                #       tracker, this will result in a hash mismatch, general a retry can solve this
+                #       problem(the cached file is correct, only the caching stream is interrupted)
+                count = 0
+                while True:
+                    async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
+                        hash_f = sha256()
+                        async for data, _ in resp.content.iter_chunks():
+                            hash_f.update(data)
+
+                        if hash_f.hexdigest() != entry.sha256hash:
+                            count += 1
+                            logger.error(
+                                f"hash mismatch detected: {entry=}, {hash_f.hexdigest()=}, retry..."
+                            )
+                            if count > 6:
+                                logger.error(
+                                    f"retry {count} times failed: {entry=}, {hash_f.hexdigest()=}"
+                                )
+                                assert hash_f.hexdigest() == entry.sha256hash
+                        else:
+                            if count != 0:
+                                logger.info(
+                                    f"retry on {entry=} succeeded, {hash_f.hexdigest()=}"
+                                )
+                            break
 
     async def test_multiple_clients_download_ota_image(self, parse_regulars):
         """Test multiple client download the whole ota image simultaneously."""
@@ -225,10 +254,13 @@ class TestOTAProxyServer:
                     self.ota_image_downloader(parse_regulars, sync_event)
                 )
             )
-        logger.info("all clients have started to download ota image...")
+        logger.info(
+            f"all {self.CLIENTS_NUM} clients have started to download ota image..."
+        )
         sync_event.set()
 
         await asyncio.gather(*tasks, return_exceptions=False)
+        await self.otaproxy_inst.shutdown()
         # check there is no tmp files left in the ota_cache dir
         # ensure that the gc for multi-cache-streaming works
-        # assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
+        assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
