@@ -106,17 +106,41 @@ class _RPIBootControl:
                     f"failed to get slot_id(fslabel) for active slot dev({self._active_slot_dev})"
                 )
             self._active_slot = _active_slot
+
             # detect standby slot
-            self._standby_slot = self.AB_FLIPS[self._active_slot]
-            if not (
-                _standby_slot_dev := CMDHelperFuncs.get_dev_by_fslabel(
-                    self._standby_slot
+            # NOTE: using the similar logic like grub, detect the silibing dev
+            #       of the active slot as standby slot
+            _parent = CMDHelperFuncs.get_parent_dev(self.active_slot_dev)
+            # list children device file from parent device
+            # exclude parent dev(always in the front)
+            # expected raw result from lsblk:
+            # NAME="/dev/sdx"
+            # NAME="/dev/sdx1" # system-boot
+            # NAME="/dev/sdx2" # slot_a
+            # NAME="/dev/sdx3" # slot_b
+            _raw_child_partitions = CMDHelperFuncs._lsblk(f"-Pp -o NAME {_parent}")
+            try:
+                # NOTE: exclude the first 2 lines(parent and system-boot)
+                _child_partitions = list(
+                    map(
+                        lambda _raw: _raw.split("=")[-1].strip('"'),
+                        _raw_child_partitions.splitlines()[2:],
+                    )
                 )
-            ):
+                if (
+                    len(_child_partitions) != 2
+                    or self.standby_slot_dev not in _child_partitions
+                ):
+                    raise ValueError
+                _child_partitions.remove(self.standby_slot_dev)
+            except Exception:
                 raise ValueError(
-                    f"failed to get standby slot dev by slot_id({self._standby_slot}) "
+                    f"unexpected partition layout: {_raw_child_partitions}"
                 )
-            self._standby_slot_dev = _standby_slot_dev
+            # it is OK if standby_slot dev doesn't have fslabel or fslabel != standby_slot_id
+            # we will always set the fslabel
+            self._standby_slot = self.AB_FLIPS[self._active_slot]
+            self._standby_slot_dev = _child_partitions[0]
             logger.info(
                 f"rpi_boot: active_slot: {self.active_slot}({self.active_slot_dev}), "
                 f"standby_slot: {self.standby_slot}({self.standby_slot_dev})"
