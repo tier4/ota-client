@@ -311,7 +311,9 @@ class _RPIBootControl:
             return False
 
     def prepare_standby_dev(self, *, erase_standby: bool):
-        # erase standby dev if needed
+        # try umount and dev
+        if CMDHelperFuncs.is_target_mounted(self.standby_slot_dev):
+            CMDHelperFuncs.umount(self.standby_slot_dev)
         try:
             if erase_standby:
                 CMDHelperFuncs.mkfs_ext4(
