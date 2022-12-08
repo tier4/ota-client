@@ -327,9 +327,6 @@ class RemoteOTAFile:
             tracker: an OngoingCacheTracker to sync status with subscriber.
             callback: a callback function to do post-caching jobs.
         """
-        # wait sometime for the streamer to put data chunk into queue
-        time.sleep(cfg.STREAMING_WAIT_FOR_WRITER)
-
         # populate these 2 properties of CacheMeta in this method
         _hash, _size = "", 0
         _sha256hash_f = sha256()
@@ -601,8 +598,6 @@ class _FileDescriptorHelper:
         base_dir: Union[str, Path],
         executor: Executor,
     ) -> AsyncIterator[bytes]:
-        # wait for writer to write some data chunks
-        await asyncio.sleep(cfg.STREAMING_WAIT_FOR_WRITER)
         _bytes_streamed = 0
         try:
             async with aiofiles.open(
