@@ -15,6 +15,7 @@
 
 r"""Boot control support for Raspberry pi 4 Model B."""
 import os
+import re
 from string import Template
 from pathlib import Path
 
@@ -318,28 +319,47 @@ class RPIBootController(BootControllerProtocol):
         """Copy the kernel and initrd_img files from current slot /boot
         to system-boot for standby slot.
 
-        This method checkouts the vmlinuz and initrd.img symlinks under /boot,
-        and copy them to /boot/firmware(system-boot partition) under the name
+        This method will checkout the vmlinuz-<kernel_ver> and initrd.img-<kernel_ver>
+        under /boot, and copy them to /boot/firmware(system-boot partition) under the name
         vmlinuz_<slot> and initrd.img_<slot>.
         """
         logger.debug(
             "prepare standby slot's kernel/initrd.img to system-boot partition..."
         )
         try:
-            _kernel, _initrd_img = (
-                self._mp_control.standby_boot_dir / cfg.VMLINUZ,
-                self._mp_control.standby_boot_dir / cfg.INITRD_IMG,
+            # search for kernel
+            _kernel_pa, _kernel_ver = (
+                re.compile(rf"{cfg.VMLINUZ}-(?P<kernel_ver>.*)"),
+                None,
             )
-            _kernel_sysboot, _initrd_img_sysboot = (
-                self._rpiboot_control.vmlinuz_standby_slot,
-                self._rpiboot_control.initrd_img_standby_slot,
-            )
-            replace_atomic(_kernel, _kernel_sysboot)
-            replace_atomic(_initrd_img, _initrd_img_sysboot)
+            # NOTE: if there is multiple kernel, pick the first one we encounted
+            # NOTE 2: according to ota-image specification, it should only be one
+            #         version of kernel and initrd.img
+            for _candidate in self._mp_control.standby_boot_dir.glob(
+                f"{cfg.VMLINUZ}-*"
+            ):
+                if _ma := _kernel_pa.match(_candidate.name):
+                    _kernel_ver = _ma.group("kernel_ver")
+                    break
+
+            if _kernel_ver is not None:
+                _kernel, _initrd_img = (
+                    self._mp_control.standby_boot_dir / f"{cfg.VMLINUZ}-{_kernel_ver}",
+                    self._mp_control.standby_boot_dir
+                    / f"{cfg.INITRD_IMG}-{_kernel_ver}",
+                )
+                _kernel_sysboot, _initrd_img_sysboot = (
+                    self._rpiboot_control.vmlinuz_standby_slot,
+                    self._rpiboot_control.initrd_img_standby_slot,
+                )
+                replace_atomic(_kernel, _kernel_sysboot)
+                replace_atomic(_initrd_img, _initrd_img_sysboot)
+            else:
+                raise ValueError("failed to kernel in /boot folder at standby slot")
         except Exception as e:
             _err_msg = "failed to copy kernel/initrd_img for standby slot"
             logger.error(_err_msg)
-            raise BootControlPostUpdateFailed(_err_msg) from e
+            raise BootControlPostUpdateFailed(f"{e!r}")
 
     def _write_standby_fstab(self):
         """Override the standby's fstab file.
