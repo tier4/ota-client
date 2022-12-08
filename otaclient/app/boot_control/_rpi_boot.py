@@ -95,22 +95,36 @@ class _RPIBootControl:
         """Get current/standby slots info."""
         logger.debug("checking and initializing slots info...")
         try:
+            # detect active slot
             self._active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
                 cfg.ACTIVE_ROOTFS_PATH
             )
-            self._active_slot = CMDHelperFuncs.get_fslabel_by_dev(self._active_slot_dev)
+            if not (
+                _active_slot := CMDHelperFuncs.get_fslabel_by_dev(self._active_slot_dev)
+            ):
+                raise ValueError(
+                    f"failed to get slot_id(fslabel) for active slot dev({self._active_slot_dev})"
+                )
+            self._active_slot = _active_slot
+            # detect standby slot
             self._standby_slot = self.AB_FLIPS[self._active_slot]
-            self._standby_slot_dev = CMDHelperFuncs.get_dev_by_fslabel(
-                self._standby_slot
-            )
+            if not (
+                _standby_slot_dev := CMDHelperFuncs.get_dev_by_fslabel(
+                    self._standby_slot
+                )
+            ):
+                raise ValueError(
+                    f"failed to get standby slot dev by slot_id({self._standby_slot}) "
+                )
+            self._standby_slot_dev = _standby_slot_dev
             logger.info(
                 f"rpi_boot: active_slot: {self.active_slot}({self.active_slot_dev}), "
                 f"standby_slot: {self.standby_slot}({self.standby_slot_dev})"
             )
         except Exception as e:
-            _err_msg = "failed to detect AB partition"
+            _err_msg = f"failed to detect AB partition: {e!r}"
             logger.error(_err_msg)
-            raise BootControlInitError(_err_msg) from e
+            raise BootControlInitError(_err_msg) from None
 
     def _init_boot_files(self):
         """Check the availability of boot files.
