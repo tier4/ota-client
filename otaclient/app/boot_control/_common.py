@@ -244,6 +244,14 @@ class CMDHelperFuncs:
             raise ValueError(f"failed to get size of {dev}") from None
 
     @classmethod
+    def set_dev_fslabel(cls, dev: str, fslabel: str):
+        cmd = f"e2label {dev} {fslabel}"
+        try:
+            subprocess_call(cmd, raise_exception=True)
+        except Exception as e:
+            raise ValueError(f"failed to set {fslabel=} to {dev=}: {e!r}") from None
+
+    @classmethod
     def mount_rw(cls, target: str, mount_point: Union[Path, str]):
         """Mount the target to the mount_point read-write.
 

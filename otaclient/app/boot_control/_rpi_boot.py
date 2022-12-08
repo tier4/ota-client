@@ -310,6 +310,23 @@ class _RPIBootControl:
             logger.error(_err_msg)
             return False
 
+    def prepare_standby_dev(self, *, erase_standby: bool):
+        # erase standby dev if needed
+        try:
+            if erase_standby:
+                CMDHelperFuncs.mkfs_ext4(
+                    self.standby_slot_dev,
+                    fslabel=self.standby_slot,
+                )
+            else:
+                # TODO: check the standby file system status
+                #       if not erase the standby slot
+                # set the standby file system label with standby slot id
+                CMDHelperFuncs.set_dev_fslabel(self.active_slot_dev, self.standby_slot)
+        except Exception as e:
+            _err_msg = f"failed to prepare standby dev: {e!r}"
+            raise BootControlPreUpdateFailed(_err_msg) from e
+
     def prepare_tryboot_txt(self):
         """Copy the standby slot's config.txt as tryboot.txt."""
         logger.debug("prepare tryboot.txt...")
@@ -440,17 +457,14 @@ class RPIBootController(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            # erase standby dev if needed
-            if erase_standby:
-                CMDHelperFuncs.mkfs_ext4(
-                    self._rpiboot_control.standby_slot_dev,
-                    fslabel=self._rpiboot_control.standby_slot,
-                )
+            self._rpiboot_control.prepare_standby_dev(erase_standby=erase_standby)
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
 
             ### update standby slot's ota_status files ###
             self._ota_status_control.pre_update_standby(version=version)
+        except OTAError:
+            raise
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
