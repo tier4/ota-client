@@ -287,18 +287,20 @@ class CMDHelperFuncs:
 
     @classmethod
     def mkfs_ext4(cls, dev: str, *, fslabel: Optional[str] = None):
-        _specify_uuid, _specify_fslabel = "", ""
+        # NOTE: preserve the UUID and FSLABEL(if set)
+        _specify_uuid = ""
         try:
-            # NOTE: preserve the UUID and FSLABEL(if set)
             _specify_uuid = f"-U {cls.get_uuid_by_dev(dev)}"
-            # if fslabel is specified, then use it,
-            # otherwise try to detect the previously set one
-            if fslabel:
-                _specify_fslabel = f"-L {fslabel}"
-            elif _fslabel := cls.get_fslabel_by_dev(dev):
-                _specify_fslabel = f"-L {_fslabel}"
-        except ValueError:
+        except Exception:
             pass
+
+        # if fslabel is specified, then use it,
+        # otherwise try to detect the previously set one
+        _specify_fslabel = ""
+        if fslabel:
+            _specify_fslabel = f"-L {fslabel}"
+        elif _fslabel := cls.get_fslabel_by_dev(dev):
+            _specify_fslabel = f"-L {_fslabel}"
 
         try:
             logger.warning(f"format {dev} to ext4...")
