@@ -110,7 +110,7 @@ class _RPIBootControl:
             # detect standby slot
             # NOTE: using the similar logic like grub, detect the silibing dev
             #       of the active slot as standby slot
-            _parent = CMDHelperFuncs.get_parent_dev(self.active_slot_dev)
+            _parent = CMDHelperFuncs.get_parent_dev(self._active_slot_dev)
             # list children device file from parent device
             # exclude parent dev(always in the front)
             # expected raw result from lsblk:
@@ -129,10 +129,10 @@ class _RPIBootControl:
                 )
                 if (
                     len(_child_partitions) != 2
-                    or self.standby_slot_dev not in _child_partitions
+                    or self._active_slot_dev not in _child_partitions
                 ):
                     raise ValueError
-                _child_partitions.remove(self.standby_slot_dev)
+                _child_partitions.remove(self._active_slot_dev)
             except Exception:
                 raise ValueError(
                     f"unexpected partition layout: {_raw_child_partitions}"
