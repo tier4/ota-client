@@ -734,9 +734,7 @@ class SlotMountHelper:
         # standby slot /boot dir
         self.standby_boot_dir = self.standby_slot_mount_point / "boot"
 
-    def mount_standby(
-        self, *, erase_standby: bool = False, raise_exc: bool = True
-    ) -> bool:
+    def mount_standby(self, *, raise_exc: bool = True) -> bool:
         """Mount standby slot dev to <standby_slot_mount_point>.
 
         Args:
@@ -753,12 +751,6 @@ class SlotMountHelper:
             if CMDHelperFuncs.is_target_mounted(self.standby_slot_dev):
                 CMDHelperFuncs.umount(self.standby_slot_dev)
 
-            # format the whole standby slot if needed
-            if erase_standby:
-                logger.warning(
-                    f"perform mkfs.ext4 on standby slot({self.standby_slot_dev})"
-                )
-                CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev)
             # try to mount the standby dev
             CMDHelperFuncs.mount_rw(
                 target=self.standby_slot_dev,

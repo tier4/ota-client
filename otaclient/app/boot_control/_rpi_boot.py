@@ -416,7 +416,13 @@ class RPIBootController(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._mp_control.mount_standby(erase_standby=erase_standby)
+            # erase standby dev if needed
+            if erase_standby:
+                CMDHelperFuncs.mkfs_ext4(
+                    self._rpiboot_control.standby_slot_dev,
+                    fslabel=self._rpiboot_control.standby_slot,
+                )
+            self._mp_control.mount_standby()
             self._mp_control.mount_active()
 
             ### update standby slot's ota_status files ###
@@ -430,7 +436,7 @@ class RPIBootController(BootControllerProtocol):
         try:
             logger.info("rpi_boot: pre-rollback setup...")
             self._ota_status_control.pre_rollback_current()
-            self._mp_control.mount_standby(erase_standby=False)
+            self._mp_control.mount_standby()
             self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
