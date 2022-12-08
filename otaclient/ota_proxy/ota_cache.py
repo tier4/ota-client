@@ -130,7 +130,6 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
             success: indicates whether the caching is successful or not.
         """
         if not success:
-            logger.debug(f"writer failed on {self.fn}, abort...")
             self._is_failed.set()
         self._cache_done.set()
         try:
@@ -283,8 +282,6 @@ class RemoteOTAFile:
     Check OTACache.retreive_file for details.
 
     Attributes:
-        fp: an AsyncIterator of opened resource, by opening
-            local cached file or remote resource.
         meta CacheMeta: meta data of the resource indicated by URL.
         below_hard_limit_event Event: a Event instance that can be used to check whether
             local storage space is enough for caching.
@@ -318,7 +315,7 @@ class RemoteOTAFile:
         """Caching files on to the local disk in the background thread.
 
         When OTAFile instance initialized and launched,
-        a queue is opened between this method and the wrapped fp generator.
+        a queue is opened between this method and the wrapped fd generator.
         This method will receive data chunks from the queue, calculate the hash,
         and cache the data chunks onto the disk.
         Backoff retry is applied here to allow delays of data chunks arrived in the queue.
@@ -446,8 +443,9 @@ class RemoteOTAFile:
         )
         try:
             await _remote_fd.__anext__()  # open the remote connection
-        except Exception:  # connection failed
+        except Exception as e:  # connection failed
             self._fd_eof.set()
+            logger.error(f"remote connection to {self.url} failed: {e!r}")
             self._tracker.writer_on_done(success=False)
             raise
 
@@ -475,8 +473,8 @@ class OTACacheScrubHelper:
         if f.is_file():
             hash_f = sha256()
             # calculate file's hash and check against meta
-            with open(f, "rb") as fp:
-                while data := fp.read(cfg.CHUNK_SIZE):
+            with open(f, "rb") as _f:
+                while data := _f.read(cfg.CHUNK_SIZE):
                     hash_f.update(data)
             if hash_f.hexdigest() == meta.sha256hash:
                 return meta, True
@@ -970,7 +968,7 @@ class OTACache:
                 controls how ota-proxy should handle the request.
 
         Returns:
-            fp: a asyncio generator for upper server app to yield data chunks from
+            fd: a asyncio generator for upper server app to yield data chunks from
             meta: CacheMeta of requested file
         """
         if self._closed:
@@ -999,7 +997,7 @@ class OTACache:
             logger.debug(f"not use cache: {raw_url=}")
             # NOTE: store unquoted url in database
             meta = CacheMeta(url=raw_url)
-            fp = _FileDescriptorHelper.open_remote(
+            fd = _FileDescriptorHelper.open_remote(
                 self._process_raw_url(raw_url),
                 meta,  # updated when remote response is received
                 cookies,
@@ -1007,8 +1005,8 @@ class OTACache:
                 session=self._session,
                 upper_proxy=self._upper_proxy,
             )
-            await fp.__anext__()  # open remote connection
-            return fp, meta
+            await fd.__anext__()  # open remote connection
+            return fd, meta
 
         # cache enabled, lookup the database
         # case 2: cache is available and valid, use cache
@@ -1016,10 +1014,10 @@ class OTACache:
             raw_url, retry_cache=retry_cache
         ):
             logger.debug(f"use cache for {raw_url=}")
-            fp = _FileDescriptorHelper.open_cached_file(
+            fd = _FileDescriptorHelper.open_cached_file(
                 self._base_dir / meta_db_entry.sha256hash, executor=self._executor
             )
-            return fp, meta_db_entry
+            return fd, meta_db_entry
 
         # case 3: no valid cache entry presented, try to cache the requested file
         logger.debug(f"no cache entry for {raw_url=}")

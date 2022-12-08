@@ -149,7 +149,11 @@ class TestOngoingCachingRegister:
             logger.debug(f"#{idx} is subscriber")
             _tracker.reader_on_done()
             return False, _tracker.meta  # type: ignore
-        else:  # edge condition
+        else:
+            # edge condition when subscriber on multi cache streaming
+            # subscribes a just closed tracker.
+            # it will not be a problem, a retry on otaclient side can
+            # handle this edge condition.
             return False, None
 
     async def test_OngoingCachingRegister(self):
