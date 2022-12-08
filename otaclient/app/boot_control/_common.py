@@ -85,20 +85,24 @@ class CMDHelperFuncs:
 
     @staticmethod
     def _lsblk(args: str, *, raise_exception=False) -> str:
+        """lsblk command wrapper.
+
+        Default return empty str if raise_exception==False.
+        """
         _cmd = f"lsblk {args}"
-        return subprocess_check_output(_cmd, raise_exception=raise_exception)
+        return subprocess_check_output(
+            _cmd,
+            raise_exception=raise_exception,
+            default="",
+        )
 
     ###### derived helper methods ######
 
     @classmethod
     def get_fslabel_by_dev(cls, dev: str) -> str:
-        """Return partuuid of input device."""
+        """Return the fslabel of the dev if any or empty str."""
         args = f"-in -o LABEL {dev}"
-        try:
-            return cls._lsblk(args, raise_exception=True)
-        except ValueError as e:
-            msg = f"failed to get fslabel for {dev}: {e}"
-            raise ValueError(msg) from None
+        return cls._lsblk(args)
 
     @classmethod
     def get_partuuid_by_dev(cls, dev: str) -> str:
@@ -106,8 +110,8 @@ class CMDHelperFuncs:
         args = f"-in -o PARTUUID {dev}"
         try:
             return cls._lsblk(args, raise_exception=True)
-        except ValueError as e:
-            msg = f"failed to get partuuid for {dev}: {e}"
+        except Exception as e:
+            msg = f"failed to get partuuid for {dev}: {e!r}"
             raise ValueError(msg) from None
 
     @classmethod
@@ -116,8 +120,8 @@ class CMDHelperFuncs:
         args = f"-in -o UUID {dev}"
         try:
             return cls._lsblk(args, raise_exception=True)
-        except ValueError as e:
-            msg = f"failed to get uuid for {dev}: {e}"
+        except Exception as e:
+            msg = f"failed to get uuid for {dev}: {e!r}"
             raise ValueError(msg) from None
 
     @classmethod
@@ -283,16 +287,18 @@ class CMDHelperFuncs:
 
     @classmethod
     def mkfs_ext4(cls, dev: str):
-        _specify_uuid = ""
+        _specify_uuid, _specify_fslabel = "", ""
         try:
-            # inherit previous uuid
+            # NOTE: preserve the UUID and FSLABEL(if set)
             _specify_uuid = f"-U {cls.get_uuid_by_dev(dev)}"
+            if _fslabel := cls.get_fslabel_by_dev(dev):
+                _specify_fslabel = f"-L {_fslabel}"
         except ValueError:
             pass
 
         try:
             logger.warning(f"format {dev} to ext4...")
-            _cmd = f"mkfs.ext4 {_specify_uuid} {dev}"
+            _cmd = f"mkfs.ext4 {_specify_uuid} {_specify_fslabel} {dev}"
             subprocess_call(_cmd, raise_exception=True)
         except CalledProcessError as e:
             _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
