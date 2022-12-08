@@ -103,6 +103,10 @@ class _RPIBootControl:
             self._standby_slot_dev = CMDHelperFuncs.get_dev_by_fslabel(
                 self._standby_slot
             )
+            logger.info(
+                f"rpi_boot: active_slot: {self.active_slot}({self.active_slot_dev}), "
+                f"standby_slot: {self.standby_slot}({self.standby_slot_dev})"
+            )
         except Exception as e:
             _err_msg = "failed to detect AB partition"
             logger.error(_err_msg)
@@ -280,7 +284,7 @@ class _RPIBootControl:
 
     def reboot_tryboot(self):
         """Reboot with tryboot flag."""
-        logger.info(f"tryboot reboot to {self.standby_slot}...")
+        logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
             _cmd = "reboot '0 tryboot'"
             subprocess_call(_cmd, raise_exception=True)
