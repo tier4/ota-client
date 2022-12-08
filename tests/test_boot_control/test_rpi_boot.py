@@ -238,21 +238,12 @@ class TestRPIBootControl:
         # this should be done by create_standby module, so we do it manually here instead
         self.slot_b_boot_dir = self.slot_b_mp / "boot"
         self.slot_a_boot_dir = self.slot_a_mp / "boot"
-        # NOTE: copy slot_a's kernel and initrd.img to slot_b
+        # NOTE: copy slot_a's kernel and initrd.img to slot_b,
+        #       because we skip the create_standby step
+        # NOTE 2: not copy the symlinks
         _vmlinuz = self.slot_a_boot_dir / "vmlinuz"
-        shutil.copy(
-            _vmlinuz,
-            self.slot_b_boot_dir,
-            follow_symlinks=False,
-        )
         shutil.copy(os.path.realpath(_vmlinuz), self.slot_b_boot_dir)
-
         _initrd_img = self.slot_a_boot_dir / "initrd.img"
-        shutil.copy(
-            _initrd_img,
-            self.slot_b_boot_dir,
-            follow_symlinks=False,
-        )
         shutil.copy(os.path.realpath(_initrd_img), self.slot_b_boot_dir)
 
         # ------ boot_controller_inst1.stage3: post_update, reboot switch boot ------ #
