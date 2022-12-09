@@ -41,8 +41,8 @@ class Config:
 
     # DB configuration/setup
     # ota-cache table
+    DB_THREAD_POOL_SIZE = 1
     # NOTE: use table name to keep track of table scheme version
-    DB_THREAD_POOL_SIZE = 3
     TABLE_DEFINITION_VERSION = "v3"
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
