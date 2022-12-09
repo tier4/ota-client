@@ -498,6 +498,7 @@ class RPIBootController(BootControllerProtocol):
         try:
             logger.info("rpi_boot: post-update setup...")
             self._copy_kernel_for_standby_slot()
+            self._mp_control.preserve_ota_folder_to_standby()
             self._write_standby_fstab()
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)

@@ -14,6 +14,7 @@
 r"""Shared utils for boot_controller."""
 
 
+import shutil
 from pathlib import Path
 from subprocess import CalledProcessError
 from typing import List, Optional, Union, Callable
@@ -795,6 +796,20 @@ class SlotMountHelper:
             if raise_exc:
                 raise
             return False
+
+    def preserve_ota_folder_to_standby(self):
+        """Copy the /boot/ota folder to standby slot to preserve it.
+
+        /boot/ota folder contains the ota setting for this device,
+        so we should preserve it for each slot, accross each update.
+        """
+        logger.debug("copy /boot/ota from active to standby.")
+        try:
+            _src = self.active_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
+            _dst = self.standby_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
+            shutil.copytree(_src, _dst, dirs_exist_ok=True)
+        except Exception as e:
+            raise ValueError(f"failed to copy /boot/ota from active to standby: {e!r}")
 
     def umount_all(self, *, ignore_error: bool = False):
         logger.debug("unmount standby slot and active slot mount point...")

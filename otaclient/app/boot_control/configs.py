@@ -89,8 +89,6 @@ class RPIBootControlConfig(BaseConfig):
     # boot folders
     SYSTEM_BOOT_MOUNT_POINT = "/boot/firmware"
     OTA_STATUS_DIR = "/boot/ota-status"
-    # NOTE: ota folder should be placed in shared system-boot partition
-    OTA_DIR = f"{SYSTEM_BOOT_MOUNT_POINT}/ota"
 
     # boot related files
     CONFIG_TXT = "config.txt"  # primary boot cfg

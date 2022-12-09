@@ -71,6 +71,7 @@ class BaseConfig:
     ### common used paths ###
     ACTIVE_ROOTFS_PATH = "/"
     BOOT_DIR = "/boot"
+    OTA_DIR = "/boot/ota"
     ECU_INFO_FILE = "/boot/ota/ecu_info.yaml"
     PROXY_INFO_FILE = "/boot/ota/proxy_info.yaml"
     PASSWD_FILE = "/etc/passwd"
