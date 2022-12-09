@@ -54,15 +54,16 @@ class OtaProxyWrapper:
 
         NOTE: logging needs to be configured again.
         """
+        import uvloop
+        import uvicorn
+        from otaclient.ota_proxy import App, OTACache
+
         # configure logging for ota_proxy process
         log_setting.configure_logging(
             loglevel=cfg.DEFAULT_LOG_LEVEL, http_logging_url="ota_proxy"
         )
 
         async def _start_uvicorn(init_cache: bool, *, scrub_cache_event):
-            import uvicorn
-            from otaclient.ota_proxy import App, OTACache
-
             _ota_cache = OTACache(
                 cache_enabled=proxy_cfg.enable_local_ota_proxy_cache,
                 upper_proxy=proxy_cfg.upper_ota_proxy,
@@ -86,6 +87,7 @@ class OtaProxyWrapper:
             server = uvicorn.Server(config)
             await server.serve()
 
+        uvloop.install()
         asyncio.run(_start_uvicorn(init_cache, scrub_cache_event=scrub_cache_event))
 
     def is_running(self) -> bool:

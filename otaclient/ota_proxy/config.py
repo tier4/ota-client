@@ -12,13 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
 
-
-@dataclass
 class Config:
-    BASE_DIR: str = "/ota-cache"
-    CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
+    BASE_DIR = "/ota-cache"
+    CHUNK_SIZE = 1 * 1024 * 1024  # 4MB
     DISK_USE_LIMIT_SOFT_P = 70  # in p%
     DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
@@ -46,7 +43,12 @@ class Config:
     # ota-cache table
     # NOTE: use table name to keep track of table scheme version
     TABLE_DEFINITION_VERSION = "v3"
-    TABLE_NAME: str = f"ota_cache_{TABLE_DEFINITION_VERSION}"
+    TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
+
+    # cache streaming behavior
+    STREAMING_WAIT_FOR_FIRST_BYTE = 3  # second
+    STREAMING_TIMEOUT = 10  # seconds
+    STREAMING_BACKOFF_FACTOR = 0.001  # second
 
 
 config = Config()
