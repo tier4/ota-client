@@ -101,6 +101,9 @@ class TestRPIBootControl:
         slot_a_version.write_text(cfg.CURRENT_VERSION)
         slot_a_slot_in_use = self.slot_a_ota_status_dir / "slot_in_use"
         slot_a_slot_in_use.write_text(rpi_boot_cfg.SLOT_A_FSLABEL)
+        # setup ota dir for slot_a
+        slot_a_ota_dir = self.slot_a_mp / "boot" / "ota"
+        slot_a_ota_dir.mkdir(parents=True, exist_ok=True)
 
         # setup /etc dir for slot_b
         (self.slot_b_mp / "etc").mkdir(parents=True, exist_ok=True)
