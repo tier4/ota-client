@@ -20,7 +20,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
-from typing import Dict, List, Tuple, Coroutine
+from typing import Dict, List, Optional, Tuple, Coroutine
 
 from otaclient.ota_proxy.db import CacheMeta
 from otaclient.ota_proxy import config as cfg
@@ -127,7 +127,7 @@ class TestOngoingCachingRegister:
     async def _worker(
         self,
         idx: int,
-    ) -> Tuple[bool, CacheMeta]:
+    ) -> Tuple[bool, Optional[CacheMeta]]:
         """
         Returns tuple of bool indicates whether the worker is writter, and CacheMeta
         from tracker.
@@ -135,22 +135,26 @@ class TestOngoingCachingRegister:
         # simulate multiple works subscribing the register
         await self.sync_event.wait()
         await asyncio.sleep(random.randrange(100, 200) // 100)
-        _tracker, _is_writer = await self.register.get_tracker(self.URL)
+        _tracker, _is_writer = await self.register.get_or_subscribe_tracker(self.URL)
         await self.register_finish.acquire()
-        if _is_writer:
+        if _is_writer and _tracker is not None:
             logger.info(f"#{idx} is provider")
             # NOTE: use last_access field to store worker index
             await _tracker.writer_on_ready(CacheMeta(last_access=idx))
             # simulate waiting for writer finished downloading
             await self.writer_done_event.wait()
-            _tracker.writer_on_finish()
+            _tracker.writer_on_done(success=True)
             return True, _tracker.meta  # type: ignore
-        else:
+        elif _tracker is not None:  # subscriber
             logger.debug(f"#{idx} is subscriber")
-            # wait for writter become ready
-            await _tracker.reader_subscribe(None)
             _tracker.reader_on_done()
             return False, _tracker.meta  # type: ignore
+        else:
+            # edge condition when subscriber on multi cache streaming
+            # subscribes a just closed tracker.
+            # it will not be a problem, a retry on otaclient side can
+            # handle this edge condition.
+            return False, None
 
     async def test_OngoingCachingRegister(self):
         coros: List[Coroutine] = []
@@ -169,6 +173,12 @@ class TestOngoingCachingRegister:
         ###### check the test result ######
         meta_set, writer_meta = set(), None
         for is_writer, meta in await asyncio.gather(*tasks):
+            if meta is None:
+                logger.warning(
+                    "encount edge condition that subscriber subscribes "
+                    "on closed tracker, ignored"
+                )
+                continue
             meta_set.add(meta)
             if is_writer:
                 writer_meta = meta
