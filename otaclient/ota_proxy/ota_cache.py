@@ -1056,19 +1056,10 @@ class OTACache:
                     ),
                     _tracker.meta,
                 )
-            # bad tracker detected, directly open remote again
+            # bad tracker detected, let otaclient retry
             else:
                 logger.warning(
-                    f"failed tracker detected, directly open_remote: {raw_url=}"
+                    "failed tracker detected(might caused by "
+                    f"network interruption or space limitation): {raw_url=}"
                 )
-                meta = CacheMeta(url=raw_url)
-                fd = _FileDescriptorHelper.open_remote(
-                    self._process_raw_url(raw_url),
-                    meta,  # updated when remote response is received
-                    cookies,
-                    extra_headers,
-                    session=self._session,
-                    upper_proxy=self._upper_proxy,
-                )
-                await fd.__anext__()  # open remote connection
-                return fd, meta
+                return None
