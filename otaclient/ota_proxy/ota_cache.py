@@ -105,7 +105,6 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         try:
             self._subscriber_ref_holder.append(self._ref)
         except AttributeError:
-            # tracker is closed/failed
             return False
 
         # wait for write to become ready/failed
@@ -161,15 +160,11 @@ class OngoingCachingRegister:
         # cleanup(unlink) the tmp file when corresponding tracker is gced.
         (self._base_dir / fn).unlink(missing_ok=True)
 
-    async def get_or_subscribe_tracker(
-        self, url: str
-    ) -> Tuple[Optional[OngoingCacheTracker], bool]:
+    async def get_tracker(self, url: str) -> Tuple[OngoingCacheTracker, bool]:
         # subscriber
         if _ref := self._url_ref_dict.get(url):
             await _ref.wait()  # wait for writer tracker to be initialized
-            if await (_tracker := self._ref_tracker_dict[_ref]).reader_subscribe():
-                return _tracker, False
-            return None, False
+            return self._ref_tracker_dict[_ref], False
         # provider
         else:
             _tmp_fn = f"tmp_{urandom(16).hex()}"
@@ -383,7 +378,7 @@ class RemoteOTAFile:
                     logger.debug(f"entry {_hash} existed, ignored")
 
         except Exception as e:
-            logger.debug(f"failed on writing cache for {self._tracker.fn}: {e!r}")
+            logger.error(f"failed on writing cache for {self._tracker.fn}: {e!r}")
             self._tracker.writer_on_done(success=False)
 
     async def _stream(self, fd) -> AsyncIterator[bytes]:
@@ -581,6 +576,19 @@ class _FileDescriptorHelper:
         executor: Executor,
     ) -> AsyncIterator[bytes]:
         async with aiofiles.open(fpath, "rb", executor=executor) as f:
+            while data := await f.read(cfg.CHUNK_SIZE):
+                yield data
+
+    @staticmethod
+    async def open_cached_file_with_tracker(
+        tracker: OngoingCacheTracker,
+        *,
+        base_dir: Union[str, Path],
+        executor: Executor,
+    ) -> AsyncIterator[bytes]:
+        async with aiofiles.open(
+            Path(base_dir) / tracker.fn, "rb", executor=executor
+        ) as f:
             while data := await f.read(cfg.CHUNK_SIZE):
                 yield data
 
@@ -1008,10 +1016,8 @@ class OTACache:
         # case 3: no valid cache entry presented, try to cache the requested file
         logger.debug(f"no cache entry for {raw_url=}")
         # case 3.1: download and cache new file
-        _tracker, is_writer = await self._on_going_caching.get_or_subscribe_tracker(
-            raw_url
-        )
-        if is_writer and _tracker is not None:  # writer/provider
+        _tracker, is_writer = await self._on_going_caching.get_tracker(raw_url)
+        if is_writer:  # writer/provider
             ota_file = RemoteOTAFile(
                 self._process_raw_url(raw_url),
                 raw_url,
@@ -1027,29 +1033,42 @@ class OTACache:
                 upper_proxy=self._upper_proxy,
                 executor=self._executor,
             )
-        # case 3.2: respond by cache streaming
-        elif _tracker is not None:  # reader/subscriber
-            return (
-                _FileDescriptorHelper.open_cache_stream(
-                    _tracker,
-                    base_dir=self._base_dir,
-                    executor=self._executor,
-                ),
-                _tracker.meta,
-            )  # type: ignore
-        # case 3.3: bad tracker, open_remote instead
+        # case 3.2: reader/subscriber
         else:
-            logger.error(
-                f"bad cache tracker detected, directly open_remote: {raw_url=}"
-            )
-            meta = CacheMeta(url=raw_url)
-            fd = _FileDescriptorHelper.open_remote(
-                self._process_raw_url(raw_url),
-                meta,  # updated when remote response is received
-                cookies,
-                extra_headers,
-                session=self._session,
-                upper_proxy=self._upper_proxy,
-            )
-            await fd.__anext__()  # open remote connection
-            return fd, meta
+            # first try to subscribe if the tracker is still ongoing
+            if await _tracker.reader_subscribe() and _tracker.meta:
+                return (
+                    _FileDescriptorHelper.open_cache_stream(
+                        _tracker,
+                        base_dir=self._base_dir,
+                        executor=self._executor,
+                    ),
+                    _tracker.meta,
+                )
+            # tracker is closed, but tracker finished the caching successfully
+            # and cached tmp is valid
+            elif _tracker.cache_done and not _tracker.is_failed and _tracker.meta:
+                return (
+                    _FileDescriptorHelper.open_cached_file_with_tracker(
+                        _tracker,
+                        base_dir=self._base_dir,
+                        executor=self._executor,
+                    ),
+                    _tracker.meta,
+                )
+            # bad tracker detected, directly open remote again
+            else:
+                logger.warning(
+                    f"failed tracker detected, directly open_remote: {raw_url=}"
+                )
+                meta = CacheMeta(url=raw_url)
+                fd = _FileDescriptorHelper.open_remote(
+                    self._process_raw_url(raw_url),
+                    meta,  # updated when remote response is received
+                    cookies,
+                    extra_headers,
+                    session=self._session,
+                    upper_proxy=self._upper_proxy,
+                )
+                await fd.__anext__()  # open remote connection
+                return fd, meta

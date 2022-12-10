@@ -135,7 +135,7 @@ class TestOngoingCachingRegister:
         # simulate multiple works subscribing the register
         await self.sync_event.wait()
         await asyncio.sleep(random.randrange(100, 200) // 100)
-        _tracker, _is_writer = await self.register.get_or_subscribe_tracker(self.URL)
+        _tracker, _is_writer = await self.register.get_tracker(self.URL)
         await self.register_finish.acquire()
         if _is_writer and _tracker is not None:
             logger.info(f"#{idx} is provider")
