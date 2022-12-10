@@ -147,13 +147,14 @@ class TestOngoingCachingRegister:
             return True, _tracker.meta  # type: ignore
         elif _tracker is not None:  # subscriber
             logger.debug(f"#{idx} is subscriber")
+            while not _tracker.cache_done:  # simulating cache streaming
+                await asyncio.sleep(0.1)
             _tracker.reader_on_done()
             return False, _tracker.meta  # type: ignore
         else:
             # edge condition when subscriber on multi cache streaming
             # subscribes a just closed tracker.
-            # it will not be a problem, a retry on otaclient side can
-            # handle this edge condition.
+            logger.error(f"edge condition: {idx=}")
             return False, None
 
     async def test_OngoingCachingRegister(self):
