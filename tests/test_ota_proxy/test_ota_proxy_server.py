@@ -18,7 +18,6 @@ import asyncio
 import logging
 import time
 import pytest
-import pytest_mock
 import random
 import shutil
 import uvicorn
@@ -66,8 +65,14 @@ class TestOTAProxyServer:
         #   to get the test instance.
         return self
 
-    @pytest.fixture
-    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path):
+    @pytest.fixture(
+        params=[
+            "below_soft_limit",
+            "below_hard_limit",
+            "exceed_hard_limit",
+        ],
+    )
+    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path, request):
         self = test_inst  # use real test inst as self, see test_inst fixture above
         import uvicorn
         from otaclient.ota_proxy import App, OTACache
@@ -77,6 +82,35 @@ class TestOTAProxyServer:
         ota_cachedb = ota_cache_dir / "cachedb"
         self.ota_cache_dir = ota_cache_dir  # bind to test inst
         self.ota_cachedb = ota_cachedb
+
+        # patch the OTACache's space availability check method
+        self.space_availability = request.param
+        condition = request.param
+
+        # NOTE:for below_hard_limit, first we let otaproxy runs under
+        #      below_soft_limit for 20s to accumulate some entries,
+        #      and then we switch to below_hard_limit
+        def _mocked_background_check_freespace(self):
+            _count = 0
+            while not self._closed:
+                if condition == "below_soft_limit":
+                    self._storage_below_soft_limit_event.set()
+                    self._storage_below_hard_limit_event.set()
+                elif condition == "exceed_hard_limit":
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.clear()
+                elif condition == "below_hard_limit":
+                    if _count < 10:
+                        self._storage_below_soft_limit_event.set()
+                        self._storage_below_hard_limit_event.set()
+                    else:
+                        self._storage_below_soft_limit_event.clear()
+                        self._storage_below_hard_limit_event.set()
+
+                time.sleep(2)
+                _count += 1
+
+        OTACache._background_check_free_space = _mocked_background_check_freespace
 
         # create a OTACache instance within the test process
         _ota_cache = OTACache(
@@ -100,43 +134,16 @@ class TestOTAProxyServer:
         self.otaproxy_inst = otaproxy_inst
         self.ota_cache = _ota_cache
 
-    @pytest.fixture(
-        params=[
-            "below_soft_limit",
-            "below_hard_limit",
-            "exceed_hard_limit",
-        ],
-        autouse=True,
-    )
+    @pytest.fixture(autouse=True)
     async def launch_ota_proxy_server(
         self,
-        mocker: pytest_mock.MockerFixture,
         test_inst,
-        request,
         setup_ota_proxy_server,
     ):
         """
         NOTE: launch ota_proxy in different space availability condition
         """
         self = test_inst
-        # patch the OTACache's space availability check method
-        mocker.patch.object(
-            self.ota_cache,
-            "_background_check_free_space",
-            mocker.MagicMock(),
-        )
-        # directly set the event
-        self.space_availability = request.param
-        if request.param == "below_soft_limit":
-            self.ota_cache._storage_below_soft_limit_event.set()
-            self.ota_cache._storage_below_hard_limit_event.set()
-        elif request.param == "below_hard_limit":
-            self.ota_cache._storage_below_soft_limit_event.clear()
-            self.ota_cache._storage_below_hard_limit_event.set()
-        elif request.param == "exceed_hard_limit":
-            self.ota_cache._storage_below_soft_limit_event.clear()
-            self.ota_cache._storage_below_hard_limit_event.clear()
-
         try:
             await _start_uvicorn_server(self.otaproxy_inst)
             await asyncio.sleep(1)  # wait before otaproxy server is ready
