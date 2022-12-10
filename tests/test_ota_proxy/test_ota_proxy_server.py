@@ -215,34 +215,11 @@ class TestOTAProxyServer:
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.path.relative_to("/")}')
                 )
-
-                # implement a simple retry here
-                # NOTE: it might be some edge condition that subscriber subscribes on a just closed
-                #       tracker, this will result in a hash mismatch, general a retry can solve this
-                #       problem(the cached file is correct, only the caching stream is interrupted)
-                count = 0
-                while True:
-                    async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
-                        hash_f = sha256()
-                        async for data, _ in resp.content.iter_chunks():
-                            hash_f.update(data)
-
-                        if hash_f.hexdigest() != entry.sha256hash:
-                            count += 1
-                            logger.error(
-                                f"hash mismatch detected: {entry=}, {hash_f.hexdigest()=}, retry..."
-                            )
-                            if count > 6:
-                                logger.error(
-                                    f"retry {count} times failed: {entry=}, {hash_f.hexdigest()=}"
-                                )
-                                assert hash_f.hexdigest() == entry.sha256hash
-                        else:
-                            if count != 0:
-                                logger.info(
-                                    f"retry on {entry=} succeeded, {hash_f.hexdigest()=}"
-                                )
-                            break
+                async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
+                    hash_f = sha256()
+                    async for data, _ in resp.content.iter_chunks():
+                        hash_f.update(data)
+                    assert hash_f.hexdigest() == entry.sha256hash
 
     async def test_multiple_clients_download_ota_image(self, parse_regulars):
         """Test multiple client download the whole ota image simultaneously."""
