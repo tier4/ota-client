@@ -80,7 +80,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         self._writer_ready = asyncio.Event()
         self._cache_done = threading.Event()
         self._is_failed = threading.Event()
-        self._writer_ref_holder = ref_holder
+        self._ref = ref_holder
         self._subscriber_ref_holder: List[_WEAKREF] = []
 
     @property
@@ -101,17 +101,21 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
 
         Subscribe only succeeds when tracker is still on-going.
         """
+        # first adding a new ref
+        try:
+            self._subscriber_ref_holder.append(self._ref)
+        except AttributeError:
+            # tracker is closed/failed
+            return False
+
+        # wait for write to become ready/failed
         while not self._writer_ready.is_set():
+            # writer failed, remove the previously added ref
             if self._is_failed.is_set():
+                self._subscriber_ref_holder.pop()
                 return False
             await asyncio.sleep(self.READER_SUBSCRIBE_PULLING_INTERVAL)
-        # subscribe by adding a new ref
-        try:
-            self._subscriber_ref_holder.append(self._writer_ref_holder)
-            return True
-        except AttributeError:
-            # just encount the end of writer caching, abort
-            return False
+        return True
 
     def reader_on_done(self):
         try:
@@ -120,11 +124,10 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
             pass
 
     def writer_on_done(self, success: bool):
-        """Writer calls this method when caching is finished/interrupted.
+        """Writer calls this method when caching is interrupted, or
+        commit_cache callback is executed.
 
-        NOTE: must ensure cache entry is committed into the database
-        before calling this function!
-        NOTE 2: this method is cross-thread method
+        NOTE: this method is cross-thread method
 
         Arg:
             success: indicates whether the caching is successful or not.
@@ -132,18 +135,9 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         if not success:
             self._is_failed.set()
         self._cache_done.set()
-        try:
-            del self._writer_ref_holder
-        except AttributeError:
-            pass
-
-    def get_meta_on_success(self) -> Optional[CacheMeta]:
-        """Get the cache entry meta associated with this tracker.
-
-        NOTE: only return meta on a successful cache.
-        """
-        if self.cache_done and not self.is_failed:
-            return self.meta
+        # prevent future subscription, and let gc
+        # collect this tracker along with the tmp
+        del self._ref
 
 
 _CACHE_ENTRY_REGISTER_CALLBACK = Callable[[OngoingCacheTracker], None]
@@ -374,8 +368,8 @@ class RemoteOTAFile:
             self.meta.sha256hash = _hash
             self.meta.size = _size
             # commit cache entry
-            self._tracker.writer_on_done(success=True)
             commit_cache_entry_callback(self._tracker)
+            self._tracker.writer_on_done(success=True)
             # for 0 size file, register the entry only
             # but if the 0 size file doesn't exist, create one
             if _size > 0 or not (self._base_dir / _hash).is_file():
@@ -614,10 +608,8 @@ class _FileDescriptorHelper:
 
                     ### no new data chunk is received ###
                     if tracker.cache_done:
-                        if (_meta := tracker.get_meta_on_success()) is None:
-                            raise ValueError(
-                                f"writer for {tracker.fn=}, {tracker.meta=} failed, abort"
-                            )
+                        if (_meta := tracker.meta) is None:
+                            raise ValueError(f"bad tracker {tracker.fn=}, abort")
                         # check already read bytes, if it meets the meta.size,
                         # then cache stream finished, otherwise we should keep pulling
                         if not tracker.is_failed and _bytes_streamed == _meta.size:
@@ -851,8 +843,8 @@ class OTACache:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
-    def _register_cache_callback(self, tracker: OngoingCacheTracker):
-        """The callback for finishing up caching.
+    def _commit_cache_callback(self, tracker: OngoingCacheTracker):
+        """The callback for committing finished cache entry to cache_db.
 
         If caching is successful, and the space usage is reaching soft limit,
         we will try to ensure free space for already cached file.
@@ -865,9 +857,8 @@ class OTACache:
         Args:
             tracker: for cache writer, to sync status between subscriber.
         """
-        if (meta := tracker.get_meta_on_success()) is None:
+        if (meta := tracker.meta) is None:
             return
-
         try:
             if not self._storage_below_soft_limit_event.is_set():
                 # try to reserve space for the saved cache entry
@@ -1029,7 +1020,7 @@ class OTACache:
                 base_dir=self._base_dir,
             )
             return await ota_file.open_remote(
-                self._register_cache_callback,
+                self._commit_cache_callback,
                 cookies=cookies,
                 extra_headers=extra_headers,
                 session=self._session,
@@ -1046,6 +1037,19 @@ class OTACache:
                 ),
                 _tracker.meta,
             )  # type: ignore
+        # case 3.3: bad tracker, open_remote instead
         else:
-            # NOTE: let the otaclient retry handle the edge condition
-            return None
+            logger.error(
+                f"bad cache tracker detected, directly open_remote: {raw_url=}"
+            )
+            meta = CacheMeta(url=raw_url)
+            fd = _FileDescriptorHelper.open_remote(
+                self._process_raw_url(raw_url),
+                meta,  # updated when remote response is received
+                cookies,
+                extra_headers,
+                session=self._session,
+                upper_proxy=self._upper_proxy,
+            )
+            await fd.__anext__()  # open remote connection
+            return fd, meta
