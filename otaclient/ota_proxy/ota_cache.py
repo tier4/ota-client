@@ -108,6 +108,10 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         return self._is_failed.is_set()
 
     @property
+    def fd_reached_eof(self) -> bool:
+        return self._fd_eof.is_set()
+
+    @property
     def cache_done(self) -> bool:
         return self._cache_done.is_set()
 
@@ -163,6 +167,10 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         # prevent future subscription, and let gc
         # collect this tracker along with the tmp
         del self._ref
+
+    def writer_on_fd_reaches_eof(self):
+        """Provider calls this method when bound fd reach EOF/interrupted."""
+        self._fd_eof.set()
 
 
 _CACHE_ENTRY_REGISTER_CALLBACK = Callable[[OngoingCacheTracker], None]
@@ -319,10 +327,8 @@ class RemoteOTAFile:
         # NOTE 2: store unquoted URL in database
         self.meta = CacheMeta(url=raw_url)
         self.url = url  # proccessed url
-        self._tracker = tracker
-
-        # life cycle
-        self._fd_eof = threading.Event()
+        self._tracker = tracker  # bound tracker
+        # data chunk pipe
         self._queue = Queue()
 
     def _background_write_cache(
@@ -353,7 +359,7 @@ class RemoteOTAFile:
 
             with open(temp_fpath, "wb") as dst_f:
                 err_count = 0
-                while not self._fd_eof.is_set() or not self._queue.empty():
+                while not self._tracker.fd_reached_eof or not self._queue.empty():
                     # first check the tracker, the streamer might already failed
                     if self._tracker.is_failed:
                         raise ValueError("streamer failed")
@@ -435,7 +441,7 @@ class RemoteOTAFile:
             raise CacheStreamingFailed from e
         finally:
             # signal that the file descriptor reaches EOF or gets interrupted
-            self._fd_eof.set()
+            self._tracker.writer_on_fd_reaches_eof()
 
     async def open_remote(
         self,
@@ -458,17 +464,18 @@ class RemoteOTAFile:
         try:
             await _remote_fd.__anext__()  # open the remote connection
         except Exception as e:  # connection failed
-            self._fd_eof.set()
+            self._tracker.writer_on_fd_reaches_eof()
             logger.error(f"remote connection to {self.url} failed: {e!r}")
             self._tracker.writer_on_done(success=False)
             raise
 
-        await self._tracker.writer_on_ready(self.meta)
         # dispatch local cache storing to thread pool
+        (self._base_dir / self._tracker.fn).touch(exist_ok=True)
         executor.submit(
             self._background_write_cache,
             commit_cache_callback,
         )
+        await self._tracker.writer_on_ready(self.meta)
         return self._stream(_remote_fd), self.meta
 
 
