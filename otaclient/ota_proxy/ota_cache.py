@@ -178,7 +178,6 @@ class OngoingCachingRegister:
 
     def __init__(self, base_dir: Union[str, Path]):
         self._base_dir = Path(base_dir)
-        self._lock = threading.Lock()
         self._url_ref_dict: Dict[str, asyncio.Event] = weakref.WeakValueDictionary()  # type: ignore
         self._ref_tracker_dict: Dict[asyncio.Event, OngoingCacheTracker] = weakref.WeakKeyDictionary()  # type: ignore
 
@@ -189,13 +188,13 @@ class OngoingCachingRegister:
             An inst of tracker, and a bool indicates whether the caller is subscriber
                 or provider.
         """
+        _ref = self._url_ref_dict.setdefault(url, asyncio.Event())
         # subscriber
-        if _ref := self._url_ref_dict.get(url):
-            await _ref.wait()  # wait for provider to be initialized
-            return self._ref_tracker_dict[_ref], False
+        if _tracker := self._ref_tracker_dict.get(_ref):
+            await _ref.wait()
+            return _tracker, False
         # provider
         else:
-            self._url_ref_dict[url] = (_ref := asyncio.Event())
             self._ref_tracker_dict[_ref] = (
                 _tracker := OngoingCacheTracker(
                     f"tmp_{urandom(16).hex()}",
