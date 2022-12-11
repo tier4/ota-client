@@ -70,18 +70,38 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
     This entry will disappear automatically when writer finished
     caching and commit the cache to the database, also the temp cache entry
     will be cleaned up.
+
+    Attributes:
+        fd_eof: an inst of threading.Event indicates the bound remote OTA file
+            descriptor reaches EOF or not.
+        writer_ready: an inst of threading.Event indicates whether the provider is
+            ready to write data chunks.
+        is_failed: an inst of threading.Event indicates whether provider fails to
+            finish the caching.
+        ref: strong reference to this tracker, check OngoingCachingRegister for details.
+        subscriber_ref_holder: strong reference to this tracker for each subscriber.
     """
 
     READER_SUBSCRIBE_PULLING_INTERVAL = 1
 
-    def __init__(self, fn: str, ref_holder: _WEAKREF):
+    def __init__(
+        self,
+        fn: str,
+        ref_holder: _WEAKREF,
+        *,
+        base_dir: Union[str, Path],
+    ):
         self.fn = fn
         self.meta = None
+        self._fd_eof = threading.Event()
         self._writer_ready = asyncio.Event()
         self._cache_done = threading.Event()
         self._is_failed = threading.Event()
         self._ref = ref_holder
         self._subscriber_ref_holder: List[_WEAKREF] = []
+
+        # self-register the finalizer to this tracker
+        weakref.finalize(self, self.finalizer, self.fn, base_dir=base_dir)
 
     @property
     def is_failed(self) -> bool:
@@ -90,6 +110,11 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
     @property
     def cache_done(self) -> bool:
         return self._cache_done.is_set()
+
+    @staticmethod
+    def finalizer(fn: str, *, base_dir: Union[str, Path]):
+        """cleanup(unlink) the tmp file when this tracker is gced."""
+        (Path(base_dir) / fn).unlink(missing_ok=True)
 
     async def writer_on_ready(self, meta: CacheMeta):
         """Register meta to the Tracker and get ready."""
@@ -105,6 +130,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         try:
             self._subscriber_ref_holder.append(self._ref)
         except AttributeError:
+            # cache is done
             return False
 
         # wait for write to become ready/failed
@@ -156,25 +182,27 @@ class OngoingCachingRegister:
         self._url_ref_dict: Dict[str, asyncio.Event] = weakref.WeakValueDictionary()  # type: ignore
         self._ref_tracker_dict: Dict[asyncio.Event, OngoingCacheTracker] = weakref.WeakKeyDictionary()  # type: ignore
 
-    def _finalizer(self, fn: str):
-        # cleanup(unlink) the tmp file when corresponding tracker is gced.
-        (self._base_dir / fn).unlink(missing_ok=True)
-
     async def get_tracker(self, url: str) -> Tuple[OngoingCacheTracker, bool]:
+        """Get an ongoing cache tracker for <URL>.
+
+        Returns:
+            An inst of tracker, and a bool indicates whether the caller is subscriber
+                or provider.
+        """
         # subscriber
         if _ref := self._url_ref_dict.get(url):
-            await _ref.wait()  # wait for writer tracker to be initialized
+            await _ref.wait()  # wait for provider to be initialized
             return self._ref_tracker_dict[_ref], False
         # provider
         else:
-            _tmp_fn = f"tmp_{urandom(16).hex()}"
             self._url_ref_dict[url] = (_ref := asyncio.Event())
             self._ref_tracker_dict[_ref] = (
-                _tracker := OngoingCacheTracker(_tmp_fn, _ref)
+                _tracker := OngoingCacheTracker(
+                    f"tmp_{urandom(16).hex()}",
+                    _ref,
+                    base_dir=self._base_dir,
+                )
             )
-            # cleanup tmp file when _tracker is gc.
-            weakref.finalize(_tracker, self._finalizer, _tmp_fn)
-
             _ref.set()
             return _tracker, True
 
@@ -261,7 +289,7 @@ class LRUCacheHelper:
 
 
 class RemoteOTAFile:
-    """File descriptor for data streaming.
+    """File descriptor for an ongoing cache entry.
 
     Instance of OTAFile wraps meta data for specific URL,
     along with a file descriptor(an AsyncIterator) that can be used
@@ -274,6 +302,7 @@ class RemoteOTAFile:
         meta CacheMeta: meta data of the resource indicated by URL.
         below_hard_limit_event Event: a Event instance that can be used to check whether
             local storage space is enough for caching.
+        tracker: an inst of ongoing cache tracker bound to this remote ota file.
     """
 
     def __init__(
@@ -406,7 +435,7 @@ class RemoteOTAFile:
             logger.exception("cache tee failed")
             raise CacheStreamingFailed from e
         finally:
-            # signal that the file descriptor is exhausted/interrupted
+            # signal that the file descriptor reaches EOF or gets interrupted
             self._fd_eof.set()
 
     async def open_remote(
