@@ -297,21 +297,25 @@ class OngoingCachingRegister:
             An inst of tracker, and a bool indicates whether the caller is subscriber
                 or provider.
         """
-        _ref = self._url_ref_dict.setdefault(url, _Weakref())
+        _ref = self._url_ref_dict.setdefault(url, (_new_ref := _Weakref()))
         # subscriber
-        if _tracker := self._ref_tracker_dict.get(_ref):
+        if (
+            _tracker := self._ref_tracker_dict.get(_ref)
+        ) and not _tracker.writer_failed:
             return _tracker, False
-        # provider
-        else:
-            self._ref_tracker_dict[_ref] = (
-                _tracker := OngoingCacheTracker(
-                    f"tmp_{urandom(16).hex()}",
-                    _ref,
-                    base_dir=self._base_dir,
-                    executor=executor,
-                )
+
+        # provider, or override a failed provider
+        if _ref is not _new_ref:  # override a failed tracker
+            self._url_ref_dict[url] = (_ref := _new_ref)
+        self._ref_tracker_dict[_ref] = (
+            _tracker := OngoingCacheTracker(
+                f"tmp_{urandom(16).hex()}",
+                _ref,
+                base_dir=self._base_dir,
+                executor=executor,
             )
-            return _tracker, True
+        )
+        return _tracker, True
 
 
 class LRUCacheHelper:
