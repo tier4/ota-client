@@ -268,7 +268,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
             return
 
 
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[OngoingCacheTracker], None]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], None]
 
 
 class _Weakref:
@@ -434,14 +434,11 @@ class RemoteOTAFile:
         self._cache_commit_cb = commit_cache_callback
 
     def _finalize_caching(self):
-        self._cache_commit_cb(self._tracker)
-        _meta = self._tracker.meta
+        self._cache_commit_cb(self.meta)
         # for 0 size file, register the entry to db only,
         # but if the 0 size file doesn't exist, create one
-        if _meta and (
-            _meta.size > 0 or not (self._base_dir / _meta.sha256hash).is_file()
-        ):
-            self._tracker.fpath.link_to(self._base_dir / _meta.sha256hash)
+        if self.meta.size > 0 or not (self._base_dir / self.meta.sha256hash).is_file():
+            self._tracker.fpath.link_to(self._base_dir / self.meta.sha256hash)
 
     async def _stream_tee(
         self, *, fd: AsyncIterator[bytes], cache_write_gen: AsyncGenerator[int, bytes]
@@ -502,6 +499,7 @@ class RemoteOTAFile:
             self._tracker.writer_on_close(failed=True)
             raise
 
+        # bind the updated meta to tracker,
         # start the generator and become ready
         self._tracker.writer_on_ready(self.meta)
         _cache_write_gen = self._tracker.write_cache(
@@ -858,7 +856,7 @@ class OTACache:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
-    def _commit_cache_callback(self, tracker: OngoingCacheTracker):
+    def _commit_cache_callback(self, meta: CacheMeta):
         """The callback for committing finished cache entry to cache_db.
 
         If caching is successful, and the space usage is reaching soft limit,
@@ -872,8 +870,6 @@ class OTACache:
         Args:
             tracker: for cache writer, to sync status between subscriber.
         """
-        if (meta := tracker.meta) is None:
-            return
         try:
             if not self._storage_below_soft_limit_event.is_set():
                 # case 1: try to reserve space for the saved cache entry
@@ -922,7 +918,7 @@ class OTACache:
         if meta_db_entry := await self._lru_helper.lookup_entry_by_url(
             raw_url, executor=self._executor
         ):  # cache hit
-            logger.debug(f"cache hit for {raw_url=}\n, {meta_db_entry=}")
+            logger.debug(f"cache hit for {raw_url=}, {meta_db_entry=}")
             cache_path: Path = self._base_dir / meta_db_entry.sha256hash
             # clear the cache entry if the ota_client instructs so
             if retry_cache:
