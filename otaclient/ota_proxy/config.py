@@ -47,8 +47,9 @@ class Config:
 
     # cache streaming behavior
     STREAMING_WAIT_FOR_FIRST_BYTE = 3  # second
-    STREAMING_TIMEOUT = 10  # seconds
-    STREAMING_BACKOFF_FACTOR = 0.001  # second
+    STREAMING_TIMEOUT = 6  # seconds
+    STREAMING_CACHED_TMP_TIMEOUT = 1  # second
+    STREAMING_BACKOFF_FACTOR = 0.01  # second
 
 
 config = Config()
