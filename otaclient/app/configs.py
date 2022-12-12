@@ -67,26 +67,36 @@ class BaseConfig:
             "otaclient.app.main": INFO,
         }
     )
-    ACTIVE_ROOTFS_PATH: str = "/"
-    BOOT_DIR: str = "/boot"
-    ECU_INFO_FILE: str = "/boot/ota/ecu_info.yaml"
-    PROXY_INFO_FILE: str = "/boot/ota/proxy_info.yaml"
-    PASSWD_FILE: str = "/etc/passwd"
-    GROUP_FILE: str = "/etc/group"
 
-    # status files
-    OTA_STATUS_FNAME: str = "status"
-    OTA_VERSION_FNAME: str = "version"
-    SLOT_IN_USE_FNAME: str = "slot_in_use"
+    ### common used paths ###
+    ACTIVE_ROOTFS_PATH = "/"
+    BOOT_DIR = "/boot"
+    OTA_DIR = "/boot/ota"
+    ECU_INFO_FILE = "/boot/ota/ecu_info.yaml"
+    PROXY_INFO_FILE = "/boot/ota/proxy_info.yaml"
+    PASSWD_FILE = "/etc/passwd"
+    GROUP_FILE = "/etc/group"
+    FSTAB_FPATH = "/etc/fstab"
 
-    LOG_FORMAT: str = (
+    ### ota device specific configuration files ###
+    # this files should be placed under /boot/ota folder
+    ECU_INFO_FNAME = "ecu_info.yaml"
+    PROXY_INFO_FNAME = "proxy_info.yaml"
+
+    ### ota-status files ###
+    # this files should be placed under /boot/ota-status folder
+    OTA_STATUS_FNAME = "status"
+    OTA_VERSION_FNAME = "version"
+    SLOT_IN_USE_FNAME = "slot_in_use"
+
+    LOG_FORMAT = (
         "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s"
     )
 
     # standby/refroot mount points
-    MOUNT_POINT: str = "/mnt/standby"
+    MOUNT_POINT = "/mnt/standby"
     # where active(old) image partition will be bind mounted to
-    REF_ROOT_MOUNT_POINT: str = "/mnt/refroot"
+    REF_ROOT_MOUNT_POINT = "/mnt/refroot"
 
     # ota-client behavior setting
     CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB

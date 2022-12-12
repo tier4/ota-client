@@ -274,6 +274,27 @@ def re_symlink_atomic(src: Path, target: Union[Path, str]):
             raise
 
 
+def replace_atomic(src: Union[str, Path], dst: Union[str, Path]):
+    """Atomically replace dst file with src file.
+
+    NOTE: atomic is ensured by os.rename/os.replace under the same filesystem.
+    """
+    src, dst = Path(src), Path(dst)
+    if not src.is_file():
+        raise ValueError(f"{src=} is not a regular file or not exist")
+
+    _tmp_file = dst.parent / f".tmp_{os.urandom(6).hex()}"
+    try:
+        # prepare a copy of src file under dst's parent folder
+        shutil.copy(src, _tmp_file, follow_symlinks=True)
+        os.sync()
+        # atomically rename/replace the dst file with the copy
+        os.replace(_tmp_file, dst)
+    except Exception:
+        _tmp_file.unlink(missing_ok=True)
+        raise
+
+
 def urljoin_ensure_base(base: str, url: str):
     """
     NOTE: this method ensure the base_url will be preserved.
