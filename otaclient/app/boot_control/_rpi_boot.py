@@ -142,8 +142,8 @@ class _RPIBootControl:
             self._standby_slot = self.AB_FLIPS[self._active_slot]
             self._standby_slot_dev = _child_partitions[0]
             logger.info(
-                f"rpi_boot: active_slot: {self.active_slot}({self.active_slot_dev}), "
-                f"standby_slot: {self.standby_slot}({self.standby_slot_dev})"
+                f"rpi_boot: active_slot: {self._active_slot}({self._active_slot_dev}), "
+                f"standby_slot: {self._standby_slot}({self._standby_slot_dev})"
             )
         except Exception as e:
             _err_msg = f"failed to detect AB partition: {e!r}"
