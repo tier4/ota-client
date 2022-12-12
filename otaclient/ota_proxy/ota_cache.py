@@ -414,8 +414,8 @@ class RemoteOTAFile:
 
     def __init__(
         self,
-        url: str,
-        raw_url: str,
+        fd: AsyncIterator[bytes],
+        meta: CacheMeta,
         *,
         tracker: OngoingCacheTracker,
         below_hard_limit_event: threading.Event,
@@ -425,10 +425,10 @@ class RemoteOTAFile:
     ):
         self._base_dir = Path(base_dir)
         self._storage_below_hard_limit = below_hard_limit_event
+        self._fd = fd
         # NOTE: the hash and size in the meta are not set yet
         # NOTE 2: store unquoted URL in database
-        self.meta = CacheMeta(url=raw_url)
-        self.url = url  # proccessed url
+        self.meta = meta
         self._tracker = tracker  # bound tracker
         self._executor = executor
         self._cache_commit_cb = commit_cache_callback
@@ -476,38 +476,24 @@ class RemoteOTAFile:
             self._tracker.writer_on_close(failed=True)
             raise CacheStreamingFailed from e
 
-    async def open_remote(
-        self,
-        *,
-        cookies: Dict[str, str],
-        extra_headers: Dict[str, str],
-        session: aiohttp.ClientSession,
-        upper_proxy: str,
-    ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
+    async def start_cache_streaming(self) -> Tuple[AsyncIterator[bytes], CacheMeta]:
         try:
-            _remote_fd = _FileDescriptorHelper.open_remote(
-                self.url,
-                self.meta,  # updated when remote response is received
-                cookies,
-                extra_headers,
-                session=session,
-                upper_proxy=upper_proxy,
-            )
-            await _remote_fd.__anext__()  # open the remote connection
+            # open the remote connection here,
+            # also the meta is updated by connection open
+            await self._fd.__anext__()
         except Exception as e:  # connection failed
-            logger.error(f"remote connection to {self.url} failed: {e!r}")
+            logger.error(f"remote connection to {self.meta.url} failed: {e!r}")
             self._tracker.writer_on_close(failed=True)
             raise
-
         # bind the updated meta to tracker,
-        # start the generator and become ready
+        # start the tee_stream generator and become ready
         self._tracker.writer_on_ready(self.meta)
         _cache_write_gen = self._tracker.write_cache(
             storage_below_hard_limit=self._storage_below_hard_limit,
         )
         await _cache_write_gen.asend(None)  # type: ignore
         return (
-            self._stream_tee(fd=_remote_fd, cache_write_gen=_cache_write_gen),
+            self._stream_tee(fd=self._fd, cache_write_gen=_cache_write_gen),
             self.meta,
         )
 
@@ -1024,9 +1010,19 @@ class OTACache:
             raw_url, executor=self._executor
         )
         if is_writer:  # writer/provider
+            _meta = CacheMeta(url=raw_url)
+            # NOTE: the fd has not yet started! It will be
+            #       started by the get_fd method
             ota_file = RemoteOTAFile(
-                self._process_raw_url(raw_url),
-                raw_url,
+                fd=_FileDescriptorHelper.open_remote(
+                    self._process_raw_url(raw_url),
+                    _meta,  # updated when remote response is received
+                    cookies,
+                    extra_headers,
+                    session=self._session,
+                    upper_proxy=self._upper_proxy,
+                ),
+                meta=_meta,
                 tracker=_tracker,
                 below_hard_limit_event=self._storage_below_hard_limit_event,
                 base_dir=self._base_dir,
