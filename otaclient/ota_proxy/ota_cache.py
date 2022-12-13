@@ -468,7 +468,7 @@ class RemoteOTAFile:
         if self.meta.size > 0 or not (self._base_dir / self.meta.sha256hash).is_file():
             self._tracker.fpath.link_to(self._base_dir / self.meta.sha256hash)
 
-    async def _stream_tee(
+    async def _cache_streamer(
         self, cache_write_coroutine: AsyncGenerator[int, bytes]
     ) -> AsyncIterator[bytes]:
         """For caller(server App) to yield data chunks from.
@@ -486,7 +486,7 @@ class RemoteOTAFile:
                 if not self._tracker.writer_failed or not self._tracker.writer_finished:
                     try:
                         await cache_write_coroutine.asend(chunk)
-                    except Exception as e:
+                    except (Exception, StopAsyncIteration) as e:
                         logger.error(f"cache write coroutine failed, abort: {e!r}")
                 # to uvicorn thread
                 yield chunk
@@ -509,7 +509,7 @@ class RemoteOTAFile:
             storage_below_hard_limit=self._storage_below_hard_limit,
         )
         return (
-            self._stream_tee(_cache_write_coroutine),
+            self._cache_streamer(_cache_write_coroutine),
             self.meta,
         )
 
