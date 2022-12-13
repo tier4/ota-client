@@ -822,10 +822,11 @@ class OTACache:
                     self._storage_below_hard_limit_event.clear()
             except FileNotFoundError:
                 logger.error(
-                    "background free space check failed as cache folder disappeared"
+                    "background free space check interrupted as cache folder disappeared"
                 )
                 self._storage_below_soft_limit_event.clear()
                 self._storage_below_hard_limit_event.clear()
+                break
 
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
