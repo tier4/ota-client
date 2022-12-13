@@ -585,13 +585,13 @@ class _FileDescriptorHelper:
     async def open_remote(
         cls,
         url: str,
-        cache_meta: CacheMeta,
-        cookies: Dict[str, str],
-        extra_headers: Dict[str, str],
+        raw_url: str,
         *,
+        cookies: Dict[str, str],
+        headers: Dict[str, str],
         session: aiohttp.ClientSession,
         upper_proxy: str = "",
-    ) -> AsyncIterator[bytes]:
+    ) -> Tuple[AsyncIterator[bytes], CacheMeta]:
         """Open a file descriptor to remote resource.
 
         Args:
@@ -600,32 +600,42 @@ class _FileDescriptorHelper:
             cookies: cookies that client passes in the request
             extra_headers: other headers we need to pass to the remote
                 from the original request
+            upper_proxy: if chained proxy is used
 
         Returns:
-            An AsyncGenerator that can yield data chunks from.
+            An AsyncIterator that can yield data chunks from, and an inst
+                of CacheMeta for the requested url.
 
         Raises:
-            Any exceptions that caused by connecting to the remote.
+            Any exceptions that caused by aiohttp connecting to the remote.
         """
-        async with session.get(
-            url,
-            proxy=upper_proxy,
-            cookies=cookies,
-            headers=extra_headers,
-        ) as response:
-            # assembling output cachemeta
-            # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
-            # NOTE.2: store the original unquoted url into the CacheMeta
-            # NOTE.3: hash, and size will be assigned at background_write_cache method
-            # NOTE.4: bucket and last_access will be assigned at commit_entry method
-            cache_meta.content_encoding = response.headers.get("content-encoding", "")
-            cache_meta.content_type = response.headers.get(
-                "content-type", "application/octet-stream"
-            )
-            # open the connection and update the CacheMeta
-            yield b""
-            async for data, _ in response.content.iter_chunks():
-                yield data
+        cache_meta = CacheMeta(url=raw_url)
+
+        async def _inner() -> AsyncIterator[bytes]:
+            async with session.get(
+                url,
+                proxy=upper_proxy,
+                cookies=cookies,
+                headers=headers,
+            ) as response:
+                # assembling output cachemeta
+                # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
+                # NOTE.2: store the original unquoted url into the CacheMeta
+                # NOTE.3: hash, and size will be assigned at background_write_cache method
+                # NOTE.4: bucket and last_access will be assigned at commit_entry method
+                cache_meta.content_encoding = response.headers.get(
+                    "content-encoding", ""
+                )
+                cache_meta.content_type = response.headers.get(
+                    "content-type", "application/octet-stream"
+                )
+                # open the connection and update the CacheMeta
+                yield b""
+                async for data, _ in response.content.iter_chunks():
+                    yield data
+
+        await (_remote_fd := _inner()).__anext__()
+        return _remote_fd, cache_meta
 
     @staticmethod
     async def open_cached_file(
