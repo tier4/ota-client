@@ -212,8 +212,8 @@ class App:
 
         except aiohttp.ClientResponseError as e:
             await self._respond_with_error(e.status, e.message, send)
-            logger.exception(f"request for {url=} failed")
-        except aiohttp.ClientConnectionError:
+            logger.warning(f"request for {url=} failed: {e!r}")
+        except aiohttp.ClientConnectionError as e:
             # terminate the transmission
             if respond_started:
                 await send({"type": "http.response.body", "body": b""})
@@ -223,7 +223,7 @@ class App:
                     "failed to connect to remote server",
                     send,
                 )
-            logger.exception(f"request for {url=} failed")
+            logger.warning(f"request for {url=} failed: {e!r}")
         except aiohttp.ClientError as e:
             # terminate the transmission
             if respond_started:
@@ -232,10 +232,10 @@ class App:
                 await self._respond_with_error(
                     HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
                 )
-            logger.exception(f"request for {url=} failed")
+            logger.warning(f"request for {url=} failed: {e!r}")
         except BaseOTACacheError as e:
             logger.exception(
-                f"request for {url=} failed due to handled ota_cache internal error"
+                f"request for {url=} failed due to handled ota_cache internal error: {e!r}"
             )
             # terminate the transmission
             if respond_started:
@@ -248,7 +248,7 @@ class App:
             # exceptions rather than aiohttp error indicates
             # internal errors of ota_cache
             logger.exception(
-                f"request for {url=} failed due to unhandled ota_cache internal error"
+                f"request for {url=} failed due to unhandled ota_cache internal error: {e!r}"
             )
 
             # terminate the transmission
