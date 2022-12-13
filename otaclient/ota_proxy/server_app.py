@@ -233,7 +233,7 @@ class App:
                     HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
                 )
             logger.warning(f"request for {url=} failed: {e!r}")
-        except BaseOTACacheError as e:
+        except (BaseOTACacheError, StopAsyncIteration) as e:
             logger.exception(
                 f"request for {url=} failed due to handled ota_cache internal error: {e!r}"
             )
