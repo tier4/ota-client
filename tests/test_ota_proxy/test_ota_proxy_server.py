@@ -89,8 +89,12 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         condition = request.param
 
         # NOTE:for below_hard_limit, first we let otaproxy runs under
-        #      below_soft_limit for 20s to accumulate some entries,
+        #      below_soft_limit to accumulate some entries,
         #      and then we switch to below_hard_limit
+        # NOTE; for exceed_hard_limit, first we let otaproxy runs under
+        #       below_soft_limit to accumulate some entires,
+        #       and then switch to below_hard_limit to test LRU cache rotate,
+        #       finally switch to exceed_hard_limit.
         def _mocked_background_check_freespace(self):
             _count = 0
             while not self._closed:
@@ -98,6 +102,12 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                     self._storage_below_soft_limit_event.set()
                     self._storage_below_hard_limit_event.set()
                 elif condition == "exceed_hard_limit":
+                    if _count < 5:
+                        self._storage_below_soft_limit_event.set()
+                        self._storage_below_hard_limit_event.set()
+                    elif _count < 10:
+                        self._storage_below_soft_limit_event.clear()
+                        self._storage_below_hard_limit_event.set()
                     self._storage_below_soft_limit_event.clear()
                     self._storage_below_hard_limit_event.clear()
                 elif condition == "below_hard_limit":
