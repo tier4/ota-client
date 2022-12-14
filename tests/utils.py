@@ -16,7 +16,6 @@
 import asyncio
 import os
 import time
-import http.server as http_server
 import zstandard
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -69,6 +68,13 @@ async def run_otaclient_server(otaclient_service_v2, listen_addr):
 
 
 def run_http_server(addr: str, port: int, *, directory: str):
+    import http.server as http_server
+
+    def _dummy_logger(*args, **kwargs):
+        return
+
+    http_server.SimpleHTTPRequestHandler.log_message = _dummy_logger
+
     handler_class = partial(http_server.SimpleHTTPRequestHandler, directory=directory)
     with http_server.ThreadingHTTPServer((addr, port), handler_class) as httpd:
         httpd.serve_forever()

@@ -169,6 +169,9 @@ class ThreadpoolExecutorFixtureMixin:
                 f"{self.THTREADPOOL_EXECUTOR_PATCH_PATH}.ThreadPoolExecutor",
                 return_value=self._executor,
             )
+            logger.info(
+                f"ThreadpoolExecutor is patched at {self.THTREADPOOL_EXECUTOR_PATCH_PATH}"
+            )
             yield
         finally:
             self._executor.shutdown()
