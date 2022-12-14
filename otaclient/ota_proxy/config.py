@@ -47,9 +47,9 @@ class Config:
 
     # cache streaming behavior
     AIOHTTP_SOCKET_READ_TIMEOUT = 60  # second
-    STREAMING_TIMEOUT = 60  # seconds
+    STREAMING_BACKOFF_MAX = 30  # seconds
+    STREAMING_BACKOFF_FACTOR = 0.1  # second
     STREAMING_CACHED_TMP_TIMEOUT = 1  # second
-    STREAMING_BACKOFF_FACTOR = 1  # second
 
 
 config = Config()
