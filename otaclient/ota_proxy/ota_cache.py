@@ -88,7 +88,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         subscriber_ref_holder: strong reference to this tracker for each subscriber.
     """
 
-    READER_SUBSCRIBE_PULLING_INTERVAL = 0.001
+    READER_SUBSCRIBE_PULLING_INTERVAL = 0.01
 
     def __init__(
         self,
@@ -131,12 +131,12 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         return self._writer_finished.is_set()
 
     @property
-    def cache_done(self) -> bool:
-        return self._writer_finished.is_set()
-
-    @property
     def is_cache_valid(self) -> bool:
-        return self.meta is not None and self.cache_done and not self.writer_failed
+        return (
+            self.meta is not None
+            and self._writer_finished.is_set()
+            and not self._writer_failed.is_set()
+        )
 
     async def _write_cache(
         self, *, storage_below_hard_limit: threading.Event
@@ -487,6 +487,7 @@ class RemoteOTAFile:
                     try:
                         await cache_write_coroutine.asend(chunk)
                     except (Exception, StopAsyncIteration) as e:
+                        await self._tracker.provider_on_failed()
                         logger.error(f"cache write coroutine failed, abort: {e!r}")
                 # to uvicorn thread
                 yield chunk
@@ -731,7 +732,7 @@ class OTACache:
         # this timeout will be applied to the whole request, including downloading,
         # preventing large files to be downloaded.
         timeout = aiohttp.ClientTimeout(
-            total=None, sock_read=cfg.STREAMING_WAIT_FOR_FIRST_BYTE
+            total=None, sock_read=cfg.AIOHTTP_SOCKET_READ_TIMEOUT
         )
         self._session = aiohttp.ClientSession(
             auto_decompress=False, raise_for_status=True, timeout=timeout
