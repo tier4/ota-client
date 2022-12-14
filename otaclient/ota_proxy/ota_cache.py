@@ -66,6 +66,24 @@ def get_backoff(n: int, factor: float, _max: float) -> float:
     return min(_max, factor * (2 ** (n - 1)))
 
 
+async def wait_with_backoff(
+    _retry_cnt: int, *, _backoff_factor: float, _backoff_max: float
+) -> bool:
+    """
+    Returns:
+        A bool indicates whether upper caller should keep retry.
+    """
+    _timeout = get_backoff(
+        _retry_cnt,
+        _backoff_factor,
+        _backoff_max,
+    )
+    if _timeout <= _backoff_max:
+        await asyncio.sleep(_timeout)
+        return True
+    return False
+
+
 _WEAKREF = TypeVar("_WEAKREF")
 
 
@@ -88,7 +106,7 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         subscriber_ref_holder: strong reference to this tracker for each subscriber.
     """
 
-    READER_SUBSCRIBE_PULLING_INTERVAL = 0.01
+    READER_SUBSCRIBE_WAIT_PROVIDER_TIMEOUT = 2
 
     def __init__(
         self,
@@ -180,14 +198,11 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
                         continue
 
                     err_count += 1
-                    _timeout = get_backoff(
+                    if not await wait_with_backoff(
                         err_count,
-                        cfg.STREAMING_BACKOFF_FACTOR,
-                        cfg.STREAMING_TIMEOUT,
-                    )
-                    if _timeout <= cfg.STREAMING_TIMEOUT:
-                        await asyncio.sleep(_timeout)
-                    else:
+                        _backoff_factor=cfg.STREAMING_BACKOFF_FACTOR,
+                        _backoff_max=cfg.STREAMING_BACKOFF_MAX,
+                    ):
                         # abort caching due to potential dead streaming coro
                         _err_msg = f"failed to stream({self.meta=}): timeout getting data, partial read might happen"
                         logger.error(_err_msg)
@@ -211,14 +226,11 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
                 # no data is read from the cache entry,
                 # retry sometimes to ensure all data is acquired
                 _retry_count += 1
-                _timeout = get_backoff(
+                if not await wait_with_backoff(
                     _retry_count,
-                    cfg.STREAMING_BACKOFF_FACTOR,
-                    cfg.STREAMING_CACHED_TMP_TIMEOUT,
-                )
-                if _timeout <= cfg.STREAMING_CACHED_TMP_TIMEOUT:
-                    await asyncio.sleep(_timeout)
-                else:
+                    _backoff_factor=cfg.STREAMING_BACKOFF_FACTOR,
+                    _backoff_max=cfg.STREAMING_CACHED_TMP_TIMEOUT,
+                ):
                     # abort caching due to potential dead streaming coro
                     _err_msg = f"open_cached_tmp failed for ({self.meta=}): timeout getting more data, partial read detected"
                     logger.debug(_err_msg)
@@ -274,10 +286,17 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
 
         Subscribe only succeeds when tracker is still on-going.
         """
+        _wait_count = 0
         while not self._writer_ready.is_set():
-            if self.writer_failed:
+            _wait_count += 1
+            if self.writer_failed or not await wait_with_backoff(
+                _wait_count,
+                _backoff_factor=cfg.STREAMING_BACKOFF_FACTOR,
+                _backoff_max=self.READER_SUBSCRIBE_WAIT_PROVIDER_TIMEOUT,
+            ):
+                # timeout waiting for provider to become ready
                 return
-            await asyncio.sleep(self.READER_SUBSCRIBE_PULLING_INTERVAL)
+
         # subscribe by adding a new ref
         try:
             self._subscriber_ref_holder.append(self._ref)
