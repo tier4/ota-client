@@ -103,6 +103,11 @@ class TestLRUCacheHelper:
 
 
 class TestOngoingCachingRegister:
+    """
+    NOTE; currently this test only testing the weakref implementation part,
+          the file descriptor management part is tested in test_ota_proxy_server
+    """
+
     URL = "common_url"
     WORKS_NUM = 128
 
@@ -135,21 +140,28 @@ class TestOngoingCachingRegister:
         # simulate multiple works subscribing the register
         await self.sync_event.wait()
         await asyncio.sleep(random.randrange(100, 200) // 100)
-        _tracker, _is_writer = await self.register.get_tracker(self.URL)
+        _tracker, _is_writer = await self.register.get_tracker(self.URL, executor=None)  # type: ignore
         await self.register_finish.acquire()
         if _is_writer and _tracker is not None:
             logger.info(f"#{idx} is provider")
             # NOTE: use last_access field to store worker index
-            await _tracker.writer_on_ready(CacheMeta(last_access=idx))
+            # NOTE 2: bypass provider_start method, directly set tracker property
+            _tracker.meta = CacheMeta(last_access=idx)
+            _tracker._writer_ready.set()
             # simulate waiting for writer finished downloading
             await self.writer_done_event.wait()
-            _tracker.writer_on_done(success=True)
+            logger.info(f"writer #{idx} finished")
+            # finished
+            _tracker._writer_finished.set()
+            del _tracker._ref
             return True, _tracker.meta  # type: ignore
         elif _tracker is not None:  # subscriber
             logger.debug(f"#{idx} is subscriber")
-            while not _tracker.cache_done:  # simulating cache streaming
+            _tracker._subscriber_ref_holder.append(_tracker._ref)
+            while not _tracker.writer_finished:  # simulating cache streaming
                 await asyncio.sleep(0.1)
-            _tracker.reader_on_done()
+            # NOTE: directly pop the ref
+            _tracker._subscriber_ref_holder.pop()
             return False, _tracker.meta  # type: ignore
         else:
             # edge condition when subscriber on multi cache streaming
