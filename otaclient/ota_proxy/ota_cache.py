@@ -119,8 +119,8 @@ class OngoingCacheTracker(Generic[_WEAKREF]):
         self.fpath = Path(base_dir) / fn
         self.meta = None
         self._writer_ready = asyncio.Event()
-        self._writer_finished = threading.Event()
-        self._writer_failed = threading.Event()
+        self._writer_finished = asyncio.Event()
+        self._writer_failed = asyncio.Event()
         self._ref = ref_holder
         self._subscriber_ref_holder: List[_WEAKREF] = []
         self._executor = executor

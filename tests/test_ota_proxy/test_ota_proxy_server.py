@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import List
 
 from otaclient.app.ota_metadata import RegularInf
-from tests.conftest import cfg
+from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,8 @@ async def _start_uvicorn_server(server: uvicorn.Server):
     await server.startup()
 
 
-class TestOTAProxyServer:
+class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTAPROXY_MODULE_PATH}.otacache"
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
     REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
