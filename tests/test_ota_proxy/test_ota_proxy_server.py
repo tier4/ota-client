@@ -18,7 +18,6 @@ import asyncio
 import logging
 import time
 import pytest
-import pytest_mock
 import random
 import shutil
 import uvicorn
@@ -28,7 +27,7 @@ from pathlib import Path
 from typing import List
 
 from otaclient.app.ota_metadata import RegularInf
-from tests.conftest import cfg
+from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,8 @@ async def _start_uvicorn_server(server: uvicorn.Server):
     await server.startup()
 
 
-class TestOTAProxyServer:
+class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTAPROXY_MODULE_PATH}.otacache"
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
     REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
@@ -66,8 +66,14 @@ class TestOTAProxyServer:
         #   to get the test instance.
         return self
 
-    @pytest.fixture
-    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path):
+    @pytest.fixture(
+        params=[
+            "below_soft_limit",
+            "below_hard_limit",
+            "exceed_hard_limit",
+        ],
+    )
+    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path, request):
         self = test_inst  # use real test inst as self, see test_inst fixture above
         import uvicorn
         from otaclient.ota_proxy import App, OTACache
@@ -77,6 +83,46 @@ class TestOTAProxyServer:
         ota_cachedb = ota_cache_dir / "cachedb"
         self.ota_cache_dir = ota_cache_dir  # bind to test inst
         self.ota_cachedb = ota_cachedb
+
+        # patch the OTACache's space availability check method
+        self.space_availability = request.param
+        condition = request.param
+
+        # NOTE:for below_hard_limit, first we let otaproxy runs under
+        #      below_soft_limit to accumulate some entries,
+        #      and then we switch to below_hard_limit
+        # NOTE; for exceed_hard_limit, first we let otaproxy runs under
+        #       below_soft_limit to accumulate some entires,
+        #       and then switch to below_hard_limit to test LRU cache rotate,
+        #       finally switch to exceed_hard_limit.
+        def _mocked_background_check_freespace(self):
+            _count = 0
+            while not self._closed:
+                if condition == "below_soft_limit":
+                    self._storage_below_soft_limit_event.set()
+                    self._storage_below_hard_limit_event.set()
+                elif condition == "exceed_hard_limit":
+                    if _count < 5:
+                        self._storage_below_soft_limit_event.set()
+                        self._storage_below_hard_limit_event.set()
+                    elif _count < 10:
+                        self._storage_below_soft_limit_event.clear()
+                        self._storage_below_hard_limit_event.set()
+                    else:
+                        self._storage_below_soft_limit_event.clear()
+                        self._storage_below_hard_limit_event.clear()
+                elif condition == "below_hard_limit":
+                    if _count < 10:
+                        self._storage_below_soft_limit_event.set()
+                        self._storage_below_hard_limit_event.set()
+                    else:
+                        self._storage_below_soft_limit_event.clear()
+                        self._storage_below_hard_limit_event.set()
+
+                time.sleep(2)
+                _count += 1
+
+        OTACache._background_check_free_space = _mocked_background_check_freespace
 
         # create a OTACache instance within the test process
         _ota_cache = OTACache(
@@ -100,43 +146,16 @@ class TestOTAProxyServer:
         self.otaproxy_inst = otaproxy_inst
         self.ota_cache = _ota_cache
 
-    @pytest.fixture(
-        params=[
-            "below_soft_limit",
-            "below_hard_limit",
-            "exceed_hard_limit",
-        ],
-        autouse=True,
-    )
+    @pytest.fixture(autouse=True)
     async def launch_ota_proxy_server(
         self,
-        mocker: pytest_mock.MockerFixture,
         test_inst,
-        request,
         setup_ota_proxy_server,
     ):
         """
         NOTE: launch ota_proxy in different space availability condition
         """
         self = test_inst
-        # patch the OTACache's space availability check method
-        mocker.patch.object(
-            self.ota_cache,
-            "_background_check_free_space",
-            mocker.MagicMock(),
-        )
-        # directly set the event
-        self.space_availability = request.param
-        if request.param == "below_soft_limit":
-            self.ota_cache._storage_below_soft_limit_event.set()
-            self.ota_cache._storage_below_hard_limit_event.set()
-        elif request.param == "below_hard_limit":
-            self.ota_cache._storage_below_soft_limit_event.clear()
-            self.ota_cache._storage_below_hard_limit_event.set()
-        elif request.param == "exceed_hard_limit":
-            self.ota_cache._storage_below_soft_limit_event.clear()
-            self.ota_cache._storage_below_hard_limit_event.clear()
-
         try:
             await _start_uvicorn_server(self.otaproxy_inst)
             await asyncio.sleep(1)  # wait before otaproxy server is ready
@@ -165,19 +184,22 @@ class TestOTAProxyServer:
         import sqlite3
         from otaclient.ota_proxy import config as cfg
 
-        # get the special file via otaproxy from the ota image server
+        # ------ get the special file via otaproxy from the ota image server ------ #
+        # --- execution --- #
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url=SPECIAL_FILE_URL, proxy=self.OTA_PROXY_URL
             ) as resp:
                 assert resp.status == 200
                 assert (resp_text := await resp.text(encoding="utf-8"))
-        # assert the contents is the same across cache, response and original
+        # --- assertion --- #
+        # 1. assert the contents is the same across cache, response and original
         original = Path(SPECIAL_FILE_FPATH).read_text(encoding="utf-8")
 
         # shutdown the otaproxy server before inspecting the database
         await self.otaproxy_inst.shutdown()
 
+        # --- assertions --- #
         # Under different space availability, ota_proxy's behaviors are different
         # 1. below soft limit, cache is enabled and cache entry will be presented
         if self.space_availability == "below_soft_limit":
@@ -215,37 +237,16 @@ class TestOTAProxyServer:
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.path.relative_to("/")}')
                 )
-
-                # implement a simple retry here
-                # NOTE: it might be some edge condition that subscriber subscribes on a just closed
-                #       tracker, this will result in a hash mismatch, general a retry can solve this
-                #       problem(the cached file is correct, only the caching stream is interrupted)
-                count = 0
-                while True:
-                    async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
-                        hash_f = sha256()
-                        async for data, _ in resp.content.iter_chunks():
-                            hash_f.update(data)
-
-                        if hash_f.hexdigest() != entry.sha256hash:
-                            count += 1
-                            logger.error(
-                                f"hash mismatch detected: {entry=}, {hash_f.hexdigest()=}, retry..."
-                            )
-                            if count > 6:
-                                logger.error(
-                                    f"retry {count} times failed: {entry=}, {hash_f.hexdigest()=}"
-                                )
-                                assert hash_f.hexdigest() == entry.sha256hash
-                        else:
-                            if count != 0:
-                                logger.info(
-                                    f"retry on {entry=} succeeded, {hash_f.hexdigest()=}"
-                                )
-                            break
+                async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
+                    hash_f = sha256()
+                    async for data, _ in resp.content.iter_chunks():
+                        hash_f.update(data)
+                    assert hash_f.hexdigest() == entry.sha256hash
 
     async def test_multiple_clients_download_ota_image(self, parse_regulars):
         """Test multiple client download the whole ota image simultaneously."""
+        # ------ dispatch many clients to download from otaproxy simultaneously ------ #
+        # --- execution --- #
         sync_event = asyncio.Event()
         tasks: List[asyncio.Task] = []
         for _ in range(self.CLIENTS_NUM):
@@ -259,8 +260,10 @@ class TestOTAProxyServer:
         )
         sync_event.set()
 
+        # --- assertions --- #
+        # 1. ensure all clients finished the downloading successfully
         await asyncio.gather(*tasks, return_exceptions=False)
         await self.otaproxy_inst.shutdown()
-        # check there is no tmp files left in the ota_cache dir
-        # ensure that the gc for multi-cache-streaming works
+        # 2. check there is no tmp files left in the ota_cache dir
+        #    ensure that the gc for multi-cache-streaming works
         assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
