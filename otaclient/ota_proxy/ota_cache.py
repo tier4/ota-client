@@ -189,11 +189,10 @@ class CacheTracker(Generic[_WEAKREF]):
                     logger.warning(f"reach storage hard limit, abort: {self.meta=}")
                     raise StorageReachHardLimit
                 _sha256hash_f.update(_data)
-                self._bytes_written += (_written := await f.write(_data))
-        self.meta.size, self.meta.sha256hash = (  # type: ignore
-            self._bytes_written,
-            _sha256hash_f.hexdigest(),
-        )
+                _written = await f.write(_data)
+                self._bytes_written += _written
+        self.meta.size = self._bytes_written  # type: ignore
+        self.meta.sha256hash = _sha256hash_f.hexdigest()  # type: ignore
         logger.debug(
             "cache write finished, total bytes written"
             f"({self._bytes_written}) for {self.meta=}"

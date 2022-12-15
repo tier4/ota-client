@@ -108,8 +108,9 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                     elif _count < 10:
                         self._storage_below_soft_limit_event.clear()
                         self._storage_below_hard_limit_event.set()
-                    self._storage_below_soft_limit_event.clear()
-                    self._storage_below_hard_limit_event.clear()
+                    else:
+                        self._storage_below_soft_limit_event.clear()
+                        self._storage_below_hard_limit_event.clear()
                 elif condition == "below_hard_limit":
                     if _count < 10:
                         self._storage_below_soft_limit_event.set()
@@ -183,19 +184,22 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         import sqlite3
         from otaclient.ota_proxy import config as cfg
 
-        # get the special file via otaproxy from the ota image server
+        # ------ get the special file via otaproxy from the ota image server ------ #
+        # --- execution --- #
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url=SPECIAL_FILE_URL, proxy=self.OTA_PROXY_URL
             ) as resp:
                 assert resp.status == 200
                 assert (resp_text := await resp.text(encoding="utf-8"))
-        # assert the contents is the same across cache, response and original
+        # --- assertion --- #
+        # 1. assert the contents is the same across cache, response and original
         original = Path(SPECIAL_FILE_FPATH).read_text(encoding="utf-8")
 
         # shutdown the otaproxy server before inspecting the database
         await self.otaproxy_inst.shutdown()
 
+        # --- assertions --- #
         # Under different space availability, ota_proxy's behaviors are different
         # 1. below soft limit, cache is enabled and cache entry will be presented
         if self.space_availability == "below_soft_limit":
@@ -241,6 +245,8 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
     async def test_multiple_clients_download_ota_image(self, parse_regulars):
         """Test multiple client download the whole ota image simultaneously."""
+        # ------ dispatch many clients to download from otaproxy simultaneously ------ #
+        # --- execution --- #
         sync_event = asyncio.Event()
         tasks: List[asyncio.Task] = []
         for _ in range(self.CLIENTS_NUM):
@@ -254,8 +260,10 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         )
         sync_event.set()
 
+        # --- assertions --- #
+        # 1. ensure all clients finished the downloading successfully
         await asyncio.gather(*tasks, return_exceptions=False)
         await self.otaproxy_inst.shutdown()
-        # check there is no tmp files left in the ota_cache dir
-        # ensure that the gc for multi-cache-streaming works
+        # 2. check there is no tmp files left in the ota_cache dir
+        #    ensure that the gc for multi-cache-streaming works
         assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
