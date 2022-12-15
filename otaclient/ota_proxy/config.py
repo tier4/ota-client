@@ -46,9 +46,10 @@ class Config:
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
-    STREAMING_WAIT_FOR_FIRST_BYTE = 3  # second
-    STREAMING_TIMEOUT = 10  # seconds
-    STREAMING_BACKOFF_FACTOR = 0.001  # second
+    AIOHTTP_SOCKET_READ_TIMEOUT = 60  # second
+    STREAMING_BACKOFF_MAX = 30  # seconds
+    STREAMING_BACKOFF_FACTOR = 0.01  # second
+    STREAMING_CACHED_TMP_TIMEOUT = 10  # second
 
 
 config = Config()
