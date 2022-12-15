@@ -5,10 +5,10 @@ on: [pull_request]
 jobs:
   pytest_with_coverage:
     runs-on: ubuntu-20.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Build ota-test_base docker image
         run: |
           docker-compose -f docker/docker-compose_tests.yml build
@@ -19,7 +19,7 @@ jobs:
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
-        uses: MishaKav/pytest-coverage-comment@v1.1.32
+        uses: MishaKav/pytest-coverage-comment@v1.1.40
   python_lint_check:
     runs-on: ubuntu-20.04
     timeout-minutes: 3
@@ -28,9 +28,9 @@ jobs:
         python-version: [3.8]
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
@@ -49,9 +49,9 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: markdownlint-cli
-        uses: nosborn/github-action-markdown-cli@v3.0.1
+        uses: nosborn/github-action-markdown-cli@v3.2.0
         with:
           files: .
           config_file: .markdownlint.yaml
