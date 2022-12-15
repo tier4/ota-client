@@ -55,33 +55,12 @@ from .errors import (
     StorageReachHardLimit,
 )
 from .config import config as cfg
+from .utils import wait_with_backoff, AioSHA256Hasher
 
 if TYPE_CHECKING:
     import multiprocessing
 
 logger = logging.getLogger(__name__)
-
-
-def get_backoff(n: int, factor: float, _max: float) -> float:
-    return min(_max, factor * (2 ** (n - 1)))
-
-
-async def wait_with_backoff(
-    _retry_cnt: int, *, _backoff_factor: float, _backoff_max: float
-) -> bool:
-    """
-    Returns:
-        A bool indicates whether upper caller should keep retry.
-    """
-    _timeout = get_backoff(
-        _retry_cnt,
-        _backoff_factor,
-        _backoff_max,
-    )
-    if _timeout <= _backoff_max:
-        await asyncio.sleep(_timeout)
-        return True
-    return False
 
 
 _WEAKREF = TypeVar("_WEAKREF")
@@ -181,18 +160,18 @@ class CacheTracker(Generic[_WEAKREF]):
             The exception from upper caller via throw() will also be re-raised directly.
         """
         logger.debug(f"start to cache for {self.meta=}...")
-        _sha256hash_f = sha256()
+        _sha256hash_f = AioSHA256Hasher(executor=self._executor)
         async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
             _written = 0
             while _data := (yield _written):
                 if not storage_below_hard_limit.is_set():
                     logger.warning(f"reach storage hard limit, abort: {self.meta=}")
                     raise StorageReachHardLimit
-                _sha256hash_f.update(_data)
+                await _sha256hash_f.update(_data)
                 _written = await f.write(_data)
                 self._bytes_written += _written
         self.meta.size = self._bytes_written  # type: ignore
-        self.meta.sha256hash = _sha256hash_f.hexdigest()  # type: ignore
+        self.meta.sha256hash = await _sha256hash_f.hexdigest()  # type: ignore
         logger.debug(
             "cache write finished, total bytes written"
             f"({self._bytes_written}) for {self.meta=}"
