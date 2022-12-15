@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple, Coroutine
 
 from otaclient.ota_proxy.db import CacheMeta
 from otaclient.ota_proxy import config as cfg
-from otaclient.ota_proxy.ota_cache import LRUCacheHelper, OngoingCachingRegister
+from otaclient.ota_proxy.ota_cache import LRUCacheHelper, CachingRegister
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ class TestOngoingCachingRegister:
     def setup_test(self, tmp_path: Path):
         self.base_dir = tmp_path / "base_dir"
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.register = OngoingCachingRegister(self.base_dir)
+        self.register = CachingRegister(self.base_dir)
 
         # events
         # NOTE: we don't have Barrier in asyncio lib, so
