@@ -47,7 +47,7 @@ from typing import (
 from urllib.parse import SplitResult, quote, urlsplit
 
 from .cache_control import OTAFileCacheControl
-from .db import CacheMeta, OTACacheDB, AioOTACacheDBProxy
+from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
     BaseOTACacheError,
     CacheStreamingFailed,
@@ -56,7 +56,7 @@ from .errors import (
     StorageReachHardLimit,
 )
 from .config import config as cfg
-from .utils import wait_with_backoff, AioSHA256Hasher
+from .utils import wait_with_backoff, AIOSHA256Hasher
 
 if TYPE_CHECKING:
     import multiprocessing
@@ -161,7 +161,7 @@ class CacheTracker(Generic[_WEAKREF]):
             The exception from upper caller via throw() will also be re-raised directly.
         """
         logger.debug(f"start to cache for {self.meta=}...")
-        _sha256hash_f = AioSHA256Hasher(executor=self._executor)
+        _sha256hash_f = AIOSHA256Hasher(executor=self._executor)
         async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
             _written = 0
             while _data := (yield _written):
@@ -406,7 +406,7 @@ class LRUCacheHelper:
     BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
     def __init__(self, db_f: Union[str, Path]):
-        self._db = AioOTACacheDBProxy(db_f)
+        self._db = AIO_OTACacheDBProxy(db_f)
         self._closed = False
 
     def close(self):

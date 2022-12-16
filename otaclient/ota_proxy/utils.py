@@ -25,7 +25,7 @@ async def wait_with_backoff(
     return False
 
 
-class AioSHA256Hasher:
+class AIOSHA256Hasher:
     def __init__(self, *, executor: Executor) -> None:
         self._executor = executor
         self._hashf = sha256()

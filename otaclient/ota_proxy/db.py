@@ -15,13 +15,12 @@
 
 from __future__ import annotations
 import asyncio
-import functools
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional, Type, Callable, Union, cast
+from typing import Any, List, Optional, Union
 
 from .config import config as cfg
 from .orm import ColumnDescriptor, ORMBase
@@ -275,7 +274,7 @@ class _ProxyBase:
         self._executor.shutdown(wait=True)
 
 
-class AioOTACacheDBProxy(_ProxyBase):
+class AIO_OTACacheDBProxy(_ProxyBase):
     async def insert_entry(self, *cache_meta: CacheMeta) -> int:
         def _inner():
             _db: OTACacheDB = self._thread_local.db
