@@ -14,13 +14,13 @@
 
 
 from __future__ import annotations
-import functools
+import asyncio
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional, Type, Callable, Union, cast
+from typing import Any, List, Optional, Union
 
 from .config import config as cfg
 from .orm import ColumnDescriptor, ORMBase
@@ -274,44 +274,33 @@ class _ProxyBase:
         self._executor.shutdown(wait=True)
 
 
-def _proxy_wrapper(func: Callable) -> Callable:
-    """NOTE: this wrapper should only be used for _ProxyBase"""
-    func_name = func.__name__
-
-    @functools.wraps(func)
-    def _wrapped(self, *args, **kwargs):
-        # get the handler from underlaying db connector
+class AIO_OTACacheDBProxy(_ProxyBase):
+    async def insert_entry(self, *cache_meta: CacheMeta) -> int:
         def _inner():
             _db: OTACacheDB = self._thread_local.db
-            return getattr(_db, func_name)(*args, **kwargs)
+            return _db.insert_entry(*cache_meta)
 
-        # inner is dispatched to the db connection threadpool
-        return self._executor.submit(_inner).result()
+        return await asyncio.get_running_loop().run_in_executor(self._executor, _inner)
 
-    return _wrapped
+    async def lookup_entry(
+        self, fd: ColumnDescriptor, _input: Any
+    ) -> Optional[CacheMeta]:
+        def _inner():
+            _db: OTACacheDB = self._thread_local.db
+            return _db.lookup_entry(fd, _input)
 
+        return await asyncio.get_running_loop().run_in_executor(self._executor, _inner)
 
-def create_db_proxy(name: str, *, source_cls: Type) -> Type:
-    """Class factory for creating a proxy class for OTACacheDB.
+    async def remove_entries(self, fd: ColumnDescriptor, *_inputs: Any) -> int:
+        def _inner():
+            _db: OTACacheDB = self._thread_local.db
+            return _db.remove_entries(fd, *_inputs)
 
-    All methods of OTACacheDB will be proxied to corresponding wrapper methods,
-    the wrapper will proxy the request to the thread pool.
-    """
-    _new_cls = type(name, (_ProxyBase,), {})
-    for attr_n, attr in source_cls.__dict__.items():
-        # NOTE: not proxy the close method as we should call the proxy's close method
-        if not attr_n.startswith("_") and callable(attr) and attr_n != "close":
-            # assigned wrapped method to the proxy cls
-            setattr(
-                _new_cls,
-                attr_n,
-                _proxy_wrapper(attr),
-            )
-    return _new_cls
+        return await asyncio.get_running_loop().run_in_executor(self._executor, _inner)
 
+    async def rotate_cache(self, bucket_idx: int, num: int) -> Optional[List[str]]:
+        def _inner():
+            _db: OTACacheDB = self._thread_local.db
+            return _db.rotate_cache(bucket_idx, num)
 
-# expose OTACacheDB classs
-OTACacheDBProxy = cast(
-    Type[OTACacheDB], create_db_proxy("OTACacheDBProxy", source_cls=OTACacheDB)
-)
-del create_db_proxy  # cleanup namespace
+        return await asyncio.get_running_loop().run_in_executor(self._executor, _inner)

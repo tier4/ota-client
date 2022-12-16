@@ -57,40 +57,31 @@ class TestLRUCacheHelper:
     def setup_test(self, launch_lru_helper, prepare_entries):
         self.entries: Dict[str, CacheMeta] = prepare_entries
         self.cache_helper: LRUCacheHelper = launch_lru_helper
-        try:
-            self.executor = ThreadPoolExecutor()
-            yield
-        finally:
-            self.executor.shutdown()
 
-    def test_commit_entry(self):
+    async def test_commit_entry(self):
         for _, entry in self.entries.items():
-            assert self.cache_helper.commit_entry(entry)
+            assert await self.cache_helper.commit_entry(entry)
 
     async def test_lookup_entry(self):
         target_size, idx = 8 * (1024**2), 6
         target_url = f"{target_size}#{idx}"
         assert (
-            await self.cache_helper.lookup_entry_by_url(
-                target_url, executor=self.executor
-            )
+            await self.cache_helper.lookup_entry_by_url(target_url)
             == self.entries[target_url]
         )
 
     async def test_remove_entry(self):
         target_size, idx = 8 * (1024**2), 6
         target_url = f"{target_size}#{idx}"
-        assert await self.cache_helper.remove_entry_by_url(
-            target_url, executor=self.executor
-        )
+        assert await self.cache_helper.remove_entry_by_url(target_url)
 
-    def test_rotate_cache(self):
+    async def test_rotate_cache(self):
         """Ensure the LRUHelper properly rotates the cache entries."""
         # test 1: reserve space for 256 * (1024**2) bucket
         # the later bucket is empty, so we expect this bucket to be cleaned up
         target_bucket = 256 * (1024**2)
         assert (
-            entries_to_be_removed := self.cache_helper.rotate_cache(target_bucket)
+            entries_to_be_removed := await self.cache_helper.rotate_cache(target_bucket)
         ) and len(entries_to_be_removed) == 2
 
         # test 2: reserve space for 16 * 1024 bucket
@@ -98,7 +89,7 @@ class TestLRUCacheHelper:
         target_bucket, next_bucket = 16 * 1024, 32 * 1024
         expected_hash = sha256(str(next_bucket).encode()).hexdigest()
         assert (
-            entries_to_be_removed := self.cache_helper.rotate_cache(target_bucket)
+            entries_to_be_removed := await self.cache_helper.rotate_cache(target_bucket)
         ) and entries_to_be_removed[0] == expected_hash
 
 

@@ -34,6 +34,7 @@ from typing import (
     AsyncGenerator,
     AsyncIterator,
     Callable,
+    Coroutine,
     Dict,
     Generic,
     List,
@@ -46,7 +47,7 @@ from typing import (
 from urllib.parse import SplitResult, quote, urlsplit
 
 from .cache_control import OTAFileCacheControl
-from .db import CacheMeta, OTACacheDB, OTACacheDBProxy
+from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
     BaseOTACacheError,
     CacheStreamingFailed,
@@ -55,33 +56,12 @@ from .errors import (
     StorageReachHardLimit,
 )
 from .config import config as cfg
+from .utils import wait_with_backoff, AIOSHA256Hasher
 
 if TYPE_CHECKING:
     import multiprocessing
 
 logger = logging.getLogger(__name__)
-
-
-def get_backoff(n: int, factor: float, _max: float) -> float:
-    return min(_max, factor * (2 ** (n - 1)))
-
-
-async def wait_with_backoff(
-    _retry_cnt: int, *, _backoff_factor: float, _backoff_max: float
-) -> bool:
-    """
-    Returns:
-        A bool indicates whether upper caller should keep retry.
-    """
-    _timeout = get_backoff(
-        _retry_cnt,
-        _backoff_factor,
-        _backoff_max,
-    )
-    if _timeout <= _backoff_max:
-        await asyncio.sleep(_timeout)
-        return True
-    return False
 
 
 _WEAKREF = TypeVar("_WEAKREF")
@@ -181,18 +161,18 @@ class CacheTracker(Generic[_WEAKREF]):
             The exception from upper caller via throw() will also be re-raised directly.
         """
         logger.debug(f"start to cache for {self.meta=}...")
-        _sha256hash_f = sha256()
+        _sha256hash_f = AIOSHA256Hasher(executor=self._executor)
         async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
             _written = 0
             while _data := (yield _written):
                 if not storage_below_hard_limit.is_set():
                     logger.warning(f"reach storage hard limit, abort: {self.meta=}")
                     raise StorageReachHardLimit
-                _sha256hash_f.update(_data)
+                await _sha256hash_f.update(_data)
                 _written = await f.write(_data)
                 self._bytes_written += _written
         self.meta.size = self._bytes_written  # type: ignore
-        self.meta.sha256hash = _sha256hash_f.hexdigest()  # type: ignore
+        self.meta.sha256hash = await _sha256hash_f.hexdigest()  # type: ignore
         logger.debug(
             "cache write finished, total bytes written"
             f"({self._bytes_written}) for {self.meta=}"
@@ -361,7 +341,7 @@ class CacheTracker(Generic[_WEAKREF]):
 
 # a callback that register the cache entry indicates by input
 # CacheMeta inst to the cache_db
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], None]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], Coroutine[None, None, None]]
 
 
 class _Weakref:
@@ -426,53 +406,39 @@ class LRUCacheHelper:
     BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
     def __init__(self, db_f: Union[str, Path]):
-        self._db = OTACacheDBProxy(db_f)
+        self._db = AIO_OTACacheDBProxy(db_f)
         self._closed = False
 
     def close(self):
         if not self._closed:
             self._db.close()
 
-    def commit_entry(self, entry: CacheMeta) -> bool:
+    async def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
         entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.size) - 1
         entry.last_access = int(datetime.now().timestamp())
 
-        if self._db.insert_entry(entry) != 1:
-            logger.warning(f"db: failed to add {entry=}")
+        if (await self._db.insert_entry(entry)) != 1:
+            logger.error(f"db: failed to add {entry=}")
             return False
-        else:
-            logger.debug(f"db: commit {entry=} successfully")
-            return True
+        return True
 
-    async def lookup_entry_by_url(
-        self, url: str, *, executor: Executor
-    ) -> Optional[CacheMeta]:
-        return await asyncio.get_running_loop().run_in_executor(
-            executor,
-            self._db.lookup_entry,
-            CacheMeta.url,
-            url,
-        )
+    async def lookup_entry_by_url(self, url: str) -> Optional[CacheMeta]:
+        return await self._db.lookup_entry(CacheMeta.url, url)
 
-    async def remove_entry_by_url(self, url: str, *, executor: Executor) -> bool:
-        return (
-            await asyncio.get_running_loop().run_in_executor(
-                executor, self._db.remove_entries, CacheMeta.url, url
-            )
-            > 0
-        )
+    async def remove_entry_by_url(self, url: str) -> bool:
+        return (await self._db.remove_entries(CacheMeta.url, url)) > 0
 
-    def rotate_cache(self, size: int) -> Union[List[str], None]:
+    async def rotate_cache(self, size: int) -> Union[List[str], None]:
         """Wrapper method for calling the database LRU cache rotating method.
 
         Args:
             size int: the size of file that we want to reserve space for
 
         Returns:
-            A list of hashes that needed to be cleaned, or None cache rotation request
-                cannot be satisfied.
+            A list of hashes that needed to be cleaned, or None if cache rotation
+                cannot be executed.
         """
         # NOTE: currently file size >= 512MiB or file size < 1KiB
         # will be saved without cache rotating.
@@ -485,12 +451,16 @@ class LRUCacheHelper:
         # first check the upper bucket
         _next_idx = _cur_bucket_idx + 1
         for _bucket_size in self.BSIZE_LIST[_next_idx:]:
-            if res := self._db.rotate_cache(_next_idx, self.BSIZE_DICT[_bucket_size]):
+            if res := await self._db.rotate_cache(
+                _next_idx, self.BSIZE_DICT[_bucket_size]
+            ):
                 return res
             _next_idx += 1
 
         # if cannot find one entry at any upper bucket, check current bucket
-        return self._db.rotate_cache(_cur_bucket_idx, self.BSIZE_DICT[_cur_bucket_size])
+        return await self._db.rotate_cache(
+            _cur_bucket_idx, self.BSIZE_DICT[_cur_bucket_size]
+        )
 
 
 class RemoteOTAFile:
@@ -523,7 +493,6 @@ class RemoteOTAFile:
         tracker: CacheTracker,
         below_hard_limit_event: threading.Event,
         base_dir: Union[str, Path],
-        executor: Executor,
         commit_cache_callback: _CACHE_ENTRY_REGISTER_CALLBACK,
     ):
         self._base_dir = Path(base_dir)
@@ -533,16 +502,14 @@ class RemoteOTAFile:
         # NOTE 2: store unquoted URL in database
         self.meta = meta
         self._tracker = tracker  # bound tracker
-        self._executor = executor
         self._cache_commit_cb = commit_cache_callback
 
-    def _finalize_caching(self):
+    async def _finalize_caching(self):
         """Commit cache entry to db and rename tmp cached file with sha256hash
         to fialize the caching."""
-        self._cache_commit_cb(self.meta)
-        # for 0 size file, register the entry to db only,
-        # but if the 0 size file doesn't exist, create one
-        if self.meta.size > 0 or not (self._base_dir / self.meta.sha256hash).is_file():
+        await self._cache_commit_cb(self.meta)
+        # if the file with the same sha256has is already presented, skip the hardlink
+        if not (self._base_dir / self.meta.sha256hash).is_file():
             self._tracker.fpath.link_to(self._base_dir / self.meta.sha256hash)
 
     async def _cache_streamer(
@@ -569,8 +536,8 @@ class RemoteOTAFile:
                 # to uvicorn thread
                 yield chunk
             await self._tracker.provider_on_finished()  # signal tracker
-            # dispatch cache commit, no need to check the result of cache committing
-            self._executor.submit(self._finalize_caching)
+            # dispatch cache commit, no need to check the result of committing
+            asyncio.create_task(self._finalize_caching())
         except Exception as e:
             logger.exception(f"cache tee failed for {self._tracker.meta=}")
             # if any exception happens, signal the tracker
@@ -929,7 +896,7 @@ class OTACache:
             f = self._base_dir / entry_hash
             f.unlink(missing_ok=True)
 
-    def _reserve_space(self, size: int) -> bool:
+    async def _reserve_space(self, size: int) -> bool:
         """A helper that calls lru_helper's rotate_cache method.
 
         Args:
@@ -938,7 +905,7 @@ class OTACache:
         Returns:
             A bool indicates whether the space reserving is successful or not.
         """
-        _hashes = self._lru_helper.rotate_cache(size)
+        _hashes = await self._lru_helper.rotate_cache(size)
         if _hashes:
             logger.debug(
                 f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
@@ -949,7 +916,7 @@ class OTACache:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
-    def _commit_cache_callback(self, meta: CacheMeta):
+    async def _commit_cache_callback(self, meta: CacheMeta):
         """The callback for committing CacheMeta to cache_db.
 
         If caching is successful, and the space usage is reaching soft limit,
@@ -962,8 +929,8 @@ class OTACache:
         try:
             if not self._storage_below_soft_limit_event.is_set():
                 # case 1: try to reserve space for the saved cache entry
-                if self._reserve_space(meta.size):
-                    if not self._lru_helper.commit_entry(meta):
+                if await self._reserve_space(meta.size):
+                    if not await self._lru_helper.commit_entry(meta):
                         logger.debug(f"failed to commit cache for {meta.url=}")
                 else:
                     # case 2: cache successful, but reserving space failed,
@@ -971,7 +938,7 @@ class OTACache:
                     logger.debug(f"failed to reserve space for {meta.url=}")
             else:
                 # case 3: commit cache and finish up
-                if not self._lru_helper.commit_entry(meta):
+                if not await self._lru_helper.commit_entry(meta):
                     logger.debug(f"failed to commit cache entry for {meta.url=}")
         except Exception as e:
             logger.exception(f"failed on callback for {meta=}: {e!r}")
@@ -1008,7 +975,7 @@ class OTACache:
         self, raw_url: str, *, retry_cache: bool
     ) -> Optional[CacheMeta]:
         if meta_db_entry := await self._lru_helper.lookup_entry_by_url(
-            raw_url, executor=self._executor
+            raw_url
         ):  # cache hit
             logger.debug(f"cache hit for {raw_url=}, {meta_db_entry=}")
             cache_path: Path = self._base_dir / meta_db_entry.sha256hash
@@ -1023,9 +990,7 @@ class OTACache:
             if not cache_path.is_file():
                 # invalid cache entry found in the db, cleanup it
                 logger.warning(f"dangling cache entry found: {meta_db_entry=}")
-                await self._lru_helper.remove_entry_by_url(
-                    raw_url, executor=self._executor
-                )
+                await self._lru_helper.remove_entry_by_url(raw_url)
                 return
             return meta_db_entry
 
@@ -1134,7 +1099,6 @@ class OTACache:
                 tracker=_tracker,
                 below_hard_limit_event=self._storage_below_hard_limit_event,
                 base_dir=self._base_dir,
-                executor=self._executor,
                 commit_cache_callback=self._commit_cache_callback,
             ).start_cache_streaming()
         # -- case 3.2: subscriber, try to subcribe to the corresponding tracker -- #
