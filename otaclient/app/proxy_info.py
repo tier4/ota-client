@@ -34,7 +34,7 @@ enable_local_ota_proxy_cache: true
 # for internal ECU, upper_ota_proxy is required,
 # internal ECU will use this proxy to request for ota update.
 # upper ota proxy must be an HTTP URL.
-# required
+# required if internal ECU cannot directly connect to the Internet.
 upper_ota_proxy: <upper_ota_proxy_URL: str>
 
 # internal ecu is not the gateway for the local network,
@@ -42,13 +42,14 @@ upper_ota_proxy: <upper_ota_proxy_URL: str>
 # optional, default: false
 gateway: false
 
-# set to false if internal ECU doesn't have child ECU to serve.
-# optional, default: false
-enable_local_ota_proxy: false
+# enable the local otaproxy, should be true for sub ECU to connect
+# to the Internet via main ECU.
+# optional, default: true
+enable_local_ota_proxy: true
 
-# generally, we can only enable ota cache on the gateway ECU.
-# optional, default: false
-enable_local_ota_proxy_cache: false
+# enable ota cache, otaproxy will cache the requested files.
+# optional, default: true
+enable_local_ota_proxy_cache: true
 
 # the listen_addr of local_ota_proxy, if not presented, default to 0.0.0.0:8082
 # optional, default: "0.0.0.0", 8082 
@@ -88,16 +89,18 @@ class ProxyInfo:
         enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy, default is True.
         local_ota_proxy_listen_addr: default is "0.0.0.0".
         local_ota_proxy_listen_port: default is 8082.
-        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain), default is None(no upper proxy).
+        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain), default is None.
     """
 
     # NOTE(20221216): gateway=False is default setting for subECUs
     gateway: bool = False
+    # NOTE(20221216): only main ECU can not set this value,
+    #                 for subECU, this value should be set
+    upper_ota_proxy: str = ""
 
     # common default settings for both main ECU and sub ECUs
     enable_local_ota_proxy: bool = True
     enable_local_ota_proxy_cache: bool = True
-    upper_ota_proxy: str = ""
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
     local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
 
