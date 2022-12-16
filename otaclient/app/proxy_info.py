@@ -13,6 +13,48 @@
 # limitations under the License.
 
 
+"""Proxy setting parsing.
+###### Example proxy_info.yaml for different scenario ######
+## --------------------- mainecu --------------------- ##
+# for mainecu, proxy_info.yaml is not needed, the following
+# DEFAULT_PROXY_INFO will be used.
+# we should treat the ecu with no proxy_info.yaml
+# as main ecu(as gateway), and enable ota_proxy without upper proxy.
+
+enable_local_ota_proxy: true
+gateway: true
+enable_local_ota_proxy_cache: true
+
+
+## --------------------- internal ecu --------------------- ##
+# for internal ecu, that doesn't have direct internet connection,
+# proxy_info.yaml must be presented.
+# the following is the default configuration for it.
+
+# for internal ECU, upper_ota_proxy is required,
+# internal ECU will use this proxy to request for ota update.
+# upper ota proxy must be an HTTP URL.
+# required
+upper_ota_proxy: <upper_ota_proxy_URL: str>
+
+# internal ecu is not the gateway for the local network,
+# MUST BE SET TO false or NOT SET IT.
+# optional, default: false
+gateway: false
+
+# set to false if internal ECU doesn't have child ECU to serve.
+# optional, default: false
+enable_local_ota_proxy: false
+
+# generally, we can only enable ota cache on the gateway ECU.
+# optional, default: false
+enable_local_ota_proxy_cache: false
+
+# the listen_addr of local_ota_proxy, if not presented, default to 0.0.0.0:8082
+# optional, default: "0.0.0.0", 8082 
+local_ota_proxy_listen_addr: "0.0.0.0"
+local_ota_proxy_listen_port: 8082
+"""
 import yaml
 import warnings
 from dataclasses import dataclass, fields
@@ -27,61 +69,33 @@ logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
-###### Example proxy_info.yaml for different scenario ######
-##                       mainecu                          ##
-# for mainecu, proxy_info.yaml is not needed, the following
-# DEFAULT_PROXY_INFO will be used.
-# we should treat the ecu with no proxy_info.yaml
-# as main ecu(as gateway), and enable ota_proxy without upper proxy.
-"""
+DEFAULT_MAIN_ECU_PROXY_INFO = """
 enable_local_ota_proxy: true
 gateway: true
-enable_local_ota_proxy_cache: true
 """
-
-##                        internal ecu                    ##
-# for internal ecu that doesn't have direct internet connection,
-# the following is the template configuration for it.
-"""
-# internal ecu is not the gateway for the local network.
-gateway: false
-
-# set to false if internal ECU doesn't have child ECU to serve.
-enable_local_ota_proxy: false
-
-# typically, we can only enable ota cache on the gateway ECU.
-enable_local_ota_proxy_cache: false
-
-# for internal ECU, upper_ota_proxy is required,
-# internal ECU will use this proxy to request for ota update.
-# upper ota proxy must be an HTTP URL.
-upper_ota_proxy: <upper_ota_proxy_URL: str>
-
-# the listen_addr of local_ota_proxy, if not presented, default to 0.0.0.0:8082
-local_ota_proxy_listen_addr: "0.0.0.0"
-local_ota_proxy_listen_port: 8082
-"""
-######
 
 
 @dataclass
 class ProxyInfo:
     """OTA-proxy configuration.
 
-    NOTE: all the default values are for mainECU!
+    NOTE(20221216): for mainECU, if proxy_info.yaml is not presented,
+                    a default _DEFAULT_MAIN_ECU_PROXY_INFO will be used!
     Attributes:
         enable_local_ota_proxy: whether to launch a local ota_proxy server, default is True.
         gateway: (only valid when enable_local_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
-            sends out the requests, default is True.
+            sends out the requests, default is False.
         enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy, default is True.
         local_ota_proxy_listen_addr: default is "0.0.0.0".
         local_ota_proxy_listen_port: default is 8082.
         upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain), default is None(no upper proxy).
     """
 
+    # NOTE(20221216): gateway=False is default setting for subECUs
+    gateway: bool = False
+
+    # common default settings for both main ECU and sub ECUs
     enable_local_ota_proxy: bool = True
-    gateway: bool = True
-    # to be compatible with mainECU
     enable_local_ota_proxy_cache: bool = True
     upper_ota_proxy: str = ""
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
@@ -113,9 +127,10 @@ def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
         assert isinstance(_loaded, Dict)
     except (FileNotFoundError, AssertionError):
         logger.warning(
-            f"failed to load {proxy_info_file=} or config file corrupted, use default config"
+            f"failed to load {proxy_info_file=} or config file corrupted, "
+            "use default main ECU config"
         )
-        _loaded = dict()
+        _loaded = yaml.safe_load(DEFAULT_MAIN_ECU_PROXY_INFO)
 
     # load options
     # NOTE: if option is not presented,
@@ -126,7 +141,8 @@ def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
         if not isinstance(_option, _field.type):
             if _option is not None:
                 logger.warning(
-                    f"{_field.name} contains invalid value={_option}, ignored and set to default={_field.default}"
+                    f"{_field.name} contains invalid value={_option}, "
+                    f"ignored and set to default={_field.default}"
                 )
             _proxy_info_dict[_field.name] = _field.default
             continue
