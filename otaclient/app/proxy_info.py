@@ -52,7 +52,7 @@ enable_local_ota_proxy: true
 enable_local_ota_proxy_cache: true
 
 # the listen_addr of local_ota_proxy, if not presented, default to 0.0.0.0:8082
-# optional, default: "0.0.0.0", 8082 
+# optional, default: "0.0.0.0", 8082
 local_ota_proxy_listen_addr: "0.0.0.0"
 local_ota_proxy_listen_port: 8082
 """
@@ -94,8 +94,8 @@ class ProxyInfo:
 
     # NOTE(20221216): gateway=False is default setting for subECUs
     gateway: bool = False
-    # NOTE(20221216): only main ECU can not set this value,
-    #                 for subECU, this value should be set
+    # NOTE(20221216): only main ECU can ignore this field,
+    #                 for subECU, this value MUST be set
     upper_ota_proxy: str = ""
 
     # common default settings for both main ECU and sub ECUs

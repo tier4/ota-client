@@ -29,19 +29,9 @@ PERCEPTION_ECU_PROXY_INFO: str = """
 gateway: false
 enable_local_ota_proxy: true
 upper_ota_proxy: "http://10.0.0.1:8082"
-enable_local_ota_proxy_cache: false
+enable_local_ota_proxy_cache: true
 """
 EMPTY_PROXY_INFO: str = ""
-
-# define all options as opposite to the default value
-FULL_PROXY_INFO: str = """
-enable_local_ota_proxy: false
-gateway: false
-upper_ota_proxy: "http://10.0.0.1:8082"
-enable_local_ota_proxy_cache: false
-local_ota_proxy_listen_addr: "10.0.0.2"
-local_ota_proxy_listen_port: 2808
-"""
 
 # corrupted yaml files that contains invalid value
 # all fields are asigned with invalid value,
@@ -56,54 +46,63 @@ local_ota_proxy_listen_port: "2808"
 """
 
 # check ProxyInfo for detail
-_DEFAULT: Dict[str, Any] = {
+_COMMON_DEFAULT_PARSED_CONFIGS: Dict[str, Any] = {
     "enable_local_ota_proxy": True,
-    "gateway": True,
     "enable_local_ota_proxy_cache": True,
-    "upper_ota_proxy": "",
     "local_ota_proxy_listen_addr": "0.0.0.0",
     "local_ota_proxy_listen_port": 8082,
+}
+_DEFAULT_PARSED_MAIN_ECU_CONFIGS: Dict[str, Any] = {
+    "enable_local_ota_proxy": True,
+    "gateway": True,
+    "upper_ota_proxy": "",
 }
 
 
 @pytest.mark.parametrize(
     "_input_yaml, _expected",
     (
+        # case 1: testing minimun main ECU proxy_info
         (
             MAINECU_PROXY_INFO,
             {
-                **_DEFAULT,
+                **_COMMON_DEFAULT_PARSED_CONFIGS,
                 **{
-                    "enable_local_ota_proxy": True,
                     "gateway": True,
+                    "upper_ota_proxy": "",
                 },
             },
         ),
+        # case 2: tesing typical sub ECU setting
         (
             PERCEPTION_ECU_PROXY_INFO,
             {
-                **_DEFAULT,
+                **_COMMON_DEFAULT_PARSED_CONFIGS,
                 **{
-                    "enable_local_ota_proxy": True,
                     "gateway": False,
                     "upper_ota_proxy": "http://10.0.0.1:8082",
-                    "enable_local_ota_proxy_cache": False,
                 },
             },
         ),
-        (EMPTY_PROXY_INFO, _DEFAULT),
+        # case 3: testing missing/invalid proxy_info.yaml
         (
-            FULL_PROXY_INFO,
+            "not a valid proxy_info.yaml",
             {
-                "enable_local_ota_proxy": False,
-                "gateway": False,
-                "enable_local_ota_proxy_cache": False,
-                "upper_ota_proxy": "http://10.0.0.1:8082",
-                "local_ota_proxy_listen_addr": "10.0.0.2",
-                "local_ota_proxy_listen_port": 2808,
+                **_COMMON_DEFAULT_PARSED_CONFIGS,
+                **_DEFAULT_PARSED_MAIN_ECU_CONFIGS,
             },
         ),
-        (CORRUPTED_PROXY_INFO, _DEFAULT),
+        # case 4: testing default settings against invalid fields
+        # NOTE: if proxy_info.yaml is valid yaml but fields are invalid,
+        #       default value settings will be applied
+        # NOTE 2: default value settings are for sub ECU
+        (
+            CORRUPTED_PROXY_INFO,
+            {
+                **_COMMON_DEFAULT_PARSED_CONFIGS,
+                **{"gateway": False, "upper_ota_proxy": ""},
+            },
+        ),
     ),
 )
 def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: Dict[str, Any]):
@@ -111,6 +110,6 @@ def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: Dict[str, Any])
 
     proxy_info_file = tmp_path / "proxy_info.yml"
     proxy_info_file.write_text(_input_yaml)
-    _proxy_info = parse_proxy_info(proxy_info_file)
+    _proxy_info = parse_proxy_info(str(proxy_info_file))
 
     assert asdict(_proxy_info) == _expected
