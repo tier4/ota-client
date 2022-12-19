@@ -169,56 +169,77 @@ See [OTA proxy](../ota_proxy/README.md) more details.
 
 ##### Entries
 
-- enable_local_ota_proxy (boolean, optional)
+- enable_local_ota_proxy (boolean, default=**true**)
 
   This field specifies whether OTA client uses local OTA proxy or not.
-  If this field is not specified, OTA client doesn't use local OTA proxy, it means OTA client connects to OTA server directly. If the local OTA proxy is enabled, the OTA client requests the local OTA proxy.
+  If this field is set to **true**, OTA client will not download remote OTA files using local OTA proxy, it means OTA client connects to remote OTA server directly. If the local OTA proxy is enabled, the OTA client requests the remote OTA files via the local OTA proxy.
 
-- upper_ota_proxy (string, optional)
+- upper_ota_proxy (string, default=**""**)
 
-  This field specifies the upper OTA proxy address to be accessed by the OTA client or local OTA proxy.
+  This field specifies the upper OTA proxy address to be use by the OTA client or local OTA proxy server. Only **HTTP** proxy is supported, like `http://192.168.20.11:8082`. If not set or set to `""`, not upper_ota_proxy will be used.
 
-  | `enable_local_ota_proxy` | `upper_ota_proxy` | who accesses    | where?              |
-  | :---:                    | :---:             | :---:           | :---:               |
-  | true                     | set               | local OTA proxy | `upper_ota_proxy`   |
-  | true                     | not set           | local OTA proxy | OTA server directly |
-  | false                    | set               | OTA client      | `upper_ota_proxy`   |
-  | false                    | not set           | OTA client      | OTA server directly |
+- gateway (boolean, default=**false**)
 
-  To specify the upper OTA proxy address, `http://192.168.20.11:8082` notation is used.
+  When the `enable_local_ota_proxy` field is true, this field specifies whether the **local OTA proxy** requests the remote OTA server directly with HTTPS or HTTP. If it is true or this config entry is not presented, HTTPS is used otherwise HTTP is used.  
+  Note that if the ECU can't access to the remote OTA server directly, the value **MUST** be set to false, `enable_local_ota_proxy` **MUST** be set to true to enable local OTA proxy server, and a valid `upper_ota_proxy` **MUST** be set for local OTA proxy server to connect to parent ECU's OTA proxy server.
 
-The configuration for local OTA proxy are as follows.
+- enable_local_ota_proxy_cache (boolean, default=**true**)
 
-- gateway (boolean, optional if `enable_local_ota_proxy` is true otherwise not required)
+  When the `enable_local_ota_proxy` field is true, this field specifies whether the local OTA proxy caches the requests and uses the local caches to satisify the requests or not. If it is true or this config entry is not set, the local cache is used otherwise not used.
 
-  When the `enable_local_ota_proxy` field is true, this field specifies whether the **local OTA proxy** requests the OTA server directly with HTTPS or HTTP. If it is true, HTTPS is used otherwise HTTP is used.  
-  If this field is not specified, HTTP is used.  
-  Note that if the ECU can't access to the OTA server directly, the value should be set to false.
+- local_ota_proxy_listen_addr (string, default=**"0.0.0.0"**)
 
-- enable_local_ota_proxy_cache (boolean, optional if `enable_local_ota_proxy` is true otherwise not required)
+  When the `enable_local_ota_proxy` field is true, this field specifies the listen address for local OTA proxy. If not specified, local OTA proxy will listen on **"0.0.0.0"**.
 
-  When the `enable_local_ota_proxy` field is true, this field specifies whether the local OTA proxy uses the local cache or not. If it is true, the local cache is used otherwise not used.  
-  If this field is not specified, the local cache is used.
+- local_ota_proxy_listen_port (integer, default=**8082**)
 
-- local_ota_proxy_listen_addr (string, optional if `enable_local_ota_proxy` is true otherwise not required)
+  When the `enable_local_ota_proxy` field is true, this field specifies the listen port for local OTA proxy. If not specified, port **8082** will be used.
 
-  When the `enable_local_ota_proxy` field is true, this field specifies the listen address for local OTA proxy.  
-  If this field is not specified, "0.0.0.0" is used.
+##### NOTE about OTA client behavior under different combination of `enable_local_ota_proxy` and `upper_ota_proxy` setting
 
-- local_ota_proxy_listen_port (integer, optional if `enable_local_ota_proxy` is true otherwise not required)
+The behavior of OTA client under different `enable_local_ota_proxy` and `upper_ota_proxy` setting is as follow:
 
-  When the `enable_local_ota_proxy` field is true, this field specifies the listen port for local OTA proxy.  
-  If this field is not specified, 8082 is used.
+| `enable_local_ota_proxy` | `upper_ota_proxy`   | `behavior`                          |
+| ---:                     | ---:                | ---                                 |
+| (unset, default=false)   | (unset, default="") | OTA client directly connects to remote without any proxy |
+| true                     | set                 | OTA client connects to remote via OTA proxy, and local OTA proxy itself also uses `upper_ota_proxy` to connect to remote |
+| true                     | (unset, default="") | OTA client connects to remote via OTA proxy, and local OTA proxy OTA connects to remote directly |
+| false                    | set                 | OTA client connects to remote via `upper_ota_proxy`, local OTA proxy is not enabled and not used |
+| false                    | not set             | OTA client directly connects to remote without any proxy |
 
-##### The default setting
+##### Note about the behavior when no `proxy_info.yaml` is presented
 
-If proxy_info.yaml doesn't exist, the default setting is used as follows:
+If proxy_info.yaml doesn't exist, the default `proxy_info.yaml` will be used as follow:
 
-- enable_local_ota_proxy
-  - true
+```yaml
+enable_local_ota_proxy: true
+gateway: true
+```
 
-- gateway
-  - true
+#### Example default `proxy_info.yaml` for main ECU
+
+The main ECU defined here is responsible to provide OTA proxy for all child and sub child ECUs to connect to the remote OTA server.
+
+```yaml
+# local OTA proxy for main ECU also provides proxy service for all child/sub child ECUs
+enable_local_ota_proxy: true
+# for main ECU that directly connects to the Internet, HTTPS should be used, so set gateway=true
+gateway: true
+```
+
+#### Example default `proxy_info.yaml` for sub ECU
+
+The sub ECU defines here is which has at least one parent ECU and cannot connect the Internet directly.
+
+```yaml
+# local OTA proxy MUST be enabled to serve local OTA client(or together with the child ECUs)
+enable_local_ota_proxy: true
+# a valid upper_ota_proxy MUST be set for local OTA proxy to connect to remote as sub ECU cannot
+# directly connect the Internet
+upper_ota_proxy: "http://192.168.20.11:8082"
+# optional: if the sub ECU's disk is not so fast(like USB device), local OTA proxy cache can be disabled
+# enable_local_ota_proxy_cache: false
+```
 
 ### python packages installation
 
