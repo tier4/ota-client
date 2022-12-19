@@ -237,11 +237,28 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.path.relative_to("/")}')
                 )
-                async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
-                    hash_f = sha256()
-                    async for data, _ in resp.content.iter_chunks():
-                        hash_f.update(data)
-                    assert hash_f.hexdigest() == entry.sha256hash
+                _retry_count_for_exceed_hard_limit = 0
+                # NOTE: for space_availability==exceed_hard_limit,
+                #       it is normal that transition is interrupted when
+                #       space_availability transfered from below_hard_limit to exceed_hard_limit.
+                #       Another try is allowed for this case.
+                while True:
+                    async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
+                        hash_f = sha256()
+                        async for data, _ in resp.content.iter_chunks():
+                            hash_f.update(data)
+
+                        try:
+                            assert hash_f.hexdigest() == entry.sha256hash
+                            break
+                        except AssertionError:
+                            _retry_count_for_exceed_hard_limit += 1
+                            if (
+                                self.space_availability == "exceed_hard_limit"
+                                and _retry_count_for_exceed_hard_limit <= 1
+                            ):
+                                continue
+                            raise
 
     async def test_multiple_clients_download_ota_image(self, parse_regulars):
         """Test multiple client download the whole ota image simultaneously."""
