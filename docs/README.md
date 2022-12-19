@@ -203,13 +203,13 @@ The behavior of OTA client under different `enable_local_ota_proxy` and `upper_o
 | ---:                     | ---:                | ---                                 |
 | (unset, default=false)   | (unset, default="") | OTA client directly connects to remote without any proxy |
 | true                     | set                 | OTA client connects to remote via OTA proxy, and local OTA proxy itself also uses `upper_ota_proxy` to connect to remote |
-| true                     | (unset, default="") | OTA client connects to remote via OTA proxy, and local OTA proxy OTA connects to remote directly |
+| true                     | (unset, default="") | OTA client connects to remote via OTA proxy, and local OTA proxy connects to remote directly |
 | false                    | set                 | OTA client connects to remote via `upper_ota_proxy`, local OTA proxy is not enabled and not used |
 | false                    | not set             | OTA client directly connects to remote without any proxy |
 
 ##### Note about the behavior when no `proxy_info.yaml` is presented
 
-If proxy_info.yaml doesn't exist, the default `proxy_info.yaml` will be used as follow:
+If proxy_info.yaml doesn't exist, OTA client is expected to running on main ECU(or equivalent that directly connects to the Internet), the default `proxy_info.yaml` will be used as follow:
 
 ```yaml
 enable_local_ota_proxy: true
@@ -229,10 +229,13 @@ gateway: true
 
 #### Example default `proxy_info.yaml` for sub ECU
 
-The sub ECU defines here is which has at least one parent ECU and cannot connect the Internet directly.
+The sub ECU defines here is which has at least one parent ECU and cannot connect the Internet directly. The sub ECU requires at least one upper OTA client that provides OTA proxy, and download OTA files via this upper proxy.
+
+If this sub ECU also serves sub ECUs, the OTA proxy for this sub ECU MUST be enabled to provide OTA proxy for its sub ECUs(and subsub ECUs if any).
 
 ```yaml
-# local OTA proxy MUST be enabled to serve local OTA client(or together with the child ECUs)
+# local OTA proxy Must be enabled if the sub ECU also serves child ECUs, 
+# should be enabled if local OTA files cache is needed.
 enable_local_ota_proxy: true
 # a valid upper_ota_proxy MUST be set for local OTA proxy to connect to remote as sub ECU cannot
 # directly connect the Internet
