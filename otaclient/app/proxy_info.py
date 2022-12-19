@@ -14,47 +14,8 @@
 
 
 """Proxy setting parsing.
-###### Example proxy_info.yaml for different scenario ######
-## --------------------- mainecu --------------------- ##
-# for mainecu, proxy_info.yaml is not needed, the following
-# DEFAULT_PROXY_INFO will be used.
-# we should treat the ecu with no proxy_info.yaml
-# as main ecu(as gateway), and enable ota_proxy without upper proxy.
 
-enable_local_ota_proxy: true
-gateway: true
-enable_local_ota_proxy_cache: true
-
-
-## --------------------- internal ecu --------------------- ##
-# for internal ecu, that doesn't have direct internet connection,
-# proxy_info.yaml must be presented.
-# the following is the default configuration for it.
-
-# for internal ECU, upper_ota_proxy is required,
-# internal ECU will use this proxy to request for ota update.
-# upper ota proxy must be an HTTP URL.
-# required if internal ECU cannot directly connect to the Internet.
-upper_ota_proxy: <upper_ota_proxy_URL: str>
-
-# internal ecu is not the gateway for the local network,
-# MUST BE SET TO false or NOT SET IT.
-# optional, default: false
-gateway: false
-
-# enable the local otaproxy, should be true for sub ECU to connect
-# to the Internet via main ECU.
-# optional, default: true
-enable_local_ota_proxy: true
-
-# enable ota cache, otaproxy will cache the requested files.
-# optional, default: true
-enable_local_ota_proxy_cache: true
-
-# the listen_addr of local_ota_proxy, if not presented, default to 0.0.0.0:8082
-# optional, default: "0.0.0.0", 8082
-local_ota_proxy_listen_addr: "0.0.0.0"
-local_ota_proxy_listen_port: 8082
+check docs/README.md for more details.
 """
 import yaml
 import warnings
@@ -83,26 +44,25 @@ class ProxyInfo:
     NOTE(20221216): for mainECU, if proxy_info.yaml is not presented,
                     a default _DEFAULT_MAIN_ECU_PROXY_INFO will be used!
     Attributes:
-        enable_local_ota_proxy: whether to launch a local ota_proxy server, default is True.
-        gateway: (only valid when enable_local_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
-            sends out the requests, default is False.
-        enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy, default is True.
-        local_ota_proxy_listen_addr: default is "0.0.0.0".
-        local_ota_proxy_listen_port: default is 8082.
-        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain), default is None.
+        enable_local_ota_proxy: whether to launch a local ota_proxy server.
+        enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy.
+        gateway: whether to use HTTPS when local ota_proxy connects to remote.
+        local_ota_proxy_listen_addr: ipaddr ota_proxy listens on.
+        local_ota_proxy_listen_port: port ota_proxy used.
+        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain).
     """
 
-    # NOTE(20221216): gateway=False is default setting for subECUs
+    # NOTE(20221219): the default values for the following settings
+    #                 now align with v2.5.4
     gateway: bool = False
-    # NOTE(20221216): only main ECU can ignore this field,
-    #                 for subECU, this value MUST be set
     upper_ota_proxy: str = ""
-
-    # common default settings for both main ECU and sub ECUs
-    enable_local_ota_proxy: bool = True
-    enable_local_ota_proxy_cache: bool = True
+    enable_local_ota_proxy: bool = False
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
     local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
+    # NOTE: this field not presented in v2.5.4,
+    #       for current implementation, it should be default to True.
+    #       This field doesn't take effect if enable_local_ota_proxy is False
+    enable_local_ota_proxy_cache: bool = True
 
     # for maintaining compatibility, will be removed in the future
     # Dict[str, str]: <old_option_name> -> <new_option_name>

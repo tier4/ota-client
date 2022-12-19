@@ -21,22 +21,22 @@ from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-MAINECU_PROXY_INFO: str = """
+DEFAULT_MAINECU_PROXY_INFO = """
 enable_local_ota_proxy: true
 gateway: true
 """
-PERCEPTION_ECU_PROXY_INFO: str = """
+
+PERCEPTION_ECU_PROXY_INFO = """
 gateway: false
 enable_local_ota_proxy: true
 upper_ota_proxy: "http://10.0.0.1:8082"
 enable_local_ota_proxy_cache: true
 """
-EMPTY_PROXY_INFO: str = ""
 
 # corrupted yaml files that contains invalid value
 # all fields are asigned with invalid value,
 # invalid field should be replaced by default value.
-CORRUPTED_PROXY_INFO: str = """
+CORRUPTED_PROXY_INFO = """
 enable_local_ota_proxy: dafef
 gateway: 123
 upper_ota_proxy: true
@@ -45,17 +45,14 @@ local_ota_proxy_listen_addr: 123
 local_ota_proxy_listen_port: "2808"
 """
 
-# check ProxyInfo for detail
-_COMMON_DEFAULT_PARSED_CONFIGS: Dict[str, Any] = {
-    "enable_local_ota_proxy": True,
+# NOTE: check docs/README.md for details
+DEFAULT_SETTINGS_FOR_PROXY_INFO = {
+    "gateway": False,
+    "upper_ota_proxy": "",
+    "enable_local_ota_proxy": False,
     "enable_local_ota_proxy_cache": True,
     "local_ota_proxy_listen_addr": "0.0.0.0",
     "local_ota_proxy_listen_port": 8082,
-}
-_DEFAULT_PARSED_MAIN_ECU_CONFIGS: Dict[str, Any] = {
-    "enable_local_ota_proxy": True,
-    "gateway": True,
-    "upper_ota_proxy": "",
 }
 
 
@@ -64,32 +61,38 @@ _DEFAULT_PARSED_MAIN_ECU_CONFIGS: Dict[str, Any] = {
     (
         # case 1: testing minimun main ECU proxy_info
         (
-            MAINECU_PROXY_INFO,
+            DEFAULT_MAINECU_PROXY_INFO,
             {
-                **_COMMON_DEFAULT_PARSED_CONFIGS,
-                **{
-                    "gateway": True,
-                    "upper_ota_proxy": "",
-                },
+                "gateway": True,
+                "upper_ota_proxy": "",
+                "enable_local_ota_proxy": True,
+                "enable_local_ota_proxy_cache": True,
+                "local_ota_proxy_listen_addr": "0.0.0.0",
+                "local_ota_proxy_listen_port": 8082,
             },
         ),
         # case 2: tesing typical sub ECU setting
         (
             PERCEPTION_ECU_PROXY_INFO,
             {
-                **_COMMON_DEFAULT_PARSED_CONFIGS,
-                **{
-                    "gateway": False,
-                    "upper_ota_proxy": "http://10.0.0.1:8082",
-                },
+                "gateway": False,
+                "upper_ota_proxy": "http://10.0.0.1:8082",
+                "enable_local_ota_proxy": True,
+                "enable_local_ota_proxy_cache": True,
+                "local_ota_proxy_listen_addr": "0.0.0.0",
+                "local_ota_proxy_listen_port": 8082,
             },
         ),
         # case 3: testing missing/invalid proxy_info.yaml
         (
             "not a valid proxy_info.yaml",
             {
-                **_COMMON_DEFAULT_PARSED_CONFIGS,
-                **_DEFAULT_PARSED_MAIN_ECU_CONFIGS,
+                "gateway": True,
+                "upper_ota_proxy": "",
+                "enable_local_ota_proxy": True,
+                "enable_local_ota_proxy_cache": True,
+                "local_ota_proxy_listen_addr": "0.0.0.0",
+                "local_ota_proxy_listen_port": 8082,
             },
         ),
         # case 4: testing default settings against invalid fields
@@ -98,10 +101,7 @@ _DEFAULT_PARSED_MAIN_ECU_CONFIGS: Dict[str, Any] = {
         # NOTE 2: default value settings are for sub ECU
         (
             CORRUPTED_PROXY_INFO,
-            {
-                **_COMMON_DEFAULT_PARSED_CONFIGS,
-                **{"gateway": False, "upper_ota_proxy": ""},
-            },
+            DEFAULT_SETTINGS_FOR_PROXY_INFO,
         ),
     ),
 )
