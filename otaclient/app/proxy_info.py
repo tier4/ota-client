@@ -13,6 +13,10 @@
 # limitations under the License.
 
 
+"""Proxy setting parsing.
+
+check docs/README.md for more details.
+"""
 import yaml
 import warnings
 from dataclasses import dataclass, fields
@@ -27,65 +31,42 @@ logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
-###### Example proxy_info.yaml for different scenario ######
-##                       mainecu                          ##
-# for mainecu, proxy_info.yaml is not needed, the following
-# DEFAULT_PROXY_INFO will be used.
-# we should treat the ecu with no proxy_info.yaml
-# as main ecu(as gateway), and enable ota_proxy without upper proxy.
-"""
+
+PRE_DEFINED_PROXY_INFO_YAML = """
 enable_local_ota_proxy: true
 gateway: true
-enable_local_ota_proxy_cache: true
 """
-
-##                        internal ecu                    ##
-# for internal ecu that doesn't have direct internet connection,
-# the following is the template configuration for it.
-"""
-# internal ecu is not the gateway for the local network.
-gateway: false
-
-# set to false if internal ECU doesn't have child ECU to serve.
-enable_local_ota_proxy: false
-
-# typically, we can only enable ota cache on the gateway ECU.
-enable_local_ota_proxy_cache: false
-
-# for internal ECU, upper_ota_proxy is required,
-# internal ECU will use this proxy to request for ota update.
-# upper ota proxy must be an HTTP URL.
-upper_ota_proxy: <upper_ota_proxy_URL: str>
-
-# the listen_addr of local_ota_proxy, if not presented, default to 0.0.0.0:8082
-local_ota_proxy_listen_addr: "0.0.0.0"
-local_ota_proxy_listen_port: 8082
-"""
-######
 
 
 @dataclass
 class ProxyInfo:
     """OTA-proxy configuration.
 
-    NOTE: all the default values are for mainECU!
+    NOTE 1(20221220): when proxy_info.yaml is missing/not a valid yaml,
+                      a pre_defined proxy_info.yaml as follow will be used.
+    NOTE 2(20221220): when a config field is missing/assigned with invalid value,
+                      default value will be applied.
+
     Attributes:
-        enable_local_ota_proxy: whether to launch a local ota_proxy server, default is True.
-        gateway: (only valid when enable_local_ota_proxy==true) whether to enforce HTTPS when local ota_proxy
-            sends out the requests, default is True.
-        enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy, default is True.
-        local_ota_proxy_listen_addr: default is "0.0.0.0".
-        local_ota_proxy_listen_port: default is 8082.
-        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain), default is None(no upper proxy).
+        enable_local_ota_proxy: whether to launch a local ota_proxy server.
+        enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy.
+        gateway: whether to use HTTPS when local ota_proxy connects to remote.
+        local_ota_proxy_listen_addr: ipaddr ota_proxy listens on.
+        local_ota_proxy_listen_port: port ota_proxy used.
+        upper_ota_proxy: the upper proxy used by local ota_proxy(proxy chain).
     """
 
-    enable_local_ota_proxy: bool = True
-    gateway: bool = True
-    # to be compatible with mainECU
-    enable_local_ota_proxy_cache: bool = True
+    # NOTE(20221219): the default values for the following settings
+    #                 now align with v2.5.4
+    gateway: bool = False
     upper_ota_proxy: str = ""
+    enable_local_ota_proxy: bool = False
     local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
     local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
+    # NOTE: this field not presented in v2.5.4,
+    #       for current implementation, it should be default to True.
+    #       This field doesn't take effect if enable_local_ota_proxy is False
+    enable_local_ota_proxy_cache: bool = True
 
     # for maintaining compatibility, will be removed in the future
     # Dict[str, str]: <old_option_name> -> <new_option_name>
@@ -113,9 +94,10 @@ def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
         assert isinstance(_loaded, Dict)
     except (FileNotFoundError, AssertionError):
         logger.warning(
-            f"failed to load {proxy_info_file=} or config file corrupted, use default config"
+            f"failed to load {proxy_info_file=} or config file corrupted, "
+            "use default main ECU config"
         )
-        _loaded = dict()
+        _loaded = yaml.safe_load(PRE_DEFINED_PROXY_INFO_YAML)
 
     # load options
     # NOTE: if option is not presented,
@@ -126,7 +108,8 @@ def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
         if not isinstance(_option, _field.type):
             if _option is not None:
                 logger.warning(
-                    f"{_field.name} contains invalid value={_option}, ignored and set to default={_field.default}"
+                    f"{_field.name} contains invalid value={_option}, "
+                    f"ignored and set to default={_field.default}"
                 )
             _proxy_info_dict[_field.name] = _field.default
             continue
