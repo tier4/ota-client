@@ -21,22 +21,33 @@ from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAINECU_PROXY_INFO = """
+# pre-defined proxy_info.yaml for when
+# proxy_info.yaml is missing/not found
+PRE_DEFINED_PROXY_INFO_YAML = """
 enable_local_ota_proxy: true
 gateway: true
 """
+# parsed pre-defined proxy_info.yaml
+PARSED_PRE_DEFINED_PROXY_INFO_DICT = {
+    "gateway": True,
+    "upper_ota_proxy": "",
+    "enable_local_ota_proxy": True,
+    "enable_local_ota_proxy_cache": True,
+    "local_ota_proxy_listen_addr": "0.0.0.0",
+    "local_ota_proxy_listen_port": 8082,
+}
 
-PERCEPTION_ECU_PROXY_INFO = """
+PERCEPTION_ECU_PROXY_INFO_YAML = """
 gateway: false
 enable_local_ota_proxy: true
 upper_ota_proxy: "http://10.0.0.1:8082"
 enable_local_ota_proxy_cache: true
 """
 
-# corrupted yaml files that contains invalid value
-# all fields are asigned with invalid value,
-# invalid field should be replaced by default value.
-CORRUPTED_PROXY_INFO = """
+# Bad configured yaml file that contains invalid value.
+# All fields are assigned with invalid value,
+# all invalid fields should be replaced by default value.
+BAD_CONFIGURED_PROXY_INFO_YAML = """
 enable_local_ota_proxy: dafef
 gateway: 123
 upper_ota_proxy: true
@@ -45,8 +56,9 @@ local_ota_proxy_listen_addr: 123
 local_ota_proxy_listen_port: "2808"
 """
 
+# default setting for each config fields
 # NOTE: check docs/README.md for details
-DEFAULT_SETTINGS_FOR_PROXY_INFO = {
+DEFAULT_SETTINGS_FOR_PROXY_INFO_DICT = {
     "gateway": False,
     "upper_ota_proxy": "",
     "enable_local_ota_proxy": False,
@@ -59,21 +71,16 @@ DEFAULT_SETTINGS_FOR_PROXY_INFO = {
 @pytest.mark.parametrize(
     "_input_yaml, _expected",
     (
-        # case 1: testing minimun main ECU proxy_info
+        # case 1: testing when proxy_info.yaml is missing
+        # this case is for single ECU that doesn't have proxy_info.yaml and
+        # can directly connect to the remote
         (
-            DEFAULT_MAINECU_PROXY_INFO,
-            {
-                "gateway": True,
-                "upper_ota_proxy": "",
-                "enable_local_ota_proxy": True,
-                "enable_local_ota_proxy_cache": True,
-                "local_ota_proxy_listen_addr": "0.0.0.0",
-                "local_ota_proxy_listen_port": 8082,
-            },
+            PRE_DEFINED_PROXY_INFO_YAML,
+            PARSED_PRE_DEFINED_PROXY_INFO_DICT,
         ),
         # case 2: tesing typical sub ECU setting
         (
-            PERCEPTION_ECU_PROXY_INFO,
+            PERCEPTION_ECU_PROXY_INFO_YAML,
             {
                 "gateway": False,
                 "upper_ota_proxy": "http://10.0.0.1:8082",
@@ -83,25 +90,22 @@ DEFAULT_SETTINGS_FOR_PROXY_INFO = {
                 "local_ota_proxy_listen_port": 8082,
             },
         ),
-        # case 3: testing missing/invalid proxy_info.yaml
+        # case 3: testing invalid/corrupted proxy_info.yaml
+        # If the proxy_info.yaml is not a yaml, otaclient will also treat
+        # this case the same as proxy_info.yaml missing, the pre-defined
+        # proxy_info.yaml will be used.
         (
             "not a valid proxy_info.yaml",
-            {
-                "gateway": True,
-                "upper_ota_proxy": "",
-                "enable_local_ota_proxy": True,
-                "enable_local_ota_proxy_cache": True,
-                "local_ota_proxy_listen_addr": "0.0.0.0",
-                "local_ota_proxy_listen_port": 8082,
-            },
+            PARSED_PRE_DEFINED_PROXY_INFO_DICT,
         ),
         # case 4: testing default settings against invalid fields
+        # all config fields are expected to be assigned with default setting.
         # NOTE: if proxy_info.yaml is valid yaml but fields are invalid,
-        #       default value settings will be applied
-        # NOTE 2: default value settings are for sub ECU
+        #       default value settings will be applied.
+        # NOTE 2: not the same as [case1: proxy_info.yaml missing/corrupted]!
         (
-            CORRUPTED_PROXY_INFO,
-            DEFAULT_SETTINGS_FOR_PROXY_INFO,
+            BAD_CONFIGURED_PROXY_INFO_YAML,
+            DEFAULT_SETTINGS_FOR_PROXY_INFO_DICT,
         ),
     ),
 )

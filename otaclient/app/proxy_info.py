@@ -31,7 +31,8 @@ logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
-DEFAULT_MAIN_ECU_PROXY_INFO = """
+
+PRE_DEFINED_PROXY_INFO_YAML = """
 enable_local_ota_proxy: true
 gateway: true
 """
@@ -41,8 +42,11 @@ gateway: true
 class ProxyInfo:
     """OTA-proxy configuration.
 
-    NOTE(20221216): for mainECU, if proxy_info.yaml is not presented,
-                    a default _DEFAULT_MAIN_ECU_PROXY_INFO will be used!
+    NOTE 1(20221220): when proxy_info.yaml is missing/not a valid yaml,
+                      a pre_defined proxy_info.yaml as follow will be used.
+    NOTE 2(20221220): when a config field is missing/assigned with invalid value,
+                      default value will be applied.
+
     Attributes:
         enable_local_ota_proxy: whether to launch a local ota_proxy server.
         enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy.
@@ -93,7 +97,7 @@ def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
             f"failed to load {proxy_info_file=} or config file corrupted, "
             "use default main ECU config"
         )
-        _loaded = yaml.safe_load(DEFAULT_MAIN_ECU_PROXY_INFO)
+        _loaded = yaml.safe_load(PRE_DEFINED_PROXY_INFO_YAML)
 
     # load options
     # NOTE: if option is not presented,
