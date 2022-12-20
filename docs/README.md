@@ -38,6 +38,14 @@ OTA client is licensed under the Apache License, Version 2.0.
   - pip
   - setuptools
 
+### Dependency installation
+
+```bash
+sudo python3.8 -m pip install -r otaclient/requirements.txt
+```
+
+Note that OTA client is run with super user privileges so `sudo` is required for the above command.
+
 ### Partitioning
 
 For the GRUB system, the disk is partitioned as follows:
@@ -69,7 +77,7 @@ In this example, A(=active) partition is sda2 and B(=standby) partition is sda3.
 And `/boot` partition is shared by A/B partitions.
 Note that the disk and the sector size depend on the system, but the size of A and B should be the same, basically.
 
-### Configurations
+## OTA client Configurations
 
 OTA client can update a single ECU or multiple ECUs and is installed for each ECU.
 There are two types of ECU, Main ECU - receives user request, Secondary ECUs - receive request from Main ECU. One or multiple Secondary ECUs can also have Secondary ECUs.
@@ -98,15 +106,15 @@ Secondary ECU A, B and C are connected to Main ECU, and D, E, F are connected to
 +------------------------------------------------------------------+
 ```
 
-#### ecu\_info.yaml
+### ecu\_info.yaml
 
 ecu_info.yaml is the setting file for ECU configuration.
 
-##### File path
+#### File path
 
 /boot/ota/ecu_info.yaml
 
-##### Entries
+#### Entries
 
 - format_version (string, required)
 
@@ -144,7 +152,7 @@ ecu_info.yaml is the setting file for ECU configuration.
 
   `secondaries` lists the directly connected children ECUs, available_ecu_ids consists of all children ECU ids(including directly connected, indirectly connected and itself).
 
-##### The default setting
+#### The default setting
 
 If ecu_info.yaml doesn't exist, the default setting is used as follows:
 
@@ -154,7 +162,7 @@ If ecu_info.yaml doesn't exist, the default setting is used as follows:
 - ecu_id
   - "autoware"
 
-#### proxy\_info.yaml
+### proxy\_info.yaml
 
 proxy_info.yaml is the setting file for OTA proxy configuration.
 
@@ -163,11 +171,11 @@ Whether OTA proxy access the OTA server directly or indirectly depends on the co
 
 See [OTA proxy](../ota_proxy/README.md) more details.
 
-##### File path
+#### File path
 
 /boot/ota/proxy_info.yaml
 
-##### Entries
+#### Entries
 
 - enable_local_ota_proxy (boolean, default=**true**)
 
@@ -195,28 +203,19 @@ See [OTA proxy](../ota_proxy/README.md) more details.
 
   When the `enable_local_ota_proxy` field is true, this field specifies the listen port for local OTA proxy. If not specified, port **8082** will be used.
 
-##### NOTE about OTA client behavior under different combination of `enable_local_ota_proxy` and `upper_ota_proxy` setting
+#### NOTE about OTA client behavior under different combination of `enable_local_ota_proxy` and `upper_ota_proxy` setting
 
 The behavior of OTA client under different `enable_local_ota_proxy` and `upper_ota_proxy` setting is as follow:
 
 | `enable_local_ota_proxy` | `upper_ota_proxy`   | `behavior`                          |
-| ---:                     | ---:                | ---                                 |
+| :---:                     | :---:                | ---                                 |
 | (unset, default=false)   | (unset, default="") | OTA client directly connects to remote without any proxy |
 | true                     | set                 | OTA client connects to remote via OTA proxy, and local OTA proxy itself also uses `upper_ota_proxy` to connect to remote |
 | true                     | (unset, default="") | OTA client connects to remote via OTA proxy, and local OTA proxy connects to remote directly |
 | false                    | set                 | OTA client connects to remote via `upper_ota_proxy`, local OTA proxy is not enabled and not used |
 | false                    | not set             | OTA client directly connects to remote without any proxy |
 
-##### Note about the behavior when no `proxy_info.yaml` is presented
-
-If proxy_info.yaml doesn't exist, OTA client is expected to running on main ECU(or equivalent that directly connects to the Internet), the default `proxy_info.yaml` will be used as follow:
-
-```yaml
-enable_local_ota_proxy: true
-gateway: true
-```
-
-#### Example default `proxy_info.yaml` for main ECU
+#### Example `proxy_info.yaml` for main ECU
 
 The main ECU defined here is responsible to provide OTA proxy for all child and sub child ECUs to connect to the remote OTA server.
 
@@ -227,7 +226,7 @@ enable_local_ota_proxy: true
 gateway: true
 ```
 
-#### Example default `proxy_info.yaml` for sub ECU
+#### Example `proxy_info.yaml` for sub ECU
 
 The sub ECU defines here is which has at least one parent ECU and cannot connect the Internet directly. The sub ECU requires at least one upper OTA client that provides OTA proxy, and download OTA files via this upper proxy.
 
@@ -244,13 +243,14 @@ upper_ota_proxy: "http://192.168.20.11:8082"
 # enable_local_ota_proxy_cache: false
 ```
 
-### python packages installation
+### Note about the behavior when `proxy_info.yaml` is missing
 
-```bash
-sudo python3.8 -m pip install -r app/requirements.txt
+If `proxy_info.yaml` file is missing/not found, OTA client is expected to running on main ECU(or equivalent that directly connects to the Internet), a pre-defined `proxy_info.yaml` will be used as follow:
+
+```yaml
+enable_local_ota_proxy: true
+gateway: true
 ```
-
-Note that OTA client is run with super user privileges so `sudo` is required for the above command.
 
 ## OTA image generation
 
