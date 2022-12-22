@@ -526,13 +526,17 @@ class RemoteOTAFile:
         """
         try:
             async for chunk in self._fd:
+                if not chunk:  # skip if empty chunk is read
+                    continue
                 # to caching generator
-                if not self._tracker.writer_failed or not self._tracker.writer_finished:
+                if not self._tracker.writer_finished:
                     try:
                         await cache_write_coroutine.asend(chunk)
                     except (Exception, StopAsyncIteration) as e:
                         await self._tracker.provider_on_failed()  # signal tracker
-                        logger.error(f"cache write coroutine failed, abort: {e!r}")
+                        logger.error(
+                            f"cache write coroutine failed for {self.meta=}, abort caching: {e!r}"
+                        )
                 # to uvicorn thread
                 yield chunk
             await self._tracker.provider_on_finished()  # signal tracker
