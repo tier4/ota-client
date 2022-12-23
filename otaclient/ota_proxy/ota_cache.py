@@ -144,6 +144,11 @@ class CacheTracker(Generic[_WEAKREF]):
             and not self._writer_failed.is_set()
         )
 
+    def get_cache_write_gen(self) -> AsyncGenerator[int, bytes]:
+        if not self._cache_write_gen:
+            raise ValueError("being called before provider is ready")
+        return self._cache_write_gen
+
     async def _provider_write_cache(
         self, *, storage_below_hard_limit: threading.Event
     ) -> AsyncGenerator[int, bytes]:
@@ -260,7 +265,7 @@ class CacheTracker(Generic[_WEAKREF]):
 
     async def provider_start(
         self, meta: CacheMeta, *, storage_below_hard_limit: threading.Event
-    ) -> AsyncGenerator[int, bytes]:
+    ):
         """Register meta to the Tracker, create tmp cache entry and get ready.
 
         Check _provider_write_cache for more details.
@@ -270,9 +275,6 @@ class CacheTracker(Generic[_WEAKREF]):
                 This meta is created by open_remote() method.
             storage_below_hard_limit: an inst of threading.Event indicates whether the
                 storage usage is below hard limit for allowing caching.
-
-        Returns:
-            An async generator that upper caller can use to send data chunks to.
         """
         self.meta = meta
         self._cache_write_gen = self._provider_write_cache(
@@ -280,8 +282,6 @@ class CacheTracker(Generic[_WEAKREF]):
         )
         await self._cache_write_gen.asend(None)  # type: ignore
         self._writer_ready.set()
-
-        return self._cache_write_gen
 
     async def provider_on_finished(self):
         if self._cache_write_gen:
@@ -512,9 +512,7 @@ class RemoteOTAFile:
         if not (self._base_dir / self.meta.sha256hash).is_file():
             self._tracker.fpath.link_to(self._base_dir / self.meta.sha256hash)
 
-    async def _cache_streamer(
-        self, cache_write_coroutine: AsyncGenerator[int, bytes]
-    ) -> AsyncIterator[bytes]:
+    async def _cache_streamer(self) -> AsyncIterator[bytes]:
         """For caller(server App) to yield data chunks from.
 
         This method yields data chunks from self._fd(opened remote connection),
@@ -525,13 +523,14 @@ class RemoteOTAFile:
             An AsyncIterator for upper caller to yield data chunks from.
         """
         try:
+            _cache_write_gen = self._tracker.get_cache_write_gen()
             async for chunk in self._fd:
                 if not chunk:  # skip if empty chunk is read
                     continue
                 # to caching generator
                 if not self._tracker.writer_finished:
                     try:
-                        await cache_write_coroutine.asend(chunk)
+                        await _cache_write_gen.asend(chunk)
                     except (Exception, StopAsyncIteration) as e:
                         await self._tracker.provider_on_failed()  # signal tracker
                         logger.error(
@@ -557,15 +556,12 @@ class RemoteOTAFile:
             A tuple of an AsyncIterator and CacheMeta for this RemoteOTAFile.
         """
         # bind the updated meta to tracker,
-        # start the tee_stream generator and become ready
-        _cache_write_generator = await self._tracker.provider_start(
+        # and make tracker ready
+        await self._tracker.provider_start(
             self.meta,
             storage_below_hard_limit=self._storage_below_hard_limit,
         )
-        return (
-            self._cache_streamer(_cache_write_generator),
-            self.meta,
-        )
+        return (self._cache_streamer(), self.meta)
 
 
 class OTACacheScrubHelper:
