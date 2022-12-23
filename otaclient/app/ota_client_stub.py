@@ -60,7 +60,7 @@ class OtaProxyWrapper:
 
         # configure logging for ota_proxy process
         log_setting.configure_logging(
-            loglevel=cfg.DEFAULT_LOG_LEVEL, http_logging_url="ota_proxy"
+            loglevel=cfg.DEFAULT_LOG_LEVEL, http_logging_url=log_setting.get_ecu_id()
         )
 
         async def _start_uvicorn(init_cache: bool, *, scrub_cache_event):
