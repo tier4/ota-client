@@ -696,7 +696,8 @@ class _FileDescriptorHelper:
                 # open the connection and update the CacheMeta
                 yield b""
                 async for data, _ in response.content.iter_chunks():
-                    yield data
+                    if data:  # only yield non-empty data chunk
+                        yield data
 
         # open remote connection
         await (_remote_fd := _inner()).__anext__()
