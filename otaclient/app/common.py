@@ -546,7 +546,9 @@ class RetryTaskMap(Generic[_T]):
                     logger.debug(f"{self.title} is shutdowned.")
                     return
                 _, _, _return_value = _fut.result()
-                yield _return_value
+                # NOTE: only yield when task finished successfully
+                if _return_value is not None:
+                    yield _return_value
 
             # this pass failed as some of the tasks are not finished,
             # prepare to retry
