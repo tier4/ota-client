@@ -224,7 +224,7 @@ class DeltaGenerator:
 
     def __init__(
         self,
-        old_reg: Path,  # path to old image regulars.txt, currently not used
+        delta_src_reg: Path,  # path to delta_src regulars.txt
         new_reg: Path,  # path to new image regulars.txt
         new_dirs: Path,  # path to dirs.txt
         *,
@@ -237,41 +237,44 @@ class DeltaGenerator:
         self._rm: List[str] = []
         self._new_dirs: OrderedDict[DirectoryInf, None] = OrderedDict()
         self._new_hash_list: Set[str] = set()
+        self._delta_src_path_hash_dict: Dict[str, str] = {}
 
         self._stats_collector = stats_collector
-        self._delta_src = delta_src
+        self._delta_src_mp = delta_src
         self._local_copy_dir = local_copy_dir
 
         self.total_regulars_num = 0
 
         # pre-load dirs list
-        self._parse_dirs_txt(new_dirs)
-        # pre-load from new regulars.txt
-        self._parse_reginf(new_reg)
-        # generate delta and prepare files
-        self.process_delta_src()
-
-    def _parse_reginf(self, reginf_file: Union[Path, str]) -> None:
-        with open(reginf_file, "r") as f:
-            for entry in map(RegularInf.parse_reginf, f):
-                self.total_regulars_num += 1
-                self._new.add_entry(entry)
-                self._new_hash_list.add(entry.sha256hash)
-        self._stats_collector.store.total_regular_files = self.total_regulars_num
-
-    def _parse_dirs_txt(self, new_dirs: Path) -> None:
         with open(new_dirs, "r") as f:
             for _dir in map(DirectoryInf, f):
                 self._new_dirs[_dir] = None
+        # pre-load from new regulars.txt
+        with open(new_reg, "r") as f:
+            for _entry in map(RegularInf.parse_reginf, f):
+                self.total_regulars_num += 1
+                self._new.add_entry(_entry)
+                self._new_hash_list.add(_entry.sha256hash)
+        self._stats_collector.store.total_regular_files = self.total_regulars_num
+        # pre-load delta src's reginf if presented
+        if Path(delta_src_reg).is_file():
+            with open(delta_src_reg, "r") as f:
+                for _entry in map(RegularInf.parse_reginf, f):
+                    self._delta_src_path_hash_dict[str(_entry.path)] = _entry.sha256hash
+
+        # generate delta and prepare files
+        self._process_delta_src()
 
     def _process_file_in_old_slot(
         self, fpath: Path, *, _hash: Optional[str] = None
     ) -> None:
-        if _hash is None:
-            _hash = file_sha256(fpath)
+        """Hash(and verify the file) and prepare a copy for it in standby slot."""
+        _fhash = file_sha256(fpath)
+        if _hash and _hash != _fhash:
+            return
 
         try:
-            self._new_hash_list.remove(_hash)
+            self._new_hash_list.remove(_fhash)
         except KeyError:
             # this hash has already been prepared
             return
@@ -279,7 +282,7 @@ class DeltaGenerator:
         # collect this entry as the hash existed in _new
         # and not yet being collected
         _start = time.thread_time_ns()
-        shutil.copy(fpath, self._local_copy_dir / _hash)
+        shutil.copy(fpath, self._local_copy_dir / _fhash)
 
         # report to the ota update stats collector
         self._stats_collector.report(
@@ -290,7 +293,7 @@ class DeltaGenerator:
             )
         )
 
-    def process_delta_src(self):
+    def _process_delta_src(self):
         _canonical_root = Path("/")
 
         # scan old slot and generate delta based on path,
@@ -301,24 +304,26 @@ class DeltaGenerator:
         # collect this file to the recycle folder if not yet being collected.
         with ThreadPoolExecutor(thread_name_prefix="scan_slot") as pool:
             for curdir, dirnames, filenames in os.walk(
-                self._delta_src, topdown=True, followlinks=False
+                self._delta_src_mp, topdown=True, followlinks=False
             ):
-                curdir_path = Path(curdir)
-                canonical_curdir_path = _canonical_root / curdir_path.relative_to(
-                    self._delta_src
+                delta_src_curdir_path = Path(curdir)
+                canonical_curdir_path = (
+                    _canonical_root
+                    / delta_src_curdir_path.relative_to(self._delta_src_mp)
                 )
 
                 # skip folder that exceeds max_folder_deepth,
                 # also add these folders to remove list
-                if len(curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
-                    logger.warning(f"reach max_folder_deepth on {curdir_path!r}, skip")
-                    self._rm.extend(map(lambda x: str(curdir_path / x), dirnames))
+                if len(delta_src_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
+                    logger.warning(
+                        f"reach max_folder_deepth on {delta_src_curdir_path!r}, skip"
+                    )
+                    self._rm.append(str(canonical_curdir_path))
                     dirnames.clear()
                     continue
 
                 # skip this folder if it doesn't exist on new image,
-                # add it to the remove list,
-                # and also not meant to be fully scanned.
+                # or also not meant to be fully scanned.
                 dir_should_skip = False
                 if (
                     canonical_curdir_path == _canonical_root
@@ -331,10 +336,10 @@ class DeltaGenerator:
                     if str(parent) in self.FULL_SCAN_PATHS:
                         dir_should_fully_scan = True
                         break
-
                 # should we totally skip folder and all its child folders?
+                # if so, discard it and add it to the remove list.
                 if dir_should_skip and not dir_should_fully_scan:
-                    self._rm.append(str(curdir_path / curdir))
+                    self._rm.append(str(canonical_curdir_path))
                     dirnames.clear()  # prune the search on all its subfolders
                     continue
 
@@ -342,43 +347,59 @@ class DeltaGenerator:
                 # and add these files to remove list
                 if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
                     logger.warning(
-                        f"reach max_filenum_per_folder on {curdir_path}, "
+                        f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                         "exceeded files will be ignored silently"
                     )
                     self._rm.extend(
                         map(
-                            lambda x: str(curdir_path / x),
+                            lambda x: str(canonical_curdir_path / x),
                             filenames[self.MAX_FILENUM_PER_FOLDER :],
                         )
                     )
 
                 futs: List[Future] = []
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
-                    fpath = curdir_path / fname
+                    delta_src_fpath = delta_src_curdir_path / fname
                     # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
                     canonical_fpath = canonical_curdir_path / fname
 
                     # ignore non-file file(include symlink)
                     # NOTE: for in-place update, we will recreate all the symlinks,
                     #       so we first remove all the symlinks
-                    if fpath.is_symlink() or not fpath.is_file():
-                        self._rm.append(str(fpath))
+                    if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
+                        self._rm.append(str(canonical_fpath))
                         continue
                     # in default match_only mode, if the path doesn't exist in new, ignore
                     if not dir_should_fully_scan and not self._new.contains_path(
                         canonical_fpath
                     ):
-                        self._rm.append(str(fpath))
+                        self._rm.append(str(canonical_fpath))
                         continue
 
-                    # scan and hash the file
-                    # TODO: if old_reg is available, only scan files that presented
-                    # in the old_reg in the full_scan folders,
-                    # TODO 2: hash can also be pre-loaded from old_reg
-                    futs.append(pool.submit(self._process_file_in_old_slot, fpath))
+                    # if delta_src meta is available, only process the file listed
+                    # in the delta_src meta, otherwise move it to rm_list
+                    if self._delta_src_path_hash_dict:
+                        if _hash := self._delta_src_path_hash_dict.get(
+                            str(canonical_fpath)
+                        ):
+                            futs.append(
+                                pool.submit(
+                                    self._process_file_in_old_slot,
+                                    delta_src_fpath,
+                                    _hash=_hash,
+                                )
+                            )
+                        else:
+                            self._rm.append(str(canonical_fpath))
+                    # delta_src meta is not available,
+                    # directly hash and collect the file
+                    else:
+                        futs.append(
+                            pool.submit(self._process_file_in_old_slot, delta_src_fpath)
+                        )
 
-                    # wait for all tasks to be finished
-                    wait(futs)
+                # wait for all tasks to be finished
+                wait(futs)
 
     def _files_to_be_downloaded(self) -> Iterator[RegularInf]:
         # calculate the files list that we should download from remote
@@ -399,7 +420,7 @@ class DeltaGenerator:
             new_delta=self._new,
             new_dirs=self._new_dirs,
             download_list=self._files_to_be_downloaded(),
-            delta_src=self._delta_src,
+            delta_src=self._delta_src_mp,
             pickup_dir=self._local_copy_dir,
             total_regular_num=self.total_regulars_num,
         )
