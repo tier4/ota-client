@@ -549,7 +549,9 @@ class RetryTaskMap(Generic[_T]):
                     _msg = f"{self.title} exceed max allowed failed({self._max_failed=}), last error: {self.last_error!r}"
                     logger.error(_msg)
                     self.shutdown()
-                    raise ValueError(_msg) from self.last_error
+                    if self.last_error:
+                        raise self.last_error
+                    raise ValueError(_msg)
                 if self._shutdowned.is_set():
                     logger.debug(f"{self.title} is shutdowned.")
                     return
