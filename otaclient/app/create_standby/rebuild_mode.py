@@ -20,31 +20,10 @@ from pathlib import Path
 from typing import Callable, List
 from urllib.parse import quote
 
-from ..errors import NetworkError, OTAError, StandbySlotSpaceNotEnoughError
-from ..common import (
-    SimpleTasksTracker,
-    OTAFileCacheControl,
-    urljoin_ensure_base,
-    RetryTaskMap,
-)
+from ..errors import OTAError
+from ..common import SimpleTasksTracker
 from ..configs import config as cfg
-from ..errors import (
-    ApplyOTAUpdateFailed,
-    OTAErrorUnRecoverable,
-    OTAMetaDownloadFailed,
-    OTAMetaVerificationFailed,
-    UpdateDeltaGenerationFailed,
-)
-from ..proxy_info import proxy_cfg
-from ..downloader import (
-    ChunkStreamingError,
-    DestinationNotAvailableError,
-    DownloadError,
-    Downloader,
-    ExceedMaxRetryError,
-    HashVerificaitonError,
-    DownloadFailedSpaceNotEnough,
-)
+from ..errors import ApplyOTAUpdateFailed, UpdateDeltaGenerationFailed
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
@@ -53,7 +32,6 @@ from ..update_stats import (
 from ..proto import wrapper
 from ..ota_metadata import (
     PersistentInf,
-    RegularInf,
     SymbolicLinkInf,
 )
 from .. import log_setting
@@ -73,18 +51,15 @@ class RebuildMode(StandbySlotCreatorProtocol):
         update_meta: UpdateMeta,
         stats_collector: OTAUpdateStatsCollector,
         update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
-        downloader: Downloader,
     ) -> None:
-        self._cookies = update_meta.cookies
         self.metadata = update_meta.metadata
-        self.url_base = update_meta.url_base
         self.stats_collector = stats_collector
         self.update_phase_tracker = update_phase_tracker
 
         # path configuration
         self.boot_dir = Path(update_meta.boot_dir)
-        self.standby_slot_mp = Path(update_meta.standby_slot_mount_point)
-        self.reference_slot_mp = Path(update_meta.ref_slot_mount_point)
+        self.standby_slot_mp = Path(update_meta.standby_slot_mp)
+        self.reference_slot_mp = Path(update_meta.active_slot_mp)
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
@@ -94,14 +69,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self._ota_tmp.mkdir(exist_ok=True)
         # downloaded otameta files are stored under this folder
         self._ota_tmp_image_meta_dir.mkdir(exist_ok=True)
-
-        # configure the downloader
-        self._downloader = downloader
-        self._proxies = None
-        if proxy := proxy_cfg.get_proxy_for_local_ota():
-            logger.info(f"use {proxy=} for downloading")
-            # NOTE: check requests doc for details
-            self._proxies = {"http": proxy}
 
     def _cal_and_prepare_delta(self):
         logger.info("generating delta...")
@@ -157,16 +124,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     or perinf.path.is_symlink()
                 ):  # NOTE: not equivalent to perinf.path.exists()
                     _copy_tree.copy_with_parents(perinf.path, self.standby_slot_mp)
-
-    def _save_meta(self):
-        """Save metadata to META_FOLDER."""
-        _dst = self.standby_slot_mp / Path(cfg.META_FOLDER).relative_to("/")
-        _dst.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"save image meta files to {_dst}")
-        for meta_f in self.metadata.get_img_metafiles():
-            _src = self._ota_tmp_image_meta_dir / meta_f.file
-            shutil.copy(_src, _dst)
 
     def _process_symlinks(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.SYMLINK)
@@ -260,14 +217,21 @@ class RebuildMode(StandbySlotCreatorProtocol):
         #       (either by picking up local copy or downloading)
         self.stats_collector.report(*stats_list[1:])
 
-    ###### public API methods ######
+    def _save_meta(self):
+        """Save metadata to META_FOLDER."""
+        _dst = self.standby_slot_mp / Path(cfg.META_FOLDER).relative_to("/")
+        _dst.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"save image meta files to {_dst}")
+        for meta_f in self.metadata.get_img_metafiles():
+            _src = self._ota_tmp_image_meta_dir / meta_f.file
+            shutil.copy(_src, _dst)
+
+    # API
+
     @classmethod
     def should_erase_standby_slot(cls) -> bool:
         return True
-
-    @classmethod
-    def is_standby_as_ref(cls) -> bool:
-        return False
 
     def calculate_and_prepare_delta(self) -> DeltaBundle:
         try:
