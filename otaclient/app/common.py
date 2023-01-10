@@ -435,9 +435,10 @@ class RetryTaskMap(Generic[_T]):
     Inst of this class is initialized with a <_func>, like built-in map,
     it will be applied to each element in later input <_iter>.
     It will try to finish all the tasks, if some of the tasks failed, it
-    will retry on those failed tasks.
+    will retry on those failed tasks in the next round.
+
     Reapting the process untill all the element in the input <_iter> is
-    successfully processed, or max retry is exceeded.
+    successfully processed, or max retries exceeded the limitation.
     """
 
     def __init__(
@@ -494,18 +495,18 @@ class RetryTaskMap(Generic[_T]):
         _fut.add_done_callback(self._done_callback)
         self._futs.add(_fut)
 
-    def _done_callback(self, fut: Future, /):
+    def _done_callback(self, _fut: Future, /):
         """Remove the fut from the futs list and release se."""
         self._done_tasks_num = next(self._done_counter)
         try:
-            _exp, _entry, _ = fut.result()
+            _exp, _entry, _ = _fut.result()
             if _exp:
                 self.last_error = _exp
                 self._failed.append(_entry)
         except CancelledError:
             pass  # ignored as not caused by task itself
         finally:
-            self._futs.discard(fut)
+            self._futs.discard(_fut)
             self._se.release()
 
     def _terminate_pendings(self):
@@ -516,25 +517,32 @@ class RetryTaskMap(Generic[_T]):
         self._shutdowned.set()
         self._terminate_pendings()
 
-    def map(self, _iter: Iterable[_T], /) -> Generator[Any, None, None]:
+    def map(
+        self, _iter: Iterable[_T], /
+    ) -> Generator[Tuple[Optional[Exception], _T, Any], None, None]:
         """Apply <_func> to each element in <_iter> and try its best to finish
             all the tasks.
 
         Return:
             A generator that the caller can control the processing.
 
+        Yield:
+            A tuple contains an inst of exception if this task failed, the entry consumed
+                by this task, and the return value if this task successfully finished.
+
         Raises:
             Exception: last recorded exception.
         """
         for _idx in range(self._max_retry):
+            # consuming the _iter and register them as tasks
             for _entry in _iter:
                 self._register_task(_entry)
                 if _idx == 0:  # record tasks num on 1st pass
                     self._tasks_num += 1
-
             logger.debug(
                 f"{self.title} all tasks are dispatched, {self._tasks_num=}, wait for finished"
             )
+
             # wait for all tasks to be finished
             for _fut in as_completed(self._futs):
                 if self._max_failed and len(self._failed) > self._max_failed:
@@ -545,10 +553,7 @@ class RetryTaskMap(Generic[_T]):
                 if self._shutdowned.is_set():
                     logger.debug(f"{self.title} is shutdowned.")
                     return
-                _, _, _return_value = _fut.result()
-                # NOTE: only yield when task finished successfully
-                if _return_value is not None:
-                    yield _return_value
+                yield _fut.result()
 
             # this pass failed as some of the tasks are not finished,
             # prepare to retry
