@@ -46,11 +46,13 @@ from .downloader import (
 )
 from .interface import OTAClientProtocol
 from .errors import (
+    ApplyOTAUpdateFailed,
     InvalidUpdateRequest,
     OTAMetaVerificationFailed,
     OTAErrorUnRecoverable,
     OTAMetaDownloadFailed,
     StandbySlotSpaceNotEnoughError,
+    UpdateDeltaGenerationFailed,
 )
 from .ota_metadata import MetaFile, OTAMetadata, ParseMetadataHelper, RegularInf
 from .ota_status import LiveOTAStatus
@@ -365,7 +367,10 @@ class _OTAUpdater:
             update_phase_tracker=self._set_update_phase,
         )
         logger.info("[_apply_update] start to calculate and prepare delta...")
-        _delta_bundle = self._standby_slot_creator.calculate_and_prepare_delta()
+        try:
+            _delta_bundle = self._standby_slot_creator.calculate_and_prepare_delta()
+        except Exception as e:
+            raise UpdateDeltaGenerationFailed from e
 
         # download needed files
         logger.info("[_apply_update] start to download needed files...")
@@ -381,7 +386,10 @@ class _OTAUpdater:
         """Updater starts to apply the update to the standby slot."""
         # start to constructing standby bank
         logger.info("[_apply_update] start to apply changes to standby slot...")
-        self._standby_slot_creator.create_standby_slot()
+        try:
+            self._standby_slot_creator.create_standby_slot()
+        except Exception as e:
+            raise ApplyOTAUpdateFailed from e
         logger.info("[_apply_update] finished updating standby slot")
 
     ######  public API ######
