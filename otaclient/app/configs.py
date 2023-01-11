@@ -28,9 +28,9 @@ OTACLIENT_LOCK_FILE = "/var/run/otaclient.lock"
 
 
 class CreateStandbyMechanism(Enum):
-    LEGACY = 0
-    REBUILD = auto()
-    IN_PLACE = auto()
+    LEGACY = 0  # deprecated and removed
+    REBUILD = auto()  # default
+    IN_PLACE = auto()  # not yet implemented
 
 
 class OtaClientServerConfig:
@@ -45,8 +45,54 @@ class OtaClientServerConfig:
     OTA_PROXY_LISTEN_PORT = 8082
 
 
-class BaseConfig:
-    """Platform neutral configuration."""
+class _InternalSettings:
+    """Common internal settings for otaclient.
+
+    WARNING: typically the common settings SHOULD NOT be changed!
+             otherwise the backward compatibility will be impact.
+    Change the fields in BaseConfig if you want to tune the otaclient.
+    """
+
+    # ------ common paths ------ #
+    # NOTE: certs dir is located at the otaclient package root
+    CERTS_DIR = str(_OTACLIENT_PACKAGE_ROOT / "certs")
+    ACTIVE_ROOTFS_PATH = "/"
+    BOOT_DIR = "/boot"
+    OTA_DIR = "/boot/ota"
+    ECU_INFO_FILE = "/boot/ota/ecu_info.yaml"
+    PROXY_INFO_FILE = "/boot/ota/proxy_info.yaml"
+    PASSWD_FILE = "/etc/passwd"
+    GROUP_FILE = "/etc/group"
+    FSTAB_FPATH = "/etc/fstab"
+    # where the OTA image meta store for this slot
+    META_FOLDER = "/opt/ota/image-meta"
+
+    # ------ device configuration files ------ #
+    # this files should be placed under /boot/ota folder
+    ECU_INFO_FNAME = "ecu_info.yaml"
+    PROXY_INFO_FNAME = "proxy_info.yaml"
+
+    # ------ ota-status files ------ #
+    # this files should be placed under /boot/ota-status folder
+    OTA_STATUS_FNAME = "status"
+    OTA_VERSION_FNAME = "version"
+    SLOT_IN_USE_FNAME = "slot_in_use"
+
+    # ------ otaclient internal used path ------ #
+    # standby/refroot mount points
+    MOUNT_POINT = "/mnt/standby"
+    # where active(old) image partition will be bind mounted to
+    REF_ROOT_MOUNT_POINT = "/mnt/refroot"
+    # tmp store for local copy
+    OTA_TMP_STORE = "/.ota-tmp"
+    # tmp store for standby slot OTA image meta
+    OTA_TMP_META_STORE = "/.ota-meta"
+    # compressed OTA image support
+    SUPPORTED_COMPRESS_ALG: Tuple[str, ...] = ("zst", "zstd")
+
+
+class BaseConfig(_InternalSettings):
+    """User configurable otaclient settings."""
 
     # ------ otaclient logging setting ------ #
     DEFAULT_LOG_LEVEL = INFO
@@ -64,58 +110,31 @@ class BaseConfig:
         "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s"
     )
 
-    # ------ common settings ------ #
-    # NOTE: typically the common settings should not be changed!
-    #       otherwise the backward compatibility will be impact.
-
-    # --- common paths --- #
-    # NOTE: certs dir is located at the otaclient package root
-    CERTS_DIR = str(_OTACLIENT_PACKAGE_ROOT / "certs")
-    ACTIVE_ROOTFS_PATH = "/"
-    BOOT_DIR = "/boot"
-    OTA_DIR = "/boot/ota"
-    ECU_INFO_FILE = "/boot/ota/ecu_info.yaml"
-    PROXY_INFO_FILE = "/boot/ota/proxy_info.yaml"
-    PASSWD_FILE = "/etc/passwd"
-    GROUP_FILE = "/etc/group"
-    FSTAB_FPATH = "/etc/fstab"
-    # where the OTA image meta store for this slot
-    META_FOLDER = "/opt/ota/image-meta"
-
-    # --- device configuration files --- #
-    # this files should be placed under /boot/ota folder
-    ECU_INFO_FNAME = "ecu_info.yaml"
-    PROXY_INFO_FNAME = "proxy_info.yaml"
-
-    # --- ota-status files --- #
-    # this files should be placed under /boot/ota-status folder
-    OTA_STATUS_FNAME = "status"
-    OTA_VERSION_FNAME = "version"
-    SLOT_IN_USE_FNAME = "slot_in_use"
-
-    # --- otaclient internal used path --- #
-    # standby/refroot mount points
-    MOUNT_POINT = "/mnt/standby"
-    # where active(old) image partition will be bind mounted to
-    REF_ROOT_MOUNT_POINT = "/mnt/refroot"
-    # tmp store for local copy
-    OTA_TMP_STORE = "/.ota-tmp"
-    # tmp store for standby slot OTA image meta
-    OTA_TMP_META_STORE = "/.ota-meta"
-
     # ------ otaclient behavior setting ------ #
+    # the following settings can be safely changed according to the
+    # actual environment otaclient running at.
     CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
     LOCAL_CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
-    DOWNLOAD_RETRY = 10
+    # --- download settings for single download task --- #
+    DOWNLOAD_RETRY = 6
     DOWNLOAD_BACKOFF_MAX = 3  # seconds
+    DOWNLOAD_BACKOFF_FACTOR = 0.1  # seconds
+    # --- download settings for the whole download tasks group --- #
+    # if retry keeps failing without any success in
+    # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
+    # download task group and raise NETWORK OTA error.
+    DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT = 5 * 60  # seconds
+    DOWNLOAD_GROUP_BACKOFF_MAX = 12  # seconds
+    DOWNLOAD_GROUP_BACKOFF_FACTOR = 0.1  # seconds
+
+    # --- download settings --- #
     MAX_CONCURRENT_TASKS = 128
     MAX_DOWNLOAD_THREAD = 3
     DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 8
+
     STATS_COLLECT_INTERVAL = 1  # second
     ## standby creation mode, now only REBUILD mode is available
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
-    # compressed OTA image support
-    SUPPORTED_COMPRESS_ALG: Tuple[str, ...] = ("zst", "zstd")
 
 
 # init cfgs

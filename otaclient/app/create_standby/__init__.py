@@ -31,11 +31,7 @@ def get_standby_slot_creator(
     mode: CreateStandbyMechanism,
 ) -> Type[StandbySlotCreatorProtocol]:
     logger.info(f"use slot update {mode=}")
-    if mode == CreateStandbyMechanism.LEGACY:
-        from .legacy_mode import LegacyMode
-
-        return LegacyMode
-    elif mode == CreateStandbyMechanism.REBUILD:
+    if mode == CreateStandbyMechanism.REBUILD:
         from .rebuild_mode import RebuildMode
 
         return RebuildMode
