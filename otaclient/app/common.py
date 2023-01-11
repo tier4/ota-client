@@ -580,3 +580,6 @@ class RetryTaskMap(Generic[_T]):
                 self._done_counter = itertools.count()
                 # sleep for sometime before next pass
                 self._backoff_wait_f(_retry_count + 1)
+            # all tasks are finished, return to upper caller
+            else:
+                return
