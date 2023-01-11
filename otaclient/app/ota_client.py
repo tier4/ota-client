@@ -39,6 +39,7 @@ from .create_standby import StandbySlotCreatorProtocol, UpdateMeta
 from .create_standby.common import DeltaBundle
 from .downloader import (
     DestinationNotAvailableError,
+    DownloadFailedSpaceNotEnough,
     DownloadError,
     Downloader,
     HashVerificaitonError,
@@ -49,6 +50,7 @@ from .errors import (
     OTAMetaVerificationFailed,
     OTAErrorUnRecoverable,
     OTAMetaDownloadFailed,
+    StandbySlotSpaceNotEnoughError,
 )
 from .ota_metadata import MetaFile, OTAMetadata, ParseMetadataHelper, RegularInf
 from .ota_status import LiveOTAStatus
@@ -239,25 +241,43 @@ class _OTAUpdater:
         return cur_stat
 
     def _download_files(self, delta_bundle: DeltaBundle):
+        """Download all needed OTA image files indicated by calculated bundle."""
+        _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
-            # TODO: configuration over mapper
             _mapper = RetryTaskMap(
                 self._download_file,
+                title="downloading_ota_files",
                 max_concurrent=cfg.MAX_CONCURRENT_TASKS,
+                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            # NOTE: for failed task, a RegInfoProcessStats that have
-            #       OP_DOWNLOAD_FAILED_REPORT op will be returned
             for _exp, _, _stats in _mapper.map(delta_bundle.download_list):
-                if _exp:  # task failed
-                    self._update_stats_collector.report(
-                        RegInfProcessedStats(
-                            op=RegProcessOperation.OP_DOWNLOAD_FAILED_REPORT,
-                            errors=1,
-                        )
-                    )
-                else:
+                # task successfully finished
+                if not isinstance(_exp, Exception):
                     self._update_stats_collector.report(_stats)
+                    # reset the failing timer on one succeeded task
+                    _keep_failing_timer = time.time()
+                    continue
+
+                # task failed
+                # NOTE: for failed task, a RegInfoProcessStats that have
+                #       OP_DOWNLOAD_FAILED_REPORT op will be returned
+                self._update_stats_collector.report(
+                    RegInfProcessedStats(
+                        op=RegProcessOperation.OP_DOWNLOAD_FAILED_REPORT,
+                        errors=1,
+                    )
+                )
+                # task group keeps failing longer than limit,
+                # shutdown the task group and raise the exception
+                if (
+                    time.time() - _keep_failing_timer
+                    > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                ):
+                    _mapper.shutdown(raise_last_exp=True)
+
         # all tasks are finished, waif for stats collector to finish processing
         # all the reported stats
         self._update_stats_collector.wait_staging()
@@ -277,23 +297,28 @@ class _OTAUpdater:
 
     def _download_otameta_files(self):
         self.update_phase = wrapper.StatusProgressPhase.METADATA
+        _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading_otameta") as _executor:
-            # TODO: configuration over mapper
             _mapper = RetryTaskMap(
                 self._download_otameta_file,
+                title="downloading_otameta_files",
                 max_concurrent=cfg.MAX_CONCURRENT_TASKS,
+                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            try:
-                for _exp, _entry, _ in _mapper.map(self._otameta.get_img_metafiles()):
-                    if _exp:
-                        logger.debug(f"metafile downloading failed: {_entry=}")
-            except HashVerificaitonError as e:
-                raise OTAMetaVerificationFailed from e
-            except DestinationNotAvailableError as e:
-                raise OTAErrorUnRecoverable from e
-            except DownloadError as e:
-                raise OTAMetaDownloadFailed from e
+            for _exp, _entry, _ in _mapper.map(self._otameta.get_img_metafiles()):
+                if not isinstance(_exp, Exception):
+                    _keep_failing_timer = time.time()
+                    continue
+
+                logger.debug(f"metafile downloading failed: {_entry=}")
+                if (
+                    time.time() - _keep_failing_timer
+                    > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                ):
+                    _mapper.shutdown(raise_last_exp=True)
 
     # update steps
 
@@ -318,7 +343,14 @@ class _OTAUpdater:
         self._ota_tmp_image_meta_dir_on_standby.mkdir(exist_ok=True)
 
         # download otameta files for the target image
-        self._download_otameta_files()
+        try:
+            self._download_otameta_files()
+        except HashVerificaitonError as e:
+            raise OTAMetaVerificationFailed from e
+        except DestinationNotAvailableError as e:
+            raise OTAErrorUnRecoverable from e
+        except Exception as e:
+            raise OTAMetaDownloadFailed from e
 
         # init standby_slot creator, calculate delta
         _updatemeta = UpdateMeta(
@@ -337,7 +369,12 @@ class _OTAUpdater:
 
         # download needed files
         logger.info("[_apply_update] start to download needed files...")
-        self._download_files(_delta_bundle)
+        try:
+            self._download_files(_delta_bundle)
+        except DownloadFailedSpaceNotEnough:
+            raise StandbySlotSpaceNotEnoughError from None
+        except Exception as e:
+            raise NetworkError from e
 
         logger.info("[_apply_update] finished")
 
