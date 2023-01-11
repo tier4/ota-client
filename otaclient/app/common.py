@@ -27,7 +27,6 @@ from concurrent.futures import (
     Future,
     Executor,
     as_completed,
-    ThreadPoolExecutor,
 )
 from functools import partial
 from hashlib import sha256
@@ -439,6 +438,13 @@ class RetryTaskMap(Generic[_T]):
 
     Reapting the process untill all the element in the input <_iter> is
     successfully processed, or max retries exceeded the limitation.
+
+    NOTE: the inst of this class can only be used once.
+    NOTE: the inst of this class is not thread-safe.
+
+    Args:
+        max_failed: <= 0 means no max_failed
+        max_retry: <=0 means no max_retry
     """
 
     def __init__(
@@ -451,7 +457,6 @@ class RetryTaskMap(Generic[_T]):
         title: str = "",
         backoff_max: int = 5,
         backoff_factor: float = 1,
-        max_failed: int = 30,
         max_retry: int = 6,
     ) -> None:
         self._func = _func
@@ -460,12 +465,13 @@ class RetryTaskMap(Generic[_T]):
         self._backoff_wait_f = partial(
             wait_with_backoff, _backoff_factor=backoff_factor, _backoff_max=backoff_max
         )
-        self._max_failed = max_failed
-        self._max_retry = max_retry
-        self._shutdowned = threading.Event()
+        self._max_retry_iter = range(max_retry) if max_retry > 0 else itertools.count()
+        self._shutdowned = False
+        self._started = False
         self.title = title
         self.last_error = None
 
+        self._iter: Iterable[_T] = None  # type: ignore
         # values specific to each retry
         self._futs: Set[Future] = set()
         self._failed: List[_T] = []
@@ -488,8 +494,6 @@ class RetryTaskMap(Generic[_T]):
 
     def _register_task(self, _entry: _T):
         """Register single task to the task pool."""
-        if self._shutdowned.is_set():
-            return
         self._se.acquire(blocking=True)
         _fut = self._executor.submit(self._task_wrapper, _entry)
         _fut.add_done_callback(self._done_callback)
@@ -509,13 +513,20 @@ class RetryTaskMap(Generic[_T]):
             self._futs.discard(_fut)
             self._se.release()
 
-    def _terminate_pendings(self):
-        for _fut in self._futs:
-            _fut.cancel()
+    def shutdown(self, *, raise_last_exp: bool):
+        """Shutdown the current running RetryTaskMap.
 
-    def shutdown(self):
-        self._shutdowned.set()
-        self._terminate_pendings()
+        Args:
+            raise_last_exp: if True, re-raise the last recorded exp
+                if exp is not None.
+        """
+        logger.debug(f"shutdown the running RetryTaskMap {self.title=}")
+        self._shutdowned = True
+        self._failed.clear()
+        while _fut := self._futs.pop():
+            _fut.cancel()
+        if raise_last_exp and isinstance(self.last_error, Exception):
+            raise self.last_error
 
     def map(
         self, _iter: Iterable[_T], /
@@ -533,11 +544,21 @@ class RetryTaskMap(Generic[_T]):
         Raises:
             Exception: last recorded exception.
         """
-        for _idx in range(self._max_retry):
-            # consuming the _iter and register them as tasks
-            for _entry in _iter:
+        if self._shutdowned or self._started:
+            logger.debug("call on closed/already started RetryTaskMap, abort")
+            return
+        self._started = True
+
+        self._iter = _iter
+        for _retry_count in self._max_retry_iter:
+            # consuming the self._iter and register them as tasks
+            for _entry in self._iter:
+                if self._shutdowned:
+                    return
+
                 self._register_task(_entry)
-                if _idx == 0:  # record tasks num on 1st pass
+                # record tasks num only on 1st pass
+                if _retry_count == 0:
                     self._tasks_num += 1
             logger.debug(
                 f"{self.title} all tasks are dispatched, {self._tasks_num=}, wait for finished"
@@ -545,27 +566,17 @@ class RetryTaskMap(Generic[_T]):
 
             # wait for all tasks to be finished
             for _fut in as_completed(self._futs):
-                if self._max_failed and len(self._failed) > self._max_failed:
-                    _msg = f"{self.title} exceed max allowed failed({self._max_failed=}), last error: {self.last_error!r}"
-                    logger.error(_msg)
-                    self.shutdown()
-                    if self.last_error:
-                        raise self.last_error
-                    raise ValueError(_msg)
-                if self._shutdowned.is_set():
-                    logger.debug(f"{self.title} is shutdowned.")
-                    return
                 yield _fut.result()
 
             # this pass failed as some of the tasks are not finished,
             # prepare to retry
             if len(self._failed) != 0:
                 logger.error(
-                    f"{self.title} failed to finished, {len(self._failed)=}, retry #{_idx+1}"
+                    f"{self.title} failed to finished, {len(self._failed)=}, retry #{_retry_count+1}"
                 )
                 self._futs.clear()
                 self._tasks_num, self._done_tasks_num = len(self._failed), 0
                 self._iter, self._failed = self._failed, []
                 self._done_counter = itertools.count()
                 # sleep for sometime before next pass
-                self._backoff_wait_f(_idx + 1)
+                self._backoff_wait_f(_retry_count + 1)
