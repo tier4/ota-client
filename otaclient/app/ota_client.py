@@ -166,10 +166,9 @@ class _OTAUpdater:
         self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
             cfg.OTA_TMP_STORE
         ).relative_to("/")
-        # TODO: write this to conf
-        self._ota_tmp_image_meta_dir_on_standby = (
-            Path(cfg.MOUNT_POINT) / ".ota_metafiles"
-        )
+        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.MOUNT_POINT) / Path(
+            cfg.OTA_TMP_META_STORE
+        ).relative_to("/")
 
     # properties
 
@@ -248,6 +247,7 @@ class _OTAUpdater:
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
                 self._download_file,
+                delta_bundle.download_list,
                 title="downloading_ota_files",
                 max_concurrent=cfg.MAX_CONCURRENT_TASKS,
                 backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
@@ -255,7 +255,7 @@ class _OTAUpdater:
                 max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            for _exp, _, _stats in _mapper.map(delta_bundle.download_list):
+            for _exp, _, _stats in _mapper.execute():
                 # task successfully finished
                 if not isinstance(_exp, Exception):
                     self._update_stats_collector.report(_stats)
@@ -298,11 +298,11 @@ class _OTAUpdater:
         )
 
     def _download_otameta_files(self):
-        self.update_phase = wrapper.StatusProgressPhase.METADATA
         _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading_otameta") as _executor:
             _mapper = RetryTaskMap(
                 self._download_otameta_file,
+                self._otameta.get_img_metafiles(),
                 title="downloading_otameta_files",
                 max_concurrent=cfg.MAX_CONCURRENT_TASKS,
                 backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
@@ -310,7 +310,7 @@ class _OTAUpdater:
                 max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            for _exp, _entry, _ in _mapper.map(self._otameta.get_img_metafiles()):
+            for _exp, _entry, _ in _mapper.execute():
                 if not isinstance(_exp, Exception):
                     _keep_failing_timer = time.time()
                     continue
@@ -345,6 +345,7 @@ class _OTAUpdater:
         self._ota_tmp_image_meta_dir_on_standby.mkdir(exist_ok=True)
 
         # download otameta files for the target image
+        self.update_phase = wrapper.StatusProgressPhase.METADATA
         try:
             self._download_otameta_files()
         except HashVerificaitonError as e:
@@ -437,13 +438,13 @@ class _OTAUpdater:
         logger.debug(f"{cookies_json=}")
 
         self.updating_version = version
-        self.update_phase = wrapper.StatusProgressPhase.INITIAL
         self.update_start_time = time.time_ns()
         self.failure_reason = ""  # clean failure reason
 
         # launch stats collector
         self._update_stats_collector.start()
 
+        self.update_phase = wrapper.StatusProgressPhase.INITIAL
         try:
             # parse url_base
             # unconditionally regulate the url_base
@@ -464,6 +465,7 @@ class _OTAUpdater:
 
             # process metadata.jwt
             logger.debug("[pre_update] process metadata...")
+            self.update_phase = wrapper.StatusProgressPhase.METADATA
             try:
                 self._otameta = self._process_metadata_jwt()
             except DownloadError as e:
