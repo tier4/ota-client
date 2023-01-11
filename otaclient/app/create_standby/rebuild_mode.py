@@ -18,12 +18,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, List
-from urllib.parse import quote
 
-from ..errors import OTAError
 from ..common import SimpleTasksTracker
 from ..configs import config as cfg
-from ..errors import ApplyOTAUpdateFailed, UpdateDeltaGenerationFailed
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
@@ -75,25 +72,19 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         regular_inf_fname = self.metadata.regular.file
         dir_inf_fname = self.metadata.directory.file
-        try:
-            delta_calculator = DeltaGenerator(
-                delta_src_reg=Path(cfg.META_FOLDER) / regular_inf_fname,
-                new_reg=self._ota_tmp_image_meta_dir / regular_inf_fname,
-                new_dirs=self._ota_tmp_image_meta_dir / dir_inf_fname,
-                delta_src=self.reference_slot_mp,
-                local_copy_dir=self._ota_tmp,
-                stats_collector=self.stats_collector,
-            )
-            self.delta_bundle = delta_calculator.get_delta()
-            self.stats_collector.set_total_regular_files(
-                self.delta_bundle.total_regular_num
-            )
-            logger.info(
-                f"total_regular_files_num={self.delta_bundle.total_regular_num}"
-            )
-        except Exception as e:
-            # TODO: define specific error for delta generator
-            raise UpdateDeltaGenerationFailed from e
+        delta_calculator = DeltaGenerator(
+            delta_src_reg=Path(cfg.META_FOLDER) / regular_inf_fname,
+            new_reg=self._ota_tmp_image_meta_dir / regular_inf_fname,
+            new_dirs=self._ota_tmp_image_meta_dir / dir_inf_fname,
+            delta_src=self.reference_slot_mp,
+            local_copy_dir=self._ota_tmp,
+            stats_collector=self.stats_collector,
+        )
+        self.delta_bundle = delta_calculator.get_delta()
+        self.stats_collector.set_total_regular_files(
+            self.delta_bundle.total_regular_num
+        )
+        logger.info(f"total_regular_files_num={self.delta_bundle.total_regular_num}")
 
     def _process_dirs(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
@@ -234,35 +225,23 @@ class RebuildMode(StandbySlotCreatorProtocol):
         return True
 
     def calculate_and_prepare_delta(self) -> DeltaBundle:
-        try:
-            self._cal_and_prepare_delta()
-            return self.delta_bundle
-        except OTAError:
-            raise  # if the error is already specified and wrapped, just raise again
-        except Exception as e:
-            # TODO: cover all errors and mapping to specific OTAError type
-            raise ApplyOTAUpdateFailed from e
+        self._cal_and_prepare_delta()
+        return self.delta_bundle
 
     def create_standby_slot(self):
         """Apply changes to the standby slot.
 
         This method should be called before calculate_and_prepare_delta.
         """
-        try:
-            self._process_dirs()
-            self._process_regulars()
-            self._process_symlinks()
-            self._process_persistents()
-            self._save_meta()
-            # cleanup on successful finish
-            # NOTE: if failed, the tmp dirs will not be removed now,
-            #       but rebuild mode will not reuse the tmp dirs anyway
-            #       as it requires standby_slot to be erased before applying
-            #       the changes.
-            shutil.rmtree(self._ota_tmp, ignore_errors=True)
-            shutil.rmtree(self._ota_tmp_image_meta_dir, ignore_errors=True)
-        except OTAError:
-            raise  # if the error is already specified and wrapped, just raise again
-        except Exception as e:
-            # TODO: cover all errors and mapping to specific OTAError type
-            raise ApplyOTAUpdateFailed from e
+        self._process_dirs()
+        self._process_regulars()
+        self._process_symlinks()
+        self._process_persistents()
+        self._save_meta()
+        # cleanup on successful finish
+        # NOTE: if failed, the tmp dirs will not be removed now,
+        #       but rebuild mode will not reuse the tmp dirs anyway
+        #       as it requires standby_slot to be erased before applying
+        #       the changes.
+        shutil.rmtree(self._ota_tmp, ignore_errors=True)
+        shutil.rmtree(self._ota_tmp_image_meta_dir, ignore_errors=True)
