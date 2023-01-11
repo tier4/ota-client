@@ -115,10 +115,17 @@ class BaseConfig(_InternalSettings):
     # actual environment otaclient running at.
     CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
     LOCAL_CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
+    # NOTE: max_concurrent_tasks impacts both downloading and
+    #       apply update on create_standby
+    MAX_CONCURRENT_TASKS = 128
     # --- download settings for single download task --- #
     DOWNLOAD_RETRY = 6
     DOWNLOAD_BACKOFF_MAX = 3  # seconds
     DOWNLOAD_BACKOFF_FACTOR = 0.1  # seconds
+    # downloader settings
+    MAX_DOWNLOAD_THREAD = 3
+    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 8
+
     # --- download settings for the whole download tasks group --- #
     # if retry keeps failing without any success in
     # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
@@ -126,11 +133,6 @@ class BaseConfig(_InternalSettings):
     DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT = 5 * 60  # seconds
     DOWNLOAD_GROUP_BACKOFF_MAX = 12  # seconds
     DOWNLOAD_GROUP_BACKOFF_FACTOR = 0.1  # seconds
-
-    # --- download settings --- #
-    MAX_CONCURRENT_TASKS = 128
-    MAX_DOWNLOAD_THREAD = 3
-    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 8
 
     STATS_COLLECT_INTERVAL = 1  # second
     ## standby creation mode, now only REBUILD mode is available
