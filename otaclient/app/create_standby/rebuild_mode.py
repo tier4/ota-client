@@ -61,8 +61,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
         self._ota_tmp = self.standby_slot_mp / Path(cfg.OTA_TMP_STORE).relative_to("/")
-        # TODO: write this to conf
-        self._ota_tmp_image_meta_dir = Path(cfg.MOUNT_POINT) / ".ota_metafiles"
+        self._ota_tmp_image_meta_dir = Path(cfg.MOUNT_POINT) / Path(
+            cfg.OTA_TMP_META_STORE
+        ).relative_to("/")
         self._ota_tmp.mkdir(exist_ok=True)
         # downloaded otameta files are stored under this folder
         self._ota_tmp_image_meta_dir.mkdir(exist_ok=True)

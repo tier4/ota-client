@@ -181,6 +181,7 @@ class _OTAUpdater:
     # helper methods
 
     def _process_metadata_jwt(self) -> OTAMetadata:
+        logger.debug("process metadata jwt...")
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             meta_file = Path(d) / "metadata.jwt"
             # NOTE: do not use cache when fetching metadata
@@ -243,6 +244,7 @@ class _OTAUpdater:
 
     def _download_files(self, delta_bundle: DeltaBundle):
         """Download all needed OTA image files indicated by calculated bundle."""
+        logger.debug("download neede OTA image files...")
         _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
@@ -255,7 +257,7 @@ class _OTAUpdater:
                 max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            for _exp, _, _stats in _mapper.execute():
+            for _exp, _entry, _stats in _mapper.execute():
                 # task successfully finished
                 if not isinstance(_exp, Exception):
                     self._update_stats_collector.report(_stats)
@@ -266,6 +268,7 @@ class _OTAUpdater:
                 # task failed
                 # NOTE: for failed task, a RegInfoProcessStats that have
                 #       OP_DOWNLOAD_FAILED_REPORT op will be returned
+                logger.debug(f"failed to download {_entry=}: {_exp!r}")
                 self._update_stats_collector.report(
                     RegInfProcessedStats(
                         op=RegProcessOperation.OP_DOWNLOAD_FAILED_REPORT,
@@ -298,6 +301,7 @@ class _OTAUpdater:
         )
 
     def _download_otameta_files(self):
+        logger.debug("download OTA image metafiles...")
         _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading_otameta") as _executor:
             _mapper = RetryTaskMap(
@@ -334,7 +338,7 @@ class _OTAUpdater:
 
         # finish pre-update configuration, enter update
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
-        logger.info("[_apply_update] boot_control enters pre_update...")
+        logger.info("boot_control enters pre_update...")
         self._boot_controller.pre_update(
             self.updating_version,
             standby_as_ref=False,  # NOTE: deprecate this option
@@ -345,6 +349,7 @@ class _OTAUpdater:
         self._ota_tmp_image_meta_dir_on_standby.mkdir(exist_ok=True)
 
         # download otameta files for the target image
+        logger.info("download otameta files...")
         self.update_phase = wrapper.StatusProgressPhase.METADATA
         try:
             self._download_otameta_files()
@@ -356,6 +361,8 @@ class _OTAUpdater:
             raise OTAMetaDownloadFailed from e
 
         # init standby_slot creator, calculate delta
+        logger.info("start to calculate and prepare delta...")
+        self.update_phase = wrapper.StatusProgressPhase.REGULAR
         _updatemeta = UpdateMeta(
             metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
@@ -367,14 +374,14 @@ class _OTAUpdater:
             stats_collector=self._update_stats_collector,
             update_phase_tracker=self._set_update_phase,
         )
-        logger.info("[_apply_update] start to calculate and prepare delta...")
         try:
             _delta_bundle = self._standby_slot_creator.calculate_and_prepare_delta()
         except Exception as e:
             raise UpdateDeltaGenerationFailed from e
 
         # download needed files
-        logger.info("[_apply_update] start to download needed files...")
+        logger.info("start to download needed files...")
+        self.update_phase = wrapper.StatusProgressPhase.REGULAR
         try:
             self._download_files(_delta_bundle)
         except DownloadFailedSpaceNotEnough:
@@ -382,16 +389,14 @@ class _OTAUpdater:
         except Exception as e:
             raise NetworkError from e
 
-        logger.info("[_apply_update] finished")
-
         """Updater starts to apply the update to the standby slot."""
         # start to constructing standby bank
-        logger.info("[_apply_update] start to apply changes to standby slot...")
+        logger.info("start to apply changes to standby slot...")
         try:
             self._standby_slot_creator.create_standby_slot()
         except Exception as e:
             raise ApplyOTAUpdateFailed from e
-        logger.info("[_apply_update] finished updating standby slot")
+        logger.info("finished updating standby slot")
 
     ######  public API ######
 
@@ -454,7 +459,7 @@ class _OTAUpdater:
 
             # parse cookies
             self.update_phase = wrapper.StatusProgressPhase.METADATA
-            logger.debug("[pre_update] process cookies_json...")
+            logger.debug("process cookies_json...")
             try:
                 self._cookies = json.loads(cookies_json)
                 assert isinstance(
@@ -464,7 +469,7 @@ class _OTAUpdater:
                 raise InvalidUpdateRequest from e
 
             # process metadata.jwt
-            logger.debug("[pre_update] process metadata...")
+            logger.debug("process metadata...")
             self.update_phase = wrapper.StatusProgressPhase.METADATA
             try:
                 self._otameta = self._process_metadata_jwt()
@@ -474,7 +479,7 @@ class _OTAUpdater:
                 raise BaseOTAMetaVerificationFailed from e
 
             # configure proxy
-            logger.debug("[pre_update] configure proxy setting...")
+            logger.debug("configure proxy setting...")
             self._proxy = None  # type: ignore
             if proxy := proxy_cfg.get_proxy_for_local_ota():
                 # wait for stub to setup the local ota_proxy server
@@ -482,23 +487,25 @@ class _OTAUpdater:
                     raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
                 # NOTE(20221013): check requests document for how to set proxy,
                 #                 we only support using http proxy here.
+                logger.debug(f"use {proxy=} for local OTA update")
                 self._proxy = {"http": proxy}
 
             # start to apply the update to standby slot
-            logger.info(f"[apply_update] apply update to standby slot...")
+            logger.info("apply update to standby slot...")
             self._apply_update()
             # local update finished, set the status to POST_PROCESSING
             fsm.client_finish_update()
             self.update_phase = wrapper.StatusProgressPhase.POST_PROCESSING
             # post_update
-            logger.info("[post_update] update finished, wait on all subecs...")
+            logger.info("local update finished, wait on all subecs...")
             # NOTE: still reboot event local cleanup failed as the update itself is successful
             fsm.client_wait_for_reboot()
+            logger.info("enter boot control post update phase...")
             self._boot_controller.post_update()
             # NOTE: no need to call shutdown method here, keep the update_progress
             #       as it as we are still in updating before rebooting
         except OTAError as e:
-            logger.error("update failed")
+            logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
             self.shutdown()
             raise OTAUpdateError(e) from e

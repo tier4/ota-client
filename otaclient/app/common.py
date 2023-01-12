@@ -39,7 +39,6 @@ from typing import (
     Tuple,
     Union,
     Iterable,
-    Generator,
     Iterator,
     Any,
     TypeVar,

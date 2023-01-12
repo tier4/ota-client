@@ -33,7 +33,6 @@ from typing import (
     OrderedDict,
     Set,
     Tuple,
-    Union,
     Iterable,
 )
 from weakref import WeakKeyDictionary, WeakValueDictionary
