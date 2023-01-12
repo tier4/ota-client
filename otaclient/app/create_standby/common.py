@@ -294,6 +294,7 @@ class DeltaGenerator:
         )
 
     def _process_delta_src(self):
+        logger.debug("process delta src, generate delta and prepare local copy...")
         _canonical_root = Path("/")
 
         # scan old slot and generate delta based on path,
@@ -311,6 +312,7 @@ class DeltaGenerator:
                     _canonical_root
                     / delta_src_curdir_path.relative_to(self._delta_src_mp)
                 )
+                logger.debug(f"{delta_src_curdir_path=}, {canonical_curdir_path=}")
 
                 # skip folder that exceeds max_folder_deepth,
                 # also add these folders to remove list
@@ -324,18 +326,22 @@ class DeltaGenerator:
 
                 # skip this folder if it doesn't exist on new image,
                 # or also not meant to be fully scanned.
-                dir_should_skip = False
+                # NOTE: the root folder must be fully scanned
+                dir_should_skip = True
                 if (
                     canonical_curdir_path == _canonical_root
                     or canonical_curdir_path in self._new_dirs
                 ):
-                    dir_should_skip = True
+                    dir_should_skip = False
                 # check if we neede to fully scan this folder
                 dir_should_fully_scan = False
                 for parent in reversed(canonical_curdir_path.parents):
                     if str(parent) in self.FULL_SCAN_PATHS:
                         dir_should_fully_scan = True
                         break
+                logger.debug(
+                    f"{dir_should_skip=}, {dir_should_fully_scan=}: {delta_src_curdir_path=}"
+                )
                 # should we totally skip folder and all its child folders?
                 # if so, discard it and add it to the remove list.
                 if dir_should_skip and not dir_should_fully_scan:
@@ -360,6 +366,7 @@ class DeltaGenerator:
                 futs: List[Future] = []
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     delta_src_fpath = delta_src_curdir_path / fname
+                    logger.debug(f"[process_delta_src] process {delta_src_fpath}")
                     # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
                     canonical_fpath = canonical_curdir_path / fname
 
@@ -397,8 +404,8 @@ class DeltaGenerator:
                         futs.append(
                             pool.submit(self._process_file_in_old_slot, delta_src_fpath)
                         )
-
-                # wait for all tasks to be finished
+                # wait for all files under this dir to be finished
+                logger.debug(f"{delta_src_curdir_path=} done")
                 wait(futs)
 
     def _files_to_be_downloaded(self) -> Iterator[RegularInf]:
