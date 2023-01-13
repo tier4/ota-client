@@ -104,8 +104,8 @@ class BaseConfig:
     DOWNLOAD_RETRY: int = 10
     DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
     MAX_CONCURRENT_TASKS: int = 128
-    MAX_DOWNLOAD_THREAD = 3
-    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD: int = 8
+    MAX_DOWNLOAD_THREAD = 7
+    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD: int = 10
     STATS_COLLECT_INTERVAL: int = 1  # second
     ## standby creation mode, default to rebuild now
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
