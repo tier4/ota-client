@@ -245,7 +245,11 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 entry_url, compression_alg = self.metadata.get_download_url(
                     entry, base_url=self.url_base
                 )
-                cur_stat.errors, cur_stat.download_bytes = self._downloader.download(
+                (
+                    cur_stat.errors,
+                    cur_stat.download_bytes,
+                    _download_time,
+                ) = self._downloader.download(
                     entry_url,
                     _local_copy,
                     digest=entry.sha256hash,
@@ -255,6 +259,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     compression_alg=compression_alg,
                 )
                 _local_copy_available = True
+                cur_stat.elapsed_ns = _download_time
 
             # record the size of this entry(by query the local copy)
             cur_stat.size = _local_copy.stat().st_size
@@ -301,7 +306,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _local_copy.unlink(missing_ok=True)
 
             # create stat
-            cur_stat.elapsed_ns = time.thread_time_ns() - _start
+            # NOTE: for download op, the download is already recorded
+            if cur_stat.op != RegProcessOperation.OP_DOWNLOAD:
+                cur_stat.elapsed_ns = time.thread_time_ns() - _start
             stats_list.append(cur_stat)
 
         # report the stats to the stats_collector
