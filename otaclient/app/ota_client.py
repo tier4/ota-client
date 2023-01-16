@@ -223,13 +223,17 @@ class _OTAUpdater:
     def _download_file(self, entry: RegularInf) -> RegInfProcessedStats:
         """Download single OTA image file."""
         cur_stat = RegInfProcessedStats(op=RegProcessOperation.OP_DOWNLOAD)
-        _start = time.thread_time_ns()
+        _start_time, _download_time = time.thread_time_ns(), 0
 
         _local_copy = self._ota_tmp_on_standby / entry.sha256hash
         entry_url, compression_alg = self._otameta.get_download_url(
             entry, base_url=self._url_base
         )
-        cur_stat.errors, cur_stat.download_bytes = self._downloader.download(
+        (
+            cur_stat.errors,
+            cur_stat.download_bytes,
+            _download_time,
+        ) = self._downloader.download(
             entry_url,
             _local_copy,
             digest=entry.sha256hash,
@@ -238,8 +242,8 @@ class _OTAUpdater:
             cookies=self._cookies,
             compression_alg=compression_alg,
         )
-        cur_stat.elapsed_ns = time.thread_time_ns() - _start
         cur_stat.size = _local_copy.stat().st_size
+        cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
         return cur_stat
 
     def _download_files(self, delta_bundle: DeltaBundle):
@@ -272,7 +276,7 @@ class _OTAUpdater:
                 self._update_stats_collector.report(
                     RegInfProcessedStats(
                         op=RegProcessOperation.OP_DOWNLOAD_FAILED_REPORT,
-                        errors=1,
+                        errors=cfg.DOWNLOAD_RETRY,
                     )
                 )
                 # task group keeps failing longer than limit,
@@ -380,7 +384,10 @@ class _OTAUpdater:
             raise UpdateDeltaGenerationFailed from e
 
         # download needed files
-        logger.info("start to download needed files...")
+        logger.info(
+            "start to download needed files..."
+            f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
+        )
         self.update_phase = wrapper.StatusProgressPhase.REGULAR
         try:
             self._download_files(_delta_bundle)
