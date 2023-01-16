@@ -212,7 +212,7 @@ class App:
 
         except aiohttp.ClientResponseError as e:
             await self._respond_with_error(e.status, e.message, send)
-            logger.warning(f"request for {url=} failed: {e!r}")
+            logger.warning(f"request for {url=} failed due to HTTP error: {e!r}")
         except aiohttp.ClientConnectionError as e:
             # terminate the transmission
             if respond_started:
@@ -223,7 +223,7 @@ class App:
                     "failed to connect to remote server",
                     send,
                 )
-            logger.warning(f"request for {url=} failed: {e!r}")
+            logger.info(f"request for {url=} failed due to connection error: {e!r}")
         except aiohttp.ClientError as e:
             # terminate the transmission
             if respond_started:
@@ -232,9 +232,11 @@ class App:
                 await self._respond_with_error(
                     HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
                 )
-            logger.warning(f"request for {url=} failed: {e!r}")
+            logger.warning(
+                f"request for {url=} failed due to aiohttp client error: {e!r}"
+            )
         except (BaseOTACacheError, StopAsyncIteration) as e:
-            logger.exception(
+            logger.error(
                 f"request for {url=} failed due to handled ota_cache internal error: {e!r}"
             )
             # terminate the transmission
