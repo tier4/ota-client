@@ -189,16 +189,30 @@ class RegularDelta(Dict[str, RegularInfSet]):
 class DeltaBundle:
     """NOTE: all paths are canonical!"""
 
-    # delta
+    # ------ generated delta ------ #
+    # rm_delta: a list of files that presented at
+    #           delta_src rootfs but don't presented
+    #           at new OTA image
     rm_delta: Iterable[str]
+    # download_list: a list of files that presented in
+    #                the new OTA image but are not available
+    #                locally
     download_list: Iterable[RegularInf]
+    # new_delta: the generated delta, used by create_standby
+    #            implementation to update the standby slot
     new_delta: RegularDelta
+    # new_dirs: all the dirs presented in the new OTA image
     new_dirs: OrderedDict[DirectoryInf, None]
 
-    # misc
+    # ------ misc ------ #
+    # delta_src: the src when calculating delta against
+    #            target new OTA image
     delta_src: Path
-    pickup_dir: Path
+    # delta_files_dir: the folder that holds the files
+    #                  that will be applied to the standby slot
+    delta_files_dir: Path
     total_regular_num: int
+    total_download_files_size: int  # in bytes
 
 
 class DeltaGenerator:
@@ -223,9 +237,6 @@ class DeltaGenerator:
 
     def __init__(
         self,
-        delta_src_reg: Path,  # path to delta_src regulars.txt
-        new_reg: Path,  # path to new image regulars.txt
-        new_dirs: Path,  # path to dirs.txt
         *,
         delta_src: Path,
         local_copy_dir: Path,
@@ -236,6 +247,8 @@ class DeltaGenerator:
         self._rm: List[str] = []
         self._new_dirs: OrderedDict[DirectoryInf, None] = OrderedDict()
         self._new_hash_list: Set[str] = set()
+        self._download_list: List[RegularInf] = []
+
         self._delta_src_path_hash_dict: Dict[str, str] = {}
 
         self._stats_collector = stats_collector
@@ -243,26 +256,7 @@ class DeltaGenerator:
         self._local_copy_dir = local_copy_dir
 
         self.total_regulars_num = 0
-
-        # pre-load dirs list
-        with open(new_dirs, "r") as f:
-            for _dir in map(DirectoryInf, f):
-                self._new_dirs[_dir] = None
-        # pre-load from new regulars.txt
-        with open(new_reg, "r") as f:
-            for _entry in map(RegularInf.parse_reginf, f):
-                self.total_regulars_num += 1
-                self._new.add_entry(_entry)
-                self._new_hash_list.add(_entry.sha256hash)
-        self._stats_collector.store.total_regular_files = self.total_regulars_num
-        # pre-load delta src's reginf if presented
-        if Path(delta_src_reg).is_file():
-            with open(delta_src_reg, "r") as f:
-                for _entry in map(RegularInf.parse_reginf, f):
-                    self._delta_src_path_hash_dict[str(_entry.path)] = _entry.sha256hash
-
-        # generate delta and prepare files
-        self._process_delta_src()
+        self.total_download_files_size = 0
 
     def _process_file_in_old_slot(
         self, fpath: Path, *, _hash: Optional[str] = None
@@ -407,7 +401,6 @@ class DeltaGenerator:
                 logger.debug(f"{delta_src_curdir_path=} done")
                 wait(futs)
 
-    def _files_to_be_downloaded(self) -> Iterator[RegularInf]:
         # calculate the files list that we should download from remote
         # the hash in the self._hash_set after local delta preparation representing
         # the file we need to download from remote
@@ -416,17 +409,52 @@ class DeltaGenerator:
                 # pick one entry from the reginf set for downloading
                 _iter = _reginf_set.iter_entries()
                 _, _entry = next(_iter)
-                yield _entry
+                self._download_list.append(_entry)
+                self.total_download_files_size += _entry.size if _entry.size else 0
+        self._new_hash_list.clear()
 
-    ###### public API ######
+    # API
 
-    def get_delta(self) -> DeltaBundle:
+    def calculate_and_process_delta(
+        self,
+        *,
+        delta_src_reg: Path,  # path to delta_src regulars.txt
+        new_reg: Path,  # path to new image regulars.txt
+        new_dirs: Path,  # path to dirs.txt
+    ) -> DeltaBundle:
+        with open(new_dirs, "r") as f:
+            for _dir in map(DirectoryInf, f):
+                self._new_dirs[_dir] = None
+        # pre-load from new regulars.txt
+        with open(new_reg, "r") as f:
+            for _entry in map(RegularInf.parse_reginf, f):
+                self.total_regulars_num += 1
+                self._new.add_entry(_entry)
+                self._new_hash_list.add(_entry.sha256hash)
+        self._stats_collector.store.total_regular_files = self.total_regulars_num
+        # pre-load delta src's reginf if presented
+        if Path(delta_src_reg).is_file():
+            with open(delta_src_reg, "r") as f:
+                for _entry in map(RegularInf.parse_reginf, f):
+                    self._delta_src_path_hash_dict[str(_entry.path)] = _entry.sha256hash
+
+        # generate delta and prepare files
+        self._process_delta_src()
+        logger.info(
+            "delta calculation finished: \n"
+            f"total_regulars_num: {self.total_regulars_num} \n"
+            f"total_download_files_size: {self.total_download_files_size} \n"
+            f"rm_list len: {len(self._rm)} \n"
+            f"donwload_list len: {len(self._download_list)}"
+        )
+
         return DeltaBundle(
             rm_delta=self._rm,
             new_delta=self._new,
             new_dirs=self._new_dirs,
-            download_list=self._files_to_be_downloaded(),
+            download_list=self._download_list,
             delta_src=self._delta_src_mp,
-            pickup_dir=self._local_copy_dir,
+            delta_files_dir=self._local_copy_dir,
             total_regular_num=self.total_regulars_num,
+            total_download_files_size=self.total_download_files_size,
         )
