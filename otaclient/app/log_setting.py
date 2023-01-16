@@ -16,6 +16,7 @@ import logging
 import os
 import yaml
 
+from otaclient import otaclient_package_name
 from .configs import config as cfg
 
 # NOTE: EcuInfo imports this log_setting so independent get_ecu_id are required.
@@ -44,7 +45,7 @@ def configure_logging(loglevel: int, *, http_logging_url: str):
     #       external modules unless reached CRITICAL level.
     logging.basicConfig(level=logging.CRITICAL, format=cfg.LOG_FORMAT, force=True)
     # NOTE: set the <loglevel> to the otaclient package root logger
-    _otaclient_logger = logging.getLogger("otaclient")
+    _otaclient_logger = logging.getLogger(otaclient_package_name)
     _otaclient_logger.setLevel(loglevel)
 
     # if http_logging is enabled, attach the http handler to
