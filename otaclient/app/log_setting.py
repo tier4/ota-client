@@ -19,6 +19,7 @@ import yaml
 from otaclient import otaclient_package_name
 from .configs import config as cfg
 
+
 # NOTE: EcuInfo imports this log_setting so independent get_ecu_id are required.
 def get_ecu_id():
     try:
