@@ -90,7 +90,7 @@ class BaseConfig:
     SLOT_IN_USE_FNAME = "slot_in_use"
 
     LOG_FORMAT = (
-        "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s"
+        "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
     )
 
     # standby/refroot mount points
