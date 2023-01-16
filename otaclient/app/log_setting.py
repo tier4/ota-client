@@ -16,6 +16,7 @@ import logging
 import os
 import yaml
 
+from otaclient import otaclient_package_name
 from .configs import config as cfg
 
 
@@ -41,9 +42,15 @@ def configure_logging(loglevel: int, *, http_logging_url: str):
     # configure the root logger
     # NOTE: force to reload the basicConfig, this is for overriding setting
     #       when launching subprocess.
-    logging.basicConfig(level=loglevel, format=cfg.LOG_FORMAT, force=True)
+    # NOTE: for the root logger, set to CRITICAL to filter away logs from other
+    #       external modules unless reached CRITICAL level.
+    logging.basicConfig(level=logging.CRITICAL, format=cfg.LOG_FORMAT, force=True)
+    # NOTE: set the <loglevel> to the otaclient package root logger
+    _otaclient_logger = logging.getLogger(otaclient_package_name)
+    _otaclient_logger.setLevel(loglevel)
 
-    # if http_logging is enabled, attach the http handler to the root logger
+    # if http_logging is enabled, attach the http handler to
+    # the otaclient package root logger
     if http_logging_host := os.environ.get("HTTP_LOGGING_SERVER"):
         from otaclient.aws_iot_log_server import CustomHttpHandler
 
@@ -51,6 +58,8 @@ def configure_logging(loglevel: int, *, http_logging_url: str):
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
         ch.setFormatter(fmt)
 
-        # NOTE: using getLogger without any argument will get the root logger
-        root_logger = logging.getLogger()
-        root_logger.addHandler(ch)
+        # NOTE: "otaclient" logger will be the root logger for all loggers name
+        #       starts with "otaclient.", and the settings will affect its child loggers.
+        #       For example, settings for "otaclient" logger will also be effective to
+        #       "otaclient.app.*" logger and "otaclient.ota_proxy.*" logger.
+        _otaclient_logger.addHandler(ch)

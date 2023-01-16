@@ -160,7 +160,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _local_copy = self._ota_tmp / _hash
         for is_last, entry in _regs_set.iter_entries():
             cur_stat = RegInfProcessedStats(op=RegProcessOperation.OP_COPY)
-            _start = time.thread_time_ns()
+            _start_time = time.thread_time_ns()
 
             # record the size of this entry(by query the local copy)
             cur_stat.size = _local_copy.stat().st_size
@@ -199,8 +199,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
+
             # create stat
-            cur_stat.elapsed_ns = time.thread_time_ns() - _start
+            cur_stat.elapsed_ns = time.thread_time_ns() - _start_time
             stats_list.append(cur_stat)
 
         # report the stats to the stats_collector

@@ -107,7 +107,7 @@ class BaseConfig(_InternalSettings):
         "otaclient.app.main": INFO,
     }
     LOG_FORMAT = (
-        "[%(asctime)s][%(levelname)s]-%(filename)s:%(funcName)s:%(lineno)d,%(message)s"
+        "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
     )
 
     # ------ otaclient behavior setting ------ #
@@ -123,8 +123,8 @@ class BaseConfig(_InternalSettings):
     DOWNLOAD_BACKOFF_MAX = 3  # seconds
     DOWNLOAD_BACKOFF_FACTOR = 0.1  # seconds
     # downloader settings
-    MAX_DOWNLOAD_THREAD = 3
-    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 8
+    MAX_DOWNLOAD_THREAD = 7
+    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 10
 
     # --- download settings for the whole download tasks group --- #
     # if retry keeps failing without any success in

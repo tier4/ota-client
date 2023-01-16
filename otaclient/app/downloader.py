@@ -245,11 +245,13 @@ class Downloader:
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
         use_http_if_proxy_set: bool = True,
-    ) -> Tuple[int, int]:
+    ) -> Tuple[int, int, int]:
+        _start_time = time.thread_time_ns()
+
         # special treatment for empty file
         if dst == self.EMPTY_STR_SHA256 and not (dst_p := Path(dst)).is_file():
             dst_p.write_bytes(b"")
-            return 0, 0
+            return 0, 0, 0
 
         # NOTE: if proxy is set and use_http_if_proxy_set is true,
         #       unconditionally change scheme to HTTP
@@ -326,7 +328,8 @@ class Downloader:
             logger.error(msg)
             raise HashVerificaitonError(url, dst, msg)
 
-        return _err_count, _real_downloaded_bytes
+        _end_time = time.thread_time_ns()
+        return _err_count, _real_downloaded_bytes, _end_time - _start_time
 
     def download(
         self,
@@ -340,11 +343,12 @@ class Downloader:
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
         use_http_if_proxy_set: bool = True,
-    ) -> Tuple[int, int]:
+    ) -> Tuple[int, int, int]:
         """Dispatcher for download tasks.
 
         Returns:
-            A tuple of ints, which are error counts and real downloaded bytes.
+            A tuple of ints, which are error counts, real downloaded bytes and
+                the download time cost.
         """
         return self._executor.submit(
             self._download_task,
