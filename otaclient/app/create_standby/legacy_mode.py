@@ -204,7 +204,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         # when a thread is sleeping, the GIL will be released
         # and other thread will take the place to execute,
         # so we use time.thread_time here.
-        begin_time = time.thread_time_ns()
+        _start_time, _download_time = time.thread_time_ns(), 0
 
         processed = RegInfProcessedStats()
         if str(reginf.path).startswith("/boot"):
@@ -251,6 +251,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         (
                             processed.errors,
                             processed.download_bytes,
+                            _download_time,
                         ) = self._downloader.download(
                             url,
                             dst,
@@ -289,7 +290,11 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 url, compression_alg = self.metadata.get_download_url(
                     reginf, base_url=self.url_base
                 )
-                processed.errors, processed.download_bytes = self._downloader.download(
+                (
+                    processed.errors,
+                    processed.download_bytes,
+                    _download_time,
+                ) = self._downloader.download(
                     url,
                     dst,
                     digest=reginf.sha256hash,
@@ -303,10 +308,8 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 os.chown(dst, reginf.uid, reginf.gid)
                 os.chmod(dst, reginf.mode)
 
-        # TODO(20221017): should we report the real downloaded size(if compression enabled),
-        #                 or keep the previous behavior that report the original file size?
         processed.size = dst.stat().st_size
-        processed.elapsed_ns = time.thread_time_ns() - begin_time
+        processed.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
 
         self.stats_collector.report(processed)
 

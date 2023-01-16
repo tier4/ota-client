@@ -129,7 +129,7 @@ class TestDownloader:
         _target_path = tmp_path / self.TEST_FILE
 
         url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
-        _error, _read_download_size = self.downloader.download(
+        _error, _read_download_size, _ = self.downloader.download(
             url,
             _target_path,
             digest=self.TEST_FILE_SHA256,
@@ -147,12 +147,12 @@ class TestDownloader:
 
         url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, f"{self.TEST_FILE}.zst")
         # first test directly download without decompression
-        _error, _read_download_bytes_a = self.downloader.download(url, _target_path)
+        _error, _read_download_bytes_a, _ = self.downloader.download(url, _target_path)
         assert _error == 0
         assert file_sha256(_target_path) == file_sha256(self.zstd_compressed)
 
         # second, test dwonloader with transparent zstd decompression
-        _error, _real_download_bytes_b = self.downloader.download(
+        _error, _real_download_bytes_b, _ = self.downloader.download(
             url,
             _target_path,
             digest=self.TEST_FILE_SHA256,
