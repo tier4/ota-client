@@ -56,7 +56,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # path configuration
         self.boot_dir = Path(update_meta.boot_dir)
         self.standby_slot_mp = Path(update_meta.standby_slot_mp)
-        self.reference_slot_mp = Path(update_meta.active_slot_mp)
+        self.active_slot_mp = Path(update_meta.active_slot_mp)
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
@@ -74,18 +74,18 @@ class RebuildMode(StandbySlotCreatorProtocol):
         regular_inf_fname = self.metadata.regular.file
         dir_inf_fname = self.metadata.directory.file
         delta_calculator = DeltaGenerator(
-            delta_src_reg=Path(cfg.META_FOLDER) / regular_inf_fname,
-            new_reg=self._ota_tmp_image_meta_dir / regular_inf_fname,
-            new_dirs=self._ota_tmp_image_meta_dir / dir_inf_fname,
-            delta_src=self.reference_slot_mp,
+            delta_src=self.active_slot_mp,
             local_copy_dir=self._ota_tmp,
             stats_collector=self.stats_collector,
         )
-        self.delta_bundle = delta_calculator.get_delta()
-        self.stats_collector.set_total_regular_files(
-            self.delta_bundle.total_regular_num
+        delta_bundle = delta_calculator.calculate_and_process_delta(
+            delta_src_reg=Path(cfg.META_FOLDER) / regular_inf_fname,
+            new_reg=self._ota_tmp_image_meta_dir / regular_inf_fname,
+            new_dirs=self._ota_tmp_image_meta_dir / dir_inf_fname,
         )
-        logger.info(f"total_regular_files_num={self.delta_bundle.total_regular_num}")
+        self.stats_collector.set_total_regular_files(delta_bundle.total_regular_num)
+        logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
+        self.delta_bundle = delta_bundle
 
     def _process_dirs(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
