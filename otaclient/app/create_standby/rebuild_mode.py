@@ -237,7 +237,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         for is_last, entry in _regs_set.iter_entries():
             cur_stat = RegInfProcessedStats()
-            _start = time.thread_time_ns()
+            _start_time, _download_time = time.thread_time_ns(), 0
 
             # prepare first copy for the hash group
             if not _local_copy_available:
@@ -259,7 +259,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     compression_alg=compression_alg,
                 )
                 _local_copy_available = True
-                cur_stat.elapsed_ns = _download_time
 
             # record the size of this entry(by query the local copy)
             cur_stat.size = _local_copy.stat().st_size
@@ -306,9 +305,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _local_copy.unlink(missing_ok=True)
 
             # create stat
-            # NOTE: for download op, the download is already recorded
-            if cur_stat.op != RegProcessOperation.OP_DOWNLOAD:
-                cur_stat.elapsed_ns = time.thread_time_ns() - _start
+            cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
             stats_list.append(cur_stat)
 
         # report the stats to the stats_collector

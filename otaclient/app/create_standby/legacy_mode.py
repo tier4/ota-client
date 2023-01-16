@@ -204,7 +204,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
         # when a thread is sleeping, the GIL will be released
         # and other thread will take the place to execute,
         # so we use time.thread_time here.
-        begin_time = time.thread_time_ns()
+        _start_time, _download_time = time.thread_time_ns(), 0
 
         processed = RegInfProcessedStats()
         if str(reginf.path).startswith("/boot"):
@@ -251,7 +251,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                         (
                             processed.errors,
                             processed.download_bytes,
-                            download_time,
+                            _download_time,
                         ) = self._downloader.download(
                             url,
                             dst,
@@ -261,7 +261,6 @@ class LegacyMode(StandbySlotCreatorProtocol):
                             cookies=self.cookies,
                             compression_alg=compression_alg,
                         )
-                        processed.elapsed_ns = download_time
 
                         # set file permission as RegInf says
                         os.chown(dst, reginf.uid, reginf.gid)
@@ -294,7 +293,7 @@ class LegacyMode(StandbySlotCreatorProtocol):
                 (
                     processed.errors,
                     processed.download_bytes,
-                    download_time,
+                    _download_time,
                 ) = self._downloader.download(
                     url,
                     dst,
@@ -304,18 +303,13 @@ class LegacyMode(StandbySlotCreatorProtocol):
                     cookies=self.cookies,
                     compression_alg=compression_alg,
                 )
-                processed.elapsed_ns = download_time
 
                 # set file permission as RegInf says
                 os.chown(dst, reginf.uid, reginf.gid)
                 os.chmod(dst, reginf.mode)
 
-        # TODO(20221017): should we report the real downloaded size(if compression enabled),
-        #                 or keep the previous behavior that report the original file size?
         processed.size = dst.stat().st_size
-        # NOTE: for download operation, the download time is already recorded
-        if processed.op != RegProcessOperation.OP_DOWNLOAD:
-            processed.elapsed_ns = time.thread_time_ns() - begin_time
+        processed.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
 
         self.stats_collector.report(processed)
 
