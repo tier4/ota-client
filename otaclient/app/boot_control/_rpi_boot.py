@@ -361,7 +361,7 @@ class RPIBootController(BootControllerProtocol):
             standby_slot_dev=self._rpiboot_control.standby_slot_dev,
             standby_slot_mount_point=cfg.MOUNT_POINT,
             active_slot_dev=self._rpiboot_control.active_slot_dev,
-            active_slot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
+            active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
         )
         # init ota-status files
         self._ota_status_control = OTAStatusFilesControl(

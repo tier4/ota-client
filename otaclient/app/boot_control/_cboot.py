@@ -311,7 +311,7 @@ class CBootController(
         self.standby_slot_mount_point.mkdir(exist_ok=True)
 
         ## refroot mount point
-        _refroot_mount_point = cfg.REF_ROOT_MOUNT_POINT
+        _refroot_mount_point = cfg.ACTIVE_ROOT_MOUNT_POINT
         # first try to umount refroot mount point
         CMDHelperFuncs.umount(_refroot_mount_point)
         if not os.path.isdir(_refroot_mount_point):

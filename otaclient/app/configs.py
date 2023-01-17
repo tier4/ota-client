@@ -82,7 +82,7 @@ class _InternalSettings:
     # standby/refroot mount points
     MOUNT_POINT = "/mnt/standby"
     # where active(old) image partition will be bind mounted to
-    REF_ROOT_MOUNT_POINT = "/mnt/refroot"
+    ACTIVE_ROOT_MOUNT_POINT = "/mnt/refroot"
     # tmp store for local copy
     OTA_TMP_STORE = "/.ota-tmp"
     # tmp store for standby slot OTA image meta

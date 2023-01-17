@@ -371,7 +371,7 @@ class _OTAUpdater:
             metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
             standby_slot_mp=cfg.MOUNT_POINT,
-            active_slot_mp=cfg.REF_ROOT_MOUNT_POINT,
+            active_slot_mp=cfg.ACTIVE_ROOT_MOUNT_POINT,
         )
         self._standby_slot_creator = self._create_standby_cls(
             update_meta=_updatemeta,
