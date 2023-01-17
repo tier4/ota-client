@@ -30,7 +30,7 @@ from concurrent.futures import (
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
-from queue import Queue
+from queue import Queue, Empty
 from threading import Event, Semaphore
 from typing import (
     Callable,
@@ -339,93 +339,7 @@ def urljoin_ensure_base(base: str, url: str):
     return urljoin(f"{base.rstrip('/')}/", url)
 
 
-class SimpleTasksTracker:
-    """A simple lock-free task tracker implemented by itertools.count.
-
-    NOTE: If we are using CPython, then itertools.count is thread-safe
-    for used in python code as itertools.count is implemented in C in CPython.
-    """
-
-    def __init__(
-        self,
-        *,
-        max_concurrent: int,
-        title: str = "simple_tasks_tracker",
-        interrupt_pending_on_exception=True,
-    ) -> None:
-        self.title = title
-        self.interrupt_pending_on_exception = interrupt_pending_on_exception
-        self._wait_interval = cfg.STATS_COLLECT_INTERVAL
-        self.last_error = None
-        self._se = Semaphore(max_concurrent)
-
-        self._interrupted = Event()
-        self._register_finished = False
-
-        self._in_counter = itertools.count()
-        self._done_counter = itertools.count()
-        self._in_num = 0
-        self._done_num = 0
-
-        self._futs: Set[Future] = set()
-
-    def _terminate_pending_task(self):
-        """Cancel all the pending tasks."""
-        for fut in self._futs:
-            fut.cancel()
-
-    def add_task(self, fut: Future):
-        if self._interrupted.is_set() or self._register_finished:
-            return
-
-        self._se.acquire(blocking=True)
-        self._in_num = next(self._in_counter)
-        self._futs.add(fut)
-
-    def task_collect_finished(self):
-        self._register_finished = True
-
-    def done_callback(self, fut: Future) -> None:
-        try:
-            self._se.release()
-            fut.result()
-            self._futs.discard(fut)
-            self._done_num = next(self._done_counter)
-        except CancelledError:
-            pass  # ignored as this is not caused by fut itself
-        except Exception as e:
-            self.last_error = e
-            self._interrupted.set()
-            if self.interrupt_pending_on_exception:
-                self._terminate_pending_task()
-
-    def wait(
-        self,
-        extra_wait_cb: Optional[Callable] = None,
-        *,
-        raise_exception: bool = True,
-    ):
-        while (not self._register_finished) or self._done_num < self._in_num:
-            if self._interrupted.is_set():
-                logger.error(f"{self.title} interrupted, abort")
-                break
-
-            time.sleep(self._wait_interval)
-
-        if self.last_error:
-            logger.error(f"{self.title} failed: {self.last_error!r}")
-            if raise_exception:
-                raise self.last_error
-        elif callable(extra_wait_cb):
-            # if extra_wait_cb presents, also wait for it
-            extra_wait_cb()
-
-
 _T = TypeVar("_T")
-
-
-class InterruptTaskWaiting(Exception):
-    pass
 
 
 class RetryTaskMap(Generic[_T]):
@@ -537,6 +451,9 @@ class RetryTaskMap(Generic[_T]):
             else:
                 self._shutdowned = True
                 return
+        # failed to finish all tasks under <max_retry_limit>
+        if isinstance(self.last_error, Exception):
+            raise self.last_error
 
     def shutdown(self, *, raise_last_exp: bool):
         """Shutdown the current running RetryTaskMap.
@@ -547,9 +464,11 @@ class RetryTaskMap(Generic[_T]):
         """
         logger.debug(f"shutdown the running RetryTaskMap {self.title=}")
         self._shutdowned = True
+        # cleanup
         self._failed.clear()
         while self._futs and (_fut := self._futs.pop()):
             _fut.cancel()
+
         if raise_last_exp and isinstance(self.last_error, Exception):
             raise self.last_error
 
@@ -562,7 +481,7 @@ class RetryTaskMap(Generic[_T]):
         self._executor.submit(self._execute)
 
         while not self._shutdowned or not self._done_que.empty():
-            if not self._done_que.empty():
-                yield (self._done_que.get_nowait()).result()
-                continue
-            time.sleep(1)
+            try:
+                yield self._done_que.get(block=True, timeout=1).result()
+            except Empty:
+                pass
