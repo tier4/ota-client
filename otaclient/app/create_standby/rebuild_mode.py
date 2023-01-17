@@ -17,9 +17,9 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, List
+from typing import Callable, List, Tuple
 
-from ..common import SimpleTasksTracker
+from ..common import RetryTaskMap
 from ..configs import config as cfg
 from ..update_stats import (
     OTAUpdateStatsCollector,
@@ -127,43 +127,36 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _process_regulars(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
         self._hardlink_register = HardlinkRegister()
-        _tasks_tracker = SimpleTasksTracker(
-            max_concurrent=cfg.MAX_CONCURRENT_TASKS,
-            title="process_regulars",
-        )
 
         logger.info("start applying delta...")
         with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
-            for _hash, _regulars_set in self.delta_bundle.new_delta.items():
-                # interrupt update if _tasks_tracker collects error
-                if e := _tasks_tracker.last_error:
-                    logger.error(f"interrupt update due to {e!r}")
-                    raise e
-
-                fut = pool.submit(
-                    self._process_regular,
-                    _hash,
-                    _regulars_set,
-                )
-                _tasks_tracker.add_task(fut)
-                fut.add_done_callback(_tasks_tracker.done_callback)
-
-            logger.info(
-                "all process_regulars tasks are dispatched, wait for finishing..."
+            _mapper = RetryTaskMap(
+                self._process_regular,
+                self.delta_bundle.new_delta.items(),
+                title="process_regulars",
+                max_concurrent=cfg.MAX_CONCURRENT_TASKS,
+                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                max_retry=6,
+                executor=pool,
             )
-            _tasks_tracker.task_collect_finished()
-            _tasks_tracker.wait(self.stats_collector.wait_staging)
+            for _exp, _entry, _ in _mapper.execute():
+                if _exp:
+                    logger.debug(f"[process_regular] failed to process {_entry=}")
+            self.stats_collector.wait_staging()
 
-    def _process_regular(self, _hash: str, _regs_set: RegularInfSet):
+    def _process_regular(self, _input: Tuple[str, RegularInfSet]):
+        _hash, _regs_set = _input
         stats_list: List[RegInfProcessedStats] = []  # for ota stats report
 
         _local_copy = self._ota_tmp / _hash
         for is_last, entry in _regs_set.iter_entries():
-            cur_stat = RegInfProcessedStats(op=RegProcessOperation.OP_COPY)
+            cur_stat = RegInfProcessedStats(
+                op=RegProcessOperation.OP_COPY,
+                size=_local_copy.stat().st_size,
+            )
             _start_time = time.thread_time_ns()
 
-            # record the size of this entry(by query the local copy)
-            cur_stat.size = _local_copy.stat().st_size
             # special treatment on /boot folder
             _mount_point = (
                 self.standby_slot_mp if not entry._base == "/boot" else self.boot_dir
