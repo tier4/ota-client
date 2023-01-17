@@ -578,6 +578,7 @@ class OTAClient(OTAClientProtocol):
                 self.last_failure = None
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
                 self._updater_executor.execute(version, url_base, cookies_json, fsm=fsm)
+                self._update_lock.release()  # release update lock on success
             else:
                 logger.warning(
                     "ignore incoming update request as local update is ongoing"
@@ -586,8 +587,7 @@ class OTAClient(OTAClientProtocol):
             self.live_ota_status.set_ota_status(wrapper.StatusOta.FAILURE)
             self.last_failure = e
             fsm.on_otaclient_failed()
-        finally:
-            self._update_lock.release()
+            self._update_lock.release()  # release update lock on failure
 
     def rollback(self):
         try:
