@@ -234,7 +234,8 @@ class Test_OTAClient:
             f"{cfg.OTACLIENT_MODULE_PATH}.OTAUpdateFSM", return_value=self._fsm
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.Lock", return_value=self._otaclient_lock
+            f"{cfg.OTACLIENT_MODULE_PATH}.threading.Lock",
+            return_value=self._otaclient_lock,
         )
 
     def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
@@ -335,6 +336,7 @@ class Test_OTAClient:
 
         ### set the ota_status to updating
         _ota_client.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
+        _ota_client._updater_executor = self._ota_updater
 
         _status = _ota_client.status()
         assert _status == wrapper.StatusResponseEcu(
