@@ -26,6 +26,7 @@ from typing import Tuple
 
 from otaclient.app.common import (
     SimpleTasksTracker,
+    RetryTaskMap,
     copytree_identical,
     file_sha256,
     re_symlink_atomic,
@@ -299,3 +300,89 @@ class TestSimpleTasksTracker:
             _task_tracker.task_collect_finished()
             logger.info("tasks dispatching completed")
             _task_tracker.wait(self.extra_wait)
+
+
+class _RetryTaskMapTestErr(Exception):
+    ...
+
+
+class TestRetryTaskMap:
+    WAIT_CONST = 100_000_000
+    TASKS_COUNT = 1000
+    MAX_CONCURRENT = 60
+    DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT = 6  # seconds
+    MAX_WAIT_BEFORE_SUCCESS = 10
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        # NOTE: the following variables are for test_retry_finally_succeeded
+        self._start_time = time.time()
+        self._success_wait_dict = {
+            idx: random.randint(0, self.MAX_WAIT_BEFORE_SUCCESS)
+            for idx in range(self.TASKS_COUNT)
+        }
+        self._succeeded_tasks = [False for _ in range(self.TASKS_COUNT)]
+
+    def workload_aways_failed(self, idx: int) -> int:
+        time.sleep((self.TASKS_COUNT - random.randint(0, idx)) / self.WAIT_CONST)
+        raise _RetryTaskMapTestErr
+
+    def workload_failed_and_then_success(self, idx: int) -> int:
+        time.sleep((self.TASKS_COUNT - random.randint(0, idx)) / self.WAIT_CONST)
+        if time.time() > self._start_time + self._success_wait_dict[idx]:
+            self._succeeded_tasks[idx] = True
+            return idx
+        raise _RetryTaskMapTestErr
+
+    def test_retry_keep_failing_timeout(self):
+        _keep_failing_timer = time.time()
+        with pytest.raises(_RetryTaskMapTestErr):
+            with ThreadPoolExecutor() as pool:
+                _mapper = RetryTaskMap(
+                    self.workload_aways_failed,
+                    range(self.TASKS_COUNT),
+                    max_concurrent=self.MAX_CONCURRENT,
+                    executor=pool,
+                    backoff_max=1,
+                    backoff_factor=0.01,
+                    max_retry=0,  # we are testing keep failing timeout here
+                )
+                for _exp, _, _ in _mapper.execute():
+                    # task successfully finished
+                    if not isinstance(_exp, Exception):
+                        # reset the failing timer on one succeeded task
+                        _keep_failing_timer = time.time()
+                        continue
+                    if (
+                        time.time() - _keep_failing_timer
+                        > self.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                    ):
+                        logger.error(
+                            f"RetryTaskMap successfully failed after keep failing in {self.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT}s"
+                        )
+                        _mapper.shutdown(raise_last_exp=True)
+
+    def test_retry_finally_succeeded(self):
+        _keep_failing_timer = time.time()
+        with ThreadPoolExecutor() as pool:
+            _mapper = RetryTaskMap(
+                self.workload_failed_and_then_success,
+                range(self.TASKS_COUNT),
+                max_concurrent=self.MAX_CONCURRENT,
+                executor=pool,
+                backoff_max=1,
+                backoff_factor=0.1,
+                max_retry=0,  # we are testing keep failing timeout here
+            )
+            for _exp, _, _ in _mapper.execute():
+                # task successfully finished
+                if not isinstance(_exp, Exception):
+                    # reset the failing timer on one succeeded task
+                    _keep_failing_timer = time.time()
+                    continue
+                if (
+                    time.time() - _keep_failing_timer
+                    > self.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                ):
+                    _mapper.shutdown(raise_last_exp=True)
+        assert all(self._succeeded_tasks)
