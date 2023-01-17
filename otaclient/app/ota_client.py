@@ -404,6 +404,7 @@ class _OTAUpdater:
     def shutdown(self):
         self.update_phase = None  # type: ignore
         self._proxy = None  # type: ignore
+        self._downloader.shutdown()
         self._update_stats_collector.stop()
 
     def update_progress(self) -> Tuple[str, wrapper.StatusProgress]:
@@ -506,13 +507,12 @@ class _OTAUpdater:
             fsm.client_wait_for_reboot()
             logger.info("enter boot control post update phase...")
             self._boot_controller.post_update()
-            # NOTE: no need to call shutdown method here, keep the update_progress
-            #       as it as we are still in updating before rebooting
         except OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
-            self.shutdown()
             raise OTAUpdateError(e) from e
+        finally:
+            self.shutdown()
 
 
 class OTAClient(OTAClientProtocol):
