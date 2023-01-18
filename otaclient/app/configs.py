@@ -118,7 +118,7 @@ class BaseConfig(_InternalSettings):
     LOCAL_CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
 
     # --- download settings for single download task --- #
-    DOWNLOAD_RETRY = 6
+    DOWNLOAD_RETRY = 3
     DOWNLOAD_BACKOFF_MAX = 3  # seconds
     DOWNLOAD_BACKOFF_FACTOR = 0.1  # seconds
     # downloader settings
