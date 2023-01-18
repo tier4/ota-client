@@ -113,11 +113,10 @@ class BaseConfig(_InternalSettings):
     # ------ otaclient behavior setting ------ #
     # the following settings can be safely changed according to the
     # actual environment otaclient running at.
+    # --- file read/write settings --- #
     CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
     LOCAL_CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
-    # NOTE: max_concurrent_tasks impacts both downloading and
-    #       apply update on create_standby
-    MAX_CONCURRENT_TASKS = 128
+
     # --- download settings for single download task --- #
     DOWNLOAD_RETRY = 6
     DOWNLOAD_BACKOFF_MAX = 3  # seconds
@@ -130,13 +129,21 @@ class BaseConfig(_InternalSettings):
     # if retry keeps failing without any success in
     # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
     # download task group and raise NETWORK OTA error.
+    MAX_CONCURRENT_DOWNLOAD_TASKS = 128
     DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT = 5 * 60  # seconds
     DOWNLOAD_GROUP_BACKOFF_MAX = 12  # seconds
     DOWNLOAD_GROUP_BACKOFF_FACTOR = 0.1  # seconds
 
+    # --- stats collector setting --- #
     STATS_COLLECT_INTERVAL = 1  # second
-    ## standby creation mode, now only REBUILD mode is available
+
+    # --- create standby setting --- #
+    # now only REBUILD mode is available
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
+    MAX_CONCURRENT_PROCESS_FILE_TASKS = 256
+    CREATE_STANDBY_RETRY_MAX = 3
+    CREATE_STANDBY_BACKOFF_FACTOR = 1
+    CREATE_STANDBY_BACKOFF_MAX = 6
 
 
 # init cfgs

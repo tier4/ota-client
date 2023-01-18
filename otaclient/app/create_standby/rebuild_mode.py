@@ -134,10 +134,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 self._process_regular,
                 self.delta_bundle.new_delta.items(),
                 title="process_regulars",
-                max_concurrent=cfg.MAX_CONCURRENT_TASKS,
-                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
-                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
-                max_retry=6,
+                max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
+                backoff_max=cfg.CREATE_STANDBY_BACKOFF_MAX,
+                backoff_factor=cfg.CREATE_STANDBY_BACKOFF_FACTOR,
+                max_retry=cfg.CREATE_STANDBY_RETRY_MAX,
                 executor=pool,
             )
             for _exp, _entry, _ in _mapper.execute():

@@ -356,6 +356,7 @@ class DeltaGenerator:
                         )
                     )
 
+                # process the files under this dir
                 futs: List[Future] = []
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     delta_src_fpath = delta_src_curdir_path / fname

@@ -255,7 +255,7 @@ class _OTAUpdater:
                 self._download_file,
                 delta_bundle.download_list,
                 title="downloading_ota_files",
-                max_concurrent=cfg.MAX_CONCURRENT_TASKS,
+                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
                 backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
                 backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
                 max_retry=0,  # NOTE: we use another strategy below
@@ -312,7 +312,7 @@ class _OTAUpdater:
                 self._download_otameta_file,
                 self._otameta.get_img_metafiles(),
                 title="downloading_otameta_files",
-                max_concurrent=cfg.MAX_CONCURRENT_TASKS,
+                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
                 backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
                 backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
                 max_retry=0,  # NOTE: we use another strategy below

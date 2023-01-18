@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Tuple
 
 from otaclient.app.common import (
-    SimpleTasksTracker,
     RetryTaskMap,
     copytree_identical,
     file_sha256,
@@ -257,49 +256,6 @@ class Test_re_symlink_atomic:
         _symlink.write_text("123123123")
         re_symlink_atomic(_symlink, _target)
         assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
-
-
-class TestSimpleTasksTracker:
-    WAIT_CONST = 100_000_000
-    TASKS_COUNT = 1000
-    MAX_CONCURRENT = 60
-
-    def workload(self, idx: int, *, total: int) -> int:
-        time.sleep((total - random.randint(0, idx)) / self.WAIT_CONST)
-        return idx
-
-    def interrupt_workload(self, idx: int):
-        raise ValueError(f"interrupted at {idx}")
-
-    def extra_wait(self):
-        time.sleep(1)
-        logger.info("extra wait exits")
-
-    def test_successfully_completed(self):
-        _task_tracker = SimpleTasksTracker(max_concurrent=self.MAX_CONCURRENT)
-        with ThreadPoolExecutor() as pool:
-            for i in range(self.TASKS_COUNT):
-                fut = pool.submit(self.workload, i, total=self.TASKS_COUNT)
-                _task_tracker.add_task(fut)
-                fut.add_done_callback(_task_tracker.done_callback)
-            _task_tracker.task_collect_finished()
-            logger.info("tasks dispatching completed")
-            _task_tracker.wait(self.extra_wait)
-
-    def test_interrupted(self):
-        _task_tracker = SimpleTasksTracker(max_concurrent=self.MAX_CONCURRENT)
-        with ThreadPoolExecutor() as pool, pytest.raises(ValueError):
-            for i in range(self.TASKS_COUNT):
-                if i == self.TASKS_COUNT // 3 * 2:
-                    logger.info(f"interrupt workload called at {i}")
-                    fut = pool.submit(self.interrupt_workload, i)
-                else:
-                    fut = pool.submit(self.workload, i, total=self.TASKS_COUNT)
-                _task_tracker.add_task(fut)
-                fut.add_done_callback(_task_tracker.done_callback)
-            _task_tracker.task_collect_finished()
-            logger.info("tasks dispatching completed")
-            _task_tracker.wait(self.extra_wait)
 
 
 class _RetryTaskMapTestErr(Exception):
