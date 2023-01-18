@@ -31,7 +31,7 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue, Empty
-from threading import Event, Semaphore
+from threading import Semaphore
 from typing import (
     Callable,
     Optional,
