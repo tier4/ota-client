@@ -468,15 +468,6 @@ class _OTAUpdater:
             except (JSONDecodeError, AssertionError) as e:
                 raise InvalidUpdateRequest from e
 
-            # ------ process metadata.jwt ------ #
-            logger.debug("process metadata.jwt...")
-            try:
-                self._otameta = self._process_metadata_jwt()
-            except DownloadError as e:
-                raise NetworkError("failed to download metadata") from e
-            except ValueError as e:
-                raise BaseOTAMetaVerificationFailed from e
-
             # ------ configure proxy ------ #
             logger.debug("configure proxy setting...")
             self._proxy = None  # type: ignore
@@ -488,6 +479,15 @@ class _OTAUpdater:
                 #                 we only support using http proxy here.
                 logger.debug(f"use {proxy=} for local OTA update")
                 self._proxy = {"http": proxy}
+
+            # ------ process metadata.jwt ------ #
+            logger.debug("process metadata.jwt...")
+            try:
+                self._otameta = self._process_metadata_jwt()
+            except DownloadError as e:
+                raise NetworkError("failed to download metadata") from e
+            except ValueError as e:
+                raise BaseOTAMetaVerificationFailed from e
 
             if total_regular_file_size := self._otameta.total_regular_size:
                 self._update_stats_collector.set_total_regular_files_size(
