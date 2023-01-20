@@ -249,10 +249,8 @@ class DeltaGenerator:
         self._new_hash_list: Set[str] = set()
         self._download_list: List[RegularInf] = []
 
-        self._delta_src_path_hash_dict: Dict[str, str] = {}
-
         self._stats_collector = stats_collector
-        self._delta_src_mp = delta_src
+        self._delta_src_mount_point = delta_src
         self._local_copy_dir = local_copy_dir
 
         self.total_regulars_num = 0
@@ -298,12 +296,12 @@ class DeltaGenerator:
         # collect this file to the recycle folder if not yet being collected.
         with ThreadPoolExecutor(thread_name_prefix="scan_slot") as pool:
             for curdir, dirnames, filenames in os.walk(
-                self._delta_src_mp, topdown=True, followlinks=False
+                self._delta_src_mount_point, topdown=True, followlinks=False
             ):
                 delta_src_curdir_path = Path(curdir)
                 canonical_curdir_path = (
                     _canonical_root
-                    / delta_src_curdir_path.relative_to(self._delta_src_mp)
+                    / delta_src_curdir_path.relative_to(self._delta_src_mount_point)
                 )
                 logger.debug(f"{delta_src_curdir_path=}, {canonical_curdir_path=}")
 
@@ -377,27 +375,9 @@ class DeltaGenerator:
                         self._rm.append(str(canonical_fpath))
                         continue
 
-                    # if delta_src meta is available, only process the file listed
-                    # in the delta_src meta, otherwise move it to rm_list
-                    if self._delta_src_path_hash_dict:
-                        if _hash := self._delta_src_path_hash_dict.get(
-                            str(canonical_fpath)
-                        ):
-                            futs.append(
-                                pool.submit(
-                                    self._process_file_in_old_slot,
-                                    delta_src_fpath,
-                                    _hash=_hash,
-                                )
-                            )
-                        else:
-                            self._rm.append(str(canonical_fpath))
-                    # delta_src meta is not available,
-                    # directly hash and collect the file
-                    else:
-                        futs.append(
-                            pool.submit(self._process_file_in_old_slot, delta_src_fpath)
-                        )
+                    futs.append(
+                        pool.submit(self._process_file_in_old_slot, delta_src_fpath)
+                    )
                 # wait for all files under this dir to be finished
                 logger.debug(f"{delta_src_curdir_path=} done")
                 wait(futs)
@@ -419,7 +399,7 @@ class DeltaGenerator:
     def calculate_and_process_delta(
         self,
         *,
-        delta_src_reg: Path,  # path to delta_src regulars.txt
+        delta_src_reg: Path,  # path to delta_src regulars.txt, currently not used
         new_reg: Path,  # path to new image regulars.txt
         new_dirs: Path,  # path to dirs.txt
     ) -> DeltaBundle:
@@ -433,11 +413,6 @@ class DeltaGenerator:
                 self._new.add_entry(_entry)
                 self._new_hash_list.add(_entry.sha256hash)
         self._stats_collector.store.total_regular_files = self.total_regulars_num
-        # pre-load delta src's reginf if presented
-        if Path(delta_src_reg).is_file():
-            with open(delta_src_reg, "r") as f:
-                for _entry in map(RegularInf.parse_reginf, f):
-                    self._delta_src_path_hash_dict[str(_entry.path)] = _entry.sha256hash
 
         # generate delta and prepare files
         self._process_delta_src()
@@ -454,7 +429,7 @@ class DeltaGenerator:
             new_delta=self._new,
             new_dirs=self._new_dirs,
             download_list=self._download_list,
-            delta_src=self._delta_src_mp,
+            delta_src=self._delta_src_mount_point,
             delta_files_dir=self._local_copy_dir,
             total_regular_num=self.total_regulars_num,
             total_download_files_size=self.total_download_files_size,
