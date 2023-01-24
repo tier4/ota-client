@@ -263,7 +263,7 @@ class _OTAUpdater:
             )
             for _exp, _entry, _stats in _mapper.execute():
                 # task successfully finished
-                if not isinstance(_exp, Exception):
+                if not isinstance(_exp, Exception) and _stats:
                     self._update_stats_collector.report(_stats)
                     # reset the failing timer on one succeeded task
                     _keep_failing_timer = time.time()
@@ -285,7 +285,7 @@ class _OTAUpdater:
                     time.time() - _keep_failing_timer
                     > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
                 ):
-                    _mapper.shutdown(raise_last_exp=True)
+                    _mapper.shutdown()
 
         # all tasks are finished, waif for stats collector to finish processing
         # all the reported stats
@@ -328,7 +328,7 @@ class _OTAUpdater:
                     time.time() - _keep_failing_timer
                     > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
                 ):
-                    _mapper.shutdown(raise_last_exp=True)
+                    _mapper.shutdown()
 
     # update steps
 

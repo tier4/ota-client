@@ -26,6 +26,7 @@ from typing import Tuple
 
 from otaclient.app.common import (
     RetryTaskMap,
+    _RetryTaskMapErr,
     copytree_identical,
     file_sha256,
     re_symlink_atomic,
@@ -292,7 +293,7 @@ class TestRetryTaskMap:
 
     def test_retry_keep_failing_timeout(self):
         _keep_failing_timer = time.time()
-        with pytest.raises(_RetryTaskMapTestErr):
+        with pytest.raises(_RetryTaskMapErr):
             with ThreadPoolExecutor() as pool:
                 _mapper = RetryTaskMap(
                     self.workload_aways_failed,
@@ -316,7 +317,7 @@ class TestRetryTaskMap:
                         logger.error(
                             f"RetryTaskMap successfully failed after keep failing in {self.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT}s"
                         )
-                        _mapper.shutdown(raise_last_exp=True)
+                        _mapper.shutdown()
 
     def test_retry_finally_succeeded(self):
         _keep_failing_timer = time.time()
@@ -340,5 +341,5 @@ class TestRetryTaskMap:
                     time.time() - _keep_failing_timer
                     > self.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
                 ):
-                    _mapper.shutdown(raise_last_exp=True)
+                    _mapper.shutdown()
         assert all(self._succeeded_tasks)
