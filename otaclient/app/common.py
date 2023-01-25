@@ -21,11 +21,7 @@ import shutil
 import enum
 import subprocess
 import time
-from concurrent.futures import (
-    Future,
-    Executor,
-    wait,
-)
+from concurrent.futures import Future, Executor
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
@@ -478,7 +474,6 @@ class RetryTaskMap(Generic[_T, _RES]):
             if self._status is not _RetryTaskMapStatus.RUNNING:
                 return
 
-            # dispatch all tasks to thread pool
             for _entry in self._iter:
                 if self._status is not _RetryTaskMapStatus.RUNNING:
                     return
@@ -501,6 +496,7 @@ class RetryTaskMap(Generic[_T, _RES]):
                 # cleanup to prepare for the next retry
                 self._last_failed_count = len(self._failed_tasks)
                 self._iter, self._failed_tasks = self._failed_tasks, []
+                self._futs.clear()
                 # reset flag before starting next round
                 self._dispatcher_done_this_round.clear()
                 self._collector_done_this_round.clear()
