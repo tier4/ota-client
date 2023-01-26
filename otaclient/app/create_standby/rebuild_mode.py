@@ -89,7 +89,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _process_dirs(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
-        for entry in self.delta_bundle.new_dirs:
+        for entry in self.delta_bundle.get_new_dirs():
             entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
     def _process_persistents(self):
