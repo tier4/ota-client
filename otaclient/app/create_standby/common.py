@@ -214,6 +214,46 @@ class DeltaBundle:
     total_regular_num: int
     total_download_files_size: int  # in bytes
 
+    # getter API
+    # NOTE: all the getter APIs will transfer the ref
+    #       to the caller, and then release it.
+
+    def get_rm_delta(self) -> Iterator[str]:
+        if not (_rm_delta := self.rm_delta):
+            return []  # type: ignore
+        self.rm_delta = None  # type: ignore
+
+        def _gen():
+            yield from _rm_delta
+
+        return _gen()
+
+    def get_new_delta(self) -> RegularDelta:
+        if not (_new_delta := self.new_delta):
+            return {}  # type: ignore
+        self.new_delta = None  # type: ignore
+        return _new_delta
+
+    def get_download_list(self) -> Iterator[RegularInf]:
+        if not (_download_list := self.download_list):
+            return []  # type: ignore
+        self.download_list = None  # type: ignore
+
+        def _gen():
+            yield from _download_list
+
+        return _gen()
+
+    def get_new_dirs(self) -> Iterator[DirectoryInf]:
+        if not (_dirs := self.new_dirs):
+            return []  # type: ignore
+        self.new_dirs = None  # type: ignore
+
+        def _gen():
+            yield from _dirs
+
+        return _gen()
+
 
 class DeltaGenerator:
     # entry under the following folders will be scanned
