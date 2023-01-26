@@ -462,8 +462,10 @@ class RetryTaskMap(Generic[_T, _RES]):
                     pass  # ignore call on closed collector
 
         def _wait_only_when_running(_to_wait: Event) -> bool:
+            """Keep waiting until Event is set, or not in RUNNING."""
             while self._status is _RetryTaskMapStatus.RUNNING:
-                return _to_wait.wait(timeout=1)
+                if _to_wait.wait(timeout=1):
+                    return True
             return False
 
         _backoff_retry_count = 0
