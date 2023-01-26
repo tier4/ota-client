@@ -33,7 +33,6 @@ from typing import (
     OrderedDict,
     Set,
     Tuple,
-    Iterable,
 )
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
@@ -193,11 +192,11 @@ class DeltaBundle:
     # rm_delta: a list of files that presented at
     #           delta_src rootfs but don't presented
     #           at new OTA image
-    rm_delta: Iterable[str]
+    rm_delta: List[str]
     # download_list: a list of files that presented in
     #                the new OTA image but are not available
     #                locally
-    download_list: Iterable[RegularInf]
+    download_list: List[RegularInf]
     # new_delta: the generated delta, used by create_standby
     #            implementation to update the standby slot
     new_delta: RegularDelta
@@ -224,7 +223,8 @@ class DeltaBundle:
         self.rm_delta = None  # type: ignore
 
         def _gen():
-            yield from _rm_delta
+            while _rm_delta:
+                yield _rm_delta.pop()
 
         return _gen()
 
@@ -240,7 +240,8 @@ class DeltaBundle:
         self.download_list = None  # type: ignore
 
         def _gen():
-            yield from _download_list
+            while _download_list:
+                yield _download_list.pop()
 
         return _gen()
 
@@ -250,7 +251,8 @@ class DeltaBundle:
         self.new_dirs = None  # type: ignore
 
         def _gen():
-            yield from _dirs
+            while _dirs:
+                yield _dirs.popitem()[0]
 
         return _gen()
 

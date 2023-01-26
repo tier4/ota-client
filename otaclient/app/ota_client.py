@@ -20,7 +20,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Tuple, Type, Iterator
 from urllib.parse import urlparse, quote
 
 from .errors import (
@@ -36,7 +36,6 @@ from .boot_control import BootControllerProtocol
 from .common import OTAFileCacheControl, RetryTaskMap, urljoin_ensure_base
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol, UpdateMeta
-from .create_standby.common import DeltaBundle
 from .downloader import (
     DestinationNotAvailableError,
     DownloadFailedSpaceNotEnough,
@@ -246,14 +245,14 @@ class _OTAUpdater:
         cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
         return cur_stat
 
-    def _download_files(self, delta_bundle: DeltaBundle):
+    def _download_files(self, download_list: Iterator[RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
         logger.debug("download neede OTA image files...")
         _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
                 self._download_file,
-                delta_bundle.download_list,
+                download_list,
                 title="downloading_ota_files",
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
                 backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
@@ -385,7 +384,7 @@ class _OTAUpdater:
         )
         self.update_phase = wrapper.StatusProgressPhase.REGULAR
         try:
-            self._download_files(_delta_bundle)
+            self._download_files(_delta_bundle.get_download_list())
         except DownloadFailedSpaceNotEnough:
             raise StandbySlotSpaceNotEnoughError from None
         except Exception as e:
