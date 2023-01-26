@@ -487,9 +487,10 @@ class RetryTaskMap(Generic[_T, _RES]):
             _se = Semaphore(self.max_concurrent)  # reset se on each try round
 
             def _done_cb(_fut: Future, /):
+                # NOTE: even when shutdowned, _se must be released
+                _se.release()
                 if self._status is not _RetryTaskMapStatus.RUNNING:
                     return
-                _se.release()
                 self._futs.discard(_fut)
                 self._task_collector_gen.send(_fut)
 
@@ -537,7 +538,7 @@ class RetryTaskMap(Generic[_T, _RES]):
             self._status = _RetryTaskMapStatus.SHUTDOWNED
 
     def _shutdown(self):
-        logger.debug(f"shutdown {self.title}...")
+        logger.info(f"shutdown {self.title}...")
         # wait task handlers after shutdown flag is set
         self._task_dispatcher_thread.result()
         self._task_collector_gen.close()
