@@ -348,6 +348,31 @@ class _RetryTaskMapStatus(enum.Enum):
     SHUTDOWNED = "SHUTDOWNED"
 
 
+class _ThreadSafeGenWrapper:
+    def __init__(self, _gen: Generator, *, kick_start: bool) -> None:
+        self._gen = _gen
+        self._lock = Lock()
+        if kick_start:
+            self.send(None)
+
+    def close(self):
+        self._gen.close()
+
+    def send(self, __value: Any) -> Any:
+        try:
+            with self._lock:
+                return self._gen.send(__value)
+        except StopIteration:
+            pass  # ignore on closed gen
+
+    def throw(self, __exp: Exception):
+        try:
+            with self._lock:
+                self._gen.throw(__exp)
+        except Exception as __exp:  # break ref cycle
+            raise __exp
+
+
 class Task(Generic[_T, _RES]):
     def __init__(self, _func: Callable[[_T], _RES], _entry: _T) -> None:
         self._func = _func
@@ -401,6 +426,7 @@ class RetryTaskMap(Generic[_T, _RES]):
         max_retry: int = 6,
     ) -> None:
         self.title = title
+        self.max_concurrent = max_concurrent
         self._func = _func
         self._executor = executor
         self._max_retry_iter = range(max_retry) if max_retry > 0 else itertools.count()
@@ -411,9 +437,8 @@ class RetryTaskMap(Generic[_T, _RES]):
         # tasks handling
         self._collector_done_this_round = Event()
         self._dispatcher_done_this_round = Event()
-        self._se = Semaphore(max_concurrent)
         self._yield_que: Queue[Future] = Queue()
-        self._task_collector_gen: Generator[None, Future, None] = None  # type: ignore
+        self._task_collector_gen: _ThreadSafeGenWrapper = None  # type: ignore
         self._task_dispatcher_thread: Future = None  # type: ignore
         self._last_error: Exception = None  # type: ignore
 
@@ -450,17 +475,6 @@ class RetryTaskMap(Generic[_T, _RES]):
                 self._collector_done_this_round.set()
 
     def _task_dispatcher(self):
-        _cb_lock = Lock()
-
-        def _done_cb(_fut: Future, /):
-            self._se.release()
-            self._futs.discard(_fut)
-            with _cb_lock:
-                try:
-                    self._task_collector_gen.send(_fut)
-                except StopIteration:
-                    pass  # ignore call on closed collector
-
         def _wait_only_when_running(_to_wait: Event) -> bool:
             """Keep waiting until Event is set, or not in RUNNING."""
             while self._status is _RetryTaskMapStatus.RUNNING:
@@ -470,6 +484,15 @@ class RetryTaskMap(Generic[_T, _RES]):
 
         _backoff_retry_count = 0
         for _total_retry_count in self._max_retry_iter:
+            _se = Semaphore(self.max_concurrent)  # reset se on each try round
+
+            def _done_cb(_fut: Future, /):
+                if self._status is not _RetryTaskMapStatus.RUNNING:
+                    return
+                _se.release()
+                self._futs.discard(_fut)
+                self._task_collector_gen.send(_fut)
+
             # NOTE: signal before examine the shutdown flag to prevent dead lock
             # NOTE: pre-add a sentinel to indicate the collector about dispatch round end
             self._futs.add(_ROUND_START_SENTINEL)  # type: ignore
@@ -479,7 +502,7 @@ class RetryTaskMap(Generic[_T, _RES]):
             for _entry in self._iter:
                 if self._status is not _RetryTaskMapStatus.RUNNING:
                     return
-                self._se.acquire(blocking=True)
+                _se.acquire(blocking=True)
                 _fut = self._executor.submit(Task(self._func, _entry))
                 self._futs.add(_fut)
                 _fut.add_done_callback(_done_cb)
@@ -515,16 +538,9 @@ class RetryTaskMap(Generic[_T, _RES]):
 
     def _shutdown(self):
         logger.debug(f"shutdown {self.title}...")
-
-        class _ShutdownExc(Exception):
-            pass
-
         # wait task handlers after shutdown flag is set
         self._task_dispatcher_thread.result()
-        try:
-            self._task_collector_gen.throw(_ShutdownExc)
-        except _ShutdownExc:
-            pass
+        self._task_collector_gen.close()
         # cancel all the pending tasks
         try:
             while isinstance(_fut := self._futs.pop(), Future):
@@ -555,8 +571,9 @@ class RetryTaskMap(Generic[_T, _RES]):
         self._status = _RetryTaskMapStatus.RUNNING
         self._task_dispatcher_thread = self._executor.submit(self._task_dispatcher)
         # kick start collector generator
-        self._task_collector_gen = self._task_collector()
-        next(self._task_collector_gen)
+        self._task_collector_gen = _ThreadSafeGenWrapper(
+            self._task_collector(), kick_start=True
+        )
 
         # return a generator to make sure the yielding happens
         # after the first task has been dispatched
