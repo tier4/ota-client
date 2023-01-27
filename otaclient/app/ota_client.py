@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import gc
 import json
 import tempfile
 import time
@@ -591,6 +592,7 @@ class OTAClient(OTAClientProtocol):
                 fsm.on_otaclient_failed()
             finally:
                 self._update_executor = None  # type: ignore
+                gc.collect()  # trigger a forced gc
                 self._lock.release()
         else:
             logger.warning(
