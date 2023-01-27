@@ -336,7 +336,7 @@ class Test_OTAClient:
 
         ### set the ota_status to updating
         _ota_client.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
-        _ota_client._updater_executor = self._ota_updater
+        _ota_client._update_executor = self._ota_updater
 
         _status = _ota_client.status()
         assert _status == wrapper.StatusResponseEcu(
