@@ -623,25 +623,20 @@ class OTAClient(OTAClientProtocol):
 
     def status(self) -> wrapper.StatusResponseEcu:
         _live_ota_status = self.live_ota_status.get_ota_status()
-        _resp = wrapper.StatusResponseEcu(
-            ecu_id=self.my_ecu_id,
-            result=wrapper.FailureType.NO_FAILURE.value,
-            status=wrapper.Status(
-                version=self.current_version,
-                failure=self.last_failure_type,
-                failure_reason=self.last_failure_reason,
-                status=_live_ota_status.value,
-            ),
+        _status = wrapper.Status(
+            version=self.current_version,
+            failure=self.last_failure_type,
+            failure_reason=self.last_failure_reason,
+            status=_live_ota_status.value,
         )
 
-        # progress report for updating/rollbacking
+        # for updating, add progress status
         if _live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
             _, _update_progress = self._update_executor.update_progress()
-            _resp.status.progress = _update_progress.unwrap()  # type: ignore
-        elif (
-            _live_ota_status == wrapper.StatusOta.ROLLBACKING
-            and self._rollback_executor
-        ):
-            # NOTE: rollback is not yet used!
-            pass
-        return _resp
+            _status.progress.CopyFrom(_update_progress.unwrap())  # type: ignore
+
+        return wrapper.StatusResponseEcu(
+            ecu_id=self.my_ecu_id,
+            result=wrapper.FailureType.NO_FAILURE.value,
+            status=_status.unwrap(),  # type: ignore
+        )
