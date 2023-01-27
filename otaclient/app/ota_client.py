@@ -514,6 +514,22 @@ class _OTAUpdater:
             self.shutdown()
 
 
+class _OTARollbacker:
+    def __init__(self, boot_controller: BootControllerProtocol) -> None:
+        self._boot_controller = boot_controller
+
+    def execute(self):
+        try:
+            # enter rollback
+            self._boot_controller.pre_rollback()
+            # leave rollback
+            self._boot_controller.post_rollback()
+        except OTAError as e:
+            logger.error(f"rollback failed: {e!r}")
+            self._boot_controller.on_operation_failure()
+            raise OTARollbackError(e) from e
+
+
 class OTAClient(OTAClientProtocol):
     """
     Init params:
@@ -541,26 +557,13 @@ class OTAClient(OTAClientProtocol):
 
         # executors for update/rollback
         self._update_executor: _OTAUpdater = None  # type: ignore
+        self._rollback_executor: _OTARollbacker = None  # type: ignore
 
         # err record
         self.last_failure_type = None
         self.last_failure_reason = ""
 
-    def _rollback_executor(self):
-        try:
-            # enter rollback
-            self.boot_controller.pre_rollback()
-            # leave rollback
-            self.boot_controller.post_rollback()
-        except OTAError as e:
-            logger.error(f"rollback failed: {e!r}")
-            self.boot_controller.on_operation_failure()
-            raise OTARollbackError(e) from e
-
     # API
-
-    def get_last_failure(self) -> Optional[OTA_APIError]:
-        return self.last_failure
 
     def update(
         self,
@@ -597,18 +600,21 @@ class OTAClient(OTAClientProtocol):
     def rollback(self):
         if self._lock.acquire(blocking=False):
             try:
-
                 logger.info("[rollback] entering...")
+                self._rollback_executor = _OTARollbacker(
+                    boot_controller=self.boot_controller
+                )
                 self.last_failure_type = None
                 self.last_failure_reason = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACKING)
-                self._rollback_executor()
+                self._rollback_executor.execute()
             # silently ignore overlapping request
             except OTARollbackError as e:
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACK_FAILURE)
                 self.last_failure_type = e.get_err_type().value
                 self.last_failure_reason = e.get_err_reason()
             finally:
+                self._rollback_executor = None  # type: ignore
                 self._lock.release()
         else:
             logger.warning(
