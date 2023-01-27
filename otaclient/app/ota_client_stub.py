@@ -47,9 +47,6 @@ class OtaProxyWrapper:
         self._lock = threading.Lock()
         self._closed = True
         self._launcher_gen: Generator = None  # type: ignore
-        # an event for ota_cache to signal ota_service that
-        # cache scrub finished.
-        self._scrub_cache_event = multiprocessing.Event()
 
     @staticmethod
     def _start_otaproxy(init_cache, *, scrub_cache_event):
@@ -102,15 +99,17 @@ class OtaProxyWrapper:
         wait_on_scrub: bool = True,
         wait_on_timeout: Optional[float] = None,
     ):
-        _server_p = multiprocessing.get_context("spawn").Process(
+        _mp_ctx = multiprocessing.get_context("spawn")
+        _scrub_cache_event = _mp_ctx.Event()
+        _server_p = _mp_ctx.Process(
             target=self._start_otaproxy,
             args=[init_cache],
-            kwargs={"scrub_cache_event": self._scrub_cache_event},
+            kwargs={"scrub_cache_event": _scrub_cache_event},
         )
         try:
             _server_p.start()
             if wait_on_scrub:
-                self._scrub_cache_event.wait(timeout=wait_on_timeout)
+                _scrub_cache_event.wait(timeout=wait_on_timeout)
             logger.info(f"ota proxy server started(pid={_server_p.pid}, {proxy_cfg=})")
 
             # wait for stop
@@ -134,6 +133,7 @@ class OtaProxyWrapper:
     ) -> Optional[int]:
         """Launch ota_proxy as a separate process."""
         if self._lock.acquire(blocking=False) and self._closed:
+            self._closed = False
             try:
                 self._launcher_gen = self._launcher(
                     init_cache=init_cache,
@@ -143,15 +143,11 @@ class OtaProxyWrapper:
                 return next(self._launcher_gen)
             except Exception as e:
                 logger.error(f"failed to start otaproxy: {e!r}")
-            finally:
                 self._launcher_gen = None  # type: ignore
+            finally:
                 self._lock.release()
         else:
             logger.warning("try to launch otaproxy again, ignored")
-
-    def wait_on_ota_cache(self, timeout: Optional[float] = None):
-        """Wait on ota_cache to finish initializing."""
-        self._scrub_cache_event.wait(timeout=timeout)
 
     def stop(self, cleanup_cache=False):
         """Shutdown ota_proxy.
@@ -163,13 +159,16 @@ class OtaProxyWrapper:
             and not self._closed
             and self._launcher_gen
         ):
+            logger.info("shutdown otaproxy...")
             try:
                 self._launcher_gen.send(cleanup_cache)
+            except StopIteration:
+                pass  # expected when gen finished
             finally:
                 self._closed, self._launcher_gen = True, None  # type: ignore
                 self._lock.release()
         else:
-            logger.warning("try to shutdown otaproxy again, ignored")
+            logger.warning("ignored unproper otaproxy shutdown request")
 
 
 class _UpdateSession:
