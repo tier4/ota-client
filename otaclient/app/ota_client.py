@@ -530,8 +530,7 @@ class OTAClient(OTAClientProtocol):
     ):
         self.my_ecu_id = my_ecu_id
         # ensure only one update/rollback session is running
-        self._update_lock = threading.Lock()
-        self._rollback_lock = threading.Lock()
+        self._lock = threading.Lock()
 
         self.boot_controller = boot_control_cls()
         self.create_standby_cls = create_standby_cls
@@ -542,6 +541,10 @@ class OTAClient(OTAClientProtocol):
 
         # executors for update/rollback
         self._updater_executor: _OTAUpdater = None  # type: ignore
+
+        # err record
+        self.last_failure_type = None
+        self.last_failure_reason = ""
 
     def _rollback_executor(self):
         try:
@@ -567,40 +570,49 @@ class OTAClient(OTAClientProtocol):
         *,
         fsm: OTAUpdateFSM,
     ):
-        try:
-            if self._update_lock.acquire(blocking=False):
+        if self._lock.acquire(blocking=False):
+            try:
                 logger.info("[update] entering...")
                 self._updater_executor = _OTAUpdater(
                     boot_controller=self.boot_controller,
                     create_standby_cls=self.create_standby_cls,
                 )
-                self.last_failure = None
+                self.last_failure_type = None
+                self.last_failure_reason = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
                 self._updater_executor.execute(version, url_base, cookies_json, fsm=fsm)
-                self._update_lock.release()  # release update lock on success
-            else:
-                logger.warning(
-                    "ignore incoming update request as local update is ongoing"
-                )
-        except OTAUpdateError as e:
-            self.live_ota_status.set_ota_status(wrapper.StatusOta.FAILURE)
-            self.last_failure = e
-            fsm.on_otaclient_failed()
-            self._update_lock.release()  # release update lock on failure
+            except OTAUpdateError as e:
+                self.live_ota_status.set_ota_status(wrapper.StatusOta.FAILURE)
+                self.last_failure_type = e.get_err_type().value
+                self.last_failure_reason = e.get_err_reason()
+                fsm.on_otaclient_failed()
+            finally:
+                self._lock.release()
+        else:
+            logger.warning(
+                "ignore incoming rollback request as local update/rollback is ongoing"
+            )
 
     def rollback(self):
-        try:
-            if self._rollback_lock.acquire(blocking=False):
+        if self._lock.acquire(blocking=False):
+            try:
+
                 logger.info("[rollback] entering...")
-                self.last_failure = None
+                self.last_failure_type = None
+                self.last_failure_reason = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACKING)
-                self._rollback_executor
+                self._rollback_executor()
             # silently ignore overlapping request
-        except OTARollbackError as e:
-            self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACK_FAILURE)
-            self.last_failure = e
-        finally:
-            self._rollback_lock.release()
+            except OTARollbackError as e:
+                self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACK_FAILURE)
+                self.last_failure_type = e.get_err_type().value
+                self.last_failure_reason = e.get_err_reason()
+            finally:
+                self._lock.release()
+        else:
+            logger.warning(
+                "ignore incoming rollback request as local update/rollback is ongoing"
+            )
 
     def status(self) -> wrapper.StatusResponseEcu:
         if (
@@ -610,13 +622,11 @@ class OTAClient(OTAClientProtocol):
             _, _update_progress = self._updater_executor.update_progress()
             _status = wrapper.Status(
                 version=self.current_version,
+                failure=self.last_failure_type,
+                failure_reason=self.last_failure_reason,
                 status=self.live_ota_status.get_ota_status().value,
                 progress=_update_progress.unwrap(),  # type: ignore
             )
-            if _last_failure := self.last_failure:
-                _status.failure = _last_failure.get_err_type().value
-                _status.failure_reason = _last_failure.get_err_reason()
-
             return wrapper.StatusResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=wrapper.FailureType.NO_FAILURE.value,
@@ -625,12 +635,10 @@ class OTAClient(OTAClientProtocol):
         else:  # no update/rollback on-going
             _status = wrapper.Status(
                 version=self.current_version,
+                failure=self.last_failure_type,
+                failure_reason=self.last_failure_reason,
                 status=self.live_ota_status.get_ota_status().value,
             )
-            if _last_failure := self.last_failure:
-                _status.failure = _last_failure.get_err_type().value
-                _status.failure_reason = _last_failure.get_err_reason()
-
             return wrapper.StatusResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=wrapper.FailureType.NO_FAILURE.value,
