@@ -14,6 +14,7 @@
 
 
 import asyncio
+import gc
 import logging
 import multiprocessing
 import threading
@@ -171,16 +172,15 @@ class OtaProxyWrapper:
             logger.warning("ignored unproper otaproxy shutdown request")
 
 
-class _UpdateSession:
+class _RequestHandlingSession:
     def __init__(
         self,
         *,
         executor: ThreadPoolExecutor,
-        ota_proxy: Optional[OtaProxyWrapper] = None,
+        enable_otaproxy: bool,
     ) -> None:
         self.update_request = None
         self._lock = asyncio.Lock()
-        self._loop = asyncio.get_running_loop()
         self._executor = executor
 
         # session aware attributes
@@ -188,9 +188,11 @@ class _UpdateSession:
         self.fsm = OTAUpdateFSM()
 
         # local ota_proxy server
-        self._ota_proxy: Optional[OtaProxyWrapper] = ota_proxy
+        self.enable_otaproxy = enable_otaproxy
+        self._ota_proxy: Optional[OtaProxyWrapper] = None
 
-    def is_started(self) -> bool:
+    @property
+    def is_running(self) -> bool:
         return self._started.is_set()
 
     async def start(self, request, *, init_cache: bool = False):
@@ -200,16 +202,10 @@ class _UpdateSession:
                 self.fsm = OTAUpdateFSM()
                 self.update_request = request
 
-                if self._ota_proxy:
+                if self.enable_otaproxy:
+                    self._ota_proxy = OtaProxyWrapper()
                     try:
-                        await self._loop.run_in_executor(
-                            self._executor,
-                            partial(
-                                self._ota_proxy.start,
-                                init_cache=init_cache,
-                                wait_on_scrub=True,
-                            ),
-                        )
+                        self._ota_proxy.start(init_cache=init_cache, wait_on_scrub=True)
                         logger.info("ota_proxy server launched")
                         self.fsm.stub_pre_update_ready()
                     except Exception as e:
@@ -221,16 +217,13 @@ class _UpdateSession:
             if self._started.is_set() and self._ota_proxy:
                 logger.info(f"stopping ota_proxy(cleanup_cache={update_succeed})...")
                 try:
-                    await self._loop.run_in_executor(
-                        self._executor,
-                        partial(
-                            self._ota_proxy.stop,
-                            cleanup_cache=update_succeed,
-                        ),
-                    )
+                    self._ota_proxy.stop(cleanup_cache=update_succeed)
                 except Exception as e:
                     logger.error(f"failed to stop ota_proxy gracefully: {e!r}")
                     self.fsm.on_otaservice_failed()
+                finally:
+                    self._ota_proxy = None
+                    gc.collect()
 
             self._started.clear()
 
@@ -414,13 +407,9 @@ class OtaClientStub:
         self._last_status_query = 0
         self._cached_status = wrapper.StatusResponse()
 
-        # ota local proxy
-        _ota_proxy = None
-        if proxy_cfg.enable_local_ota_proxy:
-            _ota_proxy = OtaProxyWrapper()
-        # update session tracker
-        self._update_session = _UpdateSession(
-            ota_proxy=_ota_proxy,
+        # update session
+        self._update_session = _RequestHandlingSession(
+            enable_otaproxy=proxy_cfg.enable_local_ota_proxy,
             executor=self._executor,
         )
 
@@ -432,7 +421,7 @@ class OtaClientStub:
         logger.debug(f"receive update request: {request}")
         response = wrapper.UpdateResponse()
 
-        if self._update_session.is_started():
+        if self._update_session.is_running:
             response.add_ecu(
                 wrapper.UpdateResponseEcu(
                     ecu_id=self.my_ecu_id,
@@ -505,7 +494,7 @@ class OtaClientStub:
 
                 # launch the local update tracker
                 # NOTE: pass otaclient's get_last_failure method into the tracker
-                my_ecu_tracking_task = _UpdateSession.my_ecu_update_tracker(
+                my_ecu_tracking_task = _RequestHandlingSession.my_ecu_update_tracker(
                     executor=self._executor,
                     fsm=self._update_session.fsm,
                 )
