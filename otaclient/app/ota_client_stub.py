@@ -23,7 +23,6 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from functools import partial
-from multiprocessing import Process
 from typing import Coroutine, Dict, List, Optional, Generator
 
 from . import log_setting

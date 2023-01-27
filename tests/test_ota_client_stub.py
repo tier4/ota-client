@@ -85,7 +85,7 @@ class TestOtaProxyWrapper:
         ota_cache_dir = tmp_path / "ota-cache"
         ota_cache_dir.mkdir()
         _ota_proxy_cfg = Config()
-        _ota_proxy_cfg.BASE_DIR = str(ota_cache_dir)
+        _ota_proxy_cfg.BASE_DIR = str(ota_cache_dir)  # type: ignore
         mocker.patch(f"{cfg.OTAPROXY_MODULE_PATH}.ota_cache.cfg", _ota_proxy_cfg)
 
     @pytest.fixture
@@ -105,11 +105,8 @@ class TestOtaProxyWrapper:
     def test_OtaProxyWrapper(self, ota_proxy_instance):
         # TODO: ensure that the ota_proxy is launched and functional
         #       by downloading a file with proxy
-        assert self._ota_proxy_instance.is_running()
-        assert (
-            self._ota_proxy_instance._server_p
-            and self._ota_proxy_instance._server_p.is_alive()
-        )
+        assert not self._ota_proxy_instance._closed
+        assert self._ota_proxy_instance._launcher_gen
 
 
 class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
@@ -140,19 +137,21 @@ class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
         return True
 
     async def test_my_ecu_update_tracker(self):
-        from otaclient.app.ota_client_stub import _UpdateSession
+        from otaclient.app.ota_client_stub import _RequestHandlingSession
 
-        await _UpdateSession.my_ecu_update_tracker(
+        await _RequestHandlingSession.my_ecu_update_tracker(
             fsm=self._fsm,
             executor=self._executor,
         )
         self._fsm.stub_wait_for_local_update.assert_called_once()
 
     async def test_update_tracker(self):
-        from otaclient.app.ota_client_stub import _UpdateSession
+        from otaclient.app.ota_client_stub import _RequestHandlingSession
 
         # launch update session
-        _update_session = _UpdateSession(executor=self._executor)
+        _update_session = _RequestHandlingSession(
+            executor=self._executor, enable_otaproxy=False
+        )
 
         ###### prepare tracking coroutine ######
         _my_ecu_tracking_task = _update_session.my_ecu_update_tracker(
@@ -168,7 +167,7 @@ class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
         )
 
         ###### assert ######
-        assert not _update_session.is_started()
+        assert not _update_session.is_running
         self._fsm.stub_wait_for_local_update.assert_called_once()
         self._fsm.stub_cleanup_finished.assert_called_once()
 

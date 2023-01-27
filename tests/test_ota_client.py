@@ -299,7 +299,7 @@ class Test_OTAClient:
         )
         self._otaclient_lock.release.assert_called_once()
         assert _ota_client.live_ota_status.get_ota_status() == wrapper.StatusOta.FAILURE
-        assert _ota_client.last_failure is _error
+        assert _ota_client.last_failure_type == wrapper.FailureType.RECOVERABLE
         self._fsm.on_otaclient_failed.assert_called_once()
 
     def test_rollback(self):
