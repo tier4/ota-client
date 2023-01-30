@@ -392,7 +392,7 @@ class Task(Generic[_T, _RES]):
 # a place-holder that ensure self._futs has
 # at least one member to trigger task collector
 # running.
-_ROUND_START_SENTINEL = object()
+_RETRY_ROUND_SENTINEL = object()
 
 
 class RetryTaskMap(Generic[_T, _RES]):
@@ -469,9 +469,9 @@ class RetryTaskMap(Generic[_T, _RES]):
             if (
                 self._dispatcher_done_this_round.is_set()
                 and len(self._futs) == 1
-                and _ROUND_START_SENTINEL in self._futs
+                and _RETRY_ROUND_SENTINEL in self._futs
             ):
-                self._futs.discard(_ROUND_START_SENTINEL)  # type: ignore
+                self._futs.discard(_RETRY_ROUND_SENTINEL)  # type: ignore
                 self._collector_done_this_round.set()
 
     def _task_dispatcher(self):
@@ -487,19 +487,17 @@ class RetryTaskMap(Generic[_T, _RES]):
             _se = Semaphore(self.max_concurrent)  # reset se on each try round
 
             def _done_cb(_fut: Future, /):
-                # NOTE: even when shutdowned, _se must be released
-                _se.release()
-                if self._status is not _RetryTaskMapStatus.RUNNING:
-                    return
-                self._futs.discard(_fut)
-                self._task_collector_gen.send(_fut)
+                # make sure the se is released
+                try:
+                    if self._status is not _RetryTaskMapStatus.RUNNING:
+                        return
+                    self._futs.discard(_fut)
+                    self._task_collector_gen.send(_fut)
+                finally:
+                    _se.release()
 
-            # NOTE: signal before examine the shutdown flag to prevent dead lock
-            # NOTE: pre-add a sentinel to indicate the collector about dispatch round end
-            self._futs.add(_ROUND_START_SENTINEL)  # type: ignore
-            if self._status is not _RetryTaskMapStatus.RUNNING:
-                return
-
+            # add a sentinel to let the collector aware about each retry round
+            self._futs.add(_RETRY_ROUND_SENTINEL)  # type: ignore
             for _entry in self._iter:
                 if self._status is not _RetryTaskMapStatus.RUNNING:
                     return
@@ -563,8 +561,8 @@ class RetryTaskMap(Generic[_T, _RES]):
         with self._status_lock:
             if self._status is not _RetryTaskMapStatus.RUNNING:
                 return False
-        self._status = _RetryTaskMapStatus.SHUTDOWNED
-        return True
+            self._status = _RetryTaskMapStatus.SHUTDOWNED
+            return True
 
     def execute(self) -> Iterable[Tuple[Optional[Exception], _T, _RES]]:
         if self._status is not _RetryTaskMapStatus.INIT:
