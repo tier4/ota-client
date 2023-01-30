@@ -487,14 +487,12 @@ class RetryTaskMap(Generic[_T, _RES]):
             _se = Semaphore(self.max_concurrent)  # reset se on each try round
 
             def _done_cb(_fut: Future, /):
-                # make sure the se is released
-                try:
-                    if self._status is not _RetryTaskMapStatus.RUNNING:
-                        return
-                    self._futs.discard(_fut)
-                    self._task_collector_gen.send(_fut)
-                finally:
-                    _se.release()
+                # make sure the se is released first
+                _se.release()
+                if self._status is not _RetryTaskMapStatus.RUNNING:
+                    return
+                self._futs.discard(_fut)
+                self._task_collector_gen.send(_fut)
 
             # add a sentinel to let the collector aware about each retry round
             self._futs.add(_RETRY_ROUND_SENTINEL)  # type: ignore
