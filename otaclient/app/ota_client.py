@@ -353,10 +353,13 @@ class _OTAUpdater:
         try:
             self._download_otameta_files()
         except HashVerificaitonError as e:
+            logger.error("failed to verify ota metafiles hash")
             raise OTAMetaVerificationFailed from e
         except DestinationNotAvailableError as e:
+            logger.error("failed to save ota metafiles")
             raise OTAErrorUnRecoverable from e
         except Exception as e:
+            logger.error(f"failed to download ota metafiles: {e!r}")
             raise OTAMetaDownloadFailed from e
 
         # --- init standby_slot creator, calculate delta --- #
@@ -376,6 +379,7 @@ class _OTAUpdater:
         try:
             _delta_bundle = self._standby_slot_creator.calculate_and_prepare_delta()
         except Exception as e:
+            logger.error(f"failed to generate delta: {e!r}")
             raise UpdateDeltaGenerationFailed from e
 
         # --- download needed files --- #
@@ -387,8 +391,10 @@ class _OTAUpdater:
         try:
             self._download_files(_delta_bundle.get_download_list())
         except DownloadFailedSpaceNotEnough:
+            logger.critical("not enough space is left on standby slot")
             raise StandbySlotSpaceNotEnoughError from None
         except Exception as e:
+            logger.error(f"failed to finish downloading files: {e!r}")
             raise NetworkError from e
 
         # ------ in_update ------ #
@@ -396,6 +402,7 @@ class _OTAUpdater:
         try:
             self._standby_slot_creator.create_standby_slot()
         except Exception as e:
+            logger.error(f"failed to apply update to standby slot: {e!r}")
             raise ApplyOTAUpdateFailed from e
         logger.info("finished updating standby slot")
 
@@ -485,8 +492,10 @@ class _OTAUpdater:
             try:
                 self._otameta = self._process_metadata_jwt()
             except DownloadError as e:
-                raise NetworkError("failed to download metadata") from e
+                logger.error(f"failed to download metadata.jwt: {e!r}")
+                raise NetworkError(f"failed to download metadata.jwt: {e!r}") from e
             except ValueError as e:
+                logger.error(f"failed to verify metadata.jwt: {e!r}")
                 raise BaseOTAMetaVerificationFailed from e
 
             if total_regular_file_size := self._otameta.total_regular_size:
