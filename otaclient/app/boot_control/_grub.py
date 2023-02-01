@@ -660,7 +660,7 @@ class GrubController(
             )
 
             # refroot mount point
-            self.ref_slot_mount_point = Path(cfg.REF_ROOT_MOUNT_POINT)
+            self.ref_slot_mount_point = Path(cfg.ACTIVE_ROOT_MOUNT_POINT)
             # try to umount refroot mount point
             CMDHelperFuncs.umount(self.ref_slot_mount_point)
             if not os.path.isdir(self.ref_slot_mount_point):

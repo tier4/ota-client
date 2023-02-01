@@ -11,13 +11,30 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+r"""create_standby package provide the feature of applying update to standby slot.
+
+This package has two main jobs:
+1. calculate and prepare delta against target image and local running image
+2. applying changes to the standby slot to update standby slot to target image
+
+The flow of this package working is as follow:
+1. upper caller(otaclient) downloads the OTA image metadata files,
+2. upper caller(otaclient) prepare the standby slot device(erase it if the implemented module
+    requires it),
+2. upper caller(otaclient) calls the calculate_and_prepare_delta method of
+    this package to retrieve the delta(and prepare the local copies),
+3. upper caller(otaclient) downloads the needed OTA image files(files that
+    don't present locally),
+4. upper caller(otaclient) calls the create_standby_slot method to apply
+    update to the standby slot.
+"""
 
 
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Protocol
+from typing import Callable, Protocol
 
-from otaclient.app.downloader import Downloader
+from .common import DeltaBundle
 from ..ota_metadata import OTAMetadata
 from ..proto import wrapper
 from ..update_stats import OTAUpdateStatsCollector
@@ -27,25 +44,14 @@ from ..update_stats import OTAUpdateStatsCollector
 class UpdateMeta:
     """Meta info for standby slot creator to update slot."""
 
-    cookies: Dict[str, Any]  # cookies needed for requesting remote ota files
     metadata: OTAMetadata  # meta data for the update request
-    url_base: str  # base url of the remote ota image
     boot_dir: str  # where to populate files under /boot
-    standby_slot_mount_point: str
-    ref_slot_mount_point: str
+    standby_slot_mp: str
+    active_slot_mp: str
 
 
 class StandbySlotCreatorProtocol(Protocol):
-    """Protocol that describes standby slot creating mechanism.
-    Attrs:
-        cookies: authentication cookies used by ota_client to fetch files from the remote ota server.
-        metadata: metadata of the requested ota image.
-        url_base: base url that ota image located.
-        new_root: the root folder of bank to be updated.
-        reference_root: the root folder to copy from.
-        status_tracker: pass real-time update stats to ota-client.
-        status_updator: inform which ota phase now.
-    """
+    """Protocol that describes standby slot creating mechanism."""
 
     stats_collector: OTAUpdateStatsCollector
     update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None]
@@ -55,7 +61,6 @@ class StandbySlotCreatorProtocol(Protocol):
         update_meta: UpdateMeta,
         stats_collector: OTAUpdateStatsCollector,
         update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
-        downloader: Downloader,
     ) -> None:
         ...
 
@@ -63,14 +68,12 @@ class StandbySlotCreatorProtocol(Protocol):
     def create_standby_slot(self):
         ...
 
+    @abstractmethod
+    def calculate_and_prepare_delta(self) -> DeltaBundle:
+        ...
+
     @classmethod
     @abstractmethod
     def should_erase_standby_slot(cls) -> bool:
         """Tell whether standby slot should be erased
         under this standby slot creating mode."""
-
-    @classmethod
-    @abstractmethod
-    def is_standby_as_ref(cls) -> bool:
-        """Tell whether the slot creator intends to use
-        in-place update."""

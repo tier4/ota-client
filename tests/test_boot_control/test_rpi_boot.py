@@ -203,7 +203,9 @@ class TestRPIBootControl:
         )
         mocker.patch(f"{_rpi_boot_cfg_path}.ACTIVE_ROOTFS_PATH", str(self.slot_a_mp))
         mocker.patch(f"{_rpi_boot_cfg_path}.MOUNT_POINT", str(self.slot_b_mp))
-        mocker.patch(f"{_rpi_boot_cfg_path}.REF_ROOT_MOUNT_POINT", str(self.slot_a_mp))
+        mocker.patch(
+            f"{_rpi_boot_cfg_path}.ACTIVE_ROOT_MOUNT_POINT", str(self.slot_a_mp)
+        )
 
         # ------ boot_controller_inst1.stage1: init ------ #
         rpi_boot_controller1 = RPIBootController()

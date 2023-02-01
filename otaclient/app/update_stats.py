@@ -36,6 +36,9 @@ class RegProcessOperation(Enum):
     OP_DOWNLOAD = "download"
     OP_COPY = "copy"
     OP_LINK = "link"
+    # NOTE: failed download task will also be recorded, under the
+    #       op_type==OP_DOWNLOAD_FAILED_REPORT.
+    OP_DOWNLOAD_FAILED_REPORT = "download_failed_report"
 
 
 @dataclasses.dataclass
@@ -140,10 +143,11 @@ class OTAUpdateStatsCollector:
                 _prev_time = _cur_time
                 with self._staging_changes() as staging_storage:
                     for st in self._staging:
-                        if (
-                            isinstance(st.op, RegProcessOperation)
-                            and st.op != RegProcessOperation.OP_UNSPECIFIC
-                        ):
+                        if st.op in [
+                            RegProcessOperation.OP_COPY,
+                            RegProcessOperation.OP_DOWNLOAD,
+                            RegProcessOperation.OP_LINK,
+                        ]:
                             _suffix = st.op.value
                             staging_storage.regular_files_processed += 1
                             staging_storage[f"files_processed_{_suffix}"] += 1
@@ -151,11 +155,15 @@ class OTAUpdateStatsCollector:
                             staging_storage.add_elapsed_time(
                                 f"elapsed_time_{_suffix}", st.elapsed_ns
                             )  # in nano-seconds
-
-                            if _suffix == RegProcessOperation.OP_DOWNLOAD.value:
-                                staging_storage[f"errors_{_suffix}"] += st.errors
+                            if st.op == RegProcessOperation.OP_DOWNLOAD:
+                                staging_storage[
+                                    f"errors_{RegProcessOperation.OP_DOWNLOAD.value}"
+                                ] += st.errors
                                 staging_storage.download_bytes += st.download_bytes
-
+                        elif st.op == RegProcessOperation.OP_DOWNLOAD_FAILED_REPORT:
+                            staging_storage[
+                                f"errors_{RegProcessOperation.OP_DOWNLOAD.value}"
+                            ] += st.errors
                 # cleanup already collected stats
                 self._staging.clear()
 

@@ -16,11 +16,12 @@
 import json
 import tempfile
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from threading import Event, Lock
-from typing import Any, Dict, Optional, Tuple, Type
-from urllib.parse import urlparse
+from typing import Any, Dict, Optional, Tuple, Type, Iterator
+from urllib.parse import urlparse, quote
 
 from .errors import (
     BaseOTAMetaVerificationFailed,
@@ -32,17 +33,35 @@ from .errors import (
     OTAUpdateError,
 )
 from .boot_control import BootControllerProtocol
-from .common import OTAFileCacheControl, urljoin_ensure_base
+from .common import OTAFileCacheControl, RetryTaskMap, urljoin_ensure_base
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol, UpdateMeta
-from .downloader import DownloadError, Downloader
+from .downloader import (
+    DestinationNotAvailableError,
+    DownloadFailedSpaceNotEnough,
+    DownloadError,
+    Downloader,
+    HashVerificaitonError,
+)
 from .interface import OTAClientProtocol
-from .errors import InvalidUpdateRequest
-from .ota_metadata import ParseMetadataHelper
+from .errors import (
+    ApplyOTAUpdateFailed,
+    InvalidUpdateRequest,
+    OTAMetaVerificationFailed,
+    OTAErrorUnRecoverable,
+    OTAMetaDownloadFailed,
+    StandbySlotSpaceNotEnoughError,
+    UpdateDeltaGenerationFailed,
+)
+from .ota_metadata import MetaFile, OTAMetadata, ParseMetadataHelper, RegularInf
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
 from .proxy_info import proxy_cfg
-from .update_stats import OTAUpdateStatsCollector
+from .update_stats import (
+    OTAUpdateStatsCollector,
+    RegInfProcessedStats,
+    RegProcessOperation,
+)
 from . import log_setting
 
 logger = log_setting.get_logger(
@@ -54,11 +73,11 @@ class OTAUpdateFSM:
     WAIT_INTERVAL = 3
 
     def __init__(self) -> None:
-        self._ota_proxy_ready = Event()
-        self._otaclient_finish_update = Event()
-        self._stub_cleanup_finish = Event()
-        self.otaclient_failed = Event()
-        self.otaservice_failed = Event()
+        self._ota_proxy_ready = threading.Event()
+        self._otaclient_finish_update = threading.Event()
+        self._stub_cleanup_finish = threading.Event()
+        self.otaclient_failed = threading.Event()
+        self.otaservice_failed = threading.Event()
 
     def on_otaclient_failed(self):
         self.otaclient_failed.set()
@@ -115,11 +134,7 @@ class OTAUpdateFSM:
 
 
 class _OTAUpdater:
-    """
-
-    Attributes:
-        create_standby_cls: type of create standby slot mechanism implementation
-    """
+    """The implementation of OTA update logic."""
 
     def __init__(
         self,
@@ -131,26 +146,50 @@ class _OTAUpdater:
         self._create_standby_cls = create_standby_cls
 
         # init update status
-        self.update_phase: Optional[wrapper.StatusProgressPhase] = None
+        self.update_phase: wrapper.StatusProgressPhase = None  # type: ignore
         self.update_start_time = 0
         self.updating_version: str = ""
         self.failure_reason = ""
+        # init variables needed for update
+        self._otameta: OTAMetadata = None  # type: ignore
+        self._cookies: Dict[str, Any] = None  # type: ignore
+        self._url_base: str = None  # type: ignore
+        self._proxy: Dict[str, Any] = None  # type: ignore
 
         # init downloader
         self._downloader = Downloader()
         # init ota update statics collector
-        self.update_stats_collector = OTAUpdateStatsCollector()
+        self._update_stats_collector = OTAUpdateStatsCollector()
 
-    def _process_metadata(self, url_base, cookies: Dict[str, str]):
+        # paths
+        self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
+            cfg.OTA_TMP_STORE
+        ).relative_to("/")
+        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.MOUNT_POINT) / Path(
+            cfg.OTA_TMP_META_STORE
+        ).relative_to("/")
+
+    # properties
+
+    def _set_update_phase(self, _phase: wrapper.StatusProgressPhase):
+        self.update_phase = _phase
+
+    def _get_update_phase(self) -> wrapper.StatusProgressPhase:
+        return self.update_phase
+
+    # helper methods
+
+    def _process_metadata_jwt(self) -> OTAMetadata:
+        logger.debug("process metadata jwt...")
         with tempfile.TemporaryDirectory(prefix=__name__) as d:
             meta_file = Path(d) / "metadata.jwt"
             # NOTE: do not use cache when fetching metadata
-            metadata_jwt_url = urljoin_ensure_base(url_base, "metadata.jwt")
+            metadata_jwt_url = urljoin_ensure_base(self._url_base, "metadata.jwt")
             self._downloader.download(
                 metadata_jwt_url,
                 meta_file,
-                cookies=cookies,
-                proxies=self.proxies,
+                cookies=self._cookies,
+                proxies=self._proxy,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
@@ -165,95 +204,221 @@ class _OTAUpdater:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file: Path = Path(d) / cert_fname
             self._downloader.download(
-                urljoin_ensure_base(url_base, cert_fname),
+                urljoin_ensure_base(self._url_base, cert_fname),
                 cert_file,
                 digest=cert_hash,
-                cookies=cookies,
-                proxies=self.proxies,
+                cookies=self._cookies,
+                proxies=self._proxy,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                 },
             )
 
             _parser.verify_metadata(cert_file.read_bytes())
-            return metadata
+        # bind the processed and verified otameta to class
+        self._otameta = metadata
+        return metadata
 
-    def _pre_update(self, url_base: str, cookies_json: str):
-        # parse cookies
-        try:
-            cookies: Dict[str, Any] = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting to be parsed into dict but {type(cookies)}"
-        except (JSONDecodeError, AssertionError) as e:
-            raise InvalidUpdateRequest from e
+    def _download_file(self, entry: RegularInf) -> RegInfProcessedStats:
+        """Download single OTA image file."""
+        cur_stat = RegInfProcessedStats(op=RegProcessOperation.OP_DOWNLOAD)
+        _start_time, _download_time = time.thread_time_ns(), 0
 
-        # process metadata.jwt
-        logger.debug("[update] process metadata...")
-        self.update_phase = wrapper.StatusProgressPhase.METADATA
-        try:
-            metadata = self._process_metadata(url_base, cookies)
-        except DownloadError as e:
-            raise NetworkError("failed to download metadata") from e
-        except ValueError as e:
-            raise BaseOTAMetaVerificationFailed from e
+        _local_copy = self._ota_tmp_on_standby / entry.sha256hash
+        entry_url, compression_alg = self._otameta.get_download_url(
+            entry, base_url=self._url_base
+        )
+        (
+            cur_stat.errors,
+            cur_stat.download_bytes,
+            _download_time,
+        ) = self._downloader.download(
+            entry_url,
+            _local_copy,
+            digest=entry.sha256hash,
+            size=entry.size,
+            proxies=self._proxy,
+            cookies=self._cookies,
+            compression_alg=compression_alg,
+        )
+        cur_stat.size = _local_copy.stat().st_size
+        cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
+        return cur_stat
 
-        # prepare update meta
-        self._updatemeta = UpdateMeta(
-            cookies=cookies,
-            metadata=metadata,
-            url_base=url_base,
-            boot_dir=str(self._boot_controller.get_standby_boot_dir()),
-            standby_slot_mount_point=cfg.MOUNT_POINT,
-            ref_slot_mount_point=cfg.REF_ROOT_MOUNT_POINT,
+    def _download_files(self, download_list: Iterator[RegularInf]):
+        """Download all needed OTA image files indicated by calculated bundle."""
+        logger.debug("download neede OTA image files...")
+        _keep_failing_timer = time.time()
+        with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
+            _mapper = RetryTaskMap(
+                self._download_file,
+                download_list,
+                title="downloading_ota_files",
+                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                max_retry=0,  # NOTE: we use another strategy below
+                executor=_executor,
+            )
+            for _exp, _entry, _stats in _mapper.execute():
+                # task successfully finished
+                if not isinstance(_exp, Exception) and _stats:
+                    self._update_stats_collector.report(_stats)
+                    # reset the failing timer on one succeeded task
+                    _keep_failing_timer = time.time()
+                    continue
+
+                # task failed
+                # NOTE: for failed task, a RegInfoProcessStats that have
+                #       OP_DOWNLOAD_FAILED_REPORT op will be returned
+                logger.debug(f"failed to download {_entry=}: {_exp!r}")
+                self._update_stats_collector.report(
+                    RegInfProcessedStats(
+                        op=RegProcessOperation.OP_DOWNLOAD_FAILED_REPORT,
+                        errors=cfg.DOWNLOAD_RETRY,
+                    )
+                )
+                # task group keeps failing longer than limit,
+                # shutdown the task group and raise the exception
+                if (
+                    time.time() - _keep_failing_timer
+                    > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                ):
+                    _mapper.shutdown()
+
+        # all tasks are finished, waif for stats collector to finish processing
+        # all the reported stats
+        self._update_stats_collector.wait_staging()
+
+    def _download_otameta_file(self, _meta_file: MetaFile):
+        meta_f_url = urljoin_ensure_base(self._url_base, quote(_meta_file.file))
+        self._downloader.download(
+            meta_f_url,
+            self._ota_tmp_image_meta_dir_on_standby / _meta_file.file,
+            digest=_meta_file.hash,
+            proxies=self._proxy,
+            cookies=self._cookies,
+            headers={
+                OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+            },
         )
 
-        # set total_regular_file_size to stats store
-        if total_regular_file_size := metadata.total_regular_size:
-            self.update_stats_collector.set_total_regular_files_size(
-                total_regular_file_size
+    def _download_otameta_files(self):
+        logger.debug("download OTA image metafiles...")
+        _keep_failing_timer = time.time()
+        with ThreadPoolExecutor(thread_name_prefix="downloading_otameta") as _executor:
+            _mapper = RetryTaskMap(
+                self._download_otameta_file,
+                self._otameta.get_img_metafiles(),
+                title="downloading_otameta_files",
+                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                max_retry=0,  # NOTE: we use another strategy below
+                executor=_executor,
             )
+            for _exp, _entry, _ in _mapper.execute():
+                if not isinstance(_exp, Exception):
+                    _keep_failing_timer = time.time()
+                    continue
 
-        # finish pre-update configuration, enter update
+                logger.debug(f"metafile downloading failed: {_entry=}")
+                if (
+                    time.time() - _keep_failing_timer
+                    > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                ):
+                    _mapper.shutdown()
+
+    # update steps
+
+    def _apply_update(self):
+        """Apply OTA update to standby slot."""
+        # ------ pre_update ------ #
+        # --- prepare standby slot --- #
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
+        logger.debug("boot controller prepares standby slot...")
         self._boot_controller.pre_update(
             self.updating_version,
-            standby_as_ref=self._create_standby_cls.is_standby_as_ref(),
+            standby_as_ref=False,  # NOTE: deprecate this option
             erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
-        logger.info("[_pre_update] finished")
+        # prepare the tmp storage on standby slot after boot_controller.pre_update finished
+        self._ota_tmp_on_standby.mkdir(exist_ok=True)
+        self._ota_tmp_image_meta_dir_on_standby.mkdir(exist_ok=True)
 
-    def _in_update(self):
-        # configure standby slot creator
-        _standby_slot_creator = self._create_standby_cls(
-            update_meta=self._updatemeta,
-            stats_collector=self.update_stats_collector,
-            update_phase_tracker=self._set_update_phase,
-            downloader=self._downloader,
+        # --- download otameta files for the target image --- #
+        logger.info("download otameta files...")
+        self.update_phase = wrapper.StatusProgressPhase.METADATA
+        try:
+            self._download_otameta_files()
+        except HashVerificaitonError as e:
+            logger.error("failed to verify ota metafiles hash")
+            raise OTAMetaVerificationFailed from e
+        except DestinationNotAvailableError as e:
+            logger.error("failed to save ota metafiles")
+            raise OTAErrorUnRecoverable from e
+        except Exception as e:
+            logger.error(f"failed to download ota metafiles: {e!r}")
+            raise OTAMetaDownloadFailed from e
+
+        # --- init standby_slot creator, calculate delta --- #
+        logger.info("start to calculate and prepare delta...")
+        self.update_phase = wrapper.StatusProgressPhase.REGULAR
+        _updatemeta = UpdateMeta(
+            metadata=self._otameta,
+            boot_dir=str(self._boot_controller.get_standby_boot_dir()),
+            standby_slot_mp=cfg.MOUNT_POINT,
+            active_slot_mp=cfg.ACTIVE_ROOT_MOUNT_POINT,
         )
-        # start to constructing standby bank
-        _standby_slot_creator.create_standby_slot()
-        logger.info("[_in_update] finished creating standby slot")
+        self._standby_slot_creator = self._create_standby_cls(
+            update_meta=_updatemeta,
+            stats_collector=self._update_stats_collector,
+            update_phase_tracker=self._set_update_phase,
+        )
+        try:
+            _delta_bundle = self._standby_slot_creator.calculate_and_prepare_delta()
+        except Exception as e:
+            logger.error(f"failed to generate delta: {e!r}")
+            raise UpdateDeltaGenerationFailed from e
 
-    def _set_update_phase(self, _phase: wrapper.StatusProgressPhase):
-        self.update_phase = _phase
+        # --- download needed files --- #
+        logger.info(
+            "start to download needed files..."
+            f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
+        )
+        self.update_phase = wrapper.StatusProgressPhase.REGULAR
+        try:
+            self._download_files(_delta_bundle.get_download_list())
+        except DownloadFailedSpaceNotEnough:
+            logger.critical("not enough space is left on standby slot")
+            raise StandbySlotSpaceNotEnoughError from None
+        except Exception as e:
+            logger.error(f"failed to finish downloading files: {e!r}")
+            raise NetworkError from e
 
-    def _get_update_phase(self):
-        return self.update_phase
+        # ------ in_update ------ #
+        logger.info("start to apply changes to standby slot...")
+        try:
+            self._standby_slot_creator.create_standby_slot()
+        except Exception as e:
+            logger.error(f"failed to apply update to standby slot: {e!r}")
+            raise ApplyOTAUpdateFailed from e
+        logger.info("finished updating standby slot")
 
-    ######  public API ######
+    # API
 
     def shutdown(self):
-        self.update_phase = None
-        self.proxies = None
-        self.update_stats_collector.stop()
+        self.update_phase = None  # type: ignore
+        self._proxy = None  # type: ignore
+        self._downloader.shutdown()
+        self._update_stats_collector.stop()
 
     def update_progress(self) -> Tuple[str, wrapper.StatusProgress]:
         """
         Returns:
             A tuple contains the version and the update_progress.
         """
-        update_progress = self.update_stats_collector.get_snapshot()
+        update_progress = self._update_stats_collector.get_snapshot()
         # set update phase
         if self.update_phase is not None:
             update_progress.phase = self.update_phase.value
@@ -282,55 +447,80 @@ class _OTAUpdater:
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        logger.info(f"{version=},{raw_url_base=}")
+        logger.info(f"execute local update: {version=},{raw_url_base=}")
         logger.debug(f"{cookies_json=}")
 
+        self.updating_version = version
+        self.update_start_time = time.time_ns()
+        self.failure_reason = ""  # clean failure reason
+
+        self.update_phase = wrapper.StatusProgressPhase.INITIAL
+        self._update_stats_collector.start()
         try:
+            self.update_phase = wrapper.StatusProgressPhase.METADATA
+            # ------ parse url_base ------ #
             # unconditionally regulate the url_base
             _url_base = urlparse(raw_url_base)
             _path = f"{_url_base.path.rstrip('/')}/"
-            url_base = _url_base._replace(path=_path).geturl()
+            self._url_base = _url_base._replace(path=_path).geturl()
 
-            # configure proxy if needed before entering update
-            self.proxies = None
+            # ------ parse cookies ------ #
+            logger.debug("process cookies_json...")
+            try:
+                self._cookies = json.loads(cookies_json)
+                assert isinstance(
+                    self._cookies, dict
+                ), f"invalid cookies, expecting to be parsed into dict but {type(self._cookies)}"
+            except (JSONDecodeError, AssertionError) as e:
+                raise InvalidUpdateRequest from e
+
+            # ------ configure proxy ------ #
+            logger.debug("configure proxy setting...")
+            self._proxy = None  # type: ignore
             if proxy := proxy_cfg.get_proxy_for_local_ota():
-                logger.info("use local ota_proxy")
                 # wait for stub to setup the local ota_proxy server
                 if not fsm.client_wait_for_ota_proxy():
                     raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
                 # NOTE(20221013): check requests document for how to set proxy,
                 #                 we only support using http proxy here.
-                self.proxies = {"http": proxy}
+                logger.debug(f"use {proxy=} for local OTA update")
+                self._proxy = {"http": proxy}
 
-            # launch collector
-            # init ota_update_stats collector
-            self.update_stats_collector.start()
+            # ------ process metadata.jwt ------ #
+            logger.debug("process metadata.jwt...")
+            try:
+                self._otameta = self._process_metadata_jwt()
+            except DownloadError as e:
+                logger.error(f"failed to download metadata.jwt: {e!r}")
+                raise NetworkError(f"failed to download metadata.jwt: {e!r}") from e
+            except ValueError as e:
+                logger.error(f"failed to verify metadata.jwt: {e!r}")
+                raise BaseOTAMetaVerificationFailed from e
 
-            # start the update, pre_update
-            self.updating_version = version
-            self.update_phase = wrapper.StatusProgressPhase.INITIAL
-            self.update_start_time = time.time_ns()
-            self.failure_reason = ""  # clean failure reason
-            self._pre_update(url_base, cookies_json)
+            if total_regular_file_size := self._otameta.total_regular_size:
+                self._update_stats_collector.set_total_regular_files_size(
+                    total_regular_file_size
+                )
 
-            # in_update
-            self._in_update()
+            # ------ enter update ------ #
+            logger.info("enter local OTA update...")
+            self._apply_update()
             # local update finished, set the status to POST_PROCESSING
             fsm.client_finish_update()
-            self.update_phase = wrapper.StatusProgressPhase.POST_PROCESSING
 
-            # post_update
-            logger.info("[update] leaving update, wait on all subecs...")
+            # ------ post update ------ #
+            self.update_phase = wrapper.StatusProgressPhase.POST_PROCESSING
+            logger.info("local update finished, wait on all subecs...")
             # NOTE: still reboot event local cleanup failed as the update itself is successful
             fsm.client_wait_for_reboot()
+            logger.info("enter boot control post update phase...")
             self._boot_controller.post_update()
-            # NOTE: no need to call shutdown method here, keep the update_progress
-            #       as it as we are still in updating before rebooting
         except OTAError as e:
-            logger.error("update failed")
+            logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
-            self.shutdown()
             raise OTAUpdateError(e) from e
+        finally:
+            self.shutdown()
 
 
 class OTAClient(OTAClientProtocol):
@@ -348,26 +538,24 @@ class OTAClient(OTAClientProtocol):
         my_ecu_id: str = "",
     ):
         self.my_ecu_id = my_ecu_id
-        self._update_lock = Lock()  # ensure only one update session is running
-        self._rollback_lock = Lock()
-        self.last_failure: Optional[OTA_APIError] = None
+        # ensure only one update/rollback session is running
+        self._update_lock = threading.Lock()
+        self._rollback_lock = threading.Lock()
 
         self.boot_controller = boot_control_cls()
+        self.create_standby_cls = create_standby_cls
         self.live_ota_status = LiveOTAStatus(self.boot_controller.get_ota_status())
 
-        # init feature helpers
-        self.updater = _OTAUpdater(
-            boot_controller=self.boot_controller,
-            create_standby_cls=create_standby_cls,
-        )
-
         self.current_version = self.boot_controller.load_version()
+        self.last_failure: Optional[OTA_APIError] = None
 
-    def _rollback(self):
+        # executors for update/rollback
+        self._updater_executor: _OTAUpdater = None  # type: ignore
+
+    def _rollback_executor(self):
         try:
             # enter rollback
             self.boot_controller.pre_rollback()
-
             # leave rollback
             self.boot_controller.post_rollback()
         except OTAError as e:
@@ -375,7 +563,7 @@ class OTAClient(OTAClientProtocol):
             self.boot_controller.on_operation_failure()
             raise OTARollbackError(e) from e
 
-    ###### public API ######
+    # API
 
     def get_last_failure(self) -> Optional[OTA_APIError]:
         return self.last_failure
@@ -391,16 +579,23 @@ class OTAClient(OTAClientProtocol):
         try:
             if self._update_lock.acquire(blocking=False):
                 logger.info("[update] entering...")
+                self._updater_executor = _OTAUpdater(
+                    boot_controller=self.boot_controller,
+                    create_standby_cls=self.create_standby_cls,
+                )
                 self.last_failure = None
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
-                self.updater.execute(version, url_base, cookies_json, fsm=fsm)
-            # silently ignore overlapping request
+                self._updater_executor.execute(version, url_base, cookies_json, fsm=fsm)
+                self._update_lock.release()  # release update lock on success
+            else:
+                logger.warning(
+                    "ignore incoming update request as local update is ongoing"
+                )
         except OTAUpdateError as e:
             self.live_ota_status.set_ota_status(wrapper.StatusOta.FAILURE)
             self.last_failure = e
             fsm.on_otaclient_failed()
-        finally:
-            self._update_lock.release()
+            self._update_lock.release()  # release update lock on failure
 
     def rollback(self):
         try:
@@ -408,7 +603,7 @@ class OTAClient(OTAClientProtocol):
                 logger.info("[rollback] entering...")
                 self.last_failure = None
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACKING)
-                self._rollback()
+                self._rollback_executor
             # silently ignore overlapping request
         except OTARollbackError as e:
             self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACK_FAILURE)
@@ -417,8 +612,11 @@ class OTAClient(OTAClientProtocol):
             self._rollback_lock.release()
 
     def status(self) -> wrapper.StatusResponseEcu:
-        if self.live_ota_status.get_ota_status() == wrapper.StatusOta.UPDATING:
-            _, _update_progress = self.updater.update_progress()
+        if (
+            self.live_ota_status.get_ota_status() == wrapper.StatusOta.UPDATING
+            and self._updater_executor is not None
+        ):
+            _, _update_progress = self._updater_executor.update_progress()
             _status = wrapper.Status(
                 version=self.current_version,
                 status=self.live_ota_status.get_ota_status().value,

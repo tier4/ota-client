@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-from dataclasses import dataclass, field
 from enum import Enum, auto
 from logging import INFO
 from pathlib import Path
@@ -29,46 +28,34 @@ OTACLIENT_LOCK_FILE = "/var/run/otaclient.lock"
 
 
 class CreateStandbyMechanism(Enum):
-    LEGACY = 0
-    REBUILD = auto()
-    IN_PLACE = auto()
+    LEGACY = 0  # deprecated and removed
+    REBUILD = auto()  # default
+    IN_PLACE = auto()  # not yet implemented
 
 
-@dataclass(frozen=True)
 class OtaClientServerConfig:
-    SERVER_PORT: int = 50051
-    WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT: float = 6
-    QUERYING_SUBECU_STATUS_TIMEOUT: float = 30
-    LOOP_QUERYING_SUBECU_STATUS_INTERVAL: float = 10
-    STATUS_UPDATE_INTERVAL: float = 1
+    SERVER_PORT = 50051
+    WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT = 6
+    QUERYING_SUBECU_STATUS_TIMEOUT = 30
+    LOOP_QUERYING_SUBECU_STATUS_INTERVAL = 10
+    STATUS_UPDATE_INTERVAL = 1
 
     # proxy server
-    OTA_PROXY_LISTEN_ADDRESS: str = "0.0.0.0"
-    OTA_PROXY_LISTEN_PORT: int = 8082
+    OTA_PROXY_LISTEN_ADDRESS = "0.0.0.0"
+    OTA_PROXY_LISTEN_PORT = 8082
 
 
-@dataclass
-class BaseConfig:
-    """Platform neutral configuration."""
+class _InternalSettings:
+    """Common internal settings for otaclient.
 
+    WARNING: typically the common settings SHOULD NOT be changed!
+             otherwise the backward compatibility will be impact.
+    Change the fields in BaseConfig if you want to tune the otaclient.
+    """
+
+    # ------ common paths ------ #
     # NOTE: certs dir is located at the otaclient package root
     CERTS_DIR = str(_OTACLIENT_PACKAGE_ROOT / "certs")
-
-    DEFAULT_LOG_LEVEL: int = INFO
-    LOG_LEVEL_TABLE: Dict[str, int] = field(
-        default_factory=lambda: {
-            "otaclient.app.boot_control.cboot": INFO,
-            "otaclient.app.boot_control.grub": INFO,
-            "otaclient.app.ota_client": INFO,
-            "otaclient.app.ota_client_service": INFO,
-            "otaclient.app.ota_client_stub": INFO,
-            "otaclient.app.ota_metadata": INFO,
-            "otaclient.app.downloader": INFO,
-            "otaclient.app.main": INFO,
-        }
-    )
-
-    ### common used paths ###
     ACTIVE_ROOTFS_PATH = "/"
     BOOT_DIR = "/boot"
     OTA_DIR = "/boot/ota"
@@ -77,44 +64,86 @@ class BaseConfig:
     PASSWD_FILE = "/etc/passwd"
     GROUP_FILE = "/etc/group"
     FSTAB_FPATH = "/etc/fstab"
+    # where the OTA image meta store for this slot
+    META_FOLDER = "/opt/ota/image-meta"
 
-    ### ota device specific configuration files ###
+    # ------ device configuration files ------ #
     # this files should be placed under /boot/ota folder
     ECU_INFO_FNAME = "ecu_info.yaml"
     PROXY_INFO_FNAME = "proxy_info.yaml"
 
-    ### ota-status files ###
+    # ------ ota-status files ------ #
     # this files should be placed under /boot/ota-status folder
     OTA_STATUS_FNAME = "status"
     OTA_VERSION_FNAME = "version"
     SLOT_IN_USE_FNAME = "slot_in_use"
 
+    # ------ otaclient internal used path ------ #
+    # standby/refroot mount points
+    MOUNT_POINT = "/mnt/standby"
+    # where active(old) image partition will be bind mounted to
+    ACTIVE_ROOT_MOUNT_POINT = "/mnt/refroot"
+    # tmp store for local copy
+    OTA_TMP_STORE = "/.ota-tmp"
+    # tmp store for standby slot OTA image meta
+    OTA_TMP_META_STORE = "/.ota-meta"
+    # compressed OTA image support
+    SUPPORTED_COMPRESS_ALG: Tuple[str, ...] = ("zst", "zstd")
+
+
+class BaseConfig(_InternalSettings):
+    """User configurable otaclient settings."""
+
+    # ------ otaclient logging setting ------ #
+    DEFAULT_LOG_LEVEL = INFO
+    LOG_LEVEL_TABLE: Dict[str, int] = {
+        "otaclient.app.boot_control.cboot": INFO,
+        "otaclient.app.boot_control.grub": INFO,
+        "otaclient.app.ota_client": INFO,
+        "otaclient.app.ota_client_service": INFO,
+        "otaclient.app.ota_client_stub": INFO,
+        "otaclient.app.ota_metadata": INFO,
+        "otaclient.app.downloader": INFO,
+        "otaclient.app.main": INFO,
+    }
     LOG_FORMAT = (
         "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
     )
 
-    # standby/refroot mount points
-    MOUNT_POINT = "/mnt/standby"
-    # where active(old) image partition will be bind mounted to
-    REF_ROOT_MOUNT_POINT = "/mnt/refroot"
+    # ------ otaclient behavior setting ------ #
+    # the following settings can be safely changed according to the
+    # actual environment otaclient running at.
+    # --- file read/write settings --- #
+    CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
+    LOCAL_CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
 
-    # ota-client behavior setting
-    CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
-    LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
-    DOWNLOAD_RETRY: int = 10
-    DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
-    MAX_CONCURRENT_TASKS: int = 128
+    # --- download settings for single download task --- #
+    DOWNLOAD_RETRY = 3
+    DOWNLOAD_BACKOFF_MAX = 3  # seconds
+    DOWNLOAD_BACKOFF_FACTOR = 0.1  # seconds
+    # downloader settings
     MAX_DOWNLOAD_THREAD = 7
-    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD: int = 10
-    STATS_COLLECT_INTERVAL: int = 1  # second
-    ## standby creation mode, default to rebuild now
-    STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
-    # NOTE: the following 2 folders are meant to be located under standby_slot
-    OTA_TMP_STORE: str = "/ota-tmp"
-    META_FOLDER: str = "/opt/ota/image-meta"
+    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 10
 
-    # compressed OTA image support
-    SUPPORTED_COMPRESS_ALG: Tuple[str, ...] = ("zst", "zstd")
+    # --- download settings for the whole download tasks group --- #
+    # if retry keeps failing without any success in
+    # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
+    # download task group and raise NETWORK OTA error.
+    MAX_CONCURRENT_DOWNLOAD_TASKS = 128
+    DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT = 5 * 60  # seconds
+    DOWNLOAD_GROUP_BACKOFF_MAX = 12  # seconds
+    DOWNLOAD_GROUP_BACKOFF_FACTOR = 0.1  # seconds
+
+    # --- stats collector setting --- #
+    STATS_COLLECT_INTERVAL = 1  # second
+
+    # --- create standby setting --- #
+    # now only REBUILD mode is available
+    STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
+    MAX_CONCURRENT_PROCESS_FILE_TASKS = 256
+    CREATE_STANDBY_RETRY_MAX = 3
+    CREATE_STANDBY_BACKOFF_FACTOR = 1
+    CREATE_STANDBY_BACKOFF_MAX = 6
 
 
 # init cfgs

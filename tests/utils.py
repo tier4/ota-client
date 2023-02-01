@@ -99,16 +99,17 @@ def compare_dir(left: Path, right: Path):
             if not (
                 _b_path.is_symlink() and os.readlink(_a_path) == os.readlink(_b_path)
             ):
-                raise ValueError(f"{_path}")
+                raise ValueError(f"symlink mismatched: {_path}")
         elif _a_path.is_dir():
             if not _b_path.is_dir():
-                raise ValueError(f"{_path}")
+                raise ValueError(f"dir mismatched: {_path}")
 
         elif _a_path.is_file():
             if not (_b_path.is_file() and file_sha256(_a_path) == file_sha256(_b_path)):
-                raise ValueError(f"{_path}")
+                logger.error(f"{_a_path.read_text()=}, {_b_path.read_text()=}")
+                raise ValueError(f"file check failed: {_path}")
         else:
-            raise ValueError(f"{_path}")
+            raise ValueError(f"unspecific file type: {_path}")
 
 
 class DummySubECU:

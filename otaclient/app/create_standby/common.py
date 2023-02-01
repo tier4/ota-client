@@ -19,9 +19,8 @@ import shutil
 import time
 from concurrent.futures import (
     Future,
-    ProcessPoolExecutor,
     ThreadPoolExecutor,
-    as_completed,
+    wait,
 )
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,7 +33,6 @@ from typing import (
     OrderedDict,
     Set,
     Tuple,
-    Union,
 )
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
@@ -150,6 +148,8 @@ class RegularInfSet(OrderedDict[RegularInf, None]):
 
 
 class RegularDelta(Dict[str, RegularInfSet]):
+    """Dict[str, RegularInfSet]"""
+
     def __init__(self):
         super().__init__()
         # for fast lookup regularinf entry
@@ -188,15 +188,73 @@ class RegularDelta(Dict[str, RegularInfSet]):
 class DeltaBundle:
     """NOTE: all paths are canonical!"""
 
-    # delta
+    # ------ generated delta ------ #
+    # rm_delta: a list of files that presented at
+    #           delta_src rootfs but don't presented
+    #           at new OTA image
     rm_delta: List[str]
+    # download_list: a list of files that presented in
+    #                the new OTA image but are not available
+    #                locally
+    download_list: List[RegularInf]
+    # new_delta: the generated delta, used by create_standby
+    #            implementation to update the standby slot
     new_delta: RegularDelta
+    # new_dirs: all the dirs presented in the new OTA image
     new_dirs: OrderedDict[DirectoryInf, None]
 
-    # misc
-    ref_root: Path
-    recycle_folder: Path
+    # ------ misc ------ #
+    # delta_src: the src when calculating delta against
+    #            target new OTA image
+    delta_src: Path
+    # delta_files_dir: the folder that holds the files
+    #                  that will be applied to the standby slot
+    delta_files_dir: Path
     total_regular_num: int
+    total_download_files_size: int  # in bytes
+
+    # getter API
+    # NOTE: all the getter APIs will transfer the ref
+    #       to the caller, and then release it.
+
+    def get_rm_delta(self) -> Iterator[str]:
+        if not (_rm_delta := self.rm_delta):
+            return []  # type: ignore
+        self.rm_delta = None  # type: ignore
+
+        def _gen():
+            while _rm_delta:
+                yield _rm_delta.pop()
+
+        return _gen()
+
+    def get_new_delta(self) -> RegularDelta:
+        if not (_new_delta := self.new_delta):
+            return {}  # type: ignore
+        self.new_delta = None  # type: ignore
+        return _new_delta
+
+    def get_download_list(self) -> Iterator[RegularInf]:
+        if not (_download_list := self.download_list):
+            return []  # type: ignore
+        self.download_list = None  # type: ignore
+
+        def _gen():
+            while _download_list:
+                yield _download_list.pop()
+
+        return _gen()
+
+    def get_new_dirs(self) -> Iterator[DirectoryInf]:
+        if not (_dirs := self.new_dirs):
+            return []  # type: ignore
+        self.new_dirs = None  # type: ignore
+
+        def _gen():
+            while _dirs:
+                yield _dirs.popitem()[0]
+
+        return _gen()
 
 
 class DeltaGenerator:
@@ -221,55 +279,35 @@ class DeltaGenerator:
 
     def __init__(
         self,
-        old_reg: Path,  # path to old image regulars.txt, currently not used now
-        new_reg: Path,  # path to new image regulars.txt
-        new_dirs: Path,  # path to dirs.txt
         *,
-        ref_root: Path,
-        recycle_folder: Path,
+        delta_src: Path,
+        local_copy_dir: Path,
         stats_collector: OTAUpdateStatsCollector,
     ) -> None:
-        """
-        Attrs:
-            bank_root: the root of the bank(old) that we calculate delta from.
-        """
+        # delta
+        self._new = RegularDelta()
+        self._rm: List[str] = []
+        self._new_dirs: OrderedDict[DirectoryInf, None] = OrderedDict()
+        self._new_hash_list: Set[str] = set()
+        self._download_list: List[RegularInf] = []
+
         self._stats_collector = stats_collector
-        self._ref_root = ref_root
-        self._recycle_folder = recycle_folder
+        self._delta_src_mount_point = delta_src
+        self._local_copy_dir = local_copy_dir
 
-        # pre-load dirs list
-        self._parse_dirs_txt(new_dirs)
-        # pre-load from new regulars.txt
-        self._parse_reginf(new_reg)
-        # generate delta and prepare files
-        self._cal_and_prepare_old_slot_delta()
-
-    def _parse_reginf(self, reginf_file: Union[Path, str]) -> None:
-        self._new_delta = RegularDelta()
-        self._hash_set = set()
         self.total_regulars_num = 0
-        with open(reginf_file, "r") as f, ProcessPoolExecutor() as pool:
-            for entry in pool.map(RegularInf.parse_reginf, f, chunksize=2048):
-                self.total_regulars_num += 1
-                self._new_delta.add_entry(entry)
-                self._hash_set.add(entry.sha256hash)
-
-        self._stats_collector.store.total_regular_files = self.total_regulars_num
-
-    def _parse_dirs_txt(self, new_dirs: Path) -> None:
-        self._dirs: OrderedDict[DirectoryInf, None] = OrderedDict()
-        with open(new_dirs, "r") as f, ProcessPoolExecutor() as pool:
-            for _dir in pool.map(DirectoryInf, f, chunksize=2048):
-                self._dirs[_dir] = None
+        self.total_download_files_size = 0
 
     def _process_file_in_old_slot(
         self, fpath: Path, *, _hash: Optional[str] = None
     ) -> None:
-        if _hash is None:
-            _hash = file_sha256(fpath)
+        """Hash(and verify the file) and prepare a copy for it in standby slot."""
+        _fhash = file_sha256(fpath)
+        if _hash and _hash != _fhash:
+            return
 
         try:
-            self._hash_set.remove(_hash)
+            self._new_hash_list.remove(_fhash)
         except KeyError:
             # this hash has already been prepared
             return
@@ -277,7 +315,7 @@ class DeltaGenerator:
         # collect this entry as the hash existed in _new
         # and not yet being collected
         _start = time.thread_time_ns()
-        shutil.copy(fpath, self._recycle_folder / _hash)
+        shutil.copy(fpath, self._local_copy_dir / _fhash)
 
         # report to the ota update stats collector
         self._stats_collector.report(
@@ -288,11 +326,8 @@ class DeltaGenerator:
             )
         )
 
-    def _cal_and_prepare_old_slot_delta(self):
-        """
-        NOTE: all local copies are ready after this method
-        """
-        self._rm_list: List[str] = []  # not used
+    def _process_delta_src(self):
+        logger.debug("process delta src, generate delta and prepare local copy...")
         _canonical_root = Path("/")
 
         # scan old slot and generate delta based on path,
@@ -303,85 +338,141 @@ class DeltaGenerator:
         # collect this file to the recycle folder if not yet being collected.
         with ThreadPoolExecutor(thread_name_prefix="scan_slot") as pool:
             for curdir, dirnames, filenames in os.walk(
-                self._ref_root, topdown=True, followlinks=False
+                self._delta_src_mount_point, topdown=True, followlinks=False
             ):
-                curdir_path = Path(curdir)
-                canonical_curdir_path = _canonical_root / curdir_path.relative_to(
-                    self._ref_root
+                delta_src_curdir_path = Path(curdir)
+                canonical_curdir_path = (
+                    _canonical_root
+                    / delta_src_curdir_path.relative_to(self._delta_src_mount_point)
                 )
+                logger.debug(f"{delta_src_curdir_path=}, {canonical_curdir_path=}")
 
-                # skip folder that exceeds max_folder_deepth
-                if len(curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
-                    logger.warning(f"reach max_folder_deepth on {curdir_path!r}, skip")
+                # skip folder that exceeds max_folder_deepth,
+                # also add these folders to remove list
+                if len(delta_src_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
+                    logger.warning(
+                        f"reach max_folder_deepth on {delta_src_curdir_path!r}, skip"
+                    )
+                    self._rm.append(str(canonical_curdir_path))
                     dirnames.clear()
                     continue
 
-                # skip folder if it doesn't exist on new image,
-                # and also not meant to be fully scanned
-                dir_should_skip = (
-                    False
-                    if (
-                        canonical_curdir_path == _canonical_root
-                        or canonical_curdir_path in self._dirs
-                    )
-                    else True
-                )
-                dir_should_fully_scan = False
-
+                # skip this folder if it doesn't exist on new image,
+                # or also not meant to be fully scanned.
+                # NOTE: the root folder must be fully scanned
+                dir_should_skip = True
+                if (
+                    canonical_curdir_path == _canonical_root
+                    or canonical_curdir_path in self._new_dirs
+                ):
+                    dir_should_skip = False
                 # check if we neede to fully scan this folder
+                dir_should_fully_scan = False
                 for parent in reversed(canonical_curdir_path.parents):
-                    if (
-                        not dir_should_fully_scan
-                        and str(parent) in self.FULL_SCAN_PATHS
-                    ):
+                    if str(parent) in self.FULL_SCAN_PATHS:
                         dir_should_fully_scan = True
                         break
-
-                # should we totally skip folder?
+                logger.debug(
+                    f"{dir_should_skip=}, {dir_should_fully_scan=}: {delta_src_curdir_path=}"
+                )
+                # should we totally skip folder and all its child folders?
+                # if so, discard it and add it to the remove list.
                 if dir_should_skip and not dir_should_fully_scan:
+                    self._rm.append(str(canonical_curdir_path))
                     dirnames.clear()  # prune the search on all its subfolders
                     continue
 
-                # skip files that over the max_filenum_per_folder
+                # skip files that over the max_filenum_per_folder,
+                # and add these files to remove list
                 if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
                     logger.warning(
-                        f"reach max_filenum_per_folder on {curdir_path}, "
+                        f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                         "exceeded files will be ignored silently"
                     )
+                    self._rm.extend(
+                        map(
+                            lambda x: str(canonical_curdir_path / x),
+                            filenames[self.MAX_FILENUM_PER_FOLDER :],
+                        )
+                    )
 
+                # process the files under this dir
                 futs: List[Future] = []
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
-                    fpath = curdir_path / fname
+                    delta_src_fpath = delta_src_curdir_path / fname
+                    logger.debug(f"[process_delta_src] process {delta_src_fpath}")
                     # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
                     canonical_fpath = canonical_curdir_path / fname
 
                     # ignore non-file file(include symlink)
-                    if fpath.is_symlink() or not fpath.is_file():
+                    # NOTE: for in-place update, we will recreate all the symlinks,
+                    #       so we first remove all the symlinks
+                    if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
+                        self._rm.append(str(canonical_fpath))
                         continue
-
                     # in default match_only mode, if the path doesn't exist in new, ignore
-                    if not dir_should_fully_scan and not self._new_delta.contains_path(
+                    if not dir_should_fully_scan and not self._new.contains_path(
                         canonical_fpath
                     ):
+                        self._rm.append(str(canonical_fpath))
                         continue
 
-                    # scan and hash the file
-                    # TODO: if old_reg is available, only scan files that presented
-                    # in the old_reg in the full_scan folders,
-                    # TODO 2: hash can also be pre-loaded from old_reg
-                    futs.append(pool.submit(self._process_file_in_old_slot, fpath))
+                    futs.append(
+                        pool.submit(self._process_file_in_old_slot, delta_src_fpath)
+                    )
+                # wait for all files under this dir to be finished
+                logger.debug(f"{delta_src_curdir_path=} done")
+                wait(futs)
 
-                for fut in as_completed(futs):
-                    if exp := fut.exception():
-                        raise exp
+        # calculate the files list that we should download from remote
+        # the hash in the self._hash_set after local delta preparation representing
+        # the file we need to download from remote
+        for _hash, _reginf_set in self._new.items():
+            if _hash in self._new_hash_list:
+                # pick one entry from the reginf set for downloading
+                _iter = _reginf_set.iter_entries()
+                _, _entry = next(_iter)
+                self._download_list.append(_entry)
+                self.total_download_files_size += _entry.size if _entry.size else 0
+        self._new_hash_list.clear()
 
-    ###### public API ######
-    def get_delta(self) -> DeltaBundle:
+    # API
+
+    def calculate_and_process_delta(
+        self,
+        *,
+        delta_src_reg: Path,  # path to delta_src regulars.txt, currently not used
+        new_reg: Path,  # path to new image regulars.txt
+        new_dirs: Path,  # path to dirs.txt
+    ) -> DeltaBundle:
+        with open(new_dirs, "r") as f:
+            for _dir in map(DirectoryInf, f):
+                self._new_dirs[_dir] = None
+        # pre-load from new regulars.txt
+        with open(new_reg, "r") as f:
+            for _entry in map(RegularInf.parse_reginf, f):
+                self.total_regulars_num += 1
+                self._new.add_entry(_entry)
+                self._new_hash_list.add(_entry.sha256hash)
+        self._stats_collector.store.total_regular_files = self.total_regulars_num
+
+        # generate delta and prepare files
+        self._process_delta_src()
+        logger.info(
+            "delta calculation finished: \n"
+            f"total_regulars_num: {self.total_regulars_num} \n"
+            f"total_download_files_size: {self.total_download_files_size} \n"
+            f"rm_list len: {len(self._rm)} \n"
+            f"donwload_list len: {len(self._download_list)}"
+        )
+
         return DeltaBundle(
-            rm_delta=self._rm_list,
-            new_delta=self._new_delta,
-            new_dirs=self._dirs,
-            ref_root=self._ref_root,
-            recycle_folder=self._recycle_folder,
+            rm_delta=self._rm,
+            new_delta=self._new,
+            new_dirs=self._new_dirs,
+            download_list=self._download_list,
+            delta_src=self._delta_src_mount_point,
+            delta_files_dir=self._local_copy_dir,
             total_regular_num=self.total_regulars_num,
+            total_download_files_size=self.total_download_files_size,
         )
