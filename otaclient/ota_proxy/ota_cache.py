@@ -58,9 +58,6 @@ from .errors import (
 from .config import config as cfg
 from .utils import wait_with_backoff, AIOSHA256Hasher
 
-if TYPE_CHECKING:
-    import multiprocessing
-
 logger = logging.getLogger(__name__)
 
 
