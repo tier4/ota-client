@@ -113,39 +113,33 @@ class OtaProxyWrapper:
             self._closed, _server_p = True, None
             logger.info("ota proxy server closed")
 
-    def start(
-        self,
-        init_cache: bool,
-        *,
-        wait_on_scrub=True,
-        wait_on_timeout: Optional[float] = None,
-    ) -> Optional[int]:
+    def start(self, init_cache: bool) -> Optional[int]:
         """Launch ota_proxy as a separate process."""
         if self._lock.acquire(blocking=False) and self._closed:
             self._closed = False
-            # NOTE, TODO: currently we always wait for otacache scrubing
-            #             before launching the otaproxy
-            _cache_base_dir = Path(proxy_srv_cfg.BASE_DIR)
-            _cache_db_file = Path(proxy_srv_cfg.DB_FILE)
-
-            _should_init_cache = init_cache or not (
-                _cache_base_dir.is_dir() and _cache_db_file.is_file()
-            )
-            if not _should_init_cache:
-                _scrub_helper = OTACacheScrubHelper(_cache_db_file, _cache_base_dir)
-                try:
-                    _scrub_helper.scrub_cache()
-                except Exception as e:
-                    logger.error(
-                        f"failed to complete cache scrub: {e!r}, force init cache"
-                    )
-                    _should_init_cache = True
-                finally:
-                    del _scrub_helper
-
             try:
-                self._launcher_gen = self._launcher(init_cache=_should_init_cache)
-                return next(self._launcher_gen)
+                # NOTE, TODO: currently we always wait for otacache scrubing
+                #             before launching the otaproxy
+                _cache_base_dir = Path(proxy_srv_cfg.BASE_DIR)
+                _cache_db_file = Path(proxy_srv_cfg.DB_FILE)
+
+                _should_init_cache = init_cache or not (
+                    _cache_base_dir.is_dir() and _cache_db_file.is_file()
+                )
+                if not _should_init_cache:
+                    _scrub_helper = OTACacheScrubHelper(_cache_db_file, _cache_base_dir)
+                    try:
+                        _scrub_helper.scrub_cache()
+                    except Exception as e:
+                        logger.error(
+                            f"failed to complete cache scrub: {e!r}, force init cache"
+                        )
+                        _should_init_cache = True
+                    finally:
+                        del _scrub_helper
+
+                    self._launcher_gen = self._launcher(init_cache=_should_init_cache)
+                    return next(self._launcher_gen)
             except Exception as e:
                 logger.error(f"failed to start otaproxy: {e!r}")
                 self._launcher_gen = None  # type: ignore
