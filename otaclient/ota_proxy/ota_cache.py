@@ -30,7 +30,6 @@ from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from typing import (
-    TYPE_CHECKING,
     AsyncGenerator,
     AsyncIterator,
     Callable,
