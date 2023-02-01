@@ -730,7 +730,6 @@ class OTACache:
         db_file: Optional[Union[str, Path]] = None,
         upper_proxy: str = "",
         enable_https: bool = False,
-        scrub_cache_event: "Optional[multiprocessing.Event]" = None,  # type: ignore
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -749,8 +748,6 @@ class OTACache:
         self._storage_below_hard_limit_event = threading.Event()
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
-
-        self._scrub_cache_event = scrub_cache_event
 
     async def start(self):
         """Start the ota_cache instance."""
@@ -784,12 +781,6 @@ class OTACache:
                 # init only
                 _init_only = OTACacheDB(self._db_file, init=True)
                 _init_only.close()
-            else:
-                # scrub the cache folder
-                _scrub_cache = OTACacheScrubHelper(
-                    db_file=self._db_file, base_dir=self._base_dir
-                )
-                _scrub_cache.scrub_cache()
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
@@ -801,12 +792,6 @@ class OTACache:
             if self._upper_proxy:
                 # if upper proxy presented, force disable https
                 self._enable_https = False
-
-        # set scrub_cache_event after init/scrub cache to signal the ota-client
-        # TODO: passthrough the exception to the ota_client process
-        #   if the init/scrub failed
-        if self._scrub_cache_event:
-            self._scrub_cache_event.set()
 
         logger.info("ota_cache started")
 

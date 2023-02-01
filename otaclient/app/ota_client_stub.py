@@ -36,6 +36,7 @@ from .proto import wrapper
 from .proxy_info import proxy_cfg
 
 from otaclient.ota_proxy.config import config as proxy_srv_cfg
+from otaclient.ota_proxy import App, OTACache, OTACacheScrubHelper
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -49,14 +50,13 @@ class OtaProxyWrapper:
         self._launcher_gen: Generator = None  # type: ignore
 
     @staticmethod
-    def _start_otaproxy(init_cache, *, scrub_cache_event):
+    def _start_otaproxy(init_cache):
         """Main entry for ota_proxy in separate process.
 
         NOTE: logging needs to be configured again.
         """
         import uvloop
         import uvicorn
-        from otaclient.ota_proxy import App, OTACache
 
         # configure logging for ota_proxy process
         log_setting.configure_logging(
@@ -65,13 +65,12 @@ class OtaProxyWrapper:
         _otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
         _otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
 
-        async def _start_uvicorn(init_cache: bool, *, scrub_cache_event):
+        async def _start_uvicorn(init_cache: bool):
             _ota_cache = OTACache(
                 cache_enabled=proxy_cfg.enable_local_ota_proxy_cache,
                 upper_proxy=proxy_cfg.upper_ota_proxy,
                 enable_https=proxy_cfg.gateway,
                 init_cache=init_cache,
-                scrub_cache_event=scrub_cache_event,
             )
 
             # NOTE: explicitly set loop and http options
@@ -90,28 +89,17 @@ class OtaProxyWrapper:
             await server.serve()
 
         uvloop.install()
-        asyncio.run(_start_uvicorn(init_cache, scrub_cache_event=scrub_cache_event))
+        asyncio.run(_start_uvicorn(init_cache))
 
-    def _launcher(
-        self,
-        *,
-        init_cache: bool,
-        wait_on_scrub: bool = True,
-        wait_on_timeout: Optional[float] = None,
-    ):
+    def _launcher(self, *, init_cache: bool):
         _mp_ctx = multiprocessing.get_context("spawn")
-        _scrub_cache_event = _mp_ctx.Event()
         _server_p = _mp_ctx.Process(
             target=self._start_otaproxy,
             args=[init_cache],
-            kwargs={"scrub_cache_event": _scrub_cache_event},
         )
         try:
             _server_p.start()
-            if wait_on_scrub:
-                _scrub_cache_event.wait(timeout=wait_on_timeout)
             logger.info(f"ota proxy server started(pid={_server_p.pid}, {proxy_cfg=})")
-
             # wait for stop
             _cleanup_cache = yield _server_p.pid
             logger.info(f"closing otaproxy: {_cleanup_cache=}")
@@ -134,12 +122,19 @@ class OtaProxyWrapper:
         """Launch ota_proxy as a separate process."""
         if self._lock.acquire(blocking=False) and self._closed:
             self._closed = False
-            try:
-                self._launcher_gen = self._launcher(
-                    init_cache=init_cache,
-                    wait_on_scrub=wait_on_scrub,
-                    wait_on_timeout=wait_on_timeout,
+            # NOTE, TODO: currently we always wait for otacache scrubing
+            #             before launching the otaproxy
+            if not init_cache:
+                _scrub_helper = OTACacheScrubHelper(
+                    proxy_srv_cfg.DB_FILE, proxy_srv_cfg.BASE_DIR
                 )
+                try:
+                    _scrub_helper.scrub_cache()
+                finally:
+                    del _scrub_helper
+
+            try:
+                self._launcher_gen = self._launcher(init_cache=init_cache)
                 return next(self._launcher_gen)
             except Exception as e:
                 logger.error(f"failed to start otaproxy: {e!r}")
@@ -204,7 +199,11 @@ class _RequestHandlingSession:
                 if self.enable_otaproxy:
                     self._ota_proxy = OtaProxyWrapper()
                     try:
-                        self._ota_proxy.start(init_cache=init_cache, wait_on_scrub=True)
+                        await asyncio.get_running_loop().run_in_executor(
+                            self._executor,
+                            self._ota_proxy.start,
+                            init_cache,
+                        )
                         logger.info("ota_proxy server launched")
                         self.fsm.stub_pre_update_ready()
                     except Exception as e:
@@ -216,7 +215,11 @@ class _RequestHandlingSession:
             if self._started.is_set() and self._ota_proxy:
                 logger.info(f"stopping ota_proxy(cleanup_cache={update_succeed})...")
                 try:
-                    self._ota_proxy.stop(cleanup_cache=update_succeed)
+                    await asyncio.get_running_loop().run_in_executor(
+                        self._executor,
+                        self._ota_proxy.stop,
+                        update_succeed,
+                    )
                 except Exception as e:
                     logger.error(f"failed to stop ota_proxy gracefully: {e!r}")
                     self.fsm.on_otaservice_failed()

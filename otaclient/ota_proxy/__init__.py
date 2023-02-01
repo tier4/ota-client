@@ -15,7 +15,7 @@
 
 from .cache_control import OTAFileCacheControl
 from .server_app import App
-from .ota_cache import OTACache
+from .ota_cache import OTACache, OTACacheScrubHelper
 from .config import config
 
-__all__ = ("App", "OTACache", "OTAFileCacheControl", "config")
+__all__ = ("App", "OTACache", "OTACacheScrubHelper", "OTAFileCacheControl", "config")
