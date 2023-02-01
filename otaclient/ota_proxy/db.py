@@ -111,6 +111,13 @@ class OTACacheDB:
             logger.debug(f"init db failed: {e!r}")
             raise e
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
     def close(self):
         self._con.close()
 

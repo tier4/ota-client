@@ -568,25 +568,21 @@ class OTACacheScrubHelper:
     """Helper to scrub ota caches."""
 
     def __init__(self, db_file: Union[str, Path], base_dir: Union[str, Path]):
-        self._db = OTACacheDB(db_file)
         self._db_file = Path(db_file)
         self._base_dir = Path(base_dir)
-        self._excutor = ThreadPoolExecutor()
 
     @staticmethod
     def _check_entry(base_dir: Path, meta: CacheMeta) -> Tuple[CacheMeta, bool]:
-        f = base_dir / meta.sha256hash
-        if f.is_file():
-            hash_f = sha256()
-            # calculate file's hash and check against meta
-            with open(f, "rb") as _f:
+        if (fpath := base_dir / meta.sha256hash).is_file():
+            _hash_f = sha256()
+            with open(fpath, "rb") as _f:
                 while data := _f.read(cfg.CHUNK_SIZE):
-                    hash_f.update(data)
-            if hash_f.hexdigest() == meta.sha256hash:
+                    _hash_f.update(data)
+            if _hash_f.hexdigest() == meta.sha256hash:
                 return meta, True
 
         # check failed, try to remove the cache entry
-        f.unlink(missing_ok=True)
+        fpath.unlink(missing_ok=True)
         return meta, False
 
     def scrub_cache(self):
@@ -595,49 +591,42 @@ class OTACacheScrubHelper:
         OTACacheScrubHelper instance will close itself after finishing scrubing.
         """
         logger.info("start to scrub the cache entries...")
-        try:
-            dangling_db_entry = []
-            # NOTE: pre-add db related files into the set
-            # to prevent db related files being deleted
-            # NOTE 2: cache_db related files: <cache_db>, <cache_db>-shm, <cache_db>-wal, <cache>-journal
-            db_file = self._db_file.name
-            valid_cache_entry = {
-                db_file,
-                f"{db_file}-shm",
-                f"{db_file}-wal",
-                f"{db_file}-journal",
-            }
-            res_list = self._excutor.map(
+        dangling_db_entry = []
+        # NOTE: pre-add db related files into the set
+        # to prevent db related files being deleted
+        # NOTE 2: cache_db related files: <cache_db>, <cache_db>-shm, <cache_db>-wal, <cache>-journal
+        valid_cache_entry = {
+            (_db_fname := self._db_file.name),
+            f"{_db_fname}-shm",
+            f"{_db_fname}-wal",
+            f"{_db_fname}-journal",
+        }
+
+        with ThreadPoolExecutor(
+            thread_name_prefix="otacahe_scrub"
+        ) as _executor, OTACacheDB(self._db_file) as _db:
+            for _meta, _is_valid in _executor.map(
                 partial(self._check_entry, self._base_dir),
-                self._db.lookup_all(),
+                _db.lookup_all(),
                 chunksize=128,
-            )
-
-            for meta, valid in res_list:
-                if not valid:
-                    logger.debug(f"invalid db entry found: {meta.url}")
-                    dangling_db_entry.append(meta.url)
+            ):
+                if not _is_valid:
+                    logger.debug(f"invalid db entry found: {_meta.url}")
+                    dangling_db_entry.append(_meta.url)
                 else:
-                    valid_cache_entry.add(meta.sha256hash)
+                    valid_cache_entry.add(_meta.sha256hash)
+            # remove any dangling db entries that don't point to valid cache
+            _db.remove_entries(CacheMeta.url, *dangling_db_entry)
 
-            # delete the invalid entry from the database
-            self._db.remove_entries(CacheMeta.url, *dangling_db_entry)
+        # loop over all files under cache folder,
+        # if entry's hash is not presented in the valid_cache_entry set,
+        # we treat it as dangling cache entry and delete it
+        for _entry in self._base_dir.glob("*"):
+            if _entry.name not in valid_cache_entry:
+                logger.debug(f"dangling cache entry found: {_entry.name}")
+                (self._base_dir / _entry.name).unlink(missing_ok=True)
 
-            # loop over all files under cache folder,
-            # if entry's hash is not presented in the valid_cache_entry set,
-            # we treat it as dangling cache entry and delete it
-            for entry in self._base_dir.glob("*"):
-                if entry.name not in valid_cache_entry:
-                    logger.debug(f"dangling cache entry found: {entry.name}")
-                    f = self._base_dir / entry.name
-                    f.unlink(missing_ok=True)
-
-            logger.info("cache scrub finished")
-        except Exception as e:
-            logger.error(f"failed to finish scrub cache folder: {e!r}")
-        finally:
-            self._db.close()
-            self._excutor.shutdown(wait=True)
+        logger.info("cache scrub finished")
 
 
 class _FileDescriptorHelper:
