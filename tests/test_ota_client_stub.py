@@ -88,25 +88,19 @@ class TestOtaProxyWrapper:
         _ota_proxy_cfg.BASE_DIR = str(ota_cache_dir)  # type: ignore
         mocker.patch(f"{cfg.OTAPROXY_MODULE_PATH}.ota_cache.cfg", _ota_proxy_cfg)
 
-    @pytest.fixture
-    def ota_proxy_instance(self, mocker: pytest_mock.MockerFixture, mock_cfg):
+    def test_OtaProxyWrapper(self, mocker: pytest_mock.MockerFixture, mock_cfg):
         from otaclient.app.ota_client_stub import OtaProxyWrapper
 
         _ota_proxy_wrapper = OtaProxyWrapper()
-        self._ota_proxy_instance = _ota_proxy_wrapper
         try:
-            yield _ota_proxy_wrapper.start(
-                init_cache=True,
-                wait_on_scrub=False,
-            )
+            _pid = _ota_proxy_wrapper.start(init_cache=True)
+            # TODO: ensure that the ota_proxy is launched and functional
+            #       by downloading a file with proxy
+            assert not _ota_proxy_wrapper._closed
+            assert _pid > 0
+            assert _ota_proxy_wrapper._launcher_gen
         finally:
             _ota_proxy_wrapper.stop()
-
-    def test_OtaProxyWrapper(self, ota_proxy_instance):
-        # TODO: ensure that the ota_proxy is launched and functional
-        #       by downloading a file with proxy
-        assert not self._ota_proxy_instance._closed
-        assert self._ota_proxy_instance._launcher_gen
 
 
 class Test_UpdateSession(ThreadpoolExecutorFixtureMixin):
