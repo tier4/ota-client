@@ -1060,7 +1060,7 @@ class OTACache:
                 )
             except Exception as e:
                 _err_msg = f"failed to open remote connection for {raw_url=}: {e!r}"
-                logger.error(_err_msg)
+                logger.debug(_err_msg)
                 await _tracker.provider_on_failed()
                 raise CacheStreamingFailed(_err_msg) from e
 

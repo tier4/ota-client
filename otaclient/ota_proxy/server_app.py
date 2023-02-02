@@ -211,30 +211,30 @@ class App:
             await self._send_chunk(b"", False, send)
 
         except aiohttp.ClientResponseError as e:
-            await self._respond_with_error(e.status, e.message, send)
             logger.warning(f"request for {url=} failed due to HTTP error: {e!r}")
+            # passthrough 4xx(currently 403 and 404) to otaclient
+            await self._respond_with_error(e.status, e.message, send)
         except aiohttp.ClientConnectionError as e:
-            # terminate the transmission
+            logger.info(f"request for {url=} failed due to connection error: {e!r}")
             if respond_started:
                 await send({"type": "http.response.body", "body": b""})
             else:
                 await self._respond_with_error(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    HTTPStatus.BAD_GATEWAY,
                     "failed to connect to remote server",
                     send,
                 )
-            logger.info(f"request for {url=} failed due to connection error: {e!r}")
         except aiohttp.ClientError as e:
+            logger.warning(
+                f"request for {url=} failed due to aiohttp client error: {e!r}"
+            )
             # terminate the transmission
             if respond_started:
                 await send({"type": "http.response.body", "body": b""})
             else:
                 await self._respond_with_error(
-                    HTTPStatus.INTERNAL_SERVER_ERROR, f"client error: {e!r}", send
+                    HTTPStatus.SERVICE_UNAVAILABLE, f"client error: {e!r}", send
                 )
-            logger.warning(
-                f"request for {url=} failed due to aiohttp client error: {e!r}"
-            )
         except (BaseOTACacheError, StopAsyncIteration) as e:
             logger.error(
                 f"request for {url=} failed due to handled ota_cache internal error: {e!r}"
@@ -252,7 +252,6 @@ class App:
             logger.exception(
                 f"request for {url=} failed due to unhandled ota_cache internal error: {e!r}"
             )
-
             # terminate the transmission
             if respond_started:
                 await send({"type": "http.response.body", "body": b""})
