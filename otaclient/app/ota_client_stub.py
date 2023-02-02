@@ -138,8 +138,8 @@ class OtaProxyWrapper:
                     finally:
                         del _scrub_helper
 
-                    self._launcher_gen = self._launcher(init_cache=_should_init_cache)
-                    return next(self._launcher_gen)
+                self._launcher_gen = self._launcher(init_cache=_should_init_cache)
+                return next(self._launcher_gen)
             except Exception as e:
                 logger.error(f"failed to start otaproxy: {e!r}")
                 self._launcher_gen = None  # type: ignore
