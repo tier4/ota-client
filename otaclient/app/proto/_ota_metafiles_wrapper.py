@@ -163,9 +163,13 @@ def parse_symlinks_from_txt(_input: str):
     _ma = _symlink_pa.match(_input)
     assert _ma is not None, f"matching reg_inf failed for {_input}"
 
-    slink = _ma.group("link")
-    srcpath = _ma.group("target")
-    return SymbolicLinkInf(slink=slink, srcpath=srcpath)
+    res = SymbolicLinkInf()
+    res.mode = int(_ma.group("mode"), 8)
+    res.uid = int(_ma.group("uid"))
+    res.gid = int(_ma.group("gid"))
+    res.slink = de_escape(_ma.group("link"))
+    res.srcpath = de_escape(_ma.group("target"))
+    return res
 
 
 def parse_regulars_from_txt(_input: str):
