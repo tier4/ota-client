@@ -330,7 +330,10 @@ class OTAMetadata:
         """
         # v2 OTA image, with compression enabled
         # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
-        if reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG:
+        if (
+            reg_inf.compressed_alg
+            and reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG
+        ):
             return (
                 urljoin_ensure_base(
                     self.get_image_compressed_data_url(base_url),
