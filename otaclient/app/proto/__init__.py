@@ -61,6 +61,7 @@ del _import_proto, _import_from_file
 
 import otaclient_v2_pb2 as v2
 import otaclient_v2_pb2_grpc as v2_grpc
+import ota_metafiles_pb2 as ota_metafiles
 from . import wrapper
 
-__all__ = ["v2", "v2_grpc", "wrapper"]
+__all__ = ["v2", "v2_grpc", "ota_metafiles", "wrapper"]
