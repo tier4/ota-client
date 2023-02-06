@@ -54,7 +54,7 @@ from .errors import (
     StandbySlotSpaceNotEnoughError,
     UpdateDeltaGenerationFailed,
 )
-from .ota_metadata import MetaFile, OTAMetadata, ParseMetadataHelper, RegularInf
+from .ota_metadata import MetaFile, OTAMetadata, ParseMetadataHelper
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
 from .proxy_info import proxy_cfg
@@ -217,12 +217,13 @@ class _OTAUpdater:
         self._otameta = metadata
         return metadata
 
-    def _download_file(self, entry: RegularInf) -> RegInfProcessedStats:
+    def _download_file(self, entry: wrapper.RegularInf) -> RegInfProcessedStats:
         """Download single OTA image file."""
         cur_stat = RegInfProcessedStats(op=RegProcessOperation.OP_DOWNLOAD)
         _start_time, _download_time = time.thread_time_ns(), 0
 
-        _local_copy = self._ota_tmp_on_standby / entry.sha256hash
+        _fhash_str = entry.get_hash()
+        _local_copy = self._ota_tmp_on_standby / _fhash_str
         entry_url, compression_alg = self._otameta.get_download_url(
             entry, base_url=self._url_base
         )
@@ -233,7 +234,7 @@ class _OTAUpdater:
         ) = self._downloader.download(
             entry_url,
             _local_copy,
-            digest=entry.sha256hash,
+            digest=_fhash_str,
             size=entry.size,
             proxies=self._proxy,
             cookies=self._cookies,
@@ -243,7 +244,7 @@ class _OTAUpdater:
         cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
         return cur_stat
 
-    def _download_files(self, download_list: Iterator[RegularInf]):
+    def _download_files(self, download_list: Iterator[wrapper.RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
         logger.debug("download neede OTA image files...")
         _keep_failing_timer = time.time()

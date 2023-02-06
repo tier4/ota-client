@@ -16,10 +16,8 @@
 from __future__ import annotations
 import base64
 import json
-import os
 import re
-import shutil
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, fields
 from urllib.parse import quote
 from OpenSSL import crypto
 from pathlib import Path
@@ -39,7 +37,8 @@ from typing import (
 )
 
 from .configs import config as cfg
-from .common import urljoin_ensure_base, verify_file
+from .common import urljoin_ensure_base
+from .proto.wrapper import RegularInf
 from . import log_setting
 
 logger = log_setting.get_logger(
@@ -335,7 +334,7 @@ class OTAMetadata:
             return (
                 urljoin_ensure_base(
                     self.get_image_compressed_data_url(base_url),
-                    quote(f"{reg_inf.sha256hash}.{reg_inf.compressed_alg}"),
+                    quote(f"{reg_inf.get_hash()}.{reg_inf.compressed_alg}"),
                 ),
                 reg_inf.compressed_alg,
             )
@@ -345,248 +344,7 @@ class OTAMetadata:
             return (
                 urljoin_ensure_base(
                     self.get_image_data_url(base_url),
-                    quote(str(reg_inf.path.relative_to("/"))),
+                    quote(str(reg_inf.relative_to("/"))),
                 ),
                 None,
             )
-
-
-# meta files entry classes
-
-
-def de_escape(s: str) -> str:
-    return s.replace(r"'\''", r"'")
-
-
-@dataclass
-class _BaseInf:
-    """Base class for dir, symlink, persist entry."""
-
-    mode: int
-    uid: int
-    gid: int
-    _left: str = field(init=False, compare=False, repr=False)
-
-    _base_pattern: ClassVar[re.Pattern] = re.compile(
-        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
-    )
-
-    def __init__(self, info: str):
-        match_res: Optional[re.Match] = self._base_pattern.match(info.strip())
-        assert match_res is not None, f"match base_inf failed: {info}"
-
-        self.mode = int(match_res.group("mode"), 8)
-        self.uid = int(match_res.group("uid"))
-        self.gid = int(match_res.group("gid"))
-        self._left: str = match_res.group("left_over")
-
-
-@dataclass
-class DirectoryInf(_BaseInf):
-    """Directory file information class for dirs.txt.
-    format: mode,uid,gid,'dir/name'
-
-    NOTE: only use path for hash key
-    """
-
-    path: Path
-
-    def __init__(self, info):
-        super().__init__(info)
-        self.path = Path(de_escape(self._left[1:-1]))
-
-        del self._left
-
-    def __eq__(self, _other: Any) -> bool:
-        if isinstance(_other, DirectoryInf):
-            return _other.path == self.path
-        elif isinstance(_other, Path):
-            return _other == self.path
-        else:
-            return False
-
-    def __hash__(self) -> int:
-        return hash(self.path)
-
-    def mkdir_relative_to_mount_point(self, mount_point: Union[Path, str]):
-        _target = Path(mount_point) / self.path.relative_to("/")
-        _target.mkdir(parents=True, exist_ok=True)
-        os.chmod(_target, self.mode)
-        os.chown(_target, self.uid, self.gid)
-
-
-@dataclass
-class SymbolicLinkInf(_BaseInf):
-    """Symbolik link information class for symlinks.txt.
-
-    format: mode,uid,gid,'path/to/link','path/to/target'
-    example:
-    """
-
-    slink: Path
-    srcpath: Path
-
-    _pattern: ClassVar[re.Pattern] = re.compile(
-        r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
-    )
-
-    def __init__(self, info):
-        super().__init__(info)
-        res = self._pattern.match(self._left)
-        assert res is not None, f"match symlink failed: {info}"
-
-        self.slink = Path(de_escape(res.group("link")))
-        self.srcpath = Path(de_escape(res.group("target")))
-
-        del self._left
-
-    def link_at_mount_point(self, mount_point: Union[Path, str]):
-        # NOTE: symbolic link in /boot directory is not supported. We don't use it.
-        _newlink = Path(mount_point) / self.slink.relative_to("/")
-        _newlink.symlink_to(self.srcpath)
-        # set the permission on the file itself
-        os.chown(_newlink, self.uid, self.gid, follow_symlinks=False)
-
-
-@dataclass
-class PersistentInf:
-    """Persistent file information class for persists.txt
-
-    format: 'path'
-    """
-
-    path: Path
-
-    def __init__(self, info: str):
-        self.path = Path(de_escape(info.strip()[1:-1]))
-
-
-@dataclass
-class RegularInf:
-    """RegularInf scheme for regulars.txt.
-
-    format: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode,[compressed_alg]]]
-    example: 0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'path/to/file',1234,12345678,zst
-
-    NOTE: size and inode sections are both optional, if inode exists, size must exist.
-    NOTE 2: path should always be relative to '/', not relative to any mount point!
-    """
-
-    mode: int
-    uid: int
-    gid: int
-    nlink: int
-    sha256hash: str
-    path: Path
-    _base: str
-    size: Optional[int] = None
-    inode: Optional[str] = None
-    compressed_alg: Optional[str] = None
-
-    # NOTE(20221013): support previous regular_inf cvs version
-    #                 that doesn't contain size, inode and compressed_alg fields.
-    _reginf_pa: ClassVar[re.Pattern] = re.compile(
-        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+)"
-        r",(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'"
-        r"(,(?P<size>\d+)?(,(?P<inode>\d+)?(,(?P<compressed_alg>\w+)?)?)?)?"
-    )
-
-    @classmethod
-    def parse_reginf(cls, _input: str):
-        _ma = cls._reginf_pa.match(_input)
-        assert _ma is not None, f"matching reg_inf failed for {_input}"
-
-        mode = int(_ma.group("mode"), 8)
-        uid = int(_ma.group("uid"))
-        gid = int(_ma.group("gid"))
-        nlink = int(_ma.group("nlink"))
-        sha256hash = _ma.group("hash")
-        path = Path(de_escape(_ma.group("path")))
-
-        # special treatment for /boot folder
-        _base = "/boot" if str(path).startswith("/boot") else "/"
-
-        size, inode, compressed_alg = None, None, None
-        if _size := _ma.group("size"):
-            size = int(_size)
-            # ensure that size exists before parsing inode
-            # and compressed_alg field.
-            # it's OK to skip checking as un-existed fields
-            # will be None anyway.
-            inode = _ma.group("inode")
-            compressed_alg = _ma.group("compressed_alg")
-
-        return cls(
-            mode=mode,
-            uid=uid,
-            gid=gid,
-            path=path,
-            nlink=nlink,
-            sha256hash=sha256hash,
-            size=size,
-            inode=inode,
-            compressed_alg=compressed_alg,
-            _base=_base,
-        )
-
-    def __hash__(self) -> int:
-        """Only use path to distinguish unique RegularInf."""
-        return hash(self.path)
-
-    def __eq__(self, _other) -> bool:
-        """
-        NOTE: also take Path as _other
-        """
-        if isinstance(_other, Path):
-            return self.path == _other
-
-        if isinstance(_other, self.__class__):
-            return self.path == _other.path
-
-        return False
-
-    def make_relative_to_mount_point(self, mp: Union[Path, str]) -> Path:
-        return Path(mp) / self.path.relative_to(self._base)
-
-    def verify_file(self, *, src_mount_point: Union[Path, str]) -> bool:
-        """Verify file that with the path relative to <src_mount_point>."""
-        return verify_file(
-            self.make_relative_to_mount_point(src_mount_point),
-            self.sha256hash,
-            self.size,
-        )
-
-    def copy_relative_to_mount_point(
-        self, dst_mount_point: Union[Path, str], /, *, src_mount_point: Path
-    ):
-        """Copy file to the path that relative to dst_mount_point, from src_mount_point."""
-        _src = self.make_relative_to_mount_point(src_mount_point)
-        _dst = self.make_relative_to_mount_point(dst_mount_point)
-        shutil.copy2(_src, _dst, follow_symlinks=False)
-        # still ensure permission on dst
-        os.chown(_dst, self.uid, self.gid)
-        os.chmod(_dst, self.mode)
-
-    def copy_to_dst(self, dst: Union[Path, str], /, *, src_mount_point: Path):
-        """Copy file pointed by self to the dst."""
-        _src = self.make_relative_to_mount_point(src_mount_point)
-        shutil.copy2(_src, dst, follow_symlinks=False)
-        # still ensure permission on dst
-        os.chown(dst, self.uid, self.gid)
-        os.chmod(dst, self.mode)
-
-    def copy_from_src(self, src: Union[Path, str], *, dst_mount_point: Path):
-        """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.make_relative_to_mount_point(dst_mount_point)
-        shutil.copy2(src, _dst, follow_symlinks=False)
-        # still ensure permission on dst
-        os.chown(_dst, self.uid, self.gid)
-        os.chmod(_dst, self.mode)
-
-    def move_from_src(self, src: Union[Path, str], *, dst_mount_point: Path):
-        """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.make_relative_to_mount_point(dst_mount_point)
-        shutil.move(str(src), _dst)
-        # still ensure permission on dst
-        os.chown(_dst, self.uid, self.gid)
-        os.chmod(_dst, self.mode)
