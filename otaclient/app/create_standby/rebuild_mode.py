@@ -13,11 +13,12 @@
 # limitations under the License.
 
 
+import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, List, Tuple
+from typing import Callable, List, Set, Tuple
 
 from ..common import RetryTaskMap
 from ..configs import config as cfg
@@ -27,13 +28,14 @@ from ..update_stats import (
     RegProcessOperation,
 )
 from ..proto import wrapper
-from ..ota_metadata import (
-    PersistentInf,
-    SymbolicLinkInf,
+from ..proto.wrapper import (
+    RegularInf,
+    parse_persistents_from_txt,
+    parse_symlinks_from_txt,
 )
 from .. import log_setting
 
-from .common import HardlinkRegister, RegularInfSet, DeltaGenerator, DeltaBundle
+from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
 from .interface import StandbySlotCreatorProtocol, UpdateMeta
 
 logger = log_setting.get_logger(
@@ -109,20 +111,22 @@ class RebuildMode(StandbySlotCreatorProtocol):
         persist_inf_fname = self.metadata.persistent.file
         with open(self._ota_tmp_image_meta_dir / persist_inf_fname, "r") as f:
             for entry_line in f:
-                perinf = PersistentInf(entry_line)
+                _perinf_path = Path(parse_persistents_from_txt(entry_line).path)
                 if (
-                    perinf.path.is_file()
-                    or perinf.path.is_dir()
-                    or perinf.path.is_symlink()
+                    _perinf_path.is_file()
+                    or _perinf_path.is_dir()
+                    or _perinf_path.is_symlink()
                 ):  # NOTE: not equivalent to perinf.path.exists()
-                    _copy_tree.copy_with_parents(perinf.path, self.standby_slot_mp)
+                    _copy_tree.copy_with_parents(_perinf_path, self.standby_slot_mp)
 
     def _process_symlinks(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.SYMLINK)
         symlink_inf_fname = self.metadata.symboliclink.file
         with open(self._ota_tmp_image_meta_dir / symlink_inf_fname, "r") as f:
             for entry_line in f:
-                SymbolicLinkInf(entry_line).link_at_mount_point(self.standby_slot_mp)
+                parse_symlinks_from_txt(entry_line).link_at_mount_point(
+                    self.standby_slot_mp
+                )
 
     def _process_regulars(self):
         self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
@@ -145,12 +149,15 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     logger.debug(f"[process_regular] failed to process {_entry=}")
             self.stats_collector.wait_staging()
 
-    def _process_regular(self, _input: Tuple[str, RegularInfSet]):
+    def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
         _hash, _regs_set = _input
+        _hash_str = _hash.hex()
         stats_list: List[RegInfProcessedStats] = []  # for ota stats report
 
-        _local_copy = self._ota_tmp / _hash
-        for is_last, entry in _regs_set.iter_entries():
+        _local_copy = self._ota_tmp / _hash_str
+        for _count, entry in enumerate(_regs_set, start=1):
+            is_last = _count == len(_regs_set)
+
             cur_stat = RegInfProcessedStats(
                 op=RegProcessOperation.OP_COPY,
                 size=_local_copy.stat().st_size,
@@ -159,7 +166,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
             # special treatment on /boot folder
             _mount_point = (
-                self.standby_slot_mp if not entry._base == "/boot" else self.boot_dir
+                self.standby_slot_mp
+                if not entry.path.startswith("/boot")
+                else self.boot_dir
             )
 
             # prepare this entry
@@ -175,20 +184,18 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 #   use inode to identify the hardlink group.
                 #   otherwise, use hash to identify the same hardlink file.
                 cur_stat.op = RegProcessOperation.OP_LINK
-                _identifier = entry.sha256hash if entry.inode is None else entry.inode
+                _identifier = entry.sha256hash if not entry.inode else entry.inode
 
-                _dst = entry.make_relative_to_mount_point(_mount_point)
+                _dst = entry.relatively_join(_mount_point)
                 _hardlink_tracker, _is_writer = self._hardlink_register.get_tracker(
                     _identifier, _dst, entry.nlink
                 )
 
-                # writer
                 if _is_writer:
                     entry.copy_from_src(_local_copy, dst_mount_point=_mount_point)
-                # subscriber
-                else:
+                else:  # subscriber
                     _src = _hardlink_tracker.subscribe_no_wait()
-                    _src.link_to(_dst)
+                    os.link(_src, _dst)
 
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
