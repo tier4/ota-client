@@ -28,7 +28,7 @@ from otaclient.app.create_standby import StandbySlotCreatorProtocol
 from otaclient.app.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.errors import OTAErrorRecoverable, OTAUpdateError
-from otaclient.app.ota_metadata import RegularInf, DirectoryInf
+from otaclient.app.proto.wrapper import RegularInf, DirectoryInf
 from otaclient.app.proto import wrapper
 
 from tests.conftest import TestConfiguration as cfg
@@ -73,12 +73,12 @@ class Test_OTAUpdater:
         # --- parse regulars.txt --- #
         # NOTE: since we don't prepare any local copy in the test,
         #       we need to download all the unique files
-        _donwload_list_dict: Dict[str, RegularInf] = {}
+        _donwload_list_dict: Dict[bytes, RegularInf] = {}
         _new_delta = RegularDelta()
         _total_regulars_num, _total_donwload_files_size = 0, 0
         with open(_ota_image_dir / "regulars.txt", "r") as _f:
             for _l in _f:
-                _entry = RegularInf.parse_reginf(_l)
+                _entry = wrapper.parse_regulars_from_txt(_l)
                 _total_regulars_num += 1
                 _new_delta.add_entry(_entry)
                 if _entry.sha256hash not in _donwload_list_dict:
@@ -92,7 +92,7 @@ class Test_OTAUpdater:
         # --- parse dirs.txt --- #
         _new_dirs: Dict[DirectoryInf, None] = OrderedDict()
         with open(_ota_image_dir / "dirs.txt", "r") as _f:
-            for _dir in map(DirectoryInf, _f):
+            for _dir in map(wrapper.parse_dirs_from_txt, _f):
                 _new_dirs[_dir] = None
 
         # --- create bundle --- #

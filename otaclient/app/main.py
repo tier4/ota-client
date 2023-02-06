@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from otaclient import __version__  # type: ignore
+from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg, EXTRA_VERSION_FILE, OTACLIENT_LOCK_FILE
 from .log_setting import configure_logging, get_ecu_id
