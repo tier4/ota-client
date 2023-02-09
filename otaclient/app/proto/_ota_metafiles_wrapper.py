@@ -36,10 +36,6 @@ class _UniqueByPath:
         return False
 
 
-def de_escape(s: str) -> str:
-    return s.replace(r"'\''", r"'")
-
-
 # wrapped
 
 
@@ -124,76 +120,3 @@ class RegularInf(_UniqueByPath, _RegularInf, MessageWrapper):
         shutil.move(str(src), _dst)
         os.chown(_dst, self.uid, self.gid)
         os.chmod(_dst, self.mode)
-
-
-# backward compatibility
-
-_dir_pa = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<path>.*)")
-_symlink_pa = re.compile(r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'")
-_persist_pa = re.compile(r"'(?P<path>)'")
-# NOTE(20221013): support previous regular_inf cvs version
-#                 that doesn't contain size, inode and compressed_alg fields.
-_reginf_pa = re.compile(
-    r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+)"
-    r",(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'"
-    r"(,(?P<size>\d+)?(,(?P<inode>\d+)?(,(?P<compressed_alg>\w+)?)?)?)?"
-)
-
-
-def parse_dirs_from_txt(_input: str):
-    """Compatibility to the plaintext dirs.txt."""
-    _ma = _dir_pa.match(_input)
-    assert _ma is not None, f"matching reg_inf failed for {_input}"
-
-    mode = int(_ma.group("mode"), 8)
-    uid = int(_ma.group("uid"))
-    gid = int(_ma.group("gid"))
-    path = de_escape(_ma.group("path")[1:-1])
-    return DirectoryInf(mode=mode, uid=uid, gid=gid, path=path)
-
-
-def parse_persistents_from_txt(_input: str):
-    """Compatibility to the plaintext persists.txt."""
-    _path = de_escape(_input.strip()[1:-1])
-    return PersistentInf(path=_path)
-
-
-def parse_symlinks_from_txt(_input: str):
-    """Compatibility to the plaintext symlinks.txt."""
-    _ma = _symlink_pa.match(_input)
-    assert _ma is not None, f"matching reg_inf failed for {_input}"
-
-    res = SymbolicLinkInf()
-    res.mode = int(_ma.group("mode"), 8)
-    res.uid = int(_ma.group("uid"))
-    res.gid = int(_ma.group("gid"))
-    res.slink = de_escape(_ma.group("link"))
-    res.srcpath = de_escape(_ma.group("target"))
-    return res
-
-
-def parse_regulars_from_txt(_input: str):
-    """Compatibility to the plaintext regulars.txt."""
-    res = RegularInf()
-    _ma = _reginf_pa.match(_input)
-    assert _ma is not None, f"matching reg_inf failed for {_input}"
-
-    res.mode = int(_ma.group("mode"), 8)
-    res.uid = int(_ma.group("uid"))
-    res.gid = int(_ma.group("gid"))
-    res.nlink = int(_ma.group("nlink"))
-    res.sha256hash = bytes.fromhex(_ma.group("hash"))
-    res.path = de_escape(_ma.group("path"))
-
-    if _size := _ma.group("size"):
-        res.size = int(_size)
-        # ensure that size exists before parsing inode
-        # and compressed_alg field.
-        # it's OK to skip checking as un-existed fields
-        # will be None anyway.
-        res.inode = int(_inode) if (_inode := _ma.group("inode")) else 0
-        res.compressed_alg = (
-            _compress_alg if (_compress_alg := _ma.group("compressed_alg")) else ""
-        )
-
-    return res

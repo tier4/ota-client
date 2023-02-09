@@ -26,7 +26,8 @@ from urllib.parse import quote, unquote, urljoin
 from pathlib import Path
 from typing import List
 
-from otaclient.app.proto.wrapper import RegularInf, parse_regulars_from_txt
+from otaclient.app.proto.wrapper import RegularInf
+from otaclient.app.ota_metadata import parse_regulars_from_txt
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
 logger = logging.getLogger(__name__)

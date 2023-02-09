@@ -40,12 +40,8 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ..common import file_sha256
 from ..configs import config as cfg
-from ..proto.wrapper import (
-    RegularInf,
-    DirectoryInf,
-    parse_regulars_from_txt,
-    parse_dirs_from_txt,
-)
+from ..ota_metadata import parse_regulars_from_txt, parse_dirs_from_txt
+from ..proto.wrapper import RegularInf, DirectoryInf
 from .. import log_setting
 from ..update_stats import (
     OTAUpdateStatsCollector,

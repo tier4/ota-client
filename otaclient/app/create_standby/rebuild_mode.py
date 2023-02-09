@@ -22,17 +22,13 @@ from typing import Callable, List, Set, Tuple
 
 from ..common import RetryTaskMap
 from ..configs import config as cfg
+from ..ota_metadata import parse_persistents_from_txt, parse_symlinks_from_txt
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
     RegProcessOperation,
 )
-from ..proto import wrapper
-from ..proto.wrapper import (
-    RegularInf,
-    parse_persistents_from_txt,
-    parse_symlinks_from_txt,
-)
+from ..proto.wrapper import RegularInf, StatusProgressPhase
 from .. import log_setting
 
 from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
@@ -49,7 +45,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         *,
         update_meta: UpdateMeta,
         stats_collector: OTAUpdateStatsCollector,
-        update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
+        update_phase_tracker: Callable[[StatusProgressPhase], None],
     ) -> None:
         self.metadata = update_meta.metadata
         self.stats_collector = stats_collector
@@ -90,7 +86,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self.delta_bundle = delta_bundle
 
     def _process_dirs(self):
-        self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
+        self.update_phase_tracker(StatusProgressPhase.DIRECTORY)
         for entry in self.delta_bundle.get_new_dirs():
             entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
@@ -98,7 +94,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         """NOTE: just copy from legacy mode"""
         from ..copy_tree import CopyTree
 
-        self.update_phase_tracker(wrapper.StatusProgressPhase.PERSISTENT)
+        self.update_phase_tracker(StatusProgressPhase.PERSISTENT)
         _passwd_file = Path(cfg.PASSWD_FILE)
         _group_file = Path(cfg.GROUP_FILE)
         _copy_tree = CopyTree(
@@ -120,7 +116,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _copy_tree.copy_with_parents(_perinf_path, self.standby_slot_mp)
 
     def _process_symlinks(self):
-        self.update_phase_tracker(wrapper.StatusProgressPhase.SYMLINK)
+        self.update_phase_tracker(StatusProgressPhase.SYMLINK)
         symlink_inf_fname = self.metadata.symboliclink.file
         with open(self._ota_tmp_image_meta_dir / symlink_inf_fname, "r") as f:
             for entry_line in f:
@@ -129,7 +125,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 )
 
     def _process_regulars(self):
-        self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
+        self.update_phase_tracker(StatusProgressPhase.REGULAR)
         self._hardlink_register = HardlinkRegister()
 
         logger.info("start applying delta...")
