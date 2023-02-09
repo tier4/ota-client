@@ -334,10 +334,11 @@ class DeltaGenerator:
                 # skip this folder if it doesn't exist on new image,
                 # or also not meant to be fully scanned.
                 # NOTE: the root folder must be fully scanned
+                # NOTE: DirectoryInf can only be compared with str, not Path
                 dir_should_skip = True
                 if (
                     canonical_curdir_path == _canonical_root
-                    or canonical_curdir_path in self._new_dirs
+                    or str(canonical_curdir_path) in self._new_dirs
                 ):
                     dir_should_skip = False
                 # check if we neede to fully scan this folder
