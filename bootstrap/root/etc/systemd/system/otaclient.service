@@ -9,6 +9,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=/bin/bash -c 'source /opt/ota/.venv/bin/activate && PYTHONPATH=/opt/ota python3 -m otaclient'
 Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

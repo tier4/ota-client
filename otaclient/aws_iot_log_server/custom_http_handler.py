@@ -36,7 +36,7 @@ class CustomHttpHandler(logging.Handler):
         self.url = url if url.startswith("/") else f"/{url}"
         self.timeout = timeout
         self.queue = Queue(maxsize=4096)
-        self.thread = Thread(target=self._start)
+        self.thread = Thread(target=self._start, daemon=True)
         self.thread.start()
 
     def emit(self, record):
