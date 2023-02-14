@@ -20,11 +20,6 @@ from google.protobuf.duration_pb2 import Duration as _Duration
 from otaclient.app.proto import wrapper, v2
 from otaclient.app.proto._common import TypeConverterRegister
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 _status_resp = v2.StatusResponse()
 _status_progress = v2.StatusProgress()
 _RepeatedScalarContainer = type(_status_resp.available_ecu_ids)
@@ -133,9 +128,9 @@ def _compare_converted(l, r) -> bool:
                     wrapper.StatusResponseEcu.init(
                         ecu_id="ecu_1",
                         status=wrapper.Status.init(
-                            status=wrapper.StatusOta.UPDATING.value,
+                            status=wrapper.StatusOta.UPDATING,
                             progress=wrapper.StatusProgress.init(
-                                phase=wrapper.StatusProgressPhase.REGULAR.value,
+                                phase=wrapper.StatusProgressPhase.REGULAR,
                                 total_regular_files=123456,
                                 elapsed_time_copy=wrapper.Duration.from_ns(56789),
                             ),
@@ -144,9 +139,9 @@ def _compare_converted(l, r) -> bool:
                     wrapper.StatusResponseEcu.init(
                         ecu_id="ecu_2",
                         status=wrapper.Status.init(
-                            status=wrapper.StatusOta.UPDATING.value,
+                            status=wrapper.StatusOta.UPDATING,
                             progress=wrapper.StatusProgress.init(
-                                phase=wrapper.StatusProgressPhase.REGULAR.value,
+                                phase=wrapper.StatusProgressPhase.REGULAR,
                                 total_regular_files=456789,
                                 elapsed_time_copy=wrapper.Duration.from_ns(12345),
                             ),
@@ -174,3 +169,29 @@ def test_convert_message(origin_msg, converted_msg):
     _compare_converted(converted_msg, _converted)
     # ensure that the exported version is the same as the original version
     _compare_message(origin_msg, _exported)
+
+
+class Test_enum_wrapper_cooperate:
+    def test_direct_compare(self):
+        _protobuf_enum = v2.UPDATING
+        _wrapped = wrapper.StatusOta.UPDATING
+        assert _protobuf_enum == _wrapped
+
+    def test_assign_to_protobuf_message(self):
+        assert v2.StatusProgress(phase=v2.REGULAR) == v2.StatusProgress(
+            phase=wrapper.StatusProgressPhase.REGULAR,
+        )
+
+    def test_used_in_message_wrapper(self):
+        assert (
+            v2.StatusProgress(phase=v2.REGULAR)
+            == wrapper.StatusProgress(
+                phase=wrapper.StatusProgressPhase.REGULAR,
+            ).export_pb()
+        )
+
+    def test_converted_from_protobuf_enum(self):
+        _protobuf_enum = v2.REGULAR
+        _converted = wrapper.StatusProgressPhase(_protobuf_enum)
+        assert _protobuf_enum == _converted
+        assert _converted == wrapper.StatusProgressPhase.REGULAR
