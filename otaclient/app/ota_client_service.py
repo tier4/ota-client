@@ -33,18 +33,18 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         self._stub = ota_client_stub
 
     async def Update(self, request: v2.UpdateRequest, context) -> v2.UpdateResponse:
-        response = await self._stub.update(wrapper.UpdateRequest.wrap(request))
-        return response.unwrap()  # type: ignore
+        response = await self._stub.update(wrapper.UpdateRequest.convert(request))
+        return response.export_pb()
 
     async def Rollback(
         self, request: v2.RollbackRequest, context
     ) -> v2.RollbackResponse:
-        response = await self._stub.rollback(wrapper.RollbackRequest.wrap(request))
-        return response.unwrap()  # type: ignore
+        response = await self._stub.rollback(wrapper.RollbackRequest.convert(request))
+        return response.export_pb()
 
     async def Status(self, request: v2.StatusRequest, context) -> v2.StatusResponse:
-        response = await self._stub.status(wrapper.StatusRequest.wrap(request))
-        return response.unwrap()  # type: ignore
+        response = await self._stub.status(wrapper.StatusRequest.convert(request))
+        return response.export_pb()
 
 
 async def service_start(port, service_list) -> grpc.aio.Server:

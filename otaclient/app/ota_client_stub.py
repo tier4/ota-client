@@ -20,6 +20,7 @@ import multiprocessing
 import threading
 import time
 import shutil
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from functools import partial
@@ -638,8 +639,8 @@ class OtaClientStub:
                     )
 
                 # register the status to cache
-                resp.update_available_ecu_ids(*self._ecu_info.get_available_ecu_ids())
+                resp.available_ecu_ids.extend(*self._ecu_info.get_available_ecu_ids())
                 self._cached_status = resp
 
         # respond with the cached status
-        return wrapper.StatusResponse.wrap(self._cached_status.data)
+        return deepcopy(self._cached_status)

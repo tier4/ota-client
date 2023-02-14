@@ -17,12 +17,9 @@ import asyncio
 import grpc.aio
 from typing import Optional
 
-from .proto import wrapper
-from .proto import otaclient_v2_pb2 as v2
-from .proto import otaclient_v2_pb2_grpc as v2_grpc
 from . import log_setting
-from .configs import config as cfg
-from .configs import server_cfg
+from .proto import wrapper, v2, v2_grpc
+from .configs import config as cfg, server_cfg
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -43,7 +40,7 @@ class OtaClientCall:
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
                 stub = v2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Status(v2.StatusRequest(), timeout=timeout)
-                return wrapper.StatusResponse.wrap(resp)
+                return wrapper.StatusResponse.convert(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
             # NOTE(20220801): for status querying, if the target ecu
             # is unreachable, just return nothing, instead of return
@@ -63,15 +60,15 @@ class OtaClientCall:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
                 stub = v2_grpc.OtaClientServiceStub(channel)
-                resp = await stub.Update(request.unwrap(), timeout=timeout)
-                return wrapper.UpdateResponse.wrap(resp)
+                resp = await stub.Update(request.export_pb(), timeout=timeout)
+                return wrapper.UpdateResponse.convert(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            resp = wrapper.UpdateResponse()
+            resp = wrapper.UpdateResponse.init()
             # treat unreachable ecu as recoverable
             resp.add_ecu(
                 wrapper.UpdateResponseEcu(
                     ecu_id=ecu_id,
-                    result=wrapper.FailureType.RECOVERABLE.value,
+                    result=wrapper.FailureType.RECOVERABLE,
                 )
             )
             return resp
@@ -89,15 +86,15 @@ class OtaClientCall:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
                 stub = v2_grpc.OtaClientServiceStub(channel)
-                resp = await stub.Rollback(request.unwrap(), timeout=timeout)
-                return wrapper.RollbackResponse.wrap(resp)
+                resp = await stub.Rollback(request.export_pb(), timeout=timeout)
+                return wrapper.RollbackResponse.convert(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            resp = wrapper.RollbackResponse()
+            resp = wrapper.RollbackResponse.init()
             # treat unreachable ecu as recoverable
             resp.add_ecu(
                 wrapper.RollbackResponseEcu(
                     ecu_id=ecu_id,
-                    result=wrapper.FailureType.RECOVERABLE.value,
+                    result=wrapper.FailureType.RECOVERABLE,
                 )
             )
             return resp
