@@ -63,7 +63,7 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress], _StatusProgress):
     __slots__ = list(_v2.StatusProgress.DESCRIPTOR.fields_by_name)
 
     @classmethod
-    @class_init_proxier(super().__init__)
+    @class_init_proxier(_v2.StatusProgress.__init__)
     def init(cls, *args, **kwargs):
         return super().init(*args, **kwargs)
 
@@ -76,7 +76,7 @@ class Status(MessageWrapper[_v2.Status], _Status):
     __slots__ = list(_v2.Status.DESCRIPTOR.fields_by_name)
 
     @classmethod
-    @class_init_proxier(super().__init__)
+    @class_init_proxier(_v2.Status.__init__)
     def init(cls, *args, **kwargs):
         return super().init(*args, **kwargs)
 
@@ -97,7 +97,7 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu], _StatusResponseEc
     __slots__ = list(_v2.StatusResponseEcu.DESCRIPTOR.fields_by_name)
 
     @classmethod
-    @class_init_proxier(super().__init__)
+    @class_init_proxier(_v2.StatusResponseEcu.__init__)
     def init(cls, *args, **kwargs):
         return super().init(*args, **kwargs)
 
@@ -107,7 +107,7 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse], _StatusResponse):
     __slots__ = list(_v2.StatusResponse.DESCRIPTOR.fields_by_name)
 
     @classmethod
-    @class_init_proxier(super().__init__)
+    @class_init_proxier(_v2.StatusResponse.__init__)
     def init(cls, *args, **kwargs):
         return super().init(*args, **kwargs)
 

@@ -19,7 +19,7 @@ from abc import abstractmethod
 from enum import Enum
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
-from typing import Any, List, Optional, Generic, Type, TypeVar, Generic, Callable
+from typing import cast, Any, List, Optional, Generic, Type, TypeVar, Generic, Callable
 from typing_extensions import Concatenate, Self, ParamSpec
 
 _MessageType = TypeVar("_MessageType", bound=_Message)
@@ -29,7 +29,7 @@ P, T = ParamSpec("P"), TypeVar("T")
 
 
 def class_init_proxier(
-    bounded_init: Callable[P, None]  # signature of __init__
+    unbounded_init: Callable[Concatenate[Any, P], None]  # signature of __init__
 ) -> Callable[[Callable[..., T]], Callable[Concatenate[Type[T], P], T]]:
     """A decorate that copies the signatures of source class __init__ method and
     passes the signature to the wrapper method.
@@ -135,7 +135,10 @@ class TypeConverterRegister(Generic[_MessageType]):
 #       whenever Duration protobuf type is used.
 
 
-class DurationWrapper(_ProtobufConverter[_Duration], int):  # type: ignore
+_pb2_duration = cast(Type[_Duration], object)
+
+
+class DurationWrapper(_ProtobufConverter[_Duration], int, _pb2_duration):  # type: ignore
     proto_class = _Duration
 
     @classmethod
@@ -240,7 +243,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
     # public API
 
     @classmethod
-    def convert(cls, _in: _MessageType) -> "MessageWrapper":
+    def convert(cls, _in: _MessageType) -> Self:
         """Copy and wrap input message into a new wrapper instance."""
         if not isinstance(_in, cls.proto_class):
             raise TypeError(
