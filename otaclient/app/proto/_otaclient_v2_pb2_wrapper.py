@@ -39,7 +39,7 @@ from typing_extensions import reveal_type
 from ._common import (
     TypeConverterRegister as _register,
     ListLikeContainerWrapper as _pb2_list_wrapper,
-    DurationWrapper as _pb2_duration_wrapper,
+    Duration as _pb2_duration_wrapper,
     MessageWrapper,
     EnumWrapper,
     MessageWrapperBase as _wrap,

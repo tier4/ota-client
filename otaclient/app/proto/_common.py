@@ -141,11 +141,11 @@ class TypeConverterRegister(Generic[_MessageType]):
 _pb2_duration = cast(Type[_Duration], object)
 
 
-class DurationWrapper(_ProtobufConverter[_Duration], int, _pb2_duration):  # type: ignore
+class Duration(_ProtobufConverter[_Duration], int, _pb2_duration):  # type: ignore
     proto_class = _Duration
 
     @classmethod
-    def from_nanoseconds(cls, value: int) -> Self:
+    def from_ns(cls, value: int) -> Self:
         """Helper method to convert an int to this class' inst.
 
         NOTE: although we can directly use DurationWrapper(<value>), the
@@ -182,9 +182,11 @@ class ListLikeContainerWrapper(_ProtobufConverter[List[Any]], list):  # type: ig
 
     def __str__(self) -> str:
         _buffer = io.StringIO()
-        _buffer.write("[")
+        _buffer.write("[\n")
         for _entry in self:
-            _buffer.write(f"\n\t{str(_entry)},")
+            for _line in str(_entry).splitlines(keepends=True):
+                _buffer.write(f"\t{_line}")
+            _buffer.write(",\t\n")
         _buffer.write("]")
         return _buffer.getvalue()
 
@@ -232,10 +234,17 @@ class MessageWrapperBase(Generic[_MessageType]):
 
     def __str__(self) -> str:
         _buffer = io.StringIO()
-        _buffer.write("{")
+        _buffer.write("{\n")
         for _attrn in self.__slots__:
-            _buffer.write(f"\n\t{_attrn}: {getattr(self, _attrn)}")
-        _buffer.write("\n}")
+            _attrv_str = str(getattr(self, _attrn))
+            _buffer.write(f" {_attrn} :")
+            for _idx, _line in enumerate(_attrv_str.splitlines(keepends=True)):
+                if _idx == 0:
+                    _buffer.write(f"{_line}")
+                else:
+                    _buffer.write(f"\t {_line}")
+            _buffer.write(",\n")
+        _buffer.write("}")
         return _buffer.getvalue()
 
 
