@@ -224,7 +224,7 @@ class MessageWrapperBase(Generic[_MessageType]):
         NOTE: <args> is ignored, always use <kwargs>
         """
         for _key in self.__slots__:
-            if _value := kwargs.get(_key, None):
+            if (_value := kwargs.get(_key, None)) is not None:
                 _value = _general_converter(_value)
                 setattr(self, _key, _value)
 
