@@ -58,10 +58,11 @@ def _general_converter(_value: Any, _field_type=None) -> Any:
     convert the message to wrapped version using the converter."""
     if not _field_type:
         _field_type = type(_value)
+    # if converter for this type is available, always use it
     if _converter := TypeConverterRegister.get_converter(_field_type):
         _value = _converter.convert(_value)
-    # protobuf message type must have a converter
-    elif isinstance(_field_type, _Message):
+    # unconverted protobuf message type must have a converter
+    elif isinstance(_value, _Message) and not isinstance(_value, MessageWrapper):
         raise NotImplementedError(
             f"converter for protobuf type {_field_type} is not implemented"
         )
@@ -223,13 +224,8 @@ class MessageWrapperBase(Generic[_MessageType]):
         NOTE: <args> is ignored, always use <kwargs>
         """
         for _key in self.__slots__:
-            if _key in kwargs:
-                if isinstance(_value := kwargs[_key], _Message) and not isinstance(
-                    _value, MessageWrapper
-                ):
-                    raise ValueError(
-                        f"input {_value} should not be unconverted protobuf message"
-                    )
+            if _value := kwargs.get(_key, None):
+                _value = _general_converter(_value)
                 setattr(self, _key, _value)
 
     def __str__(self) -> str:
@@ -251,6 +247,12 @@ class MessageWrapperBase(Generic[_MessageType]):
 class MessageWrapper(_ProtobufConverter[_MessageType]):
     proto_class: Type[_MessageType]
     __slots__ = []
+
+    def __getitem__(self, __name: str) -> Any:
+        return getattr(self, __name)
+
+    def __setitem__(self, __name: str, __value: Any):
+        return setattr(self, __name, _general_converter(__value))
 
     def __eq__(self, __o: object) -> bool:
         if self.__class__ != __o.__class__:
