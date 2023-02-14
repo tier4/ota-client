@@ -16,7 +16,7 @@
 from __future__ import annotations
 import io
 from abc import abstractmethod
-from enum import Enum
+from enum import IntEnum
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import cast, Any, List, Optional, Generic, Type, TypeVar, Generic, Callable
@@ -309,7 +309,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
 # enum type
 
 
-class EnumWrapper(Enum):
+class EnumWrapper(IntEnum):
     """Wrap protobuf defined enum into python Enum.
 
     NOTE: as for protoc==3.21.11, protobuf==4.21.12, at runtime the
@@ -323,11 +323,4 @@ class EnumWrapper(Enum):
         return cls(_in.value)  # type: ignore
 
     def export_pb(self) -> int:
-        return self.value
-
-    def __eq__(self, __o: Any) -> bool:
-        """Support directly eq comparing with protobuf Enum."""
-        if isinstance(__o, self.__class__):
-            return super().__eq__(__o)
-        # unwrap first and then compare to protobuf Enum.
-        return self.value == __o
+        return int(self)

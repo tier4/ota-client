@@ -84,10 +84,10 @@ class Status(MessageWrapper[_v2.Status], _Status):
         return super().init(*args, **kwargs)
 
     def get_progress(self) -> StatusProgress:
-        return self.progress  # type: ignore
+        return self.progress
 
     def get_failure(self) -> Tuple[FailureType, str]:
-        return self.failure, self.failure_reason  # type: ignore
+        return self.failure, self.failure_reason
 
 
 class StatusRequest(MessageWrapper[_v2.StatusRequest], _StatusRequest):
