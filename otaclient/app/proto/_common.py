@@ -80,6 +80,7 @@ class _ProtobufConverter(Generic[_MessageType]):
     @classmethod
     def init(cls, *args, **kwargs) -> Self:
         """Create a wrapper instance directly with optional input attrs.
+        All the input attrs are expected to be converted in the first place.
 
         This method should be used when manually create a wrapper instance
         without convert method to align with protobuf message type behavior.
@@ -89,6 +90,8 @@ class _ProtobufConverter(Generic[_MessageType]):
         """
         res = cls.convert(cls.proto_class())
         for _attrn, _attrv in kwargs.items():
+            if isinstance(_attrv, list):
+                _attrv = ListLikeContainerWrapper(_attrv)
             setattr(res, _attrn, _attrv)
         return res
 
@@ -240,6 +243,14 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
     proto_class: Type[_MessageType]
     __slots__ = []
 
+    def __eq__(self, __o: object) -> bool:
+        if self.__class__ != __o.__class__:
+            return False
+        for _attrn in self.__slots__:
+            if getattr(self, _attrn) != getattr(__o, _attrn):
+                return False
+        return True
+
     # public API
 
     @classmethod
@@ -297,10 +308,10 @@ class EnumWrapper(Enum):
     """
 
     @classmethod
-    def convert(cls, _in):
+    def convert(cls, _in) -> Self:
         return cls(_in.value)  # type: ignore
 
-    def export_pb(self):
+    def export_pb(self) -> int:
         return self.value
 
     def __eq__(self, __o: Any) -> bool:
