@@ -11,6 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Concrete wrapper definition for otaclient_v2_pb2 protobuf message types.
+
+Wrapper will pretend to subclass corresponding protobuf message, and will 
+have the signature of the corresponding message, along with helper methods
+by MessageWrapper class. 
+
+DO NOT call protobuf message APIs on wrapper class, because wrappers don't
+actually inherite from the protobuf message type!
+"""
 
 
 from __future__ import annotations
@@ -22,8 +31,10 @@ from typing import (
     Optional,
     Tuple,
     Type,
+    TypeVar,
     Union,
 )
+from typing_extensions import reveal_type
 
 from ._common import (
     TypeConverterRegister as _register,
@@ -32,80 +43,29 @@ from ._common import (
     MessageWrapper,
     EnumWrapper,
     MessageWrapperBase as _wrap,
+    class_init_proxier,
 )
 
-# for type hinting, to make wrapper have the same signature as protobuf type
-# NOTE: only for attribute accessing, do not call protobuf message type API
-#       from the wrapper type!
 
-_RollbackRequest = cast(Type[_v2.RollbackRequest], _wrap[_v2.RollbackRequest])
-_RollbackRequestEcu = cast(Type[_v2.RollbackRequestEcu], _wrap[_v2.RollbackRequestEcu])
-_RollbackResponse = cast(Type[_v2.RollbackResponse], _wrap[_v2.RollbackResponse])
-_RollbackResponseEcu = cast(
-    Type[_v2.RollbackResponseEcu], _wrap[_v2.RollbackResponseEcu]
-)
+# message wrapper definitions
+
+# status API
+
 _Status = cast(Type[_v2.Status], _wrap[_v2.Status])
 _StatusProgress = cast(Type[_v2.StatusProgress], _wrap[_v2.StatusProgress])
 _StatusRequest = cast(Type[_v2.StatusRequest], _wrap[_v2.StatusRequest])
 _StatusResponse = cast(Type[_v2.StatusResponse], _wrap[_v2.StatusResponse])
 _StatusResponseEcu = cast(Type[_v2.StatusResponseEcu], _wrap[_v2.StatusResponseEcu])
-_UpdateRequest = cast(Type[_v2.UpdateRequest], _wrap[_v2.UpdateRequest])
-_UpdateRequestEcu = cast(Type[_v2.UpdateRequestEcu], _wrap[_v2.UpdateRequestEcu])
-_UpdateResponse = cast(Type[_v2.UpdateResponse], _wrap[_v2.UpdateResponse])
-_UpdateResponseEcu = cast(Type[_v2.UpdateResponseEcu], _wrap[_v2.UpdateRequestEcu])
-
-# message
 
 
-## rollback
-class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu], _RollbackRequestEcu):
-    proto_class = _v2.RollbackRequestEcu
-    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
-
-
-class RollbackRequest(MessageWrapper[_v2.RollbackRequest], _RollbackRequest):
-    proto_class = _v2.RollbackRequest
-    __slots__ = list(_v2.RollbackRequest.DESCRIPTOR.fields_by_name)
-
-    def if_contains_ecu(self, ecu_id: str) -> bool:
-        for _ecu in self.ecu:
-            if _ecu.ecu_id == ecu_id:
-                return True
-        return False
-
-
-class RollbackResponseEcu(
-    MessageWrapper[_v2.RollbackResponseEcu], _RollbackResponseEcu
-):
-    proto_class = _v2.RollbackResponseEcu
-    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
-
-
-class RollbackResponse(MessageWrapper[_v2.RollbackResponse], _RollbackResponse):
-    proto_class = _v2.RollbackResponse
-    __slots__ = list(_v2.RollbackResponse.DESCRIPTOR.fields_by_name)
-
-    def iter_ecu(
-        self,
-    ) -> Generator[Tuple[str, FailureType, RollbackResponseEcu], None, None]:
-        for _ecu in self.ecu:
-            yield _ecu.ecu_id, _ecu.result, _ecu  # type: ignore
-
-    def add_ecu(
-        self, _response_ecu: Union[RollbackResponseEcu, _v2.RollbackResponseEcu]
-    ):
-        if isinstance(_response_ecu, RollbackResponseEcu):
-            self.ecu.append(_response_ecu)
-        elif isinstance(_response_ecu, _v2.RollbackRequestEcu):
-            self.ecu.append(RollbackResponseEcu.convert(_response_ecu))
-        else:
-            raise TypeError
-
-
-## status API
 class StatusProgress(MessageWrapper[_v2.StatusProgress], _StatusProgress):
     proto_class = _v2.StatusProgress
     __slots__ = list(_v2.StatusProgress.DESCRIPTOR.fields_by_name)
+
+    @classmethod
+    @class_init_proxier(super().__init__)
+    def init(cls, *args, **kwargs):
+        return super().init(*args, **kwargs)
 
     def get_snapshot(self) -> StatusProgress:
         return deepcopy(self)
@@ -114,6 +74,11 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress], _StatusProgress):
 class Status(MessageWrapper[_v2.Status], _Status):
     proto_class = _v2.Status
     __slots__ = list(_v2.Status.DESCRIPTOR.fields_by_name)
+
+    @classmethod
+    @class_init_proxier(super().__init__)
+    def init(cls, *args, **kwargs):
+        return super().init(*args, **kwargs)
 
     def get_progress(self) -> StatusProgress:
         return self.progress  # type: ignore
@@ -131,10 +96,20 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu], _StatusResponseEc
     proto_class = _v2.StatusResponseEcu
     __slots__ = list(_v2.StatusResponseEcu.DESCRIPTOR.fields_by_name)
 
+    @classmethod
+    @class_init_proxier(super().__init__)
+    def init(cls, *args, **kwargs):
+        return super().init(*args, **kwargs)
+
 
 class StatusResponse(MessageWrapper[_v2.StatusResponse], _StatusResponse):
     proto_class = _v2.StatusResponse
     __slots__ = list(_v2.StatusResponse.DESCRIPTOR.fields_by_name)
+
+    @classmethod
+    @class_init_proxier(super().__init__)
+    def init(cls, *args, **kwargs):
+        return super().init(*args, **kwargs)
 
     def iter_ecu_status(self) -> Generator[Tuple[str, FailureType, Status], None, None]:
         """
@@ -162,7 +137,22 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse], _StatusResponse):
                 return _ecu.ecu_id, _ecu.result, _ecu.status  # type: ignore
 
 
-## update API
+# message converter registeration for status API
+_register.register(_v2.Status, Status)
+_register.register(_v2.StatusProgress, StatusProgress)
+_register.register(_v2.StatusRequest, StatusRequest)
+_register.register(_v2.StatusResponse, StatusResponse)
+_register.register(_v2.StatusResponseEcu, StatusResponseEcu)
+
+
+# update API
+
+_UpdateRequest = cast(Type[_v2.UpdateRequest], _wrap[_v2.UpdateRequest])
+_UpdateRequestEcu = cast(Type[_v2.UpdateRequestEcu], _wrap[_v2.UpdateRequestEcu])
+_UpdateResponse = cast(Type[_v2.UpdateResponse], _wrap[_v2.UpdateResponse])
+_UpdateResponseEcu = cast(Type[_v2.UpdateResponseEcu], _wrap[_v2.UpdateRequestEcu])
+
+
 class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu], _UpdateRequestEcu):
     proto_class = _v2.UpdateRequestEcu
     __slots__ = list(_v2.UpdateRequestEcu.DESCRIPTOR.fields_by_name)
@@ -210,6 +200,73 @@ class UpdateResponse(MessageWrapper[_v2.UpdateResponse], _UpdateResponse):
             raise TypeError
 
 
+# message converter registeration for update API
+_register.register(_v2.UpdateRequest, UpdateRequest)
+_register.register(_v2.UpdateRequestEcu, UpdateRequestEcu)
+_register.register(_v2.UpdateResponse, UpdateResponse)
+_register.register(_v2.UpdateResponseEcu, UpdateResponseEcu)
+
+# rollback API
+
+_RollbackRequestEcu = cast(Type[_v2.RollbackRequestEcu], _wrap[_v2.RollbackRequestEcu])
+_RollbackRequest = cast(Type[_v2.RollbackRequest], _wrap[_v2.RollbackRequest])
+_RollbackResponseEcu = cast(
+    Type[_v2.RollbackResponseEcu], _wrap[_v2.RollbackResponseEcu]
+)
+_RollbackResponse = cast(Type[_v2.RollbackResponse], _wrap[_v2.RollbackResponse])
+
+
+class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu], _RollbackRequestEcu):
+    proto_class = _v2.RollbackRequestEcu
+    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
+
+
+class RollbackRequest(MessageWrapper[_v2.RollbackRequest], _RollbackRequest):
+    proto_class = _v2.RollbackRequest
+    __slots__ = list(_v2.RollbackRequest.DESCRIPTOR.fields_by_name)
+
+    def if_contains_ecu(self, ecu_id: str) -> bool:
+        for _ecu in self.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return True
+        return False
+
+
+class RollbackResponseEcu(
+    _RollbackResponseEcu, MessageWrapper[_v2.RollbackResponseEcu]
+):
+    proto_class = _v2.RollbackResponseEcu
+    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
+
+
+class RollbackResponse(MessageWrapper[_v2.RollbackResponse], _RollbackResponse):
+    proto_class = _v2.RollbackResponse
+    __slots__ = list(_v2.RollbackResponse.DESCRIPTOR.fields_by_name)
+
+    def iter_ecu(
+        self,
+    ) -> Generator[Tuple[str, FailureType, RollbackResponseEcu], None, None]:
+        for _ecu in self.ecu:
+            yield _ecu.ecu_id, _ecu.result, _ecu  # type: ignore
+
+    def add_ecu(
+        self, _response_ecu: Union[RollbackResponseEcu, _v2.RollbackResponseEcu]
+    ):
+        if isinstance(_response_ecu, RollbackResponseEcu):
+            self.ecu.append(_response_ecu)
+        elif isinstance(_response_ecu, _v2.RollbackRequestEcu):
+            self.ecu.append(RollbackResponseEcu.convert(_response_ecu))
+        else:
+            raise TypeError
+
+
+# message converter registeration for rollback API
+_register.register(_v2.RollbackRequest, RollbackRequest)
+_register.register(_v2.RollbackRequestEcu, RollbackRequestEcu)
+_register.register(_v2.RollbackResponse, RollbackResponse)
+_register.register(_v2.RollbackResponseEcu, RollbackResponseEcu)
+
+
 # enum
 
 # NOTE: as for protoc==3.21.11, protobuf==4.21.12, protobuf Enum value is
@@ -246,31 +303,16 @@ class StatusProgressPhase(EnumWrapper):
     POST_PROCESSING = _v2.POST_PROCESSING
 
 
-# type converter register
-
-_register.register_converter(_v2.RollbackRequest, RollbackRequest)
-_register.register_converter(_v2.RollbackRequestEcu, RollbackRequestEcu)
-_register.register_converter(_v2.RollbackResponse, RollbackResponse)
-_register.register_converter(_v2.RollbackResponseEcu, RollbackResponseEcu)
-_register.register_converter(_v2.Status, Status)
-_register.register_converter(_v2.StatusProgress, StatusProgress)
-_register.register_converter(_v2.StatusRequest, StatusRequest)
-_register.register_converter(_v2.StatusResponse, StatusResponse)
-_register.register_converter(_v2.StatusResponseEcu, StatusResponseEcu)
-_register.register_converter(_v2.UpdateRequest, UpdateRequest)
-_register.register_converter(_v2.UpdateRequestEcu, UpdateRequestEcu)
-_register.register_converter(_v2.UpdateResponse, UpdateResponse)
-_register.register_converter(_v2.UpdateResponseEcu, UpdateResponseEcu)
-
 # special type register
 # NOTE: we use this trick only because we cannot reliably specify the actual type
 #       of repeated field statically, so we detect the type at runtime.
 #       check _common.py for details.
 _status_resp = _v2.StatusResponse()
 _status_progress = _v2.StatusProgress()
-_register.register_converter(type(_status_resp.ecu), _pb2_list_wrapper)
-_register.register_converter(type(_status_resp.available_ecu_ids), _pb2_list_wrapper)
-_register.register_converter(
-    type(_status_progress.total_elapsed_time), _pb2_duration_wrapper
-)
+# composite repeated field
+_register.register(type(_status_resp.ecu), _pb2_list_wrapper)
+# scalar repeated field
+_register.register(type(_status_resp.available_ecu_ids), _pb2_list_wrapper)
+# duration
+_register.register(type(_status_progress.total_elapsed_time), _pb2_duration_wrapper)
 del _status_resp, _status_progress
