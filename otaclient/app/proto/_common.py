@@ -308,19 +308,8 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
 
 # enum type
 
-
-class EnumWrapper(IntEnum):
-    """Wrap protobuf defined enum into python Enum.
-
-    NOTE: as for protoc==3.21.11, protobuf==4.21.12, at runtime the
-          type of protobuf Enum value is int, the enum value itself
-          is not the instance of any Enum type defined in protobuf
-          package.
-    """
-
-    @classmethod
-    def convert(cls, _in) -> Self:
-        return cls(_in.value)  # type: ignore
-
-    def export_pb(self) -> int:
-        return int(self)
+# NOTE: as for protoc==3.21.11, protobuf==4.21.12, at runtime the
+#       type of protobuf Enum value is int, the enum value itself
+#       is not the instance of any Enum type defined in protobuf
+#       package. So no extra enum wrapper type is defined here,
+#       all enum is used and assigned as int.

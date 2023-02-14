@@ -25,6 +25,7 @@ actually inherite from the protobuf message type!
 from __future__ import annotations
 import otaclient_v2_pb2 as _v2
 from copy import deepcopy
+from enum import Enum
 from typing import (
     cast,
     Generator,
@@ -33,16 +34,15 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    TYPE_CHECKING,
 )
-from typing_extensions import reveal_type
 
 from ._common import (
     TypeConverterRegister as _register,
     ListLikeContainerWrapper as _pb2_list_wrapper,
     Duration as _pb2_duration_wrapper,
-    MessageWrapper,
-    EnumWrapper,
     MessageWrapperBase as _wrap,
+    MessageWrapper,
     class_init_proxier,
 )
 
@@ -273,12 +273,21 @@ _register.register(_v2.RollbackResponseEcu, RollbackResponseEcu)
 # enum
 
 # NOTE: as for protoc==3.21.11, protobuf==4.21.12, protobuf Enum value is
-#       plain int at runtime, so we cannot detect the actual Enum message type
-#       by the enum value only. protobuf Enum value in incoming message will
-#       not be converted, but we can use the wrapped Enum below in our application code.
+#       plain int at runtime, So we wrap protobuf enum into a IntEnum
+
+if TYPE_CHECKING:
+    # NOTE: the following cast will not work at runtime,
+    #       as protobuf EnumWrapper is a meta type, not a type.
+    _pb2_FailureType = cast(Type[_v2.FailureType], int)
+    _pb2_StatusOta = cast(Type[_v2.StatusOta], int)
+    _pb2_StatusProgressPhase = cast(Type[_v2.StatusProgressPhase], int)
+else:
+    _pb2_FailureType = int
+    _pb2_StatusOta = int
+    _pb2_StatusProgressPhase = int
 
 
-class FailureType(EnumWrapper):
+class FailureType(_pb2_FailureType, Enum):
     NO_FAILURE = _v2.NO_FAILURE
     RECOVERABLE = _v2.RECOVERABLE
     UNRECOVERABLE = _v2.UNRECOVERABLE
@@ -287,7 +296,7 @@ class FailureType(EnumWrapper):
         return f"{self.value:0>1}"
 
 
-class StatusOta(EnumWrapper):
+class StatusOta(_pb2_StatusOta, Enum):
     INITIALIZED = _v2.INITIALIZED
     SUCCESS = _v2.SUCCESS
     FAILURE = _v2.FAILURE
@@ -296,7 +305,7 @@ class StatusOta(EnumWrapper):
     ROLLBACK_FAILURE = _v2.ROLLBACK_FAILURE
 
 
-class StatusProgressPhase(EnumWrapper):
+class StatusProgressPhase(_pb2_StatusProgressPhase, Enum):
     INITIAL = _v2.INITIAL
     METADATA = _v2.METADATA
     DIRECTORY = _v2.DIRECTORY
