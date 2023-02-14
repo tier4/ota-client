@@ -61,7 +61,7 @@ def _general_converter(_value: Any, _field_type=None) -> Any:
     # if converter for this type is available, always use it
     if _converter := TypeConverterRegister.get_converter(_field_type):
         _value = _converter.convert(_value)
-    # unconverted protobuf message type must have a converter
+    # protobuf message type must have a converter
     elif isinstance(_value, _Message) and not isinstance(_value, MessageWrapper):
         raise NotImplementedError(
             f"converter for protobuf type {_field_type} is not implemented"

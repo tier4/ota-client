@@ -70,6 +70,9 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress], _StatusProgress):
     def get_snapshot(self) -> StatusProgress:
         return deepcopy(self)
 
+    def add_elapsed_time(self, _field_name: str, _value: int):
+        setattr(_field_name, getattr(self, _field_name) + _value)
+
 
 class Status(MessageWrapper[_v2.Status], _Status):
     proto_class = _v2.Status
