@@ -36,6 +36,7 @@ from typing import (
     Union,
     TYPE_CHECKING,
 )
+from typing_extensions import Self
 
 from ._common import (
     TypeConverterRegister as _register,
@@ -130,6 +131,13 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse], _StatusResponse):
         else:
             raise TypeError
 
+    def merge_from(self, status_resp: Union[Self, _v2.StatusResponse]):
+        if isinstance(status_resp, _v2.StatusResponse):
+            status_resp = self.__class__.convert(status_resp)
+        # merge ecu only, don't merge available_ecu_ids!
+        # NOTE, TODO: duplication check is not done
+        self.ecu.extend(status_resp.ecu)
+
     def get_ecu_status(self, ecu_id: str) -> Optional[Tuple[str, FailureType, Status]]:
         """
         Returns:
@@ -202,6 +210,12 @@ class UpdateResponse(MessageWrapper[_v2.UpdateResponse], _UpdateResponse):
         else:
             raise TypeError
 
+    def merge_from(self, update_response: Union[Self, _v2.UpdateResponse]):
+        if isinstance(update_response, _v2.UpdateResponse):
+            update_response = self.__class__.convert(update_response)
+        # NOTE, TODO: duplication check is not done
+        self.ecu.extend(update_response.ecu)
+
 
 # message converter registeration for update API
 _register.register(_v2.UpdateRequest, UpdateRequest)
@@ -261,6 +275,12 @@ class RollbackResponse(MessageWrapper[_v2.RollbackResponse], _RollbackResponse):
             self.ecu.append(RollbackResponseEcu.convert(_response_ecu))
         else:
             raise TypeError
+
+    def merge_from(self, rollback_response: Union[Self, _v2.RollbackResponse]):
+        if isinstance(rollback_response, _v2.RollbackResponse):
+            rollback_response = self.__class__.convert(rollback_response)
+        # NOTE, TODO: duplication check is not done
+        self.ecu.extend(rollback_response.ecu)
 
 
 # message converter registeration for rollback API
