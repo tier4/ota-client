@@ -14,6 +14,7 @@
 
 
 import pytest
+from enum import IntEnum
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
 
@@ -32,12 +33,17 @@ def _compare_message(l, r):
         raise TypeError(f"{type(l)=} != {type(r)=}")
     for _attrn in _proto_class.__slots__:
         _attrv_l, _attrv_r = getattr(l, _attrn), getattr(r, _attrn)
-        # first check each corresponding attr has the same type
-        assert type(_attrv_l) == type(_attrv_r)
+        # first check each corresponding attr has the same type,
+        # NOTE: for IntEnum types, we treat them as pure int without considering
+        #       the type, but just comparing the value.
+        if not isinstance(_attrv_l, IntEnum) or isinstance(_attrv_r, IntEnum):
+            assert type(_attrv_l) == type(_attrv_r)
 
         # if the attr is nested message, we recursively call _compare_attrs
         if isinstance(_attrv_l, _Message):
             _compare_message(_attrv_l, _attrv_r)
+        elif isinstance(_attrv_l, IntEnum) or isinstance(_attrv_r, IntEnum):
+            assert _attrv_l == _attrv_r
         # if the attr is list of messages, call _compare_attrs on each message in list
         elif isinstance(_attrv_l, _RepeatedCompositeContainer):
             assert len(_attrv_l) == len(_attrv_r)
@@ -52,17 +58,6 @@ def _compare_message(l, r):
             assert _attrv_l == _attrv_r
 
 
-def _compare_converted(l, r) -> bool:
-    if (_wrapper_class := type(l)) is not type(r):
-        raise TypeError(f"{type(l)=} != {type(r)=}")
-    for _attrn in _wrapper_class.__slots__:
-        _attrv_l, _attrv_r = getattr(l, _attrn), getattr(r, _attrn)
-        # first check each corresponding attr has the same type
-        assert type(_attrv_l) == type(_attrv_r)
-        assert _attrv_l == _attrv_r, f"{_attrn} failed"
-    return True
-
-
 @pytest.mark.parametrize(
     "origin_msg, converted_msg",
     (
@@ -73,10 +68,10 @@ def _compare_converted(l, r) -> bool:
                 total_regular_files=123456,
                 elapsed_time_download=_Duration(nanos=5678),
             ),
-            wrapper.StatusProgress.init(
-                phase=v2.REGULAR,  # protobuf enum value is int at runtime
+            wrapper.StatusProgress(
+                phase=wrapper.StatusProgressPhase.REGULAR,
                 total_regular_files=123456,
-                elapsed_time_download=wrapper.Duration.from_ns(5678),
+                elapsed_time_download=wrapper.DurationWrapper.from_ns(5678),
             ),
         ),
         # UpdateRequest: with protobuf repeated composite field
@@ -87,10 +82,10 @@ def _compare_converted(l, r) -> bool:
                     v2.UpdateRequestEcu(ecu_id="ecu_2"),
                 ]
             ),
-            wrapper.UpdateRequest.init(
+            wrapper.UpdateRequest(
                 ecu=[
-                    wrapper.UpdateRequestEcu.init(ecu_id="ecu_1"),
-                    wrapper.UpdateRequestEcu.init(ecu_id="ecu_2"),
+                    wrapper.UpdateRequestEcu(ecu_id="ecu_1"),
+                    wrapper.UpdateRequestEcu(ecu_id="ecu_2"),
                 ]
             ),
         ),
@@ -123,27 +118,31 @@ def _compare_converted(l, r) -> bool:
                 ],
                 available_ecu_ids=["ecu_1", "ecu_2"],
             ),
-            wrapper.StatusResponse.init(
+            wrapper.StatusResponse(
                 ecu=[
-                    wrapper.StatusResponseEcu.init(
+                    wrapper.StatusResponseEcu(
                         ecu_id="ecu_1",
-                        status=wrapper.Status.init(
+                        status=wrapper.Status(
                             status=wrapper.StatusOta.UPDATING,
-                            progress=wrapper.StatusProgress.init(
+                            progress=wrapper.StatusProgress(
                                 phase=wrapper.StatusProgressPhase.REGULAR,
                                 total_regular_files=123456,
-                                elapsed_time_copy=wrapper.Duration.from_ns(56789),
+                                elapsed_time_copy=wrapper.DurationWrapper.from_ns(
+                                    56789
+                                ),
                             ),
                         ),
                     ),
-                    wrapper.StatusResponseEcu.init(
+                    wrapper.StatusResponseEcu(
                         ecu_id="ecu_2",
-                        status=wrapper.Status.init(
+                        status=wrapper.Status(
                             status=wrapper.StatusOta.UPDATING,
-                            progress=wrapper.StatusProgress.init(
+                            progress=wrapper.StatusProgress(
                                 phase=wrapper.StatusProgressPhase.REGULAR,
                                 total_regular_files=456789,
-                                elapsed_time_copy=wrapper.Duration.from_ns(12345),
+                                elapsed_time_copy=wrapper.DurationWrapper.from_ns(
+                                    12345
+                                ),
                             ),
                         ),
                     ),
@@ -159,14 +158,12 @@ def test_convert_message(origin_msg, converted_msg):
         raise NotImplementedError(
             f"converter for {type(origin_msg)} is not implemented"
         )
-    a = wrapper.UpdateRequest
-    b = a.init()
     _converted = _converter.convert(origin_msg)
     _exported = _converted.export_pb()
 
     # ------ assertion ------ #
     # ensure the convertion is expected
-    _compare_converted(converted_msg, _converted)
+    assert converted_msg == _converted
     # ensure that the exported version is the same as the original version
     _compare_message(origin_msg, _exported)
 
@@ -178,17 +175,19 @@ class Test_enum_wrapper_cooperate:
         assert _protobuf_enum == _wrapped
 
     def test_assign_to_protobuf_message(self):
-        assert v2.StatusProgress(phase=v2.REGULAR) == v2.StatusProgress(
-            phase=wrapper.StatusProgressPhase.REGULAR,
+        l, r = v2.StatusProgress(phase=v2.REGULAR), v2.StatusProgress(
+            phase=wrapper.StatusProgressPhase.REGULAR.value,
         )
+        _compare_message(l, r)
 
     def test_used_in_message_wrapper(self):
-        assert (
-            v2.StatusProgress(phase=v2.REGULAR)
-            == wrapper.StatusProgress(
-                phase=wrapper.StatusProgressPhase.REGULAR,
-            ).export_pb()
+        l, r = (
+            v2.StatusProgress(phase=v2.REGULAR),
+            wrapper.StatusProgress(
+                phase=wrapper.StatusProgressPhase.REGULAR
+            ).export_pb(),
         )
+        _compare_message(l, r)
 
     def test_converted_from_protobuf_enum(self):
         _protobuf_enum = v2.REGULAR
