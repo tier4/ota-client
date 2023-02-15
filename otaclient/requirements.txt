@@ -1,7 +1,7 @@
 pyOpenSSL==23.0.0
 cryptography>=39.0.1, <40.0.0
-grpcio==1.48.2
-protobuf==3.20.3
+grpcio==1.51.1
+protobuf==4.21.12
 PyYAML>=3.12
 requests==2.25.1
 watchtower==1.0.6
@@ -15,3 +15,4 @@ aiohttp==3.8.1
 aiofiles==22.1.0
 zstandard==0.18.0
 pycurl==7.45.1
+typing_extensions==4.4.0

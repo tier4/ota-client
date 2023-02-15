@@ -113,13 +113,13 @@ def compare_dir(left: Path, right: Path):
 
 
 class DummySubECU:
-    SUCCESS_RESPONSE = wrapper.v2.Status(
-        status=wrapper.StatusOta.SUCCESS.value,
-        failure=wrapper.FailureType.NO_FAILURE.value,
+    SUCCESS_RESPONSE = wrapper.Status(
+        status=wrapper.StatusOta.SUCCESS,
+        failure=wrapper.FailureType.NO_FAILURE,
     )
-    UPDATING_RESPONSE = wrapper.v2.Status(
-        status=wrapper.StatusOta.UPDATING.value,
-        failure=wrapper.FailureType.NO_FAILURE.value,
+    UPDATING_RESPONSE = wrapper.Status(
+        status=wrapper.StatusOta.UPDATING,
+        failure=wrapper.FailureType.NO_FAILURE,
     )
     UPDATE_TIME_COST = 6
     REBOOT_TIME_COST = 1
@@ -140,7 +140,7 @@ class DummySubECU:
             logger.debug(f"{self.ecu_id=}, update not yet started")
             res = wrapper.StatusResponse(
                 ecu=[
-                    wrapper.v2.StatusResponseEcu(
+                    wrapper.StatusResponseEcu(
                         ecu_id=self.ecu_id,
                         status=self.SUCCESS_RESPONSE,
                     )
@@ -157,7 +157,7 @@ class DummySubECU:
             )
             res = wrapper.StatusResponse(
                 ecu=[
-                    wrapper.v2.StatusResponseEcu(
+                    wrapper.StatusResponseEcu(
                         ecu_id=self.ecu_id,
                         status=self.SUCCESS_RESPONSE,
                     )
@@ -174,7 +174,7 @@ class DummySubECU:
         logger.debug(f"{self.ecu_id=}, updating")
         res = wrapper.StatusResponse(
             ecu=[
-                wrapper.v2.StatusResponseEcu(
+                wrapper.StatusResponseEcu(
                     ecu_id=self.ecu_id,
                     status=self.UPDATING_RESPONSE,
                 )

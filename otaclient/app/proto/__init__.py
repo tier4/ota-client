@@ -14,39 +14,49 @@
 
 
 """Packed compiled protobuf files for otaclient."""
+import importlib.util
+import sys
 from pathlib import Path
-from typing import Union
+from types import ModuleType
+from typing import Tuple
+
+_PROTO_DIR = Path(__file__).parent
+# NOTE: order matters here! v2_pb2_grpc depends on v2_pb2
+_FILES_TO_LOAD = [
+    _PROTO_DIR / _fname
+    for _fname in [
+        "otaclient_v2_pb2.py",
+        "otaclient_v2_pb2_grpc.py",
+    ]
+]
 
 
-def _import_from_file(path: Union[Path, str]):
-    import importlib.util
-    import sys
-
+def _import_from_file(path: Path) -> Tuple[str, ModuleType]:
+    if not path.is_file():
+        raise ValueError(f"{path} is not a valid module file")
     try:
-        module_name = path.stem
-        spec = importlib.util.spec_from_file_location(module_name, path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        _module_name = path.stem
+        _spec = importlib.util.spec_from_file_location(_module_name, path)
+        _module = importlib.util.module_from_spec(_spec)  # type: ignore
+        _spec.loader.exec_module(_module)  # type: ignore
+        return _module_name, _module
     except Exception:
-        raise ImportError(f"failed to import module {module_name=} from {path=}.")
+        raise ImportError(f"failed to import module from {path=}.")
 
 
-def _import_proto():
+def _import_proto(*module_fpaths: Path):
     """Import the protobuf modules to path under this folder.
 
     NOTE: compiled protobuf files under proto folder will be
     imported as modules to the global namespace.
     """
-    proto_dir = Path(__file__).parent
-    # load modules
-    # NOTE: order matters here! v2_pb2_grpc depends on v2_pb2
-    files_to_load = ["otaclient_v2_pb2.py", "otaclient_v2_pb2_grpc.py"]
-    for fname in files_to_load:
-        _import_from_file(proto_dir / fname)
+    for _fpath in module_fpaths:
+        _module_name, _module = _import_from_file(_fpath)
+        # add the module to the global module namespace
+        sys.modules[_module_name] = _module
 
 
-_import_proto()
+_import_proto(*_FILES_TO_LOAD)
 del _import_proto, _import_from_file
 
 import otaclient_v2_pb2 as v2
