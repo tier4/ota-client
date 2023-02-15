@@ -14,8 +14,8 @@
 
 
 from __future__ import annotations
-import io
-from abc import abstractmethod
+from abc import ABC, abstractmethod
+from io import StringIO
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import (
@@ -143,11 +143,11 @@ class Duration(_ProtobufConverter[_Duration], int, _pb2_duration):  # type: igno
 #       not be directly used.
 
 
-class ListLikeContainerWrapper(_ProtobufConverter[List[Any]], list):  # type: ignore
+class ListLikeContainerWrapper(_ProtobufConverter, list):  # type: ignore
     proto_class = list  # NOTE: just a placeholder, don't use
 
     def __str__(self) -> str:
-        _buffer = io.StringIO()
+        _buffer = StringIO()
         _buffer.write("[\n")
         for _entry in self:
             for _line in str(_entry).splitlines(keepends=True):
@@ -180,41 +180,20 @@ TypeConverterRegister.register(list, ListLikeContainerWrapper)
 # message converter
 
 
-class MessageWrapperBase(Generic[_MessageType]):
-    """Base class for all message wrapper type."""
-
-    proto_class: Type[_MessageType]
-    __slots__ = []
-
-    def __init__(self, /, **kwargs):
-        """Get all attrs from a protobuf class inst and then bind to this inst.
-        All the input kwargs are expected to be converted by __new__ method from
-        MessageWrapper.
-
-        __init__ method is defined here to be hidden by typing.cast to not override
-        the wrapped protoclass' __init__ signature when type checking.
-
-        Only kwargs are allowed.
-        """
-        for _key in self.__slots__:
-            setattr(self, _key, kwargs.get(_key))
-
-
 class MessageWrapper(_ProtobufConverter[_MessageType]):
     proto_class: Type[_MessageType]
     __slots__ = []
 
     # internal
-
     @overload
     def __new__(cls, _in: _MessageType, /) -> Self:
-        ...
+        """Initialize by converting a protobuf message."""
 
     @overload
-    def __new__(cls, /, **kwargs) -> Self:
-        ...
+    def __new__(cls, _=None, /, **kwargs) -> Self:
+        """Initialize by manually creating wrapper instance."""
 
-    def __new__(cls, _in=None, **kwargs) -> Self:
+    def __new__(cls, _in=None, /, **kwargs) -> Self:
         parsed_kwargs = {}
         if _in:  # initialize by converting an incoming protobuf message
             if not isinstance(_in, cls.proto_class):
@@ -234,7 +213,20 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
                 if (_attrv := kwargs.get(_attrn, None)) is None:
                     _attrv = getattr(_template, _attrn)
                 parsed_kwargs[_attrn] = _general_converter(_attrv)
-        return cls(**parsed_kwargs)
+
+        (_inst := super().__new__(cls))._post_init(**parsed_kwargs)
+        return _inst
+
+    def _post_init(self, **kwargs):
+        """Get all attrs from a protobuf class inst and then bind to this inst.
+        All the input kwargs are converted by __new__ method from
+        MessageWrapper.
+
+        Note that normal __init__ is not used to avoid override the __init__
+        signature from wrapped protobuf message.
+        """
+        for _key in self.__slots__:
+            setattr(self, _key, kwargs.get(_key))
 
     def __getitem__(self, __name: str) -> Any:
         return getattr(self, __name)
@@ -251,7 +243,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
         return True
 
     def __str__(self) -> str:
-        _buffer = io.StringIO()
+        _buffer = StringIO()
         _buffer.write("{\n")
         for _attrn in self.__slots__:
             _attrv_str = str(getattr(self, _attrn))
