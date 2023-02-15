@@ -71,7 +71,7 @@ def _compare_message(l, r):
             wrapper.StatusProgress(
                 phase=wrapper.StatusProgressPhase.REGULAR,
                 total_regular_files=123456,
-                elapsed_time_download=wrapper.DurationWrapper.from_ns(5678),
+                elapsed_time_download=wrapper.DurationWrapper(5678),
             ),
         ),
         # UpdateRequest: with protobuf repeated composite field
@@ -127,9 +127,7 @@ def _compare_message(l, r):
                             progress=wrapper.StatusProgress(
                                 phase=wrapper.StatusProgressPhase.REGULAR,
                                 total_regular_files=123456,
-                                elapsed_time_copy=wrapper.DurationWrapper.from_ns(
-                                    56789
-                                ),
+                                elapsed_time_copy=wrapper.DurationWrapper(56789),
                             ),
                         ),
                     ),
@@ -140,9 +138,7 @@ def _compare_message(l, r):
                             progress=wrapper.StatusProgress(
                                 phase=wrapper.StatusProgressPhase.REGULAR,
                                 total_regular_files=456789,
-                                elapsed_time_copy=wrapper.DurationWrapper.from_ns(
-                                    12345
-                                ),
+                                elapsed_time_copy=wrapper.DurationWrapper(12345),
                             ),
                         ),
                     ),

@@ -16,6 +16,7 @@
 
 from ._otaclient_v2_pb2_wrapper import *
 from ._common import (
+    TypeConverterRegister,
     DurationWrapper,
     RepeatedCompositeContainer,
     RepeatedScalarContainer,

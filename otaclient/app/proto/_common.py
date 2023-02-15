@@ -122,17 +122,9 @@ class TypeConverterRegister:
 
 
 class DurationWrapper(_ProtobufConverter[_Duration], int):
+    """Convert and store protobuf Duration counted by nanoseconds as int."""
+
     proto_class = _Duration
-
-    @classmethod
-    def from_ns(cls, value: int) -> Self:
-        """Helper method to convert an int to this class' inst.
-
-        NOTE: although we can directly use DurationWrapper(<value>), the
-              static type checker will complain, so we use this helper
-              method instead.
-        """
-        return cls(value)
 
     @classmethod
     def convert(cls, _in: _Duration) -> Self:
