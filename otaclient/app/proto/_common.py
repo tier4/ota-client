@@ -14,12 +14,12 @@
 
 
 from __future__ import annotations
-from abc import ABC, abstractmethod
+from abc import abstractmethod, ABC
+from copy import deepcopy
 from io import StringIO
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import (
-    cast,
     overload,
     Any,
     List,
@@ -31,27 +31,10 @@ from typing import (
 )
 from typing_extensions import Self
 
-_MessageType = TypeVar("_MessageType")
 
-# helper method
-
-
-def _general_converter(_value: Any, _field_type=None) -> Any:
-    """For message types that have corresponding converter,
-    convert the message to wrapped version using the converter."""
-    if not _field_type:
-        _field_type = type(_value)
-    # if converter for this type is available, always use it
-    if _converter := TypeConverterRegister.get_converter(_field_type):
-        _value = _converter.convert(_value)
-    # protobuf message type must have a converter
-    elif isinstance(_value, _Message) and not isinstance(_value, MessageWrapper):
-        raise NotImplementedError(
-            f"converter for protobuf type {_field_type} is not implemented"
-        )
-    # for type without converter defined and not protobuf message type
-    return _value
-
+_T = TypeVar("_T")  # any generic types
+_MessageType = TypeVar("_MessageType", bound=_Message)
+_NormalType = TypeVar("_NormalType")  # other types other than protobuf message type
 
 # converter base
 
@@ -71,28 +54,62 @@ class _ProtobufConverter(Generic[_MessageType]):
         raise NotImplementedError
 
 
+_WrappedMessageType = TypeVar("_WrappedMessageType", bound=_ProtobufConverter)
+
+# helper method
+
+
+@overload
+def _convert_helper(
+    _value: _MessageType, _field_type: Optional[Type[_MessageType]] = None
+) -> _WrappedMessageType:  # type: ignore
+    ...
+
+
+@overload
+def _convert_helper(
+    _value: _NormalType, _field_type: Optional[Type[_NormalType]] = None
+) -> _NormalType:
+    ...
+
+
+def _convert_helper(_value, _field_type=None):
+    """For message types that have corresponding converter,
+    convert the message to wrapped version using the converter."""
+    if not _field_type:
+        _field_type = type(_value)
+
+    # if converter for this type is available, always use it
+    if _converter := TypeConverterRegister.get_converter(_field_type):
+        return _converter.convert(_value)
+    # protobuf message type must have a converter
+    elif isinstance(_value, _Message) and not isinstance(_value, MessageWrapper):
+        raise NotImplementedError(
+            f"converter for protobuf type {_field_type} is not implemented"
+        )
+    else:
+        # for type without converter defined and not protobuf message type
+        return _value
+
+
 # the converter mapping between protobuf message/container type and converter type
 
 
-class TypeConverterRegister(Generic[_MessageType]):
+class TypeConverterRegister:
     TYPE_CONVERTER_REGISTER = {}
 
     def __new__(cls, *args, **kwargs) -> None:
         raise ValueError("this class should not be instantiated")
 
     @classmethod
-    def register(
-        cls,
-        message_type: Type[_MessageType],
-        converter_type: Type[_ProtobufConverter[_MessageType]],
-    ):
+    def register(cls, message_type, converter_type) -> None:
         if not message_type in cls.TYPE_CONVERTER_REGISTER:
             cls.TYPE_CONVERTER_REGISTER[message_type] = converter_type
 
     @classmethod
     def get_converter(
-        cls, message_type: Type[_MessageType], default=None
-    ) -> Optional[_ProtobufConverter[_MessageType]]:
+        cls, message_type, default=None
+    ) -> Optional[Type[_ProtobufConverter[Any]]]:
         return cls.TYPE_CONVERTER_REGISTER.get(message_type, default)
 
 
@@ -104,10 +121,7 @@ class TypeConverterRegister(Generic[_MessageType]):
 #       whenever Duration protobuf type is used.
 
 
-_pb2_duration = cast(Type[_Duration], object)
-
-
-class Duration(_ProtobufConverter[_Duration], int, _pb2_duration):  # type: ignore
+class DurationWrapper(_ProtobufConverter[_Duration], int):
     proto_class = _Duration
 
     @classmethod
@@ -118,11 +132,11 @@ class Duration(_ProtobufConverter[_Duration], int, _pb2_duration):  # type: igno
               static type checker will complain, so we use this helper
               method instead.
         """
-        return cls(value)  # type: ignore
+        return cls(value)
 
     @classmethod
     def convert(cls, _in: _Duration) -> Self:
-        return cls(_in.ToNanoseconds())  # type: ignore
+        return cls(_in.ToNanoseconds())
 
     def export_pb(self) -> _Duration:
         (_res := self.proto_class()).FromNanoseconds(self)
@@ -143,9 +157,7 @@ class Duration(_ProtobufConverter[_Duration], int, _pb2_duration):  # type: igno
 #       not be directly used.
 
 
-class ListLikeContainerWrapper(_ProtobufConverter, list):  # type: ignore
-    proto_class = list  # NOTE: just a placeholder, don't use
-
+class _ContainerBase(List[_T], ABC):
     def __str__(self) -> str:
         _buffer = StringIO()
         _buffer.write("[\n")
@@ -156,25 +168,36 @@ class ListLikeContainerWrapper(_ProtobufConverter, list):  # type: ignore
         _buffer.write("]")
         return _buffer.getvalue()
 
+
+class RepeatedCompositeContainer(
+    _ContainerBase[_WrappedMessageType],
+    _ProtobufConverter[List[_MessageType]],  # type: ignore
+):
+    proto_class = list  # placeholder, not use!
+
     @classmethod
-    def convert(cls, _in: List[Any]) -> List[Any]:
-        _self = cls()
+    def convert(cls, _in: List[_MessageType]) -> Self:
+        res = cls()
         for _entry in _in:
-            _self.append(_general_converter(_entry))
-        return _self
+            res.append(_convert_helper(_entry))
+        return res
 
-    def export_pb(self) -> List[Any]:
-        _res = []
-        for _entry in self:
-            if isinstance(_entry, _ProtobufConverter):
-                _res.append(_entry.export_pb())
-            else:
-                _res.append(_entry)
-        return _res
+    def export_pb(self) -> List[_MessageType]:
+        return [_entry.export_pb() for _entry in self]
 
 
-# all list in wrapper should be converted to ListLikeContainerWrapper
-TypeConverterRegister.register(list, ListLikeContainerWrapper)
+class RepeatedScalarContainer(
+    _ContainerBase[_NormalType],
+    _ProtobufConverter[List[_NormalType]],  # type: ignore
+):
+    proto_class = list  # placeholder, not use!
+
+    @classmethod
+    def convert(cls, _in: List[_NormalType]) -> List[_NormalType]:
+        return cls(_in)
+
+    def export_pb(self) -> List[_NormalType]:
+        return deepcopy(self)
 
 
 # message converter
@@ -182,7 +205,7 @@ TypeConverterRegister.register(list, ListLikeContainerWrapper)
 
 class MessageWrapper(_ProtobufConverter[_MessageType]):
     proto_class: Type[_MessageType]
-    __slots__ = []
+    __slots__: List[str] = []
 
     # internal
     @overload
@@ -203,7 +226,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
             # only capture the attrs presented in this wrapper class' __slots__
             for _attrn in cls.__slots__:
                 _attrv = getattr(_in, _attrn)
-                parsed_kwargs[_attrn] = _general_converter(_attrv)
+                parsed_kwargs[_attrn] = _convert_helper(_attrv)
         else:  # initialize by manually create wrapper instance
             # Create a wrapper instance directly with optional input attrs.
             # NOTE: recursive message is NOT supported!
@@ -212,7 +235,10 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
                 # assign from default value if attr for attrn is not specified
                 if (_attrv := kwargs.get(_attrn, None)) is None:
                     _attrv = getattr(_template, _attrn)
-                parsed_kwargs[_attrn] = _general_converter(_attrv)
+                if isinstance(_attrv, list):
+                    # convert list to either CompositeContainer or ScalarContainer
+                    _attrv = _convert_helper(_attrv, type(getattr(_template, _attrn)))
+                parsed_kwargs[_attrn] = _convert_helper(_attrv)
 
         (_inst := super().__new__(cls))._post_init(**parsed_kwargs)
         return _inst
@@ -232,7 +258,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
         return getattr(self, __name)
 
     def __setitem__(self, __name: str, __value: Any):
-        return setattr(self, __name, _general_converter(__value))
+        return setattr(self, __name, _convert_helper(__value))
 
     def __eq__(self, __o: object) -> bool:
         if self.__class__ != __o.__class__:
@@ -279,7 +305,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
                 if issubclass(_value.proto_class, _Message):
                     getattr(_res, _key).CopyFrom(_value.export_pb())
                 # for repeated field, use <extend> API to assign
-                elif isinstance(_value, ListLikeContainerWrapper):
+                elif isinstance(_value, _ContainerBase):
                     getattr(_res, _key).extend(_value.export_pb())
                 else:  # for any other non-Message protobuf type
                     setattr(_res, _key, _value.export_pb())

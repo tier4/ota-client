@@ -25,53 +25,130 @@ actually inherite from the protobuf message type!
 from __future__ import annotations
 import otaclient_v2_pb2 as _v2
 from copy import deepcopy
-from enum import Enum
+from enum import IntEnum
 from typing import (
-    cast,
     Generator,
     Optional,
     Tuple,
-    Type,
-    TypeVar,
+    Iterable,
     Union,
-    TYPE_CHECKING,
 )
 from typing_extensions import Self
 
 from ._common import (
     TypeConverterRegister as _register,
-    ListLikeContainerWrapper as _pb2_list_wrapper,
-    Duration as _pb2_duration_wrapper,
-    MessageWrapperBase as _wrap,
+    RepeatedCompositeContainer,
+    RepeatedScalarContainer,
+    DurationWrapper,
     MessageWrapper,
 )
 
 
 # message wrapper definitions
 
+# rollback API
+
+
+class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
+    proto_class = _v2.RollbackRequest
+    __slots__ = list(_v2.RollbackRequest.DESCRIPTOR.fields_by_name)
+    ecu: RepeatedCompositeContainer[RollbackRequestEcu, _v2.RollbackRequest]
+
+    def __init__(
+        self,
+        ecu: Optional[Iterable[RollbackRequestEcu]] = ...,
+    ) -> None:
+        ...
+
+    def if_contains_ecu(self, ecu_id: str) -> bool:
+        for _ecu in self.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return True
+        return False
+
+
+class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
+    proto_class = _v2.RollbackRequestEcu
+    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
+    ecu_id: str
+
+    def __init__(self, ecu_id: Optional[str] = ...) -> None:
+        ...
+
+
+class RollbackResponse(MessageWrapper[_v2.RollbackResponse]):
+    proto_class = _v2.RollbackResponse
+    __slots__ = list(_v2.RollbackResponse.DESCRIPTOR.fields_by_name)
+    ecu: RepeatedCompositeContainer[RollbackResponseEcu, _v2.RollbackResponseEcu]
+
+    def __init__(self, ecu: Optional[Iterable[RollbackResponseEcu]] = ...) -> None:
+        ...
+
+    def iter_ecu(
+        self,
+    ) -> Generator[Tuple[str, FailureType, RollbackResponseEcu], None, None]:
+        for _ecu in self.ecu:
+            yield _ecu.ecu_id, _ecu.result, _ecu
+
+    def add_ecu(
+        self, _response_ecu: Union[RollbackResponseEcu, _v2.RollbackResponseEcu]
+    ):
+        if isinstance(_response_ecu, RollbackResponseEcu):
+            self.ecu.append(_response_ecu)
+        elif isinstance(_response_ecu, _v2.RollbackRequestEcu):
+            self.ecu.append(RollbackResponseEcu.convert(_response_ecu))
+        else:
+            raise TypeError
+
+    def merge_from(self, rollback_response: Union[Self, _v2.RollbackResponse]):
+        if isinstance(rollback_response, _v2.RollbackResponse):
+            rollback_response = self.__class__.convert(rollback_response)
+        # NOTE, TODO: duplication check is not done
+        self.ecu.extend(rollback_response.ecu)
+
+
+class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
+    proto_class = _v2.RollbackResponseEcu
+    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
+    ecu_id: str
+    result: FailureType
+
+    def __init__(
+        self,
+        ecu_id: Optional[str] = ...,
+        result: Optional[Union[FailureType, str]] = ...,
+    ) -> None:
+        ...
+
+
+# message converter registeration for rollback API
+_register.register(_v2.RollbackRequest, RollbackRequest)
+_register.register(_v2.RollbackRequestEcu, RollbackRequestEcu)
+_register.register(_v2.RollbackResponse, RollbackResponse)
+_register.register(_v2.RollbackResponseEcu, RollbackResponseEcu)
+
+
 # status API
 
-_Status = cast(Type[_v2.Status], _wrap[_v2.Status])
-_StatusProgress = cast(Type[_v2.StatusProgress], _wrap[_v2.StatusProgress])
-_StatusRequest = cast(Type[_v2.StatusRequest], _wrap[_v2.StatusRequest])
-_StatusResponse = cast(Type[_v2.StatusResponse], _wrap[_v2.StatusResponse])
-_StatusResponseEcu = cast(Type[_v2.StatusResponseEcu], _wrap[_v2.StatusResponseEcu])
 
-
-class StatusProgress(MessageWrapper[_v2.StatusProgress], _StatusProgress):
-    proto_class = _v2.StatusProgress
-    __slots__ = list(_v2.StatusProgress.DESCRIPTOR.fields_by_name)
-
-    def get_snapshot(self) -> StatusProgress:
-        return deepcopy(self)
-
-    def add_elapsed_time(self, _field_name: str, _value: int):
-        setattr(_field_name, getattr(self, _field_name) + _value)
-
-
-class Status(MessageWrapper[_v2.Status], _Status):
+class Status(MessageWrapper[_v2.Status]):
     proto_class = _v2.Status
     __slots__ = list(_v2.Status.DESCRIPTOR.fields_by_name)
+    failure: FailureType
+    failure_reason: str
+    progress: StatusProgress
+    status: StatusOta
+    version: str
+
+    def __init__(
+        self,
+        status: Optional[Union[StatusOta, str]] = ...,
+        failure: Optional[Union[FailureType, str]] = ...,
+        failure_reason: Optional[str] = ...,
+        version: Optional[str] = ...,
+        progress: Optional[StatusProgress] = ...,
+    ) -> None:
+        ...
 
     def get_progress(self) -> StatusProgress:
         return self.progress
@@ -80,19 +157,71 @@ class Status(MessageWrapper[_v2.Status], _Status):
         return self.failure, self.failure_reason
 
 
-class StatusRequest(MessageWrapper[_v2.StatusRequest], _StatusRequest):
+class StatusProgress(MessageWrapper[_v2.StatusProgress]):
+    proto_class = _v2.StatusProgress
+    __slots__ = list(_v2.StatusProgress.DESCRIPTOR.fields_by_name)
+    download_bytes: int
+    elapsed_time_copy: DurationWrapper
+    elapsed_time_download: DurationWrapper
+    elapsed_time_link: DurationWrapper
+    errors_download: int
+    file_size_processed_copy: int
+    file_size_processed_download: int
+    file_size_processed_link: int
+    files_processed_copy: int
+    files_processed_download: int
+    files_processed_link: int
+    phase: StatusProgressPhase
+    regular_files_processed: int
+    total_elapsed_time: DurationWrapper
+    total_regular_file_size: int
+    total_regular_files: int
+
+    def __init__(
+        self,
+        phase: Optional[Union[StatusProgressPhase, str]] = ...,
+        total_regular_files: Optional[int] = ...,
+        regular_files_processed: Optional[int] = ...,
+        files_processed_copy: Optional[int] = ...,
+        files_processed_link: Optional[int] = ...,
+        files_processed_download: Optional[int] = ...,
+        file_size_processed_copy: Optional[int] = ...,
+        file_size_processed_link: Optional[int] = ...,
+        file_size_processed_download: Optional[int] = ...,
+        elapsed_time_copy: Optional[DurationWrapper] = ...,
+        elapsed_time_link: Optional[DurationWrapper] = ...,
+        elapsed_time_download: Optional[DurationWrapper] = ...,
+        errors_download: Optional[int] = ...,
+        total_regular_file_size: Optional[int] = ...,
+        total_elapsed_time: Optional[DurationWrapper] = ...,
+        download_bytes: Optional[int] = ...,
+    ) -> None:
+        ...
+
+    def get_snapshot(self) -> StatusProgress:
+        return deepcopy(self)
+
+    def add_elapsed_time(self, _field_name: str, _value: int):
+        setattr(self, _field_name, getattr(self, _field_name) + _value)
+
+
+class StatusRequest(MessageWrapper[_v2.StatusRequest]):
     proto_class = _v2.StatusRequest
     __slots__ = list(_v2.StatusRequest.DESCRIPTOR.fields_by_name)
 
 
-class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu], _StatusResponseEcu):
-    proto_class = _v2.StatusResponseEcu
-    __slots__ = list(_v2.StatusResponseEcu.DESCRIPTOR.fields_by_name)
-
-
-class StatusResponse(MessageWrapper[_v2.StatusResponse], _StatusResponse):
+class StatusResponse(MessageWrapper[_v2.StatusResponse]):
     proto_class = _v2.StatusResponse
     __slots__ = list(_v2.StatusResponse.DESCRIPTOR.fields_by_name)
+    available_ecu_ids: RepeatedScalarContainer[str]
+    ecu: RepeatedCompositeContainer[StatusResponseEcu, _v2.StatusResponseEcu]
+
+    def __init__(
+        self,
+        available_ecu_ids: Optional[Iterable[str]] = ...,
+        ecu: Optional[Iterable[StatusResponseEcu]] = ...,
+    ) -> None:
+        ...
 
     def iter_ecu_status(self) -> Generator[Tuple[str, FailureType, Status], None, None]:
         """
@@ -100,7 +229,7 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse], _StatusResponse):
             A tuple of (<ecu_id>, <failure_type>, <status>)
         """
         for _ecu in self.ecu:
-            yield _ecu.ecu_id, _ecu.result, _ecu.status  # type: ignore
+            yield _ecu.ecu_id, _ecu.result, _ecu.status
 
     def add_ecu(self, _response_ecu: Union[StatusResponseEcu, _v2.StatusResponseEcu]):
         if isinstance(_response_ecu, StatusResponseEcu):
@@ -124,7 +253,23 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse], _StatusResponse):
         """
         for _ecu in self.ecu:
             if _ecu.ecu_id == ecu_id:
-                return _ecu.ecu_id, _ecu.result, _ecu.status  # type: ignore
+                return _ecu.ecu_id, _ecu.result, _ecu.status
+
+
+class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
+    proto_class = _v2.StatusResponseEcu
+    __slots__ = list(_v2.StatusResponseEcu.DESCRIPTOR.fields_by_name)
+    ecu_id: str
+    result: FailureType
+    status: Status
+
+    def __init__(
+        self,
+        ecu_id: Optional[str] = ...,
+        result: Optional[Union[FailureType, str]] = ...,
+        status: Optional[Status] = ...,
+    ) -> None:
+        ...
 
 
 # message converter registeration for status API
@@ -137,25 +282,19 @@ _register.register(_v2.StatusResponseEcu, StatusResponseEcu)
 
 # update API
 
-_UpdateRequest = cast(Type[_v2.UpdateRequest], _wrap[_v2.UpdateRequest])
-_UpdateRequestEcu = cast(Type[_v2.UpdateRequestEcu], _wrap[_v2.UpdateRequestEcu])
-_UpdateResponse = cast(Type[_v2.UpdateResponse], _wrap[_v2.UpdateResponse])
-_UpdateResponseEcu = cast(Type[_v2.UpdateResponseEcu], _wrap[_v2.UpdateRequestEcu])
 
-
-class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu], _UpdateRequestEcu):
-    proto_class = _v2.UpdateRequestEcu
-    __slots__ = list(_v2.UpdateRequestEcu.DESCRIPTOR.fields_by_name)
-
-
-class UpdateRequest(MessageWrapper[_v2.UpdateRequest], _UpdateRequest):
+class UpdateRequest(MessageWrapper[_v2.UpdateRequest]):
     proto_class = _v2.UpdateRequest
     __slots__ = list(_v2.UpdateRequest.DESCRIPTOR.fields_by_name)
+    ecu: RepeatedCompositeContainer[UpdateRequestEcu, _v2.UpdateRequestEcu]
+
+    def __init__(self, ecu: Optional[Iterable[UpdateRequestEcu]] = ...) -> None:
+        ...
 
     def find_update_meta(self, ecu_id: str) -> Optional[UpdateRequestEcu]:
         for _ecu in self.ecu:
             if _ecu.ecu_id == ecu_id:
-                return _ecu  # type: ignore
+                return _ecu
 
     def if_contains_ecu(self, ecu_id: str) -> bool:
         for _ecu in self.ecu:
@@ -165,21 +304,38 @@ class UpdateRequest(MessageWrapper[_v2.UpdateRequest], _UpdateRequest):
 
     def iter_update_meta(self) -> Generator[UpdateRequestEcu, None, None]:
         for _ecu in self.ecu:
-            yield _ecu  # type: ignore
+            yield _ecu
 
 
-class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu], _UpdateResponseEcu):
-    proto_class = _v2.UpdateResponseEcu
-    __slots__ = list(_v2.UpdateResponseEcu.DESCRIPTOR.fields_by_name)
+class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
+    proto_class = _v2.UpdateRequestEcu
+    __slots__ = list(_v2.UpdateRequestEcu.DESCRIPTOR.fields_by_name)
+    cookies: str
+    ecu_id: str
+    url: str
+    version: str
+
+    def __init__(
+        self,
+        ecu_id: Optional[str] = ...,
+        version: Optional[str] = ...,
+        url: Optional[str] = ...,
+        cookies: Optional[str] = ...,
+    ) -> None:
+        ...
 
 
-class UpdateResponse(MessageWrapper[_v2.UpdateResponse], _UpdateResponse):
+class UpdateResponse(MessageWrapper[_v2.UpdateResponse]):
     proto_class = _v2.UpdateResponse
     __slots__ = list(_v2.UpdateResponse.DESCRIPTOR.fields_by_name)
+    ecu: RepeatedCompositeContainer[UpdateResponseEcu, _v2.UpdateResponse]
+
+    def __init__(self, ecu: Optional[Iterable[UpdateResponseEcu]] = ...) -> None:
+        ...
 
     def iter_ecu(self) -> Generator[UpdateResponseEcu, None, None]:
         for _ecu in self.ecu:
-            yield _ecu  # type: ignore
+            yield _ecu
 
     def add_ecu(self, _response_ecu: Union[UpdateResponseEcu, _v2.UpdateResponseEcu]):
         if isinstance(_response_ecu, UpdateResponseEcu):
@@ -196,97 +352,33 @@ class UpdateResponse(MessageWrapper[_v2.UpdateResponse], _UpdateResponse):
         self.ecu.extend(update_response.ecu)
 
 
+class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
+    proto_class = _v2.UpdateResponseEcu
+    __slots__ = list(_v2.UpdateResponseEcu.DESCRIPTOR.fields_by_name)
+    ecu_id: str
+    result: FailureType
+
+    def __init__(
+        self,
+        ecu_id: Optional[str] = ...,
+        result: Optional[Union[FailureType, str]] = ...,
+    ) -> None:
+        ...
+
+
 # message converter registeration for update API
 _register.register(_v2.UpdateRequest, UpdateRequest)
 _register.register(_v2.UpdateRequestEcu, UpdateRequestEcu)
 _register.register(_v2.UpdateResponse, UpdateResponse)
 _register.register(_v2.UpdateResponseEcu, UpdateResponseEcu)
 
-# rollback API
-
-_RollbackRequestEcu = cast(Type[_v2.RollbackRequestEcu], _wrap[_v2.RollbackRequestEcu])
-_RollbackRequest = cast(Type[_v2.RollbackRequest], _wrap[_v2.RollbackRequest])
-_RollbackResponseEcu = cast(
-    Type[_v2.RollbackResponseEcu], _wrap[_v2.RollbackResponseEcu]
-)
-_RollbackResponse = cast(Type[_v2.RollbackResponse], _wrap[_v2.RollbackResponse])
-
-
-class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu], _RollbackRequestEcu):
-    proto_class = _v2.RollbackRequestEcu
-    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
-
-
-class RollbackRequest(MessageWrapper[_v2.RollbackRequest], _RollbackRequest):
-    proto_class = _v2.RollbackRequest
-    __slots__ = list(_v2.RollbackRequest.DESCRIPTOR.fields_by_name)
-
-    def if_contains_ecu(self, ecu_id: str) -> bool:
-        for _ecu in self.ecu:
-            if _ecu.ecu_id == ecu_id:
-                return True
-        return False
-
-
-class RollbackResponseEcu(
-    _RollbackResponseEcu, MessageWrapper[_v2.RollbackResponseEcu]
-):
-    proto_class = _v2.RollbackResponseEcu
-    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
-
-
-class RollbackResponse(MessageWrapper[_v2.RollbackResponse], _RollbackResponse):
-    proto_class = _v2.RollbackResponse
-    __slots__ = list(_v2.RollbackResponse.DESCRIPTOR.fields_by_name)
-
-    def iter_ecu(
-        self,
-    ) -> Generator[Tuple[str, FailureType, RollbackResponseEcu], None, None]:
-        for _ecu in self.ecu:
-            yield _ecu.ecu_id, _ecu.result, _ecu  # type: ignore
-
-    def add_ecu(
-        self, _response_ecu: Union[RollbackResponseEcu, _v2.RollbackResponseEcu]
-    ):
-        if isinstance(_response_ecu, RollbackResponseEcu):
-            self.ecu.append(_response_ecu)
-        elif isinstance(_response_ecu, _v2.RollbackRequestEcu):
-            self.ecu.append(RollbackResponseEcu.convert(_response_ecu))
-        else:
-            raise TypeError
-
-    def merge_from(self, rollback_response: Union[Self, _v2.RollbackResponse]):
-        if isinstance(rollback_response, _v2.RollbackResponse):
-            rollback_response = self.__class__.convert(rollback_response)
-        # NOTE, TODO: duplication check is not done
-        self.ecu.extend(rollback_response.ecu)
-
-
-# message converter registeration for rollback API
-_register.register(_v2.RollbackRequest, RollbackRequest)
-_register.register(_v2.RollbackRequestEcu, RollbackRequestEcu)
-_register.register(_v2.RollbackResponse, RollbackResponse)
-_register.register(_v2.RollbackResponseEcu, RollbackResponseEcu)
-
-
 # enum
 
 # NOTE: as for protoc==3.21.11, protobuf==4.21.12, protobuf Enum value is
-#       plain int at runtime, So we wrap protobuf enum into a IntEnum
-
-if TYPE_CHECKING:
-    # NOTE: the following cast will not work at runtime,
-    #       as protobuf EnumWrapper is a meta type, not a type.
-    _pb2_FailureType = cast(Type[_v2.FailureType], int)
-    _pb2_StatusOta = cast(Type[_v2.StatusOta], int)
-    _pb2_StatusProgressPhase = cast(Type[_v2.StatusProgressPhase], int)
-else:
-    _pb2_FailureType = int
-    _pb2_StatusOta = int
-    _pb2_StatusProgressPhase = int
+#       plain int at runtime without subclassing anything.
 
 
-class FailureType(_pb2_FailureType, Enum):
+class FailureType(IntEnum):
     NO_FAILURE = _v2.NO_FAILURE
     RECOVERABLE = _v2.RECOVERABLE
     UNRECOVERABLE = _v2.UNRECOVERABLE
@@ -295,7 +387,7 @@ class FailureType(_pb2_FailureType, Enum):
         return f"{self.value:0>1}"
 
 
-class StatusOta(_pb2_StatusOta, Enum):
+class StatusOta(IntEnum):
     INITIALIZED = _v2.INITIALIZED
     SUCCESS = _v2.SUCCESS
     FAILURE = _v2.FAILURE
@@ -304,7 +396,7 @@ class StatusOta(_pb2_StatusOta, Enum):
     ROLLBACK_FAILURE = _v2.ROLLBACK_FAILURE
 
 
-class StatusProgressPhase(_pb2_StatusProgressPhase, Enum):
+class StatusProgressPhase(IntEnum):
     INITIAL = _v2.INITIAL
     METADATA = _v2.METADATA
     DIRECTORY = _v2.DIRECTORY
@@ -320,10 +412,13 @@ class StatusProgressPhase(_pb2_StatusProgressPhase, Enum):
 #       check _common.py for details.
 _status_resp = _v2.StatusResponse()
 _status_progress = _v2.StatusProgress()
-# composite repeated field
-_register.register(type(_status_resp.ecu), _pb2_list_wrapper)
-# scalar repeated field
-_register.register(type(_status_resp.available_ecu_ids), _pb2_list_wrapper)
-# duration
-_register.register(type(_status_progress.total_elapsed_time), _pb2_duration_wrapper)
+# container types
+# - composite repeated field
+_register.register(type(_status_resp.ecu), RepeatedCompositeContainer)
+# - scalar repeated field
+_register.register(type(_status_resp.available_ecu_ids), RepeatedScalarContainer)
+
+# well-known types
+# - duration
+_register.register(type(_status_progress.total_elapsed_time), DurationWrapper)
 del _status_resp, _status_progress
