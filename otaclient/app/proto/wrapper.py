@@ -15,4 +15,8 @@
 
 
 from ._otaclient_v2_pb2_wrapper import *
-from ._common import Duration, ListLikeContainerWrapper
+from ._common import (
+    DurationWrapper,
+    RepeatedCompositeContainer,
+    RepeatedScalarContainer,
+)
