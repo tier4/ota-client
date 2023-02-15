@@ -44,7 +44,6 @@ from ._common import (
     Duration as _pb2_duration_wrapper,
     MessageWrapperBase as _wrap,
     MessageWrapper,
-    class_init_proxier,
 )
 
 
@@ -63,11 +62,6 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress], _StatusProgress):
     proto_class = _v2.StatusProgress
     __slots__ = list(_v2.StatusProgress.DESCRIPTOR.fields_by_name)
 
-    @classmethod
-    @class_init_proxier(_v2.StatusProgress.__init__)
-    def init(cls, *args, **kwargs):
-        return super().init(*args, **kwargs)
-
     def get_snapshot(self) -> StatusProgress:
         return deepcopy(self)
 
@@ -78,11 +72,6 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress], _StatusProgress):
 class Status(MessageWrapper[_v2.Status], _Status):
     proto_class = _v2.Status
     __slots__ = list(_v2.Status.DESCRIPTOR.fields_by_name)
-
-    @classmethod
-    @class_init_proxier(_v2.Status.__init__)
-    def init(cls, *args, **kwargs):
-        return super().init(*args, **kwargs)
 
     def get_progress(self) -> StatusProgress:
         return self.progress
@@ -100,20 +89,10 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu], _StatusResponseEc
     proto_class = _v2.StatusResponseEcu
     __slots__ = list(_v2.StatusResponseEcu.DESCRIPTOR.fields_by_name)
 
-    @classmethod
-    @class_init_proxier(_v2.StatusResponseEcu.__init__)
-    def init(cls, *args, **kwargs):
-        return super().init(*args, **kwargs)
-
 
 class StatusResponse(MessageWrapper[_v2.StatusResponse], _StatusResponse):
     proto_class = _v2.StatusResponse
     __slots__ = list(_v2.StatusResponse.DESCRIPTOR.fields_by_name)
-
-    @classmethod
-    @class_init_proxier(_v2.StatusResponse.__init__)
-    def init(cls, *args, **kwargs):
-        return super().init(*args, **kwargs)
 
     def iter_ecu_status(self) -> Generator[Tuple[str, FailureType, Status], None, None]:
         """

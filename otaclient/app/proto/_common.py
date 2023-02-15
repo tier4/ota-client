@@ -16,41 +16,24 @@
 from __future__ import annotations
 import io
 from abc import abstractmethod
-from enum import IntEnum
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
-from typing import cast, Any, List, Optional, Generic, Type, TypeVar, Generic, Callable
-from typing_extensions import Concatenate, Self, ParamSpec
+from typing import (
+    cast,
+    overload,
+    Any,
+    List,
+    Optional,
+    Generic,
+    Type,
+    TypeVar,
+    Generic,
+)
+from typing_extensions import Self
 
-_MessageType = TypeVar("_MessageType", bound=_Message)
+_MessageType = TypeVar("_MessageType")
 
 # helper method
-P, T = ParamSpec("P"), TypeVar("T")
-
-
-def class_init_proxier(
-    unbounded_init: Callable[Concatenate[Any, P], None]  # signature of __init__
-) -> Callable[[Callable[..., T]], Callable[Concatenate[Type[T], P], T]]:
-    """A decorate that copies the signatures of source class __init__ method and
-    passes the signature to the wrapper method.
-
-    The use case is a proxy/wrapper class(annotated by <T>) that initializes itself
-    with source class init args/kwargs, returns an instance of the wrapper class with
-    input args/kwargs assigned.
-
-    Inspired by https://github.com/python/typing/issues/270#issuecomment-1346124813
-    """
-
-    def _outer_wrapper(
-        proxier: Callable[..., T]
-    ) -> Callable[Concatenate[Type[T], P], T]:
-        # functools.wrap is not used as we actually only need type hinting
-        def _inner_wrapper(cls: Any, /, *args: P.args, **kwargs: P.kwargs) -> T:
-            return proxier(cls, *args, **kwargs)
-
-        return _inner_wrapper
-
-    return _outer_wrapper
 
 
 def _general_converter(_value: Any, _field_type=None) -> Any:
@@ -79,24 +62,6 @@ class _ProtobufConverter(Generic[_MessageType]):
     proto_class: Type[_MessageType]
 
     @classmethod
-    def init(cls, *args, **kwargs) -> Self:
-        """Create a wrapper instance directly with optional input attrs.
-        All the input attrs are expected to be converted in the first place.
-
-        This method should be used when manually create a wrapper instance
-        without convert method to align with protobuf message type behavior.
-        All unset attrs will have default value assigned.
-
-        NOTE: recursive message is NOT supported!
-        """
-        res = cls.convert(cls.proto_class())
-        for _attrn, _attrv in kwargs.items():
-            if isinstance(_attrv, list):
-                _attrv = ListLikeContainerWrapper(_attrv)
-            setattr(res, _attrn, _attrv)
-        return res
-
-    @classmethod
     @abstractmethod
     def convert(cls, _in: _MessageType) -> Self:
         raise NotImplementedError
@@ -119,7 +84,7 @@ class TypeConverterRegister(Generic[_MessageType]):
     def register(
         cls,
         message_type: Type[_MessageType],
-        converter_type: Type[_ProtobufConverter],
+        converter_type: Type[_ProtobufConverter[_MessageType]],
     ):
         if not message_type in cls.TYPE_CONVERTER_REGISTER:
             cls.TYPE_CONVERTER_REGISTER[message_type] = converter_type
@@ -208,6 +173,10 @@ class ListLikeContainerWrapper(_ProtobufConverter[List[Any]], list):  # type: ig
         return _res
 
 
+# all list in wrapper should be converted to ListLikeContainerWrapper
+TypeConverterRegister.register(list, ListLikeContainerWrapper)
+
+
 # message converter
 
 
@@ -217,16 +186,69 @@ class MessageWrapperBase(Generic[_MessageType]):
     proto_class: Type[_MessageType]
     __slots__ = []
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, /, **kwargs):
         """Get all attrs from a protobuf class inst and then bind to this inst.
-        All the input kwargs are expected to be converted.
+        All the input kwargs are expected to be converted by __new__ method from
+        MessageWrapper.
 
-        NOTE: <args> is ignored, always use <kwargs>
+        __init__ method is defined here to be hidden by typing.cast to not override
+        the wrapped protoclass' __init__ signature when type checking.
+
+        Only kwargs are allowed.
         """
         for _key in self.__slots__:
-            if (_value := kwargs.get(_key, None)) is not None:
-                _value = _general_converter(_value)
-                setattr(self, _key, _value)
+            setattr(self, _key, kwargs.get(_key))
+
+
+class MessageWrapper(_ProtobufConverter[_MessageType]):
+    proto_class: Type[_MessageType]
+    __slots__ = []
+
+    # internal
+
+    @overload
+    def __new__(cls, _in: _MessageType, /) -> Self:
+        ...
+
+    @overload
+    def __new__(cls, /, **kwargs) -> Self:
+        ...
+
+    def __new__(cls, _in=None, **kwargs) -> Self:
+        parsed_kwargs = {}
+        if _in:  # initialize by converting an incoming protobuf message
+            if not isinstance(_in, cls.proto_class):
+                raise TypeError(
+                    f"wrong input type, expect={cls.proto_class}, in={_in.__class__}"
+                )
+            # only capture the attrs presented in this wrapper class' __slots__
+            for _attrn in cls.__slots__:
+                _attrv = getattr(_in, _attrn)
+                parsed_kwargs[_attrn] = _general_converter(_attrv)
+        else:  # initialize by manually create wrapper instance
+            # Create a wrapper instance directly with optional input attrs.
+            # NOTE: recursive message is NOT supported!
+            _template = cls.proto_class()
+            for _attrn in cls.__slots__:
+                # assign from default value if attr for attrn is not specified
+                if (_attrv := kwargs.get(_attrn, None)) is None:
+                    _attrv = getattr(_template, _attrn)
+                parsed_kwargs[_attrn] = _general_converter(_attrv)
+        return cls(**parsed_kwargs)
+
+    def __getitem__(self, __name: str) -> Any:
+        return getattr(self, __name)
+
+    def __setitem__(self, __name: str, __value: Any):
+        return setattr(self, __name, _general_converter(__value))
+
+    def __eq__(self, __o: object) -> bool:
+        if self.__class__ != __o.__class__:
+            return False
+        for _attrn in self.__slots__:
+            if getattr(self, _attrn) != getattr(__o, _attrn):
+                return False
+        return True
 
     def __str__(self) -> str:
         _buffer = io.StringIO()
@@ -243,44 +265,12 @@ class MessageWrapperBase(Generic[_MessageType]):
         _buffer.write("}")
         return _buffer.getvalue()
 
-
-class MessageWrapper(_ProtobufConverter[_MessageType]):
-    proto_class: Type[_MessageType]
-    __slots__ = []
-
-    def __getitem__(self, __name: str) -> Any:
-        return getattr(self, __name)
-
-    def __setitem__(self, __name: str, __value: Any):
-        return setattr(self, __name, _general_converter(__value))
-
-    def __eq__(self, __o: object) -> bool:
-        if self.__class__ != __o.__class__:
-            return False
-        for _attrn in self.__slots__:
-            if getattr(self, _attrn) != getattr(__o, _attrn):
-                return False
-        return True
-
     # public API
 
     @classmethod
     def convert(cls, _in: _MessageType) -> Self:
         """Copy and wrap input message into a new wrapper instance."""
-        if not isinstance(_in, cls.proto_class):
-            raise TypeError(
-                f"wrong input type, expect={cls.proto_class}, in={_in.__class__}"
-            )
-
-        _kwargs = {}
-        # only capture the attrs presented in this wrapper class' __slots__
-        for _attrn in cls.__slots__:
-            try:
-                _attrv = getattr(_in, _attrn)
-                _kwargs[_attrn] = _general_converter(_attrv)
-            except AttributeError:
-                pass
-        return cls(**_kwargs)
+        return cls(_in)
 
     def export_pb(self) -> _MessageType:
         """Export as protobuf message class inst."""
