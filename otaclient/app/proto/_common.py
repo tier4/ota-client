@@ -46,7 +46,7 @@ _NORMAL_PYTHON_TYPES = (float, int, str, bytes, bool)
 # converter base
 
 
-def parse_type_hint(cls: Type[MessageWrapper]) -> Type[MessageWrapper]:
+def parse_type_hint(cls: Type[_T]) -> Type[_T]:
     """Parse type annotations defined in wrapper class."""
     if not issubclass(cls, MessageWrapper):
         raise TypeError(
