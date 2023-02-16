@@ -25,6 +25,7 @@ from typing import (
     get_origin,
     get_args,
     Any,
+    Dict,
     List,
     Iterable,
     Generic,
@@ -66,13 +67,13 @@ _WrappedMessageType = TypeVar("_WrappedMessageType", bound=ProtobufConverter)
 # helper method
 
 
-def _reveal_field_type(tp: Type[_T]) -> Type[_T]:
-    return _origin if (_origin := get_origin(tp)) else tp
+def _reveal_origin_type(tp: Type[_T]) -> Type[_T]:
+    return _revealed_tp if (_revealed_tp := get_origin(tp)) else tp
 
 
 def _convert_helper(
     _value: Any,
-    _annotated_wrapper_field_type: Union[Type[_NormalType], Type[_WrappedMessageType]],
+    _annotated_type: Union[Type[_NormalType], Type[_WrappedMessageType]],
 ) -> Union[_NormalType, _WrappedMessageType]:
     """Take any input, and convert it to wrapped version if needed.
 
@@ -82,38 +83,33 @@ def _convert_helper(
     - protobuf message will be converted to corresponding wrapper's instance,
     - iterable value will be consumed and converted into container wrapper types,
     """
+    # directly return on already converted
     if isinstance(_value, ProtobufConverter):
         return _value  # type: ignore
-
-    # get the real field type from _annotated_type
-    if not (
-        _origin_wrapper_field_type := _reveal_field_type(_annotated_wrapper_field_type)
-    ):
-        _origin_wrapper_field_type = _annotated_wrapper_field_type
-
     # NOTE: don't use isinstance() to check wether _value is normal type
     #       as protobuf enum and Duration both inherits from int
     if type(_value) in _NORMAL_PYTHON_TYPES:
         return _value
-    elif isinstance(_value, Iterable):
-        if issubclass(_origin_wrapper_field_type, RepeatedScalarContainer):
-            return _origin_wrapper_field_type.convert(_value)
-        elif issubclass(_origin_wrapper_field_type, RepeatedCompositeContainer):
-            return _origin_wrapper_field_type.convert(
-                _value,
-                annotation=_annotated_wrapper_field_type,
-            )
+
+    # parsing complicated things...
+    # get the real field type from annotation
+    if (_field_type := get_origin(_annotated_type)) is None:
+        _field_type = _annotated_type
+
+    if isinstance(_value, Iterable):
+        if issubclass(_field_type, RepeatedScalarContainer):
+            return _field_type.convert(_value)
+        elif issubclass(_field_type, RepeatedCompositeContainer):
+            return _field_type.convert(_value, annotation=_annotated_type)
         else:
             raise TypeError(
-                f"failed to convert list like field {_value=}, {_annotated_wrapper_field_type=}"
+                f"failed to convert list like field {_value=}, {_annotated_type=}"
             )
     # if converter is available, always use it
-    elif issubclass(_origin_wrapper_field_type, ProtobufConverter):
-        return _origin_wrapper_field_type.convert(_value)
-    else:
-        raise TypeError(
-            f"failed to convert {_value}({type(_value)}) to {_annotated_wrapper_field_type=}"
-        )
+    elif issubclass(_field_type, ProtobufConverter):
+        return _field_type.convert(_value)
+
+    raise TypeError(f"failed to convert {_value}({type(_value)}) to {_annotated_type=}")
 
 
 # well-known type converter
@@ -262,6 +258,8 @@ ProtobufConverter.register(EnumWrapper)
 class MessageWrapper(ProtobufConverter[_MessageType]):
     proto_class: Type[_MessageType]
     __slots__: List[str] = []
+    _type_hints: Dict[str, Any] = {}
+    _field_types: Dict[str, Any] = {}
 
     # internal
     @overload
@@ -273,31 +271,36 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         """Initialize by manually creating wrapper instance."""
 
     def __new__(cls, _in=None, /, **kwargs) -> Self:
-        _fields_annotation = get_type_hints(cls)
+        # first time initializing
+        if not cls._type_hints:
+            cls._type_hints = get_type_hints(cls)
+            cls._field_types = {
+                _n: _reveal_origin_type(_t) for _n, _t in cls._type_hints.items()
+            }
 
         parsed_kwargs = {}
         if _in:  # initialize by converting an incoming protobuf message
             if isinstance(_in, cls):
                 return _in
-            elif not isinstance(_in, cls.proto_class):
+            if not isinstance(_in, cls.proto_class):
                 raise TypeError(f"expect={cls.proto_class}, in={_in.__class__}")
+
             # only capture the attrs presented in this wrapper class' __slots__
             for _attrn in cls.__slots__:
                 parsed_kwargs[_attrn] = _convert_helper(
                     getattr(_in, _attrn),
-                    _fields_annotation[_attrn],
+                    cls._type_hints[_attrn],
                 )
         else:  # initialize by manually create wrapper instance
-            # Create a wrapper instance directly with optional input attrs.
-            _template = cls.proto_class()
             for _attrn in cls.__slots__:
-                # assign default value if not input value
-                if (_attrv := kwargs.get(_attrn, None)) is None:
-                    _attrv = getattr(_template, _attrn)
-                parsed_kwargs[_attrn] = _convert_helper(
-                    _attrv,
-                    _fields_annotation[_attrn],
-                )
+                if not _attrn in kwargs:
+                    # let the constructor do the job
+                    parsed_kwargs[_attrn] = cls._field_types[_attrn]()
+                else:
+                    parsed_kwargs[_attrn] = _convert_helper(
+                        kwargs[_attrn],
+                        cls._type_hints[_attrn],
+                    )
 
         (_inst := super().__new__(cls))._post_init(**parsed_kwargs)
         return _inst
