@@ -16,7 +16,6 @@
 from __future__ import annotations
 from abc import abstractmethod, ABC
 from enum import IntEnum
-from copy import deepcopy
 from io import StringIO
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
@@ -36,22 +35,24 @@ from typing import (
 from typing_extensions import Self
 
 
-_T = TypeVar("_T")  # any generic types
+_T = TypeVar("_T")
 _MessageType = TypeVar("_MessageType")  # expected to cover all protobuf types, and list
+# built-in python types that directly being used in protobuf message
 _NormalType = TypeVar("_NormalType", float, int, str, bytes, bool)
-_normal_types = (float, int, str, bytes, bool)
+_NORMAL_PYTHON_TYPES = (float, int, str, bytes, bool)
+
 
 # converter base
 
 
-class _ProtobufConverter(Generic[_MessageType], ABC):
+class ProtobufConverter(Generic[_MessageType], ABC):
     """Base class for all message converter class."""
 
     proto_class: Type[_MessageType]
 
     @classmethod
     @abstractmethod
-    def convert(cls, _in: _MessageType) -> Self:
+    def convert(cls, _in: _MessageType, /, **kwargs) -> Self:
         raise NotImplementedError
 
     @abstractmethod
@@ -59,32 +60,59 @@ class _ProtobufConverter(Generic[_MessageType], ABC):
         raise NotImplementedError
 
 
-_WrappedMessageType = TypeVar("_WrappedMessageType", bound=_ProtobufConverter)
+_WrappedMessageType = TypeVar("_WrappedMessageType", bound=ProtobufConverter)
 
 
 # helper method
 
 
-def _reveal_field_type(tp: Any) -> type:
+def _reveal_field_type(tp: Type[_T]) -> Type[_T]:
     return _origin if (_origin := get_origin(tp)) else tp
 
 
 def _convert_helper(
-    _value: Any, _annotated_type: Union[Type[_NormalType], Type[_WrappedMessageType]]
+    _value: Any,
+    _annotated_wrapper_field_type: Union[Type[_NormalType], Type[_WrappedMessageType]],
 ) -> Union[_NormalType, _WrappedMessageType]:
-    # if converter is available, always use it
-    if issubclass(_annotated_type, _ProtobufConverter):
-        return _annotated_type.convert(_value)
-    elif issubclass(_annotated_type, _normal_types):
+    """Take any input, and convert it to wrapped version if needed.
+
+    The convertion rules are as follow:
+    - values in normal built-in python types will be return as it,
+    - already converted messages will be return as it,
+    - protobuf message will be converted to corresponding wrapper's instance,
+    - iterable value will be consumed and converted into container wrapper types,
+    """
+    if isinstance(_value, ProtobufConverter):
+        return _value  # type: ignore
+
+    # get the real field type from _annotated_type
+    if not (
+        _origin_wrapper_field_type := _reveal_field_type(_annotated_wrapper_field_type)
+    ):
+        _origin_wrapper_field_type = _annotated_wrapper_field_type
+
+    # NOTE: don't use isinstance() to check wether _value is normal type
+    #       as protobuf enum and Duration both inherits from int
+    if type(_value) in _NORMAL_PYTHON_TYPES:
         return _value
-    # always convert iterable into container wrapper
-    elif issubclass(
-        _annotated_type, (RepeatedCompositeContainer, RepeatedScalarContainer)
-    ) and isinstance(_value, Iterable):
-        return _annotated_type(_value)
+    elif isinstance(_value, Iterable):
+        if issubclass(_origin_wrapper_field_type, RepeatedScalarContainer):
+            return _origin_wrapper_field_type.convert(_value)
+        elif issubclass(_origin_wrapper_field_type, RepeatedCompositeContainer):
+            return _origin_wrapper_field_type.convert(
+                _value,
+                annotation=_annotated_wrapper_field_type,
+            )
+        else:
+            raise TypeError(
+                f"failed to convert list like field {_value=}, {_annotated_wrapper_field_type=}"
+            )
+    # if converter is available, always use it
+    elif issubclass(_origin_wrapper_field_type, ProtobufConverter):
+        return _origin_wrapper_field_type.convert(_value)
     else:
         raise TypeError(
-            f"failed to convert {_value}({type(_value)}) to {_annotated_type=}"
+            f"failed to convert {_value}({type(_value)}) to {_annotated_wrapper_field_type=}"
         )
 
 
@@ -96,14 +124,20 @@ def _convert_helper(
 #       whenever Duration protobuf type is used.
 
 
-class DurationWrapper(_ProtobufConverter[_Duration], int):
-    """Convert and store protobuf Duration counted by nanoseconds as int."""
+class DurationWrapper(ProtobufConverter[_Duration], int):
+    """Convert and store protobuf Duration counted by nanoseconds as int.
+
+    NOTE: this wrapper inherits from int, so be very careful when distinguish
+          it with normal python type int(isinstance should not be used!).
+    """
 
     proto_class = _Duration
 
     @classmethod
-    def convert(cls, _in: _Duration) -> Self:
-        return cls(_in.ToNanoseconds())
+    def convert(cls, _in: Union[_Duration, Self]) -> Self:
+        if isinstance(_in, _Duration):
+            return cls(_in.ToNanoseconds())
+        return _in
 
     def export_pb(self) -> _Duration:
         (_res := self.proto_class()).FromNanoseconds(self)
@@ -139,18 +173,33 @@ class _ContainerBase(List[_T]):
 
 
 class RepeatedCompositeContainer(
-    _ContainerBase[_WrappedMessageType], _ProtobufConverter[List[_MessageType]]
+    _ContainerBase[_WrappedMessageType], ProtobufConverter[List[_MessageType]]
 ):
     proto_class = list  # placeholder, not use!
 
     @classmethod
-    def convert(cls, _in: Iterable[_MessageType]) -> Self:
-        # get_args(cls) = [_WrappedMessageType, _MessageType]
-        _element_type = _reveal_field_type(get_args(cls)[0])
+    def convert(
+        cls,
+        _in: Union[Iterable[_MessageType], Iterable[_WrappedMessageType]],
+        /,
+        annotation: Any,
+    ) -> Self:
+        # NOTE: a proper type hinted repeated field in wrapper definition should have
+        #       get_args(annotation) = (<element_wrapper_type>, <protobuf_message_type>)
+        if len(_types_tuple := get_args(annotation)) != 2:
+            raise TypeError("repeated field is not properly type annotated")
+        if not issubclass(_wrapper_type := _types_tuple[0], ProtobufConverter):
+            raise TypeError("badly annotated repeated field")
 
         res = cls()
         for _entry in _in:
-            res.append(_convert_helper(_entry, _element_type))
+            # type check and skip already converted elements
+            if isinstance(_entry, ProtobufConverter):
+                if not isinstance(_entry, _wrapper_type):
+                    raise TypeError(f"expect {_wrapper_type}, but get {type(_entry)=}")
+                res.append(_entry)  # type: ignore
+            else:
+                res.append(_wrapper_type.convert(_entry))  # type: ignore
         return res
 
     def export_pb(self) -> List[_MessageType]:
@@ -158,16 +207,22 @@ class RepeatedCompositeContainer(
 
 
 class RepeatedScalarContainer(
-    _ContainerBase[_NormalType], _ProtobufConverter[List[_NormalType]]
+    _ContainerBase[_NormalType], ProtobufConverter[List[_NormalType]]
 ):
     proto_class = list  # placeholder, not use!
 
     @classmethod
-    def convert(cls, _in: Iterable[_NormalType]) -> List[_NormalType]:
-        return cls(_in)
+    def convert(cls, _in: Iterable[_NormalType]) -> Self:
+        # conduct type checks over all elements
+        res = cls()
+        for _entry in _in:
+            if type(_entry) not in _NORMAL_PYTHON_TYPES:
+                raise TypeError
+            res.append(_entry)
+        return res
 
     def export_pb(self) -> List[_NormalType]:
-        return deepcopy(self)
+        return self.copy()
 
 
 # enum converter
@@ -180,11 +235,13 @@ class RepeatedScalarContainer(
 
 class EnumWrapper(IntEnum):
     @classmethod
-    def convert(cls, _in: Union[int, str]) -> Self:
+    def convert(cls, _in: Union[int, str, Self]) -> Self:
         if isinstance(_in, int):
             return cls(_in)
         elif isinstance(_in, str):
             return cls[_in]
+        elif isinstance(_in, cls):
+            return _in
         else:
             raise TypeError(f"cannot convert {_in} into {cls}")
 
@@ -194,13 +251,13 @@ class EnumWrapper(IntEnum):
 
 # NOTE: EnumWrapper cannot directly inherit from _ProtobufConverter,
 #       so we virtually inherit by registering to _ProtobufConverter
-_ProtobufConverter.register(EnumWrapper)
+ProtobufConverter.register(EnumWrapper)
 
 
 # message converter
 
 
-class MessageWrapper(_ProtobufConverter[_MessageType]):
+class MessageWrapper(ProtobufConverter[_MessageType]):
     proto_class: Type[_MessageType]
     __slots__: List[str] = []
 
@@ -218,15 +275,15 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
 
         parsed_kwargs = {}
         if _in:  # initialize by converting an incoming protobuf message
-            if not isinstance(_in, cls.proto_class):
-                raise TypeError(
-                    f"wrong input type, expect={cls.proto_class}, in={_in.__class__}"
-                )
+            if isinstance(_in, cls):
+                return _in
+            elif not isinstance(_in, cls.proto_class):
+                raise TypeError(f"expect={cls.proto_class}, in={_in.__class__}")
             # only capture the attrs presented in this wrapper class' __slots__
             for _attrn in cls.__slots__:
                 parsed_kwargs[_attrn] = _convert_helper(
                     getattr(_in, _attrn),
-                    _reveal_field_type(_fields_annotation[_attrn]),
+                    _fields_annotation[_attrn],
                 )
         else:  # initialize by manually create wrapper instance
             # Create a wrapper instance directly with optional input attrs.
@@ -237,7 +294,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
                     _attrv = getattr(_template, _attrn)
                 parsed_kwargs[_attrn] = _convert_helper(
                     _attrv,
-                    _reveal_field_type(_fields_annotation[_attrn]),
+                    _fields_annotation[_attrn],
                 )
 
         (_inst := super().__new__(cls))._post_init(**parsed_kwargs)
@@ -248,8 +305,8 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
         All the input kwargs are converted by __new__ method from
         MessageWrapper.
 
-        Note that normal __init__ is not used to avoid override the __init__
-        signature from wrapped protobuf message.
+        Note that normal __init__ is not used to allow type hintings on __init__
+            without assigning all attributes again.
         """
         for _key in self.__slots__:
             setattr(self, _key, kwargs.get(_key))
@@ -258,7 +315,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
         return getattr(self, __name)
 
     def __setitem__(self, __name: str, __value: Any):
-        if not isinstance(__value, _ProtobufConverter):
+        if not isinstance(__value, ProtobufConverter):
             raise TypeError("should not assign original protobuf message to wrapper")
         return setattr(self, __name, __value)
 
@@ -292,7 +349,7 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
     @classmethod
     def convert(cls, _in: _MessageType) -> Self:
         """Copy and wrap input message into a new wrapper instance."""
-        return cls(_in)
+        return cls(_in)  # actual converting is handled by __new__
 
     def export_pb(self) -> _MessageType:
         """Export as protobuf message class inst."""
@@ -304,14 +361,14 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
                 continue
 
             # if _value is the converted version, export to pb first
-            if isinstance(_value, _ProtobufConverter):
+            if isinstance(_value, ProtobufConverter):
                 # for message, we should use <CopyFrom> API to assign the value
                 if issubclass(_value.proto_class, _Message):
                     getattr(_res, _key).CopyFrom(_value.export_pb())
                 # for repeated field, use <extend> API to assign
                 elif isinstance(_value, _ContainerBase):
                     getattr(_res, _key).extend(_value.export_pb())
-                else:  # for any other non-Message protobuf type
+                else:  # for any other non-Message protobuf type, like enum type
                     setattr(_res, _key, _value.export_pb())
             else:  # for attr in normal python type, directly assign
                 setattr(_res, _key, _value)
