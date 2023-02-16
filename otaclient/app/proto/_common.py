@@ -15,31 +15,37 @@
 
 from __future__ import annotations
 from abc import abstractmethod, ABC
+from enum import IntEnum
 from copy import deepcopy
 from io import StringIO
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import (
+    Union,
     overload,
+    get_type_hints,
+    get_origin,
+    get_args,
     Any,
     List,
+    Iterable,
     Optional,
     Generic,
     Type,
     TypeVar,
-    Generic,
 )
 from typing_extensions import Self
 
 
 _T = TypeVar("_T")  # any generic types
-_MessageType = TypeVar("_MessageType", bound=_Message)
-_NormalType = TypeVar("_NormalType")  # other types other than protobuf message type
+_MessageType = TypeVar("_MessageType")  # expected to cover all protobuf types, and list
+_NormalType = TypeVar("_NormalType", float, int, str, bytes, bool)
+_normal_types = (float, int, str, bytes, bool)
 
 # converter base
 
 
-class _ProtobufConverter(Generic[_MessageType]):
+class _ProtobufConverter(Generic[_MessageType], ABC):
     """Base class for all message converter class."""
 
     proto_class: Type[_MessageType]
@@ -54,63 +60,33 @@ class _ProtobufConverter(Generic[_MessageType]):
         raise NotImplementedError
 
 
-_WrappedMessageType = TypeVar("_WrappedMessageType", bound=_ProtobufConverter)
+_WrappedMessageType = _ProtobufConverter
+
 
 # helper method
 
 
-@overload
+def _reveal_field_type(tp: Any) -> type:
+    return _origin if (_origin := get_origin(tp)) else tp
+
+
 def _convert_helper(
-    _value: _MessageType, _field_type: Optional[Type[_MessageType]] = None
-) -> _WrappedMessageType:  # type: ignore
-    ...
-
-
-@overload
-def _convert_helper(
-    _value: _NormalType, _field_type: Optional[Type[_NormalType]] = None
-) -> _NormalType:
-    ...
-
-
-def _convert_helper(_value, _field_type=None):
-    """For message types that have corresponding converter,
-    convert the message to wrapped version using the converter."""
-    if not _field_type:
-        _field_type = type(_value)
-
-    # if converter for this type is available, always use it
-    if _converter := TypeConverterRegister.get_converter(_field_type):
-        return _converter.convert(_value)
-    # protobuf message type must have a converter
-    elif isinstance(_value, _Message) and not isinstance(_value, MessageWrapper):
-        raise NotImplementedError(
-            f"converter for protobuf type {_field_type} is not implemented"
-        )
-    else:
-        # for type without converter defined and not protobuf message type
+    _value: Any, _annotated_type: type
+) -> Union[_NormalType, _WrappedMessageType]:
+    # if converter is available, always use it
+    if issubclass(_annotated_type, _ProtobufConverter):
+        return _annotated_type.convert(_value)
+    elif issubclass(_annotated_type, _normal_types):
         return _value
-
-
-# the converter mapping between protobuf message/container type and converter type
-
-
-class TypeConverterRegister:
-    TYPE_CONVERTER_REGISTER = {}
-
-    def __new__(cls, *args, **kwargs) -> None:
-        raise ValueError("this class should not be instantiated")
-
-    @classmethod
-    def register(cls, message_type, converter_type) -> None:
-        if not message_type in cls.TYPE_CONVERTER_REGISTER:
-            cls.TYPE_CONVERTER_REGISTER[message_type] = converter_type
-
-    @classmethod
-    def get_converter(
-        cls, message_type, default=None
-    ) -> Optional[Type[_ProtobufConverter[Any]]]:
-        return cls.TYPE_CONVERTER_REGISTER.get(message_type, default)
+    # always convert iterable into container wrapper
+    elif issubclass(
+        _annotated_type, (RepeatedCompositeContainer, RepeatedScalarContainer)
+    ) and isinstance(_value, Iterable):
+        return _annotated_type(_value)
+    else:
+        raise TypeError(
+            f"failed to convert {_value}({type(_value)}) to {_annotated_type=}"
+        )
 
 
 # well-known type converter
@@ -149,7 +125,7 @@ class DurationWrapper(_ProtobufConverter[_Duration], int):
 #       not be directly used.
 
 
-class _ContainerBase(List[_T], ABC):
+class _ContainerBase(List[_T]):
     def __str__(self) -> str:
         _buffer = StringIO()
         _buffer.write("[\n")
@@ -160,18 +136,22 @@ class _ContainerBase(List[_T], ABC):
         _buffer.write("]")
         return _buffer.getvalue()
 
+    __repr__ = __str__
+
 
 class RepeatedCompositeContainer(
-    _ContainerBase[_WrappedMessageType],
-    _ProtobufConverter[List[_MessageType]],  # type: ignore
+    _ContainerBase[_WrappedMessageType], _ProtobufConverter[List[_MessageType]]
 ):
     proto_class = list  # placeholder, not use!
 
     @classmethod
-    def convert(cls, _in: List[_MessageType]) -> Self:
+    def convert(cls, _in: Iterable[_MessageType]) -> Self:
+        # get_args(cls) = [_WrappedMessageType, _MessageType]
+        _element_type = _reveal_field_type(get_args(cls)[0])
+
         res = cls()
         for _entry in _in:
-            res.append(_convert_helper(_entry))
+            res.append(_convert_helper(_entry, _element_type))
         return res
 
     def export_pb(self) -> List[_MessageType]:
@@ -179,17 +159,43 @@ class RepeatedCompositeContainer(
 
 
 class RepeatedScalarContainer(
-    _ContainerBase[_NormalType],
-    _ProtobufConverter[List[_NormalType]],  # type: ignore
+    _ContainerBase[_NormalType], _ProtobufConverter[List[_NormalType]]
 ):
     proto_class = list  # placeholder, not use!
 
     @classmethod
-    def convert(cls, _in: List[_NormalType]) -> List[_NormalType]:
+    def convert(cls, _in: Iterable[_NormalType]) -> List[_NormalType]:
         return cls(_in)
 
     def export_pb(self) -> List[_NormalType]:
         return deepcopy(self)
+
+
+# enum converter
+
+# NOTE: as for protoc==3.21.11, protobuf==4.21.12, at runtime the
+#       type of protobuf Enum value is int, the enum value itself
+#       is not the instance of any Enum type defined in generated
+#       protobuf types.
+
+
+class EnumWrapper(IntEnum):
+    @classmethod
+    def convert(cls, _in: Union[int, str]) -> Self:
+        if isinstance(_in, int):
+            return cls(_in)
+        elif isinstance(_in, str):
+            return cls[_in]
+        else:
+            raise TypeError(f"cannot convert {_in} into {cls}")
+
+    def export_pb(self) -> int:
+        return self.value
+
+
+# NOTE: EnumWrapper cannot directly inherit from _ProtobufConverter,
+#       so we virtually inherit by registering to _ProtobufConverter
+_ProtobufConverter.register(EnumWrapper)
 
 
 # message converter
@@ -209,6 +215,8 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
         """Initialize by manually creating wrapper instance."""
 
     def __new__(cls, _in=None, /, **kwargs) -> Self:
+        _fields_annotation = get_type_hints(cls)
+
         parsed_kwargs = {}
         if _in:  # initialize by converting an incoming protobuf message
             if not isinstance(_in, cls.proto_class):
@@ -217,20 +225,21 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
                 )
             # only capture the attrs presented in this wrapper class' __slots__
             for _attrn in cls.__slots__:
-                _attrv = getattr(_in, _attrn)
-                parsed_kwargs[_attrn] = _convert_helper(_attrv)
+                parsed_kwargs[_attrn] = _convert_helper(
+                    getattr(_in, _attrn),
+                    _reveal_field_type(_fields_annotation[_attrn]),
+                )
         else:  # initialize by manually create wrapper instance
             # Create a wrapper instance directly with optional input attrs.
-            # NOTE: recursive message is NOT supported!
             _template = cls.proto_class()
             for _attrn in cls.__slots__:
-                # assign from default value if attr for attrn is not specified
+                # assign default value if not input value
                 if (_attrv := kwargs.get(_attrn, None)) is None:
                     _attrv = getattr(_template, _attrn)
-                if isinstance(_attrv, list):
-                    # convert list to either CompositeContainer or ScalarContainer
-                    _attrv = _convert_helper(_attrv, type(getattr(_template, _attrn)))
-                parsed_kwargs[_attrn] = _convert_helper(_attrv)
+                parsed_kwargs[_attrn] = _convert_helper(
+                    _attrv,
+                    _reveal_field_type(_fields_annotation[_attrn]),
+                )
 
         (_inst := super().__new__(cls))._post_init(**parsed_kwargs)
         return _inst
@@ -250,7 +259,9 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
         return getattr(self, __name)
 
     def __setitem__(self, __name: str, __value: Any):
-        return setattr(self, __name, _convert_helper(__value))
+        if not isinstance(__value, _ProtobufConverter):
+            raise TypeError("should not assign original protobuf message to wrapper")
+        return setattr(self, __name, __value)
 
     def __eq__(self, __o: object) -> bool:
         if self.__class__ != __o.__class__:
@@ -274,6 +285,8 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
             _buffer.write(",\n")
         _buffer.write("}")
         return _buffer.getvalue()
+
+    __repr__ = __str__
 
     # public API
 
@@ -304,12 +317,3 @@ class MessageWrapper(_ProtobufConverter[_MessageType]):
             else:  # for attr in normal python type, directly assign
                 setattr(_res, _key, _value)
         return _res
-
-
-# enum type
-
-# NOTE: as for protoc==3.21.11, protobuf==4.21.12, at runtime the
-#       type of protobuf Enum value is int, the enum value itself
-#       is not the instance of any Enum type defined in protobuf
-#       package. So no extra enum wrapper type is defined here,
-#       all enum is used and assigned as int.
