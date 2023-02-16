@@ -20,7 +20,6 @@ from io import StringIO
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import (
-    Union,
     overload,
     get_type_hints,
     get_origin,
@@ -31,6 +30,7 @@ from typing import (
     Generic,
     Type,
     TypeVar,
+    Union,
 )
 from typing_extensions import Self
 
@@ -175,7 +175,7 @@ class _ContainerBase(List[_T]):
 class RepeatedCompositeContainer(
     _ContainerBase[_WrappedMessageType], ProtobufConverter[List[_MessageType]]
 ):
-    proto_class = list  # placeholder, not use!
+    proto_class = _ContainerBase
 
     @classmethod
     def convert(
@@ -209,7 +209,7 @@ class RepeatedCompositeContainer(
 class RepeatedScalarContainer(
     _ContainerBase[_NormalType], ProtobufConverter[List[_NormalType]]
 ):
-    proto_class = list  # placeholder, not use!
+    proto_class = _ContainerBase
 
     @classmethod
     def convert(cls, _in: Iterable[_NormalType]) -> Self:
@@ -249,6 +249,8 @@ class EnumWrapper(IntEnum):
         return self.value
 
 
+# align EnumWrapper to ProtobufConverter spec
+setattr(EnumWrapper, "proto_class", EnumWrapper)
 # NOTE: EnumWrapper cannot directly inherit from _ProtobufConverter,
 #       so we virtually inherit by registering to _ProtobufConverter
 ProtobufConverter.register(EnumWrapper)
@@ -362,14 +364,20 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
 
             # if _value is the converted version, export to pb first
             if isinstance(_value, ProtobufConverter):
-                # for message, we should use <CopyFrom> API to assign the value
+                # for protobuf message, we should use <CopyFrom> API to assign the value
                 if issubclass(_value.proto_class, _Message):
                     getattr(_res, _key).CopyFrom(_value.export_pb())
+                # for value in EnumWrapper type, directly assign exported value
+                elif issubclass(_value.proto_class, EnumWrapper):
+                    setattr(_res, _key, _value.export_pb())
                 # for repeated field, use <extend> API to assign
                 elif isinstance(_value, _ContainerBase):
                     getattr(_res, _key).extend(_value.export_pb())
-                else:  # for any other non-Message protobuf type, like enum type
-                    setattr(_res, _key, _value.export_pb())
-            else:  # for attr in normal python type, directly assign
+                else:
+                    raise ValueError
+            # for attr in normal python type, directly assign
+            elif type(_value) in _NORMAL_PYTHON_TYPES:
                 setattr(_res, _key, _value)
+            else:
+                raise ValueError(f"failed to export {_value=} to {self.proto_class=}")
         return _res
