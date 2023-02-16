@@ -19,7 +19,7 @@ from ._common import (
     ProtobufConverter,
     EnumWrapper,
     MessageWrapper,
-    DurationWrapper,
+    Duration,
     RepeatedCompositeContainer,
     RepeatedScalarContainer,
 )

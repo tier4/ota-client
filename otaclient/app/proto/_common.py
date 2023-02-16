@@ -20,6 +20,7 @@ from io import StringIO
 from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import (
+    Optional,
     overload,
     get_type_hints,
     get_origin,
@@ -48,8 +49,6 @@ _NORMAL_PYTHON_TYPES = (float, int, str, bytes, bool)
 
 class ProtobufConverter(Generic[_MessageType], ABC):
     """Base class for all message converter class."""
-
-    proto_class: Type[_MessageType]
 
     @classmethod
     @abstractmethod
@@ -99,7 +98,7 @@ def _convert_helper(
             MessageWrapper,
             EnumWrapper,
             RepeatedScalarContainer,
-            DurationWrapper,
+            Duration,
         ),
     ):
         return _field_type.convert(_value)
@@ -107,34 +106,6 @@ def _convert_helper(
         return _field_type.convert(_value, annotation=_annotated_type)
 
     raise TypeError(f"failed to convert {_value}({type(_value)}) to {_annotated_type=}")
-
-
-# well-known type converter
-# check https://protobuf.dev/reference/python/python-generated/#wkt for details
-
-# NOTE: only support Duration as we only use Duration currently.
-# NOTE: concrete wrapper implementation should register the DurationWrapper
-#       whenever Duration protobuf type is used.
-
-
-class DurationWrapper(ProtobufConverter[_Duration], int):
-    """Convert and store protobuf Duration counted by nanoseconds as int.
-
-    NOTE: this wrapper inherits from int, so be very careful when distinguish
-          it with normal python type int(isinstance should not be used!).
-    """
-
-    proto_class = _Duration
-
-    @classmethod
-    def convert(cls, _in: Union[_Duration, Self]) -> Self:
-        if isinstance(_in, _Duration):
-            return cls(_in.ToNanoseconds())
-        return _in
-
-    def export_pb(self) -> _Duration:
-        (_res := self.proto_class()).FromNanoseconds(self)
-        return _res
 
 
 # container converter
@@ -168,8 +139,6 @@ class _ContainerBase(List[_T]):
 class RepeatedCompositeContainer(
     _ContainerBase[_WrappedMessageType], ProtobufConverter[List[_MessageType]]
 ):
-    proto_class = _ContainerBase
-
     @classmethod
     def convert(
         cls,
@@ -202,8 +171,6 @@ class RepeatedCompositeContainer(
 class RepeatedScalarContainer(
     _ContainerBase[_NormalType], ProtobufConverter[List[_NormalType]]
 ):
-    proto_class = _ContainerBase
-
     @classmethod
     def convert(cls, _in: Iterable[_NormalType]) -> Self:
         # conduct type checks over all elements
@@ -252,8 +219,6 @@ class EnumWrapper(IntEnum, metaclass=_DefaultValueEnumMeta):
         return self.value
 
 
-# align EnumWrapper to ProtobufConverter spec
-setattr(EnumWrapper, "proto_class", EnumWrapper)
 # NOTE: EnumWrapper cannot directly inherit from _ProtobufConverter,
 #       so we virtually inherit by registering to _ProtobufConverter
 ProtobufConverter.register(EnumWrapper)
@@ -389,7 +354,7 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
             elif isinstance(_value, EnumWrapper):
                 setattr(_res, _field, _value.export_pb())
             # normal message and well-known types
-            elif isinstance(_value, (MessageWrapper, DurationWrapper)):
+            elif isinstance(_value, (MessageWrapper, Duration)):
                 getattr(_res, _field).CopyFrom(_value.export_pb())
             # repeated field
             elif isinstance(
@@ -399,3 +364,42 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
             else:
                 raise ValueError(f"failed to export {_value=} to {self.proto_class=}")
         return _res
+
+
+# well-known type converter
+# check https://protobuf.dev/reference/python/python-generated/#wkt for details
+
+# NOTE: only support Duration as we only use Duration currently.
+# NOTE: concrete wrapper implementation should register the DurationWrapper
+#       whenever Duration protobuf type is used.
+
+
+class Duration(MessageWrapper[_Duration]):
+    """Wrapper for protobuf well-known type Duration.
+
+    NOTE: this wrapper supports directly adding nanoseconds.
+    """
+
+    proto_class = _Duration
+    __slots__ = ["seconds", "nanos"]
+    seconds: int
+    nanos: int
+    _ns2s = 1_000_000_000
+
+    def __init__(
+        self, seconds: Optional[int] = ..., nanos: Optional[int] = ...
+    ) -> None:
+        ...
+
+    @classmethod
+    def from_nanoseconds(cls, _ns: int) -> Self:
+        seconds, nanos = divmod(_ns, cls._ns2s)
+        return cls(seconds=seconds, nanos=nanos)
+
+    def add_nanoseconds(self, _ns: int):
+        self.seconds, self.nanos = divmod(_ns, self._ns2s)
+
+    def __add__(self, _o: int):
+        if not isinstance(_o, int):
+            raise TypeError
+        self.add_nanoseconds(_o)

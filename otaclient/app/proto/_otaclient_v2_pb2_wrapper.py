@@ -37,7 +37,7 @@ from typing_extensions import Self
 from ._common import (
     EnumWrapper,
     MessageWrapper,
-    DurationWrapper,
+    Duration,
     RepeatedCompositeContainer,
     RepeatedScalarContainer,
 )
@@ -162,9 +162,9 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress]):
     proto_class = _v2.StatusProgress
     __slots__ = list(_v2.StatusProgress.DESCRIPTOR.fields_by_name)
     download_bytes: int
-    elapsed_time_copy: DurationWrapper
-    elapsed_time_download: DurationWrapper
-    elapsed_time_link: DurationWrapper
+    elapsed_time_copy: Duration
+    elapsed_time_download: Duration
+    elapsed_time_link: Duration
     errors_download: int
     file_size_processed_copy: int
     file_size_processed_download: int
@@ -174,7 +174,7 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress]):
     files_processed_link: int
     phase: StatusProgressPhase
     regular_files_processed: int
-    total_elapsed_time: DurationWrapper
+    total_elapsed_time: Duration
     total_regular_file_size: int
     total_regular_files: int
 
@@ -189,12 +189,12 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress]):
         file_size_processed_copy: Optional[int] = ...,
         file_size_processed_link: Optional[int] = ...,
         file_size_processed_download: Optional[int] = ...,
-        elapsed_time_copy: Optional[DurationWrapper] = ...,
-        elapsed_time_link: Optional[DurationWrapper] = ...,
-        elapsed_time_download: Optional[DurationWrapper] = ...,
+        elapsed_time_copy: Optional[Duration] = ...,
+        elapsed_time_link: Optional[Duration] = ...,
+        elapsed_time_download: Optional[Duration] = ...,
         errors_download: Optional[int] = ...,
         total_regular_file_size: Optional[int] = ...,
-        total_elapsed_time: Optional[DurationWrapper] = ...,
+        total_elapsed_time: Optional[Duration] = ...,
         download_bytes: Optional[int] = ...,
     ) -> None:
         ...
