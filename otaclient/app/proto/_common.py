@@ -301,8 +301,6 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         return getattr(self, __name)
 
     def __setitem__(self, __name: str, __value: Any):
-        if not isinstance(__value, ProtobufConverter):
-            raise TypeError("should not assign original protobuf message to wrapper")
         return setattr(self, __name, __value)
 
     def __eq__(self, __o: object) -> bool:
@@ -397,9 +395,6 @@ class Duration(MessageWrapper[_Duration]):
         return cls(seconds=seconds, nanos=nanos)
 
     def add_nanoseconds(self, _ns: int):
-        self.seconds, self.nanos = divmod(_ns, self._ns2s)
-
-    def __add__(self, _o: int):
-        if not isinstance(_o, int):
-            raise TypeError
-        self.add_nanoseconds(_o)
+        seconds, nanos = divmod(_ns, self._ns2s)
+        self.seconds += seconds
+        self.nanos += nanos

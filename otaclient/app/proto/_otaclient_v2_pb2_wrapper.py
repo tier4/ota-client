@@ -203,7 +203,8 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress]):
         return deepcopy(self)
 
     def add_elapsed_time(self, _field_name: str, _value: int):
-        setattr(self, _field_name, getattr(self, _field_name) + _value)
+        _field: Duration = getattr(self, _field_name)
+        _field.add_nanoseconds(_value)
 
 
 class Status(MessageWrapper[_v2.Status]):
