@@ -29,7 +29,6 @@ from typing import (
     Any,
     List,
     Iterable,
-    Optional,
     Generic,
     Type,
     TypeVar,
@@ -60,7 +59,7 @@ class _ProtobufConverter(Generic[_MessageType], ABC):
         raise NotImplementedError
 
 
-_WrappedMessageType = _ProtobufConverter
+_WrappedMessageType = TypeVar("_WrappedMessageType", bound=_ProtobufConverter)
 
 
 # helper method
@@ -71,7 +70,7 @@ def _reveal_field_type(tp: Any) -> type:
 
 
 def _convert_helper(
-    _value: Any, _annotated_type: type
+    _value: Any, _annotated_type: Union[Type[_NormalType], Type[_WrappedMessageType]]
 ) -> Union[_NormalType, _WrappedMessageType]:
     # if converter is available, always use it
     if issubclass(_annotated_type, _ProtobufConverter):
