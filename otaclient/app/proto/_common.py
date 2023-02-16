@@ -46,6 +46,25 @@ _NORMAL_PYTHON_TYPES = (float, int, str, bytes, bool)
 # converter base
 
 
+def parse_type_hint(cls: Type[MessageWrapper]) -> Type[MessageWrapper]:
+    """Parse type annotations defined in wrapper class."""
+    if not issubclass(cls, MessageWrapper):
+        raise TypeError(
+            "this decorator should only be used on MessageWrapper derived classes"
+        )
+    parsed = {}
+    for _k, _v in get_type_hints(cls).items():
+        if _k.startswith("_") or _k == "proto_class":
+            continue
+        parsed[_k] = _v
+
+    cls._type_hints = parsed
+    cls._field_types = {
+        _n: _reveal_origin_type(_t) for _n, _t in cls._type_hints.items()
+    }
+    return cls
+
+
 class ProtobufConverter(Generic[_MessageType], ABC):
     """Base class for all message converter class."""
 
@@ -231,6 +250,11 @@ class RepeatedScalarContainer(
 
 class EnumWrapper(IntEnum):
     @classmethod
+    def get_default_value(cls) -> Self:
+        """Align to protobuf, the default value for Enum type will be 0."""
+        return cls(0)
+
+    @classmethod
     def convert(cls, _in: Union[int, str, Self]) -> Self:
         if isinstance(_in, int):
             return cls(_in)
@@ -257,9 +281,9 @@ ProtobufConverter.register(EnumWrapper)
 
 class MessageWrapper(ProtobufConverter[_MessageType]):
     proto_class: Type[_MessageType]
-    __slots__: List[str] = []
-    _type_hints: Dict[str, Any] = {}
-    _field_types: Dict[str, Any] = {}
+    _type_hints: Dict[str, Any]
+    _field_types: Dict[str, Any]
+    __slots__: List[str]
 
     # internal
     @overload
@@ -271,13 +295,6 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         """Initialize by manually creating wrapper instance."""
 
     def __new__(cls, _in=None, /, **kwargs) -> Self:
-        # first time initializing
-        if not cls._type_hints:
-            cls._type_hints = get_type_hints(cls)
-            cls._field_types = {
-                _n: _reveal_origin_type(_t) for _n, _t in cls._type_hints.items()
-            }
-
         parsed_kwargs = {}
         if _in:  # initialize by converting an incoming protobuf message
             if isinstance(_in, cls):
@@ -295,7 +312,10 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
             for _attrn in cls.__slots__:
                 if not _attrn in kwargs:
                     # let the constructor do the job
-                    parsed_kwargs[_attrn] = cls._field_types[_attrn]()
+                    if issubclass(_field_type := cls._field_types[_attrn], EnumWrapper):
+                        parsed_kwargs[_attrn] = _field_type.get_default_value()
+                    else:
+                        parsed_kwargs[_attrn] = cls._field_types[_attrn]()
                 else:
                     parsed_kwargs[_attrn] = _convert_helper(
                         kwargs[_attrn],

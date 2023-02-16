@@ -162,7 +162,6 @@ def test_convert_message(
 
     # ------ assertion ------ #
     # ensure the convertion is expected
-    # logger.error(f"{converted_msg=!s}, {_converted=!s}")
     assert converted_msg == _converted
     # ensure that the exported version is the same as the original version
     _compare_message(origin_msg, _exported)
