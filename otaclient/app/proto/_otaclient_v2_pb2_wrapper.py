@@ -35,7 +35,6 @@ from typing import (
 from typing_extensions import Self
 
 from ._common import (
-    parse_type_hint,
     EnumWrapper,
     MessageWrapper,
     DurationWrapper,
@@ -84,7 +83,6 @@ class StatusProgressPhase(EnumWrapper):
 # rollback API
 
 
-@parse_type_hint
 class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
     proto_class = _v2.RollbackRequestEcu
     __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
@@ -94,7 +92,6 @@ class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
         ...
 
 
-@parse_type_hint
 class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
     proto_class = _v2.RollbackRequest
     __slots__ = list(_v2.RollbackRequest.DESCRIPTOR.fields_by_name)
@@ -113,7 +110,6 @@ class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
         return False
 
 
-@parse_type_hint
 class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
     proto_class = _v2.RollbackResponseEcu
     __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
@@ -128,7 +124,6 @@ class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
         ...
 
 
-@parse_type_hint
 class RollbackResponse(MessageWrapper[_v2.RollbackResponse]):
     proto_class = _v2.RollbackResponse
     __slots__ = list(_v2.RollbackResponse.DESCRIPTOR.fields_by_name)
@@ -163,7 +158,6 @@ class RollbackResponse(MessageWrapper[_v2.RollbackResponse]):
 # status API
 
 
-@parse_type_hint
 class StatusProgress(MessageWrapper[_v2.StatusProgress]):
     proto_class = _v2.StatusProgress
     __slots__ = list(_v2.StatusProgress.DESCRIPTOR.fields_by_name)
@@ -205,14 +199,13 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress]):
     ) -> None:
         ...
 
-    def get_snapshot(self) -> StatusProgress:
+    def get_snapshot(self) -> Self:
         return deepcopy(self)
 
     def add_elapsed_time(self, _field_name: str, _value: int):
         setattr(self, _field_name, getattr(self, _field_name) + _value)
 
 
-@parse_type_hint
 class Status(MessageWrapper[_v2.Status]):
     proto_class = _v2.Status
     __slots__ = list(_v2.Status.DESCRIPTOR.fields_by_name)
@@ -239,13 +232,11 @@ class Status(MessageWrapper[_v2.Status]):
         return self.failure, self.failure_reason
 
 
-@parse_type_hint
 class StatusRequest(MessageWrapper[_v2.StatusRequest]):
     proto_class = _v2.StatusRequest
     __slots__ = list(_v2.StatusRequest.DESCRIPTOR.fields_by_name)
 
 
-@parse_type_hint
 class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
     proto_class = _v2.StatusResponseEcu
     __slots__ = list(_v2.StatusResponseEcu.DESCRIPTOR.fields_by_name)
@@ -262,7 +253,6 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
         ...
 
 
-@parse_type_hint
 class StatusResponse(MessageWrapper[_v2.StatusResponse]):
     proto_class = _v2.StatusResponse
     __slots__ = list(_v2.StatusResponse.DESCRIPTOR.fields_by_name)
@@ -312,7 +302,6 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
 # update API
 
 
-@parse_type_hint
 class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
     proto_class = _v2.UpdateRequestEcu
     __slots__ = list(_v2.UpdateRequestEcu.DESCRIPTOR.fields_by_name)
@@ -331,7 +320,6 @@ class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
         ...
 
 
-@parse_type_hint
 class UpdateRequest(MessageWrapper[_v2.UpdateRequest]):
     proto_class = _v2.UpdateRequest
     __slots__ = list(_v2.UpdateRequest.DESCRIPTOR.fields_by_name)
@@ -356,7 +344,6 @@ class UpdateRequest(MessageWrapper[_v2.UpdateRequest]):
             yield _ecu
 
 
-@parse_type_hint
 class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
     proto_class = _v2.UpdateResponseEcu
     __slots__ = list(_v2.UpdateResponseEcu.DESCRIPTOR.fields_by_name)
@@ -371,7 +358,6 @@ class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
         ...
 
 
-@parse_type_hint
 class UpdateResponse(MessageWrapper[_v2.UpdateResponse]):
     proto_class = _v2.UpdateResponse
     __slots__ = list(_v2.UpdateResponse.DESCRIPTOR.fields_by_name)
