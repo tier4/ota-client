@@ -25,7 +25,6 @@ actually inherite from the protobuf message type!
 from __future__ import annotations
 import otaclient_v2_pb2 as _v2
 from copy import deepcopy
-from enum import IntEnum
 from typing import (
     Generator,
     Optional,
@@ -36,15 +35,16 @@ from typing import (
 from typing_extensions import Self
 
 from ._common import (
-    TypeConverterRegister as _register,
+    EnumWrapper,
+    MessageWrapper,
+    DurationWrapper,
     RepeatedCompositeContainer,
     RepeatedScalarContainer,
-    DurationWrapper,
-    MessageWrapper,
 )
 
 
 # message wrapper definitions
+
 
 # rollback API
 
@@ -119,13 +119,6 @@ class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
         result: Optional[Union[FailureType, str]] = ...,
     ) -> None:
         ...
-
-
-# message converter registeration for rollback API
-_register.register(_v2.RollbackRequest, RollbackRequest)
-_register.register(_v2.RollbackRequestEcu, RollbackRequestEcu)
-_register.register(_v2.RollbackResponse, RollbackResponse)
-_register.register(_v2.RollbackResponseEcu, RollbackResponseEcu)
 
 
 # status API
@@ -272,14 +265,6 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
         ...
 
 
-# message converter registeration for status API
-_register.register(_v2.Status, Status)
-_register.register(_v2.StatusProgress, StatusProgress)
-_register.register(_v2.StatusRequest, StatusRequest)
-_register.register(_v2.StatusResponse, StatusResponse)
-_register.register(_v2.StatusResponseEcu, StatusResponseEcu)
-
-
 # update API
 
 
@@ -366,19 +351,13 @@ class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
         ...
 
 
-# message converter registeration for update API
-_register.register(_v2.UpdateRequest, UpdateRequest)
-_register.register(_v2.UpdateRequestEcu, UpdateRequestEcu)
-_register.register(_v2.UpdateResponse, UpdateResponse)
-_register.register(_v2.UpdateResponseEcu, UpdateResponseEcu)
-
 # enum
 
 # NOTE: as for protoc==3.21.11, protobuf==4.21.12, protobuf Enum value is
 #       plain int at runtime without subclassing anything.
 
 
-class FailureType(IntEnum):
+class FailureType(EnumWrapper):
     NO_FAILURE = _v2.NO_FAILURE
     RECOVERABLE = _v2.RECOVERABLE
     UNRECOVERABLE = _v2.UNRECOVERABLE
@@ -387,7 +366,7 @@ class FailureType(IntEnum):
         return f"{self.value:0>1}"
 
 
-class StatusOta(IntEnum):
+class StatusOta(EnumWrapper):
     INITIALIZED = _v2.INITIALIZED
     SUCCESS = _v2.SUCCESS
     FAILURE = _v2.FAILURE
@@ -396,7 +375,7 @@ class StatusOta(IntEnum):
     ROLLBACK_FAILURE = _v2.ROLLBACK_FAILURE
 
 
-class StatusProgressPhase(IntEnum):
+class StatusProgressPhase(EnumWrapper):
     INITIAL = _v2.INITIAL
     METADATA = _v2.METADATA
     DIRECTORY = _v2.DIRECTORY
@@ -404,21 +383,3 @@ class StatusProgressPhase(IntEnum):
     REGULAR = _v2.REGULAR
     PERSISTENT = _v2.PERSISTENT
     POST_PROCESSING = _v2.POST_PROCESSING
-
-
-# special type register
-# NOTE: we use this trick only because we cannot reliably specify the actual type
-#       of repeated field statically, so we detect the type at runtime.
-#       check _common.py for details.
-_status_resp = _v2.StatusResponse()
-_status_progress = _v2.StatusProgress()
-# container types
-# - composite repeated field
-_register.register(type(_status_resp.ecu), RepeatedCompositeContainer)
-# - scalar repeated field
-_register.register(type(_status_resp.available_ecu_ids), RepeatedScalarContainer)
-
-# well-known types
-# - duration
-_register.register(type(_status_progress.total_elapsed_time), DurationWrapper)
-del _status_resp, _status_progress
