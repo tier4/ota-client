@@ -14,52 +14,35 @@
 
 
 import pytest
-from enum import IntEnum
-from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
+from typing import Type
 
 from otaclient.app.proto import wrapper, v2
-from otaclient.app.proto._common import TypeConverterRegister
-
-_status_resp = v2.StatusResponse()
-_status_progress = v2.StatusProgress()
-_RepeatedScalarContainer = type(_status_resp.available_ecu_ids)
-_RepeatedCompositeContainer = type(_status_resp.ecu)
-del _status_resp, _status_progress
+from otaclient.app.proto._common import _NORMAL_PYTHON_TYPES
 
 
 def _compare_message(l, r):
+    """
+    NOTE: we don't directly compare two protobuf message by ==
+          due to the behavior difference between empty Duration and
+          unset Duration.
+    """
     if (_proto_class := type(l)) is not type(r):
         raise TypeError(f"{type(l)=} != {type(r)=}")
+
     for _attrn in _proto_class.__slots__:
         _attrv_l, _attrv_r = getattr(l, _attrn), getattr(r, _attrn)
         # first check each corresponding attr has the same type,
-        # NOTE: for IntEnum types, we treat them as pure int without considering
-        #       the type, but just comparing the value.
-        if not isinstance(_attrv_l, IntEnum) or isinstance(_attrv_r, IntEnum):
-            assert type(_attrv_l) == type(_attrv_r)
+        assert type(_attrv_l) == type(_attrv_r), f"compare failed on {_attrn=}"
 
-        # if the attr is nested message, we recursively call _compare_attrs
-        if isinstance(_attrv_l, _Message):
-            _compare_message(_attrv_l, _attrv_r)
-        elif isinstance(_attrv_l, IntEnum) or isinstance(_attrv_r, IntEnum):
+        if isinstance(_attrv_l, _NORMAL_PYTHON_TYPES):
             assert _attrv_l == _attrv_r
-        # if the attr is list of messages, call _compare_attrs on each message in list
-        elif isinstance(_attrv_l, _RepeatedCompositeContainer):
-            assert len(_attrv_l) == len(_attrv_r)
-            for _msg_l, _msg_r in zip(_attrv_l, _attrv_r):
-                _compare_message(_msg_l, _msg_r)
-        # if the attr is list of normal types,
-        elif isinstance(_attrv_r, _RepeatedScalarContainer):
-            assert len(_attrv_l) == len(_attrv_r)
-            assert set(_attrv_l) == set(_attrv_r)
-        # for normal attr types, directly compare
         else:
-            assert _attrv_l == _attrv_r
+            _compare_message(_attrv_l, _attrv_r)
 
 
 @pytest.mark.parametrize(
-    "origin_msg, converted_msg",
+    "origin_msg, converted_msg, wrapper_type",
     (
         # StatusProgress: with protobuf Enum, int and protobuf Duration
         (
@@ -73,6 +56,7 @@ def _compare_message(l, r):
                 total_regular_files=123456,
                 elapsed_time_download=wrapper.DurationWrapper(5678),
             ),
+            wrapper.StatusProgress,
         ),
         # UpdateRequest: with protobuf repeated composite field
         (
@@ -88,6 +72,24 @@ def _compare_message(l, r):
                     wrapper.UpdateRequestEcu(ecu_id="ecu_2"),
                 ]
             ),
+            wrapper.UpdateRequest,
+        ),
+        # UpdateRequest: with protobuf repeated composite field,
+        #   init wrapper with protobuf messages in repeated field.
+        (
+            v2.UpdateRequest(
+                ecu=[
+                    v2.UpdateRequestEcu(ecu_id="ecu_1"),
+                    v2.UpdateRequestEcu(ecu_id="ecu_2"),
+                ]
+            ),
+            wrapper.UpdateRequest(
+                ecu=[
+                    wrapper.UpdateRequestEcu(ecu_id="ecu_1"),
+                    v2.UpdateRequestEcu(ecu_id="ecu_2"),  # type: ignore
+                ]
+            ),
+            wrapper.UpdateRequest,
         ),
         # StatusResponse: multiple layer nested message, multiple protobuf message types
         (
@@ -145,20 +147,22 @@ def _compare_message(l, r):
                 ],
                 available_ecu_ids=["ecu_1", "ecu_2"],
             ),
+            wrapper.StatusResponse,
         ),
     ),
 )
-def test_convert_message(origin_msg, converted_msg):
+def test_convert_message(
+    origin_msg,
+    converted_msg: wrapper.ProtobufConverter,
+    wrapper_type: Type[wrapper.ProtobufConverter],
+):
     # ------ converting message ------ #
-    if not (_converter := TypeConverterRegister.get_converter(type(origin_msg))):
-        raise NotImplementedError(
-            f"converter for {type(origin_msg)} is not implemented"
-        )
-    _converted = _converter.convert(origin_msg)
+    _converted = wrapper_type.convert(origin_msg)
     _exported = _converted.export_pb()
 
     # ------ assertion ------ #
     # ensure the convertion is expected
+    # logger.error(f"{converted_msg=!s}, {_converted=!s}")
     assert converted_msg == _converted
     # ensure that the exported version is the same as the original version
     _compare_message(origin_msg, _exported)
@@ -166,17 +170,20 @@ def test_convert_message(origin_msg, converted_msg):
 
 class Test_enum_wrapper_cooperate:
     def test_direct_compare(self):
+        """protobuf enum and wrapper enum can compare directly."""
         _protobuf_enum = v2.UPDATING
         _wrapped = wrapper.StatusOta.UPDATING
         assert _protobuf_enum == _wrapped
 
     def test_assign_to_protobuf_message(self):
+        """wrapper enum can be directly assigned in protobuf message."""
         l, r = v2.StatusProgress(phase=v2.REGULAR), v2.StatusProgress(
             phase=wrapper.StatusProgressPhase.REGULAR.value,
         )
         _compare_message(l, r)
 
     def test_used_in_message_wrapper(self):
+        """wrapper enum can be exported."""
         l, r = (
             v2.StatusProgress(phase=v2.REGULAR),
             wrapper.StatusProgress(
@@ -186,6 +193,7 @@ class Test_enum_wrapper_cooperate:
         _compare_message(l, r)
 
     def test_converted_from_protobuf_enum(self):
+        """wrapper enum can be converted from and to protobuf enum."""
         _protobuf_enum = v2.REGULAR
         _converted = wrapper.StatusProgressPhase(_protobuf_enum)
         assert _protobuf_enum == _converted
