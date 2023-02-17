@@ -28,6 +28,7 @@ from typing import (
     Any,
     Dict,
     List,
+    MutableMapping,
     Iterable,
     Generic,
     Type,
@@ -97,9 +98,15 @@ def _convert_helper(
     _field_type = _reveal_origin_type(_annotated_type)
     if issubclass(_field_type, (MessageWrapper, EnumWrapper)):
         return _field_type.convert(_value)
-    if issubclass(_field_type, (RepeatedCompositeContainer, RepeatedScalarContainer)):
+    if issubclass(
+        _field_type,
+        (
+            RepeatedCompositeContainer,
+            RepeatedScalarContainer,
+            MessageMapping,
+        ),
+    ):
         return _field_type.convert(_value, _annotation=_annotated_type)
-
     raise TypeError(f"failed to convert {_value}({type(_value)}) to {_annotated_type=}")
 
 
@@ -117,7 +124,7 @@ def _convert_helper(
 #       not be directly used.
 
 
-class _ContainerBase(List[_T]):
+class _ListLikeContainerBase(List[_T]):
     def __str__(self) -> str:
         _buffer = StringIO()
         _buffer.write("[\n")
@@ -132,7 +139,9 @@ class _ContainerBase(List[_T]):
 
 
 class RepeatedCompositeContainer(
-    _ContainerBase[_WrappedMessageType], ProtobufConverter[List[_MessageType]]
+    ProtobufConverter[List[_MessageType]],
+    _ListLikeContainerBase[_WrappedMessageType],
+    Generic[_WrappedMessageType, _MessageType],
 ):
     @staticmethod
     def _get_annotated_types(
@@ -182,7 +191,9 @@ class RepeatedCompositeContainer(
 
 
 class RepeatedScalarContainer(
-    _ContainerBase[_NormalType], ProtobufConverter[List[_NormalType]]
+    ProtobufConverter[List[_NormalType]],
+    _ListLikeContainerBase[_NormalType],
+    Generic[_NormalType],
 ):
     @staticmethod
     def _get_annotated_types(_annotation) -> Type[_NormalType]:
@@ -216,6 +227,54 @@ class RepeatedScalarContainer(
 
     def export_pb(self) -> List[_NormalType]:
         return self.copy()
+
+
+_K, _Converted_V = TypeVar("_K", int, str, bool), TypeVar("_Converted_V")
+
+
+class MessageMapping(
+    # key_type in maps can be any scalar types except float and bytes
+    # value_type can be anything except another mapping
+    ProtobufConverter[MutableMapping[_K, _T]],
+    Dict[_K, _Converted_V],
+    Generic[_K, _Converted_V, _T],
+):
+    @staticmethod
+    def _get_annotated_types(
+        _annotation,
+    ) -> Tuple[Type[_K], Type[_Converted_V], Type[_T]]:
+        """Get real types from annotation.
+
+        Properly annotation for Mapping is as follow:
+        MessageMapping[_K, _Converted_V, <protobuf_mapping_value_type: T>]
+        """
+        if len(_types_tuple := get_args(_annotation)) != 3:
+            raise TypeError(f"badly annotated repeated field: {_annotation=}")
+        return _types_tuple
+
+    @classmethod
+    def convert(cls, _in: MutableMapping[_K, Any], /, _annotation) -> Self:
+        _ktp, _vtp, _ = cls._get_annotated_types(_annotation)
+
+        res = cls()
+        for _k, _v in _in.items():
+            if type(_k) is not _ktp:
+                raise TypeError(f"expect key type={_ktp}, get {type(_k)=}")
+            res[_k] = _convert_helper(_v, _vtp)
+        return res
+
+    def export_pb(self) -> Dict[_K, _T]:
+        res = {}
+        for _k, _converted_v in self.items():
+            if type(_converted_v) in _NORMAL_PYTHON_TYPES:
+                res[_k] = _converted_v
+            elif isinstance(_converted_v, ProtobufConverter):
+                res[_k] = _converted_v.export_pb()
+            else:
+                raise ValueError(
+                    f"failed to export {_converted_v=}({type(_converted_v)=})"
+                )
+        return res
 
 
 # enum converter
@@ -392,9 +451,7 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
             except AttributeError:
                 continue
 
-            # NOTE: don't use isinstance/issubclass to detect
-            #       normal python types as EnumWrapper/DurationWrapper
-            #       also derived from int
+            # apply strict checking over scalar value field
             if type(_value) in _NORMAL_PYTHON_TYPES:
                 setattr(_res, _field, _value)
             elif isinstance(_value, EnumWrapper):
