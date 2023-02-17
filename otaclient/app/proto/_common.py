@@ -21,9 +21,6 @@ from enum import IntEnum, EnumMeta
 from io import StringIO
 from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import (
-    Optional,
-    Tuple,
-    overload,
     get_type_hints,
     get_origin,
     get_args,
@@ -33,8 +30,10 @@ from typing import (
     Iterable,
     Mapping,
     Generic,
+    Optional,
     Type,
     TypeVar,
+    Tuple,
     Union,
 )
 from typing_extensions import Self
@@ -45,7 +44,6 @@ _MessageType = TypeVar("_MessageType")  # expected to cover all protobuf types, 
 # built-in python types that directly being used in protobuf message
 _NormalType = TypeVar("_NormalType", float, int, str, bytes, bool)
 _NORMAL_PYTHON_TYPES = (float, int, str, bytes, bool)
-
 
 # converter base
 
@@ -70,9 +68,6 @@ _WrappedMessageType = TypeVar("_WrappedMessageType", bound=ProtobufConverter)
 
 
 def _reveal_origin_type(tp: Type[_T]) -> Type[_T]:
-    if isinstance(tp, type):
-        return tp
-    # if field is generic typed
     return _origin if (_origin := get_origin(tp)) else tp
 
 
@@ -146,7 +141,7 @@ class RepeatedCompositeContainer(
     Generic[_WrappedMessageType, _MessageType],
 ):
     @staticmethod
-    def _get_annotated_types(
+    def _get_origins_from_annotation(
         _annotation,
     ) -> Tuple[Type[_WrappedMessageType], Type[_MessageType]]:
         """Get real types from annotation.
@@ -157,12 +152,12 @@ class RepeatedCompositeContainer(
         Call get_args on above annotation will return a tuple of
         WrappedMessageType and MessageType.
         """
-        if len(_types_tuple := get_args(_annotation)) != 2 and not issubclass(
-            _types_tuple[0], ProtobufConverter
-        ):
+        if len(_types_tuple := get_args(_annotation)) != 2:
             raise TypeError(f"badly annotated repeated field: {_annotation=}")
-
-        return _types_tuple
+        _wrapper_type, _message_type = map(_reveal_origin_type, _types_tuple)
+        if not issubclass(_wrapper_type, ProtobufConverter):
+            raise TypeError(f"badly annotated repeated field: {_annotation=}")
+        return _wrapper_type, _message_type  # type: ignore
 
     @classmethod
     def convert(
@@ -171,7 +166,7 @@ class RepeatedCompositeContainer(
         /,
         _annotation: Any,
     ) -> Self:
-        _wrapper_type, _messge_type = cls._get_annotated_types(_annotation)
+        _wrapper_type, _messge_type = cls._get_origins_from_annotation(_annotation)
 
         res = cls()
         for _entry in _in:
@@ -198,7 +193,7 @@ class RepeatedScalarContainer(
     Generic[_NormalType],
 ):
     @staticmethod
-    def _get_annotated_types(_annotation) -> Type[_NormalType]:
+    def _get_origins_from_annotation(_annotation) -> Type[_NormalType]:
         """Get real types from annotation.
 
         Properly annotation for RepeatedScalarContainer is as follow:
@@ -208,7 +203,7 @@ class RepeatedScalarContainer(
         """
         if (
             len(_types_tuple := get_args(_annotation)) != 1
-            and not _types_tuple[0] in _NORMAL_PYTHON_TYPES
+            or _types_tuple[0] not in _NORMAL_PYTHON_TYPES
         ):
             raise TypeError(f"badly annotated repeated field: {_annotation=}")
 
@@ -219,7 +214,7 @@ class RepeatedScalarContainer(
         # conduct type checks over all elements
         res = cls()
 
-        _element_type = cls._get_annotated_types(_annotation)
+        _element_type = cls._get_origins_from_annotation(_annotation)
         for _entry in _in:
             # NOTE: strict type check is applied for scalar field
             if type(_entry) is not _element_type:
@@ -242,7 +237,7 @@ class MessageMapping(
     Generic[_K, _Converted_V, _T],
 ):
     @staticmethod
-    def _get_annotated_types(
+    def _get_origins_from_annotation(
         _annotation,
     ) -> Tuple[Type[_K], Type[_Converted_V], Type[_T]]:
         """Get real types from annotation.
@@ -252,17 +247,20 @@ class MessageMapping(
         """
         if len(_types_tuple := get_args(_annotation)) != 3:
             raise TypeError(f"badly annotated repeated field: {_annotation=}")
-        return _types_tuple
+        _key_type, _value_wrapper_type, _value_msg_type = map(
+            _reveal_origin_type, _types_tuple
+        )
+        return _key_type, _value_wrapper_type, _value_msg_type
 
     @classmethod
     def convert(cls, _in: Mapping[_K, Any], /, _annotation) -> Self:
-        _ktp, _vtp, _ = cls._get_annotated_types(_annotation)
+        _key_tp, _value_wrapper_tp, _ = cls._get_origins_from_annotation(_annotation)
 
         res = cls()
         for _k, _v in _in.items():
-            if type(_k) is not _ktp:
-                raise TypeError(f"expect key type={_ktp}, get {type(_k)=}")
-            res[_k] = _convert_helper(_v, _vtp)
+            if type(_k) is not _key_tp:
+                raise TypeError(f"expect key type={_key_tp}, get {type(_k)=}")
+            res[_k] = _convert_helper(_v, _value_wrapper_tp)
         return res
 
     def export_pb(self) -> Dict[_K, _T]:
