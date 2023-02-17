@@ -381,11 +381,11 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         for _key in self.__slots__:
             setattr(self, _key, kwargs.get(_key))
 
-    def __deepcopy__(self) -> Self:
-        _memo = {}
+    def __deepcopy__(self, memo=None) -> Self:
+        _copied_fields = {}
         for _attrn in self.__slots__:
-            _memo[_attrn] = deepcopy(getattr(self, _attrn))
-        return type(self)(**_memo)
+            _copied_fields[_attrn] = deepcopy(getattr(self, _attrn))
+        return type(self)(**_copied_fields)
 
     def __getitem__(self, __name: str) -> Any:
         return getattr(self, __name)

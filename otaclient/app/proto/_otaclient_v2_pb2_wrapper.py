@@ -95,7 +95,7 @@ class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
 class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
     proto_class = _v2.RollbackRequest
     __slots__ = list(_v2.RollbackRequest.DESCRIPTOR.fields_by_name)
-    ecu: RepeatedCompositeContainer[RollbackRequestEcu, _v2.RollbackRequest]
+    ecu: RepeatedCompositeContainer[RollbackRequestEcu, _v2.RollbackRequestEcu]
 
     def __init__(
         self,
@@ -370,7 +370,7 @@ class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
 class UpdateResponse(MessageWrapper[_v2.UpdateResponse]):
     proto_class = _v2.UpdateResponse
     __slots__ = list(_v2.UpdateResponse.DESCRIPTOR.fields_by_name)
-    ecu: RepeatedCompositeContainer[UpdateResponseEcu, _v2.UpdateResponse]
+    ecu: RepeatedCompositeContainer[UpdateResponseEcu, _v2.UpdateResponseEcu]
 
     def __init__(self, *, ecu: Optional[Iterable[UpdateResponseEcu]] = ...) -> None:
         ...
