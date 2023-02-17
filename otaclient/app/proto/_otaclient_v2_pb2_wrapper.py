@@ -88,7 +88,7 @@ class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
     __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
     ecu_id: str
 
-    def __init__(self, ecu_id: Optional[str] = ...) -> None:
+    def __init__(self, *, ecu_id: Optional[str] = ...) -> None:
         ...
 
 
@@ -99,6 +99,7 @@ class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
 
     def __init__(
         self,
+        *,
         ecu: Optional[Iterable[RollbackRequestEcu]] = ...,
     ) -> None:
         ...
@@ -118,6 +119,7 @@ class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
 
     def __init__(
         self,
+        *,
         ecu_id: Optional[str] = ...,
         result: Optional[Union[FailureType, str]] = ...,
     ) -> None:
@@ -129,7 +131,7 @@ class RollbackResponse(MessageWrapper[_v2.RollbackResponse]):
     __slots__ = list(_v2.RollbackResponse.DESCRIPTOR.fields_by_name)
     ecu: RepeatedCompositeContainer[RollbackResponseEcu, _v2.RollbackResponseEcu]
 
-    def __init__(self, ecu: Optional[Iterable[RollbackResponseEcu]] = ...) -> None:
+    def __init__(self, *, ecu: Optional[Iterable[RollbackResponseEcu]] = ...) -> None:
         ...
 
     def iter_ecu(
@@ -180,6 +182,7 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress]):
 
     def __init__(
         self,
+        *,
         phase: Optional[Union[StatusProgressPhase, str]] = ...,
         total_regular_files: Optional[int] = ...,
         regular_files_processed: Optional[int] = ...,
@@ -218,6 +221,7 @@ class Status(MessageWrapper[_v2.Status]):
 
     def __init__(
         self,
+        *,
         status: Optional[Union[StatusOta, str]] = ...,
         failure: Optional[Union[FailureType, str]] = ...,
         failure_reason: Optional[str] = ...,
@@ -247,6 +251,7 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
 
     def __init__(
         self,
+        *,
         ecu_id: Optional[str] = ...,
         result: Optional[Union[FailureType, str]] = ...,
         status: Optional[Status] = ...,
@@ -262,6 +267,7 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
 
     def __init__(
         self,
+        *,
         available_ecu_ids: Optional[Iterable[str]] = ...,
         ecu: Optional[Iterable[StatusResponseEcu]] = ...,
     ) -> None:
@@ -313,6 +319,7 @@ class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
 
     def __init__(
         self,
+        *,
         ecu_id: Optional[str] = ...,
         version: Optional[str] = ...,
         url: Optional[str] = ...,
@@ -326,7 +333,7 @@ class UpdateRequest(MessageWrapper[_v2.UpdateRequest]):
     __slots__ = list(_v2.UpdateRequest.DESCRIPTOR.fields_by_name)
     ecu: RepeatedCompositeContainer[UpdateRequestEcu, _v2.UpdateRequestEcu]
 
-    def __init__(self, ecu: Optional[Iterable[UpdateRequestEcu]] = ...) -> None:
+    def __init__(self, *, ecu: Optional[Iterable[UpdateRequestEcu]] = ...) -> None:
         ...
 
     def find_update_meta(self, ecu_id: str) -> Optional[UpdateRequestEcu]:
@@ -353,6 +360,7 @@ class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
 
     def __init__(
         self,
+        *,
         ecu_id: Optional[str] = ...,
         result: Optional[Union[FailureType, str]] = ...,
     ) -> None:
@@ -364,7 +372,7 @@ class UpdateResponse(MessageWrapper[_v2.UpdateResponse]):
     __slots__ = list(_v2.UpdateResponse.DESCRIPTOR.fields_by_name)
     ecu: RepeatedCompositeContainer[UpdateResponseEcu, _v2.UpdateResponse]
 
-    def __init__(self, ecu: Optional[Iterable[UpdateResponseEcu]] = ...) -> None:
+    def __init__(self, *, ecu: Optional[Iterable[UpdateResponseEcu]] = ...) -> None:
         ...
 
     def iter_ecu(self) -> Generator[UpdateResponseEcu, None, None]:

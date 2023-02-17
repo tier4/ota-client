@@ -16,6 +16,7 @@
 from __future__ import annotations
 from abc import abstractmethod, ABC
 from copy import deepcopy
+from functools import update_wrapper
 from enum import IntEnum, EnumMeta
 from io import StringIO
 from google.protobuf.duration_pb2 import Duration as _Duration
@@ -29,8 +30,8 @@ from typing import (
     Any,
     Dict,
     List,
-    MutableMapping,
     Iterable,
+    Mapping,
     Generic,
     Type,
     TypeVar,
@@ -236,7 +237,7 @@ _K, _Converted_V = TypeVar("_K", int, str, bool), TypeVar("_Converted_V")
 class MessageMapping(
     # key_type in maps can be any scalar types except float and bytes
     # value_type can be anything except another mapping
-    ProtobufConverter[MutableMapping[_K, _T]],
+    ProtobufConverter[Mapping[_K, _T]],
     Dict[_K, _Converted_V],
     Generic[_K, _Converted_V, _T],
 ):
@@ -254,7 +255,7 @@ class MessageMapping(
         return _types_tuple
 
     @classmethod
-    def convert(cls, _in: MutableMapping[_K, Any], /, _annotation) -> Self:
+    def convert(cls, _in: Mapping[_K, Any], /, _annotation) -> Self:
         _ktp, _vtp, _ = cls._get_annotated_types(_annotation)
 
         res = cls()
@@ -330,7 +331,12 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
     # internal
 
     def __init_subclass__(cls) -> None:
-        """Parse type annotations defined in wrapper class."""
+        """Special treatment for every user defined protobuf message wrapper types.
+
+        - Parse type annotations defined in wrapper class.
+        - bypass the user defined __init__.
+        """
+        # type annotation parsing
         cls._field_types, cls._field_types_origin = {}, {}
         for _field_name, _field_type in get_type_hints(cls).items():
             if not (_field_name.startswith("_") or _field_name == "proto_class"):
@@ -339,51 +345,38 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
             if _origin := get_origin(_field_type):
                 cls._field_types_origin[_field_name] = _origin
 
-    @overload
-    def __new__(cls, _in: _MessageType, /) -> Self:
-        """Initialize by converting a protobuf message."""
+        # bypass user defined __init__ while preserving meta, including
+        # function name, annotations, module, etc.
+        def _dummy_init(self, /, **_):
+            ...
 
-    @overload
-    def __new__(cls, _=None, /, **kwargs) -> Self:
-        """Initialize by manually creating wrapper instance."""
+        setattr(cls, "__init__", update_wrapper(_dummy_init, cls.__init__))
 
-    def __new__(cls, _in=None, /, **kwargs) -> Self:
+    def __new__(cls, /, **kwargs) -> Self:
+        """
+        NOTE: __init__ is used only for type annotations purpose,
+              actual initializing is done by __new__ calling _post_init
+        """
         parsed_kwargs = {}
-        if _in:  # initialize by converting an incoming protobuf message
-            if isinstance(_in, cls):
-                return _in
-            if not isinstance(_in, cls.proto_class):
-                raise TypeError(f"expect={cls.proto_class}, in={_in.__class__}")
-
-            # only capture the attrs presented in this wrapper class' __slots__
-            for _attrn in cls.__slots__:
+        for _attrn in cls.__slots__:
+            if not _attrn in kwargs:
+                # let the constructor of each field type do the job
+                parsed_kwargs[_attrn] = cls._get_real_type(_attrn)()
+            else:
+                # NOTE: although in specification we don't allow mixing
+                #       original protobuf message inst into wrapper,
+                #       we can handle such cases with _convert_helper.
+                # NOTE: pass the original annotation to the converter,
+                #       generic typed field needs this information.
                 parsed_kwargs[_attrn] = _convert_helper(
-                    getattr(_in, _attrn),
-                    cls._field_types[_attrn],
+                    kwargs[_attrn], cls._field_types[_attrn]
                 )
-        else:  # initialize by manually create wrapper instance
-            for _attrn in cls.__slots__:
-                if not _attrn in kwargs:
-                    # let the constructor of each field type do the job
-                    parsed_kwargs[_attrn] = cls._get_real_type(_attrn)()
-                else:
-                    # NOTE: pass the original annotation to the converter
-                    #       generic typed field needs this information
-                    parsed_kwargs[_attrn] = _convert_helper(
-                        kwargs[_attrn],
-                        cls._field_types[_attrn],
-                    )
-
         (_inst := super().__new__(cls))._post_init(**parsed_kwargs)
         return _inst
 
     def _post_init(self, **kwargs):
         """Get all attrs from a protobuf class inst and then bind to this inst.
-        All the input kwargs are converted by __new__ method from
-        MessageWrapper.
-
-        Note that normal __init__ is not used to allow type hintings on __init__
-            without assigning all attributes again.
+        All the input kwargs are converted by __new__ method.
         """
         for _key in self.__slots__:
             setattr(self, _key, kwargs.get(_key))
@@ -447,7 +440,20 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
     @classmethod
     def convert(cls, _in: _MessageType) -> Self:
         """Copy and wrap input message into a new wrapper instance."""
-        return cls(_in)  # actual converting is handled by __new__
+        parsed_kwargs = {}
+        if isinstance(_in, cls):
+            return _in  # return if already converted
+        if not isinstance(_in, cls.proto_class):
+            raise TypeError(f"expect={cls.proto_class}, in={_in.__class__}")
+
+        # only capture the attrs presented in this wrapper class' __slots__
+        for _attrn in cls.__slots__:
+            parsed_kwargs[_attrn] = _convert_helper(
+                getattr(_in, _attrn),
+                cls._field_types[_attrn],
+            )
+        (_inst := cls())._post_init(**parsed_kwargs)
+        return _inst
 
     def export_pb(self) -> _MessageType:
         """Export as protobuf message class inst."""
@@ -497,7 +503,7 @@ class Duration(MessageWrapper[_Duration]):
     _s2ns = 1_000_000_000
 
     def __init__(
-        self, seconds: Optional[int] = ..., nanos: Optional[int] = ...
+        self, *, seconds: Optional[int] = ..., nanos: Optional[int] = ...
     ) -> None:
         ...
 
