@@ -147,7 +147,7 @@ class _OTAUpdater:
         self._create_standby_cls = create_standby_cls
 
         # init update status
-        self.update_phase: wrapper.StatusProgressPhase = None  # type: ignore
+        self.update_phase: Optional[wrapper.StatusProgressPhase] = None
         self.update_start_time = 0
         self.updating_version: str = ""
         self.failure_reason = ""
@@ -174,9 +174,6 @@ class _OTAUpdater:
 
     def _set_update_phase(self, _phase: wrapper.StatusProgressPhase):
         self.update_phase = _phase
-
-    def _get_update_phase(self) -> wrapper.StatusProgressPhase:
-        return self.update_phase
 
     # helper methods
 
@@ -409,7 +406,7 @@ class _OTAUpdater:
     # API
 
     def shutdown(self):
-        self.update_phase = None  # type: ignore
+        self.update_phase = None
         self._proxy = None  # type: ignore
         self._downloader.shutdown()
         self._update_stats_collector.stop()
@@ -422,9 +419,9 @@ class _OTAUpdater:
         update_progress = self._update_stats_collector.get_snapshot()
         # set update phase
         if self.update_phase is not None:
-            update_progress.phase = self.update_phase.value
+            update_progress.phase = self.update_phase
         # set total_elapsed_time
-        update_progress.total_elapsed_time.FromNanoseconds(
+        update_progress.total_elapsed_time = wrapper.Duration.from_nanoseconds(
             time.time_ns() - self.update_start_time
         )
 
@@ -570,7 +567,7 @@ class OTAClient(OTAClientProtocol):
         self._rollback_executor: _OTARollbacker = None  # type: ignore
 
         # err record
-        self.last_failure_type = None
+        self.last_failure_type = wrapper.FailureType.NO_FAILURE
         self.last_failure_reason = ""
 
     # API
@@ -590,13 +587,13 @@ class OTAClient(OTAClientProtocol):
                     boot_controller=self.boot_controller,
                     create_standby_cls=self.create_standby_cls,
                 )
-                self.last_failure_type = None
+                self.last_failure_type = wrapper.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
                 self._update_executor.execute(version, url_base, cookies_json, fsm=fsm)
             except OTAUpdateError as e:
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.FAILURE)
-                self.last_failure_type = e.get_err_type().value
+                self.last_failure_type = e.get_err_type()
                 self.last_failure_reason = e.get_err_reason()
                 fsm.on_otaclient_failed()
             finally:
@@ -615,14 +612,14 @@ class OTAClient(OTAClientProtocol):
                 self._rollback_executor = _OTARollbacker(
                     boot_controller=self.boot_controller
                 )
-                self.last_failure_type = None
+                self.last_failure_type = wrapper.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACKING)
                 self._rollback_executor.execute()
             # silently ignore overlapping request
             except OTARollbackError as e:
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACK_FAILURE)
-                self.last_failure_type = e.get_err_type().value
+                self.last_failure_type = e.get_err_type()
                 self.last_failure_reason = e.get_err_reason()
             finally:
                 self._rollback_executor = None  # type: ignore
@@ -638,16 +635,15 @@ class OTAClient(OTAClientProtocol):
             version=self.current_version,
             failure=self.last_failure_type,
             failure_reason=self.last_failure_reason,
-            status=_live_ota_status.value,
+            status=_live_ota_status,
         )
 
         # for updating, add progress status
         if _live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
-            _, _update_progress = self._update_executor.update_progress()
-            _status.progress.CopyFrom(_update_progress.unwrap())  # type: ignore
+            _, _status.progress = self._update_executor.update_progress()
 
         return wrapper.StatusResponseEcu(
             ecu_id=self.my_ecu_id,
-            result=wrapper.FailureType.NO_FAILURE.value,
-            status=_status.unwrap(),  # type: ignore
+            result=wrapper.FailureType.NO_FAILURE,
+            status=_status,
         )
