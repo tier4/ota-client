@@ -18,6 +18,7 @@ import pytest_asyncio
 from otaclient.app.ota_client_call import OtaClientCall
 
 from otaclient.app.proto import v2, v2_grpc, wrapper
+from tests.utils import compare_message
 
 
 class _DummyOTAClientService(v2_grpc.OtaClientServiceServicer):
@@ -62,10 +63,16 @@ class _DummyOTAClientService(v2_grpc.OtaClientServiceServicer):
     DUMMY_UPDATE_REQUEST = v2.UpdateRequest(
         ecu=[
             v2.UpdateRequestEcu(
-                ecu_id="autoware", version="789.x", url="url", cookies="cookies"
+                ecu_id="autoware",
+                version="789.x",
+                url="url",
+                cookies="cookies",
             ),
             v2.UpdateRequestEcu(
-                ecu_id="p1", version="789.x", url="url", cookies="cookies"
+                ecu_id="p1",
+                version="789.x",
+                url="url",
+                cookies="cookies",
             ),
         ]
     )
@@ -125,17 +132,21 @@ class TestOTAClientCall:
             await server.stop(None)
 
     async def test_update_call(self):
-        _req = wrapper.UpdateRequest.wrap(_DummyOTAClientService.DUMMY_UPDATE_REQUEST)
+        _req = wrapper.UpdateRequest.convert(
+            _DummyOTAClientService.DUMMY_UPDATE_REQUEST
+        )
         _response = await OtaClientCall.update_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
             ecu_port=self.OTA_CLIENT_SERVICE_PORT,
             request=_req,
         )
-        assert _response.data == _DummyOTAClientService.DUMMY_UPDATE_RESPONSE
+        compare_message(
+            _response.export_pb(), _DummyOTAClientService.DUMMY_UPDATE_RESPONSE
+        )
 
     async def test_rollback_call(self):
-        _req = wrapper.RollbackRequest.wrap(
+        _req = wrapper.RollbackRequest.convert(
             _DummyOTAClientService.DUMMY_ROLLBACK_REQUEST
         )
         _response = await OtaClientCall.rollback_call(
@@ -144,7 +155,9 @@ class TestOTAClientCall:
             ecu_port=self.OTA_CLIENT_SERVICE_PORT,
             request=_req,
         )
-        assert _response.data == _DummyOTAClientService.DUMMY_ROLLBACK_RESPONSE
+        compare_message(
+            _response.export_pb(), _DummyOTAClientService.DUMMY_ROLLBACK_RESPONSE
+        )
 
     async def test_status_call(self):
         _response = await OtaClientCall.status_call(
@@ -152,7 +165,6 @@ class TestOTAClientCall:
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
             ecu_port=self.OTA_CLIENT_SERVICE_PORT,
         )
-        assert (
-            _response is not None
-            and _response.data == _DummyOTAClientService.DUMMY_STATUS
-        )
+
+        assert _response is not None
+        compare_message(_response.export_pb(), _DummyOTAClientService.DUMMY_STATUS)

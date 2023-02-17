@@ -18,27 +18,7 @@ from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import Type
 
 from otaclient.app.proto import wrapper, v2
-from otaclient.app.proto._common import _NORMAL_PYTHON_TYPES
-
-
-def _compare_message(l, r):
-    """
-    NOTE: we don't directly compare two protobuf message by ==
-          due to the behavior difference between empty Duration and
-          unset Duration.
-    """
-    if (_proto_class := type(l)) is not type(r):
-        raise TypeError(f"{type(l)=} != {type(r)=}")
-
-    for _attrn in _proto_class.__slots__:
-        _attrv_l, _attrv_r = getattr(l, _attrn), getattr(r, _attrn)
-        # first check each corresponding attr has the same type,
-        assert type(_attrv_l) == type(_attrv_r), f"compare failed on {_attrn=}"
-
-        if isinstance(_attrv_l, _NORMAL_PYTHON_TYPES):
-            assert _attrv_l == _attrv_r
-        else:
-            _compare_message(_attrv_l, _attrv_r)
+from tests.utils import compare_message
 
 
 @pytest.mark.parametrize(
@@ -49,12 +29,12 @@ def _compare_message(l, r):
             v2.StatusProgress(
                 phase=v2.REGULAR,
                 total_regular_files=123456,
-                elapsed_time_download=_Duration(nanos=5678),
+                elapsed_time_download=_Duration(seconds=1, nanos=5678),
             ),
             wrapper.StatusProgress(
                 phase=wrapper.StatusProgressPhase.REGULAR,
                 total_regular_files=123456,
-                elapsed_time_download=wrapper.DurationWrapper(5678),
+                elapsed_time_download=wrapper.Duration.from_nanoseconds(1_000_005_678),
             ),
             wrapper.StatusProgress,
         ),
@@ -75,7 +55,6 @@ def _compare_message(l, r):
             wrapper.UpdateRequest,
         ),
         # UpdateRequest: with protobuf repeated composite field,
-        #   init wrapper with protobuf messages in repeated field.
         (
             v2.UpdateRequest(
                 ecu=[
@@ -86,7 +65,7 @@ def _compare_message(l, r):
             wrapper.UpdateRequest(
                 ecu=[
                     wrapper.UpdateRequestEcu(ecu_id="ecu_1"),
-                    v2.UpdateRequestEcu(ecu_id="ecu_2"),  # type: ignore
+                    wrapper.UpdateRequestEcu(ecu_id="ecu_2"),
                 ]
             ),
             wrapper.UpdateRequest,
@@ -102,7 +81,7 @@ def _compare_message(l, r):
                             progress=v2.StatusProgress(
                                 phase=v2.REGULAR,
                                 total_regular_files=123456,
-                                elapsed_time_copy=_Duration(nanos=56789),
+                                elapsed_time_copy=_Duration(seconds=1, nanos=56789),
                             ),
                         ),
                     ),
@@ -113,7 +92,7 @@ def _compare_message(l, r):
                             progress=v2.StatusProgress(
                                 phase=v2.REGULAR,
                                 total_regular_files=456789,
-                                elapsed_time_copy=_Duration(nanos=12345),
+                                elapsed_time_copy=_Duration(seconds=1, nanos=12345),
                             ),
                         ),
                     ),
@@ -129,7 +108,9 @@ def _compare_message(l, r):
                             progress=wrapper.StatusProgress(
                                 phase=wrapper.StatusProgressPhase.REGULAR,
                                 total_regular_files=123456,
-                                elapsed_time_copy=wrapper.DurationWrapper(56789),
+                                elapsed_time_copy=wrapper.Duration.from_nanoseconds(
+                                    1_000_056_789
+                                ),
                             ),
                         ),
                     ),
@@ -140,7 +121,9 @@ def _compare_message(l, r):
                             progress=wrapper.StatusProgress(
                                 phase=wrapper.StatusProgressPhase.REGULAR,
                                 total_regular_files=456789,
-                                elapsed_time_copy=wrapper.DurationWrapper(12345),
+                                elapsed_time_copy=wrapper.Duration.from_nanoseconds(
+                                    1_000_012_345
+                                ),
                             ),
                         ),
                     ),
@@ -164,7 +147,7 @@ def test_convert_message(
     # ensure the convertion is expected
     assert converted_msg == _converted
     # ensure that the exported version is the same as the original version
-    _compare_message(origin_msg, _exported)
+    compare_message(origin_msg, _exported)
 
 
 class Test_enum_wrapper_cooperate:
@@ -179,7 +162,7 @@ class Test_enum_wrapper_cooperate:
         l, r = v2.StatusProgress(phase=v2.REGULAR), v2.StatusProgress(
             phase=wrapper.StatusProgressPhase.REGULAR.value,
         )
-        _compare_message(l, r)
+        compare_message(l, r)
 
     def test_used_in_message_wrapper(self):
         """wrapper enum can be exported."""
@@ -189,7 +172,7 @@ class Test_enum_wrapper_cooperate:
                 phase=wrapper.StatusProgressPhase.REGULAR
             ).export_pb(),
         )
-        _compare_message(l, r)
+        compare_message(l, r)
 
     def test_converted_from_protobuf_enum(self):
         """wrapper enum can be converted from and to protobuf enum."""

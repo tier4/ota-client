@@ -21,7 +21,7 @@ import time
 import typing
 from pathlib import Path
 from typing import List
-from otaclient.app.proto import wrapper
+from otaclient.app.proto import wrapper, v2
 
 from tests.utils import DummySubECU
 from tests.conftest import ThreadpoolExecutorFixtureMixin, TestConfiguration as cfg
@@ -42,9 +42,9 @@ class _DummySubECUsGroup:
         self._if_received_update[ecu_id] = True
         return wrapper.UpdateResponse(
             ecu=[
-                wrapper.v2.UpdateResponseEcu(
+                wrapper.UpdateResponseEcu(
                     ecu_id=ecu_id,
-                    result=wrapper.FailureType.NO_FAILURE.value,
+                    result=wrapper.FailureType.NO_FAILURE,
                 )
             ]
         )
@@ -97,7 +97,7 @@ class TestOtaProxyWrapper:
             # TODO: ensure that the ota_proxy is launched and functional
             #       by downloading a file with proxy
             assert not _ota_proxy_wrapper._closed
-            assert _pid > 0
+            assert _pid
             assert _ota_proxy_wrapper._launcher_gen
         finally:
             _ota_proxy_wrapper.stop()
@@ -214,9 +214,9 @@ class TestOtaClientStub(ThreadpoolExecutorFixtureMixin):
         ]
         self.update_request = wrapper.UpdateRequest(
             ecu=[
-                {"ecu_id": "autoware"},
-                {"ecu_id": "p1"},
-                {"ecu_id": "p2"},
+                wrapper.UpdateRequestEcu(ecu_id="autoware"),
+                wrapper.UpdateRequestEcu(ecu_id="p1"),
+                wrapper.UpdateRequestEcu(ecu_id="p2"),
             ]
         )
         # prepare ecu info

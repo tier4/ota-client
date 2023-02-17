@@ -114,9 +114,11 @@ class TestGrubControl:
         from otaclient.app.boot_control.configs import GrubControlConfig
 
         _mocked_grub_cfg = GrubControlConfig()
-        _mocked_grub_cfg.MOUNT_POINT = str(self.slot_b)
-        _mocked_grub_cfg.ACTIVE_ROOTFS_PATH = str(self.slot_a)
-        _mocked_grub_cfg.BOOT_DIR = str(self.boot_dir)  # unified boot dir
+        _mocked_grub_cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
+        _mocked_grub_cfg.ACTIVE_ROOTFS_PATH = str(self.slot_a)  # type: ignore
+        _mocked_grub_cfg.BOOT_DIR = str(  # type: ignore
+            self.boot_dir
+        )  # unified boot dir
         _mocked_grub_cfg.GRUB_DIR = str(self.boot_dir / "grub")
         _mocked_grub_cfg.GRUB_CFG_PATH = str(self.boot_dir / "grub/grub.cfg")
 
@@ -126,9 +128,11 @@ class TestGrubControl:
         from otaclient.app.boot_control.configs import GrubControlConfig
 
         _mocked_grub_cfg = GrubControlConfig()
-        _mocked_grub_cfg.MOUNT_POINT = str(self.slot_a)
-        _mocked_grub_cfg.ACTIVE_ROOTFS_PATH = str(self.slot_b)
-        _mocked_grub_cfg.BOOT_DIR = str(self.boot_dir)  # unified boot dir
+        _mocked_grub_cfg.MOUNT_POINT = str(self.slot_a)  # type: ignore
+        _mocked_grub_cfg.ACTIVE_ROOTFS_PATH = str(self.slot_b)  # type: ignore
+        _mocked_grub_cfg.BOOT_DIR = str(  # type: ignore
+            self.boot_dir
+        )  # unified boot dir
         _mocked_grub_cfg.GRUB_DIR = str(self.boot_dir / "grub")
         _mocked_grub_cfg.GRUB_CFG_PATH = str(self.boot_dir / "grub/grub.cfg")
 
