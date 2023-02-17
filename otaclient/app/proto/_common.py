@@ -17,10 +17,10 @@ from __future__ import annotations
 from abc import abstractmethod, ABC
 from enum import IntEnum, EnumMeta
 from io import StringIO
-from google.protobuf.message import Message as _Message
 from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import (
     Optional,
+    Tuple,
     overload,
     get_type_hints,
     get_origin,
@@ -66,6 +66,13 @@ _WrappedMessageType = TypeVar("_WrappedMessageType", bound=ProtobufConverter)
 # helper method
 
 
+def _reveal_origin_type(tp: Type[_T]) -> Type[_T]:
+    if isinstance(tp, type):
+        return tp
+    # if field is generic typed
+    return _origin if (_origin := get_origin(tp)) else tp
+
+
 def _convert_helper(
     _value: Any,
     _annotated_type: Union[Type[_NormalType], Type[_WrappedMessageType]],
@@ -86,24 +93,18 @@ def _convert_helper(
     if type(_value) in _NORMAL_PYTHON_TYPES:
         return _value
 
-    _field_type = _annotated_type
-    # if field is generic typed
-    if not isinstance(_annotated_type, type):
-        if _origin := get_origin(_annotated_type):
-            _field_type = _origin
-
+    _field_type = _reveal_origin_type(_annotated_type)
     if issubclass(
         _field_type,
         (
             MessageWrapper,
             EnumWrapper,
-            RepeatedScalarContainer,
             Duration,
         ),
     ):
         return _field_type.convert(_value)
-    elif issubclass(_field_type, RepeatedCompositeContainer):
-        return _field_type.convert(_value, annotation=_annotated_type)
+    elif issubclass(_field_type, (RepeatedCompositeContainer, RepeatedScalarContainer)):
+        return _field_type.convert(_value, _annotation=_annotated_type)
 
     raise TypeError(f"failed to convert {_value}({type(_value)}) to {_annotated_type=}")
 
@@ -139,29 +140,47 @@ class _ContainerBase(List[_T]):
 class RepeatedCompositeContainer(
     _ContainerBase[_WrappedMessageType], ProtobufConverter[List[_MessageType]]
 ):
+    @staticmethod
+    def _get_annotated_types(
+        _annotation,
+    ) -> Tuple[Type[_WrappedMessageType], Type[_MessageType]]:
+        """Get real types from annotation.
+
+        Properly annotation for RepeatedCompositeContainer is as follow:
+        RepeatedCompositeContainer[WrappedMessageType, MessageType]
+
+        Call get_args on above annotation will return a tuple of
+        WrappedMessageType and MessageType.
+        """
+        if len(_types_tuple := get_args(_annotation)) != 2 and not issubclass(
+            _types_tuple[0], ProtobufConverter
+        ):
+            raise TypeError(f"badly annotated repeated field: {_annotation=}")
+
+        return _types_tuple
+
     @classmethod
     def convert(
         cls,
         _in: Union[Iterable[_MessageType], Iterable[_WrappedMessageType]],
         /,
-        annotation: Any,
+        _annotation: Any,
     ) -> Self:
-        # NOTE: a proper type hinted repeated field in wrapper definition should have
-        #       get_args(annotation) = (<element_wrapper_type>, <protobuf_message_type>)
-        if len(_types_tuple := get_args(annotation)) != 2:
-            raise TypeError("repeated field is not properly type annotated")
-        if not issubclass(_wrapper_type := _types_tuple[0], ProtobufConverter):
-            raise TypeError("badly annotated repeated field")
+        _wrapper_type, _messge_type = cls._get_annotated_types(_annotation)
 
         res = cls()
         for _entry in _in:
-            # type check and skip already converted elements
-            if isinstance(_entry, ProtobufConverter):
-                if not isinstance(_entry, _wrapper_type):
-                    raise TypeError(f"expect {_wrapper_type}, but get {type(_entry)=}")
-                res.append(_entry)  # type: ignore
+            # type check and skip already converted elements,
+            # ensure the elements in res all in same type and converted.
+            if isinstance(_entry, _wrapper_type):
+                res.append(_entry)
+            elif isinstance(_entry, _messge_type):
+                res.append(_wrapper_type.convert(_entry))
             else:
-                res.append(_wrapper_type.convert(_entry))  # type: ignore
+                raise TypeError(
+                    f"all elements in the container should have the same type,"
+                    f"expecting {_wrapper_type=} or {_messge_type}, get {type(_entry)=}"
+                )
         return res
 
     def export_pb(self) -> List[_MessageType]:
@@ -171,13 +190,32 @@ class RepeatedCompositeContainer(
 class RepeatedScalarContainer(
     _ContainerBase[_NormalType], ProtobufConverter[List[_NormalType]]
 ):
+    @staticmethod
+    def _get_annotated_types(_annotation) -> Type[_NormalType]:
+        """Get real types from annotation.
+
+        Properly annotation for RepeatedScalarContainer is as follow:
+        RepeatedScalarContainer[NormalType]
+
+        Call get_args on above annotation will return NormalType.
+        """
+        if (
+            len(_types_tuple := get_args(_annotation)) != 1
+            and not _types_tuple[0] in _NORMAL_PYTHON_TYPES
+        ):
+            raise TypeError(f"badly annotated repeated field: {_annotation=}")
+
+        return _types_tuple[0]
+
     @classmethod
-    def convert(cls, _in: Iterable[_NormalType]) -> Self:
+    def convert(cls, _in: Iterable[_NormalType], /, _annotation) -> Self:
         # conduct type checks over all elements
         res = cls()
+
+        _element_type = cls._get_annotated_types(_annotation)
         for _entry in _in:
-            if type(_entry) not in _NORMAL_PYTHON_TYPES:
-                raise TypeError
+            if type(_entry) is not _element_type:
+                raise TypeError(f"expect {_element_type=}, get {type(_entry)=}")
             res.append(_entry)
         return res
 
