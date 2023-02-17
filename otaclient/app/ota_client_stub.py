@@ -638,7 +638,7 @@ class OtaClientStub:
                     )
 
                 # register the status to cache
-                resp.available_ecu_ids.extend(*self._ecu_info.get_available_ecu_ids())
+                resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
                 self._cached_status = resp
 
         # respond with the cached status
