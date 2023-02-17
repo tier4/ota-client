@@ -88,22 +88,16 @@ def _convert_helper(
     # directly return on already converted
     if isinstance(_value, ProtobufConverter):
         return _value  # type: ignore
-    # NOTE: don't use isinstance() to check wether _value is normal type
-    #       as protobuf enum and Duration both inherits from int
-    if type(_value) in _NORMAL_PYTHON_TYPES:
-        return _value
+
+    # NOTE: don't use isinstance() to check wether _value is scalar value type
+    #       as protobuf enum value is pure int at runtime.
+    if _annotated_type in _NORMAL_PYTHON_TYPES and type(_value) is _annotated_type:
+        return _value  # scalar field
 
     _field_type = _reveal_origin_type(_annotated_type)
-    if issubclass(
-        _field_type,
-        (
-            MessageWrapper,
-            EnumWrapper,
-            Duration,
-        ),
-    ):
+    if issubclass(_field_type, (MessageWrapper, EnumWrapper)):
         return _field_type.convert(_value)
-    elif issubclass(_field_type, (RepeatedCompositeContainer, RepeatedScalarContainer)):
+    if issubclass(_field_type, (RepeatedCompositeContainer, RepeatedScalarContainer)):
         return _field_type.convert(_value, _annotation=_annotated_type)
 
     raise TypeError(f"failed to convert {_value}({type(_value)}) to {_annotated_type=}")
@@ -214,6 +208,7 @@ class RepeatedScalarContainer(
 
         _element_type = cls._get_annotated_types(_annotation)
         for _entry in _in:
+            # NOTE: strict type check is applied for scalar field
             if type(_entry) is not _element_type:
                 raise TypeError(f"expect {_element_type=}, get {type(_entry)=}")
             res.append(_entry)
@@ -269,7 +264,7 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
     proto_class: Type[_MessageType]
     _field_types: Dict[str, Any]
     # if field is typed as generic, get the actual original type
-    _field_types_origin: Dict[str, Any]
+    _field_types_origin: Dict[str, type]
     __slots__: List[str]
 
     # internal
@@ -309,13 +304,11 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         else:  # initialize by manually create wrapper instance
             for _attrn in cls.__slots__:
                 if not _attrn in kwargs:
-                    # let the constructor of each type do the job
-                    if _attrn in cls._field_types_origin:
-                        parsed_kwargs[_attrn] = cls._field_types_origin[_attrn]()
-                    else:
-                        parsed_kwargs[_attrn] = cls._field_types[_attrn]()
+                    # let the constructor of each field type do the job
+                    parsed_kwargs[_attrn] = cls._get_real_type(_attrn)()
                 else:
                     # NOTE: pass the original annotation to the converter
+                    #       generic typed field needs this information
                     parsed_kwargs[_attrn] = _convert_helper(
                         kwargs[_attrn],
                         cls._field_types[_attrn],
@@ -339,7 +332,15 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         return getattr(self, __name)
 
     def __setitem__(self, __name: str, __value: Any):
-        return setattr(self, __name, __value)
+        setattr(self, __name, __value)
+
+    def __setattr__(self, __name: str, __value: Any) -> None:
+        if __name not in self.__slots__:
+            raise AttributeError(f"field {__name} is not defined")
+        # type check the assigned value
+        if not isinstance(__value, _field_type := self._get_real_type(__name)):
+            raise TypeError(f"expect {_field_type=}, get {type(__value)=}")
+        return super().__setattr__(__name, __value)
 
     def __eq__(self, __o: object) -> bool:
         if self.__class__ != __o.__class__:
@@ -365,6 +366,15 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         return _buffer.getvalue()
 
     __repr__ = __str__
+
+    # helper
+
+    @classmethod
+    def _get_real_type(cls, _field_name: str) -> type:
+        """Get real type for field(resolve generic typed field)."""
+        if _tp := cls._field_types_origin.get(_field_name):
+            return _tp
+        return cls._field_types.get(_field_name)  # type: ignore
 
     # public API
 
