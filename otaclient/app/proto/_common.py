@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 from abc import abstractmethod, ABC
+from copy import deepcopy
 from enum import IntEnum, EnumMeta
 from io import StringIO
 from google.protobuf.duration_pb2 import Duration as _Duration
@@ -387,6 +388,12 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         for _key in self.__slots__:
             setattr(self, _key, kwargs.get(_key))
 
+    def __deepcopy__(self) -> Self:
+        _memo = {}
+        for _attrn in self.__slots__:
+            _memo[_attrn] = deepcopy(getattr(self, _attrn))
+        return type(self)(**_memo)
+
     def __getitem__(self, __name: str) -> Any:
         return getattr(self, __name)
 
@@ -487,7 +494,7 @@ class Duration(MessageWrapper[_Duration]):
     __slots__ = ["seconds", "nanos"]
     seconds: int
     nanos: int
-    _ns2s = 1_000_000_000
+    _s2ns = 1_000_000_000
 
     def __init__(
         self, seconds: Optional[int] = ..., nanos: Optional[int] = ...
@@ -496,10 +503,10 @@ class Duration(MessageWrapper[_Duration]):
 
     @classmethod
     def from_nanoseconds(cls, _ns: int) -> Self:
-        seconds, nanos = divmod(_ns, cls._ns2s)
+        seconds, nanos = divmod(_ns, cls._s2ns)
         return cls(seconds=seconds, nanos=nanos)
 
     def add_nanoseconds(self, _ns: int):
-        seconds, nanos = divmod(_ns, self._ns2s)
-        self.seconds += seconds
-        self.nanos += nanos
+        _add_seconds, _new_nanos = divmod(self.nanos + _ns, self._s2ns)
+        self.seconds += _add_seconds
+        self.nanos = _new_nanos
