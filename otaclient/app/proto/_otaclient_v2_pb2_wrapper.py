@@ -94,7 +94,7 @@ class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
 
 class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
     __slots__ = calculate_slots(_v2.RollbackRequest)
-    ecu: RepeatedCompositeContainer[RollbackRequestEcu, _v2.RollbackRequestEcu]
+    ecu: RepeatedCompositeContainer[RollbackRequestEcu]
 
     def __init__(
         self,
@@ -126,7 +126,7 @@ class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
 
 class RollbackResponse(MessageWrapper[_v2.RollbackResponse]):
     __slots__ = calculate_slots(_v2.RollbackResponse)
-    ecu: RepeatedCompositeContainer[RollbackResponseEcu, _v2.RollbackResponseEcu]
+    ecu: RepeatedCompositeContainer[RollbackResponseEcu]
 
     def __init__(self, *, ecu: Optional[Iterable[RollbackResponseEcu]] = ...) -> None:
         ...
@@ -255,7 +255,7 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
 class StatusResponse(MessageWrapper[_v2.StatusResponse]):
     __slots__ = calculate_slots(_v2.StatusResponse)
     available_ecu_ids: RepeatedScalarContainer[str]
-    ecu: RepeatedCompositeContainer[StatusResponseEcu, _v2.StatusResponseEcu]
+    ecu: RepeatedCompositeContainer[StatusResponseEcu]
 
     def __init__(
         self,
@@ -321,7 +321,7 @@ class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
 
 class UpdateRequest(MessageWrapper[_v2.UpdateRequest]):
     __slots__ = calculate_slots(_v2.UpdateRequest)
-    ecu: RepeatedCompositeContainer[UpdateRequestEcu, _v2.UpdateRequestEcu]
+    ecu: RepeatedCompositeContainer[UpdateRequestEcu]
 
     def __init__(self, *, ecu: Optional[Iterable[UpdateRequestEcu]] = ...) -> None:
         ...
@@ -358,7 +358,7 @@ class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
 
 class UpdateResponse(MessageWrapper[_v2.UpdateResponse]):
     __slots__ = calculate_slots(_v2.UpdateResponse)
-    ecu: RepeatedCompositeContainer[UpdateResponseEcu, _v2.UpdateResponseEcu]
+    ecu: RepeatedCompositeContainer[UpdateResponseEcu]
 
     def __init__(self, *, ecu: Optional[Iterable[UpdateResponseEcu]] = ...) -> None:
         ...

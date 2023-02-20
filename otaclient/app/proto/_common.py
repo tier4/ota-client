@@ -42,6 +42,8 @@ from typing_extensions import Self
 
 _T = TypeVar("_T")
 _MessageType = TypeVar("_MessageType")
+_WrappedMessageType = TypeVar("_WrappedMessageType", bound="MessageWrapper")
+_ConverterType = TypeVar("_ConverterType", bound="ProtobufConverter")
 # built-in python types that directly being used in protobuf message
 _ScalarValueType = TypeVar("_ScalarValueType", float, int, str, bytes, bool)
 _SCALAR_VALUE_TYPES = (float, int, str, bytes, bool)
@@ -78,9 +80,6 @@ class ProtobufConverter(Generic[_T], ABC):
         ...
 
 
-_ConverterType = TypeVar("_ConverterType", bound=ProtobufConverter)
-
-
 # container converter
 # NOTE: currently only support repeated field.
 
@@ -99,62 +98,49 @@ class _ListLikeContainerBase(List[_T]):
     __repr__ = __str__
 
 
-class RepeatedCompositeContainer(
-    ProtobufConverter[List[_MessageType]],
-    _ListLikeContainerBase[_ConverterType],
-    Generic[_ConverterType, _MessageType],
-):
-    def __init__(
-        self, converter_type: Type[_ConverterType], message_type: Type[_MessageType]
-    ) -> None:
+class RepeatedCompositeContainer(_ListLikeContainerBase[_WrappedMessageType]):
+    def __init__(self, converter_type: Type[_WrappedMessageType]) -> None:
         self.converter_type = converter_type
-        self.message_type = message_type
+        self.message_type = converter_type._proto_class
 
     @classmethod
     def convert(
-        cls,
-        _in: Union[Iterable[_MessageType], Iterable[_ConverterType]],
-        /,
-        converter_type: Type[_ConverterType],
-        element_type: Type[_MessageType],
+        cls, _in: Iterable[Any], /, converter_type: Type[_WrappedMessageType]
     ) -> Self:
-        res = cls(converter_type, element_type)
+        res = cls(converter_type)
+        _proto_msg_type = converter_type._proto_class
         for _entry in _in:
             if isinstance(_entry, converter_type):
                 super(_ListLikeContainerBase, res).append(_entry)
-            elif isinstance(_entry, element_type):
+            elif isinstance(_entry, _proto_msg_type):
                 super(_ListLikeContainerBase, res).append(
                     converter_type.convert(_entry)
                 )
             else:
                 raise TypeError(
                     f"all elements in the container should have the same type,"
-                    f"expecting {converter_type} or {element_type}, get {type(_entry)=}"
+                    f"expecting {converter_type} or {_proto_msg_type}, get {type(_entry)=}"
                 )
         return res
 
-    def export_pb(self) -> List[_MessageType]:
+    def export_pb(self) -> List[Any]:
         return [_entry.export_pb() for _entry in self]
 
     # type checked API method
 
-    def append(self, __object: Union[_MessageType, _ConverterType]) -> None:
+    def append(self, __object: Any) -> None:
         if isinstance(__object, self.converter_type):
             return super().append(__object)
         if isinstance(__object, self.message_type):
             return super().append(self.converter_type.convert(__object))
         raise TypeError
 
-    def extend(self, __iterable: Iterable[Union[_MessageType, _ConverterType]]) -> None:
+    def extend(self, __iterable: Iterable[Any]) -> None:
         for _element in __iterable:
             self.append(_element)
 
 
-class RepeatedScalarContainer(
-    ProtobufConverter[List[_ScalarValueType]],
-    _ListLikeContainerBase[_ScalarValueType],
-    Generic[_ScalarValueType],
-):
+class RepeatedScalarContainer(_ListLikeContainerBase[_ScalarValueType]):
     def __init__(self, element_type: Type[_ScalarValueType]) -> None:
         self.element_type = element_type
 
@@ -175,12 +161,12 @@ class RepeatedScalarContainer(
 
     # type checked API method
 
-    def append(self, __object: _ScalarValueType) -> None:
+    def append(self, __object: Any) -> None:
         if isinstance(__object, self.element_type):
             return super().append(__object)
         raise TypeError
 
-    def extend(self, __iterable: Iterable[_ScalarValueType]) -> None:
+    def extend(self, __iterable: Iterable[Any]) -> None:
         for _element in __iterable:
             self.append(_element)
 
@@ -188,43 +174,38 @@ class RepeatedScalarContainer(
 _K = TypeVar("_K", int, str, bool)
 
 
-class MessageMapContainer(
-    # key_type in maps can be any scalar types except float and bytes
-    # value_type can be anything except another mapping
-    ProtobufConverter[Mapping[_K, _MessageType]],
-    Dict[_K, _ConverterType],
-    Generic[_K, _ConverterType, _MessageType],
-):
+class MessageMapContainer(Dict[_K, _WrappedMessageType]):
     def __init__(
         self,
         key_type: Type[_K],
-        value_type: Type[_MessageType],
-        value_converter: Type[_ConverterType],
+        value_converter: Type[_WrappedMessageType],
     ) -> None:
         self.key_type = key_type
-        self.value_type = value_type
         self.value_converter = value_converter
+        self.value_type = value_converter._proto_class
 
     @classmethod
     def convert(
         cls,
-        _in: Mapping[_K, _MessageType],
+        _in: Mapping[_K, Any],
         /,
         key_type: Type[_K],
-        value_type: Type[_MessageType],
-        value_converter_type: Type[_ConverterType],
+        value_converter_type: Type[_WrappedMessageType],
     ) -> Self:
-        res = cls(key_type, value_type, value_converter_type)
+        res = cls(key_type, value_converter_type)
+        _value_type = value_converter_type._proto_class
         for _k, _v in _in.items():
             if type(_k) is not key_type:
                 raise TypeError(f"expect key type={key_type}, get {type(_k)=}")
-            if issubclass(value_converter_type, ProtobufConverter):
+            if isinstance(_v, value_converter_type):
+                res[_k] = _v
+            elif isinstance(_v, _value_type):
                 res[_k] = value_converter_type.convert(_v)
             else:
                 raise TypeError
         return res
 
-    def export_pb(self) -> Dict[_K, _MessageType]:
+    def export_pb(self) -> Dict[_K, Any]:
         res = {}
         for _k, _v in self.items():
             res[_k] = _v.export_pb()
@@ -233,45 +214,13 @@ class MessageMapContainer(
     # TODO: type checked dict API
 
 
+# container converter registeration
+ProtobufConverter.register(RepeatedCompositeContainer)
+ProtobufConverter.register(RepeatedScalarContainer)
+ProtobufConverter.register(MessageMapContainer)
+
+
 # TODO: scalar mapping
-
-# enum converter
-
-# NOTE: as for protoc==3.21.11, protobuf==4.21.12, at runtime the
-#       type of protobuf Enum value is int, the enum value itself
-#       is not the instance of any Enum type defined in generated
-#       protobuf types.
-
-
-class _DefaultValueEnumMeta(EnumMeta):
-    """Align the protobuf enum behavior that the default value is
-    the first enum in defined order(typically 0 at runtime)."""
-
-    def __call__(cls, *args, **kwargs):
-        if not args and not kwargs:
-            return next(iter(cls))  # type: ignore
-        return super().__call__(*args, **kwargs)
-
-
-class EnumWrapper(IntEnum, metaclass=_DefaultValueEnumMeta):
-    @classmethod
-    def convert(cls, _in: Union[int, str, Self]) -> Self:
-        if isinstance(_in, int):
-            return cls(_in)
-        elif isinstance(_in, str):
-            return cls[_in]
-        elif isinstance(_in, cls):
-            return _in
-        else:
-            raise TypeError(f"cannot convert {_in} into {cls}")
-
-    def export_pb(self) -> int:
-        return self.value
-
-
-# NOTE: EnumWrapper cannot directly inherit from _ProtobufConverter,
-#       so we virtually inherit by registering to _ProtobufConverter
-ProtobufConverter.register(EnumWrapper)
 
 
 # field descriptor for MessageWrapper
@@ -303,9 +252,9 @@ class _FieldBase(Generic[_T], ABC):
         """Get value from instance."""
 
     def __get__(self, obj, objtype=None) -> Union[Self, _T]:
-        if isinstance(obj, type):
-            return self  # access via class, return the descriptor itself
-        return getattr(obj, self._attrn)  # access via instance
+        if obj is not None:
+            return getattr(obj, self._attrn)  # access via instance
+        return self  # access via class, return the descriptor itself
 
     def __set__(self, obj, value: Any) -> None:
         setattr(obj, self._attrn, value)
@@ -328,17 +277,11 @@ class _ScalarValueField(_FieldBase[_ScalarValueType]):
         raise TypeError
 
 
-class _MessageField(_FieldBase[Union["MessageWrapper", EnumWrapper]]):
+class _MessageField(_FieldBase[_ConverterType]):
     """For message field(including message and enum)."""
 
     def __init__(self, field_annotation: Any) -> None:
-        if issubclass(
-            _orig := _reveal_origin_type(field_annotation),
-            (MessageWrapper, EnumWrapper),
-        ):
-            self.field_type = _orig
-        else:
-            raise TypeError(f"not a valid proto converter: {field_annotation}")
+        self.field_type = _reveal_origin_type(field_annotation)
 
     def __set__(self, obj, value: Any) -> None:
         # NOTE: type check is done by the converter
@@ -357,7 +300,7 @@ class _RepeatedCompositeField(
 ):
     """
     Properly annotation for RepeatedCompositeContainer is as follow:
-    RepeatedCompositeContainer[WrappedMessageType, MessageType]
+    RepeatedCompositeContainer[WrappedMessageType]
     """
 
     def __init__(self, field_annotation: Any) -> None:
@@ -371,22 +314,18 @@ class _RepeatedCompositeField(
         self.field_type = _container_type
 
         # parse type annotation to get container element type and its converter
-        if len(_types_tuple := get_args(field_annotation)) != 2:
+        if len(_types_tuple := get_args(field_annotation)) != 1:
             raise TypeError(f"badly annotated repeated field: {field_annotation=}")
-        _msg_converter_type, _msg_type = map(_reveal_origin_type, _types_tuple)
-        if not issubclass(_msg_converter_type, ProtobufConverter):
+        _msg_converter_type = _reveal_origin_type(_types_tuple[0])
+        if not issubclass(_msg_converter_type, MessageWrapper):
             raise TypeError(f"args[0] is not a proto converter: {_msg_converter_type}")
         self.element_wrapper_type = _msg_converter_type
-        self.element_type = _msg_type
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
             value = []
         return super().__set__(
-            obj,
-            self.field_type.convert(
-                value, self.element_wrapper_type, self.element_type
-            ),
+            obj, self.field_type.convert(value, self.element_wrapper_type)
         )
 
 
@@ -437,17 +376,14 @@ class _MessageMappingField(_FieldBase[MessageMapContainer], _MappingLikeContaine
             )
         self.field_type = _container_type
 
-        if len(_types_tuple := get_args(field_annotation)) != 3:
+        if len(_types_tuple := get_args(field_annotation)) != 2:
             raise TypeError(f"badly annotated mapping field: {field_annotation=}")
-        _key_type, _value_wrapper_type, _value_msg_type = map(
-            _reveal_origin_type, _types_tuple
-        )
+        _key_type, _value_wrapper_type = map(_reveal_origin_type, _types_tuple)
         if _key_type not in (int, str, bool):
             raise TypeError(f"key only allows: {int}, {str}, {bool}")
-        if not issubclass(_value_wrapper_type, ProtobufConverter):
+        if not issubclass(_value_wrapper_type, MessageWrapper):
             raise TypeError(f"args[1] is not a proto converter: {field_annotation}")
         self.key_type = _key_type
-        self.value_type = _value_msg_type
         self.value_wrapper_type = _value_wrapper_type
 
     def __set__(self, obj, value: Any) -> None:
@@ -455,12 +391,7 @@ class _MessageMappingField(_FieldBase[MessageMapContainer], _MappingLikeContaine
             value = {}
         return super().__set__(
             obj,
-            self.field_type.convert(
-                value,
-                self.key_type,
-                self.value_type,
-                self.value_wrapper_type,
-            ),
+            self.field_type.convert(value, self.key_type, self.value_wrapper_type),
         )
 
 
@@ -472,7 +403,7 @@ class _ScalarMappingField(_FieldBase, _MappingLikeContainerField):
 # message converter
 
 
-class MessageWrapper(ProtobufConverter[_MessageType]):
+class MessageWrapper(ProtobufConverter[_MessageType], ABC):
     _proto_class: Type[_MessageType]
     _fields: List[str]
     __slots__: List[str]
@@ -608,18 +539,18 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         """Export as protobuf message class inst."""
         _res = self._proto_class()
         for _field_name in self._fields:
-            try:
-                _value = getattr(self, _field_name)
-                _fd_type = type(getattr(self.__class__, _field_name))
-            except AttributeError:
-                continue
+            _value = getattr(self, _field_name)
+            _fd_type = type(getattr(self.__class__, _field_name))
 
             # export to proto mesage instance using protobuf API
             # apply strict checking over scalar value field
             if _fd_type is _ScalarValueField:
                 setattr(_res, _field_name, _value)
-            # use CopyFrom API for export proto msg and enum
-            elif _fd_type is _MessageField:
+            # enum: directly assign
+            elif isinstance(_value, EnumWrapper):
+                setattr(_res, _field_name, _value)
+            # use CopyFrom API for export proto msg
+            elif _fd_type is _MessageField:  # NOTE: exclude enum above
                 getattr(_res, _field_name).CopyFrom(_value.export_pb())
             # use extend API for list like repeated field
             elif issubclass(_fd_type, _ListLikeContainerField):
@@ -632,6 +563,45 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
                     f"failed to export {_field_name=} to {self._proto_class=}"
                 )
         return _res
+
+
+# enum converter
+
+# NOTE: as for protoc==3.21.11, protobuf==4.21.12, at runtime the
+#       type of protobuf Enum value is int, the enum value itself
+#       is not the instance of any Enum type defined in generated
+#       protobuf types.
+
+
+class _DefaultValueEnumMeta(EnumMeta):
+    """Align the protobuf enum behavior that the default value is
+    the first enum in defined order(typically 0 at runtime)."""
+
+    def __call__(cls, *args, **kwargs):
+        if not args and not kwargs:
+            return next(iter(cls))  # type: ignore
+        return super().__call__(*args, **kwargs)
+
+
+class EnumWrapper(IntEnum, metaclass=_DefaultValueEnumMeta):
+    @classmethod
+    def convert(cls, _in: Union[int, str, Self]) -> Self:
+        if isinstance(_in, int):
+            return cls(_in)
+        elif isinstance(_in, str):
+            return cls[_in]
+        elif isinstance(_in, cls):
+            return _in
+        else:
+            raise TypeError(f"cannot convert {_in} into {cls}")
+
+    def export_pb(self) -> int:
+        return self.value
+
+
+# treate Enum as protobuf message
+ProtobufConverter.register(EnumWrapper)
+MessageWrapper.register(EnumWrapper)
 
 
 # well-known types

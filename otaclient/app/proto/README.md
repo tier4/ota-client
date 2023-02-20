@@ -1,42 +1,50 @@
 # Protobuf message wrapper
 
-A library that helps defining wrappers for compiled generated protobuf message types.
+A library that helps defining and creating wrappers for compiled generated protobuf message types.
 
 ## Feature
 
-1. supports easily creating wrapper for any generated protobuf message types,
-1. supports converting any protobuf message instance and store all attributes in corresponding wrapper type instance,
+1. supports easily creating wrapper for any generated protobuf message types, custom helper methods can be defined for each created wrappers,
+1. supports converting protobuf message instance into corresponding wrapper type instance, the converted wrapper instances can be used as normal python instances,
 1. supports exporting wrapper instance back to protobuf message instance, the exported protobuf message instance is equal(each attribute fields have the same value) to the converted one at the beginning,
 1. fully supports nested message, repeated fields and protobuf built-in well-known type(currently only `Duration` is supported),
-1. fully inter-operatable with protobuf message by `convert` and `export_pb` API,
+1. fully inter-operatable with protobuf message with `convert` and `export_pb` API,
 1. provided utils/types are well type hinted and annotated.
 
 ## Provided utils
 
 A list of helper types/utils are provided to generate wrapper types from compiled protobuf message types:
 
-- common utils
+- core utils/types
 
     | **name** | **description** |
     | --- | --- |
-    | `TypeConverterRegister` | register the defined wrapper to corresponding generated protobuf message type |
-    | `MessageWrapper[<generated_pb_type>]` | the base class for all wrapper type |
+    | `MessageWrapper[<generated_pb_type>]` | the base class for all custom defined wrapper types |
+    | `calculate_slots` | helper method to create `__slots__` for defined wrapper types |
 
-- Pre-defined wrapper
+- Pre-defined wrappers for special fields
+
+    Currently only support repeated field.
 
     | **name** | **description** |
     | --- | --- |
-    | `DurationWrapper` | the wrapper for protobuf well-known built-in type `Duration`, store duration as nanoseconds with int internally |
-    | `RepeatedCompositeContainer[<wrapper_type>, <generated_pb_type>]` | the wrapper for repeated field that contains messages |
+    | `RepeatedCompositeContainer[<wrapper_type>]` | the wrapper for repeated field that contains messages |
     | `RepeatedScalarContainer[<normal_type>]` | the wrapper for repeated field that contains normal python types |
+
+- wrappers for protobuf built-in well-known type
+
+    Currenty only support `Duration` type.
+
+    | **name** | **description** |
+    | --- | --- |
+    | `Duration` | the wrapper for protobuf well-known built-in type `Duration` |
 
 ## API
 
 `MessageWrapper` and its subclasses have the following APIs:
 
 ```python
-class MessageWrapper(Generic[_MessageType])
-    proto_class: Type[_MessageType]
+class MessageWrapper(Generic[_MessageType]):
 
     @classmethod
     @abstractmethod
@@ -48,26 +56,11 @@ class MessageWrapper(Generic[_MessageType])
         """Export the wrapper as a protobuf message inst. """
 ```
 
-Wrapper types register `TypeConverterRegister` has the following APIs:
-
-```python
-class TypeConverterRegister:
-    TYPE_CONVERTER_REGISTER = {}
-
-    @classmethod
-    def register(cls, message_type, converter_type) -> None:
-        """Register a wrapper to a specific generated protobuf message type."""
-
-    @classmethod
-    def get_converter(
-        cls, message_type, default=None
-    ) -> Optional[Type[_ProtobufConverter[Any]]]:
-        """Get converter for the generated protobuf message type <message_type>."""
-```
-
 ## HOWTO: define wrappers for generated protobuf message types
 
-### define & compile proto file
+Wrappers for each defined protobuf message types can be simply created with type annotating based on the proto definition using the provided base types and helper methods.
+
+### define wrappers based on proto definition
 
 Consider the following proto file:
 
@@ -102,146 +95,65 @@ message Status {
 }
 ```
 
-Compile the above proto file, we will have the following pyi file generated:
+- Enum wrapper definition
 
-```python
-# real module: my_proto_pb2.py
-# pyi file: my_proto_pb2.pyi
-...
-from google.protobuf import duration_pb2 as _duration_pb2
-from google.protobuf.internal import containers as _containers
-from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
-...
+    ```python
+    from proto import EnumWrapper
+    # import compiled protobuf code
+    import my_proto_pb2 as _v2
 
-INITIAL: StatusProgressPhase
-METADATA: StatusProgressPhase
-PERSISTENT: StatusProgressPhase
-POST_PROCESSING: StatusProgressPhase
-REGULAR: StatusProgressPhase
-SYMLINK: StatusProgressPhase
+    class StatusProgressPhase(EnumWrapper):
+        INITIAL = _v2.INITIAL
+        METADATA = _v2.METADATA
+        DIRECTORY = _v2.DIRECTORY
+        SYMLINK = _v2.SYMLINK
+        REGULAR = _v2.REGULAR
+        PERSISTENT = _v2.PERSISTENT
+        POST_PROCESSING = _v2.POST_PROCESSING
+    ```
 
-...
+- Message wrapper definition
 
-class Status(_message.Message):
-    __slots__ = ["progress", "ecu_ids"]
-    STATUS_FIELD_NUMBER: ClassVar[int]
-    VERSION_FIELD_NUMBER: ClassVar[int]
-    progress: _containers.RepeatedCompositeFieldContainer[StatusProgress]
-    version: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(
-        self, 
-        version: Optional[Iterable[str]] = ..., 
-        progress: Optional[Iterable[Union[StatusProgress, Mapping]]] = ...) -> None: ...
+    NOTE: the order of wrappers defined matters, for nested proto message type, the wrapper for included message must be defined before this nested message type.
 
-class StatusProgress(_message.Message):
-    __slots__ = [..., "phase", "total_regular_files", "elapsed_time_download"]
-    ELAPSED_TIME_DOWNLOAD_FIELD_NUMBER: ClassVar[int]
-    PHASE_FIELD_NUMBER: ClassVar[int]
-    TOTAL_REGULAR_FILES_FIELD_NUMBER: ClassVar[int]
-    elapsed_time_download: _duration_pb2.Duration
-    phase: StatusProgressPhase
-    total_regular_files: int
+    ```python
+    from proto import MessageWrapper, Duration, calculate_slots
+    import my_proto_pb2 as _v2
 
-    def __init__(self, phase: Optional[Union[StatusProgressPhase, str]] = ..., total_regular_files: Optional[int] = ..., elapsed_time_download: Optional[Union[_duration_pb2.Duration, Mapping]] = ...) -> None: ...
+    # wrapper is recommended to have the same name
+    # with the corresponding protobuf message
+    class StatusProgress(MessageWrapper[_v2.StatusProgress]):
+        # __slots__(OPTIONAL, RECOMMENDED)
+        #   if __slots__ is needed, calculate_slots MUST be used
+        #   to create the __slots__, otherwise don't define __slots__
+        __slots__ = calculate_slots(_v2.StatusProgress)
+        # fields type annotation(MUST)
+        #   type annotations for each field according to the proto definition
+        phase: StatusProgressPhase # use the custom wrapper defined above
+        total_regular_files: int
+        elapsed_time_download: Duration # use the provided wrapper
+        # __init__ type hints(OPTIONAL, RECOMMENDED)
+        #   type hints for each attributes when manually create instances
+        #   of wrapper types.
+        #   NOTE: this __init__ is just for typing use, it will not be
+        #         used by the underlaying MessageWrapper
+        #   NOTE: if pyi file is also generated when compiling the proto file,
+        #         the __init__ in pyi file can be used directly here
+        def __init__(
+            self, *,
+            phase: Optional[Union[StatusProgressPhase, str]] = ...,
+            total_regular_files: Optional[int] = ...,
+            elapsed_time_download: Optional[Duration] = ...,
+        )
 
-
-class StatusProgressPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = []
-```
-
-## define wrapper class
-
-Using the helper types/utils provided by this module, we can define the wrapper types as follow:
-
-```python
-import my_proto_pb2 as compiled_pb2
-from enum import IntEnum
-from proto._common import (
-    TypeConverterRegister as _register,
-    MessageWrapper,
-    RepeatedCompositeContainer,
-    RepeatedScalarContainer,
-)
-
-# enum definition
-
-# group protobuf enums from the same protobuf enum class 
-#   into a IntEnum class with same name.
-class StatusProgressPhase(IntEnum):
-    INITIAL = compiled_pb2.INITIAL
-    METADATA = compiled_pb2.METADATA
-    DIRECTORY = compiled_pb2.DIRECTORY
-    SYMLINK = compiled_pb2.SYMLINK
-    REGULAR = compiled_pb2.REGULAR
-    PERSISTENT = compiled_pb2.PERSISTENT
-    POST_PROCESSING = pcompiled_pb2b2.POST_PROCESSING
-
-# message wrapper definition
-
-# wrapper should have the same name as the corresponding 
-#   protobuf message class.
-class Status(MessageWrapper[compiled_pb2.Status]):
-    proto_class = compiled_pb2.Status
-    __slots__ = list(compiled_pb2.Status.DESCRIPTOR.fields_by_name)
-    # copy the attributes definition from compiled pyi protobuf type
-    #
-    # type hint the enum/nested/contained message with corresponding wrapper type
-    # NOTE: for repeated field, 
-    #   - if repeated field contains message(composite repeated field), use 
-    #     the RepeatedCompositeContainer wrapper type to annotate, the first args
-    #     is the wrapper type, the second args is the corresponding wrapped 
-    #     compiled protobuf message type.
-    progress: RepeatedCompositeContainer[StatusProgress, compiled_pb2.StatusProgress]
-    #   - if repeated field contains normal types(scalar repeated field), use
-    #     the RepeatedScalarContainer wrapper type to annotate,
-    version: RepeatedScalarContainer[str]
-
-    # directly copy the __init__ method from compiled pyi protobuf type
-    # NOTE: this __init__ method is only for type hinting, so
-    #       leave the method body empty.
-    def __init__(
-        self, 
-        version: Optional[Iterable[str]] = ..., 
-        progress: Optional[Iterable[Union[StatusProgress, Mapping]]] = ...) -> None: ...
-
-
-    # custom helper methods can be defined below
-    def status_msg_helper_method(self):
-        ...
-
-    def status_msg_helper_method2(self, *args, **kwargs):
-        ...
-
-class StatusProgress(MessageWrapper[compiled_pb2.StatusProgress]):
-    proto_class = compiled_pb2.StatusProgress
-    __slots__ = list(compiled_pb2.StatusProgress.DESCRIPTOR.fields_by_name)
-    # for Duration protobuf type, use the DurationWrapper to annotate
-    elapsed_time_download: DurationWrapper
-    # for field contains message/enum/common types, directly use the 
-    # original protobuf type name
-    phase: StatusProgressPhase
-    total_regular_files: int
-
-    # directly copy the __init__ method from compiled pyi protobuf type
-    def __init__(
-        self,
-        phase: Optional[Union[StatusProgressPhase, str]] = ...,
-        total_regular_files: Optional[int] = ...,
-        elapsed_time_download: Optional[DurationWrapper] = ...,
-    ) -> None:
-        ...
-
-    # custom helper methods can be defined below
-    def get_snapshot(self) -> StatusProgress:
-        ...
-
-# finally, register the above defined wrapper types to the corresponding
-# compiled protobuf message type
-_register.register(compiled_pb2.Status, Status)
-_register.register(compiled_pb2.StatusProgress, StatusProgress)
-
-
-```
+    # Status depends on StatusProgress, so it is defined after StatusProgress wrapper
+    class Status(MessageWrapper[_v2.Status]):
+        __slots__ = calculate_slots(_v2.Status)
+        # for type hinting container fields like repeated,
+        # use the wrapper container
+        ecu_ids: RepeatedScalarContainer[str]
+        progress: RepeatedCompositeContainer[StatusProgress]
+    ```
 
 ## HOWTO: usage of wrapper type
 
