@@ -35,6 +35,7 @@ from typing import (
 from typing_extensions import Self
 
 from ._common import (
+    calculate_slots,
     EnumWrapper,
     MessageWrapper,
     Duration,
@@ -84,8 +85,7 @@ class StatusProgressPhase(EnumWrapper):
 
 
 class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
-    proto_class = _v2.RollbackRequestEcu
-    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.RollbackRequestEcu)
     ecu_id: str
 
     def __init__(self, *, ecu_id: Optional[str] = ...) -> None:
@@ -93,8 +93,7 @@ class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
 
 
 class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
-    proto_class = _v2.RollbackRequest
-    __slots__ = list(_v2.RollbackRequest.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.RollbackRequest)
     ecu: RepeatedCompositeContainer[RollbackRequestEcu, _v2.RollbackRequestEcu]
 
     def __init__(
@@ -112,8 +111,7 @@ class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
 
 
 class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
-    proto_class = _v2.RollbackResponseEcu
-    __slots__ = list(_v2.RollbackRequestEcu.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.RollbackRequestEcu)
     ecu_id: str
     result: FailureType
 
@@ -127,8 +125,7 @@ class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
 
 
 class RollbackResponse(MessageWrapper[_v2.RollbackResponse]):
-    proto_class = _v2.RollbackResponse
-    __slots__ = list(_v2.RollbackResponse.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.RollbackResponse)
     ecu: RepeatedCompositeContainer[RollbackResponseEcu, _v2.RollbackResponseEcu]
 
     def __init__(self, *, ecu: Optional[Iterable[RollbackResponseEcu]] = ...) -> None:
@@ -161,8 +158,7 @@ class RollbackResponse(MessageWrapper[_v2.RollbackResponse]):
 
 
 class StatusProgress(MessageWrapper[_v2.StatusProgress]):
-    proto_class = _v2.StatusProgress
-    __slots__ = list(_v2.StatusProgress.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.StatusProgress)
     download_bytes: int
     elapsed_time_copy: Duration
     elapsed_time_download: Duration
@@ -211,8 +207,7 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress]):
 
 
 class Status(MessageWrapper[_v2.Status]):
-    proto_class = _v2.Status
-    __slots__ = list(_v2.Status.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.Status)
     failure: FailureType
     failure_reason: str
     progress: StatusProgress
@@ -238,13 +233,11 @@ class Status(MessageWrapper[_v2.Status]):
 
 
 class StatusRequest(MessageWrapper[_v2.StatusRequest]):
-    proto_class = _v2.StatusRequest
-    __slots__ = list(_v2.StatusRequest.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.StatusRequest)
 
 
 class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
-    proto_class = _v2.StatusResponseEcu
-    __slots__ = list(_v2.StatusResponseEcu.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.StatusResponseEcu)
     ecu_id: str
     result: FailureType
     status: Status
@@ -260,8 +253,7 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
 
 
 class StatusResponse(MessageWrapper[_v2.StatusResponse]):
-    proto_class = _v2.StatusResponse
-    __slots__ = list(_v2.StatusResponse.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.StatusResponse)
     available_ecu_ids: RepeatedScalarContainer[str]
     ecu: RepeatedCompositeContainer[StatusResponseEcu, _v2.StatusResponseEcu]
 
@@ -310,8 +302,7 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
 
 
 class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
-    proto_class = _v2.UpdateRequestEcu
-    __slots__ = list(_v2.UpdateRequestEcu.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.UpdateRequestEcu)
     cookies: str
     ecu_id: str
     url: str
@@ -329,8 +320,7 @@ class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
 
 
 class UpdateRequest(MessageWrapper[_v2.UpdateRequest]):
-    proto_class = _v2.UpdateRequest
-    __slots__ = list(_v2.UpdateRequest.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.UpdateRequest)
     ecu: RepeatedCompositeContainer[UpdateRequestEcu, _v2.UpdateRequestEcu]
 
     def __init__(self, *, ecu: Optional[Iterable[UpdateRequestEcu]] = ...) -> None:
@@ -353,8 +343,7 @@ class UpdateRequest(MessageWrapper[_v2.UpdateRequest]):
 
 
 class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
-    proto_class = _v2.UpdateResponseEcu
-    __slots__ = list(_v2.UpdateResponseEcu.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.UpdateResponseEcu)
     ecu_id: str
     result: FailureType
 
@@ -368,8 +357,7 @@ class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
 
 
 class UpdateResponse(MessageWrapper[_v2.UpdateResponse]):
-    proto_class = _v2.UpdateResponse
-    __slots__ = list(_v2.UpdateResponse.DESCRIPTOR.fields_by_name)
+    __slots__ = calculate_slots(_v2.UpdateResponse)
     ecu: RepeatedCompositeContainer[UpdateResponseEcu, _v2.UpdateResponseEcu]
 
     def __init__(self, *, ecu: Optional[Iterable[UpdateResponseEcu]] = ...) -> None:
