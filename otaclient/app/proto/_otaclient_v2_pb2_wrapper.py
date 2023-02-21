@@ -11,15 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Concrete wrapper definition for otaclient_v2_pb2 protobuf message types.
-
-Wrapper will pretend to subclass corresponding protobuf message, and will 
-have the signature of the corresponding message, along with helper methods
-by MessageWrapper class. 
-
-DO NOT call protobuf message APIs on wrapper class, because wrappers don't
-actually inherite from the protobuf message type!
-"""
+"""Defined wrappers for otaclient_v2 protobuf message types."""
 
 
 from __future__ import annotations
@@ -45,9 +37,6 @@ from ._common import (
 
 
 # enum
-
-# NOTE: as for protoc==3.21.11, protobuf==4.21.12, protobuf Enum value is
-#       plain int at runtime without subclassing anything.
 
 
 class FailureType(EnumWrapper):

@@ -31,7 +31,6 @@ from typing import (
     List,
     Iterable,
     Mapping,
-    MutableMapping,
     Generic,
     Optional,
     Type,
@@ -97,11 +96,13 @@ class ProtobufConverter(Generic[_T], ABC):
 
 
 # container converter
-# NOTE: currently only support repeated field.
 
 
 class _ContainerBase:
-    ...
+    """
+    NOTE: the container wrapper types are not meant to be instantiated
+    manually, please use convert API to convert a list/dict containing messages.
+    """
 
 
 class _ListLikeContainerBase(List[_T], _ContainerBase):
@@ -119,7 +120,7 @@ class _ListLikeContainerBase(List[_T], _ContainerBase):
 
 
 class RepeatedCompositeContainer(_ListLikeContainerBase[_MessageWrapperType]):
-    def __init__(self, converter_type: Type[_MessageWrapperType]) -> None:
+    def __init__(self, *, converter_type: Type[_MessageWrapperType]) -> None:
         self.converter_type = converter_type
         self.message_type = converter_type._proto_class
 
@@ -127,7 +128,7 @@ class RepeatedCompositeContainer(_ListLikeContainerBase[_MessageWrapperType]):
     def convert(
         cls, _in: Iterable[Any], /, converter_type: Type[_MessageWrapperType]
     ) -> Self:
-        res = cls(converter_type)
+        res = cls(converter_type=converter_type)
         _proto_msg_type = converter_type._proto_class
         for _entry in _in:
             if isinstance(_entry, converter_type):
@@ -161,14 +162,14 @@ class RepeatedCompositeContainer(_ListLikeContainerBase[_MessageWrapperType]):
 
 
 class RepeatedScalarContainer(_ListLikeContainerBase[_ScalarValueType]):
-    def __init__(self, element_type: Type[_ScalarValueType]) -> None:
+    def __init__(self, *, element_type: Type[_ScalarValueType]) -> None:
         self.element_type = element_type
 
     @classmethod
     def convert(
         cls, _in: Iterable[_ScalarValueType], /, element_type: Type[_ScalarValueType]
     ) -> Self:
-        res = cls(element_type)
+        res = cls(element_type=element_type)
         for _entry in _in:
             # NOTE: strict type check is applied for scalar field
             if type(_entry) is not element_type:
@@ -194,13 +195,14 @@ class RepeatedScalarContainer(_ListLikeContainerBase[_ScalarValueType]):
 _K = TypeVar("_K", int, str, bool)
 
 
-class _MappingLikeContainerBase(MutableMapping[_K, _T], _ContainerBase):
+class _MappingLikeContainerBase(Dict[_K, _T], _ContainerBase):
     ...
 
 
 class MessageMapContainer(_MappingLikeContainerBase[_K, _MessageWrapperType]):
     def __init__(
         self,
+        *,
         key_type: Type[_K],
         value_converter: Type[_MessageWrapperType],
     ) -> None:
@@ -214,17 +216,17 @@ class MessageMapContainer(_MappingLikeContainerBase[_K, _MessageWrapperType]):
         _in: Mapping[_K, Any],
         /,
         key_type: Type[_K],
-        value_converter_type: Type[_MessageWrapperType],
+        value_converter: Type[_MessageWrapperType],
     ) -> Self:
-        res = cls(key_type, value_converter_type)
-        _value_type = value_converter_type._proto_class
+        res = cls(key_type=key_type, value_converter=value_converter)
+        _value_type = value_converter._proto_class
         for _k, _v in _in.items():
             if type(_k) is not key_type:
                 raise TypeError(f"expect key type={key_type}, get {type(_k)=}")
-            if isinstance(_v, value_converter_type):
+            if isinstance(_v, value_converter):
                 res[_k] = _v
             elif isinstance(_v, _value_type):
-                res[_k] = value_converter_type.convert(_v)
+                res[_k] = value_converter.convert(_v)
             else:
                 raise TypeError
         return res
@@ -238,10 +240,45 @@ class MessageMapContainer(_MappingLikeContainerBase[_K, _MessageWrapperType]):
     # TODO: type checked dict API
 
 
+class ScalarMapContainer(_MappingLikeContainerBase[_K, _ScalarValueType]):
+    def __init__(
+        self,
+        *,
+        key_type: Type[_K],
+        value_type: Type[_ScalarValueType],
+    ) -> None:
+        self.key_type = key_type
+        self.value_type = value_type
+
+    @classmethod
+    def convert(
+        cls,
+        _in: Mapping[_K, Any],
+        /,
+        key_type: Type[_K],
+        value_type: Type[_ScalarValueType],
+    ) -> Self:
+        res = cls(key_type=key_type, value_type=value_type)
+        for _k, _v in _in.items():
+            if type(_k) is not key_type:
+                raise TypeError(f"expect key type={key_type}, get {type(_k)=}")
+            if isinstance(_v, value_type):
+                res[_k] = _v
+            else:
+                raise TypeError
+        return res
+
+    def export_pb(self) -> Dict[_K, Any]:
+        return self.copy()
+
+    # TODO: type checked dict API
+
+
 # container converter registeration
 ProtobufConverter.register(RepeatedCompositeContainer)
 ProtobufConverter.register(RepeatedScalarContainer)
 ProtobufConverter.register(MessageMapContainer)
+ProtobufConverter.register(ScalarMapContainer)
 
 
 # TODO: scalar mapping
@@ -276,6 +313,8 @@ def _create_field_descriptor(field_annotation: Any) -> Optional[_FieldBase]:
         return _RepeatedCompositeField(field_annotation)
     elif issubclass(_origin_field_type, RepeatedScalarContainer):
         return _RepeatedScalarField(field_annotation)
+    elif issubclass(_origin_field_type, ScalarMapContainer):
+        return _ScalarMappingField(field_annotation)
     elif issubclass(_origin_field_type, MessageMapContainer):
         return _MessageMappingField(field_annotation)
 
@@ -426,11 +465,15 @@ class _RepeatedScalarField(_ListLikeContainerField):
 
 
 class _MappingLikeContainerField(_FieldBase[_FieldContainerWrapperType]):
-    """For mapping like container, we only focus on value converting/exporting
-    as the key type can only be int, str or bool."""
+    ...
 
 
 class _MessageMappingField(_MappingLikeContainerField):
+    """
+    Proper type annotated message mapping field is as follow:
+    MessageMapContainer[K, MessageWrapperType]
+    """
+
     def __init__(self, field_annotation: Any) -> None:
         _container_type = _reveal_origin_type(field_annotation)
         if not issubclass(_container_type, MessageMapContainer):
@@ -459,8 +502,36 @@ class _MessageMappingField(_MappingLikeContainerField):
 
 
 class _ScalarMappingField(_MappingLikeContainerField):
-    ...
-    # TODO
+    """
+    Proper type annotated scalar mapping field is as follow:
+    ScalarMapContainer[K, ScalarValueType]
+    """
+
+    def __init__(self, field_annotation: Any) -> None:
+        _container_type = _reveal_origin_type(field_annotation)
+        if not issubclass(_container_type, ScalarMapContainer):
+            raise TypeError(
+                f"converter for scalar mapping field should be {ScalarMapContainer}"
+            )
+        self.field_type = _container_type
+
+        if len(_types_tuple := get_args(field_annotation)) != 2:
+            raise TypeError(f"badly annotated mapping field: {field_annotation=}")
+        _key_type, _value_type = map(_reveal_origin_type, _types_tuple)
+        if _key_type not in (int, str, bool):
+            raise TypeError(f"key only allows: {int}, {str}, {bool}")
+        if _value_type not in _SCALAR_VALUE_TYPES:
+            raise TypeError(f"args[1] must be scalar value type: {field_annotation}")
+        self.key_type = _key_type
+        self.value_type = _value_type
+
+    def __set__(self, obj, value: Any) -> None:
+        if value is _DEFAULT_VALUE:
+            value = {}
+        return super().__set__(
+            obj,
+            self.field_type.convert(value, self.key_type, self.value_type),
+        )
 
 
 # message wrapper base
