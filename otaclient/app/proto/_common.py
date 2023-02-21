@@ -550,9 +550,10 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
         - Parse type annotations defined in wrapper class.
         - bypass the user defined __init__.
         """
-        if not (_orig_bases := getattr(cls, "__orig_bases__")) or len(_orig_bases) != 1:
+        if not (_orig_bases := getattr(cls, "__orig_bases__")) or len(_orig_bases) < 1:
             raise TypeError("MessageWrapper should have type arg")
-        _typed_msg_wrapper = _orig_bases[0]  # MessageWrapper[<proto_msg_type>]
+        # MessageWrapper should be the last in __mro__
+        _typed_msg_wrapper = _orig_bases[-1]
         if len(_type_args_list := get_args(_typed_msg_wrapper)) != 1:
             raise TypeError("MessageWrapper is not properly typed")
         if not issubclass(_proto_msg_type := _type_args_list[0], _pb_Message):
