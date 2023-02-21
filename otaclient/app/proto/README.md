@@ -4,12 +4,12 @@ A library that helps defining and creating wrappers for compiled generated proto
 
 ## Feature
 
-1. supports easily creating wrapper for any generated protobuf message types, custom helper methods can be defined for each created wrappers,
-1. supports converting protobuf message instance into corresponding wrapper type instance, the converted wrapper instances can be used as normal python instances,
-1. supports exporting wrapper instance back to protobuf message instance, the exported protobuf message instance is equal(each attribute fields have the same value) to the converted one at the beginning,
-1. fully supports nested message, repeated fields and protobuf built-in well-known type(currently only `Duration` is supported),
-1. fully inter-operatable with protobuf message with `convert` and `export_pb` API,
-1. provided utils/types are well type hinted and annotated.
+1. for unset/unpopulated field, aligns the behavior of protobuf message, wrapper will return the default value according to the field type(int, float will be 0, bool will be false, str will be empty string, **enum will be the first defined value in order**, **nested message will be empty message**).
+1. supports **easily creating wrapper with type annotating only** for any generated protobuf message types , custom helper methods can be defined for each created wrappers,
+1. **fully supports nested message, repeated fields and `Duration` type**,
+1. **fully inter-operatable with protobuf message with `convert` and `export_pb` API,** supports converting protobuf message instance into corresponding wrapper type instance, the converted wrapper instances can be used as normal python instances,
+1. simple and unified core APIs, supports exporting wrapper instance back to protobuf message instance, the exported protobuf message instance is equal(each attribute fields have the same value) to the converted one at the beginning,
+1. fully type hinted and type annotated.
 
 ## Provided utils
 
@@ -17,31 +17,31 @@ A list of helper types/utils are provided to generate wrapper types from compile
 
 - core utils/types
 
-    | **name** | **description** |
-    | --- | --- |
-    | `MessageWrapper[<generated_pb_type>]` | the base class for all custom defined wrapper types |
-    | `calculate_slots` | helper method to create `__slots__` for defined wrapper types |
+    | **name** | **description** | **usage**|
+    | --- | --- | --- |
+    | `MessageWrapper` | the base class for all custom defined wrapper types | define wrapper for compiled proto msg type `_pb2.Msg` by defining `Msg(MessageWrapper[_pb2.Msg])` |
+    | `calculate_slots` | helper method to create `__slots__` for defined wrapper types | for compiled proto msg type `_pb2.Msg`, the `__slots__` can be defined by `__slots__ = calculate_slots(_pb2.Msg)` |
 
 - Pre-defined wrappers for special fields
 
-    Currently only support repeated field.
+    NOTE: Currently only support repeated field.
 
-    | **name** | **description** |
-    | --- | --- |
-    | `RepeatedCompositeContainer[<wrapper_type>]` | the wrapper for repeated field that contains messages |
-    | `RepeatedScalarContainer[<normal_type>]` | the wrapper for repeated field that contains normal python types |
+    | **name** | **description** | **usage** |
+    | --- | --- | --- |
+    | `RepeatedCompositeContainer` | the wrapper for annotating repeated field that contains messages | for repeated field with proto msg type `_pb2.Msg` and its wrapper `Msg`, annotating the field as `RepeatedCompositeContainer[Msg]` |
+    | `RepeatedScalarContainer` | the wrapper for repeated field that contains normal python types | for repeated field with type `str`, annotating the field as `RepeatedScalarContainer[str]` |
 
 - wrappers for protobuf built-in well-known type
 
-    Currenty only support `Duration` type.
+    NOTE: Currenty only support `Duration` type.
 
-    | **name** | **description** |
-    | --- | --- |
-    | `Duration` | the wrapper for protobuf well-known built-in type `Duration` |
+    | **name** | **description** | **usage** |
+    | --- | --- | --- |
+    | `Duration` | the wrapper for protobuf well-known built-in type `Duration` | annotating fields that are in protobuf well-known `Duration` type |
 
 ## API
 
-`MessageWrapper` and its subclasses have the following APIs:
+`MessageWrapper` derived classes(detailed wrappers for specific proto message types), wrapper for well-known types and special fields(repeated, etc.) have the following APIs:
 
 ```python
 class MessageWrapper(Generic[_MessageType]):
@@ -49,7 +49,7 @@ class MessageWrapper(Generic[_MessageType]):
     @classmethod
     @abstractmethod
     def convert(cls, _in: _MessageType) -> Self:
-        """Convert a protobuf message inst and store in the wrapper inst."""
+        """Convert a protobuf message inst and store all attrs in the wrapper inst."""
 
     @abstractmethod
     def export_pb(self) -> _MessageType:
@@ -62,38 +62,38 @@ Wrappers for each defined protobuf message types can be simply created with type
 
 ### define wrappers based on proto definition
 
-Consider the following proto file:
+- Consider the following proto file:
 
-```protobuf
-// my_proto.proto
+    ```protobuf
+    // my_proto.proto
 
-syntax = "proto3";
+    syntax = "proto3";
 
-...
+    ...
 
-enum StatusProgressPhase {
-  INITIAL = 0;
-  METADATA = 1;
-  DIRECTORY = 2;
-  SYMLINK = 3;
-  REGULAR = 4;
-  PERSISTENT = 5;
-  POST_PROCESSING = 6;
-}
+    enum StatusProgressPhase {
+    INITIAL = 0;
+    METADATA = 1;
+    DIRECTORY = 2;
+    SYMLINK = 3;
+    REGULAR = 4;
+    PERSISTENT = 5;
+    POST_PROCESSING = 6;
+    }
 
-...
+    ...
 
-message StatusProgress {
-  StatusProgressPhase phase = 1;
-  uint64 total_regular_files = 2;
-  google.protobuf.Duration elapsed_time_download = 12;
-}
+    message StatusProgress {
+    StatusProgressPhase phase = 1;
+    uint64 total_regular_files = 2;
+    google.protobuf.Duration elapsed_time_download = 12;
+    }
 
-message Status {
-  repeated string ecu_ids = 4;
-  repeated StatusProgress progress = 5;
-}
-```
+    message Status {
+    repeated string ecu_ids = 4;
+    repeated StatusProgress progress = 5;
+    }
+    ```
 
 - Enum wrapper definition
 
