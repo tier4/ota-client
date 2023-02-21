@@ -165,15 +165,12 @@ With the previous chapter's defined wrapper, how we can use them is as follow.
     import compiled_pb2
     # wrappers are defined in my_wrapper module
     import my_wrapper
-    from proto._common import TypeConverterRegister as _register
 
     ...
 
     msg: compiled_pb2.Status = ...
-    # get the converter from the register
-    converter = _register.get_converter(type(msg))
     # convert the message into corresponding wrapper instance
-    converted = converter.convert(msg) # type: my_wrapper.Status
+    converted = my_wrapper.Status.convert(msg) # type: my_wrapper.Status
 
     ```
 
