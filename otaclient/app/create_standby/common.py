@@ -134,28 +134,21 @@ class RegularDelta(Dict[bytes, Set[RegularInf]]):
     """Dict[bytes, Set[RegularInf]]"""
 
     def __init__(self):
-        super().__init__()
-        # for fast lookup regularinf entry
-        self._reginf_set: Set[RegularInf] = set()
+        self._path_set: Set[str] = set()
 
     def __len__(self) -> int:
         return sum([len(_set) for _, _set in self.items()])
 
     def add_entry(self, entry: RegularInf):
-        self._reginf_set.add(entry)
-
-        _hash = entry.sha256hash
-        if _hash in self:
+        self._path_set.add(entry.path)
+        if (_hash := entry.sha256hash) in self:
             self[_hash].add(entry)
         else:
-            _new_set = set()
-            _new_set.add(entry)
+            (_new_set := set()).add(entry)
             self[_hash] = _new_set
 
     def contains_path(self, path: Union[Path, str]):
-        if isinstance(path, Path):
-            path = str(path)
-        return path in self._reginf_set
+        return str(path) in self._path_set
 
 
 @dataclass

@@ -28,6 +28,7 @@ from otaclient.app.create_standby import StandbySlotCreatorProtocol
 from otaclient.app.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.errors import OTAErrorRecoverable, OTAUpdateError
+from otaclient.app.ota_metadata import parse_regulars_from_txt, parse_dirs_from_txt
 from otaclient.app.proto.wrapper import RegularInf, DirectoryInf
 from otaclient.app.proto import wrapper
 
@@ -78,7 +79,7 @@ class Test_OTAUpdater:
         _total_regulars_num, _total_donwload_files_size = 0, 0
         with open(_ota_image_dir / "regulars.txt", "r") as _f:
             for _l in _f:
-                _entry = wrapper.parse_regulars_from_txt(_l)
+                _entry = parse_regulars_from_txt(_l)
                 _total_regulars_num += 1
                 _new_delta.add_entry(_entry)
                 if _entry.sha256hash not in _donwload_list_dict:
@@ -92,7 +93,7 @@ class Test_OTAUpdater:
         # --- parse dirs.txt --- #
         _new_dirs: Dict[DirectoryInf, None] = OrderedDict()
         with open(_ota_image_dir / "dirs.txt", "r") as _f:
-            for _dir in map(wrapper.parse_dirs_from_txt, _f):
+            for _dir in map(parse_dirs_from_txt, _f):
                 _new_dirs[_dir] = None
 
         # --- create bundle --- #
