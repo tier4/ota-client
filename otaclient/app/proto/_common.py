@@ -39,20 +39,39 @@ from typing import (
 )
 from typing_extensions import Self
 
+__all__ = [
+    # ------ type vars ------ #
+    "MessageType",
+    "EnumType",
+    "ScalarValueType",
+    "MessageWrapperType",
+    "FieldContainerWrapperType",
+    "ConverterType",
+    "SCALAR_VALUE_TYPES",
+    # ------ detailed core types/utils ------ #
+    "calculate_slots",
+    # wrapper base
+    "MessageWrapper",
+    "EnumWrapper",
+    # well-known types
+    "Duration",
+    # container field wrapper
+    "RepeatedCompositeContainer",
+    "RepeatedScalarContainer",
+]
+
 # typing helpers
 
 _T = TypeVar("_T")
-_MessageType = TypeVar("_MessageType", bound=_pb_Message)
-_EnumType = TypeVar("_EnumType")
+MessageType = TypeVar("MessageType", bound=_pb_Message)
+EnumType = TypeVar("EnumType", bound="EnumWrapper")
 # built-in python types that directly being used in protobuf message
-_ScalarValueType = TypeVar("_ScalarValueType", float, int, str, bytes, bool)
-_SCALAR_VALUE_TYPES = (float, int, str, bytes, bool)
+ScalarValueType = TypeVar("ScalarValueType", float, int, str, bytes, bool)
+SCALAR_VALUE_TYPES = (float, int, str, bytes, bool)
 
-_MessageWrapperType = TypeVar("_MessageWrapperType", bound="MessageWrapper")
-_FieldContainerWrapperType = TypeVar(
-    "_FieldContainerWrapperType", bound="_ContainerBase"
-)
-_ConverterType = TypeVar("_ConverterType", bound="ProtobufConverter")
+MessageWrapperType = TypeVar("MessageWrapperType", bound="MessageWrapper")
+FieldContainerWrapperType = TypeVar("FieldContainerWrapperType", bound="_ContainerBase")
+ConverterType = TypeVar("ConverterType", bound="ProtobufConverter")
 
 
 # helper method
@@ -119,14 +138,14 @@ class _ListLikeContainerBase(List[_T], _ContainerBase):
     __repr__ = __str__
 
 
-class RepeatedCompositeContainer(_ListLikeContainerBase[_MessageWrapperType]):
-    def __init__(self, *, converter_type: Type[_MessageWrapperType]) -> None:
+class RepeatedCompositeContainer(_ListLikeContainerBase[MessageWrapperType]):
+    def __init__(self, *, converter_type: Type[MessageWrapperType]) -> None:
         self.converter_type = converter_type
         self.message_type = converter_type._proto_class
 
     @classmethod
     def convert(
-        cls, _in: Iterable[Any], /, converter_type: Type[_MessageWrapperType]
+        cls, _in: Iterable[Any], /, converter_type: Type[MessageWrapperType]
     ) -> Self:
         res = cls(converter_type=converter_type)
         _proto_msg_type = converter_type._proto_class
@@ -161,13 +180,13 @@ class RepeatedCompositeContainer(_ListLikeContainerBase[_MessageWrapperType]):
             self.append(_element)
 
 
-class RepeatedScalarContainer(_ListLikeContainerBase[_ScalarValueType]):
-    def __init__(self, *, element_type: Type[_ScalarValueType]) -> None:
+class RepeatedScalarContainer(_ListLikeContainerBase[ScalarValueType]):
+    def __init__(self, *, element_type: Type[ScalarValueType]) -> None:
         self.element_type = element_type
 
     @classmethod
     def convert(
-        cls, _in: Iterable[_ScalarValueType], /, element_type: Type[_ScalarValueType]
+        cls, _in: Iterable[ScalarValueType], /, element_type: Type[ScalarValueType]
     ) -> Self:
         res = cls(element_type=element_type)
         for _entry in _in:
@@ -177,7 +196,7 @@ class RepeatedScalarContainer(_ListLikeContainerBase[_ScalarValueType]):
             res.append(_entry)
         return res
 
-    def export_pb(self) -> List[_ScalarValueType]:
+    def export_pb(self) -> List[ScalarValueType]:
         return self.copy()
 
     # type checked API method
@@ -199,12 +218,12 @@ class _MappingLikeContainerBase(Dict[_K, _T], _ContainerBase):
     ...
 
 
-class MessageMapContainer(_MappingLikeContainerBase[_K, _MessageWrapperType]):
+class MessageMapContainer(_MappingLikeContainerBase[_K, MessageWrapperType]):
     def __init__(
         self,
         *,
         key_type: Type[_K],
-        value_converter: Type[_MessageWrapperType],
+        value_converter: Type[MessageWrapperType],
     ) -> None:
         self.key_type = key_type
         self.value_converter = value_converter
@@ -216,7 +235,7 @@ class MessageMapContainer(_MappingLikeContainerBase[_K, _MessageWrapperType]):
         _in: Mapping[_K, Any],
         /,
         key_type: Type[_K],
-        value_converter: Type[_MessageWrapperType],
+        value_converter: Type[MessageWrapperType],
     ) -> Self:
         res = cls(key_type=key_type, value_converter=value_converter)
         _value_type = value_converter._proto_class
@@ -240,12 +259,12 @@ class MessageMapContainer(_MappingLikeContainerBase[_K, _MessageWrapperType]):
     # TODO: type checked dict API
 
 
-class ScalarMapContainer(_MappingLikeContainerBase[_K, _ScalarValueType]):
+class ScalarMapContainer(_MappingLikeContainerBase[_K, ScalarValueType]):
     def __init__(
         self,
         *,
         key_type: Type[_K],
-        value_type: Type[_ScalarValueType],
+        value_type: Type[ScalarValueType],
     ) -> None:
         self.key_type = key_type
         self.value_type = value_type
@@ -256,7 +275,7 @@ class ScalarMapContainer(_MappingLikeContainerBase[_K, _ScalarValueType]):
         _in: Mapping[_K, Any],
         /,
         key_type: Type[_K],
-        value_type: Type[_ScalarValueType],
+        value_type: Type[ScalarValueType],
     ) -> Self:
         res = cls(key_type=key_type, value_type=value_type)
         for _k, _v in _in.items():
@@ -303,7 +322,7 @@ _get_field_attrn = lambda _fname: f"{_ATTR_PREFIX}{_fname}"
 
 def _create_field_descriptor(field_annotation: Any) -> Optional[_FieldBase]:
     _origin_field_type = _reveal_origin_type(field_annotation)
-    if _origin_field_type in _SCALAR_VALUE_TYPES:
+    if _origin_field_type in SCALAR_VALUE_TYPES:
         return _ScalarValueField(field_annotation)
     elif issubclass(_origin_field_type, EnumWrapper):
         return _EnumField(field_annotation)
@@ -353,7 +372,7 @@ class _FieldBase(Generic[_T], ABC):
         self._attrn = _get_field_attrn(name)
 
 
-class _ScalarValueField(_FieldBase[_ScalarValueType]):
+class _ScalarValueField(_FieldBase[ScalarValueType]):
     def __init__(self, field_annotation: Any) -> None:
         self.field_type = _reveal_origin_type(field_annotation)
 
@@ -365,11 +384,11 @@ class _ScalarValueField(_FieldBase[_ScalarValueType]):
         setattr(obj, self._attrn, value)
 
 
-class _MessageField(_FieldBase[_ConverterType]):
+class _MessageField(_FieldBase[ConverterType]):
     """For field that contains one message wrapper inst."""
 
     def __init__(self, field_annotation: Any) -> None:
-        self.field_type: Type[_ConverterType] = _reveal_origin_type(field_annotation)
+        self.field_type: Type[ConverterType] = _reveal_origin_type(field_annotation)
 
     def __set__(self, obj, value: Any) -> None:
         # NOTE: type check is done by the converter
@@ -380,7 +399,7 @@ class _MessageField(_FieldBase[_ConverterType]):
         setattr(obj, self._attrn, value)
 
 
-class _EnumField(_FieldBase[_ConverterType]):
+class _EnumField(_FieldBase[ConverterType]):
     """For field that contains one enum value.
 
     Basically we can handle enum like handling a normal message instance,
@@ -389,7 +408,7 @@ class _EnumField(_FieldBase[_ConverterType]):
     """
 
     def __init__(self, field_annotation: Any) -> None:
-        self.field_type: Type[_ConverterType] = _reveal_origin_type(field_annotation)
+        self.field_type: Type[ConverterType] = _reveal_origin_type(field_annotation)
 
     def __set__(self, obj, value: Any) -> None:
         # NOTE: type check is done by the converter
@@ -400,7 +419,7 @@ class _EnumField(_FieldBase[_ConverterType]):
         setattr(obj, self._attrn, value)
 
 
-class _ListLikeContainerField(_FieldBase[_FieldContainerWrapperType]):
+class _ListLikeContainerField(_FieldBase[FieldContainerWrapperType]):
     ...
 
 
@@ -453,9 +472,9 @@ class _RepeatedScalarField(_ListLikeContainerField):
         # parse type annotation to get container element type
         if len(_types_tuple := get_args(field_annotation)) != 1:
             raise TypeError(f"badly annotated repeated field: {field_annotation=}")
-        if (_element_type := _types_tuple[0]) not in _SCALAR_VALUE_TYPES:
+        if (_element_type := _types_tuple[0]) not in SCALAR_VALUE_TYPES:
             raise TypeError(
-                f"repeated scalar value field only takes: {_SCALAR_VALUE_TYPES}"
+                f"repeated scalar value field only takes: {SCALAR_VALUE_TYPES}"
             )
         self.element_type = _element_type
 
@@ -467,7 +486,7 @@ class _RepeatedScalarField(_ListLikeContainerField):
         setattr(obj, self._attrn, value)
 
 
-class _MappingLikeContainerField(_FieldBase[_FieldContainerWrapperType]):
+class _MappingLikeContainerField(_FieldBase[FieldContainerWrapperType]):
     ...
 
 
@@ -524,7 +543,7 @@ class _ScalarMappingField(_MappingLikeContainerField):
         _key_type, _value_type = map(_reveal_origin_type, _types_tuple)
         if _key_type not in (int, str, bool):
             raise TypeError(f"key only allows: {int}, {str}, {bool}")
-        if _value_type not in _SCALAR_VALUE_TYPES:
+        if _value_type not in SCALAR_VALUE_TYPES:
             raise TypeError(f"args[1] must be scalar value type: {field_annotation}")
         self.key_type = _key_type
         self.value_type = _value_type
@@ -540,8 +559,8 @@ class _ScalarMappingField(_MappingLikeContainerField):
 # message wrapper base
 
 
-class MessageWrapper(ProtobufConverter[_MessageType]):
-    _proto_class: Type[_MessageType]
+class MessageWrapper(ProtobufConverter[MessageType]):
+    _proto_class: Type[MessageType]
     _fields: List[str]
     __slots__: List[str]
 
@@ -652,7 +671,7 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
     # public API
 
     @classmethod
-    def convert(cls, _in: Union[_MessageType, Self]) -> Self:
+    def convert(cls, _in: Union[MessageType, Self]) -> Self:
         """Copy and wrap input message into a new wrapper instance."""
         if isinstance(_in, cls):
             return _in  # do not re-convert again
@@ -664,7 +683,7 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
             _kwargs[_field_name] = getattr(_in, _field_name)
         return cls(**_kwargs)
 
-    def export_pb(self) -> _MessageType:
+    def export_pb(self) -> MessageType:
         """Export as protobuf message class inst."""
         _res = self._proto_class()
         for _field_name in self._fields:
