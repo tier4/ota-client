@@ -360,9 +360,9 @@ class _ScalarValueField(_FieldBase[_ScalarValueType]):
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
             value = self.field_type()
-        if isinstance(value, self.field_type):
-            return super().__set__(obj, self.field_type(value))
-        raise TypeError
+        if not isinstance(value, self.field_type):
+            raise TypeError
+        setattr(obj, self._attrn, value)
 
 
 class _MessageField(_FieldBase[_ConverterType]):
@@ -374,8 +374,10 @@ class _MessageField(_FieldBase[_ConverterType]):
     def __set__(self, obj, value: Any) -> None:
         # NOTE: type check is done by the converter
         if value is _DEFAULT_VALUE:
-            return super().__set__(obj, self.field_type())
-        return super().__set__(obj, self.field_type.convert(value))
+            value = self.field_type()
+        else:
+            value = self.field_type.convert(value)
+        setattr(obj, self._attrn, value)
 
 
 class _EnumField(_FieldBase[_ConverterType]):
@@ -392,8 +394,10 @@ class _EnumField(_FieldBase[_ConverterType]):
     def __set__(self, obj, value: Any) -> None:
         # NOTE: type check is done by the converter
         if value is _DEFAULT_VALUE:
-            return super().__set__(obj, self.field_type())
-        return super().__set__(obj, self.field_type.convert(value))
+            value = self.field_type()
+        else:
+            value = self.field_type.convert(value)
+        setattr(obj, self._attrn, value)
 
 
 class _ListLikeContainerField(_FieldBase[_FieldContainerWrapperType]):
@@ -427,9 +431,9 @@ class _RepeatedCompositeField(_ListLikeContainerField):
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
             value = []
-        return super().__set__(
-            obj, self.field_type.convert(value, self.element_wrapper_type)
-        )
+        else:
+            value = self.field_type.convert(value, self.element_wrapper_type)
+        setattr(obj, self._attrn, value)
 
 
 class _RepeatedScalarField(_ListLikeContainerField):
@@ -458,10 +462,9 @@ class _RepeatedScalarField(_ListLikeContainerField):
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
             value = []
-        return super().__set__(
-            obj,
-            self.field_type.convert(value, self.element_type),
-        )
+        else:
+            value = self.field_type.convert(value, self.element_type)
+        setattr(obj, self._attrn, value)
 
 
 class _MappingLikeContainerField(_FieldBase[_FieldContainerWrapperType]):
@@ -495,10 +498,11 @@ class _MessageMappingField(_MappingLikeContainerField):
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
             value = {}
-        return super().__set__(
-            obj,
-            self.field_type.convert(value, self.key_type, self.value_wrapper_type),
-        )
+        else:
+            value = self.field_type.convert(
+                value, self.key_type, self.value_wrapper_type
+            )
+        setattr(obj, self._attrn, value)
 
 
 class _ScalarMappingField(_MappingLikeContainerField):
@@ -528,10 +532,9 @@ class _ScalarMappingField(_MappingLikeContainerField):
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
             value = {}
-        return super().__set__(
-            obj,
-            self.field_type.convert(value, self.key_type, self.value_type),
-        )
+        else:
+            value = self.field_type.convert(value, self.key_type, self.value_type)
+        setattr(obj, self._attrn, value)
 
 
 # message wrapper base
@@ -685,6 +688,13 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
                     f"failed to export {_field_name=} to {self._proto_class=}"
                 )
         return _res
+
+    def serialize_to_bytes(self) -> bytes:
+        return self.export_pb().SerializeToString()
+
+    @classmethod
+    def converted_from_deserialized(cls, _bytes: bytes, /) -> Self:
+        return cls.convert(cls._proto_class.FromString(_bytes))
 
 
 # enum converter
