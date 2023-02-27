@@ -26,7 +26,8 @@ from pathlib import Path
 
 import grpc
 from otaclient.app.common import file_sha256
-from otaclient.app.proto import otaclient_v2_pb2_grpc as v2_grpc, wrapper
+from otaclient.app.proto import v2_grpc, wrapper
+from otaclient.app.proto._common import _SCALAR_VALUE_TYPES
 
 import logging
 
@@ -113,13 +114,13 @@ def compare_dir(left: Path, right: Path):
 
 
 class DummySubECU:
-    SUCCESS_RESPONSE = wrapper.v2.Status(
-        status=wrapper.StatusOta.SUCCESS.value,
-        failure=wrapper.FailureType.NO_FAILURE.value,
+    SUCCESS_RESPONSE = wrapper.Status(
+        status=wrapper.StatusOta.SUCCESS,
+        failure=wrapper.FailureType.NO_FAILURE,
     )
-    UPDATING_RESPONSE = wrapper.v2.Status(
-        status=wrapper.StatusOta.UPDATING.value,
-        failure=wrapper.FailureType.NO_FAILURE.value,
+    UPDATING_RESPONSE = wrapper.Status(
+        status=wrapper.StatusOta.UPDATING,
+        failure=wrapper.FailureType.NO_FAILURE,
     )
     UPDATE_TIME_COST = 6
     REBOOT_TIME_COST = 1
@@ -140,7 +141,7 @@ class DummySubECU:
             logger.debug(f"{self.ecu_id=}, update not yet started")
             res = wrapper.StatusResponse(
                 ecu=[
-                    wrapper.v2.StatusResponseEcu(
+                    wrapper.StatusResponseEcu(
                         ecu_id=self.ecu_id,
                         status=self.SUCCESS_RESPONSE,
                     )
@@ -157,7 +158,7 @@ class DummySubECU:
             )
             res = wrapper.StatusResponse(
                 ecu=[
-                    wrapper.v2.StatusResponseEcu(
+                    wrapper.StatusResponseEcu(
                         ecu_id=self.ecu_id,
                         status=self.SUCCESS_RESPONSE,
                     )
@@ -174,7 +175,7 @@ class DummySubECU:
         logger.debug(f"{self.ecu_id=}, updating")
         res = wrapper.StatusResponse(
             ecu=[
-                wrapper.v2.StatusResponseEcu(
+                wrapper.StatusResponseEcu(
                     ecu_id=self.ecu_id,
                     status=self.UPDATING_RESPONSE,
                 )
@@ -188,3 +189,23 @@ def zstd_compress_file(src: Union[str, Path], dst: Union[str, Path]):
     cctx = zstandard.ZstdCompressor()
     with open(src, "rb") as src_f, open(dst, "wb") as dst_f:
         cctx.copy_stream(src_f, dst_f)
+
+
+def compare_message(l, r):
+    """
+    NOTE: we don't directly compare two protobuf message by ==
+          due to the behavior difference between empty Duration and
+          unset Duration.
+    """
+    if (_proto_class := type(l)) is not type(r):
+        raise TypeError(f"{type(l)=} != {type(r)=}")
+
+    for _attrn in _proto_class.__slots__:
+        _attrv_l, _attrv_r = getattr(l, _attrn), getattr(r, _attrn)
+        # first check each corresponding attr has the same type,
+        assert type(_attrv_l) == type(_attrv_r), f"compare failed on {_attrn=}"
+
+        if isinstance(_attrv_l, _SCALAR_VALUE_TYPES):
+            assert _attrv_l == _attrv_r
+        else:
+            compare_message(_attrv_l, _attrv_r)

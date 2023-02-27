@@ -31,7 +31,7 @@ logger = log_setting.get_logger(
 )
 
 
-class RegProcessOperation(Enum):
+class RegProcessOperation(str, Enum):
     OP_UNSPECIFIC = "unspecific"
     OP_DOWNLOAD = "download"
     OP_COPY = "copy"
@@ -148,7 +148,7 @@ class OTAUpdateStatsCollector:
                             RegProcessOperation.OP_DOWNLOAD,
                             RegProcessOperation.OP_LINK,
                         ]:
-                            _suffix = st.op.value
+                            _suffix = st.op
                             staging_storage.regular_files_processed += 1
                             staging_storage[f"files_processed_{_suffix}"] += 1
                             staging_storage[f"file_size_processed_{_suffix}"] += st.size

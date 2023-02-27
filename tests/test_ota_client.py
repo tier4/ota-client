@@ -318,10 +318,10 @@ class Test_OTAClient:
         _status = _ota_client.status()
         assert _status == wrapper.StatusResponseEcu(
             ecu_id=self.MY_ECU_ID,
-            result=wrapper.FailureType.NO_FAILURE.value,
-            status=wrapper.v2.Status(
+            result=wrapper.FailureType.NO_FAILURE,
+            status=wrapper.Status(
                 version=cfg.CURRENT_VERSION,
-                status=wrapper.StatusOta.SUCCESS.value,
+                status=wrapper.StatusOta.SUCCESS,
             ),
         )
 
@@ -341,10 +341,10 @@ class Test_OTAClient:
         _status = _ota_client.status()
         assert _status == wrapper.StatusResponseEcu(
             ecu_id=self.MY_ECU_ID,
-            result=wrapper.FailureType.NO_FAILURE.value,
-            status=wrapper.v2.Status(
+            result=wrapper.FailureType.NO_FAILURE,
+            status=wrapper.Status(
                 version=cfg.CURRENT_VERSION,
-                status=wrapper.StatusOta.UPDATING.value,
-                progress=self.MOCKED_STATUS_PROGRESS.unwrap(),  # type: ignore
+                status=wrapper.StatusOta.UPDATING,
+                progress=self.MOCKED_STATUS_PROGRESS,
             ),
         )

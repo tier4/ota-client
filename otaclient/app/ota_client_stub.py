@@ -431,7 +431,7 @@ class OtaClientStub:
             response.add_ecu(
                 wrapper.UpdateResponseEcu(
                     ecu_id=self.my_ecu_id,
-                    result=wrapper.FailureType.RECOVERABLE.value,
+                    result=wrapper.FailureType.RECOVERABLE,
                 )
             )
 
@@ -480,7 +480,7 @@ class OtaClientStub:
                 response.add_ecu(
                     wrapper.UpdateResponseEcu(
                         ecu_id=self.my_ecu_id,
-                        result=wrapper.FailureType.RECOVERABLE.value,
+                        result=wrapper.FailureType.RECOVERABLE,
                     )
                 )
             else:
@@ -508,7 +508,7 @@ class OtaClientStub:
                 response.add_ecu(
                     wrapper.UpdateResponseEcu(
                         ecu_id=self.my_ecu_id,
-                        result=wrapper.FailureType.NO_FAILURE.value,
+                        result=wrapper.FailureType.NO_FAILURE,
                     )
                 )
 
@@ -574,7 +574,7 @@ class OtaClientStub:
                 response.add_ecu(
                     wrapper.RollbackResponseEcu(
                         ecu_id=self.my_ecu_id,
-                        result=wrapper.FailureType.NO_FAILURE.value,
+                        result=wrapper.FailureType.NO_FAILURE,
                     )
                 )
             else:
@@ -587,7 +587,7 @@ class OtaClientStub:
                 response.add_ecu(
                     wrapper.RollbackResponseEcu(
                         ecu_id=self.my_ecu_id,
-                        result=wrapper.FailureType.RECOVERABLE.value,
+                        result=wrapper.FailureType.RECOVERABLE,
                     )
                 )
         else:
@@ -633,13 +633,13 @@ class OtaClientStub:
                     resp.add_ecu(
                         wrapper.StatusResponseEcu(
                             ecu_id=self.my_ecu_id,
-                            result=wrapper.FailureType.RECOVERABLE.value,
+                            result=wrapper.FailureType.RECOVERABLE,
                         )
                     )
 
                 # register the status to cache
-                resp.update_available_ecu_ids(*self._ecu_info.get_available_ecu_ids())
+                resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
                 self._cached_status = resp
 
         # respond with the cached status
-        return wrapper.StatusResponse.wrap(self._cached_status.data)
+        return self._cached_status

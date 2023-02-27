@@ -72,9 +72,13 @@ class TestOTAUpdateStatsCollector:
         _snapshot = self._collector.get_snapshot()
         assert _snapshot.files_processed_copy == self.TOTAL_FILE_NUM // 2
         assert _snapshot.files_processed_download == self.TOTAL_FILE_NUM // 2
-        assert _snapshot.elapsed_time_copy.ToNanoseconds() == self.WORKLOAD_COUNT // 2
         assert (
-            _snapshot.elapsed_time_download.ToNanoseconds() == self.WORKLOAD_COUNT // 2
+            _snapshot.elapsed_time_copy.export_pb().ToNanoseconds()
+            == self.WORKLOAD_COUNT // 2
+        )
+        assert (
+            _snapshot.elapsed_time_download.export_pb().ToNanoseconds()
+            == self.WORKLOAD_COUNT // 2
         )
         assert _snapshot.file_size_processed_copy == self.TOTAL_SIZE // 2
         assert _snapshot.file_size_processed_download == self.TOTAL_SIZE // 2
