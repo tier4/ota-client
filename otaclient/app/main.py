@@ -22,7 +22,7 @@ from pathlib import Path
 from otaclient import __version__  # type: ignore
 from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 from .common import read_str_from_file, write_str_to_file_sync
-from .configs import config as cfg, EXTRA_VERSION_FILE, OTACLIENT_LOCK_FILE
+from .configs import config as cfg, EXTRA_VERSION_FILE
 from .log_setting import configure_logging, get_ecu_id
 from .ota_client_service import launch_otaclient_grpc_server
 
@@ -34,16 +34,16 @@ logger = logging.getLogger(__name__)
 def _check_other_otaclient():
     """Check if there is another otaclient instance running."""
     # create a lock file to prevent multiple ota-client instances start
-    if pid := read_str_from_file(OTACLIENT_LOCK_FILE):
+    if pid := read_str_from_file(cfg.OTACLIENT_PID_FILE):
         # running process will have a folder under /proc
         if Path(f"/proc/{pid}").is_dir():
             logger.error(f"another instance of ota-client({pid=}) is running, abort")
             sys.exit()
         else:
             logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
-            Path(OTACLIENT_LOCK_FILE).unlink(missing_ok=True)
+            Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
     # write our pid to the lock file
-    write_str_to_file_sync(OTACLIENT_LOCK_FILE, f"{os.getpid()}")
+    write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
 
 
 def main():
