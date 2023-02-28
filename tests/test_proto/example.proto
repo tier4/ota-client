@@ -1,0 +1,40 @@
+// Copyright 2022 TIER IV, INC. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
+syntax = "proto3";
+
+import "google/protobuf/duration.proto";
+
+enum SampleEnum {
+    VALUE_0 = 0;
+    VALUE_1 = 1;
+    VALUE_2 = 2;
+}
+
+message InnerMessage {
+    uint32 int_field = 1;
+    double double_field = 2;
+    string str_field = 3;
+    google.protobuf.Duration duration_field = 4;
+    SampleEnum enum_field = 5;
+}
+
+message OuterMessage {
+    repeated string repeated_scalar_field = 1;
+    repeated InnerMessage repeated_composite_field = 2;
+    InnerMessage nested_msg = 3;
+    map<string, string> mapping_scalar_field = 4;
+    map<uint32, InnerMessage> mapping_composite_field = 5;
+}

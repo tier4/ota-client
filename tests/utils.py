@@ -17,6 +17,7 @@ import asyncio
 import os
 import time
 import zstandard
+from google.protobuf.message import Message as _Message
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Union
@@ -27,7 +28,6 @@ from pathlib import Path
 import grpc
 from otaclient.app.common import file_sha256
 from otaclient.app.proto import v2_grpc, wrapper
-from otaclient.app.proto._common import _SCALAR_VALUE_TYPES
 
 import logging
 
@@ -205,7 +205,7 @@ def compare_message(l, r):
         # first check each corresponding attr has the same type,
         assert type(_attrv_l) == type(_attrv_r), f"compare failed on {_attrn=}"
 
-        if isinstance(_attrv_l, _SCALAR_VALUE_TYPES):
-            assert _attrv_l == _attrv_r
-        else:
+        if isinstance(_attrv_l, _Message):
             compare_message(_attrv_l, _attrv_r)
+        else:
+            assert _attrv_l == _attrv_r
