@@ -35,4 +35,6 @@ message OuterMessage {
     repeated string repeated_scalar_field = 1;
     repeated InnerMessage repeated_composite_field = 2;
     InnerMessage nested_msg = 3;
+    map<string, string> mapping_scalar_field = 4;
+    map<uint32, InnerMessage> mapping_composite_field = 5;
 }

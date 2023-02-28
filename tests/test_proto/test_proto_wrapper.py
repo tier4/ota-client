@@ -26,7 +26,7 @@ from . import example_pb2 as pb2
 @pytest.mark.parametrize(
     "input_wrapper_inst, expected_dict",
     (
-        # test case1:
+        # test case 1
         (
             wrapper.InnerMessage(),
             {
@@ -37,7 +37,7 @@ from . import example_pb2 as pb2
                 "str_field": "",
             },
         ),
-        # test case2:
+        # test case 2
         (
             wrapper.OuterMessage(),
             {
@@ -47,6 +47,12 @@ from . import example_pb2 as pb2
                 ),
                 "repeated_scalar_field": proto_wrapper.RepeatedScalarContainer(
                     element_type=str
+                ),
+                "mapping_composite_field": proto_wrapper.MessageMapContainer(
+                    key_type=int, value_converter=wrapper.InnerMessage
+                ),
+                "mapping_scalar_field": proto_wrapper.ScalarMapContainer(
+                    key_type=str, value_type=str
                 ),
             },
         ),
@@ -66,6 +72,7 @@ def test_default_value_behavior(
 @pytest.mark.parametrize(
     "origin_msg, converted_msg",
     (
+        # test case 1
         (
             pb2.InnerMessage(
                 duration_field=_pb2_Duration(nanos=456, seconds=1),
@@ -80,6 +87,35 @@ def test_default_value_behavior(
                 double_field=34.567,
                 str_field="34567",
                 enum_field=wrapper.SampleEnum.VALUE_1,
+            ),
+        ),
+        # test case 2
+        (
+            pb2.OuterMessage(
+                repeated_composite_field=[
+                    pb2.InnerMessage(str_field="rc1"),
+                    pb2.InnerMessage(str_field="rc2"),
+                ],
+                repeated_scalar_field=["rs1", "rs2"],
+                nested_msg=pb2.InnerMessage(str_field="n1"),
+                mapping_composite_field={
+                    1: pb2.InnerMessage(str_field="m1"),
+                    2: pb2.InnerMessage(str_field="m2"),
+                },
+                mapping_scalar_field={"m1": "m1", "m2": "m2"},
+            ),
+            wrapper.OuterMessage(
+                repeated_composite_field=[
+                    wrapper.InnerMessage(str_field="rc1"),
+                    wrapper.InnerMessage(str_field="rc2"),
+                ],
+                repeated_scalar_field=["rs1", "rs2"],
+                nested_msg=wrapper.InnerMessage(str_field="n1"),
+                mapping_composite_field={
+                    1: wrapper.InnerMessage(str_field="m1"),
+                    2: wrapper.InnerMessage(str_field="m2"),
+                },
+                mapping_scalar_field={"m1": "m1", "m2": "m2"},
             ),
         ),
     ),

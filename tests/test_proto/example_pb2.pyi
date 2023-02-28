@@ -25,14 +25,32 @@ class InnerMessage(_message.Message):
     def __init__(self, int_field: _Optional[int] = ..., double_field: _Optional[float] = ..., str_field: _Optional[str] = ..., duration_field: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., enum_field: _Optional[_Union[SampleEnum, str]] = ...) -> None: ...
 
 class OuterMessage(_message.Message):
-    __slots__ = ["nested_msg", "repeated_composite_field", "repeated_scalar_field"]
+    __slots__ = ["mapping_composite_field", "mapping_scalar_field", "nested_msg", "repeated_composite_field", "repeated_scalar_field"]
+    class MappingCompositeFieldEntry(_message.Message):
+        __slots__ = ["key", "value"]
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: int
+        value: InnerMessage
+        def __init__(self, key: _Optional[int] = ..., value: _Optional[_Union[InnerMessage, _Mapping]] = ...) -> None: ...
+    class MappingScalarFieldEntry(_message.Message):
+        __slots__ = ["key", "value"]
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    MAPPING_COMPOSITE_FIELD_FIELD_NUMBER: _ClassVar[int]
+    MAPPING_SCALAR_FIELD_FIELD_NUMBER: _ClassVar[int]
     NESTED_MSG_FIELD_NUMBER: _ClassVar[int]
     REPEATED_COMPOSITE_FIELD_FIELD_NUMBER: _ClassVar[int]
     REPEATED_SCALAR_FIELD_FIELD_NUMBER: _ClassVar[int]
+    mapping_composite_field: _containers.MessageMap[int, InnerMessage]
+    mapping_scalar_field: _containers.ScalarMap[str, str]
     nested_msg: InnerMessage
     repeated_composite_field: _containers.RepeatedCompositeFieldContainer[InnerMessage]
     repeated_scalar_field: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, repeated_scalar_field: _Optional[_Iterable[str]] = ..., repeated_composite_field: _Optional[_Iterable[_Union[InnerMessage, _Mapping]]] = ..., nested_msg: _Optional[_Union[InnerMessage, _Mapping]] = ...) -> None: ...
+    def __init__(self, repeated_scalar_field: _Optional[_Iterable[str]] = ..., repeated_composite_field: _Optional[_Iterable[_Union[InnerMessage, _Mapping]]] = ..., nested_msg: _Optional[_Union[InnerMessage, _Mapping]] = ..., mapping_scalar_field: _Optional[_Mapping[str, str]] = ..., mapping_composite_field: _Optional[_Mapping[int, InnerMessage]] = ...) -> None: ...
 
 class SampleEnum(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = []

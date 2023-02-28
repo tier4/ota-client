@@ -20,6 +20,8 @@ from otaclient.app.proto.wrapper import (
     Duration,
     RepeatedCompositeContainer,
     RepeatedScalarContainer,
+    ScalarMapContainer,
+    MessageMapContainer,
 )
 from typing import (
     Optional as _Optional,
@@ -57,6 +59,8 @@ class InnerMessage(MessageWrapper[_pb2.InnerMessage]):
 
 class OuterMessage(MessageWrapper[_pb2.OuterMessage]):
     __slots__ = calculate_slots(_pb2.OuterMessage)
+    mapping_composite_field: MessageMapContainer[int, InnerMessage]
+    mapping_scalar_field: ScalarMapContainer[str, str]
     nested_msg: InnerMessage
     repeated_composite_field: RepeatedCompositeContainer[InnerMessage]
     repeated_scalar_field: RepeatedScalarContainer[str]
@@ -68,5 +72,7 @@ class OuterMessage(MessageWrapper[_pb2.OuterMessage]):
             _Iterable[_Union[InnerMessage, _Mapping]]
         ] = ...,
         nested_msg: _Optional[_Union[InnerMessage, _Mapping]] = ...,
+        mapping_scalar_field: _Optional[_Mapping[str, str]] = ...,
+        mapping_composite_field: _Optional[_Mapping[int, InnerMessage]] = ...,
     ) -> None:
         ...
