@@ -60,6 +60,8 @@ __all__ = [
     # container field wrapper
     "RepeatedCompositeContainer",
     "RepeatedScalarContainer",
+    "ScalarMapContainer",
+    "MessageMapContainer",
 ]
 
 
