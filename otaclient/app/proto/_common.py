@@ -300,9 +300,6 @@ ProtobufConverter.register(MessageMapContainer)
 ProtobufConverter.register(ScalarMapContainer)
 
 
-# TODO: scalar mapping
-
-
 # field descriptor for MessageWrapper
 #
 # The descriptor implementation for different type of fields in
@@ -363,8 +360,9 @@ class _FieldBase(Generic[_T], ABC):
             return getattr(obj, self._attrn)  # access via instance
         return self  # access via class, return the descriptor itself
 
+    @abstractmethod
     def __set__(self, obj, value: Any) -> None:
-        setattr(obj, self._attrn, value)
+        ...
 
     def __set_name__(self, owner: type, name: str):
         """Being called when bound to class."""
@@ -449,7 +447,7 @@ class _RepeatedCompositeField(_ListLikeContainerField):
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
-            value = []
+            value = self.field_type(converter_type=self.element_wrapper_type)
         else:
             value = self.field_type.convert(value, self.element_wrapper_type)
         setattr(obj, self._attrn, value)
@@ -480,7 +478,7 @@ class _RepeatedScalarField(_ListLikeContainerField):
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
-            value = []
+            value = self.field_type(element_type=self.element_type)
         else:
             value = self.field_type.convert(value, self.element_type)
         setattr(obj, self._attrn, value)
@@ -516,7 +514,9 @@ class _MessageMappingField(_MappingLikeContainerField):
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
-            value = {}
+            value = self.field_type(
+                key_type=self.key_type, value_converter=self.value_wrapper_type
+            )
         else:
             value = self.field_type.convert(
                 value, self.key_type, self.value_wrapper_type
@@ -550,7 +550,7 @@ class _ScalarMappingField(_MappingLikeContainerField):
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
-            value = {}
+            value = self.field_type(key_type=self.key_type, value_type=self.value_type)
         else:
             value = self.field_type.convert(value, self.key_type, self.value_type)
         setattr(obj, self._attrn, value)
