@@ -14,6 +14,7 @@
 
 
 from __future__ import annotations
+import warnings
 from abc import abstractmethod, ABC
 from copy import deepcopy
 from enum import IntEnum, EnumMeta
@@ -232,10 +233,26 @@ class MessageMapContainer(_MappingLikeContainerBase[_K, _MessageWrapperType]):
         return res
 
     def export_pb(self) -> Dict[_K, Any]:
+        warnings.warn(
+            f"{self.export_pb.__name__} for {self.__class__} is deprecated due to "
+            "special behavior of protobuf message mapping container,"
+            f"use {self.export_to_pb_msg_mapping_container.__name__} instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         res = {}
         for _k, _v in self.items():
             res[_k] = _v.export_pb()
         return res
+
+    def export_to_pb_msg_mapping_container(self, pb_container) -> None:
+        """
+        NOTE: special behavior of protobuf message mapping container,
+              the value in the dict should only use CopyFrom API to
+              populate.
+        """
+        for _k, _v in self.items():
+            pb_container[_k].CopyFrom(_v.export_pb())
 
     # TODO: type checked dict API
 
@@ -681,8 +698,14 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
                 getattr(_res, _field_name).CopyFrom(_value.export_pb())
             elif issubclass(_fd_type, _ListLikeContainerField):
                 getattr(_res, _field_name).extend(_value.export_pb())
-            elif issubclass(_fd_type, _MappingLikeContainerField):
+            elif issubclass(_fd_type, _ScalarMappingField):
                 getattr(_res, _field_name).update(_value.export_pb())
+            elif issubclass(_fd_type, _MessageMappingField):
+                # NOTE: special behavior for message mapping container,
+                #       check export_to_pb_msg_mapping_container API for
+                #       more details
+                _value: MessageMapContainer
+                _value.export_to_pb_msg_mapping_container(getattr(_res, _field_name))
             else:
                 raise ValueError(
                     f"failed to export {_field_name=} to {self._proto_class=}"
