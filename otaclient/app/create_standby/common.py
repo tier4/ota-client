@@ -40,7 +40,7 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ..common import file_sha256
 from ..configs import config as cfg
-from ..ota_metadata import parse_regulars_from_txt, parse_dirs_from_txt
+from ..ota_metadata import OTAMetadata
 from ..proto.wrapper import RegularInf, DirectoryInf
 from .. import log_setting
 from ..update_stats import (
@@ -247,10 +247,13 @@ class DeltaGenerator:
     def __init__(
         self,
         *,
+        ota_metadata: OTAMetadata,
         delta_src: Path,
         local_copy_dir: Path,
         stats_collector: OTAUpdateStatsCollector,
     ) -> None:
+        self._ota_metadata = ota_metadata
+
         # delta
         self._new = RegularDelta()
         self._rm: List[str] = []
@@ -405,22 +408,15 @@ class DeltaGenerator:
 
     # API
 
-    def calculate_and_process_delta(
-        self,
-        *,
-        delta_src_reg: Path,  # path to delta_src regulars.txt, currently not used
-        new_reg: Path,  # path to new image regulars.txt
-        new_dirs: Path,  # path to dirs.txt
-    ) -> DeltaBundle:
-        with open(new_dirs, "r") as f:
-            for _dir in map(parse_dirs_from_txt, f):
-                self._new_dirs[_dir] = None
+    def calculate_and_process_delta(self) -> DeltaBundle:
+        # pre-load dirs info
+        for _dir in self._ota_metadata.iter_dirs_inf():
+            self._new_dirs[_dir] = None
         # pre-load from new regulars.txt
-        with open(new_reg, "r") as f:
-            for _entry in map(parse_regulars_from_txt, f):
-                self.total_regulars_num += 1
-                self._new.add_entry(_entry)
-                self._new_hash_list.add(_entry.sha256hash)
+        for _entry in self._ota_metadata.iter_regulars_inf():
+            self.total_regulars_num += 1
+            self._new.add_entry(_entry)
+            self._new_hash_list.add(_entry.sha256hash)
         self._stats_collector.store.total_regular_files = self.total_regulars_num
 
         # generate delta and prepare files
