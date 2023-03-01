@@ -37,7 +37,7 @@ from typing import (
     TypeVar,
     Union,
 )
-from typing_extensions import Self
+from typing_extensions import Self, deprecated
 
 # typing helpers
 
@@ -231,11 +231,26 @@ class MessageMapContainer(_MappingLikeContainerBase[_K, _MessageWrapperType]):
                 raise TypeError
         return res
 
+    @deprecated("use export_to_pb_msg_mapping_container instead")
     def export_pb(self) -> Dict[_K, Any]:
-        res = {}
+        raise DeprecationWarning(
+            f"{self.export_pb.__name__} for {self.__class__} is deprecated due to "
+            "special behavior of protobuf message mapping container,"
+            f"use {self.export_to_pb_msg_mapping_container.__name__} instead",
+        )
+        # res = {}
+        # for _k, _v in self.items():
+        #     res[_k] = _v.export_pb()
+        # return res
+
+    def export_to_pb_msg_mapping_container(self, pb_container) -> None:
+        """
+        NOTE: special behavior of protobuf message mapping container,
+              the value in the dict should only use CopyFrom API to
+              populate.
+        """
         for _k, _v in self.items():
-            res[_k] = _v.export_pb()
-        return res
+            pb_container[_k].CopyFrom(_v.export_pb())
 
     # TODO: type checked dict API
 
@@ -279,9 +294,6 @@ ProtobufConverter.register(RepeatedCompositeContainer)
 ProtobufConverter.register(RepeatedScalarContainer)
 ProtobufConverter.register(MessageMapContainer)
 ProtobufConverter.register(ScalarMapContainer)
-
-
-# TODO: scalar mapping
 
 
 # field descriptor for MessageWrapper
@@ -344,8 +356,9 @@ class _FieldBase(Generic[_T], ABC):
             return getattr(obj, self._attrn)  # access via instance
         return self  # access via class, return the descriptor itself
 
+    @abstractmethod
     def __set__(self, obj, value: Any) -> None:
-        setattr(obj, self._attrn, value)
+        ...
 
     def __set_name__(self, owner: type, name: str):
         """Being called when bound to class."""
@@ -430,7 +443,7 @@ class _RepeatedCompositeField(_ListLikeContainerField):
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
-            value = []
+            value = self.field_type(converter_type=self.element_wrapper_type)
         else:
             value = self.field_type.convert(value, self.element_wrapper_type)
         setattr(obj, self._attrn, value)
@@ -461,7 +474,7 @@ class _RepeatedScalarField(_ListLikeContainerField):
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
-            value = []
+            value = self.field_type(element_type=self.element_type)
         else:
             value = self.field_type.convert(value, self.element_type)
         setattr(obj, self._attrn, value)
@@ -497,7 +510,9 @@ class _MessageMappingField(_MappingLikeContainerField):
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
-            value = {}
+            value = self.field_type(
+                key_type=self.key_type, value_converter=self.value_wrapper_type
+            )
         else:
             value = self.field_type.convert(
                 value, self.key_type, self.value_wrapper_type
@@ -531,7 +546,7 @@ class _ScalarMappingField(_MappingLikeContainerField):
 
     def __set__(self, obj, value: Any) -> None:
         if value is _DEFAULT_VALUE:
-            value = {}
+            value = self.field_type(key_type=self.key_type, value_type=self.value_type)
         else:
             value = self.field_type.convert(value, self.key_type, self.value_type)
         setattr(obj, self._attrn, value)
@@ -681,8 +696,15 @@ class MessageWrapper(ProtobufConverter[_MessageType]):
                 getattr(_res, _field_name).CopyFrom(_value.export_pb())
             elif issubclass(_fd_type, _ListLikeContainerField):
                 getattr(_res, _field_name).extend(_value.export_pb())
-            elif issubclass(_fd_type, _MappingLikeContainerField):
+            elif issubclass(_fd_type, _ScalarMappingField):
                 getattr(_res, _field_name).update(_value.export_pb())
+            elif issubclass(_fd_type, _MessageMappingField) and isinstance(
+                _value, MessageMapContainer
+            ):
+                # NOTE: special behavior for message mapping container,
+                #       check export_to_pb_msg_mapping_container API for
+                #       more details
+                _value.export_to_pb_msg_mapping_container(getattr(_res, _field_name))
             else:
                 raise ValueError(
                     f"failed to export {_field_name=} to {self._proto_class=}"

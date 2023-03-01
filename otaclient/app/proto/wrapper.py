@@ -23,4 +23,6 @@ from ._common import (
     Duration,
     RepeatedCompositeContainer,
     RepeatedScalarContainer,
+    ScalarMapContainer,
+    MessageMapContainer,
 )

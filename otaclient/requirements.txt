@@ -15,4 +15,4 @@ aiohttp==3.8.1
 aiofiles==22.1.0
 zstandard==0.18.0
 pycurl==7.45.1
-typing_extensions==4.4.0
+typing_extensions==4.5.0
