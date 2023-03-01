@@ -42,6 +42,10 @@ def _check_other_otaclient():
         else:
             logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
             Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
+    # create run dir
+    _run_dir = Path(cfg.RUN_DIR)
+    _run_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(_run_dir, 0o550)
     # write our pid to the lock file
     write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
 

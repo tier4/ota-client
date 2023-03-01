@@ -15,6 +15,7 @@
 
 import pytest
 import base64
+from dataclasses import asdict
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes
@@ -124,11 +125,11 @@ def test_ota_metadata(dir_test: Path, payload_str: str):
     metadata_jwt = generate_jwt(payload_str, dir_test)
     parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
-    assert metadata.directory.asdict() == DIR_INFO
-    assert metadata.symboliclink.asdict() == SYMLINK_INFO
-    assert metadata.regular.asdict() == REGULAR_INFO
-    assert metadata.persistent.asdict() == PERSISTENT_INFO
-    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert asdict(metadata.directory) == DIR_INFO
+    assert asdict(metadata.symboliclink) == SYMLINK_INFO
+    assert asdict(metadata.regular) == REGULAR_INFO
+    assert asdict(metadata.persistent) == PERSISTENT_INFO
+    assert asdict(metadata.certificate) == CERTIFICATE_INFO
     assert metadata.rootfs_directory == ROOTFS_DIR_INFO
 
     parser.verify_metadata(sign_pem.read_bytes())
@@ -174,11 +175,11 @@ def test_ota_metadata_with_verify_certificate(
     metadata_jwt = generate_jwt(payload_str, dir_test)
     parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
-    assert metadata.directory.asdict() == DIR_INFO
-    assert metadata.symboliclink.asdict() == SYMLINK_INFO
-    assert metadata.regular.asdict() == REGULAR_INFO
-    assert metadata.persistent.asdict() == PERSISTENT_INFO
-    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert asdict(metadata.directory) == DIR_INFO
+    assert asdict(metadata.symboliclink) == SYMLINK_INFO
+    assert asdict(metadata.regular) == REGULAR_INFO
+    assert asdict(metadata.persistent) == PERSISTENT_INFO
+    assert asdict(metadata.certificate) == CERTIFICATE_INFO
     assert metadata.rootfs_directory == ROOTFS_DIR_INFO
     parser.verify_metadata(Path(dir_test / "keys" / "sign.pem").read_bytes())
     if "total_regular_size" in payload_str:
@@ -205,11 +206,11 @@ def test_ota_metadata_with_verify_certificate_exception(
     metadata_jwt = generate_jwt(payload_str, dir_test)
     parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
-    assert metadata.directory.asdict() == DIR_INFO
-    assert metadata.symboliclink.asdict() == SYMLINK_INFO
-    assert metadata.regular.asdict() == REGULAR_INFO
-    assert metadata.persistent.asdict() == PERSISTENT_INFO
-    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert asdict(metadata.directory) == DIR_INFO
+    assert asdict(metadata.symboliclink) == SYMLINK_INFO
+    assert asdict(metadata.regular) == REGULAR_INFO
+    assert asdict(metadata.persistent) == PERSISTENT_INFO
+    assert asdict(metadata.certificate) == CERTIFICATE_INFO
     assert metadata.rootfs_directory == ROOTFS_DIR_INFO
     with pytest.raises(ValueError):
         # NOTE: intentionally use sign.key as sign cert here,

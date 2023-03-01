@@ -22,6 +22,7 @@ from typing import Callable, List, Set, Tuple
 
 from ..common import RetryTaskMap
 from ..configs import config as cfg
+from ..ota_metadata import MetafilesV1
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
@@ -92,7 +93,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             dst_group_file=self.standby_slot_mp / _group_file.relative_to("/"),
         )
 
-        for _perinf in self._ota_metadata.iter_persistents_inf():
+        for _perinf in self._ota_metadata.iter_metafile(MetafilesV1.PERSISTENTS):
             _perinf_path = Path(_perinf.path)
             if (
                 _perinf_path.is_file()
@@ -103,7 +104,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _process_symlinks(self):
         self.update_phase_tracker(StatusProgressPhase.SYMLINK)
-        for _symlink in self._ota_metadata.iter_symlinks_inf():
+        for _symlink in self._ota_metadata.iter_metafile(MetafilesV1.SYMLINKS):
             _symlink.link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):

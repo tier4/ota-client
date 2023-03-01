@@ -19,10 +19,10 @@ import json
 import re
 import shutil
 import time
+from enum import Enum
 from os import PathLike
-from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass, fields
 from urllib.parse import quote
 from OpenSSL import crypto
 from pathlib import Path
@@ -34,7 +34,6 @@ from typing import (
     ClassVar,
     Dict,
     Generic,
-    Iterable,
     Iterator,
     List,
     Optional,
@@ -71,9 +70,6 @@ class MetaFile:
     file: str
     hash: str
 
-    def asdict(self):
-        return asdict(self)
-
 
 class MetaFieldDescriptor(Generic[FV]):
     HASH_KEY = "hash"  # version1
@@ -84,7 +80,7 @@ class MetaFieldDescriptor(Generic[FV]):
         self.default = default
 
     @overload
-    def __get__(self, obj: None, objtype: type) -> "MetaFieldDescriptor":
+    def __get__(self, obj: None, objtype: type) -> Self:
         """Descriptor accessed via class."""
         ...
 
@@ -93,7 +89,7 @@ class MetaFieldDescriptor(Generic[FV]):
         """Descriptor accessed via bound instance."""
         ...
 
-    def __get__(self, obj, objtype=None) -> "Union[FV, MetaFieldDescriptor]":
+    def __get__(self, obj, objtype=None) -> Union[FV, Self]:
         if obj and not isinstance(obj, type):
             return getattr(obj, self._private_name)  # access via instance
         return self  # access via class, return the descriptor
@@ -159,7 +155,7 @@ class _MetadataJWTParser:
 
         NOTE:
             If there is no root or intermediate certificate, certification verification
-            will be skipped!
+            will be skipped! This should only happen at non-production environment!
     """
 
     HASH_ALG = "sha256"
@@ -275,16 +271,25 @@ class _MetadataJWTParser:
         self._verify_metadata(metadata_cert)
 
 
+class MetafilesV1(str, Enum):
+    """
+    In version1, we have image metafiles as follow:
+    - directory: all directories in the image,
+    - symboliclink: all symlinks in the image,
+    - regular: all normal/regular files in the image,
+    - persistent: files that should be preserved across update.
+    """
+
+    # version1 text based ota metafiles fname
+    REGULARS = "regulars.txt"
+    DIRS = "dirs.txt"
+    SYMLINKS = "symlinks.txt"
+    PERSISTENTS = "persistents.txt"
+
+
 @dataclass
 class _MetadataJWTClaims:
-    """metadata.jwt payload mapping and parsing.
-
-    In version1, we have image metafiles as follow:
-        - directory: all directories in the image,
-        - symboliclink: all symlinks in the image,
-        - regular: all normal/regular files in the image,
-        - persistent: files that should be preserved across update.
-    """
+    """metadata.jwt payload mapping and parsing."""
 
     SCHEME_VERSION: ClassVar[int] = 1
     VERSION_KEY: ClassVar[str] = "version"
@@ -421,15 +426,13 @@ def parse_regulars_from_txt(_input: str) -> RegularInf:
 
 # -------- otametadata ------ #
 
-MetaInfo = namedtuple(
-    "MetaInfo",
-    [
-        "metadata_scheme_version",
-        "total_regular_size",
-        "rootfs_directory",
-        "compressed_rootfs_directory",
-    ],
-)
+
+@dataclass
+class MetaInfo:
+    metadata_scheme_version: int
+    total_regular_size: int
+    rootfs_directory: str
+    compressed_rootfs_directory: str
 
 
 @dataclass
@@ -443,33 +446,32 @@ class OTAMetadata:
     """Implementation of loading/parsing OTA metadata.jwt and metafiles."""
 
     METADATA_JWT = "metadata.jwt"
-    # version1 text based ota metafiles fname
-    REGULARS_TXT = "regulars.txt"
-    DIRS_TXT = "dirs.txt"
-    SYMLINKS_TXT = "symlinks.txt"
-    PERSISTENTS_TXT = "persistents.txt"
 
     # internal used binary metafiles fname
-    REGULARS_INF_BIN_FNAME = "regulars.bin"
-    DIRECTORYS_INF_BIN_FNAME = "dirs.bin"
-    SYMLINKS_INF_BIN_FNAME = "symlinks.bin"
-    PERSISTENTS_INF_BIN_FNAME = "persistents.bin"
+    REGULARS_BIN = "regulars.bin"
+    DIRS_BIN = "dirs.bin"
+    SYMLINKS_BIN = "symlinks.bin"
+    PERSISTENTS_BIN = "persistents.bin"
 
     METAFILE_PARSER_MAPPING = {
-        DIRS_TXT: MetafileParserMapping(
-            parse_dirs_from_txt, DIRECTORYS_INF_BIN_FNAME, DirectoryInf
+        MetafilesV1.DIRS: MetafileParserMapping(
+            parse_dirs_from_txt,
+            DIRS_BIN,
+            DirectoryInf,
         ),
-        SYMLINKS_TXT: MetafileParserMapping(
+        MetafilesV1.SYMLINKS: MetafileParserMapping(
             parse_symlinks_from_txt,
-            SYMLINKS_INF_BIN_FNAME,
+            SYMLINKS_BIN,
             SymbolicLinkInf,
         ),
-        REGULARS_TXT: MetafileParserMapping(
-            parse_regulars_from_txt, REGULARS_INF_BIN_FNAME, RegularInf
+        MetafilesV1.REGULARS: MetafileParserMapping(
+            parse_regulars_from_txt,
+            REGULARS_BIN,
+            RegularInf,
         ),
-        PERSISTENTS_TXT: MetafileParserMapping(
+        MetafilesV1.PERSISTENTS: MetafileParserMapping(
             parse_persistents_from_txt,
-            PERSISTENTS_INF_BIN_FNAME,
+            PERSISTENTS_BIN,
             PersistentInf,
         ),
     }
@@ -493,19 +495,15 @@ class OTAMetadata:
 
         # download and parsing the metadata.jwt and ota metafiles
         self._process_metadata_jwt()
-        self._parse_text_base_otameta_files()
+        self._process_text_base_otameta_files()
 
     def _process_metadata_jwt(self) -> None:
         """Custom parsing jwt logic."""
-        logger.debug("process metadata jwt...")
-        with NamedTemporaryFile(
-            prefix="otaclient_metadata_jwt", dir=cfg.RUN_DIR
-        ) as meta_f:
-            metadata_jwt_url = urljoin_ensure_base(self._url_base, self.METADATA_JWT)
-
+        logger.debug("process metadata.jwt...")
+        with NamedTemporaryFile(prefix="metadata_jwt", dir=cfg.RUN_DIR) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
             self._downloader.download(
-                metadata_jwt_url,
+                urljoin_ensure_base(self._url_base, self.METADATA_JWT),
                 _downloaded_meta_f,
                 cookies=self._cookies,
                 proxies=self._proxies,
@@ -536,13 +534,15 @@ class OTAMetadata:
                 },
             )
             _parser.verify_metadata(cert_file.read_bytes())
-
+        # verification succeeded, bind ota_metadata to inst
         self._ota_metadata = _ota_metadata
 
-    def _parse_text_base_otameta_files(self):
-        def _parse_text_base_otameta_file(_metafile: MetaFile):
+    def _process_text_base_otameta_files(self):
+        logger.debug("process ota metafiles...")
+
+        def _process_text_base_otameta_file(_metafile: MetaFile):
             meta_f_url = urljoin_ensure_base(self._url_base, quote(_metafile.file))
-            _parser_info = self.METAFILE_PARSER_MAPPING[_metafile.file]
+            _parser_info = self.METAFILE_PARSER_MAPPING[MetafilesV1(_metafile.file)]
 
             with NamedTemporaryFile(prefix=f"metafile_{_metafile.file}") as _metafile_f:
                 _metafile_fpath = Path(_metafile_f.name)
@@ -566,13 +566,11 @@ class OTAMetadata:
                         exporter.write1_msg(_parser_info.text_parser(_line))
 
         _keep_failing_timer = time.time()
-        with ThreadPoolExecutor(
-            thread_name_prefix="parsing_ota_metafiles"
-        ) as _executor:
+        with ThreadPoolExecutor(thread_name_prefix="process_metafiles") as _executor:
             _mapper = RetryTaskMap(
-                _parse_text_base_otameta_file,
+                _process_text_base_otameta_file,
                 self._ota_metadata.get_img_metafiles(),
-                title="parsing_ota_metafiles",
+                title="process_metafiles",
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
                 backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
                 backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
@@ -608,24 +606,10 @@ class OTAMetadata:
             _fpath = self._tmp_dir_path / _fname
             shutil.copy(_fpath, dst_dir)
 
-    def iter_regulars_inf(self) -> Iterable[RegularInf]:
-        with open(self._tmp_dir_path / self.REGULARS_INF_BIN_FNAME, "rb") as _f:
-            _stream_reader = Uint32LenDelimitedReader(_f, RegularInf)
-            yield from _stream_reader.iter_msg()
-
-    def iter_dirs_inf(self) -> Iterable[DirectoryInf]:
-        with open(self._tmp_dir_path / self.DIRECTORYS_INF_BIN_FNAME, "rb") as _f:
-            _stream_reader = Uint32LenDelimitedReader(_f, DirectoryInf)
-            yield from _stream_reader.iter_msg()
-
-    def iter_symlinks_inf(self) -> Iterable[SymbolicLinkInf]:
-        with open(self._tmp_dir_path / self.SYMLINKS_INF_BIN_FNAME, "rb") as _f:
-            _stream_reader = Uint32LenDelimitedReader(_f, SymbolicLinkInf)
-            yield from _stream_reader.iter_msg()
-
-    def iter_persistents_inf(self) -> Iterable[PersistentInf]:
-        with open(self._tmp_dir_path / self.PERSISTENTS_INF_BIN_FNAME, "rb") as _f:
-            _stream_reader = Uint32LenDelimitedReader(_f, PersistentInf)
+    def iter_metafile(self, metafile: MetafilesV1) -> Iterator[Any]:
+        _parser_info = self.METAFILE_PARSER_MAPPING[metafile]
+        with open(self._tmp_dir_path / _parser_info.bin_fname, "rb") as _f:
+            _stream_reader = Uint32LenDelimitedReader(_f, _parser_info.wrapper_type)
             yield from _stream_reader.iter_msg()
 
     def get_image_data_url(self, base_url: str) -> str:
