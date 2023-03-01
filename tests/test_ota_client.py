@@ -43,12 +43,15 @@ class Test_OTAUpdater:
     """
 
     @pytest.fixture
-    def prepare_ab_slots(self, ab_slots: SlotMeta):
+    def prepare_ab_slots(self, tmp_path: Path, ab_slots: SlotMeta):
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
         self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
         self.ota_image_dir = Path(cfg.OTA_IMAGE_DIR)
+
+        self.otaclient_run_dir = tmp_path / "otaclient_run_dir"
+        self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
 
         # ------ cleanup and prepare slot_b ------ #
         shutil.rmtree(self.slot_b, ignore_errors=True)
@@ -141,7 +144,9 @@ class Test_OTAUpdater:
         _cfg = BaseConfig()
         _cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
         _cfg.ACTIVE_ROOTFS_PATH = str(self.slot_a)  # type: ignore
+        _cfg.RUN_DIR = str(self.otaclient_run_dir)  # type: ignore
         mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
+        mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg", _cfg)
 
         # ------ mock stats collector ------ #
         mocker.patch(
@@ -166,9 +171,6 @@ class Test_OTAUpdater:
         )
 
         # ------ assertions ------ #
-        # assert ota metefiles are downloaded
-        # TODO: check each ota meta files?
-        assert list(self.ota_metafiles_tmp_dir.glob("*"))
         # assert OTA files are downloaded
         _downloaded_files_size = 0
         for _f in self.ota_tmp_dir.glob("*"):

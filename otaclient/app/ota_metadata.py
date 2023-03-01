@@ -443,25 +443,31 @@ class OTAMetadata:
     """Implementation of loading/parsing OTA metadata.jwt and metafiles."""
 
     METADATA_JWT = "metadata.jwt"
+    # version1 text based ota metafiles fname
+    REGULARS_TXT = "regulars.txt"
+    DIRS_TXT = "dirs.txt"
+    SYMLINKS_TXT = "symlinks.txt"
+    PERSISTENTS_TXT = "persistents.txt"
 
+    # internal used binary metafiles fname
     REGULARS_INF_BIN_FNAME = "regulars.bin"
     DIRECTORYS_INF_BIN_FNAME = "dirs.bin"
     SYMLINKS_INF_BIN_FNAME = "symlinks.bin"
     PERSISTENTS_INF_BIN_FNAME = "persistents.bin"
 
     METAFILE_PARSER_MAPPING = {
-        "directory": MetafileParserMapping(
+        DIRS_TXT: MetafileParserMapping(
             parse_dirs_from_txt, DIRECTORYS_INF_BIN_FNAME, DirectoryInf
         ),
-        "symbolicklink": MetafileParserMapping(
+        SYMLINKS_TXT: MetafileParserMapping(
             parse_symlinks_from_txt,
             SYMLINKS_INF_BIN_FNAME,
             SymbolicLinkInf,
         ),
-        "regular": MetafileParserMapping(
+        REGULARS_TXT: MetafileParserMapping(
             parse_regulars_from_txt, REGULARS_INF_BIN_FNAME, RegularInf
         ),
-        "persistent": MetafileParserMapping(
+        PERSISTENTS_TXT: MetafileParserMapping(
             parse_persistents_from_txt,
             PERSISTENTS_INF_BIN_FNAME,
             PersistentInf,
@@ -597,8 +603,8 @@ class OTAMetadata:
         )
 
     def save_metafiles_bin_to(self, dst_dir: PathLike):
-        for _inf_files_mapping in self.METAFILE_PARSER_MAPPING:
-            _fname = _inf_files_mapping[1]
+        for _, _inf_files_mapping in self.METAFILE_PARSER_MAPPING.items():
+            _fname = _inf_files_mapping.bin_fname
             _fpath = self._tmp_dir_path / _fname
             shutil.copy(_fpath, dst_dir)
 

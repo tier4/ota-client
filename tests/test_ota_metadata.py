@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from otaclient.app.ota_metadata import (
-    ParseMetadataHelper,
+    _MetadataJWTParser,
     parse_dirs_from_txt,
     parse_persistents_from_txt,
     parse_regulars_from_txt,
@@ -122,7 +122,7 @@ def test_ota_metadata(dir_test: Path, payload_str: str):
     sign_pem = dir_test / "keys" / "sign.pem"
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
     assert metadata.directory.asdict() == DIR_INFO
     assert metadata.symboliclink.asdict() == SYMLINK_INFO
@@ -144,7 +144,7 @@ def test_ota_metadata_exception(dir_test: Path, payload_str):
     sign_pem = dir_test / "keys" / "sign.pem"
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     with pytest.raises(ValueError):
         # sing.key is not a valid cert
         sign_pem = dir_test / "keys" / "sign.key"
@@ -172,7 +172,7 @@ def test_ota_metadata_with_verify_certificate(
     cert_b_2.write_bytes(Path(dir_test / "keys" / "interm.pem").read_bytes())
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
     assert metadata.directory.asdict() == DIR_INFO
     assert metadata.symboliclink.asdict() == SYMLINK_INFO
@@ -203,7 +203,7 @@ def test_ota_metadata_with_verify_certificate_exception(
     cert_a_2.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
     assert metadata.directory.asdict() == DIR_INFO
     assert metadata.symboliclink.asdict() == SYMLINK_INFO
@@ -220,6 +220,8 @@ def test_ota_metadata_with_verify_certificate_exception(
     else:
         assert metadata.total_regular_size is None
 
+
+# ------ text based ota metafiles parsing test ------ #
 
 # try to include as any special characters as possible
 @pytest.mark.parametrize(
