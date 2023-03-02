@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Type, Iterator
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse
 
 from .errors import (
     BaseOTAMetaVerificationFailed,
@@ -151,9 +151,7 @@ class _OTAUpdater:
         self.failure_reason = ""
         # init variables needed for update
         self._otameta: OTAMetadata = None  # type: ignore
-        self._cookies: Dict[str, Any] = None  # type: ignore
         self._url_base: str = None  # type: ignore
-        self._proxy: Dict[str, Any] = None  # type: ignore
 
         # init downloader
         self._downloader = Downloader()
@@ -192,8 +190,6 @@ class _OTAUpdater:
             _local_copy,
             digest=_fhash_str,
             size=entry.size,
-            proxies=self._proxy,
-            cookies=self._cookies,
             compression_alg=compression_alg,
         )
         cur_stat.size = _local_copy.stat().st_size
@@ -307,7 +303,6 @@ class _OTAUpdater:
 
     def shutdown(self):
         self.update_phase = None
-        self._proxy = None  # type: ignore
         self._downloader.shutdown()
         self._update_stats_collector.stop()
 
@@ -364,16 +359,16 @@ class _OTAUpdater:
             # ------ parse cookies ------ #
             logger.debug("process cookies_json...")
             try:
-                self._cookies = json.loads(cookies_json)
+                _cookies = json.loads(cookies_json)
                 assert isinstance(
-                    self._cookies, dict
-                ), f"invalid cookies, expecting to be parsed into dict but {type(self._cookies)}"
+                    _cookies, dict
+                ), f"invalid cookies, expecting json object: {cookies_json}"
+                self._downloader.configure_cookies(_cookies)
             except (JSONDecodeError, AssertionError) as e:
                 raise InvalidUpdateRequest from e
 
             # ------ configure proxy ------ #
             logger.debug("configure proxy setting...")
-            self._proxy = {}
             if proxy := proxy_cfg.get_proxy_for_local_ota():
                 # wait for stub to setup the local ota_proxy server
                 if not fsm.client_wait_for_ota_proxy():
@@ -381,7 +376,7 @@ class _OTAUpdater:
                 # NOTE(20221013): check requests document for how to set proxy,
                 #                 we only support using http proxy here.
                 logger.debug(f"use {proxy=} for local OTA update")
-                self._proxy = {"http": proxy}
+                self._downloader.configure_proxies({"http": proxy})
 
             # ------ process metadata.jwt and ota metafiles ------ #
             logger.debug("process metadata.jwt...")
@@ -390,8 +385,6 @@ class _OTAUpdater:
                 self._otameta = OTAMetadata(
                     url_base=self._url_base,
                     downloader=self._downloader,
-                    cookies=self._cookies,
-                    proxies=self._proxy,
                 )
             except HashVerificaitonError as e:
                 logger.error("failed to verify ota metafiles hash")

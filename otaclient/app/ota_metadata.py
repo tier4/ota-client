@@ -484,18 +484,9 @@ class OTAMetadata:
         ),
     }
 
-    def __init__(
-        self,
-        *,
-        url_base: str,
-        downloader: Downloader,
-        cookies: Dict[str, str],
-        proxies: Dict[str, str],
-    ) -> None:
+    def __init__(self, *, url_base: str, downloader: Downloader) -> None:
         self.url_base = url_base
         self._downloader = downloader
-        self._cookies = cookies.copy()
-        self._proxies = proxies.copy()
         self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=cfg.RUN_DIR)
         self._tmp_dir_path = Path(self._tmp_dir.name)
 
@@ -522,8 +513,6 @@ class OTAMetadata:
             self._downloader.download(
                 urljoin_ensure_base(self.url_base, self.METADATA_JWT),
                 _downloaded_meta_f,
-                cookies=self._cookies,
-                proxies=self._proxies,
                 # NOTE: do not use cache when fetching metadata.jwt
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
@@ -545,8 +534,6 @@ class OTAMetadata:
                 urljoin_ensure_base(self.url_base, cert_fname),
                 cert_file,
                 digest=cert_hash,
-                cookies=self._cookies,
-                proxies=self._proxies,
                 headers={
                     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
                 },
@@ -568,8 +555,6 @@ class OTAMetadata:
                     urljoin_ensure_base(self.url_base, quote(_metafile.file)),
                     _metafile_fpath,
                     digest=_metafile.hash,
-                    proxies=self._proxies,
-                    cookies=self._cookies,
                     headers={
                         OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                     },
@@ -638,7 +623,9 @@ class OTAMetadata:
             return (
                 urljoin_ensure_base(
                     self.image_compressed_rootfs_url,
-                    quote(f"{reg_inf.get_hash()}.{reg_inf.compressed_alg}"),
+                    # NOTE: hex alpha-digits and dot(.) are not special character
+                    #       so no need to use quote here.
+                    f"{reg_inf.get_hash()}.{reg_inf.compressed_alg}",
                 ),
                 reg_inf.compressed_alg,
             )
