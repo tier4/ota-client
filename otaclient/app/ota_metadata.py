@@ -79,7 +79,7 @@ from .proto.wrapper import (
     PersistentInf,
     SymbolicLinkInf,
 )
-from .proto.streamer import Uint32LenDelimitedReader, Uint32LenDelimitedWriter
+from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
 from . import log_setting
 
 logger = log_setting.get_logger(
@@ -499,38 +499,21 @@ class OTAMetadata:
         self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=cfg.RUN_DIR)
         self._tmp_dir_path = Path(self._tmp_dir.name)
 
-        self._ota_metadata: _MetadataJWTClaimsLayout = None  # type: ignore
-
-        # download and parsing the metadata.jwt and ota metafiles
-        self._process_metadata_jwt()
+        # download and parse the metadata.jwt
+        self.scheme_version = _MetadataJWTClaimsLayout.SCHEME_VERSION
+        self._ota_metadata = self._process_metadata_jwt()
+        self.image_rootfs_url = urljoin_ensure_base(
+            self.url_base, f"{self._ota_metadata.rootfs_directory.strip('/')}/"
+        )
+        self.image_compressed_rootfs_url = urljoin_ensure_base(
+            self.url_base,
+            f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
+        )
+        self.total_regular_size = self._ota_metadata.total_regular_size
+        # download, parse and store ota metatfiles
         self._process_text_base_otameta_files()
 
-    @property
-    def scheme_version(self) -> int:
-        return _MetadataJWTClaimsLayout.SCHEME_VERSION
-
-    @property
-    def total_regular_size(self):
-        return self._ota_metadata.total_regular_size
-
-    @property
-    def image_rootfs_url(self) -> str:
-        if getattr(self, "_data_url", None) is None:
-            self._data_url = urljoin_ensure_base(
-                self.url_base, f"{self._ota_metadata.rootfs_directory.strip('/')}/"
-            )
-        return self._data_url
-
-    @property
-    def image_compressed_rootfs_url(self) -> str:
-        if getattr(self, "_compressed_data_url", None) is None:
-            self._compressed_data_url = urljoin_ensure_base(
-                self.url_base,
-                f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
-            )
-        return self._compressed_data_url
-
-    def _process_metadata_jwt(self) -> None:
+    def _process_metadata_jwt(self) -> _MetadataJWTClaimsLayout:
         """Download, loading and parsing metadata.jwt."""
         logger.debug("process metadata.jwt...")
         # download and parse metadata.jwt
@@ -569,8 +552,9 @@ class OTAMetadata:
                 },
             )
             _parser.verify_metadata(cert_file.read_bytes())
-        # verification succeeded, bind ota_metadata to inst
-        self._ota_metadata = _ota_metadata
+
+        # return verified ota metadata
+        return _ota_metadata
 
     def _process_text_base_otameta_files(self):
         """Downloading, loading and parsing metafiles."""
@@ -594,7 +578,7 @@ class OTAMetadata:
                 with open(_metafile_fpath, "r") as _src_f, open(
                     Path(self._tmp_dir.name) / _parser_info.bin_fname, "wb"
                 ) as _dst_f:
-                    exporter = Uint32LenDelimitedWriter(
+                    exporter = Uint32LenDelimitedMsgWriter(
                         _dst_f, _parser_info.wrapper_type
                     )
                     for _line in _src_f:
@@ -635,7 +619,7 @@ class OTAMetadata:
     def iter_metafile(self, metafile: MetafilesV1) -> Iterator[Any]:
         _parser_info = self.METAFILE_PARSER_MAPPING[metafile]
         with open(self._tmp_dir_path / _parser_info.bin_fname, "rb") as _f:
-            _stream_reader = Uint32LenDelimitedReader(_f, _parser_info.wrapper_type)
+            _stream_reader = Uint32LenDelimitedMsgReader(_f, _parser_info.wrapper_type)
             yield from _stream_reader.iter_msg()
 
     def get_download_url(self, reg_inf: RegularInf) -> Tuple[str, Optional[str]]:
