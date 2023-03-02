@@ -11,6 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""OTA metadata version1 implementation.
+
+Version1 JWT verification algorithm: ES256
+Version1 JWT payload layout:
+[
+    {"version": 1},
+    {"directory": "dirs.txt", "hash": <sha256_hash>},
+    {"symboliclink": "symlinks.txt", "hash": <sha256_hash>},
+    {"regular": "regulars.txt", "hash": <sha256_hash>},
+    {"persistent": "persistents.txt", "hash": <sha256_hash>},
+    {"certificate": "sign.pem", "hash": <sha256_hash>},
+    {"total_regular_size": "23637537004"},
+    {"rootfs_directory": "data"},
+    {"compressed_rootfs_directory": "data.zstd"}
+]
+Version1 OTA metafiles list:
+- directory: all directories in the image,
+- symboliclink: all symlinks in the image,
+- regular: all normal/regular files in the image,
+- persistent: files that should be preserved across update.
+
+"""
 
 
 from __future__ import annotations
@@ -45,6 +67,8 @@ from typing import (
 )
 from typing_extensions import Self
 
+from otaclient.app.proto.otaclient_v2_pb2 import DIRECTORY
+
 from .configs import config as cfg
 from .common import OTAFileCacheControl, RetryTaskMap, urljoin_ensure_base
 from .downloader import Downloader
@@ -65,6 +89,21 @@ logger = log_setting.get_logger(
 FV = TypeVar("FV")
 
 
+class MetafilesV1(str, Enum):
+    """version1 text based ota metafiles fname.
+    Check _MetadataJWTClaimsLayout for more details.
+    """
+
+    # entry_name: regular
+    REGULAR_FNAME = "regulars.txt"
+    # entry_name: directory
+    DIRECTORY_FNAME = "dirs.txt"
+    # entry_name: symboliclink
+    SYMBOLICLINK_FNAME = "symlinks.txt"
+    # entry_name: persistent
+    PERSISTENT_FNAME = "persistents.txt"
+
+
 @dataclass
 class MetaFile:
     file: str
@@ -72,6 +111,18 @@ class MetaFile:
 
 
 class MetaFieldDescriptor(Generic[FV]):
+    """
+    Expecting field value like:
+    - a dict with one key-value pair,
+        { "version": 1 }
+    or
+    - a dict with 2 fields,
+        {
+            <metafile_name>: <metafile_file_name>,
+            "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
+        },
+    """
+
     HASH_KEY = "hash"  # version1
 
     def __init__(self, field_type: type, *, default=None) -> None:
@@ -91,71 +142,50 @@ class MetaFieldDescriptor(Generic[FV]):
 
     def __get__(self, obj, objtype=None) -> Union[FV, Self]:
         if obj and not isinstance(obj, type):
-            return getattr(obj, self._private_name)  # access via instance
+            return getattr(obj, self._attrn)  # access via instance
         return self  # access via class, return the descriptor
 
     def __set__(self, obj, value: Any) -> None:
         if isinstance(value, type(self)):
-            setattr(obj, self._private_name, self.default)
+            setattr(obj, self._attrn, self.default)
             return  # handle dataclass default value setting
 
         if isinstance(value, dict):
-            """
-            expecting input like
-                {
-                    "version": 1
-                }
-            or
-                {
-                    "symboliclink": "symlinks.txt",
-                    "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
-                },
-            """
             # special treatment for MetaFile field
             if self.field_type is MetaFile:
                 setattr(
                     obj,
-                    self._private_name,
-                    MetaFile(file=value[self._file_fn], hash=value[self.HASH_KEY]),
+                    self._attrn,
+                    MetaFile(file=value[self.field_name], hash=value[self.HASH_KEY]),
                 )
             else:
                 # use <field_type> to do default conversion before assignment
-                setattr(obj, self._private_name, self.field_type(value[self._file_fn]))
+                setattr(obj, self._attrn, self.field_type(value[self.field_name]))
         else:
-            setattr(obj, self._private_name, self.field_type(value))
+            setattr(obj, self._attrn, self.field_type(value))
 
     def __set_name__(self, owner: type, name: str):
-        self.owner = owner
         self.name = name
-        self._file_fn = name
-        self._private_name = f"_{owner.__name__}_{name}"
+        self.field_name = name
+        self._attrn = f"_{owner.__name__}_{name}"
 
 
 class _MetadataJWTParser:
     """Implementation of custom JWT parsing/loading/validating logic.
 
-    metadata.jwt version1 payload layout:
-    [
-        {"version": 1},
-        {
-            "file": "regular.txt",
-            "hash": <sha256hash_hex_string>,
-        }
-        # other metafiles definition
-        ...
-    ]
-
     Certification based JWT verification:
-        The root and intermediate certificates exist under certs_dir.
+    - Verification algorithm: ES256.
+    - certification fname is in "certificate" entry in JWT.
+    - The root and intermediate certificates exist under certs_dir.
         When A.root.pem, A.intermediate.pem, B.root.pem, and B.intermediate.pem
         exist, the groups of A* and the groups of B* are handled as a chained
         certificate.
         verify function verifies specified certificate with them.
         Certificates file name format should be: '.*\\..*.pem'
 
-        NOTE:
-            If there is no root or intermediate certificate, certification verification
-            will be skipped! This should only happen at non-production environment!
+    - NOTE:
+        If there is no root or intermediate certificate, certification verification
+        will be skipped! This SHOULD ONLY happen at non-production environment!
     """
 
     HASH_ALG = "sha256"
@@ -179,7 +209,7 @@ class _MetadataJWTParser:
         )
 
         # parse metadata payload into OTAMetadata
-        self.ota_metadata = _MetadataJWTClaims.parse_payload(self.payload_bytes)
+        self.ota_metadata = _MetadataJWTClaimsLayout.parse_payload(self.payload_bytes)
         logger.info(f"metadata={self.ota_metadata!r}")
 
     def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
@@ -251,7 +281,7 @@ class _MetadataJWTParser:
             logger.error(msg)
             raise ValueError(msg) from None
 
-    def get_otametadata(self) -> "_MetadataJWTClaims":
+    def get_otametadata(self) -> "_MetadataJWTClaimsLayout":
         """Get parsed OTAMetaData.
 
         Returns:
@@ -271,28 +301,13 @@ class _MetadataJWTParser:
         self._verify_metadata(metadata_cert)
 
 
-class MetafilesV1(str, Enum):
-    """
-    In version1, we have image metafiles as follow:
-    - directory: all directories in the image,
-    - symboliclink: all symlinks in the image,
-    - regular: all normal/regular files in the image,
-    - persistent: files that should be preserved across update.
-    """
-
-    # version1 text based ota metafiles fname
-    REGULARS = "regulars.txt"
-    DIRS = "dirs.txt"
-    SYMLINKS = "symlinks.txt"
-    PERSISTENTS = "persistents.txt"
-
-
 @dataclass
-class _MetadataJWTClaims:
-    """metadata.jwt payload mapping and parsing."""
+class _MetadataJWTClaimsLayout:
+    """Version1 metadata.jwt payload mapping and parsing."""
 
     SCHEME_VERSION: ClassVar[int] = 1
     VERSION_KEY: ClassVar[str] = "version"
+
     # metadata scheme
     version: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)
     total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)  # in bytes
@@ -307,7 +322,7 @@ class _MetadataJWTClaims:
     persistent: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
 
     @classmethod
-    def parse_payload(cls, _input: Union[str, bytes]) -> Self:
+    def parse_payload(cls, _input: Union[str, bytes], /) -> Self:
         # NOTE: in version1, payload is a list of dict
         payload: List[Dict[str, Any]] = json.loads(_input)
         if not payload or not isinstance(payload, list):
@@ -428,16 +443,8 @@ def parse_regulars_from_txt(_input: str) -> RegularInf:
 
 
 @dataclass
-class MetaInfo:
-    metadata_scheme_version: int
-    total_regular_size: int
-    rootfs_directory: str
-    compressed_rootfs_directory: str
-
-
-@dataclass
 class MetafileParserMapping:
-    text_parser: Callable
+    text_parser: Callable[[str], MessageWrapper]
     bin_fname: str
     wrapper_type: Type[MessageWrapper]
 
@@ -453,23 +460,24 @@ class OTAMetadata:
     SYMLINKS_BIN = "symlinks.bin"
     PERSISTENTS_BIN = "persistents.bin"
 
+    # metafile fname <-> parser mapping
     METAFILE_PARSER_MAPPING = {
-        MetafilesV1.DIRS: MetafileParserMapping(
+        MetafilesV1.DIRECTORY_FNAME: MetafileParserMapping(
             parse_dirs_from_txt,
             DIRS_BIN,
             DirectoryInf,
         ),
-        MetafilesV1.SYMLINKS: MetafileParserMapping(
+        MetafilesV1.SYMBOLICLINK_FNAME: MetafileParserMapping(
             parse_symlinks_from_txt,
             SYMLINKS_BIN,
             SymbolicLinkInf,
         ),
-        MetafilesV1.REGULARS: MetafileParserMapping(
+        MetafilesV1.REGULAR_FNAME: MetafileParserMapping(
             parse_regulars_from_txt,
             REGULARS_BIN,
             RegularInf,
         ),
-        MetafilesV1.PERSISTENTS: MetafileParserMapping(
+        MetafilesV1.PERSISTENT_FNAME: MetafileParserMapping(
             parse_persistents_from_txt,
             PERSISTENTS_BIN,
             PersistentInf,
@@ -484,26 +492,52 @@ class OTAMetadata:
         cookies: Dict[str, str],
         proxies: Dict[str, str],
     ) -> None:
-        self._url_base = url_base
+        self.url_base = url_base
         self._downloader = downloader
         self._cookies = cookies.copy()
         self._proxies = proxies.copy()
         self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=cfg.RUN_DIR)
         self._tmp_dir_path = Path(self._tmp_dir.name)
 
-        self._ota_metadata: _MetadataJWTClaims = None  # type: ignore
+        self._ota_metadata: _MetadataJWTClaimsLayout = None  # type: ignore
 
         # download and parsing the metadata.jwt and ota metafiles
         self._process_metadata_jwt()
         self._process_text_base_otameta_files()
 
+    @property
+    def scheme_version(self) -> int:
+        return _MetadataJWTClaimsLayout.SCHEME_VERSION
+
+    @property
+    def total_regular_size(self):
+        return self._ota_metadata.total_regular_size
+
+    @property
+    def image_rootfs_url(self) -> str:
+        if getattr(self, "_data_url", None) is None:
+            self._data_url = urljoin_ensure_base(
+                self.url_base, f"{self._ota_metadata.rootfs_directory.strip('/')}/"
+            )
+        return self._data_url
+
+    @property
+    def image_compressed_rootfs_url(self) -> str:
+        if getattr(self, "_compressed_data_url", None) is None:
+            self._compressed_data_url = urljoin_ensure_base(
+                self.url_base,
+                f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
+            )
+        return self._compressed_data_url
+
     def _process_metadata_jwt(self) -> None:
-        """Custom parsing jwt logic."""
+        """Download, loading and parsing metadata.jwt."""
         logger.debug("process metadata.jwt...")
+        # download and parse metadata.jwt
         with NamedTemporaryFile(prefix="metadata_jwt", dir=cfg.RUN_DIR) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
             self._downloader.download(
-                urljoin_ensure_base(self._url_base, self.METADATA_JWT),
+                urljoin_ensure_base(self.url_base, self.METADATA_JWT),
                 _downloaded_meta_f,
                 cookies=self._cookies,
                 proxies=self._proxies,
@@ -516,7 +550,8 @@ class OTAMetadata:
             _parser = _MetadataJWTParser(
                 _downloaded_meta_f.read_text(), certs_dir=cfg.CERTS_DIR
             )
-            _ota_metadata = _parser.get_otametadata()
+        # get not yet verified parsed ota_metadata
+        _ota_metadata = _parser.get_otametadata()
 
         # download certificate and verify metadata against this certificate
         with NamedTemporaryFile(prefix="metadata_cert", dir=cfg.RUN_DIR) as cert_f:
@@ -524,7 +559,7 @@ class OTAMetadata:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
             self._downloader.download(
-                urljoin_ensure_base(self._url_base, cert_fname),
+                urljoin_ensure_base(self.url_base, cert_fname),
                 cert_file,
                 digest=cert_hash,
                 cookies=self._cookies,
@@ -538,16 +573,15 @@ class OTAMetadata:
         self._ota_metadata = _ota_metadata
 
     def _process_text_base_otameta_files(self):
+        """Downloading, loading and parsing metafiles."""
         logger.debug("process ota metafiles...")
 
         def _process_text_base_otameta_file(_metafile: MetaFile):
-            meta_f_url = urljoin_ensure_base(self._url_base, quote(_metafile.file))
             _parser_info = self.METAFILE_PARSER_MAPPING[MetafilesV1(_metafile.file)]
-
             with NamedTemporaryFile(prefix=f"metafile_{_metafile.file}") as _metafile_f:
                 _metafile_fpath = Path(_metafile_f.name)
                 self._downloader.download(
-                    meta_f_url,
+                    urljoin_ensure_base(self.url_base, quote(_metafile.file)),
                     _metafile_fpath,
                     digest=_metafile.hash,
                     proxies=self._proxies,
@@ -556,6 +590,7 @@ class OTAMetadata:
                         OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
                     },
                 )
+                # convert to internal used version and store as binary files
                 with open(_metafile_fpath, "r") as _src_f, open(
                     Path(self._tmp_dir.name) / _parser_info.bin_fname, "wb"
                 ) as _dst_f:
@@ -591,15 +626,6 @@ class OTAMetadata:
 
     # APIs
 
-    def get_update_info(self) -> MetaInfo:
-        """Get some information contained in the OTA metadata jwt claims."""
-        return MetaInfo(
-            total_regular_size=self._ota_metadata.total_regular_size,
-            metadata_scheme_version=self._ota_metadata.version,
-            rootfs_directory=self._ota_metadata.rootfs_directory,
-            compressed_rootfs_directory=self._ota_metadata.compressed_rootfs_directory,
-        )
-
     def save_metafiles_bin_to(self, dst_dir: PathLike):
         for _, _inf_files_mapping in self.METAFILE_PARSER_MAPPING.items():
             _fname = _inf_files_mapping.bin_fname
@@ -612,24 +638,7 @@ class OTAMetadata:
             _stream_reader = Uint32LenDelimitedReader(_f, _parser_info.wrapper_type)
             yield from _stream_reader.iter_msg()
 
-    def get_image_data_url(self, base_url: str) -> str:
-        if getattr(self, "_data_url", None) is None:
-            self._data_url = urljoin_ensure_base(
-                base_url, f"{self._ota_metadata.rootfs_directory.strip('/')}/"
-            )
-        return self._data_url
-
-    def get_image_compressed_data_url(self, base_url: str) -> str:
-        if getattr(self, "_compressed_data_url", None) is None:
-            self._compressed_data_url = urljoin_ensure_base(
-                base_url,
-                f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
-            )
-        return self._compressed_data_url
-
-    def get_download_url(
-        self, reg_inf: RegularInf, *, base_url: str
-    ) -> Tuple[str, Optional[str]]:
+    def get_download_url(self, reg_inf: RegularInf) -> Tuple[str, Optional[str]]:
         """
         NOTE: compressed file is located under another OTA image remote folder
 
@@ -644,7 +653,7 @@ class OTAMetadata:
         ):
             return (
                 urljoin_ensure_base(
-                    self.get_image_compressed_data_url(base_url),
+                    self.image_compressed_rootfs_url,
                     quote(f"{reg_inf.get_hash()}.{reg_inf.compressed_alg}"),
                 ),
                 reg_inf.compressed_alg,
@@ -654,8 +663,7 @@ class OTAMetadata:
         else:
             return (
                 urljoin_ensure_base(
-                    self.get_image_data_url(base_url),
-                    quote(str(reg_inf.relative_to("/"))),
+                    self.image_rootfs_url, quote(str(reg_inf.relative_to("/")))
                 ),
                 None,
             )
