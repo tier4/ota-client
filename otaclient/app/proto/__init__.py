@@ -52,7 +52,7 @@ def _import_proto(*module_fpaths: Path):
     imported as modules to the global namespace.
     """
     for _fpath in module_fpaths:
-        _module_name, _module = _import_from_file(_fpath)
+        _module_name, _module = _import_from_file(_fpath)  # noqa: F821
         # add the module to the global module namespace
         sys.modules[_module_name] = _module
 
@@ -60,10 +60,10 @@ def _import_proto(*module_fpaths: Path):
 _import_proto(*_FILES_TO_LOAD)
 del _import_proto, _import_from_file
 
-import otaclient_v2_pb2 as v2
-import otaclient_v2_pb2_grpc as v2_grpc
-import ota_metafiles_pb2 as ota_metafiles
-from . import wrapper
-from . import streamer
+import otaclient_v2_pb2 as v2  # noqa: E402
+import otaclient_v2_pb2_grpc as v2_grpc  # noqa: E402
+import ota_metafiles_pb2 as ota_metafiles  # noqa: E402
+from . import wrapper  # noqa: E402
+from . import streamer  # noqa: E402
 
 __all__ = ["v2", "v2_grpc", "ota_metafiles", "wrapper", "streamer"]

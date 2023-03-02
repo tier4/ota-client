@@ -67,8 +67,6 @@ from typing import (
 )
 from typing_extensions import Self
 
-from otaclient.app.proto.otaclient_v2_pb2 import DIRECTORY
-
 from .configs import config as cfg
 from .common import OTAFileCacheControl, RetryTaskMap, urljoin_ensure_base
 from .downloader import Downloader

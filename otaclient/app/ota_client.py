@@ -20,7 +20,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Type, Iterator
+from typing import Optional, Tuple, Type, Iterator
 from urllib.parse import urlparse
 
 from .errors import (

@@ -17,7 +17,7 @@ The length-delimited stream layout is as follow:
 ----------------------------------------------------
 | len(msg_1) |   msg_1   | len(msg_2) |   msg_2   | ...
 -----------------------------------------------------
-Which <len> will be 4 bytes unsigned int in big-endian layout. 
+Which <len> will be 4 bytes unsigned int in big-endian layout.
 """
 
 

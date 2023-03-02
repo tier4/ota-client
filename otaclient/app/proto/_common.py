@@ -323,9 +323,12 @@ class ScalarMapContainer(_MappingLikeContainerBase[_K, ScalarValueType]):
 
 _DEFAULT_VALUE = object()
 _ATTR_PREFIX = "_attr_"
+
+
 # real field name is occupied by the corresponding field descriptor,
 # so we need to define different name for attrn when storing attr value.
-_get_field_attrn = lambda _fname: f"{_ATTR_PREFIX}{_fname}"
+def _get_field_attrn(_fname: str):
+    return f"{_ATTR_PREFIX}{_fname}"
 
 
 def _create_field_descriptor(field_annotation: Any) -> Optional[_FieldBase]:
