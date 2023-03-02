@@ -124,7 +124,7 @@ class BaseConfig(_InternalSettings):
     DOWNLOAD_BACKOFF_FACTOR = 0.1  # seconds
     # downloader settings
     MAX_DOWNLOAD_THREAD = 7
-    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 10
+    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 20
 
     # --- download settings for the whole download tasks group --- #
     # if retry keeps failing without any success in
