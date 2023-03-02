@@ -37,7 +37,7 @@ from typing import (
     TypeVar,
     Union,
 )
-from typing_extensions import Self
+from typing_extensions import Self, deprecated
 
 __all__ = [
     # ------ type vars ------ #
@@ -262,6 +262,7 @@ class MessageMapContainer(_MappingLikeContainerBase[_K, MessageWrapperType]):
                 raise TypeError
         return res
 
+    @deprecated("use export_to_pb_msg_mapping_container instead")
     def export_pb(self) -> Dict[_K, Any]:
         return {_k: _v.export_pb() for _k, _v in self.items()}
 
