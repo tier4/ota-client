@@ -22,7 +22,7 @@ from typing import Callable, List, Set, Tuple
 
 from ..common import RetryTaskMap
 from ..configs import config as cfg
-from ..ota_metadata import MetafilesV1
+from ..ota_metadata import MetafilesV1, OTAMetadata
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
@@ -32,7 +32,7 @@ from ..proto.wrapper import RegularInf, StatusProgressPhase
 from .. import log_setting
 
 from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
-from .interface import StandbySlotCreatorProtocol, UpdateMeta
+from .interface import StandbySlotCreatorProtocol
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -43,18 +43,21 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def __init__(
         self,
         *,
-        update_meta: UpdateMeta,
+        ota_metadata: OTAMetadata,
+        boot_dir: str,
+        standby_slot_mount_point: str,
+        active_slot_mount_point: str,
         stats_collector: OTAUpdateStatsCollector,
         update_phase_tracker: Callable[[StatusProgressPhase], None],
     ) -> None:
-        self._ota_metadata = update_meta.metadata
+        self._ota_metadata = ota_metadata
         self.stats_collector = stats_collector
         self.update_phase_tracker = update_phase_tracker
 
         # path configuration
-        self.boot_dir = Path(update_meta.boot_dir)
-        self.standby_slot_mp = Path(update_meta.standby_slot_mp)
-        self.active_slot_mp = Path(update_meta.active_slot_mp)
+        self.boot_dir = Path(boot_dir)
+        self.standby_slot_mp = Path(standby_slot_mount_point)
+        self.active_slot_mp = Path(active_slot_mount_point)
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
@@ -93,7 +96,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             dst_group_file=self.standby_slot_mp / _group_file.relative_to("/"),
         )
 
-        for _perinf in self._ota_metadata.iter_metafile(MetafilesV1.PERSISTENTS):
+        for _perinf in self._ota_metadata.iter_metafile(MetafilesV1.PERSISTENT_FNAME):
             _perinf_path = Path(_perinf.path)
             if (
                 _perinf_path.is_file()
@@ -104,7 +107,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _process_symlinks(self):
         self.update_phase_tracker(StatusProgressPhase.SYMLINK)
-        for _symlink in self._ota_metadata.iter_metafile(MetafilesV1.SYMLINKS):
+        for _symlink in self._ota_metadata.iter_metafile(
+            MetafilesV1.SYMBOLICLINK_FNAME
+        ):
             _symlink.link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):

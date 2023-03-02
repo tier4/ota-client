@@ -15,7 +15,6 @@
 
 import gc
 import json
-import tempfile
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -34,13 +33,12 @@ from .errors import (
     OTAUpdateError,
 )
 from .boot_control import BootControllerProtocol
-from .common import OTAFileCacheControl, RetryTaskMap, urljoin_ensure_base
+from .common import RetryTaskMap
 from .configs import config as cfg
-from .create_standby import StandbySlotCreatorProtocol, UpdateMeta
+from .create_standby import StandbySlotCreatorProtocol
 from .downloader import (
     DestinationNotAvailableError,
     DownloadFailedSpaceNotEnough,
-    DownloadError,
     Downloader,
     HashVerificaitonError,
 )
@@ -184,9 +182,7 @@ class _OTAUpdater:
 
         _fhash_str = entry.get_hash()
         _local_copy = self._ota_tmp_on_standby / _fhash_str
-        entry_url, compression_alg = self._otameta.get_download_url(
-            entry, base_url=self._url_base
-        )
+        entry_url, compression_alg = self._otameta.get_download_url(entry)
         (
             cur_stat.errors,
             cur_stat.download_bytes,
@@ -259,7 +255,7 @@ class _OTAUpdater:
         logger.debug("boot controller prepares standby slot...")
         self._boot_controller.pre_update(
             self.updating_version,
-            standby_as_ref=False,  # NOTE: deprecate this option
+            standby_as_ref=False,  # NOTE: this option is deprecated and not used by bootcontroller
             erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
@@ -269,14 +265,11 @@ class _OTAUpdater:
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
         self.update_phase = wrapper.StatusProgressPhase.REGULAR
-        _updatemeta = UpdateMeta(
-            metadata=self._otameta,
-            boot_dir=str(self._boot_controller.get_standby_boot_dir()),
-            standby_slot_mp=cfg.MOUNT_POINT,
-            active_slot_mp=cfg.ACTIVE_ROOT_MOUNT_POINT,
-        )
         self._standby_slot_creator = self._create_standby_cls(
-            update_meta=_updatemeta,
+            ota_metadata=self._otameta,
+            boot_dir=str(self._boot_controller.get_standby_boot_dir()),
+            standby_slot_mount_point=cfg.MOUNT_POINT,
+            active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             stats_collector=self._update_stats_collector,
             update_phase_tracker=self._set_update_phase,
         )
@@ -362,7 +355,6 @@ class _OTAUpdater:
         self.update_phase = wrapper.StatusProgressPhase.INITIAL
         self._update_stats_collector.start()
         try:
-            self.update_phase = wrapper.StatusProgressPhase.METADATA
             # ------ parse url_base ------ #
             # unconditionally regulate the url_base
             _url_base = urlparse(raw_url_base)
@@ -414,8 +406,7 @@ class _OTAUpdater:
                 logger.error(f"failed to download ota metafiles: {e!r}")
                 raise OTAMetaDownloadFailed from e
 
-            _meta_info = self._otameta.get_update_info()
-            if total_regular_file_size := _meta_info.total_regular_size:
+            if total_regular_file_size := self._otameta.total_regular_size:
                 self._update_stats_collector.set_total_regular_files_size(
                     total_regular_file_size
                 )
