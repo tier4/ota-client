@@ -228,6 +228,14 @@ class Downloader:
             initializer=self._thread_initializer,
         )
         self._hash_func = sha256
+        self._proxies: Optional[Dict[str, str]] = None
+        self._cookies: Optional[Dict[str, str]] = None
+
+    def configure_proxies(self, _proxies: Dict[str, str], /):
+        self._proxies = _proxies.copy()
+
+    def configure_cookies(self, _cookies: Dict[str, str], /):
+        self._cookies = _cookies.copy()
 
     def shutdown(self):
         self._executor.shutdown()
@@ -249,14 +257,18 @@ class Downloader:
         _start_time = time.thread_time_ns()
 
         # special treatment for empty file
-        if dst == self.EMPTY_STR_SHA256 and not (dst_p := Path(dst)).is_file():
-            dst_p.write_bytes(b"")
+        if digest == self.EMPTY_STR_SHA256:
+            if not (dst_p := Path(dst)).is_file():
+                dst_p.write_bytes(b"")
             return 0, 0, 0
 
         # NOTE: if proxy is set and use_http_if_proxy_set is true,
         #       unconditionally change scheme to HTTP
-        if proxies and use_http_if_proxy_set and "http" in proxies:
+        _proxies = proxies or self._proxies
+        if _proxies and use_http_if_proxy_set and "http" in _proxies:
             url = urlsplit(url)._replace(scheme="http").geturl()
+        # use input cookies or inst's cookie
+        _cookies = cookies or self._cookies
 
         # NOTE: downloaded_bytes is the number of bytes we return to the caller(if compressed,
         #       the number will be of the decompressed file)
@@ -268,8 +280,8 @@ class Downloader:
             with self._session.get(
                 url,
                 stream=True,
-                proxies=proxies,
-                cookies=cookies,
+                proxies=_proxies,
+                cookies=_cookies,
                 headers=headers,
             ) as resp, open(dst, "wb") as f:
                 resp.raise_for_status()
