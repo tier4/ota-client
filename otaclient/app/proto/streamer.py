@@ -27,17 +27,14 @@ from typing import Iterable, Optional, Type, Generic, BinaryIO
 UINT32_LEN = 4  # bytes
 
 
-class Uint32LenDelimitedReader(Generic[MessageWrapperType, MessageType]):
-    def __init__(
-        self, _read_stream: BinaryIO, /, wrapper_type: Type[MessageWrapperType]
-    ) -> None:
-        self._wrapper_type = wrapper_type
+class Uint32LenDelimitedReader:
+    def __init__(self, _read_stream: BinaryIO, /) -> None:
         self._stream = _read_stream
 
-    def read1_msg(self) -> Optional[MessageWrapperType]:
+    def read1_data(self) -> Optional[bytes]:
         """Read one message from the stream."""
         if (
-            msg_len := int.from_bytes(
+            data_len := int.from_bytes(
                 self._stream.read(UINT32_LEN),
                 byteorder="big",
                 signed=False,
@@ -45,21 +42,52 @@ class Uint32LenDelimitedReader(Generic[MessageWrapperType, MessageType]):
         ) == 0:  # reach EOF
             return
 
-        _bin = self._stream.read(msg_len)
-        if not len(_bin) == msg_len:
+        _bin = self._stream.read(data_len)
+        if not len(_bin) == data_len:
             return  # partial read detected, the stream is incompleted
-        try:
-            return self._wrapper_type.converted_from_deserialized(_bin)
-        except Exception as e:
-            raise ValueError(f"failed to read message: {e}") from e
+        return _bin
+
+
+class Uint32LenDelimitedMsgReader(
+    Uint32LenDelimitedReader, Generic[MessageWrapperType, MessageType]
+):
+    def __init__(
+        self, _read_stream: BinaryIO, /, wrapper_type: Type[MessageWrapperType]
+    ) -> None:
+        self._wrapper_type = wrapper_type
+        self._stream = _read_stream
 
     def iter_msg(self) -> Iterable[MessageWrapperType]:
         """Read, parse and yield message until EOF."""
-        while (_converted := self.read1_msg()) is not None:
-            yield _converted
+        while _bin := self.read1_data():
+            try:
+                yield self._wrapper_type.converted_from_deserialized(_bin)
+            except Exception as e:
+                raise ValueError(f"failed to read message: {e}") from e
 
 
-class Uint32LenDelimitedWriter(Generic[MessageWrapperType, MessageType]):
+class Uint32LenDelimitedWriter:
+    def __init__(self, _write_stream: BinaryIO, /) -> None:
+        self._stream = _write_stream
+
+    def write1_data(self, _data: bytes, /) -> int:
+        try:
+            _data_len_in_bytes = len(_data).to_bytes(
+                length=UINT32_LEN,
+                byteorder="big",
+                signed=False,
+            )
+        except OverflowError:  # message is too long
+            return 0
+
+        _bytes_written = self._stream.write(_data_len_in_bytes)
+        _bytes_written += self._stream.write(_data)
+        return _bytes_written
+
+
+class Uint32LenDelimitedMsgWriter(
+    Uint32LenDelimitedWriter, Generic[MessageWrapperType, MessageType]
+):
     def __init__(
         self, _write_stream: BinaryIO, /, wrapper_type: Type[MessageWrapperType]
     ) -> None:
@@ -69,17 +97,4 @@ class Uint32LenDelimitedWriter(Generic[MessageWrapperType, MessageType]):
     def write1_msg(self, _wrapper_inst: MessageWrapperType) -> int:
         if not isinstance(_wrapper_inst, self._wrapper_type):
             raise ValueError(f"expect input wrapper to be {self._wrapper_type} type")
-
-        _serialized = _wrapper_inst.serialize_to_bytes()
-        try:
-            _serialized_len_in_bytes = len(_serialized).to_bytes(
-                length=UINT32_LEN,
-                byteorder="big",
-                signed=False,
-            )
-        except OverflowError:  # message is too long
-            return 0
-
-        _bytes_written = self._stream.write(_serialized_len_in_bytes)
-        _bytes_written += self._stream.write(_serialized)
-        return _bytes_written
+        return self.write1_data(_wrapper_inst.serialize_to_bytes())
