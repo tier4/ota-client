@@ -18,7 +18,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from subprocess import CalledProcessError
-from typing import ClassVar, Dict, List, Optional, Tuple
+from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 from pathlib import Path
 from pprint import pformat
 
@@ -878,7 +878,7 @@ class GrubController(
             logger.error(f"failed on pre_update: {e!r}")
             raise BootControlPreUpdateFailed from e
 
-    def post_update(self):
+    def post_update(self) -> Generator[None, None, None]:
         try:
             # update fstab
             active_fstab = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
@@ -895,6 +895,7 @@ class GrubController(
             self._umount_all(ignore_error=True)
 
             self._boot_control.grub_reboot_to_standby()
+            yield  # hand over control to otaclient
             CMDHelperFuncs.reboot()
         except Exception as e:
             logger.error(f"failed on post_update: {e!r}")
