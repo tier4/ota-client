@@ -34,6 +34,7 @@ from .ecu_info import ECUInfo
 from .ota_client import OTAClient, OTAUpdateFSM
 from .ota_client_call import OtaClientCall
 from .proto import wrapper
+from .proto.wrapper import StatusRequest, StatusResponse
 from .proxy_info import proxy_cfg
 
 from otaclient.ota_proxy.config import config as proxy_srv_cfg
@@ -595,9 +596,7 @@ class OtaClientStub:
 
         return response
 
-    async def status(
-        self, _: Optional[wrapper.StatusRequest] = None
-    ) -> wrapper.StatusResponse:
+    async def status(self, _: Optional[StatusRequest] = None) -> StatusResponse:
         """
         NOTE: if the cached status is older than <server_cfg.QUERY_SUBECU_STATUS_INTERVAL>,
         the caller should take the responsibility to update the cached status.
@@ -606,7 +605,7 @@ class OtaClientStub:
         if cur_time - self._last_status_query > server_cfg.STATUS_UPDATE_INTERVAL:
             async with self._status_pulling_lock:
                 self._last_status_query = cur_time
-                resp = wrapper.StatusResponse()
+                resp = StatusResponse()
 
                 # get subecus' status
                 coros: List[Coroutine] = []
@@ -619,27 +618,16 @@ class OtaClientStub:
                             timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                         )
                     )
-                # gather the subecu and its child ecus status
+                # merge the subecu and its child ecus status
                 for subecu_resp in await asyncio.gather(*coros):
                     if subecu_resp is None:
                         continue
                     resp.merge_from(subecu_resp)
-
                 # prepare my_ecu status
-                if my_ecu_status := self._ota_client.status():
-                    resp.add_ecu(my_ecu_status)
-                else:
-                    # otaclient status method doesn't return valid result
-                    resp.add_ecu(
-                        wrapper.StatusResponseEcu(
-                            ecu_id=self.my_ecu_id,
-                            result=wrapper.FailureType.RECOVERABLE,
-                        )
-                    )
+                resp.add_ecu(self._ota_client.status())
 
                 # register the status to cache
                 resp.available_ecu_ids.extend(self._ecu_info.get_available_ecu_ids())
                 self._cached_status = resp
-
-        # respond with the cached status
+        # response with cached status
         return self._cached_status
