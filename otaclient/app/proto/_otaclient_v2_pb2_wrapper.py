@@ -391,16 +391,17 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
         return deepcopy(self)
 
     def convert_to_v1_StatusProgress(self) -> StatusProgress:
+        _snapshot = self.get_snapshot()
         _res = StatusProgress(
-            phase=V2_V1_PHASE_MAPPING[self.phase],
-            total_regular_files=self.total_files_num,
-            regular_files_processed=self.processed_files_num,
-            total_regular_file_size=self.total_image_size,
-            elapsed_time_download=deepcopy(self.downloading_elapsed_time),
-            elapsed_time_copy=deepcopy(self.update_applying_elapsed_time),
-            errors_download=self.downloading_errors,
-            total_elapsed_time=deepcopy(self.total_elapsed_time),
-            download_bytes=self.downloaded_bytes,
+            phase=V2_V1_PHASE_MAPPING[_snapshot.phase],
+            total_regular_files=_snapshot.total_files_num,
+            regular_files_processed=_snapshot.processed_files_num,
+            total_regular_file_size=_snapshot.total_image_size,
+            elapsed_time_download=_snapshot.downloading_elapsed_time,
+            elapsed_time_copy=_snapshot.update_applying_elapsed_time,
+            errors_download=_snapshot.downloading_errors,
+            total_elapsed_time=_snapshot.total_elapsed_time,
+            download_bytes=_snapshot.downloaded_bytes,
         )
         # NOTE: for agent implementation with v1 status,
         #       - total processed files size is calculated by sum(<file_size_processed_*>)
@@ -420,16 +421,16 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
         #       applying update phase by reserving space for downloading statistics in applying update statistics.
 
         # processed files num
-        _res.files_processed_download = self.downloaded_files_num
+        _res.files_processed_download = _snapshot.downloaded_files_num
         # simply round all negative to 0
         _res.files_processed_copy = max(
-            0, self.processed_files_num - self.downloaded_files_num
+            0, _snapshot.processed_files_num - _snapshot.downloaded_files_num
         )
 
         # processed files size
-        _res.file_size_processed_download = self.downloaded_files_size
+        _res.file_size_processed_download = _snapshot.downloaded_files_size
         _res.file_size_processed_copy = max(
-            0, self.processed_files_size - self.downloaded_files_size
+            0, self.processed_files_size - _snapshot.downloaded_files_size
         )
 
         return _res
