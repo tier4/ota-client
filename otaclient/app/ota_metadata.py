@@ -498,7 +498,8 @@ class OTAMetadata:
             self.url_base,
             f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
         )
-        self.total_regular_size = self._ota_metadata.total_regular_size
+        self.total_image_size = self._ota_metadata.total_regular_size
+        self.total_files_num = 0  # will be updated after parsing regulars.txt
         # download, parse and store ota metatfiles
         self._process_text_base_otameta_files()
 
@@ -558,14 +559,19 @@ class OTAMetadata:
                     },
                 )
                 # convert to internal used version and store as binary files
+                _count = 0
                 with open(_metafile_fpath, "r") as _src_f, open(
                     Path(self._tmp_dir.name) / _parser_info.bin_fname, "wb"
                 ) as _dst_f:
                     exporter = Uint32LenDelimitedMsgWriter(
                         _dst_f, _parser_info.wrapper_type
                     )
-                    for _line in _src_f:
+                    for _count, _line in enumerate(_src_f, start=1):
                         exporter.write1_msg(_parser_info.text_parser(_line))
+
+                # get total_regular_files here
+                if _metafile.file == MetafilesV1.REGULAR_FNAME:
+                    self.total_files_num = _count
 
         _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="process_metafiles") as _executor:
