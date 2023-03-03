@@ -18,7 +18,9 @@ from __future__ import annotations
 import otaclient_v2_pb2 as _v2
 from copy import deepcopy
 from typing import (
+    Any,
     Generator as _Generator,
+    Iterator as _Iterator,
     Mapping as _Mapping,
     Optional as _Optional,
     Tuple as _Tuple,
@@ -278,8 +280,20 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
         for _ecu in self.ecu:
             yield _ecu.ecu_id, _ecu.result, _ecu.status
 
-    def add_ecu(self, _response_ecu: _Union[StatusResponseEcu, _v2.StatusResponseEcu]):
-        if isinstance(_response_ecu, StatusResponseEcu):
+    def iter_ecu_status_v2(self) -> _Iterator[StatusResponseEcuV2]:
+        yield from self.ecu_v2
+
+    def add_ecu(self, _response_ecu: Any):
+        # v2
+        if isinstance(_response_ecu, StatusResponseEcuV2):
+            self.ecu_v2.append(_response_ecu)
+            self.ecu.append(_response_ecu.convert_to_v1())  # v1 compat
+        elif isinstance(_response_ecu, _v2.StatusResponseEcuV2):
+            _converted = StatusResponseEcuV2.convert(_response_ecu)
+            self.ecu_v2.append(_response_ecu)
+            self.ecu.append(_converted.convert_to_v1())  # v1 compat
+        # v1
+        elif isinstance(_response_ecu, StatusResponseEcu):
             self.ecu.append(_response_ecu)
         elif isinstance(_response_ecu, _v2.StatusResponseEcu):
             self.ecu.append(StatusResponseEcu.convert(_response_ecu))
@@ -292,6 +306,7 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
         # merge ecu only, don't merge available_ecu_ids!
         # NOTE, TODO: duplication check is not done
         self.ecu.extend(status_resp.ecu)
+        self.ecu_v2.extend(status_resp.ecu_v2)
 
     def get_ecu_status(
         self, ecu_id: str
@@ -300,9 +315,14 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
         Returns:
             A _Tuple of (<ecu_id>, <failure_type>, <status>)
         """
-        for _ecu in self.ecu:
-            if _ecu.ecu_id == ecu_id:
-                return _ecu.ecu_id, _ecu.result, _ecu.status
+        for _ecu_status in self.ecu:
+            if _ecu_status.ecu_id == ecu_id:
+                return _ecu_status.ecu_id, _ecu_status.result, _ecu_status.status
+
+    def get_ecu_status_v2(self, ecu_id: str) -> _Optional[StatusResponseEcuV2]:
+        for _ecu_status in self.ecu_v2:
+            if _ecu_status.ecu_id == ecu_id:
+                return _ecu_status
 
 
 # status response format v2
@@ -366,6 +386,9 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
         update_applying_elapsed_time: _Optional[_Union[Duration, _Mapping]] = ...,
     ) -> None:
         ...
+
+    def get_snapshot(self) -> Self:
+        return deepcopy(self)
 
     def convert_to_v1_StatusProgress(self) -> StatusProgress:
         _res = StatusProgress(
