@@ -533,21 +533,17 @@ class OTAClient(OTAClientProtocol):
                 "ignore incoming rollback request as local update/rollback is ongoing"
             )
 
-    def status(self) -> wrapper.StatusResponseEcu:
+    def status(self) -> StatusResponseEcuV2:
         _live_ota_status = self.live_ota_status.get_ota_status()
-        _status = wrapper.Status(
-            version=self.current_version,
-            failure=self.last_failure_type,
-            failure_reason=self.last_failure_reason,
-            status=_live_ota_status,
-        )
-
-        # for updating, add progress status
-        if _live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
-            _, _status.progress = self._update_executor.update_progress()
-
-        return wrapper.StatusResponseEcu(
+        _res = StatusResponseEcuV2(
             ecu_id=self.my_ecu_id,
-            result=wrapper.FailureType.NO_FAILURE,
-            status=_status,
+            firmware_version=self.current_version,
+            otaclient_version=__version__,
+            ota_status=_live_ota_status,
+            failure_type=self.last_failure_type,
+            failure_reason=self.last_failure_reason,
         )
+        if _live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
+            _res.update_status = self._update_executor.get_update_status()
+
+        return _res
