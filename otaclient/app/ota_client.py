@@ -20,9 +20,10 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Optional, Tuple, Type, Iterator
+from typing import Optional, Type, Iterator
 from urllib.parse import urlparse
 
+from otaclient import __version__  # type: ignore
 from .errors import (
     BaseOTAMetaVerificationFailed,
     NetworkError,
@@ -55,6 +56,7 @@ from .errors import (
 from .ota_metadata import OTAMetadata
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
+from .proto.wrapper import UpdatePhase, RegularInf, StatusResponseEcuV2, UpdateStatus
 from .proxy_info import proxy_cfg
 from .update_stats import (
     OTAUpdateStatsCollector,
@@ -145,7 +147,7 @@ class _OTAUpdater:
         self._create_standby_cls = create_standby_cls
 
         # init update status
-        self.update_phase: Optional[wrapper.StatusProgressPhase] = None
+        self.update_phase: UpdatePhase = UpdatePhase.INITIALIZING
         self.update_start_time = 0
         self.updating_version: str = ""
         self.failure_reason = ""
@@ -165,11 +167,6 @@ class _OTAUpdater:
         self._ota_tmp_image_meta_dir_on_standby = Path(cfg.MOUNT_POINT) / Path(
             cfg.OTA_TMP_META_STORE
         ).relative_to("/")
-
-    # properties
-
-    def _set_update_phase(self, _phase: wrapper.StatusProgressPhase):
-        self.update_phase = _phase
 
     # helper methods
 
@@ -260,14 +257,13 @@ class _OTAUpdater:
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
-        self.update_phase = wrapper.StatusProgressPhase.REGULAR
+        self.update_phase = UpdatePhase.CALCULATING_DELTA
         self._standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
             standby_slot_mount_point=cfg.MOUNT_POINT,
             active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             stats_collector=self._update_stats_collector,
-            update_phase_tracker=self._set_update_phase,
         )
         try:
             _delta_bundle = self._standby_slot_creator.calculate_and_prepare_delta()
@@ -280,7 +276,7 @@ class _OTAUpdater:
             "start to download needed files..."
             f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
         )
-        self.update_phase = wrapper.StatusProgressPhase.REGULAR
+        self.update_phase = UpdatePhase.DOWNLOADING_OTA_FILES
         try:
             self._download_files(_delta_bundle.get_download_list())
         except DownloadFailedSpaceNotEnough:
@@ -292,6 +288,7 @@ class _OTAUpdater:
 
         # ------ in_update ------ #
         logger.info("start to apply changes to standby slot...")
+        self.update_phase = UpdatePhase.APPLYING_UPDATE
         try:
             self._standby_slot_creator.create_standby_slot()
         except Exception as e:
