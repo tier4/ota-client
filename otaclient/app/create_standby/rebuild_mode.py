@@ -48,11 +48,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
         standby_slot_mount_point: str,
         active_slot_mount_point: str,
         stats_collector: OTAUpdateStatsCollector,
-        update_phase_tracker: Callable[[StatusProgressPhase], None],
     ) -> None:
         self._ota_metadata = ota_metadata
         self.stats_collector = stats_collector
-        self.update_phase_tracker = update_phase_tracker
 
         # path configuration
         self.boot_dir = Path(boot_dir)
@@ -73,12 +71,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
             stats_collector=self.stats_collector,
         )
         delta_bundle = delta_calculator.calculate_and_process_delta()
-        self.stats_collector.set_total_regular_files(delta_bundle.total_regular_num)
         logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
         self.delta_bundle = delta_bundle
 
     def _process_dirs(self):
-        self.update_phase_tracker(StatusProgressPhase.DIRECTORY)
         for entry in self.delta_bundle.get_new_dirs():
             entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
@@ -86,7 +82,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
         """NOTE: just copy from legacy mode"""
         from ..copy_tree import CopyTree
 
-        self.update_phase_tracker(StatusProgressPhase.PERSISTENT)
         _passwd_file = Path(cfg.PASSWD_FILE)
         _group_file = Path(cfg.GROUP_FILE)
         _copy_tree = CopyTree(
@@ -106,14 +101,12 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 _copy_tree.copy_with_parents(_perinf_path, self.standby_slot_mp)
 
     def _process_symlinks(self):
-        self.update_phase_tracker(StatusProgressPhase.SYMLINK)
         for _symlink in self._ota_metadata.iter_metafile(
             MetafilesV1.SYMBOLICLINK_FNAME
         ):
             _symlink.link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):
-        self.update_phase_tracker(StatusProgressPhase.REGULAR)
         self._hardlink_register = HardlinkRegister()
 
         logger.info("start applying delta...")
@@ -142,10 +135,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
         for _count, entry in enumerate(_regs_set, start=1):
             is_last = _count == len(_regs_set)
 
-            cur_stat = RegInfProcessedStats(
-                op=RegProcessOperation.OP_COPY,
-                size=_local_copy.stat().st_size,
-            )
             _start_time = time.thread_time_ns()
 
             # special treatment on /boot folder
@@ -167,7 +156,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 # NOTE(20220523): for regulars.txt that support hardlink group,
                 #   use inode to identify the hardlink group.
                 #   otherwise, use hash to identify the same hardlink file.
-                cur_stat.op = RegProcessOperation.OP_LINK
                 _identifier = entry.sha256hash if not entry.inode else entry.inode
 
                 _dst = entry.relatively_join(_mount_point)
@@ -175,6 +163,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _identifier, _dst, entry.nlink
                 )
 
+                logger.debug(f"hardlink file({_is_writer=}): {entry=}")
                 if _is_writer:
                     entry.copy_from_src(_local_copy, dst_mount_point=_mount_point)
                 else:  # subscriber
@@ -184,14 +173,17 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
 
-            # create stat
-            cur_stat.elapsed_ns = time.thread_time_ns() - _start_time
+            cur_stat = RegInfProcessedStats(
+                op=RegProcessOperation.APPLY_DELTA,
+                size=_local_copy.stat().st_size,
+                elapsed_ns=time.thread_time_ns() - _start_time,
+            )
             stats_list.append(cur_stat)
 
         # report the stats to the stats_collector
         # NOTE: unconditionally pop one stat from the stats_list
         #       because the preparation of first copy is already recorded
-        #       (either by picking up local copy or downloading)
+        #       (either by picking up local copy(keep_delta) or downloading)
         self.stats_collector.report(*stats_list[1:])
 
     def _save_meta(self):

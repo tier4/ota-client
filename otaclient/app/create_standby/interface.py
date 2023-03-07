@@ -31,11 +31,10 @@ The flow of this package working is as follow:
 
 
 from abc import abstractmethod
-from typing import Callable, Protocol
+from typing import Protocol
 
 from .common import DeltaBundle
 from ..ota_metadata import OTAMetadata
-from ..proto import wrapper
 from ..update_stats import OTAUpdateStatsCollector
 
 
@@ -43,7 +42,6 @@ class StandbySlotCreatorProtocol(Protocol):
     """Protocol that describes standby slot creating mechanism."""
 
     stats_collector: OTAUpdateStatsCollector
-    update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None]
 
     def __init__(
         self,
@@ -53,7 +51,6 @@ class StandbySlotCreatorProtocol(Protocol):
         standby_slot_mount_point: str,
         active_slot_mount_point: str,
         stats_collector: OTAUpdateStatsCollector,
-        update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
     ) -> None:
         ...
 
