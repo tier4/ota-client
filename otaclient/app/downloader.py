@@ -31,6 +31,7 @@ from typing import (
     ByteString,
     Callable,
     Dict,
+    Iterator,
     Optional,
     Protocol,
     Tuple,
@@ -140,9 +141,7 @@ class DecompressionAdapterProtocol(Protocol):
     """DecompressionAdapter protocol for Downloader."""
 
     @abstractmethod
-    def stream_decompressor(
-        self, src_stream: Union[IO[bytes], ByteString]
-    ) -> IO[bytes]:
+    def iter_chunk(self, src_stream: Union[IO[bytes], ByteString]) -> Iterator[bytes]:
         """Decompresses the source stream.
 
         This Method take a src_stream of compressed file and
@@ -156,10 +155,8 @@ class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
     def __init__(self) -> None:
         self._dctx = zstandard.ZstdDecompressor()
 
-    def stream_decompressor(
-        self, src_stream: Union[IO[bytes], ByteString]
-    ) -> IO[bytes]:
-        return self._dctx.stream_reader(src_stream)
+    def iter_chunk(self, src_stream: Union[IO[bytes], ByteString]) -> Iterator[bytes]:
+        yield from self._dctx.read_to_iter(src_stream)
 
 
 class Downloader:
@@ -215,7 +212,7 @@ class Downloader:
         return self._local.session
 
     def _get_decompressor(
-        self, compression_alg: str
+        self, compression_alg: Any
     ) -> Optional[DecompressionAdapterProtocol]:
         """Get thread-local private decompressor adapter accordingly."""
         return self._local._compression_support_matrix.get(compression_alg)
@@ -266,26 +263,26 @@ class Downloader:
         _err_count = 0
         try:
             with self._session.get(
-                url,
-                stream=True,
-                proxies=proxies,
-                cookies=cookies,
-                headers=headers,
-            ) as resp, open(dst, "wb") as f:
+                url, stream=True, proxies=proxies, cookies=cookies, headers=headers
+            ) as resp, open(dst, "wb") as _dst:
                 resp.raise_for_status()
+
                 raw_resp: HTTPResponse = resp.raw
-                remote_fstream: IO[bytes] = resp.raw
                 if raw_resp.retries:
                     _err_count = len(raw_resp.retries.history)
-                # support for compressed file
-                if compression_alg and (
-                    decompressor := self._get_decompressor(compression_alg)
-                ):
-                    remote_fstream = decompressor.stream_decompressor(remote_fstream)
-                while data := remote_fstream.read(self.CHUNK_SIZE):
-                    _hash_inst.update(data)
-                    f.write(data)
-                    _downloaded_bytes += len(data)
+
+                # support for compresed file
+                if decompressor := self._get_decompressor(compression_alg):
+                    for _chunk in decompressor.iter_chunk(resp.raw):
+                        _hash_inst.update(_chunk)
+                        _dst.write(_chunk)
+                        _downloaded_bytes += len(_chunk)
+                else:  # un-compressed file
+                    for _chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
+                        _hash_inst.update(_chunk)
+                        _dst.write(_chunk)
+                        _downloaded_bytes += len(_chunk)
+                # get real network traffic
                 _real_downloaded_bytes = raw_resp.tell()
         except requests.exceptions.RetryError as e:
             raise ExceedMaxRetryError(url, dst, f"{e!r}")
