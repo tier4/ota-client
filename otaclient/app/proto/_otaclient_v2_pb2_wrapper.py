@@ -413,12 +413,6 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
         #
         #       In v2, <processed_files_num> is corresponding to v1's sum(<files_processed_*>),
         #       <processed_files_size> is corresponding to v1's sum(<file_size_processed_*>.
-        #       In v2, downloading is counted in a separated phase,
-        #       <processed_files_num> and <processed_files_size> is only counted in applying_update phase,
-        #       downloading statistics are not included in <processed_files_num> and <processed_files_size>.
-        #
-        #       So we do some hacks here, we forcely include downloading statistics to
-        #       applying update phase by reserving space for downloading statistics in applying update statistics.
 
         # processed files num
         _res.files_processed_download = _snapshot.downloaded_files_num

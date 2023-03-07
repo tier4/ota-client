@@ -39,6 +39,8 @@ class RegProcessOperation(Enum):
     APPLY_DELTA = "APPLY_DELTA"
     # for in-place update only
     APPLY_REMOVE_DELTA = "APPLY_REMOVE_DELTA"
+    # special op for download error report
+    DOWNLOAD_ERROR_REPORT = "DOWNLOAD_ERROR_REPORT"
 
 
 @dataclass
@@ -142,6 +144,8 @@ class OTAUpdateStatsCollector:
                             # as remote_delta, update processed_files_*
                             staging_storage.processed_files_num += 1
                             staging_storage.processed_files_size += st.size
+                        elif _op == RegProcessOperation.DOWNLOAD_ERROR_REPORT:
+                            staging_storage.downloading_errors += 1
                         elif _op == RegProcessOperation.PREPARE_LOCAL_COPY:
                             # update delta generating specific fields
                             staging_storage.delta_generating_elapsed_time.add_nanoseconds(
