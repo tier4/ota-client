@@ -13,57 +13,49 @@
 # limitations under the License.
 
 
-import dataclasses
 import time
+from dataclasses import dataclass
 from enum import Enum
 from contextlib import contextmanager
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Generator, List
 
-from .configs import config as cfg
-from .proto import wrapper
-
 from . import log_setting
+from .configs import config as cfg
+from .proto.wrapper import UpdateStatus
+
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
 
-class RegProcessOperation(str, Enum):
-    OP_UNSPECIFIC = "unspecific"
-    OP_DOWNLOAD = "download"
-    OP_COPY = "copy"
-    OP_LINK = "link"
-    # NOTE: failed download task will also be recorded, under the
-    #       op_type==OP_DOWNLOAD_FAILED_REPORT.
-    OP_DOWNLOAD_FAILED_REPORT = "download_failed_report"
+class RegProcessOperation(Enum):
+    # NOTE: PREPARE_LOCAL, DOWNLOAD_REMOTE and APPLY_DELTA are together
+    #       counted as <processed_files_*>
+    PREPARE_LOCAL_COPY = "PREPARE_LOCAL_COPY"
+    DOWNLOAD_REMOTE_COPY = "DOWNLOAD_REMOTE_COPY"
+    APPLY_DELTA = "APPLY_DELTA"
+    # for in-place update only
+    APPLY_REMOVE_DELTA = "APPLY_REMOVE_DELTA"
 
 
-@dataclasses.dataclass
+@dataclass
 class RegInfProcessedStats:
-    """processed_list have dictionaries as follows:
-    general fields:
-        {"size": int}  # processed file size
-        {"elapsed_ns": int}  # elapsed time in nano-seconds
-        {"op": str}  # operation. "copy", "link" or "download"
-    dedicated to download op
-        {"errors": int}  # number of errors that occurred when downloading.
-        {"download_bytes": int} # actual download size
-    """
+    op: RegProcessOperation
 
-    op: RegProcessOperation = RegProcessOperation.OP_UNSPECIFIC
-    size: int = 0
+    size: int = 0  # uncompressed processed file size
     elapsed_ns: int = 0
-    errors: int = 0
-    download_bytes: int = 0
+    # only for downloading operation
+    download_errors: int = 0
+    downloaded_bytes: int = 0
 
 
 class OTAUpdateStatsCollector:
     def __init__(self) -> None:
         self._lock = Lock()
-        self.store = wrapper.StatusProgress()
+        self.store = UpdateStatus()
 
         self.collect_interval = cfg.STATS_COLLECT_INTERVAL
         self.terminated = Event()
@@ -72,7 +64,7 @@ class OTAUpdateStatsCollector:
         self._collector_thread = None
 
     @contextmanager
-    def _staging_changes(self) -> Generator[wrapper.StatusProgress, None, None]:
+    def _staging_changes(self) -> Generator[UpdateStatus, None, None]:
         """Acquire a staging storage for updating the slot atomically.
 
         NOTE: it should be only one collecter that calling this method!
@@ -84,7 +76,7 @@ class OTAUpdateStatsCollector:
             self.store = staging_slot
 
     def _clear(self):
-        self.store = wrapper.StatusProgress()
+        self.store = UpdateStatus()
         self._staging.clear()
         self._que = Queue()
 
@@ -113,13 +105,7 @@ class OTAUpdateStatsCollector:
                 # cleanup stats storage
                 self._clear()
 
-    def set_total_regular_files(self, value: int):
-        self.store.total_regular_files = value
-
-    def set_total_regular_files_size(self, value: int):
-        self.store.total_regular_file_size = value
-
-    def get_snapshot(self) -> wrapper.StatusProgress:
+    def get_snapshot(self) -> UpdateStatus:
         """Return a copy of statistics storage."""
         return self.store.get_snapshot()
 
@@ -143,27 +129,36 @@ class OTAUpdateStatsCollector:
                 _prev_time = _cur_time
                 with self._staging_changes() as staging_storage:
                     for st in self._staging:
-                        if st.op in [
-                            RegProcessOperation.OP_COPY,
-                            RegProcessOperation.OP_DOWNLOAD,
-                            RegProcessOperation.OP_LINK,
-                        ]:
-                            _suffix = st.op
-                            staging_storage.regular_files_processed += 1
-                            staging_storage[f"files_processed_{_suffix}"] += 1
-                            staging_storage[f"file_size_processed_{_suffix}"] += st.size
-                            staging_storage.add_elapsed_time(
-                                f"elapsed_time_{_suffix}", st.elapsed_ns
-                            )  # in nano-seconds
-                            if st.op == RegProcessOperation.OP_DOWNLOAD:
-                                staging_storage[
-                                    f"errors_{RegProcessOperation.OP_DOWNLOAD.value}"
-                                ] += st.errors
-                                staging_storage.download_bytes += st.download_bytes
-                        elif st.op == RegProcessOperation.OP_DOWNLOAD_FAILED_REPORT:
-                            staging_storage[
-                                f"errors_{RegProcessOperation.OP_DOWNLOAD.value}"
-                            ] += st.errors
+                        _op = st.op
+                        if _op == RegProcessOperation.DOWNLOAD_REMOTE_COPY:
+                            # update download specific fields
+                            staging_storage.downloaded_bytes += st.downloaded_bytes
+                            staging_storage.downloaded_files_num += 1
+                            staging_storage.downloaded_files_size += st.size
+                            staging_storage.downloading_errors += st.download_errors
+                            staging_storage.downloading_elapsed_time.add_nanoseconds(
+                                st.elapsed_ns
+                            )
+                            # as remote_delta, update processed_files_*
+                            staging_storage.processed_files_num += 1
+                            staging_storage.processed_files_size += st.size
+                        elif _op == RegProcessOperation.PREPARE_LOCAL_COPY:
+                            # update delta generating specific fields
+                            staging_storage.delta_generating_elapsed_time.add_nanoseconds(
+                                st.elapsed_ns
+                            )
+                            # as keep_delta, update processed_files_*
+                            staging_storage.processed_files_size += st.size
+                            staging_storage.processed_files_num += 1
+                        elif _op == RegProcessOperation.APPLY_REMOVE_DELTA:
+                            staging_storage.removed_files_num += 1
+                        elif _op == RegProcessOperation.APPLY_DELTA:
+                            # as applying_delta, update processed_files_*
+                            staging_storage.processed_files_num += 1
+                            staging_storage.processed_files_size += st.size
+                            staging_storage.update_applying_elapsed_time.add_nanoseconds(
+                                st.elapsed_ns
+                            )
                 # cleanup already collected stats
                 self._staging.clear()
 
