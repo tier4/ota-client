@@ -408,13 +408,24 @@ class _OTAUpdater:
             # local update finished, set the status to POST_PROCESSING
             fsm.client_finish_update()
 
-            # ------ post update ------ #
-            self.update_phase = wrapper.StatusProgressPhase.POST_PROCESSING
-            logger.info("local update finished, wait on all subecs...")
-            # NOTE: still reboot event local cleanup failed as the update itself is successful
-            fsm.client_wait_for_reboot()
-            logger.info("enter boot control post update phase...")
-            self._boot_controller.post_update()
+    def get_update_status(self) -> UpdateStatus:
+        """
+        Returns:
+            A tuple contains the version and the update_progress.
+        """
+        update_progress = self._update_stats_collector.get_snapshot()
+        # update static information
+        update_progress.update_start_timestamp = self.update_start_time
+        update_progress.update_firmware_version = self.updating_version
+        if self._otameta:
+            update_progress.total_image_size = self._otameta.total_image_size
+            update_progress.total_files_num = self._otameta.total_files_num
+        # update other information
+        update_progress.phase = self.update_phase
+        update_progress.total_elapsed_time = wrapper.Duration.from_nanoseconds(
+            time.time_ns() - self.update_start_time
+        )
+        return update_progress
         except OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
