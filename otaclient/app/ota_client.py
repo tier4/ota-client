@@ -170,36 +170,37 @@ class _OTAUpdater:
 
     # helper methods
 
-    def _download_file(self, entry: wrapper.RegularInf) -> RegInfProcessedStats:
-        """Download single OTA image file."""
-        cur_stat = RegInfProcessedStats(op=RegProcessOperation.OP_DOWNLOAD)
-        _start_time, _download_time = time.thread_time_ns(), 0
-
-        _fhash_str = entry.get_hash()
-        _local_copy = self._ota_tmp_on_standby / _fhash_str
-        entry_url, compression_alg = self._otameta.get_download_url(entry)
-        (
-            cur_stat.errors,
-            cur_stat.download_bytes,
-            _download_time,
-        ) = self._downloader.download(
-            entry_url,
-            _local_copy,
-            digest=_fhash_str,
-            size=entry.size,
-            compression_alg=compression_alg,
-        )
-        cur_stat.size = _local_copy.stat().st_size
-        cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
-        return cur_stat
-
-    def _download_files(self, download_list: Iterator[wrapper.RegularInf]):
+    def _download_files(self, download_list: Iterator[RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
         logger.debug("download neede OTA image files...")
+
+        def _download_file(entry: RegularInf) -> RegInfProcessedStats:
+            """Download single OTA image file."""
+            cur_stat = RegInfProcessedStats(op=RegProcessOperation.DOWNLOAD_REMOTE_COPY)
+            _start_time, _download_time = time.thread_time_ns(), 0
+
+            _fhash_str = entry.get_hash()
+            _local_copy = self._ota_tmp_on_standby / _fhash_str
+            entry_url, compression_alg = self._otameta.get_download_url(entry)
+            (
+                cur_stat.download_errors,
+                cur_stat.downloaded_bytes,
+                _download_time,
+            ) = self._downloader.download(
+                entry_url,
+                _local_copy,
+                digest=_fhash_str,
+                size=entry.size,
+                compression_alg=compression_alg,
+            )
+            cur_stat.size = _local_copy.stat().st_size
+            cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
+            return cur_stat
+
         _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
-                self._download_file,
+                _download_file,
                 download_list,
                 title="downloading_ota_files",
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
@@ -217,13 +218,13 @@ class _OTAUpdater:
                     continue
 
                 # task failed
-                # NOTE: for failed task, a RegInfoProcessStats that have
-                #       OP_DOWNLOAD_FAILED_REPORT op will be returned
+                # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
+                #       time, so we manually create one download report
                 logger.debug(f"failed to download {_entry=}: {_exp!r}")
                 self._update_stats_collector.report(
                     RegInfProcessedStats(
-                        op=RegProcessOperation.OP_DOWNLOAD_FAILED_REPORT,
-                        errors=cfg.DOWNLOAD_RETRY,
+                        op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
+                        download_errors=cfg.DOWNLOAD_RETRY,
                     )
                 )
                 # task group keeps failing longer than limit,
