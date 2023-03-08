@@ -256,75 +256,6 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
         ...
 
 
-class StatusResponse(MessageWrapper[_v2.StatusResponse]):
-    __slots__ = calculate_slots(_v2.StatusResponse)
-    available_ecu_ids: RepeatedScalarContainer[str]
-    ecu: RepeatedCompositeContainer[StatusResponseEcu]
-    ecu_v2: RepeatedCompositeContainer[StatusResponseEcuV2]
-
-    def __init__(
-        self,
-        ecu: _Optional[_Iterable[_Union[StatusResponseEcu, _Mapping]]] = ...,
-        available_ecu_ids: _Optional[_Iterable[str]] = ...,
-        ecu_v2: _Optional[_Iterable[_Union[StatusResponseEcuV2, _Mapping]]] = ...,
-    ) -> None:
-        ...
-
-    def iter_ecu_status(
-        self,
-    ) -> _Generator[_Tuple[str, FailureType, Status], None, None]:
-        """
-        Returns:
-            A _Tuple of (<ecu_id>, <failure_type>, <status>)
-        """
-        for _ecu in self.ecu:
-            yield _ecu.ecu_id, _ecu.result, _ecu.status
-
-    def iter_ecu_status_v2(self) -> _Iterator[StatusResponseEcuV2]:
-        yield from self.ecu_v2
-
-    def add_ecu(self, _response_ecu: Any):
-        # v2
-        if isinstance(_response_ecu, StatusResponseEcuV2):
-            self.ecu_v2.append(_response_ecu)
-            self.ecu.append(_response_ecu.convert_to_v1())  # v1 compat
-        elif isinstance(_response_ecu, _v2.StatusResponseEcuV2):
-            _converted = StatusResponseEcuV2.convert(_response_ecu)
-            self.ecu_v2.append(_response_ecu)
-            self.ecu.append(_converted.convert_to_v1())  # v1 compat
-        # v1
-        elif isinstance(_response_ecu, StatusResponseEcu):
-            self.ecu.append(_response_ecu)
-        elif isinstance(_response_ecu, _v2.StatusResponseEcu):
-            self.ecu.append(StatusResponseEcu.convert(_response_ecu))
-        else:
-            raise TypeError
-
-    def merge_from(self, status_resp: _Union[Self, _v2.StatusResponse]):
-        if isinstance(status_resp, _v2.StatusResponse):
-            status_resp = self.__class__.convert(status_resp)
-        # merge ecu only, don't merge available_ecu_ids!
-        # NOTE, TODO: duplication check is not done
-        self.ecu.extend(status_resp.ecu)
-        self.ecu_v2.extend(status_resp.ecu_v2)
-
-    def get_ecu_status(
-        self, ecu_id: str
-    ) -> _Optional[_Tuple[str, FailureType, Status]]:
-        """
-        Returns:
-            A _Tuple of (<ecu_id>, <failure_type>, <status>)
-        """
-        for _ecu_status in self.ecu:
-            if _ecu_status.ecu_id == ecu_id:
-                return _ecu_status.ecu_id, _ecu_status.result, _ecu_status.status
-
-    def get_ecu_status_v2(self, ecu_id: str) -> _Optional[StatusResponseEcuV2]:
-        for _ecu_status in self.ecu_v2:
-            if _ecu_status.ecu_id == ecu_id:
-                return _ecu_status
-
-
 # status response format v2
 
 # backward compatibility
@@ -468,6 +399,75 @@ class StatusResponseEcuV2(MessageWrapper[_v2.StatusResponseEcuV2]):
                 progress=self.update_status.convert_to_v1_StatusProgress(),
             ),
         )
+
+
+class StatusResponse(MessageWrapper[_v2.StatusResponse]):
+    __slots__ = calculate_slots(_v2.StatusResponse)
+    available_ecu_ids: RepeatedScalarContainer[str]
+    ecu: RepeatedCompositeContainer[StatusResponseEcu]
+    ecu_v2: RepeatedCompositeContainer[StatusResponseEcuV2]
+
+    def __init__(
+        self,
+        ecu: _Optional[_Iterable[_Union[StatusResponseEcu, _Mapping]]] = ...,
+        available_ecu_ids: _Optional[_Iterable[str]] = ...,
+        ecu_v2: _Optional[_Iterable[_Union[StatusResponseEcuV2, _Mapping]]] = ...,
+    ) -> None:
+        ...
+
+    def iter_ecu_status(
+        self,
+    ) -> _Generator[_Tuple[str, FailureType, Status], None, None]:
+        """
+        Returns:
+            A _Tuple of (<ecu_id>, <failure_type>, <status>)
+        """
+        for _ecu in self.ecu:
+            yield _ecu.ecu_id, _ecu.result, _ecu.status
+
+    def iter_ecu_status_v2(self) -> _Iterator[StatusResponseEcuV2]:
+        yield from self.ecu_v2
+
+    def add_ecu(self, _response_ecu: Any):
+        # v2
+        if isinstance(_response_ecu, StatusResponseEcuV2):
+            self.ecu_v2.append(_response_ecu)
+            self.ecu.append(_response_ecu.convert_to_v1())  # v1 compat
+        elif isinstance(_response_ecu, _v2.StatusResponseEcuV2):
+            _converted = StatusResponseEcuV2.convert(_response_ecu)
+            self.ecu_v2.append(_response_ecu)
+            self.ecu.append(_converted.convert_to_v1())  # v1 compat
+        # v1
+        elif isinstance(_response_ecu, StatusResponseEcu):
+            self.ecu.append(_response_ecu)
+        elif isinstance(_response_ecu, _v2.StatusResponseEcu):
+            self.ecu.append(StatusResponseEcu.convert(_response_ecu))
+        else:
+            raise TypeError
+
+    def merge_from(self, status_resp: _Union[Self, _v2.StatusResponse]):
+        if isinstance(status_resp, _v2.StatusResponse):
+            status_resp = self.__class__.convert(status_resp)
+        # merge ecu only, don't merge available_ecu_ids!
+        # NOTE, TODO: duplication check is not done
+        self.ecu.extend(status_resp.ecu)
+        self.ecu_v2.extend(status_resp.ecu_v2)
+
+    def get_ecu_status(
+        self, ecu_id: str
+    ) -> _Optional[_Tuple[str, FailureType, Status]]:
+        """
+        Returns:
+            A _Tuple of (<ecu_id>, <failure_type>, <status>)
+        """
+        for _ecu_status in self.ecu:
+            if _ecu_status.ecu_id == ecu_id:
+                return _ecu_status.ecu_id, _ecu_status.result, _ecu_status.status
+
+    def get_ecu_status_v2(self, ecu_id: str) -> _Optional[StatusResponseEcuV2]:
+        for _ecu_status in self.ecu_v2:
+            if _ecu_status.ecu_id == ecu_id:
+                return _ecu_status
 
 
 # update API

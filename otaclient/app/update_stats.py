@@ -32,6 +32,7 @@ logger = log_setting.get_logger(
 
 
 class RegProcessOperation(Enum):
+    UNSPECIFIC = "UNSPECIFIC"
     # NOTE: PREPARE_LOCAL, DOWNLOAD_REMOTE and APPLY_DELTA are together
     #       counted as <processed_files_*>
     PREPARE_LOCAL_COPY = "PREPARE_LOCAL_COPY"
@@ -45,7 +46,7 @@ class RegProcessOperation(Enum):
 
 @dataclass
 class RegInfProcessedStats:
-    op: RegProcessOperation
+    op: RegProcessOperation = RegProcessOperation.UNSPECIFIC
 
     size: int = 0  # uncompressed processed file size
     elapsed_ns: int = 0
