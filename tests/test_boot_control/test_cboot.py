@@ -286,7 +286,9 @@ class TestCBootControl:
         standby_extlinux_file.write_text(self.EXTLNUX_CFG_SLOT_A.read_text())
 
         # test post-update
-        cboot_controller.post_update()
+        _post_updater = cboot_controller.post_update()
+        next(_post_updater)
+        next(_post_updater, None)
         assert (
             self.slot_b_boot_dev / "boot/extlinux/extlinux.conf"
         ).read_text() == self.EXTLNUX_CFG_SLOT_B.read_text()
