@@ -50,6 +50,7 @@ from ._common import (
 )
 from .configs import cboot_cfg as cfg
 from .protocol import BootControllerProtocol
+from .firmware import Firmware
 
 
 logger = log_setting.get_logger(
@@ -485,6 +486,13 @@ class CBootController(
 
     def post_update(self):
         try:
+            # firmware update
+            firmware = Firmware(
+                self.standby_slot_mount_point
+                / Path(cfg.FIRMWARE_CONFIG).relative_to("/")
+            )
+            firmware.update(self._cboot_control.get_standby_slot() == "0")
+
             # update extlinux_cfg file
             _extlinux_cfg = self.standby_slot_mount_point / Path(
                 cfg.EXTLINUX_FILE
