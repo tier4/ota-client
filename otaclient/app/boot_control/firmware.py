@@ -16,7 +16,7 @@
 import yaml
 import zstandard
 from pathlib import Path
-from typing import Optional, Dict, Callable
+from typing import Dict, Callable
 from ..configs import config as cfg
 from .. import log_setting
 
