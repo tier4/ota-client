@@ -123,7 +123,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
             )
             for _exp, _entry, _ in _mapper.execute():
                 if _exp:
-                    logger.debug(f"[process_regular] failed to process {_entry=}")
+                    logger.error(
+                        f"[process_regular] failed to process {_entry=}: {_exp=}"
+                    )
+                    raise _exp
             self.stats_collector.wait_staging()
 
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
@@ -132,6 +135,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         stats_list: List[RegInfProcessedStats] = []  # for ota stats report
 
         _local_copy = self._ota_tmp / _hash_str
+        _f_size = _local_copy.stat().st_size
         for _count, entry in enumerate(_regs_set, start=1):
             is_last = _count == len(_regs_set)
 
@@ -175,7 +179,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
             cur_stat = RegInfProcessedStats(
                 op=RegProcessOperation.APPLY_DELTA,
-                size=_local_copy.stat().st_size,
+                size=_f_size,
                 elapsed_ns=time.thread_time_ns() - _start_time,
             )
             stats_list.append(cur_stat)
