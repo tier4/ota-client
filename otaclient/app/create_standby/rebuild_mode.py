@@ -18,7 +18,7 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, List, Set, Tuple
+from typing import List, Set, Tuple
 
 from ..common import RetryTaskMap
 from ..configs import config as cfg
@@ -28,7 +28,7 @@ from ..update_stats import (
     RegInfProcessedStats,
     RegProcessOperation,
 )
-from ..proto.wrapper import RegularInf, StatusProgressPhase
+from ..proto.wrapper import RegularInf
 from .. import log_setting
 
 from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
