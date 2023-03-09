@@ -21,7 +21,6 @@ PERSISTENT: StatusProgressPhase
 POST_PROCESSING: StatusProgressPhase
 PROCESSING_METADATA: UpdatePhase
 PROCESSING_POSTUPDATE: UpdatePhase
-REBOOTING: UpdatePhase
 RECOVERABLE: FailureType
 REGULAR: StatusProgressPhase
 ROLLBACKING: StatusOta
@@ -30,7 +29,6 @@ SUCCESS: StatusOta
 SYMLINK: StatusProgressPhase
 UNRECOVERABLE: FailureType
 UPDATING: StatusOta
-WAITING_FOR_SUBECU: UpdatePhase
 
 class RollbackRequest(_message.Message):
     __slots__ = ["ecu"]

@@ -186,9 +186,7 @@ enum UpdatePhase {
   DOWNLOADING_OTA_FILES = 3;
   APPLYING_UPDATE = 4;
   PROCESSING_POSTUPDATE = 5;
-  WAITING_FOR_SUBECU = 6;
-  REBOOTING = 7; // set before otaclient triggers reboot
-  FINALIZING_UPDATE = 8; // set during first reboot boot switch finalizing
+  FINALIZING_UPDATE = 6; // set during first reboot boot switch finalizing
 }
 
 message StatusResponseEcuV2 {
