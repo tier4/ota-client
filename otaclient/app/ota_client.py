@@ -155,6 +155,13 @@ class _OTAUpdater:
         self._otameta: OTAMetadata = None  # type: ignore
         self._url_base: str = None  # type: ignore
 
+        # dynamic update status
+        self.total_image_size = 0
+        self.total_files_num = 0
+        self.total_download_files_num = 0
+        self.total_download_fiies_size = 0
+        self.total_remove_files_num = 0
+
         # init downloader
         self._downloader = Downloader()
         # init ota update statics collector
@@ -266,6 +273,10 @@ class _OTAUpdater:
         )
         try:
             _delta_bundle = self._standby_slot_creator.calculate_and_prepare_delta()
+            # update dynamic information
+            self.total_download_files_num = len(_delta_bundle.download_list)
+            self.total_download_fiies_size = _delta_bundle.total_download_files_size
+            self.total_remove_files_num = len(_delta_bundle.rm_delta)
         except Exception as e:
             logger.error(f"failed to generate delta: {e!r}")
             raise UpdateDeltaGenerationFailed from e
@@ -353,6 +364,8 @@ class _OTAUpdater:
                 url_base=self._url_base,
                 downloader=self._downloader,
             )
+            self.total_files_num = self._otameta.total_files_num
+            self.total_image_size = self._otameta.total_image_size
         except HashVerificaitonError as e:
             logger.error("failed to verify ota metafiles hash")
             raise OTAMetaVerificationFailed from e
@@ -386,12 +399,10 @@ class _OTAUpdater:
 
         # wait for sub ecu if needed before rebooting
         # NOTE: still reboot event local cleanup failed as the update itself is successful
-        self.update_phase = UpdatePhase.WAITING_FOR_SUBECU
         # TODO: main ecu wait for reboot logic
         fsm.client_wait_for_reboot()
 
         # boot controller next: restart
-        self.update_phase = UpdatePhase.REBOOTING
         next(_postupdate_gen, None)
 
     # API
@@ -408,11 +419,15 @@ class _OTAUpdater:
         """
         update_progress = self._update_stats_collector.get_snapshot()
         # update static information
-        update_progress.update_start_timestamp = self.update_start_time
+        # NOTE: timestamp is in seconds
+        update_progress.update_start_timestamp = self.update_start_time // 1_000_000_000
         update_progress.update_firmware_version = self.updating_version
-        if self._otameta:
-            update_progress.total_image_size = self._otameta.total_image_size
-            update_progress.total_files_num = self._otameta.total_files_num
+        # update dynamic information
+        update_progress.total_image_size = self.total_image_size
+        update_progress.total_files_num = self.total_files_num
+        update_progress.total_download_files_num = self.total_download_files_num
+        update_progress.total_download_files_size = self.total_download_fiies_size
+        update_progress.total_remove_files_num = self.total_remove_files_num
         # update other information
         update_progress.phase = self.update_phase
         update_progress.total_elapsed_time = wrapper.Duration.from_nanoseconds(
@@ -464,6 +479,8 @@ class OTAClient(OTAClientProtocol):
         create_standby_cls: type of create standby slot mechanism to use
     """
 
+    DEFAULT_FIRMWARE_VERSION = "unknown"
+
     def __init__(
         self,
         *,
@@ -479,7 +496,9 @@ class OTAClient(OTAClientProtocol):
         self.create_standby_cls = create_standby_cls
         self.live_ota_status = LiveOTAStatus(self.boot_controller.get_ota_status())
 
-        self.current_version = self.boot_controller.load_version()
+        self.current_version = (
+            self.boot_controller.load_version() or self.DEFAULT_FIRMWARE_VERSION
+        )
         self.last_failure: Optional[OTA_APIError] = None
 
         # executors for update/rollback
