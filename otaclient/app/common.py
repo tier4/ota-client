@@ -483,10 +483,12 @@ class RetryTaskMap(Generic[_T, _RES]):
 
             def _done_cb(_fut, /):
                 _se.release()  # make sure the se is released first
-                if self._status is not _RetryTaskMapStatus.RUNNING:
-                    return
                 self._futs.discard(_fut)
-                self._task_collector_gen.send(_fut)
+                if self._status is _RetryTaskMapStatus.RUNNING:
+                    try:
+                        self._task_collector_gen.send(_fut)
+                    except StopIteration:
+                        pass
 
             for _entry in self._tasks_list:
                 if self._status is not _RetryTaskMapStatus.RUNNING:
