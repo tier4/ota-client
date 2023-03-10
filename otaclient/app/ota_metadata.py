@@ -11,21 +11,48 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""OTA metadata version1 implementation.
+
+Version1 JWT verification algorithm: ES256
+Version1 JWT payload layout:
+[
+    {"version": 1},
+    {"directory": "dirs.txt", "hash": <sha256_hash>},
+    {"symboliclink": "symlinks.txt", "hash": <sha256_hash>},
+    {"regular": "regulars.txt", "hash": <sha256_hash>},
+    {"persistent": "persistents.txt", "hash": <sha256_hash>},
+    {"certificate": "sign.pem", "hash": <sha256_hash>},
+    {"total_regular_size": "23637537004"},
+    {"rootfs_directory": "data"},
+    {"compressed_rootfs_directory": "data.zstd"}
+]
+Version1 OTA metafiles list:
+- directory: all directories in the image,
+- symboliclink: all symlinks in the image,
+- regular: all normal/regular files in the image,
+- persistent: files that should be preserved across update.
+
+"""
 
 
 from __future__ import annotations
 import base64
 import json
-import os
 import re
 import shutil
-from dataclasses import asdict, dataclass, field, fields
+import time
+from enum import Enum
+from os import PathLike
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, fields
 from urllib.parse import quote
 from OpenSSL import crypto
 from pathlib import Path
 from functools import partial
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import (
     Any,
+    Callable,
     ClassVar,
     Dict,
     Generic,
@@ -34,12 +61,23 @@ from typing import (
     Optional,
     Tuple,
     TypeVar,
+    Type,
     Union,
     overload,
 )
+from typing_extensions import Self
 
 from .configs import config as cfg
-from .common import urljoin_ensure_base, verify_file
+from .common import OTAFileCacheControl, RetryTaskMap, urljoin_ensure_base
+from .downloader import Downloader
+from .proto.wrapper import (
+    MessageWrapper,
+    RegularInf,
+    DirectoryInf,
+    PersistentInf,
+    SymbolicLinkInf,
+)
+from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
 from . import log_setting
 
 logger = log_setting.get_logger(
@@ -49,16 +87,40 @@ logger = log_setting.get_logger(
 FV = TypeVar("FV")
 
 
+class MetafilesV1(str, Enum):
+    """version1 text based ota metafiles fname.
+    Check _MetadataJWTClaimsLayout for more details.
+    """
+
+    # entry_name: regular
+    REGULAR_FNAME = "regulars.txt"
+    # entry_name: directory
+    DIRECTORY_FNAME = "dirs.txt"
+    # entry_name: symboliclink
+    SYMBOLICLINK_FNAME = "symlinks.txt"
+    # entry_name: persistent
+    PERSISTENT_FNAME = "persistents.txt"
+
+
 @dataclass
 class MetaFile:
     file: str
     hash: str
 
-    def asdict(self):
-        return asdict(self)
-
 
 class MetaFieldDescriptor(Generic[FV]):
+    """
+    Expecting field value like:
+    - a dict with one key-value pair,
+        { "version": 1 }
+    or
+    - a dict with 2 fields,
+        {
+            <metafile_name>: <metafile_file_name>,
+            "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
+        },
+    """
+
     HASH_KEY = "hash"  # version1
 
     def __init__(self, field_type: type, *, default=None) -> None:
@@ -67,7 +129,7 @@ class MetaFieldDescriptor(Generic[FV]):
         self.default = default
 
     @overload
-    def __get__(self, obj: None, objtype: type) -> "MetaFieldDescriptor":
+    def __get__(self, obj: None, objtype: type) -> Self:
         """Descriptor accessed via class."""
         ...
 
@@ -76,49 +138,54 @@ class MetaFieldDescriptor(Generic[FV]):
         """Descriptor accessed via bound instance."""
         ...
 
-    def __get__(self, obj, objtype=None) -> "Union[FV, MetaFieldDescriptor]":
+    def __get__(self, obj, objtype=None) -> Union[FV, Self]:
         if obj and not isinstance(obj, type):
-            return getattr(obj, self._private_name)  # access via instance
+            return getattr(obj, self._attrn)  # access via instance
         return self  # access via class, return the descriptor
 
     def __set__(self, obj, value: Any) -> None:
         if isinstance(value, type(self)):
-            setattr(obj, self._private_name, self.default)
+            setattr(obj, self._attrn, self.default)
             return  # handle dataclass default value setting
 
         if isinstance(value, dict):
-            """
-            expecting input like
-                {
-                    "version": 1
-                }
-            or
-                {
-                    "symboliclink": "symlinks.txt",
-                    "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
-                },
-            """
             # special treatment for MetaFile field
             if self.field_type is MetaFile:
                 setattr(
                     obj,
-                    self._private_name,
-                    MetaFile(file=value[self._file_fn], hash=value[self.HASH_KEY]),
+                    self._attrn,
+                    MetaFile(file=value[self.field_name], hash=value[self.HASH_KEY]),
                 )
             else:
                 # use <field_type> to do default conversion before assignment
-                setattr(obj, self._private_name, self.field_type(value[self._file_fn]))
+                setattr(obj, self._attrn, self.field_type(value[self.field_name]))
         else:
-            setattr(obj, self._private_name, self.field_type(value))
+            setattr(obj, self._attrn, self.field_type(value))
 
     def __set_name__(self, owner: type, name: str):
-        self.owner = owner
         self.name = name
-        self._file_fn = name
-        self._private_name = f"_{owner.__name__}_{name}"
+        self.field_name = name
+        self._attrn = f"_{owner.__name__}_{name}"
 
 
-class ParseMetadataHelper:
+class _MetadataJWTParser:
+    """Implementation of custom JWT parsing/loading/validating logic.
+
+    Certification based JWT verification:
+    - Verification algorithm: ES256.
+    - certification fname is in "certificate" entry in JWT.
+    - The root and intermediate certificates exist under certs_dir.
+        When A.root.pem, A.intermediate.pem, B.root.pem, and B.intermediate.pem
+        exist, the groups of A* and the groups of B* are handled as a chained
+        certificate.
+        verify function verifies specified certificate with them.
+        Certificates file name format should be: '.*\\..*.pem'
+
+    - NOTE:
+        If there is no root or intermediate certificate, certification verification
+        will be skipped! This SHOULD ONLY happen at non-production environment!
+    """
+
     HASH_ALG = "sha256"
 
     def __init__(self, metadata_jwt: str, *, certs_dir: Union[str, Path]):
@@ -140,7 +207,7 @@ class ParseMetadataHelper:
         )
 
         # parse metadata payload into OTAMetadata
-        self.ota_metadata = OTAMetadata.parse_payload(self.payload_bytes)
+        self.ota_metadata = _MetadataJWTClaimsLayout.parse_payload(self.payload_bytes)
         logger.info(f"metadata={self.ota_metadata!r}")
 
     def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
@@ -212,7 +279,7 @@ class ParseMetadataHelper:
             logger.error(msg)
             raise ValueError(msg) from None
 
-    def get_otametadata(self) -> "OTAMetadata":
+    def get_otametadata(self) -> "_MetadataJWTClaimsLayout":
         """Get parsed OTAMetaData.
 
         Returns:
@@ -233,22 +300,12 @@ class ParseMetadataHelper:
 
 
 @dataclass
-class OTAMetadata:
-    """OTA Metadata Class.
-
-    The root and intermediate certificates exist under certs_dir.
-    When A.root.pem, A.intermediate.pem, B.root.pem, and B.intermediate.pem
-    exist, the groups of A* and the groups of B* are handled as a chained
-    certificate.
-    verify function verifies specified certificate with them.
-    Certificates file name format should be: '.*\\..*.pem'
-    NOTE:
-    If there is no root or intermediate certificate, certification verification
-    is not performed.
-    """
+class _MetadataJWTClaimsLayout:
+    """Version1 metadata.jwt payload mapping and parsing."""
 
     SCHEME_VERSION: ClassVar[int] = 1
     VERSION_KEY: ClassVar[str] = "version"
+
     # metadata scheme
     version: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)
     total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)  # in bytes
@@ -263,7 +320,7 @@ class OTAMetadata:
     persistent: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
 
     @classmethod
-    def parse_payload(cls, _input: Union[str, bytes]) -> "OTAMetadata":
+    def parse_payload(cls, _input: Union[str, bytes], /) -> Self:
         # NOTE: in version1, payload is a list of dict
         payload: List[Dict[str, Any]] = json.loads(_input)
         if not payload or not isinstance(payload, list):
@@ -284,14 +341,7 @@ class OTAMetadata:
         return res
 
     def get_img_metafiles(self) -> Iterator[MetaFile]:
-        """Get the metafiles that describes the OTA image.
-
-        In version1, we have image metafiles as follow:
-            directory: all directories in the image,
-            symboliclink: all symlinks in the image,
-            regular: all normal/regular files in the image,
-            persistent: files that should be preserved across update.
-        """
+        """Get the metafiles that describes the OTA image."""
         _otameta_cls = self.__class__
         for f in [
             _otameta_cls.directory,
@@ -306,23 +356,256 @@ class OTAMetadata:
             ):
                 yield getattr(self, f.name)
 
-    def get_image_data_url(self, base_url: str) -> str:
-        if getattr(self, "_data_url", None) is None:
-            self._data_url = urljoin_ensure_base(
-                base_url, f"{self.rootfs_directory.strip('/')}/"
-            )
-        return self._data_url
 
-    def get_image_compressed_data_url(self, base_url: str) -> str:
-        if getattr(self, "_compressed_data_url", None) is None:
-            self._compressed_data_url = urljoin_ensure_base(
-                base_url, f"{self.compressed_rootfs_directory.strip('/')}/"
-            )
-        return self._compressed_data_url
+# ------ support for text based OTA metafiles parsing ------ #
 
-    def get_download_url(
-        self, reg_inf: RegularInf, *, base_url: str
-    ) -> Tuple[str, Optional[str]]:
+
+def de_escape(s: str) -> str:
+    return s.replace(r"'\''", r"'")
+
+
+# format definition in regular pattern
+
+_dir_pa = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<path>.*)")
+_symlink_pa = re.compile(
+    r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
+)
+_persist_pa = re.compile(r"'(?P<path>)'")
+# NOTE(20221013): support previous regular_inf cvs version
+#                 that doesn't contain size, inode and compressed_alg fields.
+_reginf_pa = re.compile(
+    r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+)"
+    r",(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'"
+    r"(,(?P<size>\d+)?(,(?P<inode>\d+)?(,(?P<compressed_alg>\w+)?)?)?)?"
+)
+
+
+def parse_dirs_from_txt(_input: str) -> DirectoryInf:
+    """Compatibility to the plaintext dirs.txt."""
+    _ma = _dir_pa.match(_input.strip())
+    assert _ma is not None, f"matching dirs failed for {_input}"
+
+    mode = int(_ma.group("mode"), 8)
+    uid = int(_ma.group("uid"))
+    gid = int(_ma.group("gid"))
+    path = de_escape(_ma.group("path")[1:-1])
+    return DirectoryInf(mode=mode, uid=uid, gid=gid, path=path)
+
+
+def parse_persistents_from_txt(_input: str) -> PersistentInf:
+    """Compatibility to the plaintext persists.txt."""
+    _path = de_escape(_input.strip()[1:-1])
+    return PersistentInf(path=_path)
+
+
+def parse_symlinks_from_txt(_input: str) -> SymbolicLinkInf:
+    """Compatibility to the plaintext symlinks.txt."""
+    _ma = _symlink_pa.match(_input.strip())
+    assert _ma is not None, f"matching symlinks failed for {_input}"
+
+    res = SymbolicLinkInf()
+    res.mode = int(_ma.group("mode"), 8)
+    res.uid = int(_ma.group("uid"))
+    res.gid = int(_ma.group("gid"))
+    res.slink = de_escape(_ma.group("link"))
+    res.srcpath = de_escape(_ma.group("target"))
+    return res
+
+
+def parse_regulars_from_txt(_input: str) -> RegularInf:
+    """Compatibility to the plaintext regulars.txt."""
+    res = RegularInf()
+    _ma = _reginf_pa.match(_input.strip())
+    assert _ma is not None, f"matching reg_inf failed for {_input}"
+
+    res.mode = int(_ma.group("mode"), 8)
+    res.uid = int(_ma.group("uid"))
+    res.gid = int(_ma.group("gid"))
+    res.nlink = int(_ma.group("nlink"))
+    res.sha256hash = bytes.fromhex(_ma.group("hash"))
+    res.path = de_escape(_ma.group("path"))
+
+    if _size := _ma.group("size"):
+        res.size = int(_size)
+        # ensure that size exists before parsing inode
+        # and compressed_alg field.
+        res.inode = int(_inode) if (_inode := _ma.group("inode")) else 0
+        res.compressed_alg = (
+            _compress_alg if (_compress_alg := _ma.group("compressed_alg")) else ""
+        )
+
+    return res
+
+
+# -------- otametadata ------ #
+
+
+@dataclass
+class MetafileParserMapping:
+    text_parser: Callable[[str], MessageWrapper]
+    bin_fname: str
+    wrapper_type: Type[MessageWrapper]
+
+
+class OTAMetadata:
+    """Implementation of loading/parsing OTA metadata.jwt and metafiles."""
+
+    METADATA_JWT = "metadata.jwt"
+
+    # internal used binary metafiles fname
+    REGULARS_BIN = "regulars.bin"
+    DIRS_BIN = "dirs.bin"
+    SYMLINKS_BIN = "symlinks.bin"
+    PERSISTENTS_BIN = "persistents.bin"
+
+    # metafile fname <-> parser mapping
+    METAFILE_PARSER_MAPPING = {
+        MetafilesV1.DIRECTORY_FNAME: MetafileParserMapping(
+            parse_dirs_from_txt,
+            DIRS_BIN,
+            DirectoryInf,
+        ),
+        MetafilesV1.SYMBOLICLINK_FNAME: MetafileParserMapping(
+            parse_symlinks_from_txt,
+            SYMLINKS_BIN,
+            SymbolicLinkInf,
+        ),
+        MetafilesV1.REGULAR_FNAME: MetafileParserMapping(
+            parse_regulars_from_txt,
+            REGULARS_BIN,
+            RegularInf,
+        ),
+        MetafilesV1.PERSISTENT_FNAME: MetafileParserMapping(
+            parse_persistents_from_txt,
+            PERSISTENTS_BIN,
+            PersistentInf,
+        ),
+    }
+
+    def __init__(self, *, url_base: str, downloader: Downloader) -> None:
+        self.url_base = url_base
+        self._downloader = downloader
+        self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=cfg.RUN_DIR)
+        self._tmp_dir_path = Path(self._tmp_dir.name)
+
+        # download and parse the metadata.jwt
+        self.scheme_version = _MetadataJWTClaimsLayout.SCHEME_VERSION
+        self._ota_metadata = self._process_metadata_jwt()
+        self.image_rootfs_url = urljoin_ensure_base(
+            self.url_base, f"{self._ota_metadata.rootfs_directory.strip('/')}/"
+        )
+        self.image_compressed_rootfs_url = urljoin_ensure_base(
+            self.url_base,
+            f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
+        )
+        self.total_regular_size = self._ota_metadata.total_regular_size
+        # download, parse and store ota metatfiles
+        self._process_text_base_otameta_files()
+
+    def _process_metadata_jwt(self) -> _MetadataJWTClaimsLayout:
+        """Download, loading and parsing metadata.jwt."""
+        logger.debug("process metadata.jwt...")
+        # download and parse metadata.jwt
+        with NamedTemporaryFile(prefix="metadata_jwt", dir=cfg.RUN_DIR) as meta_f:
+            _downloaded_meta_f = Path(meta_f.name)
+            self._downloader.download(
+                urljoin_ensure_base(self.url_base, self.METADATA_JWT),
+                _downloaded_meta_f,
+                # NOTE: do not use cache when fetching metadata.jwt
+                headers={
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
+                },
+            )
+
+            _parser = _MetadataJWTParser(
+                _downloaded_meta_f.read_text(), certs_dir=cfg.CERTS_DIR
+            )
+        # get not yet verified parsed ota_metadata
+        _ota_metadata = _parser.get_otametadata()
+
+        # download certificate and verify metadata against this certificate
+        with NamedTemporaryFile(prefix="metadata_cert", dir=cfg.RUN_DIR) as cert_f:
+            cert_info = _ota_metadata.certificate
+            cert_fname, cert_hash = cert_info.file, cert_info.hash
+            cert_file = Path(cert_f.name)
+            self._downloader.download(
+                urljoin_ensure_base(self.url_base, cert_fname),
+                cert_file,
+                digest=cert_hash,
+                headers={
+                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
+                },
+            )
+            _parser.verify_metadata(cert_file.read_bytes())
+
+        # return verified ota metadata
+        return _ota_metadata
+
+    def _process_text_base_otameta_files(self):
+        """Downloading, loading and parsing metafiles."""
+        logger.debug("process ota metafiles...")
+
+        def _process_text_base_otameta_file(_metafile: MetaFile):
+            _parser_info = self.METAFILE_PARSER_MAPPING[MetafilesV1(_metafile.file)]
+            with NamedTemporaryFile(prefix=f"metafile_{_metafile.file}") as _metafile_f:
+                _metafile_fpath = Path(_metafile_f.name)
+                self._downloader.download(
+                    urljoin_ensure_base(self.url_base, quote(_metafile.file)),
+                    _metafile_fpath,
+                    digest=_metafile.hash,
+                    headers={
+                        OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                    },
+                )
+                # convert to internal used version and store as binary files
+                with open(_metafile_fpath, "r") as _src_f, open(
+                    Path(self._tmp_dir.name) / _parser_info.bin_fname, "wb"
+                ) as _dst_f:
+                    exporter = Uint32LenDelimitedMsgWriter(
+                        _dst_f, _parser_info.wrapper_type
+                    )
+                    for _line in _src_f:
+                        exporter.write1_msg(_parser_info.text_parser(_line))
+
+        _keep_failing_timer = time.time()
+        with ThreadPoolExecutor(thread_name_prefix="process_metafiles") as _executor:
+            _mapper = RetryTaskMap(
+                _process_text_base_otameta_file,
+                self._ota_metadata.get_img_metafiles(),
+                title="process_metafiles",
+                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                max_retry=0,  # NOTE: we use another strategy below
+                executor=_executor,
+            )
+            for _exp, _entry, _ in _mapper.execute():
+                if not isinstance(_exp, Exception):
+                    _keep_failing_timer = time.time()
+                    continue
+
+                logger.debug(f"metafile downloading failed: {_entry=}")
+                if (
+                    time.time() - _keep_failing_timer
+                    > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                ):
+                    _mapper.shutdown()
+
+    # APIs
+
+    def save_metafiles_bin_to(self, dst_dir: PathLike):
+        for _, _inf_files_mapping in self.METAFILE_PARSER_MAPPING.items():
+            _fname = _inf_files_mapping.bin_fname
+            _fpath = self._tmp_dir_path / _fname
+            shutil.copy(_fpath, dst_dir)
+
+    def iter_metafile(self, metafile: MetafilesV1) -> Iterator[Any]:
+        _parser_info = self.METAFILE_PARSER_MAPPING[metafile]
+        with open(self._tmp_dir_path / _parser_info.bin_fname, "rb") as _f:
+            _stream_reader = Uint32LenDelimitedMsgReader(_f, _parser_info.wrapper_type)
+            yield from _stream_reader.iter_msg()
+
+    def get_download_url(self, reg_inf: RegularInf) -> Tuple[str, Optional[str]]:
         """
         NOTE: compressed file is located under another OTA image remote folder
 
@@ -331,11 +614,16 @@ class OTAMetadata:
         """
         # v2 OTA image, with compression enabled
         # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
-        if reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG:
+        if (
+            reg_inf.compressed_alg
+            and reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG
+        ):
             return (
                 urljoin_ensure_base(
-                    self.get_image_compressed_data_url(base_url),
-                    quote(f"{reg_inf.sha256hash}.{reg_inf.compressed_alg}"),
+                    self.image_compressed_rootfs_url,
+                    # NOTE: hex alpha-digits and dot(.) are not special character
+                    #       so no need to use quote here.
+                    f"{reg_inf.get_hash()}.{reg_inf.compressed_alg}",
                 ),
                 reg_inf.compressed_alg,
             )
@@ -344,249 +632,7 @@ class OTAMetadata:
         else:
             return (
                 urljoin_ensure_base(
-                    self.get_image_data_url(base_url),
-                    quote(str(reg_inf.path.relative_to("/"))),
+                    self.image_rootfs_url, quote(str(reg_inf.relative_to("/")))
                 ),
                 None,
             )
-
-
-# meta files entry classes
-
-
-def de_escape(s: str) -> str:
-    return s.replace(r"'\''", r"'")
-
-
-@dataclass
-class _BaseInf:
-    """Base class for dir, symlink, persist entry."""
-
-    mode: int
-    uid: int
-    gid: int
-    _left: str = field(init=False, compare=False, repr=False)
-
-    _base_pattern: ClassVar[re.Pattern] = re.compile(
-        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<left_over>.*)"
-    )
-
-    def __init__(self, info: str):
-        match_res: Optional[re.Match] = self._base_pattern.match(info.strip())
-        assert match_res is not None, f"match base_inf failed: {info}"
-
-        self.mode = int(match_res.group("mode"), 8)
-        self.uid = int(match_res.group("uid"))
-        self.gid = int(match_res.group("gid"))
-        self._left: str = match_res.group("left_over")
-
-
-@dataclass
-class DirectoryInf(_BaseInf):
-    """Directory file information class for dirs.txt.
-    format: mode,uid,gid,'dir/name'
-
-    NOTE: only use path for hash key
-    """
-
-    path: Path
-
-    def __init__(self, info):
-        super().__init__(info)
-        self.path = Path(de_escape(self._left[1:-1]))
-
-        del self._left
-
-    def __eq__(self, _other: Any) -> bool:
-        if isinstance(_other, DirectoryInf):
-            return _other.path == self.path
-        elif isinstance(_other, Path):
-            return _other == self.path
-        else:
-            return False
-
-    def __hash__(self) -> int:
-        return hash(self.path)
-
-    def mkdir_relative_to_mount_point(self, mount_point: Union[Path, str]):
-        _target = Path(mount_point) / self.path.relative_to("/")
-        _target.mkdir(parents=True, exist_ok=True)
-        os.chmod(_target, self.mode)
-        os.chown(_target, self.uid, self.gid)
-
-
-@dataclass
-class SymbolicLinkInf(_BaseInf):
-    """Symbolik link information class for symlinks.txt.
-
-    format: mode,uid,gid,'path/to/link','path/to/target'
-    example:
-    """
-
-    slink: Path
-    srcpath: Path
-
-    _pattern: ClassVar[re.Pattern] = re.compile(
-        r"'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
-    )
-
-    def __init__(self, info):
-        super().__init__(info)
-        res = self._pattern.match(self._left)
-        assert res is not None, f"match symlink failed: {info}"
-
-        self.slink = Path(de_escape(res.group("link")))
-        self.srcpath = Path(de_escape(res.group("target")))
-
-        del self._left
-
-    def link_at_mount_point(self, mount_point: Union[Path, str]):
-        # NOTE: symbolic link in /boot directory is not supported. We don't use it.
-        _newlink = Path(mount_point) / self.slink.relative_to("/")
-        _newlink.symlink_to(self.srcpath)
-        # set the permission on the file itself
-        os.chown(_newlink, self.uid, self.gid, follow_symlinks=False)
-
-
-@dataclass
-class PersistentInf:
-    """Persistent file information class for persists.txt
-
-    format: 'path'
-    """
-
-    path: Path
-
-    def __init__(self, info: str):
-        self.path = Path(de_escape(info.strip()[1:-1]))
-
-
-@dataclass
-class RegularInf:
-    """RegularInf scheme for regulars.txt.
-
-    format: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode,[compressed_alg]]]
-    example: 0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'path/to/file',1234,12345678,zst
-
-    NOTE: size and inode sections are both optional, if inode exists, size must exist.
-    NOTE 2: path should always be relative to '/', not relative to any mount point!
-    """
-
-    mode: int
-    uid: int
-    gid: int
-    nlink: int
-    sha256hash: str
-    path: Path
-    _base: str
-    size: Optional[int] = None
-    inode: Optional[str] = None
-    compressed_alg: Optional[str] = None
-
-    # NOTE(20221013): support previous regular_inf cvs version
-    #                 that doesn't contain size, inode and compressed_alg fields.
-    _reginf_pa: ClassVar[re.Pattern] = re.compile(
-        r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+)"
-        r",(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'"
-        r"(,(?P<size>\d+)?(,(?P<inode>\d+)?(,(?P<compressed_alg>\w+)?)?)?)?"
-    )
-
-    @classmethod
-    def parse_reginf(cls, _input: str):
-        _ma = cls._reginf_pa.match(_input)
-        assert _ma is not None, f"matching reg_inf failed for {_input}"
-
-        mode = int(_ma.group("mode"), 8)
-        uid = int(_ma.group("uid"))
-        gid = int(_ma.group("gid"))
-        nlink = int(_ma.group("nlink"))
-        sha256hash = _ma.group("hash")
-        path = Path(de_escape(_ma.group("path")))
-
-        # special treatment for /boot folder
-        _base = "/boot" if str(path).startswith("/boot") else "/"
-
-        size, inode, compressed_alg = None, None, None
-        if _size := _ma.group("size"):
-            size = int(_size)
-            # ensure that size exists before parsing inode
-            # and compressed_alg field.
-            # it's OK to skip checking as un-existed fields
-            # will be None anyway.
-            inode = _ma.group("inode")
-            compressed_alg = _ma.group("compressed_alg")
-
-        return cls(
-            mode=mode,
-            uid=uid,
-            gid=gid,
-            path=path,
-            nlink=nlink,
-            sha256hash=sha256hash,
-            size=size,
-            inode=inode,
-            compressed_alg=compressed_alg,
-            _base=_base,
-        )
-
-    def __hash__(self) -> int:
-        """Only use path to distinguish unique RegularInf."""
-        return hash(self.path)
-
-    def __eq__(self, _other) -> bool:
-        """
-        NOTE: also take Path as _other
-        """
-        if isinstance(_other, Path):
-            return self.path == _other
-
-        if isinstance(_other, self.__class__):
-            return self.path == _other.path
-
-        return False
-
-    def make_relative_to_mount_point(self, mp: Union[Path, str]) -> Path:
-        return Path(mp) / self.path.relative_to(self._base)
-
-    def verify_file(self, *, src_mount_point: Union[Path, str]) -> bool:
-        """Verify file that with the path relative to <src_mount_point>."""
-        return verify_file(
-            self.make_relative_to_mount_point(src_mount_point),
-            self.sha256hash,
-            self.size,
-        )
-
-    def copy_relative_to_mount_point(
-        self, dst_mount_point: Union[Path, str], /, *, src_mount_point: Path
-    ):
-        """Copy file to the path that relative to dst_mount_point, from src_mount_point."""
-        _src = self.make_relative_to_mount_point(src_mount_point)
-        _dst = self.make_relative_to_mount_point(dst_mount_point)
-        shutil.copy2(_src, _dst, follow_symlinks=False)
-        # still ensure permission on dst
-        os.chown(_dst, self.uid, self.gid)
-        os.chmod(_dst, self.mode)
-
-    def copy_to_dst(self, dst: Union[Path, str], /, *, src_mount_point: Path):
-        """Copy file pointed by self to the dst."""
-        _src = self.make_relative_to_mount_point(src_mount_point)
-        shutil.copy2(_src, dst, follow_symlinks=False)
-        # still ensure permission on dst
-        os.chown(dst, self.uid, self.gid)
-        os.chmod(dst, self.mode)
-
-    def copy_from_src(self, src: Union[Path, str], *, dst_mount_point: Path):
-        """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.make_relative_to_mount_point(dst_mount_point)
-        shutil.copy2(src, _dst, follow_symlinks=False)
-        # still ensure permission on dst
-        os.chown(_dst, self.uid, self.gid)
-        os.chmod(_dst, self.mode)
-
-    def move_from_src(self, src: Union[Path, str], *, dst_mount_point: Path):
-        """Copy file from src to dst pointed by regular_inf."""
-        _dst = self.make_relative_to_mount_point(dst_mount_point)
-        shutil.move(str(src), _dst)
-        # still ensure permission on dst
-        os.chown(_dst, self.uid, self.gid)
-        os.chmod(_dst, self.mode)

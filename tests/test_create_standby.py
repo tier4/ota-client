@@ -38,13 +38,15 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
     """
 
     @pytest.fixture
-    def prepare_ab_slots(self, ab_slots: SlotMeta):
+    def prepare_ab_slots(self, tmp_path: Path, ab_slots: SlotMeta):
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
         self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
         self.ota_image_dir = Path(cfg.OTA_IMAGE_DIR)
 
+        self.otaclient_run_dir = tmp_path / "otaclient_run_dir"
+        self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
         # ------ cleanup and prepare slot_b ------ #
         shutil.rmtree(self.slot_b, ignore_errors=True)
         self.slot_b.mkdir(exist_ok=True)
@@ -82,8 +84,10 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         _cfg = BaseConfig()
         _cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
         _cfg.ACTIVE_ROOT_MOUNT_POINT = str(self.slot_a)  # type: ignore
+        _cfg.RUN_DIR = str(self.otaclient_run_dir)  # type: ignore
         mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
         mocker.patch(f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.cfg", _cfg)
+        mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg", _cfg)
 
     def test_update_with_create_standby_RebuildMode(self, mocker: MockerFixture):
         from otaclient.app.ota_client import _OTAUpdater, OTAUpdateFSM

@@ -13,28 +13,26 @@
 # limitations under the License.
 
 
+import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, List, Tuple
+from typing import Callable, List, Set, Tuple
 
 from ..common import RetryTaskMap
 from ..configs import config as cfg
+from ..ota_metadata import MetafilesV1, OTAMetadata
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
     RegProcessOperation,
 )
-from ..proto import wrapper
-from ..ota_metadata import (
-    PersistentInf,
-    SymbolicLinkInf,
-)
+from ..proto.wrapper import RegularInf, StatusProgressPhase
 from .. import log_setting
 
-from .common import HardlinkRegister, RegularInfSet, DeltaGenerator, DeltaBundle
-from .interface import StandbySlotCreatorProtocol, UpdateMeta
+from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
+from .interface import StandbySlotCreatorProtocol
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -45,50 +43,42 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def __init__(
         self,
         *,
-        update_meta: UpdateMeta,
+        ota_metadata: OTAMetadata,
+        boot_dir: str,
+        standby_slot_mount_point: str,
+        active_slot_mount_point: str,
         stats_collector: OTAUpdateStatsCollector,
-        update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
+        update_phase_tracker: Callable[[StatusProgressPhase], None],
     ) -> None:
-        self.metadata = update_meta.metadata
+        self._ota_metadata = ota_metadata
         self.stats_collector = stats_collector
         self.update_phase_tracker = update_phase_tracker
 
         # path configuration
-        self.boot_dir = Path(update_meta.boot_dir)
-        self.standby_slot_mp = Path(update_meta.standby_slot_mp)
-        self.active_slot_mp = Path(update_meta.active_slot_mp)
+        self.boot_dir = Path(boot_dir)
+        self.standby_slot_mp = Path(standby_slot_mount_point)
+        self.active_slot_mp = Path(active_slot_mount_point)
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
         self._ota_tmp = self.standby_slot_mp / Path(cfg.OTA_TMP_STORE).relative_to("/")
-        self._ota_tmp_image_meta_dir = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_META_STORE
-        ).relative_to("/")
         self._ota_tmp.mkdir(exist_ok=True)
-        # downloaded otameta files are stored under this folder
-        self._ota_tmp_image_meta_dir.mkdir(exist_ok=True)
 
     def _cal_and_prepare_delta(self):
         logger.info("generating delta...")
-
-        regular_inf_fname = self.metadata.regular.file
-        dir_inf_fname = self.metadata.directory.file
         delta_calculator = DeltaGenerator(
+            ota_metadata=self._ota_metadata,
             delta_src=self.active_slot_mp,
             local_copy_dir=self._ota_tmp,
             stats_collector=self.stats_collector,
         )
-        delta_bundle = delta_calculator.calculate_and_process_delta(
-            delta_src_reg=Path(cfg.META_FOLDER) / regular_inf_fname,
-            new_reg=self._ota_tmp_image_meta_dir / regular_inf_fname,
-            new_dirs=self._ota_tmp_image_meta_dir / dir_inf_fname,
-        )
+        delta_bundle = delta_calculator.calculate_and_process_delta()
         self.stats_collector.set_total_regular_files(delta_bundle.total_regular_num)
         logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
         self.delta_bundle = delta_bundle
 
     def _process_dirs(self):
-        self.update_phase_tracker(wrapper.StatusProgressPhase.DIRECTORY)
+        self.update_phase_tracker(StatusProgressPhase.DIRECTORY)
         for entry in self.delta_bundle.get_new_dirs():
             entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
@@ -96,7 +86,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         """NOTE: just copy from legacy mode"""
         from ..copy_tree import CopyTree
 
-        self.update_phase_tracker(wrapper.StatusProgressPhase.PERSISTENT)
+        self.update_phase_tracker(StatusProgressPhase.PERSISTENT)
         _passwd_file = Path(cfg.PASSWD_FILE)
         _group_file = Path(cfg.GROUP_FILE)
         _copy_tree = CopyTree(
@@ -106,26 +96,24 @@ class RebuildMode(StandbySlotCreatorProtocol):
             dst_group_file=self.standby_slot_mp / _group_file.relative_to("/"),
         )
 
-        persist_inf_fname = self.metadata.persistent.file
-        with open(self._ota_tmp_image_meta_dir / persist_inf_fname, "r") as f:
-            for entry_line in f:
-                perinf = PersistentInf(entry_line)
-                if (
-                    perinf.path.is_file()
-                    or perinf.path.is_dir()
-                    or perinf.path.is_symlink()
-                ):  # NOTE: not equivalent to perinf.path.exists()
-                    _copy_tree.copy_with_parents(perinf.path, self.standby_slot_mp)
+        for _perinf in self._ota_metadata.iter_metafile(MetafilesV1.PERSISTENT_FNAME):
+            _perinf_path = Path(_perinf.path)
+            if (
+                _perinf_path.is_file()
+                or _perinf_path.is_dir()
+                or _perinf_path.is_symlink()
+            ):  # NOTE: not equivalent to perinf.path.exists()
+                _copy_tree.copy_with_parents(_perinf_path, self.standby_slot_mp)
 
     def _process_symlinks(self):
-        self.update_phase_tracker(wrapper.StatusProgressPhase.SYMLINK)
-        symlink_inf_fname = self.metadata.symboliclink.file
-        with open(self._ota_tmp_image_meta_dir / symlink_inf_fname, "r") as f:
-            for entry_line in f:
-                SymbolicLinkInf(entry_line).link_at_mount_point(self.standby_slot_mp)
+        self.update_phase_tracker(StatusProgressPhase.SYMLINK)
+        for _symlink in self._ota_metadata.iter_metafile(
+            MetafilesV1.SYMBOLICLINK_FNAME
+        ):
+            _symlink.link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):
-        self.update_phase_tracker(wrapper.StatusProgressPhase.REGULAR)
+        self.update_phase_tracker(StatusProgressPhase.REGULAR)
         self._hardlink_register = HardlinkRegister()
 
         logger.info("start applying delta...")
@@ -145,12 +133,15 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     logger.debug(f"[process_regular] failed to process {_entry=}")
             self.stats_collector.wait_staging()
 
-    def _process_regular(self, _input: Tuple[str, RegularInfSet]):
+    def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
         _hash, _regs_set = _input
+        _hash_str = _hash.hex()
         stats_list: List[RegInfProcessedStats] = []  # for ota stats report
 
-        _local_copy = self._ota_tmp / _hash
-        for is_last, entry in _regs_set.iter_entries():
+        _local_copy = self._ota_tmp / _hash_str
+        for _count, entry in enumerate(_regs_set, start=1):
+            is_last = _count == len(_regs_set)
+
             cur_stat = RegInfProcessedStats(
                 op=RegProcessOperation.OP_COPY,
                 size=_local_copy.stat().st_size,
@@ -159,7 +150,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
             # special treatment on /boot folder
             _mount_point = (
-                self.standby_slot_mp if not entry._base == "/boot" else self.boot_dir
+                self.standby_slot_mp
+                if not entry.path.startswith("/boot")
+                else self.boot_dir
             )
 
             # prepare this entry
@@ -175,20 +168,18 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 #   use inode to identify the hardlink group.
                 #   otherwise, use hash to identify the same hardlink file.
                 cur_stat.op = RegProcessOperation.OP_LINK
-                _identifier = entry.sha256hash if entry.inode is None else entry.inode
+                _identifier = entry.sha256hash if not entry.inode else entry.inode
 
-                _dst = entry.make_relative_to_mount_point(_mount_point)
+                _dst = entry.relatively_join(_mount_point)
                 _hardlink_tracker, _is_writer = self._hardlink_register.get_tracker(
                     _identifier, _dst, entry.nlink
                 )
 
-                # writer
                 if _is_writer:
                     entry.copy_from_src(_local_copy, dst_mount_point=_mount_point)
-                # subscriber
-                else:
+                else:  # subscriber
                     _src = _hardlink_tracker.subscribe_no_wait()
-                    _src.link_to(_dst)
+                    os.link(_src, _dst)
 
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
@@ -209,9 +200,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")
-        for meta_f in self.metadata.get_img_metafiles():
-            _src = self._ota_tmp_image_meta_dir / meta_f.file
-            shutil.copy(_src, _dst)
+        self._ota_metadata.save_metafiles_bin_to(_dst)
 
     # API
 
@@ -239,4 +228,3 @@ class RebuildMode(StandbySlotCreatorProtocol):
         #       as it requires standby_slot to be erased before applying
         #       the changes.
         shutil.rmtree(self._ota_tmp, ignore_errors=True)
-        shutil.rmtree(self._ota_tmp_image_meta_dir, ignore_errors=True)

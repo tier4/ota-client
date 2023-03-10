@@ -18,7 +18,7 @@ from typing import Protocol, Type
 
 from .boot_control.protocol import BootControllerProtocol
 from .create_standby.interface import StandbySlotCreatorProtocol
-from .proto import otaclient_v2_pb2 as v2
+from .proto import v2
 
 
 class OTAClientProtocol(Protocol):

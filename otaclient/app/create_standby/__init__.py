@@ -15,10 +15,7 @@
 
 from typing import Type
 
-from .interface import (
-    StandbySlotCreatorProtocol,
-    UpdateMeta,
-)
+from .interface import StandbySlotCreatorProtocol
 from ..configs import CreateStandbyMechanism, config as cfg
 from .. import log_setting
 
@@ -39,7 +36,4 @@ def get_standby_slot_creator(
         raise NotImplementedError(f"slot update {mode=} not implemented")
 
 
-__all__ = (
-    "UpdateMeta",
-    "get_standby_slot_creator",
-)
+__all__ = ("get_standby_slot_creator",)

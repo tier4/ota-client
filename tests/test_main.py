@@ -21,7 +21,7 @@ from pathlib import Path
 from pytest_mock import MockerFixture
 from pytest import LogCaptureFixture
 
-from otaclient.app.configs import OTACLIENT_LOCK_FILE
+from otaclient.app.configs import config as otaclient_cfg
 from tests.conftest import TestConfiguration as cfg
 
 FIRST_LINE_LOG = "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
@@ -47,7 +47,7 @@ class TestMain:
         _p = Process(target=_waiting)
         try:
             _p.start()
-            Path(OTACLIENT_LOCK_FILE).write_text(f"{_p.pid}")
+            Path(otaclient_cfg.OTACLIENT_PID_FILE).write_text(f"{_p.pid}")
             yield _p.pid
         finally:
             _p.kill()
@@ -58,7 +58,7 @@ class TestMain:
         main()
         assert caplog.records[0].msg == "started"
         assert caplog.records[1].msg == FIRST_LINE_LOG
-        assert Path(OTACLIENT_LOCK_FILE).read_text() == f"{os.getpid()}"
+        assert Path(otaclient_cfg.OTACLIENT_PID_FILE).read_text() == f"{os.getpid()}"
 
     def test_with_other_otaclient_started(self, background_process):
         from otaclient.app.main import main
@@ -67,4 +67,4 @@ class TestMain:
         with pytest.raises(ValueError):
             main()
         self._sys_exit_mocker.assert_called_once()
-        assert Path(OTACLIENT_LOCK_FILE).read_text() == _other_pid
+        assert Path(otaclient_cfg.OTACLIENT_PID_FILE).read_text() == _other_pid
