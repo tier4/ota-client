@@ -416,7 +416,6 @@ class DeltaGenerator:
         for _dir in self._ota_metadata.iter_metafile(MetafilesV1.DIRECTORY_FNAME):
             self._new_dirs[_dir] = None
         # pre-load from new regulars.txt
-        _entry: RegularInf
         for _entry in self._ota_metadata.iter_metafile(MetafilesV1.REGULAR_FNAME):
             self.total_regulars_num += 1
             self._new.add_entry(_entry)
