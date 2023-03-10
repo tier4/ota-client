@@ -15,12 +15,19 @@
 
 import pytest
 import base64
+from dataclasses import asdict
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from otaclient.app.ota_metadata import ParseMetadataHelper
+from otaclient.app.ota_metadata import (
+    _MetadataJWTParser,
+    parse_dirs_from_txt,
+    parse_persistents_from_txt,
+    parse_regulars_from_txt,
+    parse_symlinks_from_txt,
+)
 
 
 HEADER = """\
@@ -116,13 +123,13 @@ def test_ota_metadata(dir_test: Path, payload_str: str):
     sign_pem = dir_test / "keys" / "sign.pem"
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
-    assert metadata.directory.asdict() == DIR_INFO
-    assert metadata.symboliclink.asdict() == SYMLINK_INFO
-    assert metadata.regular.asdict() == REGULAR_INFO
-    assert metadata.persistent.asdict() == PERSISTENT_INFO
-    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert asdict(metadata.directory) == DIR_INFO
+    assert asdict(metadata.symboliclink) == SYMLINK_INFO
+    assert asdict(metadata.regular) == REGULAR_INFO
+    assert asdict(metadata.persistent) == PERSISTENT_INFO
+    assert asdict(metadata.certificate) == CERTIFICATE_INFO
     assert metadata.rootfs_directory == ROOTFS_DIR_INFO
 
     parser.verify_metadata(sign_pem.read_bytes())
@@ -138,7 +145,7 @@ def test_ota_metadata_exception(dir_test: Path, payload_str):
     sign_pem = dir_test / "keys" / "sign.pem"
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     with pytest.raises(ValueError):
         # sing.key is not a valid cert
         sign_pem = dir_test / "keys" / "sign.key"
@@ -166,13 +173,13 @@ def test_ota_metadata_with_verify_certificate(
     cert_b_2.write_bytes(Path(dir_test / "keys" / "interm.pem").read_bytes())
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
-    assert metadata.directory.asdict() == DIR_INFO
-    assert metadata.symboliclink.asdict() == SYMLINK_INFO
-    assert metadata.regular.asdict() == REGULAR_INFO
-    assert metadata.persistent.asdict() == PERSISTENT_INFO
-    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert asdict(metadata.directory) == DIR_INFO
+    assert asdict(metadata.symboliclink) == SYMLINK_INFO
+    assert asdict(metadata.regular) == REGULAR_INFO
+    assert asdict(metadata.persistent) == PERSISTENT_INFO
+    assert asdict(metadata.certificate) == CERTIFICATE_INFO
     assert metadata.rootfs_directory == ROOTFS_DIR_INFO
     parser.verify_metadata(Path(dir_test / "keys" / "sign.pem").read_bytes())
     if "total_regular_size" in payload_str:
@@ -197,13 +204,13 @@ def test_ota_metadata_with_verify_certificate_exception(
     cert_a_2.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = ParseMetadataHelper(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
-    assert metadata.directory.asdict() == DIR_INFO
-    assert metadata.symboliclink.asdict() == SYMLINK_INFO
-    assert metadata.regular.asdict() == REGULAR_INFO
-    assert metadata.persistent.asdict() == PERSISTENT_INFO
-    assert metadata.certificate.asdict() == CERTIFICATE_INFO
+    assert asdict(metadata.directory) == DIR_INFO
+    assert asdict(metadata.symboliclink) == SYMLINK_INFO
+    assert asdict(metadata.regular) == REGULAR_INFO
+    assert asdict(metadata.persistent) == PERSISTENT_INFO
+    assert asdict(metadata.certificate) == CERTIFICATE_INFO
     assert metadata.rootfs_directory == ROOTFS_DIR_INFO
     with pytest.raises(ValueError):
         # NOTE: intentionally use sign.key as sign cert here,
@@ -214,6 +221,8 @@ def test_ota_metadata_with_verify_certificate_exception(
     else:
         assert metadata.total_regular_size is None
 
+
+# ------ text based ota metafiles parsing test ------ #
 
 # try to include as any special characters as possible
 @pytest.mark.parametrize(
@@ -229,7 +238,7 @@ def test_ota_metadata_with_verify_certificate_exception(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa\,',233/to/file",
             1234,
-            "12345678",
+            12345678,
             "zst",
         ),
         (
@@ -241,8 +250,8 @@ def test_ota_metadata_with_verify_certificate_exception(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa\,',233/to/file",
             1234,
-            "12345678",
-            None,
+            12345678,
+            "",
         ),
         (
             r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',1234,,zst",
@@ -253,7 +262,7 @@ def test_ota_metadata_with_verify_certificate_exception(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa\,',233/to/file",
             1234,
-            None,
+            0,
             "zst",
         ),
         # rev3: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode]]
@@ -266,8 +275,8 @@ def test_ota_metadata_with_verify_certificate_exception(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa\,',233/to/file",
             1234,
-            "12345678",
-            None,  # (new in rev4)
+            12345678,
+            "",  # (new in rev4)
         ),
         (
             r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',1234,",
@@ -278,8 +287,8 @@ def test_ota_metadata_with_verify_certificate_exception(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa\,',233/to/file",
             1234,
-            None,
-            None,  # (new in rev4)
+            0,
+            "",  # (new in rev4)
         ),
         (
             r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',233/to/file',,",
@@ -289,9 +298,9 @@ def test_ota_metadata_with_verify_certificate_exception(
             3,
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa\,',233/to/file",
-            None,
-            None,
-            None,  # (new in rev4)
+            0,
+            0,
+            "",  # (new in rev4)
         ),
         # rev2: mode,uid,gid,link number,sha256sum,'path/to/file'[,size]
         (
@@ -303,8 +312,8 @@ def test_ota_metadata_with_verify_certificate_exception(
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa,',233/to/file",
             1234,
-            None,  # (new in rev3)
-            None,  # (new in rev4)
+            0,  # (new in rev3)
+            "",  # (new in rev4)
         ),
         # rev1: mode,uid,gid,link number,sha256sum,'path/to/file'
         (
@@ -315,9 +324,9 @@ def test_ota_metadata_with_verify_certificate_exception(
             1,
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             r"/aaa,',233/to/file",
-            None,  # (new in rev2)
-            None,  # (new in rev3)
-            None,  # (new in rev4)
+            0,  # (new in rev2)
+            0,  # (new in rev3)
+            "",  # (new in rev4)
         ),
     ),
 )
@@ -330,18 +339,16 @@ def test_RegularInf(
     _hash: str,
     path: str,
     size: int,
-    inode: str,
+    inode: int,
     compression_alg: str,
 ):
-    from otaclient.app.ota_metadata import RegularInf
-
-    entry = RegularInf.parse_reginf(_input)
+    entry = parse_regulars_from_txt(_input)
     assert entry.mode == mode
     assert entry.uid == uid
     assert entry.gid == gid
     assert entry.nlink == nlink
-    assert entry.sha256hash == _hash
-    assert str(entry.path) == path
+    assert entry.sha256hash == bytes.fromhex(_hash)
+    assert entry.path == path
     assert entry.size == size
     assert entry.inode == inode
     assert entry.compressed_alg == compression_alg
@@ -360,14 +367,12 @@ def test_RegularInf(
     ),
 )
 def test_DirectoryInf(_input: str, mode: int, uid: int, gid: int, path: str):
-    from otaclient.app.ota_metadata import DirectoryInf
-
-    entry = DirectoryInf(_input)
+    entry = parse_dirs_from_txt(_input)
 
     assert entry.mode == mode
     assert entry.uid == uid
     assert entry.gid == gid
-    assert str(entry.path) == path
+    assert entry.path == path
 
 
 @pytest.mark.parametrize(
@@ -387,15 +392,13 @@ def test_DirectoryInf(_input: str, mode: int, uid: int, gid: int, path: str):
 def test_SymbolicLinkInf(
     _input: str, mode: int, uid: int, gid: int, link: str, target: str
 ):
-    from otaclient.app.ota_metadata import SymbolicLinkInf
-
-    entry = SymbolicLinkInf(_input)
+    entry = parse_symlinks_from_txt(_input)
 
     assert entry.mode == mode
     assert entry.uid == uid
     assert entry.gid == gid
-    assert str(entry.slink) == link
-    assert str(entry.srcpath) == target
+    assert entry.slink == link
+    assert entry.srcpath == target
 
 
 @pytest.mark.parametrize(
@@ -408,7 +411,5 @@ def test_SymbolicLinkInf(
     ),
 )
 def test_PersistentInf(_input: str, path: str):
-    from otaclient.app.ota_metadata import PersistentInf
-
-    entry = PersistentInf(_input)
-    assert str(entry.path) == path
+    entry = parse_persistents_from_txt(_input)
+    assert entry.path == path

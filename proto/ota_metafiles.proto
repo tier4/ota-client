@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package otaclient;
+
+message RegularInf {
+    int32 mode = 1;
+    int32 uid = 2;
+    int32 gid = 3;
+    int32 nlink = 4;
+    bytes sha256hash = 5;
+    string path = 6;
+    int64 size = 7;
+    int64 inode = 8;
+    string compressed_alg = 9;
+}
+
+message DirectoryInf {
+    int32 mode = 1;
+    int32 uid = 2;
+    int32 gid = 3;
+    string path = 4;
+}
+
+message SymbolicLinkInf {
+    int32 mode = 1;
+    int32 uid = 2;
+    int32 gid = 3;
+    string slink = 4;
+    string srcpath = 5;
+}
+
+message PersistentInf {
+    string path = 1;
+}

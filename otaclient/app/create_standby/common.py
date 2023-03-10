@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, Lock
 from typing import (
+    Any,
     Iterator,
     List,
     Dict,
@@ -33,12 +34,14 @@ from typing import (
     OrderedDict,
     Set,
     Tuple,
+    Union,
 )
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ..common import file_sha256
 from ..configs import config as cfg
-from ..ota_metadata import DirectoryInf, RegularInf
+from ..ota_metadata import OTAMetadata, MetafilesV1
+from ..proto.wrapper import RegularInf, DirectoryInf
 from .. import log_setting
 from ..update_stats import (
     OTAUpdateStatsCollector,
@@ -58,7 +61,7 @@ class _WeakRef:
 class _HardlinkTracker:
     POLLINTERVAL = 0.1
 
-    def __init__(self, first_copy_path: Path, ref: _WeakRef, count: int):
+    def __init__(self, first_copy_path: str, ref: _WeakRef, count: int):
         self._first_copy_ready = Event()
         self._failed = Event()
         # hold <count> refs to ref
@@ -73,7 +76,7 @@ class _HardlinkTracker:
         self._failed.set()
         self._ref_holder.clear()
 
-    def subscribe(self) -> Path:
+    def subscribe(self) -> str:
         # wait for writer
         while not self._first_copy_ready.is_set():
             if self._failed.is_set():
@@ -90,22 +93,18 @@ class _HardlinkTracker:
 
         return self.first_copy_path
 
-    def subscribe_no_wait(self) -> Path:
+    def subscribe_no_wait(self) -> str:
         return self.first_copy_path
 
 
 class HardlinkRegister:
     def __init__(self):
         self._lock = Lock()
-        self._hash_ref_dict: "WeakValueDictionary[str, _WeakRef]" = (
-            WeakValueDictionary()
-        )
-        self._ref_tracker_dict: "WeakKeyDictionary[_WeakRef, _HardlinkTracker]" = (
-            WeakKeyDictionary()
-        )
+        self._hash_ref_dict: Dict[str, _WeakRef] = WeakValueDictionary()  # type: ignore
+        self._ref_tracker_dict: Dict[_WeakRef, _HardlinkTracker] = WeakKeyDictionary()  # type: ignore
 
     def get_tracker(
-        self, _identifier: str, path: Path, nlink: int
+        self, _identifier: Any, path: str, nlink: int
     ) -> "Tuple[_HardlinkTracker, bool]":
         """Get a hardlink tracker from the register.
 
@@ -131,57 +130,25 @@ class HardlinkRegister:
                 return _tracker, True
 
 
-class RegularInfSet(OrderedDict[RegularInf, None]):
-    """Use RegularInf as key, and RegularInf use path: Path as hash key."""
-
-    def add(self, entry: RegularInf):
-        self[entry] = None
-
-    def remove(self, entry: RegularInf):
-        del self[entry]
-
-    def iter_entries(self) -> Iterator[Tuple[bool, RegularInf]]:
-        _len, _count = len(self), 0
-        for entry, _ in self.items():
-            _count += 1
-            yield _len == _count, entry
-
-
-class RegularDelta(Dict[str, RegularInfSet]):
-    """Dict[str, RegularInfSet]"""
+class RegularDelta(Dict[bytes, Set[RegularInf]]):
+    """Dict[bytes, Set[RegularInf]]"""
 
     def __init__(self):
-        super().__init__()
-        # for fast lookup regularinf entry
-        self._pathset: Set[Path] = set()
+        self._path_set: Set[str] = set()
 
     def __len__(self) -> int:
         return sum([len(_set) for _, _set in self.items()])
 
     def add_entry(self, entry: RegularInf):
-        self._pathset.add(entry.path)
-
-        _hash = entry.sha256hash
-        if _hash in self:
+        self._path_set.add(entry.path)
+        if (_hash := entry.sha256hash) in self:
             self[_hash].add(entry)
         else:
-            _new_set = RegularInfSet()
-            _new_set.add(entry)
+            (_new_set := set()).add(entry)
             self[_hash] = _new_set
 
-    def merge_entryset(self, _hash: str, _other: RegularInfSet):
-        if _hash not in self:
-            return
-
-        self[_hash].update(_other)
-        for entry, _ in _other.items():
-            self._pathset.add(entry.path)
-
-    def contains_hash(self, _hash: str) -> bool:
-        return _hash in self
-
-    def contains_path(self, path: Path):
-        return path in self._pathset
+    def contains_path(self, path: Union[Path, str]):
+        return str(path) in self._path_set
 
 
 @dataclass
@@ -280,15 +247,18 @@ class DeltaGenerator:
     def __init__(
         self,
         *,
+        ota_metadata: OTAMetadata,
         delta_src: Path,
         local_copy_dir: Path,
         stats_collector: OTAUpdateStatsCollector,
     ) -> None:
+        self._ota_metadata = ota_metadata
+
         # delta
         self._new = RegularDelta()
         self._rm: List[str] = []
         self._new_dirs: OrderedDict[DirectoryInf, None] = OrderedDict()
-        self._new_hash_list: Set[str] = set()
+        self._new_hash_list: Set[bytes] = set()
         self._download_list: List[RegularInf] = []
 
         self._stats_collector = stats_collector
@@ -307,7 +277,7 @@ class DeltaGenerator:
             return
 
         try:
-            self._new_hash_list.remove(_fhash)
+            self._new_hash_list.remove(bytes.fromhex(_fhash))
         except KeyError:
             # this hash has already been prepared
             return
@@ -360,10 +330,11 @@ class DeltaGenerator:
                 # skip this folder if it doesn't exist on new image,
                 # or also not meant to be fully scanned.
                 # NOTE: the root folder must be fully scanned
+                # NOTE: DirectoryInf can only be compared with str, not Path
                 dir_should_skip = True
                 if (
                     canonical_curdir_path == _canonical_root
-                    or canonical_curdir_path in self._new_dirs
+                    or str(canonical_curdir_path) in self._new_dirs
                 ):
                     dir_should_skip = False
                 # check if we neede to fully scan this folder
@@ -430,30 +401,22 @@ class DeltaGenerator:
         for _hash, _reginf_set in self._new.items():
             if _hash in self._new_hash_list:
                 # pick one entry from the reginf set for downloading
-                _iter = _reginf_set.iter_entries()
-                _, _entry = next(_iter)
+                _entry = next(iter(_reginf_set))
                 self._download_list.append(_entry)
                 self.total_download_files_size += _entry.size if _entry.size else 0
         self._new_hash_list.clear()
 
     # API
 
-    def calculate_and_process_delta(
-        self,
-        *,
-        delta_src_reg: Path,  # path to delta_src regulars.txt, currently not used
-        new_reg: Path,  # path to new image regulars.txt
-        new_dirs: Path,  # path to dirs.txt
-    ) -> DeltaBundle:
-        with open(new_dirs, "r") as f:
-            for _dir in map(DirectoryInf, f):
-                self._new_dirs[_dir] = None
+    def calculate_and_process_delta(self) -> DeltaBundle:
+        # pre-load dirs info
+        for _dir in self._ota_metadata.iter_metafile(MetafilesV1.DIRECTORY_FNAME):
+            self._new_dirs[_dir] = None
         # pre-load from new regulars.txt
-        with open(new_reg, "r") as f:
-            for _entry in map(RegularInf.parse_reginf, f):
-                self.total_regulars_num += 1
-                self._new.add_entry(_entry)
-                self._new_hash_list.add(_entry.sha256hash)
+        for _entry in self._ota_metadata.iter_metafile(MetafilesV1.REGULAR_FNAME):
+            self.total_regulars_num += 1
+            self._new.add_entry(_entry)
+            self._new_hash_list.add(_entry.sha256hash)
         self._stats_collector.store.total_regular_files = self.total_regulars_num
 
         # generate delta and prepare files

@@ -97,7 +97,7 @@ class TestOtaProxyWrapper:
             # TODO: ensure that the ota_proxy is launched and functional
             #       by downloading a file with proxy
             assert not _ota_proxy_wrapper._closed
-            assert _pid
+            assert _pid is not None and _pid > 0
             assert _ota_proxy_wrapper._launcher_gen
         finally:
             _ota_proxy_wrapper.stop()

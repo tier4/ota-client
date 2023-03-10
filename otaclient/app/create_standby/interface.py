@@ -31,23 +31,12 @@ The flow of this package working is as follow:
 
 
 from abc import abstractmethod
-from dataclasses import dataclass
 from typing import Callable, Protocol
 
 from .common import DeltaBundle
 from ..ota_metadata import OTAMetadata
 from ..proto import wrapper
 from ..update_stats import OTAUpdateStatsCollector
-
-
-@dataclass
-class UpdateMeta:
-    """Meta info for standby slot creator to update slot."""
-
-    metadata: OTAMetadata  # meta data for the update request
-    boot_dir: str  # where to populate files under /boot
-    standby_slot_mp: str
-    active_slot_mp: str
 
 
 class StandbySlotCreatorProtocol(Protocol):
@@ -58,7 +47,11 @@ class StandbySlotCreatorProtocol(Protocol):
 
     def __init__(
         self,
-        update_meta: UpdateMeta,
+        *,
+        ota_metadata: OTAMetadata,
+        boot_dir: str,
+        standby_slot_mount_point: str,
+        active_slot_mount_point: str,
         stats_collector: OTAUpdateStatsCollector,
         update_phase_tracker: Callable[[wrapper.StatusProgressPhase], None],
     ) -> None:

@@ -24,7 +24,6 @@ _OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
 
 # NOTE: VERSION file is installed under otaclient package root
 EXTRA_VERSION_FILE = str(_OTACLIENT_PACKAGE_ROOT / "version.txt")
-OTACLIENT_LOCK_FILE = "/var/run/otaclient.lock"
 
 
 class CreateStandbyMechanism(Enum):
@@ -54,6 +53,8 @@ class _InternalSettings:
     """
 
     # ------ common paths ------ #
+    RUN_DIR = "/run/otaclient"
+    OTACLIENT_PID_FILE = "/run/otaclient.pid"
     # NOTE: certs dir is located at the otaclient package root
     CERTS_DIR = str(_OTACLIENT_PACKAGE_ROOT / "certs")
     ACTIVE_ROOTFS_PATH = "/"
@@ -123,7 +124,7 @@ class BaseConfig(_InternalSettings):
     DOWNLOAD_BACKOFF_FACTOR = 0.1  # seconds
     # downloader settings
     MAX_DOWNLOAD_THREAD = 7
-    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 10
+    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 20
 
     # --- download settings for the whole download tasks group --- #
     # if retry keeps failing without any success in

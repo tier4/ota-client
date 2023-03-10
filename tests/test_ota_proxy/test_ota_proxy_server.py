@@ -26,7 +26,8 @@ from urllib.parse import quote, unquote, urljoin
 from pathlib import Path
 from typing import List
 
-from otaclient.app.ota_metadata import RegularInf
+from otaclient.app.proto.wrapper import RegularInf
+from otaclient.app.ota_metadata import parse_regulars_from_txt
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
 logger = logging.getLogger(__name__)
@@ -172,7 +173,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         regular_entries: List[RegularInf] = []
         with open(self.REGULARS_TXT_PATH, "r") as f:
             for _line in f:
-                _entry = RegularInf.parse_reginf(_line)
+                _entry = parse_regulars_from_txt(_line)
                 regular_entries.append(_entry)
         return regular_entries
 
@@ -235,7 +236,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             await asyncio.sleep(random.randrange(100, 200) // 100)
             for entry in regular_entries:
                 url = urljoin(
-                    cfg.OTA_IMAGE_URL, quote(f'/data/{entry.path.relative_to("/")}')
+                    cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
                 )
                 _retry_count_for_exceed_hard_limit = 0
                 # NOTE: for space_availability==exceed_hard_limit,
@@ -249,7 +250,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                             hash_f.update(data)
 
                         try:
-                            assert hash_f.hexdigest() == entry.sha256hash
+                            assert hash_f.digest() == entry.sha256hash
                             break
                         except AssertionError:
                             _retry_count_for_exceed_hard_limit += 1

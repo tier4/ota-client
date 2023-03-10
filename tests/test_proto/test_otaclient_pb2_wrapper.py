@@ -136,8 +136,8 @@ from tests.utils import compare_message
 )
 def test_convert_message(
     origin_msg,
-    converted_msg: wrapper.ProtobufConverter,
-    wrapper_type: Type[wrapper.ProtobufConverter],
+    converted_msg: wrapper.MessageWrapper,
+    wrapper_type: Type[wrapper.MessageWrapper],
 ):
     # ------ converting message ------ #
     _converted = wrapper_type.convert(origin_msg)

@@ -19,8 +19,7 @@ from typing import Optional
 
 from . import log_setting
 from .proto import wrapper, v2, v2_grpc
-from .configs import config as cfg
-from .configs import server_cfg
+from .configs import config as cfg, server_cfg
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
