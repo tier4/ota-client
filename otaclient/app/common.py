@@ -481,12 +481,14 @@ class RetryTaskMap(Generic[_T, _RES]):
         for _total_retry_count in self._max_retry_iter:
             _se = Semaphore(self.max_concurrent)  # each retry round has its own se
 
-            def _done_cb(_fut: Future, /):
+            def _done_cb(_fut, /):
                 _se.release()  # make sure the se is released first
-                if self._status is not _RetryTaskMapStatus.RUNNING:
-                    return
-                self._futs.discard(_fut)
-                self._task_collector_gen.send(_fut)
+                if self._status is _RetryTaskMapStatus.RUNNING:
+                    self._futs.discard(_fut)
+                    try:
+                        self._task_collector_gen.send(_fut)
+                    except StopIteration:
+                        pass
 
             for _entry in self._tasks_list:
                 if self._status is not _RetryTaskMapStatus.RUNNING:

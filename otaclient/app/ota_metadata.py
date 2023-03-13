@@ -494,10 +494,16 @@ class OTAMetadata:
         self.image_rootfs_url = urljoin_ensure_base(
             self.url_base, f"{self._ota_metadata.rootfs_directory.strip('/')}/"
         )
-        self.image_compressed_rootfs_url = urljoin_ensure_base(
-            self.url_base,
-            f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
+        # NOTE: remember to handle old image that doesn't have compression
+        self.image_compressed_rootfs_url = (
+            urljoin_ensure_base(
+                self.url_base,
+                f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
+            )
+            if self._ota_metadata.compressed_rootfs_directory
+            else None
         )
+
         self.total_regular_size = self._ota_metadata.total_regular_size
         # download, parse and store ota metatfiles
         self._process_text_base_otameta_files()
@@ -615,7 +621,8 @@ class OTAMetadata:
         # v2 OTA image, with compression enabled
         # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
         if (
-            reg_inf.compressed_alg
+            self.image_compressed_rootfs_url
+            and reg_inf.compressed_alg
             and reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG
         ):
             return (
