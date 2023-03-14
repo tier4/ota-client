@@ -134,8 +134,8 @@ class Nvbootctrl:
         cls._nvbootctrl(f"mark-boot-successful {slot}")
 
     @classmethod
-    def set_active_boot_slot(cls, slot: str):
-        cls._nvbootctrl(f"set-active-boot-slot {slot}")
+    def set_active_boot_slot(cls, slot: str, target="rootfs"):
+        cls._nvbootctrl(f"set-active-boot-slot {slot}", target=target)
 
     @classmethod
     def set_slot_as_unbootable(cls, slot: str):
