@@ -284,7 +284,7 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
     total_download_files_size: int
     total_elapsed_time: Duration
     total_files_num: int
-    total_image_size: int
+    total_files_size_uncompressed: int
     total_remove_files_num: int
     update_applying_elapsed_time: Duration
     update_firmware_version: str
@@ -293,7 +293,7 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
     def __init__(
         self,
         update_firmware_version: _Optional[str] = ...,
-        total_image_size: _Optional[int] = ...,
+        total_files_size_uncompressed: _Optional[int] = ...,
         total_files_num: _Optional[int] = ...,
         update_start_timestamp: _Optional[int] = ...,
         phase: _Optional[_Union[UpdatePhase, str]] = ...,
@@ -323,7 +323,7 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
             phase=V2_V1_PHASE_MAPPING[_snapshot.phase],
             total_regular_files=_snapshot.total_files_num,
             regular_files_processed=_snapshot.processed_files_num,
-            total_regular_file_size=_snapshot.total_image_size,
+            total_regular_file_size=_snapshot.total_files_size_uncompressed,
             elapsed_time_download=_snapshot.downloading_elapsed_time,
             elapsed_time_copy=_snapshot.update_applying_elapsed_time,
             errors_download=_snapshot.downloading_errors,

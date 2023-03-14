@@ -213,7 +213,7 @@ message StatusResponseEcuV2 {
 message UpdateStatus {
   // --- update meta: 1~10 --- //
   string update_firmware_version = 1; // update target image version
-  uint64 total_image_size = 2; // uncompressed image size of update_firmware image
+  uint64 total_files_size_uncompressed = 2; // uncompressed size of all files in update_firmware image
   uint64 total_files_num = 3; // total files num in the update_firmware image
   uint64 update_start_timestamp = 4; // update start time in unix timestamp
 

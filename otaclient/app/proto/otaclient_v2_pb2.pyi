@@ -183,7 +183,7 @@ class UpdateResponseEcu(_message.Message):
     def __init__(self, ecu_id: _Optional[str] = ..., result: _Optional[_Union[FailureType, str]] = ...) -> None: ...
 
 class UpdateStatus(_message.Message):
-    __slots__ = ["delta_generating_elapsed_time", "downloaded_bytes", "downloaded_files_num", "downloaded_files_size", "downloading_elapsed_time", "downloading_errors", "phase", "processed_files_num", "processed_files_size", "removed_files_num", "total_download_files_num", "total_download_files_size", "total_elapsed_time", "total_files_num", "total_image_size", "total_remove_files_num", "update_applying_elapsed_time", "update_firmware_version", "update_start_timestamp"]
+    __slots__ = ["delta_generating_elapsed_time", "downloaded_bytes", "downloaded_files_num", "downloaded_files_size", "downloading_elapsed_time", "downloading_errors", "phase", "processed_files_num", "processed_files_size", "removed_files_num", "total_download_files_num", "total_download_files_size", "total_elapsed_time", "total_files_num", "total_files_size_uncompressed", "total_remove_files_num", "update_applying_elapsed_time", "update_firmware_version", "update_start_timestamp"]
     DELTA_GENERATING_ELAPSED_TIME_FIELD_NUMBER: _ClassVar[int]
     DOWNLOADED_BYTES_FIELD_NUMBER: _ClassVar[int]
     DOWNLOADED_FILES_NUM_FIELD_NUMBER: _ClassVar[int]
@@ -198,7 +198,7 @@ class UpdateStatus(_message.Message):
     TOTAL_DOWNLOAD_FILES_SIZE_FIELD_NUMBER: _ClassVar[int]
     TOTAL_ELAPSED_TIME_FIELD_NUMBER: _ClassVar[int]
     TOTAL_FILES_NUM_FIELD_NUMBER: _ClassVar[int]
-    TOTAL_IMAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FILES_SIZE_UNCOMPRESSED_FIELD_NUMBER: _ClassVar[int]
     TOTAL_REMOVE_FILES_NUM_FIELD_NUMBER: _ClassVar[int]
     UPDATE_APPLYING_ELAPSED_TIME_FIELD_NUMBER: _ClassVar[int]
     UPDATE_FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
@@ -217,12 +217,12 @@ class UpdateStatus(_message.Message):
     total_download_files_size: int
     total_elapsed_time: _duration_pb2.Duration
     total_files_num: int
-    total_image_size: int
+    total_files_size_uncompressed: int
     total_remove_files_num: int
     update_applying_elapsed_time: _duration_pb2.Duration
     update_firmware_version: str
     update_start_timestamp: int
-    def __init__(self, update_firmware_version: _Optional[str] = ..., total_image_size: _Optional[int] = ..., total_files_num: _Optional[int] = ..., update_start_timestamp: _Optional[int] = ..., phase: _Optional[_Union[UpdatePhase, str]] = ..., total_download_files_num: _Optional[int] = ..., total_download_files_size: _Optional[int] = ..., downloaded_files_num: _Optional[int] = ..., downloaded_bytes: _Optional[int] = ..., downloaded_files_size: _Optional[int] = ..., downloading_errors: _Optional[int] = ..., total_remove_files_num: _Optional[int] = ..., removed_files_num: _Optional[int] = ..., processed_files_num: _Optional[int] = ..., processed_files_size: _Optional[int] = ..., total_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., delta_generating_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., downloading_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., update_applying_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+    def __init__(self, update_firmware_version: _Optional[str] = ..., total_files_size_uncompressed: _Optional[int] = ..., total_files_num: _Optional[int] = ..., update_start_timestamp: _Optional[int] = ..., phase: _Optional[_Union[UpdatePhase, str]] = ..., total_download_files_num: _Optional[int] = ..., total_download_files_size: _Optional[int] = ..., downloaded_files_num: _Optional[int] = ..., downloaded_bytes: _Optional[int] = ..., downloaded_files_size: _Optional[int] = ..., downloading_errors: _Optional[int] = ..., total_remove_files_num: _Optional[int] = ..., removed_files_num: _Optional[int] = ..., processed_files_num: _Optional[int] = ..., processed_files_size: _Optional[int] = ..., total_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., delta_generating_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., downloading_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., update_applying_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class FailureType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = []
