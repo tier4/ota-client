@@ -21,24 +21,22 @@ import shutil
 import enum
 import subprocess
 import time
-from concurrent.futures import Future, Executor
-from functools import partial
+import threading
+from collections import namedtuple
+from concurrent.futures import Future, Executor, CancelledError, TimeoutError, wait
 from hashlib import sha256
 from pathlib import Path
-from queue import Queue, Empty
-from threading import Semaphore, Event, Lock
+from queue import Queue
 from typing import (
+    Any,
     Callable,
+    Dict,
     Generator,
     Optional,
-    Set,
-    Tuple,
     Union,
     Iterable,
-    Any,
     TypeVar,
     Generic,
-    List,
 )
 from urllib.parse import urljoin
 
@@ -334,252 +332,142 @@ def urljoin_ensure_base(base: str, url: str):
     return urljoin(f"{base.rstrip('/')}/", url)
 
 
-_T, _RES = TypeVar("_T"), TypeVar("_RES")
+# ------ RetryTaskMap ------ #
+
+_T = TypeVar("_T")
+_ROUND_DONE = object()
+FutureWrapper = namedtuple("FutureWrapper", ["entry", "fut"])
+TaskResult = namedtuple("TaskResult", ["is_successful", "entry", "fut"])
 
 
-class _RetryTaskMapErr(Exception):
+class RetryTaskMapInterrupted(Exception):
     pass
 
 
-class _RetryTaskMapStatus(enum.Enum):
-    INIT = "INIT"
-    RUNNING = "RUNNING"
-    SUCCEEDED = "SUCCEEDED"
-    SHUTDOWNED = "SHUTDOWNED"
-
-
-class _ThreadSafeGenWrapper:
-    def __init__(self, _gen: Generator, *, kick_start: bool) -> None:
-        self._gen = _gen
-        self._lock = Lock()
-        if kick_start:
-            self.send(None)
-
-    def close(self):
-        self._gen.close()
-
-    def send(self, __value: Any) -> Any:
-        try:
-            with self._lock:
-                return self._gen.send(__value)
-        except StopIteration:
-            pass  # ignore on closed gen
-
-    def throw(self, __exp: Exception):
-        try:
-            with self._lock:
-                self._gen.throw(__exp)
-        except Exception as __exp:  # break ref cycle
-            raise __exp
-
-
-class Task(Generic[_T, _RES]):
-    def __init__(self, _func: Callable[[_T], _RES], _entry: _T) -> None:
-        self._func = _func
-        self._entry = _entry
-
-    def __call__(
-        self,
-    ) -> Tuple[Optional[Exception], _T, Optional[_RES]]:
-        try:
-            return None, self._entry, self._func(self._entry)
-        except Exception as e:
-            return e, self._entry, None
-        finally:
-            self = None  # resolve ref cycle
-
-
-class RetryTaskMap(Generic[_T, _RES]):
-    """A map like class that try its best to finish all the tasks.
-
-    Inst of this class is initialized with a <_func>, and <_iter> like built-in map,
-    It will try to finish all the tasks, if some of the tasks failed, it
-    will retry on those failed tasks in the next round. Reapting the process
-    untill all the element in the input <_iter> is successfully processed,
-    or max retries exceeded the limitation.
-
-    NOTE: the inst of this class can only be used once.
-    NOTE: the API of this class is NOT thread-safe.
-    NOTE: RetryTaskMap will consume the input iterable and turn it into a list.
-
-    Args:
-        _func: function to be applied to every element of the input _iter.
-        _iter: a iterable contains elements to be processed.
-        executor: executor for tasks dispatching.
-        backoff_max: max wait time between each retry round.
-        backoff_factor: factor for calculating wait time.
-        max_failed: <= 0 means no max_failed.
-        max_retry: <=0 means no max_retry.
-    """
-
+class RetryTaskMap(Generic[_T]):
     def __init__(
         self,
-        _func: Callable[[_T], Any],
-        _iter: Iterable[_T],
-        /,
         *,
         max_concurrent: int,
         executor: Executor,
+        retry_interval_f: Callable[[int], None],
         title: str = "",
-        backoff_max: int = 5,
-        backoff_factor: float = 1,
-        max_retry: int = 6,
+        max_retry: Optional[int] = None,
     ) -> None:
-        self.title = title
-        self.max_concurrent = max_concurrent
-        self._func = _func
+        self._max_retry = range(max_retry) if max_retry else itertools.count()
         self._executor = executor
-        self._max_retry_iter = range(max_retry) if max_retry > 0 else itertools.count()
-        # life cycle
-        self._status_lock = Lock()
-        self._status = _RetryTaskMapStatus.INIT
+        self._shutdowned = threading.Event()
+        self._task_dispatcher: Future = None  # type: ignore
+        self._last_failed_exc: Optional[Exception] = None
 
-        # tasks handling
-        self._collector_done_this_round = Event()
-        self._yield_que: Queue[Future] = Queue()
-        self._task_collector_gen: _ThreadSafeGenWrapper = None  # type: ignore
-        self._task_dispatcher_thread: Future = None  # type: ignore
-        self._last_error: Exception = None  # type: ignore
+        self.title = title
+        self.entries_num = 0  # updated in first retry round
+        self.retry_interval_f = retry_interval_f
+        self.max_concurrent = max_concurrent
 
-        # values specific to each retry
-        # start from the consuming the input _iter
-        self._tasks_list: List[_T] = list(_iter)
-        self._futs: Set[Future] = set()
-        self._failed_tasks: List[_T] = []
-        self._last_failed_count = 0
-        self._backoff_wait_f = partial(
-            wait_with_backoff, _backoff_factor=backoff_factor, _backoff_max=backoff_max
-        )
+    def _round_task_dispatcher(
+        self, _func, _iter: Iterable[_T], _que: "Queue[FutureWrapper]"
+    ) -> int:
+        _se = threading.Semaphore(self.max_concurrent)
+        _futs_dict: Dict[Future, _T] = {}
 
-    def _task_collector(self) -> Generator[None, Future, None]:
-        try:
-            while self._status is _RetryTaskMapStatus.RUNNING:
-                _tasks_counter, _tasks_done = itertools.count(start=1), 0
-                while self._status is _RetryTaskMapStatus.RUNNING:
-                    _fut = yield
-                    try:
-                        _exp, _entry, _ = _fut.result()
-                        if _exp is not None:
-                            self._failed_tasks.append(_entry)
-                            self._last_error = _exp
-                        # give the fut to the upper caller
-                        self._yield_que.put_nowait(_fut)
-                    except Exception:  # ignored as not caused by task itself
-                        pass
-                    finally:
-                        _tasks_done = next(_tasks_counter)
-
-                    if _tasks_done == len(self._tasks_list):
-                        self._collector_done_this_round.set()
-                        break
-        finally:
-            # always set the flag to prevent dispatcher dead locked
-            self._collector_done_this_round.set()
-
-    def _task_dispatcher(self):
-        _backoff_retry_count = 0
-        for _total_retry_count in self._max_retry_iter:
-            _se = Semaphore(self.max_concurrent)  # each retry round has its own se
-
-            def _done_cb(_fut, /):
-                _se.release()  # make sure the se is released first
-                if self._status is _RetryTaskMapStatus.RUNNING:
-                    self._futs.discard(_fut)
-                    try:
-                        self._task_collector_gen.send(_fut)
-                    except StopIteration:
-                        pass
-
-            for _entry in self._tasks_list:
-                if self._status is not _RetryTaskMapStatus.RUNNING:
-                    return
-                _se.acquire(blocking=True)
-                _fut = self._executor.submit(Task(self._func, _entry))
-                self._futs.add(_fut)
-                _fut.add_done_callback(_done_cb)
-            self._collector_done_this_round.wait()
-
-            if len(self._failed_tasks) != 0:
-                _backoff_retry_count += 1
-                logger.error(
-                    f"{self.title} failed to finished, {len(self._failed_tasks)=}, {self._last_failed_count=}, {_total_retry_count=}"
+        def _task_cb(_fut, /):
+            _se.release()
+            if not self._shutdowned.is_set():
+                _que.put_nowait(
+                    FutureWrapper(
+                        entry=_futs_dict[_fut],
+                        fut=_fut,
+                    )
                 )
-                # reset backoff retry count if this retry round
-                # at least successfully processed some of the tasks
-                if len(self._failed_tasks) < self._last_failed_count:
-                    _backoff_retry_count = 0
-                # cleanup to prepare for the next retry
-                self._last_failed_count = len(self._failed_tasks)
-                self._last_error = None  # type: ignore
-                self._tasks_list, self._failed_tasks = self._failed_tasks, []
-                self._futs.clear()
-                self._collector_done_this_round.clear()
 
-                self._backoff_wait_f(_backoff_retry_count)
-            else:
-                with self._status_lock:
-                    if self._status is _RetryTaskMapStatus.RUNNING:
-                        self._status = _RetryTaskMapStatus.SUCCEEDED
-                return
-        # shutdown on exceed retry limit
-        with self._status_lock:
-            self._status = _RetryTaskMapStatus.SHUTDOWNED
+        _count = 0
+        for _count, _entry in enumerate(_iter):
+            if self._shutdowned.is_set():
+                for _fut in _futs_dict:
+                    _fut.cancel()
+                break
+            _se.acquire()
+            _fut = self._executor.submit(_func, _entry)
+            _futs_dict[_fut] = _entry
+            _fut.add_done_callback(_task_cb)
 
-    def _shutdown(self):
-        logger.debug(f"shutdown {self.title}...")
-        self._task_collector_gen.close()
-        self._task_dispatcher_thread.result()
-        # cleanup
-        for _fut in self._futs:
-            _fut.cancel()
-        self._futs.clear()
-        self._tasks_list.clear()
-        self._failed_tasks.clear()
+        wait(_futs_dict)  # wait for all task finished
+        _que.put_nowait(_ROUND_DONE)  # type: ignore
 
-        # NOTE: be very careful here not to create cycle reference
-        #       by removing the ref to self in finally statement
-        if self._status is _RetryTaskMapStatus.SHUTDOWNED and self._last_error:
+        # cleanup any potential reference cycle
+        # NOTE: _iter, _que and _futs_dict will result in
+        #       reference cycle!
+        del _iter, _que, _futs_dict
+        return _count
+
+    def _raise_last_exc(self, msg: str = ""):
+        if self._last_failed_exc:
             try:
-                logger.error(f"{self.title} terminated: {self._last_error=!r}")
-                raise _RetryTaskMapErr(f"{self._last_error!r}") from self._last_error
+                raise RetryTaskMapInterrupted(
+                    f"<RetryTaskMap: {self.title}> failed({self._last_failed_exc=}): {msg}",
+                ) from self._last_failed_exc
+            finally:  # be careful not to create ref cycle
+                self._last_failed_exc = None
+                self = None
+        else:
+            raise RetryTaskMapInterrupted(
+                f"<RetryTaskMap: {self.title}> interrupted: {msg}"
+            )
+
+    def _execute(
+        self, _func: Callable[[_T], Any], _iter: Iterable[_T], /
+    ) -> Generator[TaskResult, None, None]:
+        _failed_entries, _retry_count = [], 0
+        for _retry_count in self._max_retry:
+            _que: "Queue[FutureWrapper]" = Queue()
+
+            self._task_dispatcher = self._executor.submit(
+                self._round_task_dispatcher, _func, _iter, _que
+            )
+            while (_get := _que.get(block=True)) is not _ROUND_DONE:
+                _entry, _fut = _get
+                try:  # special treatment to cancelled/timeout future
+                    is_successful = _fut.exception() is None
+                except (CancelledError, TimeoutError):
+                    yield TaskResult(False, _entry, _fut)
+                    continue
+
+                if not is_successful:
+                    _failed_entries.append(_entry)
+                    self._last_failed_exc = _fut.exception()
+                yield TaskResult(is_successful, _entry, _fut)
+                del _get, _entry, _fut  # do not hold uneccessary refs while blocking
+            _count = self._task_dispatcher.result()
+            if _retry_count == 0:
+                self.entries_num = _count
+
+            if _failed_entries:  # ready for next retry round
+                self.retry_interval_f(_retry_count)
+                _iter, _failed_entries = _failed_entries, []
+            else:  # all tasks finished without exception
+                return
+
+        try:
+            self._raise_last_exc(f"exceed max retry: {_retry_count=}")
+        finally:
+            self = None  # break ref cycle
+
+    def shutdown(self, *, raise_last_exc: bool = True):
+        """Shutdown the current running RetryTaskMap instance."""
+        self._shutdowned.set()
+        if self._task_dispatcher:  # wait for task_dispatcher to join
+            self._task_dispatcher.result()
+        self._task_executor.close()  # force close to release resources
+
+        if raise_last_exc:
+            try:
+                self._raise_last_exc("shutdown by callers")
             finally:
-                self = None  # resolve cycle reference
+                self = None  # break ref cycle
 
-    # API
-
-    def shutdown(self) -> bool:
-        """Set the internal status to SHUTDOWNED to trigger shutdown process."""
-        with self._status_lock:
-            if self._status is not _RetryTaskMapStatus.RUNNING:
-                return False
-            self._status = _RetryTaskMapStatus.SHUTDOWNED
-            return True
-
-    def execute(self) -> Iterable[Tuple[Optional[Exception], _T, _RES]]:
-        if self._status is not _RetryTaskMapStatus.INIT:
-            raise ValueError("call on already closed/started RetryTaskMap, abort")
-        self._status = _RetryTaskMapStatus.RUNNING
-        self._task_dispatcher_thread = self._executor.submit(self._task_dispatcher)
-        # kick start collector generator
-        self._task_collector_gen = _ThreadSafeGenWrapper(
-            self._task_collector(), kick_start=True
-        )
-
-        # return a generator to make sure the yielding happens
-        # after the first task has been dispatched
-        def _gen():
-            while self._status is _RetryTaskMapStatus.RUNNING or (
-                self._status is _RetryTaskMapStatus.SUCCEEDED
-                and not self._yield_que.empty()
-            ):
-                try:
-                    _fut = self._yield_que.get(block=True, timeout=1)
-                    yield _fut.result()
-                except Empty:
-                    pass
-
-            # NOTE: caller directly controls the gen, so we trigger
-            # the actual shutdown here
-            self._shutdown()  # shutdown on finish
-
-        return _gen()
+    def map(
+        self, _func: Callable[[_T], Any], _iter: Iterable[_T], /
+    ) -> Generator[TaskResult, None, None]:
+        self._task_executor = self._execute(_func, _iter)
+        return self._task_executor
