@@ -81,13 +81,14 @@ class Nvbootctrl:
 
     # nvbootctrl
     @staticmethod
-    def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> Optional[str]:
+    def _nvbootctrl(
+        arg: str, *, target="rootfs", call_only=True, raise_exception=True
+    ) -> Optional[str]:
         """
         Raises:
             NvbootCtrlError if raise_exception is True.
         """
-        # NOTE: target is always set to rootfs
-        _cmd = f"nvbootctrl -t rootfs {arg}"
+        _cmd = f"nvbootctrl -t {target} {arg}"
         try:
             if call_only:
                 subprocess_call(_cmd, raise_exception=raise_exception)
@@ -261,6 +262,7 @@ class _CBootControl:
         slot = self.standby_slot
 
         logger.info(f"switch boot to {slot=}")
+        Nvbootctrl.set_active_boot_slot(slot, target="bootloader")
         Nvbootctrl.set_active_boot_slot(slot)
 
     def is_current_slot_marked_successful(self) -> bool:
@@ -491,7 +493,7 @@ class CBootController(
                 self.standby_slot_mount_point
                 / Path(cfg.FIRMWARE_CONFIG).relative_to("/")
             )
-            firmware.update(self._cboot_control.get_standby_slot() == "0")
+            firmware.update(int(self._cboot_control.get_standby_slot()))
 
             # update extlinux_cfg file
             _extlinux_cfg = self.standby_slot_mount_point / Path(

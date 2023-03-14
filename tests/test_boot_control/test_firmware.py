@@ -34,13 +34,13 @@ firmwares:
 
 
 @pytest.mark.parametrize(
-    "slot_a, in_out_files",
+    "slot, in_out_files",
     (
-        (True, (("rce.zst", "/dev/mmcblk0p21"), ("xusb.zst", "/dev/mmcblk0p19"))),
-        (False, (("rce.zst", "/dev/mmcblk0p22"), ("xusb.zst", "/dev/mmcblk0p20"))),
+        (0, (("rce.zst", "/dev/mmcblk0p21"), ("xusb.zst", "/dev/mmcblk0p19"))),
+        (1, (("rce.zst", "/dev/mmcblk0p22"), ("xusb.zst", "/dev/mmcblk0p20"))),
     ),
 )
-def test_firmware(tmp_path, slot_a, in_out_files):
+def test_firmware(tmp_path, slot, in_out_files):
     from otaclient.app.boot_control.firmware import Firmware
 
     firmware_config = tmp_path / "firmware.yaml"
@@ -48,7 +48,7 @@ def test_firmware(tmp_path, slot_a, in_out_files):
 
     fw = Firmware(firmware_config)
     fw._copy = MagicMock()
-    fw.update(slot_a)
+    fw.update(slot)
 
     calls = []
 

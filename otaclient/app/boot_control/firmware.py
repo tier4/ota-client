@@ -51,7 +51,7 @@ class Firmware:
     def __init__(self, config_file: Path):
         self._config_file: Path = config_file
 
-    def update(self, slot_a: bool):
+    def update(self, slot: int):
         if not self._config_file.is_file():
             # just emit warning for backward compatibility.
             logger.warning(f"{self._config_file} doesn't exist")
@@ -63,13 +63,13 @@ class Firmware:
                 raise ValueError(f"illegal compression: {fw['compression']=}")
             if len(fw["partitions"]) != 2:
                 raise ValueError(f"illegal partitions length: {len(fw['partitions'])=}")
-            self._extract_and_copy(fw, slot_a)
+            self._extract_and_copy(fw, slot)
 
-    def _extract_and_copy(self, firmware: Dict, slot_a: bool):
+    def _extract_and_copy(self, firmware: Dict, slot: int):
         parent = self._config_file.parent
         dctx = zstandard.ZstdDecompressor()
         ifile = parent / firmware["file"]
-        ofile = firmware["partitions"][0 if slot_a else 1]
+        ofile = firmware["partitions"][slot]
         self._copy(ifile, ofile, dctx.copy_stream)
 
     def _copy(self, ifile: Path, ofile: Path, copy_func: Callable):
