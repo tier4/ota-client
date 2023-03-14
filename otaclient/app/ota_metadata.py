@@ -498,7 +498,7 @@ class OTAMetadata:
             self.url_base,
             f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
         )
-        self.total_image_size = self._ota_metadata.total_regular_size
+        self.total_files_size_uncompressed = self._ota_metadata.total_regular_size
         self.total_files_num = 0  # will be updated after parsing regulars.txt
         # download, parse and store ota metatfiles
         self._process_text_base_otameta_files()

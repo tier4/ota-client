@@ -39,7 +39,9 @@ class TestOTAUpdateStatsCollector:
             self._collector = _collector
             _collector.start()
             _collector.store.total_files_num = self.TOTAL_FILE_NUM  # check init
-            _collector.store.total_image_size = self.TOTAL_SIZE  # check init
+            _collector.store.total_files_size_uncompressed = (
+                self.TOTAL_SIZE
+            )  # check init
             yield
         finally:
             _collector.stop()
@@ -79,7 +81,7 @@ class TestOTAUpdateStatsCollector:
         logger.info(f"{_snapshot=}")
         # assert static info
         assert _snapshot.total_files_num == self.TOTAL_FILE_NUM
-        assert _snapshot.total_image_size == self.TOTAL_SIZE
+        assert _snapshot.total_files_size_uncompressed == self.TOTAL_SIZE
         # total processed files num/size
         assert _snapshot.processed_files_num == self.TOTAL_FILE_NUM
         assert _snapshot.processed_files_size == self.TOTAL_SIZE

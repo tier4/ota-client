@@ -156,7 +156,7 @@ class _OTAUpdater:
         self._url_base: str = None  # type: ignore
 
         # dynamic update status
-        self.total_image_size = 0
+        self.total_files_size_uncompressed = 0
         self.total_files_num = 0
         self.total_download_files_num = 0
         self.total_download_fiies_size = 0
@@ -365,7 +365,9 @@ class _OTAUpdater:
                 downloader=self._downloader,
             )
             self.total_files_num = self._otameta.total_files_num
-            self.total_image_size = self._otameta.total_image_size
+            self.total_files_size_uncompressed = (
+                self._otameta.total_files_size_uncompressed
+            )
         except HashVerificaitonError as e:
             logger.error("failed to verify ota metafiles hash")
             raise OTAMetaVerificationFailed from e
@@ -423,7 +425,9 @@ class _OTAUpdater:
         update_progress.update_start_timestamp = self.update_start_time // 1_000_000_000
         update_progress.update_firmware_version = self.updating_version
         # update dynamic information
-        update_progress.total_image_size = self.total_image_size
+        update_progress.total_files_size_uncompressed = (
+            self.total_files_size_uncompressed
+        )
         update_progress.total_files_num = self.total_files_num
         update_progress.total_download_files_num = self.total_download_files_num
         update_progress.total_download_files_size = self.total_download_fiies_size
