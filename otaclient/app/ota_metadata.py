@@ -68,7 +68,12 @@ from typing import (
 from typing_extensions import Self
 
 from .configs import config as cfg
-from .common import OTAFileCacheControl, RetryTaskMap, urljoin_ensure_base
+from .common import (
+    OTAFileCacheControl,
+    RetryTaskMap,
+    urljoin_ensure_base,
+    wait_with_backoff,
+)
 from .downloader import Downloader
 from .proto.wrapper import (
     MessageWrapper,
@@ -581,21 +586,25 @@ class OTAMetadata:
         _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="process_metafiles") as _executor:
             _mapper = RetryTaskMap(
-                _process_text_base_otameta_file,
-                self._ota_metadata.get_img_metafiles(),
                 title="process_metafiles",
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
-                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                retry_interval_f=partial(
+                    wait_with_backoff,
+                    _backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                    _backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                ),
                 max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            for _exp, _entry, _ in _mapper.execute():
-                if not isinstance(_exp, Exception):
+            for _is_successful, _entry, _fut in _mapper.map(
+                _process_text_base_otameta_file,
+                self._ota_metadata.get_img_metafiles(),
+            ):
+                if _is_successful:
                     _keep_failing_timer = time.time()
                     continue
 
-                logger.debug(f"metafile downloading failed: {_entry=}")
+                logger.debug(f"metafile downloading failed: {_entry=}, {_fut=}")
                 if (
                     time.time() - _keep_failing_timer
                     > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT

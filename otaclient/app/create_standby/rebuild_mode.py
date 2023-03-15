@@ -17,10 +17,11 @@ import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import List, Set, Tuple
 
-from ..common import RetryTaskMap
+from ..common import RetryTaskMap, wait_with_backoff
 from ..configs import config as cfg
 from ..ota_metadata import MetafilesV1, OTAMetadata
 from ..update_stats import (
@@ -112,21 +113,24 @@ class RebuildMode(StandbySlotCreatorProtocol):
         logger.info("start applying delta...")
         with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
             _mapper = RetryTaskMap(
-                self._process_regular,
-                self.delta_bundle.new_delta.items(),
                 title="process_regulars",
                 max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
-                backoff_max=cfg.CREATE_STANDBY_BACKOFF_MAX,
-                backoff_factor=cfg.CREATE_STANDBY_BACKOFF_FACTOR,
                 max_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+                retry_interval_f=partial(
+                    wait_with_backoff,
+                    _backoff_factor=cfg.CREATE_STANDBY_BACKOFF_FACTOR,
+                    _backoff_max=cfg.CREATE_STANDBY_BACKOFF_MAX,
+                ),
                 executor=pool,
             )
-            for _exp, _entry, _ in _mapper.execute():
-                if _exp:
+            for _is_successful, _entry, _fut in _mapper.map(
+                self._process_regular,
+                self.delta_bundle.new_delta.items(),
+            ):
+                if not _is_successful:
                     logger.error(
-                        f"[process_regular] failed to process {_entry=}: {_exp=}"
+                        f"[process_regular] failed to process {_entry=}: {_fut=}"
                     )
-                    raise _exp
             self.stats_collector.wait_staging()
 
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
