@@ -50,6 +50,7 @@ from ._common import (
 )
 from .configs import cboot_cfg as cfg
 from .protocol import BootControllerProtocol
+from .firmware import Firmware
 
 
 logger = log_setting.get_logger(
@@ -80,13 +81,14 @@ class Nvbootctrl:
 
     # nvbootctrl
     @staticmethod
-    def _nvbootctrl(arg: str, *, call_only=True, raise_exception=True) -> Optional[str]:
+    def _nvbootctrl(
+        arg: str, *, target="rootfs", call_only=True, raise_exception=True
+    ) -> Optional[str]:
         """
         Raises:
             NvbootCtrlError if raise_exception is True.
         """
-        # NOTE: target is always set to rootfs
-        _cmd = f"nvbootctrl -t rootfs {arg}"
+        _cmd = f"nvbootctrl -t {target} {arg}"
         try:
             if call_only:
                 subprocess_call(_cmd, raise_exception=raise_exception)
@@ -132,8 +134,8 @@ class Nvbootctrl:
         cls._nvbootctrl(f"mark-boot-successful {slot}")
 
     @classmethod
-    def set_active_boot_slot(cls, slot: str):
-        cls._nvbootctrl(f"set-active-boot-slot {slot}")
+    def set_active_boot_slot(cls, slot: str, target="rootfs"):
+        cls._nvbootctrl(f"set-active-boot-slot {slot}", target=target)
 
     @classmethod
     def set_slot_as_unbootable(cls, slot: str):
@@ -260,6 +262,7 @@ class _CBootControl:
         slot = self.standby_slot
 
         logger.info(f"switch boot to {slot=}")
+        Nvbootctrl.set_active_boot_slot(slot, target="bootloader")
         Nvbootctrl.set_active_boot_slot(slot)
 
     def is_current_slot_marked_successful(self) -> bool:
@@ -485,6 +488,13 @@ class CBootController(
 
     def post_update(self):
         try:
+            # firmware update
+            firmware = Firmware(
+                self.standby_slot_mount_point
+                / Path(cfg.FIRMWARE_CONFIG).relative_to("/")
+            )
+            firmware.update(int(self._cboot_control.get_standby_slot()))
+
             # update extlinux_cfg file
             _extlinux_cfg = self.standby_slot_mount_point / Path(
                 cfg.EXTLINUX_FILE
