@@ -83,6 +83,10 @@ class OTAUpdateStatsCollector:
         self._staging.clear()
         self._que = Queue()
 
+    def _report(self, stat: RegInfProcessedStats):
+        """Report one stat to the stats collector."""
+        self._que.put_nowait(stat)
+
     ###### public API ######
 
     def start(self):
@@ -112,14 +116,22 @@ class OTAUpdateStatsCollector:
         """Return a copy of statistics storage."""
         return self.store.get_snapshot()
 
-    def report(self, *stats: RegInfProcessedStats, op: RegProcessOperation):
-        # NOTE: for APPLY_DELTA operation,
-        #       unconditionally pop one stat from the stats_list
-        #       because the preparation of first copy is already recorded
-        #       (either by picking up local copy(keep_delta) or downloading)
-        if op is RegProcessOperation.APPLY_DELTA:
-            stats = stats[1:]
-        for _stat in stats:
+    report_download_ota_files = _report
+    report_prepare_local_copy = _report
+
+    def report_apply_delta(self, stats_list: List[RegInfProcessedStats]):
+        """Stats report for APPLY_DELTA operation.
+
+        Params:
+            stats_list: a list of stats for processing a set of regular files
+                with same hash.
+
+        NOTE: for APPLY_DELTA operation,
+          unconditionally pop one stat from the stats_list
+          because the preparation of first copy is already recorded
+          (either by picking up local copy(keep_delta) or downloading)
+        """
+        for _stat in stats_list[1:]:
             self._que.put_nowait(_stat)
 
     def collector(self):

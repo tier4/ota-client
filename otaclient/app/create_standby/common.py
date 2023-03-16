@@ -289,13 +289,12 @@ class DeltaGenerator:
         shutil.copy(fpath, self._local_copy_dir / _fhash)
 
         # report to the ota update stats collector
-        self._stats_collector.report(
+        self._stats_collector.report_prepare_local_copy(
             RegInfProcessedStats(
                 op=RegProcessOperation.PREPARE_LOCAL_COPY,
                 size=fpath.stat().st_size,
                 elapsed_ns=time.thread_time_ns() - _start,
             ),
-            op=RegProcessOperation.PREPARE_LOCAL_COPY,
         )
 
     def _process_delta_src(self):
