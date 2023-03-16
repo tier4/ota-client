@@ -486,7 +486,7 @@ class RetryTaskMap(Generic[_T]):
             fut.add_done_callback(partial(_task_cb, entry=entry))
         sync.dispatcher_done()
 
-    def _raise_last_exc(self, msg: str = ""):
+    def _raise_exc(self, msg: str = ""):
         if self._last_failed_exc:
             try:
                 raise RetryTaskMapInterrupted(
@@ -551,20 +551,17 @@ class RetryTaskMap(Generic[_T]):
                 return
 
         try:
-            self._raise_last_exc(f"exceed max retry: {retry_round=}")
+            self._raise_exc(f"exceed max retry: {retry_round=}")
         finally:
             self = None  # break ref cycle
 
-    def shutdown(self, *, raise_last_exc: bool = True):
+    def shutdown(self):
         """Shutdown the current running RetryTaskMap instance.
 
-        Params:
-            raise_last_exc: a bool indicates whether to raise the last recorded
-                exception thrown by executed task.
-
-        If raise_last_exc is True but no last exception available, RetryTaskMap will
-            raise a plain RetryTaskMapInterrupted, otherwise it will raise RetryTaskMapInterrupted
-            from the last recorded exception.
+        Raises:
+            RetryTaskMapInterrupted, if self._last_failed_exc is valid
+                exception, raise from it, otherwise raise plain
+                RetryTaskMapInterrupted.
         """
         logger.debug(f"shutdown <RetryTaskMap: {self.title=}>")
         self._shutdowned.set()
@@ -573,11 +570,10 @@ class RetryTaskMap(Generic[_T]):
         if self._sync:
             self._sync.wait()
 
-        if raise_last_exc:
-            try:
-                self._raise_last_exc("shutdown by callers")
-            finally:
-                self = None  # break ref cycle
+        try:
+            self._raise_exc("shutdown by callers")
+        finally:
+            self = None  # break ref cycle
 
     def map(
         self, _func: Callable[[_T], Any], _iter: Iterable[_T], /
