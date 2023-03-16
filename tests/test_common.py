@@ -309,11 +309,12 @@ class TestRetryTaskMap:
                     ),
                     max_retry=0,  # we are testing keep failing timeout here
                 )
-                for _is_successful, _, _ in _mapper.map(
+                for retry_round, task_result in _mapper.map(
                     self.workload_aways_failed, range(self.TASKS_COUNT)
                 ):
+                    is_successful, _, _ = task_result
                     # task successfully finished
-                    if _is_successful:
+                    if is_successful:
                         # reset the failing timer on one succeeded task
                         _keep_failing_timer = time.time()
                         continue
@@ -337,11 +338,12 @@ class TestRetryTaskMap:
                 ),
                 max_retry=0,  # we are testing keep failing timeout here
             )
-            for _is_successful, _, _ in _mapper.map(
+            for retry_round, task_result in _mapper.map(
                 self.workload_failed_and_then_succeed, range(self.TASKS_COUNT)
             ):
                 # task successfully finished
-                if _is_successful:
+                is_successful, _, _ = task_result
+                if is_successful:
                     # reset the failing timer on one succeeded task
                     _keep_failing_timer = time.time()
                     continue
@@ -363,11 +365,12 @@ class TestRetryTaskMap:
                 ),
                 max_retry=0,  # we are testing keep failing timeout here
             )
-            for _is_successful, _, _ in _mapper.map(
+            for retry_round, task_result in _mapper.map(
                 self.workload_succeed, range(self.TASKS_COUNT)
             ):
+                is_successful, _, _ = task_result
                 # task successfully finished
-                if _is_successful:
+                if is_successful:
                     # reset the failing timer on one succeeded task
                     _keep_failing_timer = time.time()
                     continue

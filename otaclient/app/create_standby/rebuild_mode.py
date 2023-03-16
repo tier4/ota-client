@@ -123,13 +123,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 ),
                 executor=pool,
             )
-            for _is_successful, _entry, _fut in _mapper.map(
+            for _, task_result in _mapper.map(
                 self._process_regular,
                 self.delta_bundle.new_delta.items(),
             ):
-                if not _is_successful:
+                is_successful, entry, fut = task_result
+                if not is_successful:
                     logger.error(
-                        f"[process_regular] failed to process {_entry=}: {_fut=}"
+                        f"[process_regular] failed to process {entry=}: {fut=}"
                     )
             self.stats_collector.wait_staging()
 

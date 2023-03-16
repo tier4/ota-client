@@ -33,6 +33,7 @@ from typing import (
     Generator,
     NamedTuple,
     Optional,
+    Tuple,
     Union,
     Iterable,
     TypeVar,
@@ -502,7 +503,7 @@ class RetryTaskMap(Generic[_T]):
 
     def _execute(
         self, _func: Callable[[_T], Any], _iter: Iterable[_T], /
-    ) -> Generator[TaskResult, None, None]:
+    ) -> Generator[Tuple[int, TaskResult], None, None]:
         failed_entries, last_failed_count = [], 0
         retry_round, keep_failing_retry = 0, 0
         for retry_round in self._max_retry:
@@ -528,7 +529,7 @@ class RetryTaskMap(Generic[_T]):
                     if _exc:
                         self._last_failed_exc = _exc
 
-                yield TaskResult(is_successful, entry, fut)
+                yield retry_round, TaskResult(is_successful, entry, fut)
                 # do not hold uneccessary refs while blocking
                 del fut_wrapper, entry, fut, _exc
             # cleanup on this retry round finished
@@ -577,11 +578,12 @@ class RetryTaskMap(Generic[_T]):
 
     def map(
         self, _func: Callable[[_T], Any], _iter: Iterable[_T], /
-    ) -> Generator[TaskResult, None, None]:
+    ) -> Generator[Tuple[int, TaskResult], None, None]:
         """Returns an iterator that applies <_func> to every entry in <_iter>.
 
         Yields:
-            An instance of TaskResult, a namedtuple of:
+            A tuple of current retry round, and an instance of TaskResult.
+            TaskResult is a namedtuple consists of the following:
             - a bool indicates whether this task finished without exception.
             - the entry being processed in this task.
             - the Future instance related to this task.

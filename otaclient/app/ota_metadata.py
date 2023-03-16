@@ -596,15 +596,16 @@ class OTAMetadata:
                 max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            for _is_successful, _entry, _fut in _mapper.map(
+            for _, task_result in _mapper.map(
                 _process_text_base_otameta_file,
                 self._ota_metadata.get_img_metafiles(),
             ):
-                if _is_successful:
+                is_successful, entry, fut = task_result
+                if is_successful:
                     _keep_failing_timer = time.time()
                     continue
 
-                logger.debug(f"metafile downloading failed: {_entry=}, {_fut=}")
+                logger.debug(f"metafile downloading failed: {entry=}, {fut=}")
                 if (
                     time.time() - _keep_failing_timer
                     > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT

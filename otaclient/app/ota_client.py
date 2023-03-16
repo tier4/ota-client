@@ -205,7 +205,7 @@ class _OTAUpdater:
             cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
             return cur_stat
 
-        _keep_failing_timer = time.time()
+        keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
                 title="downloading_ota_files",
@@ -218,21 +218,19 @@ class _OTAUpdater:
                 max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            for _is_successful, _entry, _fut in _mapper.map(
-                _download_file, download_list
-            ):
+            for _, task_result in _mapper.map(_download_file, download_list):
                 # task successfully finished
-                if _is_successful:
-                    _stats = _fut.result()
-                    self._update_stats_collector.report(_stats)
+                is_successful, entry, fut = task_result
+                if is_successful:
+                    self._update_stats_collector.report(fut.result())
                     # reset the failing timer on one succeeded task
-                    _keep_failing_timer = time.time()
+                    keep_failing_timer = time.time()
                     continue
 
                 # task failed
                 # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
                 #       time, so we manually create one download report
-                logger.debug(f"failed to download {_entry=}: {_fut}")
+                logger.debug(f"failed to download {entry=}: {fut}")
                 self._update_stats_collector.report(
                     RegInfProcessedStats(
                         op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
@@ -242,7 +240,7 @@ class _OTAUpdater:
                 # task group keeps failing longer than limit,
                 # shutdown the task group and raise the exception
                 if (
-                    time.time() - _keep_failing_timer
+                    time.time() - keep_failing_timer
                     > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
                 ):
                     _mapper.shutdown()
