@@ -112,7 +112,13 @@ class OTAUpdateStatsCollector:
         """Return a copy of statistics storage."""
         return self.store.get_snapshot()
 
-    def report(self, *stats: RegInfProcessedStats):
+    def report(self, *stats: RegInfProcessedStats, op: RegProcessOperation):
+        # NOTE: for APPLY_DELTA operation,
+        #       unconditionally pop one stat from the stats_list
+        #       because the preparation of first copy is already recorded
+        #       (either by picking up local copy(keep_delta) or downloading)
+        if op is RegProcessOperation.APPLY_DELTA:
+            stats = stats[1:]
         for _stat in stats:
             self._que.put_nowait(_stat)
 
@@ -146,7 +152,7 @@ class OTAUpdateStatsCollector:
                             staging_storage.processed_files_num += 1
                             staging_storage.processed_files_size += st.size
                         elif _op == RegProcessOperation.DOWNLOAD_ERROR_REPORT:
-                            staging_storage.downloading_errors += 1
+                            staging_storage.downloading_errors += st.download_errors
                         elif _op == RegProcessOperation.PREPARE_LOCAL_COPY:
                             # update delta generating specific fields
                             staging_storage.delta_generating_elapsed_time.add_nanoseconds(

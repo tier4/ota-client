@@ -219,7 +219,9 @@ class _OTAUpdater:
             for _exp, _entry, _stats in _mapper.execute():
                 # task successfully finished
                 if not isinstance(_exp, Exception) and _stats:
-                    self._update_stats_collector.report(_stats)
+                    self._update_stats_collector.report(
+                        _stats, op=RegProcessOperation.DOWNLOAD_REMOTE_COPY
+                    )
                     # reset the failing timer on one succeeded task
                     _keep_failing_timer = time.time()
                     continue
@@ -232,7 +234,8 @@ class _OTAUpdater:
                     RegInfProcessedStats(
                         op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
                         download_errors=cfg.DOWNLOAD_RETRY,
-                    )
+                    ),
+                    op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
                 )
                 # task group keeps failing longer than limit,
                 # shutdown the task group and raise the exception

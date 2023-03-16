@@ -185,10 +185,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             stats_list.append(cur_stat)
 
         # report the stats to the stats_collector
-        # NOTE: unconditionally pop one stat from the stats_list
-        #       because the preparation of first copy is already recorded
-        #       (either by picking up local copy(keep_delta) or downloading)
-        self.stats_collector.report(*stats_list[1:])
+        self.stats_collector.report(*stats_list, op=RegProcessOperation.APPLY_DELTA)
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""

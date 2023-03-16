@@ -294,7 +294,8 @@ class DeltaGenerator:
                 op=RegProcessOperation.PREPARE_LOCAL_COPY,
                 size=fpath.stat().st_size,
                 elapsed_ns=time.thread_time_ns() - _start,
-            )
+            ),
+            op=RegProcessOperation.PREPARE_LOCAL_COPY,
         )
 
     def _process_delta_src(self):
