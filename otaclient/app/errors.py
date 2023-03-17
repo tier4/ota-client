@@ -149,7 +149,9 @@ class OTA_APIError(Exception):
 
     def get_traceback(self, *, splitter="\n") -> str:
         """Format the traceback into a str with splitter as <splitter>."""
-        return splitter.join(traceback.format_tb(self.__traceback__))
+        return splitter.join(
+            traceback.format_exception(type(self), self, self.__traceback__)
+        )
 
 
 class OTAUpdateError(OTA_APIError):

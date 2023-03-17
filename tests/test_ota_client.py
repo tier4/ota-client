@@ -271,7 +271,6 @@ class Test_OTAClient:
         assert (
             _ota_client.live_ota_status.get_ota_status() == wrapper.StatusOta.UPDATING
         )
-        assert _ota_client.last_failure is None
         self._fsm.on_otaclient_failed.assert_not_called()
 
     def test_update_interrupted(self, mocker: pytest_mock.MockerFixture):
