@@ -519,6 +519,7 @@ class OTAClient(OTAClientProtocol):
             self.last_failure_type = exc.get_err_type()
             self.last_failure_reason = exc.get_err_reason()
             self.last_failure_traceback = exc.get_traceback()
+            logger.error(f"on {ota_status=}: {self.last_failure_traceback=}")
         finally:
             exc = None  # type: ignore , prevent ref cycle
 
