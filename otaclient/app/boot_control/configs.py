@@ -73,6 +73,8 @@ class CBootControlConfig(BaseConfig):
     OTA_STATUS_DIR: str = "/boot/ota-status"
     EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
     SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
+    # refer to the standby slot
+    FIRMWARE_CONFIG: str = "/opt/ota/firmwares/firmware.yaml"
 
 
 @dataclass

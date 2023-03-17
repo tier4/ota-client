@@ -188,12 +188,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 elapsed_ns=time.thread_time_ns() - _start_time,
             )
             stats_list.append(cur_stat)
-
         # report the stats to the stats_collector
-        # NOTE: unconditionally pop one stat from the stats_list
-        #       because the preparation of first copy is already recorded
-        #       (either by picking up local copy(keep_delta) or downloading)
-        self.stats_collector.report(*stats_list[1:])
+        self.stats_collector.report_apply_delta(stats_list)
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""

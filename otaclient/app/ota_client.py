@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Optional, Type, Iterator
+from typing import Type, Iterator
 from urllib.parse import urlparse
 
 from otaclient import __version__  # type: ignore
@@ -222,7 +222,7 @@ class _OTAUpdater:
                 # task successfully finished
                 is_successful, entry, fut = task_result
                 if is_successful:
-                    self._update_stats_collector.report(fut.result())
+                    self._update_stats_collector.report_download_ota_files(fut.result())
                     # reset the failing timer on one succeeded task
                     keep_failing_timer = time.time()
                     continue
@@ -231,11 +231,11 @@ class _OTAUpdater:
                 # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
                 #       time, so we manually create one download report
                 logger.debug(f"failed to download {entry=}: {fut}")
-                self._update_stats_collector.report(
+                self._update_stats_collector.report_download_ota_files(
                     RegInfProcessedStats(
                         op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
                         download_errors=cfg.DOWNLOAD_RETRY,
-                    )
+                    ),
                 )
                 # task group keeps failing longer than limit,
                 # shutdown the task group and raise the exception
@@ -506,7 +506,6 @@ class OTAClient(OTAClientProtocol):
         self.current_version = (
             self.boot_controller.load_version() or self.DEFAULT_FIRMWARE_VERSION
         )
-        self.last_failure: Optional[OTA_APIError] = None
 
         # executors for update/rollback
         self._update_executor: _OTAUpdater = None  # type: ignore
@@ -515,6 +514,17 @@ class OTAClient(OTAClientProtocol):
         # err record
         self.last_failure_type = wrapper.FailureType.NO_FAILURE
         self.last_failure_reason = ""
+        self.last_failure_traceback = ""
+
+    def _on_failure(self, exc: OTA_APIError, ota_status: wrapper.StatusOta):
+        self.live_ota_status.set_ota_status(ota_status)
+        try:
+            self.last_failure_type = exc.get_err_type()
+            self.last_failure_reason = exc.get_err_reason()
+            self.last_failure_traceback = exc.get_traceback()
+            logger.error(f"on {ota_status=}: {self.last_failure_traceback=}")
+        finally:
+            exc = None  # type: ignore , prevent ref cycle
 
     # API
 
@@ -538,9 +548,7 @@ class OTAClient(OTAClientProtocol):
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
                 self._update_executor.execute(version, url_base, cookies_json, fsm=fsm)
             except OTAUpdateError as e:
-                self.live_ota_status.set_ota_status(wrapper.StatusOta.FAILURE)
-                self.last_failure_type = e.get_err_type()
-                self.last_failure_reason = e.get_err_reason()
+                self._on_failure(e, wrapper.StatusOta.FAILURE)
                 fsm.on_otaclient_failed()
             finally:
                 self._update_executor = None  # type: ignore
@@ -564,9 +572,7 @@ class OTAClient(OTAClientProtocol):
                 self._rollback_executor.execute()
             # silently ignore overlapping request
             except OTARollbackError as e:
-                self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACK_FAILURE)
-                self.last_failure_type = e.get_err_type()
-                self.last_failure_reason = e.get_err_reason()
+                self._on_failure(e, wrapper.StatusOta.ROLLBACK_FAILURE)
             finally:
                 self._rollback_executor = None  # type: ignore
                 self._lock.release()
@@ -584,6 +590,7 @@ class OTAClient(OTAClientProtocol):
             ota_status=_live_ota_status,
             failure_type=self.last_failure_type,
             failure_reason=self.last_failure_reason,
+            failure_traceback=self.last_failure_traceback,
         )
         if _live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
             _res.update_status = self._update_executor.get_update_status()

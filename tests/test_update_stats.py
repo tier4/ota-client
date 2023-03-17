@@ -59,11 +59,15 @@ class TestOTAUpdateStatsCollector:
         if _remainder == 0:
             _report.op = RegProcessOperation.DOWNLOAD_REMOTE_COPY
             _report.downloaded_bytes = 1
+            self._collector.report_download_ota_files(_report)
         elif _remainder == 1:
             _report.op = RegProcessOperation.PREPARE_LOCAL_COPY
+            self._collector.report_prepare_local_copy(_report)
         else:
+            # NOTE: simulate special treatment for APPLY_DELTA operation.
+            #       check update_stats.py:L116-119 for more details.
             _report.op = RegProcessOperation.APPLY_DELTA
-        self._collector.report(_report)
+            self._collector.report_apply_delta([_report, _report])
 
     def test_ota_update_stats_collecting(self):
         self._collector.store.total_files_num = self.TOTAL_FILE_NUM
