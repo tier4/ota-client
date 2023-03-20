@@ -174,8 +174,8 @@ class Downloader:
     # retry on common serverside errors and clientside errors
     RETRY_ON_STATUS_CODE = {413, 429, 500, 502, 503, 504}
 
-    TRAFFIC_COLLECT_INTERVAL = 1
-    MAX_TRAFFIC_STATS_COLLECT_PER_ROUND = 64
+    TRAFFIC_COLLECT_INTERVAL = 2
+    MAX_TRAFFIC_STATS_COLLECT_PER_ROUND = 512
 
     def _thread_initializer(self):
         ### setup the requests.Session ###
@@ -334,17 +334,16 @@ class Downloader:
                             _traffic_on_wire - traffic_on_wire
                         )
                         traffic_on_wire = _traffic_on_wire
-                else:  # un-compressed file
+                # un-compressed file
+                else:
                     for _chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
                         _hash_inst.update(_chunk)
                         _dst.write(_chunk)
-                        downloaded_file_size += len(_chunk)
 
-                        _traffic_on_wire = raw_resp.tell()
-                        self._traffic_report_que.put_nowait(
-                            _traffic_on_wire - traffic_on_wire
-                        )
-                        traffic_on_wire = _traffic_on_wire
+                        chunk_len = len(_chunk)
+                        downloaded_file_size += chunk_len
+                        self._traffic_report_que.put_nowait(chunk_len)
+                        traffic_on_wire += chunk_len
         except requests.exceptions.RetryError as e:
             raise ExceedMaxRetryError(url, dst, f"{e!r}")
         except (
