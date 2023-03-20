@@ -153,7 +153,7 @@ class OTAUpdateStatsCollector:
                         _op = st.op
                         if _op == RegProcessOperation.DOWNLOAD_REMOTE_COPY:
                             # update download specific fields
-                            staging_storage.downloaded_bytes += st.downloaded_bytes
+                            # staging_storage.downloaded_bytes += st.downloaded_bytes
                             staging_storage.downloaded_files_num += 1
                             staging_storage.downloaded_files_size += st.size
                             staging_storage.downloading_errors += st.download_errors

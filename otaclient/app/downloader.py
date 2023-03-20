@@ -22,6 +22,7 @@ import requests.exceptions
 import urllib3.exceptions
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from queue import Empty, Full, Queue
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
@@ -173,6 +174,9 @@ class Downloader:
     # retry on common serverside errors and clientside errors
     RETRY_ON_STATUS_CODE = {413, 429, 500, 502, 503, 504}
 
+    TRAFFIC_COLLECT_INTERVAL = 1
+    MAX_TRAFFIC_STATS_COLLECT_PER_ROUND = 64
+
     def _thread_initializer(self):
         ### setup the requests.Session ###
         session = requests.Session()
@@ -227,6 +231,33 @@ class Downloader:
         self._hash_func = sha256
         self._proxies: Optional[Dict[str, str]] = None
         self._cookies: Optional[Dict[str, str]] = None
+        self._shutdowned = threading.Event()
+
+        # downloaded bytes report
+        self._traffic_report_que = Queue()
+        self._downloaded_bytes = 0
+
+        # launch traffic collector
+        self._traffic_collector = threading.Thread(target=self._traffic_stats_collector)
+        self._traffic_collector.start()
+
+    @property
+    def downloaded_bytes(self) -> int:
+        return self._downloaded_bytes
+
+    def _traffic_stats_collector(self):
+        while not self._shutdowned.is_set():
+            time.sleep(self.TRAFFIC_COLLECT_INTERVAL)
+            if self._traffic_report_que.empty():
+                continue
+
+            traffic_bytes = 0
+            try:
+                for _ in range(self.MAX_TRAFFIC_STATS_COLLECT_PER_ROUND):
+                    traffic_bytes += self._traffic_report_que.get_nowait()
+            except Empty:
+                pass
+            self._downloaded_bytes += traffic_bytes
 
     def configure_proxies(self, _proxies: Dict[str, str], /):
         self._proxies = _proxies.copy()
@@ -235,7 +266,11 @@ class Downloader:
         self._cookies = _cookies.copy()
 
     def shutdown(self):
-        self._executor.shutdown()
+        if not self._shutdowned.is_set():
+            self._shutdowned.set()
+            self._executor.shutdown()
+            # wait for collector
+            self._traffic_collector.join()
 
     @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
@@ -267,11 +302,11 @@ class Downloader:
         # use input cookies or inst's cookie
         _cookies = cookies or self._cookies
 
-        # NOTE: downloaded_bytes is the number of bytes we return to the caller(if compressed,
+        # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
         #       the number will be of the decompressed file)
-        _hash_inst, _downloaded_bytes = self._hash_func(), 0
-        # NOTE: real_downloaded_bytes is the number of bytes we directly downloaded from remote
-        _real_downloaded_bytes = 0
+        _hash_inst, downloaded_file_size = self._hash_func(), 0
+        # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
+        traffic_on_wire = 0
         _err_count = 0
         try:
             with self._session.get(
@@ -292,14 +327,24 @@ class Downloader:
                     for _chunk in decompressor.iter_chunk(resp.raw):
                         _hash_inst.update(_chunk)
                         _dst.write(_chunk)
-                        _downloaded_bytes += len(_chunk)
+                        downloaded_file_size += len(_chunk)
+
+                        _traffic_on_wire = raw_resp.tell()
+                        self._traffic_report_que.put_nowait(
+                            _traffic_on_wire - traffic_on_wire
+                        )
+                        traffic_on_wire = _traffic_on_wire
                 else:  # un-compressed file
                     for _chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
                         _hash_inst.update(_chunk)
                         _dst.write(_chunk)
-                        _downloaded_bytes += len(_chunk)
-                # get real network traffic
-                _real_downloaded_bytes = raw_resp.tell()
+                        downloaded_file_size += len(_chunk)
+
+                        _traffic_on_wire = raw_resp.tell()
+                        self._traffic_report_que.put_nowait(
+                            _traffic_on_wire - traffic_on_wire
+                        )
+                        traffic_on_wire = _traffic_on_wire
         except requests.exceptions.RetryError as e:
             raise ExceedMaxRetryError(url, dst, f"{e!r}")
         except (
@@ -329,8 +374,8 @@ class Downloader:
                 raise DownloadFailedSpaceNotEnough(url, dst) from None
 
         # checking the download result
-        if size is not None and size != _downloaded_bytes:
-            msg = f"partial download detected: {size=},{_downloaded_bytes=}"
+        if size is not None and size != downloaded_file_size:
+            msg = f"partial download detected: {size=},{downloaded_file_size=}"
             logger.error(msg)
             raise ChunkStreamingError(url, dst, msg)
         if digest and ((calc_digest := _hash_inst.hexdigest()) != digest):
@@ -342,7 +387,7 @@ class Downloader:
             raise HashVerificaitonError(url, dst, msg)
 
         _end_time = time.thread_time_ns()
-        return _err_count, _real_downloaded_bytes, _end_time - _start_time
+        return _err_count, traffic_on_wire, _end_time - _start_time
 
     def download(
         self,
