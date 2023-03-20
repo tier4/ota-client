@@ -157,9 +157,9 @@ class OTAUpdateStatsCollector:
                             staging_storage.downloaded_files_num += 1
                             staging_storage.downloaded_files_size += st.size
                             staging_storage.downloading_errors += st.download_errors
-                            staging_storage.downloading_elapsed_time.add_nanoseconds(
-                                st.elapsed_ns
-                            )
+                            # staging_storage.downloading_elapsed_time.add_nanoseconds(
+                            #     st.elapsed_ns
+                            # )
                             # as remote_delta, update processed_files_*
                             staging_storage.processed_files_num += 1
                             staging_storage.processed_files_size += st.size

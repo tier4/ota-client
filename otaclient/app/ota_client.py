@@ -185,16 +185,11 @@ class _OTAUpdater:
         def _download_file(entry: RegularInf) -> RegInfProcessedStats:
             """Download single OTA image file."""
             cur_stat = RegInfProcessedStats(op=RegProcessOperation.DOWNLOAD_REMOTE_COPY)
-            _start_time, _download_time = time.thread_time_ns(), 0
 
             _fhash_str = entry.get_hash()
             _local_copy = self._ota_tmp_on_standby / _fhash_str
             entry_url, compression_alg = self._otameta.get_download_url(entry)
-            (
-                cur_stat.download_errors,
-                cur_stat.downloaded_bytes,
-                _download_time,
-            ) = self._downloader.download(
+            cur_stat.download_errors, _, _ = self._downloader.download(
                 entry_url,
                 _local_copy,
                 digest=_fhash_str,
@@ -202,7 +197,6 @@ class _OTAUpdater:
                 compression_alg=compression_alg,
             )
             cur_stat.size = _local_copy.stat().st_size
-            cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
             return cur_stat
 
         keep_failing_timer = time.time()
@@ -438,8 +432,11 @@ class _OTAUpdater:
         update_progress.total_download_files_num = self.total_download_files_num
         update_progress.total_download_files_size = self.total_download_fiies_size
         update_progress.total_remove_files_num = self.total_remove_files_num
-        # downloaded bytes
+        # downloading stats
         update_progress.downloaded_bytes = self._downloader.downloaded_bytes
+        update_progress.downloading_elapsed_time = wrapper.Duration(
+            seconds=self._downloader.downloader_active_seconds
+        )
 
         # update other information
         update_progress.phase = self.update_phase
