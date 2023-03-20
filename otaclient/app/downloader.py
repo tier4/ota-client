@@ -174,11 +174,11 @@ class Downloader:
     # retry on common serverside errors and clientside errors
     RETRY_ON_STATUS_CODE = {413, 429, 500, 502, 503, 504}
 
-    TRAFFIC_COLLECT_INTERVAL = 2
+    DOWNLOAD_STAT_COLLECT_INTERVAL = 1
     MAX_TRAFFIC_STATS_COLLECT_PER_ROUND = 512
 
     def _thread_initializer(self):
-        ### setup the requests.Session ###
+        # ------ setup the requests.Session ------ #
         session = requests.Session()
         # init retry mechanism
         # NOTE: for urllib3 version below 2.0, we have to change Retry class'
@@ -203,12 +203,17 @@ class Downloader:
         session.mount("http://", adapter)
         self._local.session = session
 
-        ### compression support ###
+        # ------ compression support ------ #
         self._local._compression_support_matrix = {}
         # zstd decompression adapter
         self._local._zstd = ZstdDecompressionAdapter()
         self._local._compression_support_matrix["zst"] = self._local._zstd
         self._local._compression_support_matrix["zstd"] = self._local._zstd
+
+        # ------ download timing flag ------ #
+        self._downloading_thread_active_flag[
+            threading.get_native_id()
+        ] = threading.Event()
 
     @property
     def _session(self) -> requests.Session:
@@ -231,23 +236,43 @@ class Downloader:
         self._hash_func = sha256
         self._proxies: Optional[Dict[str, str]] = None
         self._cookies: Optional[Dict[str, str]] = None
-        self._shutdowned = threading.Event()
+        self.shutdowned = threading.Event()
 
-        # downloaded bytes report
+        # downloading stats collecting
         self._traffic_report_que = Queue()
+        self._downloading_thread_active_flag: Dict[int, threading.Event] = {}
         self._downloaded_bytes = 0
+        self._downloader_active_seconds = 0
 
         # launch traffic collector
-        self._traffic_collector = threading.Thread(target=self._traffic_stats_collector)
-        self._traffic_collector.start()
+        self._stats_collector = threading.Thread(target=self._download_stats_collector)
+        self._stats_collector.start()
 
     @property
     def downloaded_bytes(self) -> int:
         return self._downloaded_bytes
 
-    def _traffic_stats_collector(self):
-        while not self._shutdowned.is_set():
-            time.sleep(self.TRAFFIC_COLLECT_INTERVAL)
+    @property
+    def downloader_active_seconds(self) -> int:
+        """The accumulated time in seconds that downloader is active."""
+        return self._downloader_active_seconds
+
+    def _download_stats_collector(self):
+        while not self.shutdowned.is_set():
+            time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
+            # ------ collect downloading_elapsed time by sampling ------ #
+            # at the moment we call the below codes,
+            # if any of the threads is actively downloading,
+            # then we treat the downloader is active during the <INTERVAL> period.
+            if any(
+                map(
+                    lambda _event: _event.is_set(),
+                    self._downloading_thread_active_flag.values(),
+                )
+            ):
+                self._downloader_active_seconds += self.DOWNLOAD_STAT_COLLECT_INTERVAL
+
+            # ------ collect downloaded bytes ------ #
             if self._traffic_report_que.empty():
                 continue
 
@@ -266,11 +291,11 @@ class Downloader:
         self._cookies = _cookies.copy()
 
     def shutdown(self):
-        if not self._shutdowned.is_set():
-            self._shutdowned.set()
+        if not self.shutdowned.is_set():
+            self.shutdowned.set()
             self._executor.shutdown()
             # wait for collector
-            self._traffic_collector.join()
+            self._stats_collector.join()
 
     @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
@@ -308,6 +333,9 @@ class Downloader:
         # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
         traffic_on_wire = 0
         _err_count = 0
+        # flag this thread as actively downloading thread
+        active_flag = self._downloading_thread_active_flag[threading.get_native_id()]
+        active_flag.set()
         try:
             with self._session.get(
                 url,
@@ -371,6 +399,9 @@ class Downloader:
             # only handle disk out-of-space error
             if e.errno == errno.ENOSPC:
                 raise DownloadFailedSpaceNotEnough(url, dst) from None
+        finally:
+            # download is finished, clear the active flag
+            active_flag.clear()
 
         # checking the download result
         if size is not None and size != downloaded_file_size:
