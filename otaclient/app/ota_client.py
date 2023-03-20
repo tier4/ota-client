@@ -299,6 +299,9 @@ class _OTAUpdater:
             logger.error(f"failed to finish downloading files: {e!r}")
             raise NetworkError from e
 
+        # shutdown downloader on download finished
+        self._downloader.shutdown()
+
         # ------ in_update ------ #
         logger.info("start to apply changes to standby slot...")
         self.update_phase = UpdatePhase.APPLYING_UPDATE
@@ -435,6 +438,9 @@ class _OTAUpdater:
         update_progress.total_download_files_num = self.total_download_files_num
         update_progress.total_download_files_size = self.total_download_fiies_size
         update_progress.total_remove_files_num = self.total_remove_files_num
+        # downloaded bytes
+        update_progress.downloaded_bytes = self._downloader.downloaded_bytes
+
         # update other information
         update_progress.phase = self.update_phase
         update_progress.total_elapsed_time = wrapper.Duration.from_nanoseconds(
