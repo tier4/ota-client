@@ -18,6 +18,7 @@ import json
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from typing import Type, Iterator
@@ -34,7 +35,7 @@ from .errors import (
     OTAUpdateError,
 )
 from .boot_control import BootControllerProtocol
-from .common import RetryTaskMap
+from .common import RetryTaskMap, wait_with_backoff
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol
 from .downloader import (
@@ -204,30 +205,32 @@ class _OTAUpdater:
             cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
             return cur_stat
 
-        _keep_failing_timer = time.time()
+        keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
-                _download_file,
-                download_list,
                 title="downloading_ota_files",
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
-                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                retry_interval_f=partial(
+                    wait_with_backoff,
+                    _backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                    _backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                ),
                 max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            for _exp, _entry, _stats in _mapper.execute():
+            for _, task_result in _mapper.map(_download_file, download_list):
                 # task successfully finished
-                if not isinstance(_exp, Exception) and _stats:
-                    self._update_stats_collector.report_download_ota_files(_stats)
+                is_successful, entry, fut = task_result
+                if is_successful:
+                    self._update_stats_collector.report_download_ota_files(fut.result())
                     # reset the failing timer on one succeeded task
-                    _keep_failing_timer = time.time()
+                    keep_failing_timer = time.time()
                     continue
 
                 # task failed
                 # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
                 #       time, so we manually create one download report
-                logger.debug(f"failed to download {_entry=}: {_exp!r}")
+                logger.debug(f"failed to download {entry=}: {fut}")
                 self._update_stats_collector.report_download_ota_files(
                     RegInfProcessedStats(
                         op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
@@ -237,7 +240,7 @@ class _OTAUpdater:
                 # task group keeps failing longer than limit,
                 # shutdown the task group and raise the exception
                 if (
-                    time.time() - _keep_failing_timer
+                    time.time() - keep_failing_timer
                     > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
                 ):
                     _mapper.shutdown()
