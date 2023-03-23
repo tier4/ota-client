@@ -81,7 +81,7 @@ async def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="calling main ECU's API",
+        description="calling ECU's API",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -96,7 +96,7 @@ if __name__ == "__main__":
         "-t",
         "--target",
         default="autoware",
-        help="indicate the API call's target",
+        help="indicate the target for the API request",
     )
     parser.add_argument(
         "-i",
