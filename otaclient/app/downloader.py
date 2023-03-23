@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import errno
 import os
 import requests
@@ -298,6 +299,7 @@ class Downloader:
         self._cookies = _cookies.copy()
 
     def shutdown(self):
+        """NOTE: the downloader instance cannot be reused after shutdown."""
         if not self.shutdowned.is_set():
             self.shutdowned.set()
             self._executor.shutdown()
@@ -445,6 +447,9 @@ class Downloader:
             A tuple of ints, which are error counts, real downloaded bytes and
                 the download time cost.
         """
+        if self.shutdowned.is_set():
+            raise ValueError("downloader already shutdowned.")
+
         return self._executor.submit(
             self._download_task,
             url,
