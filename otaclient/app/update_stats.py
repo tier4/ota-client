@@ -94,23 +94,18 @@ class OTAUpdateStatsCollector:
             self.stop()
 
         with self._lock:
-            if self.terminated.is_set():
-                self.terminated.clear()
-                self._collector_thread = Thread(target=self.collector)
-                self._collector_thread.start()
-            else:
-                logger.warning("detect active collector, abort lauching new collector")
+            self.terminated.clear()
+            self._clear()
+            self._collector_thread = Thread(target=self.collector)
+            self._collector_thread.start()
 
     def stop(self):
         with self._lock:
-            if not self.terminated.is_set():
-                self.terminated.set()
-                if self._collector_thread is not None:
-                    # wait for the collector thread to stop
-                    self._collector_thread.join()
-                    self._collector_thread = None
-                # cleanup stats storage
-                self._clear()
+            self.terminated.set()
+            if self._collector_thread is not None:
+                # wait for the collector thread to stop
+                self._collector_thread.join()
+                self._collector_thread = None
 
     def get_snapshot(self) -> UpdateStatus:
         """Return a copy of statistics storage."""
