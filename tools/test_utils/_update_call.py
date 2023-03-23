@@ -15,10 +15,8 @@
 
 import asyncio
 import yaml
-
 from otaclient.app.ota_client_call import OtaClientCall
-from otaclient.app.proto import wrapper, v2
-
+from otaclient.app.proto import wrapper
 from . import _logutil
 
 logger = _logutil.get_logger(__name__)
@@ -26,16 +24,21 @@ logger = _logutil.get_logger(__name__)
 
 def load_external_update_request(request_yaml_file: str) -> wrapper.UpdateRequest:
     with open(request_yaml_file, "r") as f:
-        request_yaml: dict = yaml.safe_load(f)
-        logger.debug(f"load external request: {request_yaml!r}")
+        try:
+            request_yaml = yaml.safe_load(f)
+            assert isinstance(request_yaml, list), "expect update request to be a list"
+        except Exception as e:
+            logger.exception(f"invalid update request yaml: {e!r}")
+            raise
 
+        logger.info(f"load external request: {request_yaml!r}")
         request = wrapper.UpdateRequest()
         for request_ecu in request_yaml:
-            request.ecu.append(v2.UpdateRequestEcu(**request_ecu))
+            request.ecu.append(wrapper.UpdateRequestEcu(**request_ecu))
     return request
 
 
-def call_update(
+async def call_update(
     ecu_id: str,
     ecu_ip: str,
     ecu_port: int,
@@ -46,14 +49,9 @@ def call_update(
     update_request = load_external_update_request(request_file)
 
     try:
-        result = asyncio.run(
-            OtaClientCall.update_call(
-                ecu_id,
-                ecu_ip,
-                ecu_port,
-                request=update_request,
-            )
+        update_response = await OtaClientCall.update_call(
+            ecu_id, ecu_ip, ecu_port, request=update_request
         )
-        logger.debug(f"{result.data=}")
+        logger.info(f"{update_response.export_pb()=}")
     except Exception as e:
-        logger.debug(f"error occured: {e!r}")
+        logger.exception(f"update request failed: {e!r}")

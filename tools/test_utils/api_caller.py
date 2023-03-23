@@ -14,6 +14,7 @@
 
 
 import argparse
+import asyncio
 import yaml
 import sys
 from pathlib import Path
@@ -22,51 +23,59 @@ try:
     import otaclient  # noqa: F401
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-
 from . import _logutil, _status_call, _update_call
 
 logger = _logutil.get_logger(__name__)
 
 
-def main(args: argparse.Namespace):
+async def main(args: argparse.Namespace):
     with open(args.ecu_info, "r") as f:
         ecu_info = yaml.safe_load(f)
+        assert isinstance(ecu_info, dict)
 
     target_ecu_id = args.target
-    # load main ecu info
-    ecu_id = ecu_info.get("ecu_id")
-    ecu_ip = ecu_info.get("ip_addr")
-    ecu_port = 50051
+    # by default, send request to main ECU
+    try:
+        ecu_id = ecu_info["ecu_id"]
+        ecu_ip = ecu_info["ip_addr"]
+        ecu_port = 50051
+    except KeyError:
+        raise ValueError(f"invalid ecu_info: {ecu_info=}")
 
     if target_ecu_id != ecu_info.get("ecu_id"):
         found = False
         # search for target by ecu_id
         for subecu in ecu_info.get("secondaries", []):
-            if subecu.get("ecu_id") == target_ecu_id:
-                ecu_id = subecu.get("ecu_id")
-                ecu_ip = subecu.get("ip_addr")
-                ecu_port = int(subecu.get("port", 50051))
-                found = True
+            try:
+                if subecu["ecu_id"] == target_ecu_id:
+                    ecu_id = subecu["ecu_id"]
+                    ecu_ip = subecu["ip_addr"]
+                    ecu_port = int(subecu.get("port", 50051))
+                    found = True
                 break
+            except KeyError:
+                continue
+
         if not found:
             logger.critical(f"target ecu {target_ecu_id} is not found")
             sys.exit(-1)
 
-    logger.debug(f"target ecu: {ecu_id=}, {ecu_ip=}")
+    logger.info(f"send request to target ecu: {ecu_id=}, {ecu_ip=}")
     cmd = args.command
     if cmd == "update":
-        _update_call.call_update(
+        await _update_call.call_update(
             ecu_id,
             ecu_ip,
             ecu_port,
             request_file=args.request,
         )
     elif cmd == "status":
-        _status_call.call_status(
+        await _status_call.call_status(
             ecu_id,
             ecu_ip,
             ecu_port,
+            interval=args.interval,
+            count=args.count,
         )
 
 
@@ -94,7 +103,14 @@ if __name__ == "__main__":
         "--interval",
         type=float,
         default=1,
-        help="(status) pulling interval in second for status API call",
+        help="(status) polling interval in second for status API call",
+    )
+    parser.add_argument(
+        "-C",
+        "--count",
+        type=int,
+        default=0,
+        help="(status) polling <count> time and then exits, value<=0 means inf",
     )
     parser.add_argument(
         "-r",
@@ -111,4 +127,4 @@ if __name__ == "__main__":
     if args.command == "update" and not Path(args.request).is_file():
         parser.error(f"update request file {args.request} not found!")
 
-    main(args)
+    asyncio.run(main(args))
