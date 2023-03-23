@@ -308,7 +308,9 @@ class TestGrubControl:
 
         logger.info("pre-update completed, entering post-update...")
         # test post-update
-        grub_controller.post_update()
+        _post_updater = grub_controller.post_update()
+        next(_post_updater)
+        next(_post_updater, None)
         assert (
             self.slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
         ).read_text() == self.FSTAB_UPDATED.strip()

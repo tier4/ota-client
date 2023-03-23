@@ -700,17 +700,20 @@ class MessageWrapper(WrapperBase[MessageType]):
     # public API
 
     @classmethod
-    def convert(cls, _in: Union[MessageType, Self]) -> Self:
+    def convert(cls, _in: Union[MessageType, Self, Mapping]) -> Self:
         """Copy and wrap input message into a new wrapper instance."""
         if isinstance(_in, cls):
             return _in  # do not re-convert again
-        if not isinstance(_in, cls._proto_class):
-            raise TypeError(f"expect {cls._proto_class}, get {_in.__class__}")
-
-        _kwargs = {}
-        for _field_name in cls._fields:
-            _kwargs[_field_name] = getattr(_in, _field_name)
-        return cls(**_kwargs)
+        if isinstance(_in, Mapping):
+            return cls(**_in)
+        if isinstance(_in, cls._proto_class):
+            _kwargs = {}
+            for _field_name in cls._fields:
+                _kwargs[_field_name] = getattr(_in, _field_name)
+            return cls(**_kwargs)
+        raise TypeError(
+            f"expect {cls._proto_class}, {cls} or {Mapping}, get {_in.__class__}"
+        )
 
     def export_pb(self) -> MessageType:
         """Export as protobuf message class inst."""

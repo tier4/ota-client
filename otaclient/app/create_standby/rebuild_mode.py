@@ -17,10 +17,11 @@ import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
-from typing import Callable, List, Set, Tuple
+from typing import List, Set, Tuple
 
-from ..common import RetryTaskMap
+from ..common import RetryTaskMap, wait_with_backoff
 from ..configs import config as cfg
 from ..ota_metadata import MetafilesV1, OTAMetadata
 from ..update_stats import (
@@ -28,7 +29,7 @@ from ..update_stats import (
     RegInfProcessedStats,
     RegProcessOperation,
 )
-from ..proto.wrapper import RegularInf, StatusProgressPhase
+from ..proto.wrapper import RegularInf
 from .. import log_setting
 
 from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
@@ -48,11 +49,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
         standby_slot_mount_point: str,
         active_slot_mount_point: str,
         stats_collector: OTAUpdateStatsCollector,
-        update_phase_tracker: Callable[[StatusProgressPhase], None],
     ) -> None:
         self._ota_metadata = ota_metadata
         self.stats_collector = stats_collector
-        self.update_phase_tracker = update_phase_tracker
 
         # path configuration
         self.boot_dir = Path(boot_dir)
@@ -73,12 +72,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
             stats_collector=self.stats_collector,
         )
         delta_bundle = delta_calculator.calculate_and_process_delta()
-        self.stats_collector.set_total_regular_files(delta_bundle.total_regular_num)
         logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
         self.delta_bundle = delta_bundle
 
     def _process_dirs(self):
-        self.update_phase_tracker(StatusProgressPhase.DIRECTORY)
         for entry in self.delta_bundle.get_new_dirs():
             entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
@@ -86,7 +83,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
         """NOTE: just copy from legacy mode"""
         from ..copy_tree import CopyTree
 
-        self.update_phase_tracker(StatusProgressPhase.PERSISTENT)
         _passwd_file = Path(cfg.PASSWD_FILE)
         _group_file = Path(cfg.GROUP_FILE)
         _copy_tree = CopyTree(
@@ -106,31 +102,36 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 _copy_tree.copy_with_parents(_perinf_path, self.standby_slot_mp)
 
     def _process_symlinks(self):
-        self.update_phase_tracker(StatusProgressPhase.SYMLINK)
         for _symlink in self._ota_metadata.iter_metafile(
             MetafilesV1.SYMBOLICLINK_FNAME
         ):
             _symlink.link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):
-        self.update_phase_tracker(StatusProgressPhase.REGULAR)
         self._hardlink_register = HardlinkRegister()
 
         logger.info("start applying delta...")
         with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
             _mapper = RetryTaskMap(
-                self._process_regular,
-                self.delta_bundle.new_delta.items(),
                 title="process_regulars",
                 max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
-                backoff_max=cfg.CREATE_STANDBY_BACKOFF_MAX,
-                backoff_factor=cfg.CREATE_STANDBY_BACKOFF_FACTOR,
                 max_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+                retry_interval_f=partial(
+                    wait_with_backoff,
+                    _backoff_factor=cfg.CREATE_STANDBY_BACKOFF_FACTOR,
+                    _backoff_max=cfg.CREATE_STANDBY_BACKOFF_MAX,
+                ),
                 executor=pool,
             )
-            for _exp, _entry, _ in _mapper.execute():
-                if _exp:
-                    logger.debug(f"[process_regular] failed to process {_entry=}")
+            for _, task_result in _mapper.map(
+                self._process_regular,
+                self.delta_bundle.new_delta.items(),
+            ):
+                is_successful, entry, fut = task_result
+                if not is_successful:
+                    logger.error(
+                        f"[process_regular] failed to process {entry=}: {fut=}"
+                    )
             self.stats_collector.wait_staging()
 
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
@@ -139,13 +140,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
         stats_list: List[RegInfProcessedStats] = []  # for ota stats report
 
         _local_copy = self._ota_tmp / _hash_str
+        _f_size = _local_copy.stat().st_size
         for _count, entry in enumerate(_regs_set, start=1):
             is_last = _count == len(_regs_set)
 
-            cur_stat = RegInfProcessedStats(
-                op=RegProcessOperation.OP_COPY,
-                size=_local_copy.stat().st_size,
-            )
             _start_time = time.thread_time_ns()
 
             # special treatment on /boot folder
@@ -167,7 +165,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 # NOTE(20220523): for regulars.txt that support hardlink group,
                 #   use inode to identify the hardlink group.
                 #   otherwise, use hash to identify the same hardlink file.
-                cur_stat.op = RegProcessOperation.OP_LINK
                 _identifier = entry.sha256hash if not entry.inode else entry.inode
 
                 _dst = entry.relatively_join(_mount_point)
@@ -175,6 +172,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                     _identifier, _dst, entry.nlink
                 )
 
+                logger.debug(f"hardlink file({_is_writer=}): {entry=}")
                 if _is_writer:
                     entry.copy_from_src(_local_copy, dst_mount_point=_mount_point)
                 else:  # subscriber
@@ -184,15 +182,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
 
-            # create stat
-            cur_stat.elapsed_ns = time.thread_time_ns() - _start_time
+            cur_stat = RegInfProcessedStats(
+                op=RegProcessOperation.APPLY_DELTA,
+                size=_f_size,
+                elapsed_ns=time.thread_time_ns() - _start_time,
+            )
             stats_list.append(cur_stat)
-
         # report the stats to the stats_collector
-        # NOTE: unconditionally pop one stat from the stats_list
-        #       because the preparation of first copy is already recorded
-        #       (either by picking up local copy or downloading)
-        self.stats_collector.report(*stats_list[1:])
+        self.stats_collector.report_apply_delta(stats_list)
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""

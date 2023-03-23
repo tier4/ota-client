@@ -45,8 +45,8 @@ from ..proto.wrapper import RegularInf, DirectoryInf
 from .. import log_setting
 from ..update_stats import (
     OTAUpdateStatsCollector,
-    RegInfProcessedStats,
     RegProcessOperation,
+    RegInfProcessedStats,
 )
 
 logger = log_setting.get_logger(
@@ -268,7 +268,7 @@ class DeltaGenerator:
         self.total_regulars_num = 0
         self.total_download_files_size = 0
 
-    def _process_file_in_old_slot(
+    def _prepare_local_copy_from_active_slot(
         self, fpath: Path, *, _hash: Optional[str] = None
     ) -> None:
         """Hash(and verify the file) and prepare a copy for it in standby slot."""
@@ -279,7 +279,8 @@ class DeltaGenerator:
         try:
             self._new_hash_list.remove(bytes.fromhex(_fhash))
         except KeyError:
-            # this hash has already been prepared
+            # this hash has already been prepared or
+            # this hash is not included in new OTA image
             return
 
         # collect this entry as the hash existed in _new
@@ -288,12 +289,12 @@ class DeltaGenerator:
         shutil.copy(fpath, self._local_copy_dir / _fhash)
 
         # report to the ota update stats collector
-        self._stats_collector.report(
+        self._stats_collector.report_prepare_local_copy(
             RegInfProcessedStats(
-                op=RegProcessOperation.OP_COPY,
+                op=RegProcessOperation.PREPARE_LOCAL_COPY,
                 size=fpath.stat().st_size,
                 elapsed_ns=time.thread_time_ns() - _start,
-            )
+            ),
         )
 
     def _process_delta_src(self):
@@ -389,7 +390,9 @@ class DeltaGenerator:
                         continue
 
                     futs.append(
-                        pool.submit(self._process_file_in_old_slot, delta_src_fpath)
+                        pool.submit(
+                            self._prepare_local_copy_from_active_slot, delta_src_fpath
+                        )
                     )
                 # wait for all files under this dir to be finished
                 logger.debug(f"{delta_src_curdir_path=} done")
@@ -417,7 +420,6 @@ class DeltaGenerator:
             self.total_regulars_num += 1
             self._new.add_entry(_entry)
             self._new_hash_list.add(_entry.sha256hash)
-        self._stats_collector.store.total_regular_files = self.total_regulars_num
 
         # generate delta and prepare files
         self._process_delta_src()

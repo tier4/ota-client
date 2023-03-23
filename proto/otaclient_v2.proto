@@ -169,7 +169,73 @@ message StatusResponseEcu {
   Status status = 3;
 }
 
+//
+// ------ status response format v2 ------ 
+//
+
 message StatusResponse {
-  repeated StatusResponseEcu ecu = 1;
-  repeated string available_ecu_ids = 2; // list of available ECU (see ecu_info.yml)
+  repeated StatusResponseEcu ecu = 1 [deprecated = true]; // list of status(v1) of all available ECUs, replaced by ecu_v2
+  repeated string available_ecu_ids = 2; // list of all available ECUs in this vehicle (see ecu_info.yml)
+  repeated StatusResponseEcuV2 ecu_v2 = 3; // list of status(v2) of all available ECUs
+}
+
+enum UpdatePhase {
+  INITIALIZING = 0;
+  PROCESSING_METADATA = 1;
+  CALCULATING_DELTA = 2;
+  DOWNLOADING_OTA_FILES = 3;
+  APPLYING_UPDATE = 4;
+  PROCESSING_POSTUPDATE = 5;
+  FINALIZING_UPDATE = 6; // set during first reboot boot switch finalizing
+}
+
+message StatusResponseEcuV2 {
+  // --- static ECU info: 1~10 --- //
+  string ecu_id = 1;
+  string firmware_version = 2;
+  string otaclient_version = 3;
+  reserved 4 to 10;
+  
+  // --- dynamic ECU status: 11~ --- //
+  StatusOta ota_status = 11;
+  // when ota_status is FAILURE/ROLLBACK_FAILURE,
+  // failure_type, failure_reason should be set
+  optional FailureType failure_type = 12;
+  optional string failure_reason = 13;
+  optional string failure_traceback = 14;
+
+  // update status, set if ota_status is UPDATING
+  optional UpdateStatus update_status = 15;
+  // reserved for <rollback status> in the future
+  reserved 16; 
+}
+
+message UpdateStatus {
+  // --- update meta: 1~10 --- //
+  string update_firmware_version = 1; // update target image version
+  uint64 total_files_size_uncompressed = 2; // uncompressed size of all files in update_firmware image
+  uint64 total_files_num = 3; // total files num in the update_firmware image
+  uint64 update_start_timestamp = 4; // update start time in unix timestamp
+
+  // --- update progress: 11~30 --- //
+  UpdatePhase phase = 11;
+  // - downloading phase - //
+  uint64 total_download_files_num = 12; // num of files needed to be downloaded from remote
+  uint64 total_download_files_size = 13; // size(uncompressed) of all files needed to be downloaded
+  uint64 downloaded_files_num = 14; // downloaded files num during downloading
+  uint64 downloaded_bytes = 15; // network traffic during downloading
+  uint64 downloaded_files_size = 16; // size(uncompressed) of downloaded files during downloading
+  uint64 downloading_errors = 17;
+  // - applying update phase - //
+  uint64 total_remove_files_num = 18; // for in-place update mode, files to be removed
+  uint64 removed_files_num = 19; // for in-place update mode, removed files during standby slot updating
+  // NOTE: processed_files_num/size are corresponding to total_files_num/total_image_size
+  uint64 processed_files_num = 20; // num of files processed to the standby slot during applying update
+  uint64 processed_files_size = 21; // size(uncompressed) of processed files
+
+  // --- timing --- //
+  google.protobuf.Duration total_elapsed_time = 31;
+  google.protobuf.Duration delta_generating_elapsed_time = 32;
+  google.protobuf.Duration downloading_elapsed_time = 33;
+  google.protobuf.Duration update_applying_elapsed_time = 34;
 }

@@ -15,7 +15,7 @@
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import Protocol
+from typing import Generator, Protocol
 
 from ..proto import wrapper
 
@@ -44,7 +44,7 @@ class BootControllerProtocol(Protocol):
         ...
 
     @abstractmethod
-    def post_update(self):
+    def post_update(self) -> Generator[None, None, None]:
         ...
 
     @abstractmethod

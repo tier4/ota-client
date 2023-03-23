@@ -106,7 +106,6 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         )
         # NOTE: mock the shutdown method as we need to assert before the
         #       updater is closed.
-        _updater._set_update_phase = mocker.MagicMock()
         _updater_shutdown = _updater.shutdown
         _updater.shutdown = mocker.MagicMock()
 
@@ -120,23 +119,15 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         # ------ assertions ------ #
         # --- assert update finished
         _updater.shutdown.assert_called_once()
-        # --- assert each update phases are finished
-        _updater._set_update_phase.assert_any_call(wrapper.StatusProgressPhase.REGULAR)
-        _updater._set_update_phase.assert_any_call(
-            wrapper.StatusProgressPhase.DIRECTORY
-        )
-        # TODO: not test process_persistent currently
-        # _updater._set_update_phase.assert_any_call(
-        #     wrapper.StatusProgressPhase.PERSISTENT
-        # )
         # --- ensure the update stats are collected
         _snapshot = _updater._update_stats_collector.get_snapshot()
-        assert _snapshot.total_regular_files > 0
-        assert _snapshot.regular_files_processed > 0
-        assert _snapshot.file_size_processed_copy > 0
-        assert _snapshot.file_size_processed_download > 0
-        assert _snapshot.file_size_processed_link > 0
-        assert _snapshot.download_bytes > 0
+        assert _snapshot.processed_files_num
+        assert _snapshot.processed_files_size
+        assert _snapshot.downloaded_files_num
+        assert _snapshot.downloaded_files_size
+        assert _snapshot.downloaded_bytes
+        assert _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
+        assert _snapshot.update_applying_elapsed_time.export_pb().ToNanoseconds()
         # --- check slot creating result
         # NOTE: merge contents from slot_b_boot_dir to slot_b
         shutil.copytree(self.slot_b_boot_dir, self.slot_b / "boot", dirs_exist_ok=True)
@@ -153,6 +144,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
             ignore_errors=True,
         )
         shutil.rmtree(self.slot_b / "opt/ota", ignore_errors=True)
+        # --- check standby slot, ensure it is correctly populated
         compare_dir(Path(cfg.OTA_IMAGE_DIR) / "data", self.slot_b)
 
         # ------ finally close the updater ------ #

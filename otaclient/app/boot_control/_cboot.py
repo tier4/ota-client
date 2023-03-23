@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from functools import partial
 from subprocess import CalledProcessError
-from typing import Optional
+from typing import Generator, Optional
 
 
 from .. import log_setting
@@ -486,7 +486,7 @@ class CBootController(
             logger.error(f"failed on pre_update: {e!r}")
             raise BootControlPreUpdateFailed from e
 
-    def post_update(self):
+    def post_update(self) -> Generator[None, None, None]:
         try:
             # firmware update
             firmware = Firmware(
@@ -518,6 +518,7 @@ class CBootController(
             logger.info("post update finished, rebooting...")
             self._umount_all(ignore_error=True)
             self._cboot_control.switch_boot()
+            yield  # hand over control back to otaclient
             CMDHelperFuncs.reboot()
         except _errors.BootControlError as e:
             logger.error(f"failed on post_update: {e!r}")

@@ -253,7 +253,9 @@ class TestRPIBootControl:
 
         # ------ boot_controller_inst1.stage3: post_update, reboot switch boot ------ #
         # --- execution --- #
-        rpi_boot_controller1.post_update()
+        _post_updater = rpi_boot_controller1.post_update()
+        next(_post_updater)
+        next(_post_updater, None)  # actual reboot here
         # --- assertions: --- #
         # 1. make sure that retry boot is called
         # 2. make sure that fstab file is updated for slot_b

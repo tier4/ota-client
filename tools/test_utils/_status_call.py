@@ -13,41 +13,32 @@
 # limitations under the License.
 
 
+import itertools
 import time
-import asyncio
 from typing import Optional
-
 from otaclient.app.ota_client_call import OtaClientCall
-
 from . import _logutil
 
 logger = _logutil.get_logger(__name__)
 
 
-def call_status(
+async def call_status(
     ecu_id: str,
     ecu_ip: str,
     ecu_port: int,
     *,
     interval: float = 1,
-    count: Optional[float] = None,
+    count: Optional[int] = None,
 ):
     logger.debug(f"request status API on ecu(@{ecu_id}) at {ecu_ip}:{ecu_port}")
-    if count is None:
-        count = float("inf")
+    count_iter = range(count) if count else itertools.count()
 
-    _count = 0
-    while _count < count:
-        logger.debug(f"status request#{_count}")
+    poll_round = 0
+    for poll_round in count_iter:
+        logger.debug(f"status request#{poll_round}")
         try:
-            if response := asyncio.run(
-                OtaClientCall.status_call(
-                    ecu_id,
-                    ecu_ip,
-                    ecu_port,
-                )
-            ):
-                logger.debug(f"{response.data=}")
+            if response := await OtaClientCall.status_call(ecu_id, ecu_ip, ecu_port):
+                logger.debug(f"{response.export_pb()=}")
         except Exception as e:
             logger.debug(f"API request failed: {e!r}")
             continue

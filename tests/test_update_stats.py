@@ -22,42 +22,55 @@ from otaclient.app.update_stats import (
     RegProcessOperation,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class TestOTAUpdateStatsCollector:
-    WORKLOAD_COUNT = 1024
+    WORKLOAD_COUNT = 3000
     TOTAL_SIZE = WORKLOAD_COUNT * 2
     TOTAL_FILE_NUM = WORKLOAD_COUNT
 
     @pytest.fixture(autouse=True)
     def update_stats_collector(self):
         _collector = OTAUpdateStatsCollector()
-        _collector.set_total_regular_files(123456789)  # check init
         try:
             self._collector = _collector
             _collector.start()
+            _collector.store.total_files_num = self.TOTAL_FILE_NUM  # check init
+            _collector.store.total_files_size_uncompressed = (
+                self.TOTAL_SIZE
+            )  # check init
             yield
         finally:
             _collector.stop()
 
     def workload(self, idx: int):
         """
-        For odd idx, op is DOWNLOAD, for even idx, op is COPY
+        idx mod 3 == 0 is DOWNLOAD,
+        idx mod 3 == 1 is COPY,
+        idx mod 3 == 2 is APPLY_UPDATE,
+
         For each op, elapsed_ns is 1, size is 2, download_bytes is 1
         """
-        op = RegProcessOperation.OP_DOWNLOAD
-        if idx % 2 == 0:
-            op = RegProcessOperation.OP_COPY
-        self._collector.report(
-            RegInfProcessedStats(
-                op=op,
-                size=2,
-                download_bytes=1,
-                elapsed_ns=1,
-            )
-        )
+        _remainder = idx % 3
+        _report = RegInfProcessedStats(elapsed_ns=1, size=2)
+        if _remainder == 0:
+            _report.op = RegProcessOperation.DOWNLOAD_REMOTE_COPY
+            _report.downloaded_bytes = 1
+            self._collector.report_download_ota_files(_report)
+        elif _remainder == 1:
+            _report.op = RegProcessOperation.PREPARE_LOCAL_COPY
+            self._collector.report_prepare_local_copy(_report)
+        else:
+            # NOTE: simulate special treatment for APPLY_DELTA operation.
+            #       check update_stats.py:L116-119 for more details.
+            _report.op = RegProcessOperation.APPLY_DELTA
+            self._collector.report_apply_delta([_report, _report])
 
     def test_ota_update_stats_collecting(self):
-        self._collector.set_total_regular_files(self.TOTAL_FILE_NUM)
+        self._collector.store.total_files_num = self.TOTAL_FILE_NUM
         with ThreadPoolExecutor(max_workers=6) as pool:
             for idx in range(self.WORKLOAD_COUNT):
                 pool.submit(
@@ -68,19 +81,35 @@ class TestOTAUpdateStatsCollector:
         self._collector.wait_staging()
 
         # check result
-        # half workload is copy, and other half is download
         _snapshot = self._collector.get_snapshot()
-        assert _snapshot.files_processed_copy == self.TOTAL_FILE_NUM // 2
-        assert _snapshot.files_processed_download == self.TOTAL_FILE_NUM // 2
+        logger.info(f"{_snapshot=}")
+        # assert static info
+        assert _snapshot.total_files_num == self.TOTAL_FILE_NUM
+        assert _snapshot.total_files_size_uncompressed == self.TOTAL_SIZE
+        # total processed files num/size
+        assert _snapshot.processed_files_num == self.TOTAL_FILE_NUM
+        assert _snapshot.processed_files_size == self.TOTAL_SIZE
+        # download operation
+        assert _snapshot.downloaded_files_num == self.TOTAL_FILE_NUM // 3
+        assert _snapshot.downloaded_files_size == self.TOTAL_SIZE // 3
         assert (
-            _snapshot.elapsed_time_copy.export_pb().ToNanoseconds()
-            == self.WORKLOAD_COUNT // 2
+            _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
+            == self.WORKLOAD_COUNT // 3
         )
+        # actual download_bytes is half of the file_size_processed_download to
+        # simulate compression enabled scheme
+        assert _snapshot.downloaded_bytes == _snapshot.downloaded_files_size // 2
         assert (
-            _snapshot.elapsed_time_download.export_pb().ToNanoseconds()
-            == self.WORKLOAD_COUNT // 2
+            _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
+            == self.WORKLOAD_COUNT // 3
         )
-        assert _snapshot.file_size_processed_copy == self.TOTAL_SIZE // 2
-        assert _snapshot.file_size_processed_download == self.TOTAL_SIZE // 2
-        # actual download_bytes is half of the file_size_processed_download to simulate compression enabled scheme
-        assert _snapshot.download_bytes == _snapshot.file_size_processed_download // 2
+        # prepare local copy operation
+        assert (
+            _snapshot.delta_generating_elapsed_time.export_pb().ToNanoseconds()
+            == self.WORKLOAD_COUNT // 3
+        )
+        # applying update operation
+        assert (
+            _snapshot.update_applying_elapsed_time.export_pb().ToNanoseconds()
+            == self.WORKLOAD_COUNT // 3
+        )

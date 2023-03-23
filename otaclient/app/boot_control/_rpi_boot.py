@@ -18,6 +18,7 @@ import os
 import re
 from string import Template
 from pathlib import Path
+from typing import Generator
 
 from .. import log_setting
 from ..errors import (
@@ -494,7 +495,7 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             raise BootControlPostRollbackFailed from e
 
-    def post_update(self):
+    def post_update(self) -> Generator[None, None, None]:
         try:
             logger.info("rpi_boot: post-update setup...")
             self._copy_kernel_for_standby_slot()
@@ -502,6 +503,7 @@ class RPIBootController(BootControllerProtocol):
             self._write_standby_fstab()
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
+            yield  # hand over control back to otaclient
             self._rpiboot_control.reboot_tryboot()
         except OTAError:
             raise

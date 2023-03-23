@@ -191,13 +191,17 @@ class Test_OTAUpdater:
 class Test_OTAClient:
     """Full OTA update testing on otaclient workflow."""
 
-    MOCKED_STATUS_PROGRESS = wrapper.StatusProgress(
-        files_processed_copy=256,
-        file_size_processed_download=128,
-        file_size_processed_link=6,
+    MOCKED_STATUS_PROGRESS = wrapper.UpdateStatus(
+        downloaded_bytes=456789,
+        downloaded_files_num=567,
+        downloaded_files_size=25,
+        processed_files_num=256,
+        processed_files_size=134,
     )
+    MOCKED_STATUS_PROGRESS_V1 = MOCKED_STATUS_PROGRESS.convert_to_v1_StatusProgress()
     UPDATE_COOKIES_JSON = r'{"test": "my-cookie"}'
     MY_ECU_ID = "autoware"
+    OTACLIENT_VERSION = "otaclient_version"
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, tmp_path: Path, mocker: pytest_mock.MockerFixture):
@@ -217,10 +221,7 @@ class Test_OTAClient:
         )
         ### mock updater ###
         self._ota_updater = typing.cast(_OTAUpdater, mocker.MagicMock(spec=_OTAUpdater))
-        self._ota_updater.update_progress.return_value = (
-            cfg.UPDATE_VERSION,
-            self.MOCKED_STATUS_PROGRESS,
-        )
+        self._ota_updater.get_update_status.return_value = self.MOCKED_STATUS_PROGRESS
         ### mock otaupdate fsm ###
         self._fsm = typing.cast(OTAUpdateFSM, mocker.MagicMock(spec=OTAUpdateFSM))
         ### mocke threading.Lock ###
@@ -240,6 +241,7 @@ class Test_OTAClient:
             f"{cfg.OTACLIENT_MODULE_PATH}.threading.Lock",
             return_value=self._otaclient_lock,
         )
+        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.__version__", self.OTACLIENT_VERSION)
 
     def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
         from otaclient.app.ota_client import OTAClient
@@ -269,7 +271,6 @@ class Test_OTAClient:
         assert (
             _ota_client.live_ota_status.get_ota_status() == wrapper.StatusOta.UPDATING
         )
-        assert _ota_client.last_failure is None
         self._fsm.on_otaclient_failed.assert_not_called()
 
     def test_update_interrupted(self, mocker: pytest_mock.MockerFixture):
@@ -319,13 +320,22 @@ class Test_OTAClient:
         )
 
         _status = _ota_client.status()
-        assert _status == wrapper.StatusResponseEcu(
+        # assert v2 to v1 conversion
+        assert _status.convert_to_v1() == wrapper.StatusResponseEcu(
             ecu_id=self.MY_ECU_ID,
             result=wrapper.FailureType.NO_FAILURE,
             status=wrapper.Status(
                 version=cfg.CURRENT_VERSION,
                 status=wrapper.StatusOta.SUCCESS,
             ),
+        )
+        # assert to v2
+        assert _status == wrapper.StatusResponseEcuV2(
+            ecu_id=self.MY_ECU_ID,
+            otaclient_version=self.OTACLIENT_VERSION,
+            firmware_version=cfg.CURRENT_VERSION,
+            failure_type=wrapper.FailureType.NO_FAILURE,
+            ota_status=wrapper.StatusOta.SUCCESS,
         )
 
     def test_status_in_update(self, mocker: pytest_mock.MockerFixture):
@@ -342,12 +352,22 @@ class Test_OTAClient:
         _ota_client._update_executor = self._ota_updater
 
         _status = _ota_client.status()
-        assert _status == wrapper.StatusResponseEcu(
+        # test v2 to v1 conversion
+        assert _status.convert_to_v1() == wrapper.StatusResponseEcu(
             ecu_id=self.MY_ECU_ID,
             result=wrapper.FailureType.NO_FAILURE,
             status=wrapper.Status(
                 version=cfg.CURRENT_VERSION,
                 status=wrapper.StatusOta.UPDATING,
-                progress=self.MOCKED_STATUS_PROGRESS,
+                progress=self.MOCKED_STATUS_PROGRESS_V1,
             ),
+        )
+        # assert to v2
+        assert _status == wrapper.StatusResponseEcuV2(
+            ecu_id=self.MY_ECU_ID,
+            otaclient_version=self.OTACLIENT_VERSION,
+            failure_type=wrapper.FailureType.NO_FAILURE,
+            ota_status=wrapper.StatusOta.UPDATING,
+            firmware_version=cfg.CURRENT_VERSION,
+            update_status=self.MOCKED_STATUS_PROGRESS,
         )

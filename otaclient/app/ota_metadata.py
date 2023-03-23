@@ -68,7 +68,12 @@ from typing import (
 from typing_extensions import Self
 
 from .configs import config as cfg
-from .common import OTAFileCacheControl, RetryTaskMap, urljoin_ensure_base
+from .common import (
+    OTAFileCacheControl,
+    RetryTaskMap,
+    urljoin_ensure_base,
+    wait_with_backoff,
+)
 from .downloader import Downloader
 from .proto.wrapper import (
     MessageWrapper,
@@ -503,8 +508,8 @@ class OTAMetadata:
             if self._ota_metadata.compressed_rootfs_directory
             else None
         )
-
-        self.total_regular_size = self._ota_metadata.total_regular_size
+        self.total_files_size_uncompressed = self._ota_metadata.total_regular_size
+        self.total_files_num = 0  # will be updated after parsing regulars.txt
         # download, parse and store ota metatfiles
         self._process_text_base_otameta_files()
 
@@ -564,33 +569,43 @@ class OTAMetadata:
                     },
                 )
                 # convert to internal used version and store as binary files
+                _count = 0
                 with open(_metafile_fpath, "r") as _src_f, open(
                     Path(self._tmp_dir.name) / _parser_info.bin_fname, "wb"
                 ) as _dst_f:
                     exporter = Uint32LenDelimitedMsgWriter(
                         _dst_f, _parser_info.wrapper_type
                     )
-                    for _line in _src_f:
+                    for _count, _line in enumerate(_src_f, start=1):
                         exporter.write1_msg(_parser_info.text_parser(_line))
+
+                # get total_regular_files here
+                if _metafile.file == MetafilesV1.REGULAR_FNAME:
+                    self.total_files_num = _count
 
         _keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="process_metafiles") as _executor:
             _mapper = RetryTaskMap(
-                _process_text_base_otameta_file,
-                self._ota_metadata.get_img_metafiles(),
                 title="process_metafiles",
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-                backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
-                backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                retry_interval_f=partial(
+                    wait_with_backoff,
+                    _backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                    _backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                ),
                 max_retry=0,  # NOTE: we use another strategy below
                 executor=_executor,
             )
-            for _exp, _entry, _ in _mapper.execute():
-                if not isinstance(_exp, Exception):
+            for _, task_result in _mapper.map(
+                _process_text_base_otameta_file,
+                self._ota_metadata.get_img_metafiles(),
+            ):
+                is_successful, entry, fut = task_result
+                if is_successful:
                     _keep_failing_timer = time.time()
                     continue
 
-                logger.debug(f"metafile downloading failed: {_entry=}")
+                logger.debug(f"metafile downloading failed: {entry=}, {fut=}")
                 if (
                     time.time() - _keep_failing_timer
                     > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
