@@ -291,6 +291,8 @@ class Downloader:
             except Empty:
                 pass
             self._downloaded_bytes += traffic_bytes
+        # force clear downloader_active flag
+        self._downloader_active.clear()
 
     def configure_proxies(self, _proxies: Dict[str, str], /):
         self._proxies = _proxies.copy()
