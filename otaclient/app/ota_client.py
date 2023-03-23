@@ -228,7 +228,7 @@ class _OTAUpdater:
                     continue
 
                 # task failed
-                # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
+                # NOTE: for failed task, it must have retried <DOWNLOAD_RETRY>
                 #       time, so we manually create one download report
                 logger.debug(f"failed to download {entry=}: {fut}")
                 self._update_stats_collector.report_download_ota_files(
