@@ -92,17 +92,17 @@ class TestOTAUpdateStatsCollector:
         # download operation
         assert _snapshot.downloaded_files_num == self.TOTAL_FILE_NUM // 3
         assert _snapshot.downloaded_files_size == self.TOTAL_SIZE // 3
-        assert (
-            _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
-            == self.WORKLOAD_COUNT // 3
-        )
+        # NOTE: downloading_elapsed_time and downloaded_bytes is collected
+        #       by accessing the downloader's properties, so comment out the following
+        #       2 asserts.
+        # assert (
+        #     _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
+        #     == self.WORKLOAD_COUNT // 3
+        # )
         # actual download_bytes is half of the file_size_processed_download to
         # simulate compression enabled scheme
-        assert _snapshot.downloaded_bytes == _snapshot.downloaded_files_size // 2
-        assert (
-            _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
-            == self.WORKLOAD_COUNT // 3
-        )
+        # assert _snapshot.downloaded_bytes == _snapshot.downloaded_files_size // 2
+
         # prepare local copy operation
         assert (
             _snapshot.delta_generating_elapsed_time.export_pb().ToNanoseconds()

@@ -23,7 +23,7 @@ import requests.exceptions
 import urllib3.exceptions
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from queue import Empty, Full, Queue
+from queue import Empty, Queue
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
