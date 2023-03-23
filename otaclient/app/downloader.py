@@ -241,6 +241,7 @@ class Downloader:
         # downloading stats collecting
         self._traffic_report_que = Queue()
         self._downloading_thread_active_flag: Dict[int, threading.Event] = {}
+        self._downloader_active = threading.Event()
         self._downloaded_bytes = 0
         self._downloader_active_seconds = 0
 
@@ -257,11 +258,14 @@ class Downloader:
         """The accumulated time in seconds that downloader is active."""
         return self._downloader_active_seconds
 
+    @property
+    def is_downloader_active(self) -> bool:
+        return self._downloader_active.is_set()
+
     def _download_stats_collector(self):
         while not self.shutdowned.is_set():
             time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
             # ------ collect downloading_elapsed time by sampling ------ #
-            # at the moment we call the below codes,
             # if any of the threads is actively downloading,
             # then we treat the downloader is active during the <INTERVAL> period.
             if any(
@@ -270,7 +274,10 @@ class Downloader:
                     self._downloading_thread_active_flag.values(),
                 )
             ):
+                self._downloader_active.set()
                 self._downloader_active_seconds += self.DOWNLOAD_STAT_COLLECT_INTERVAL
+            else:
+                self._downloader_active.clear()
 
             # ------ collect downloaded bytes ------ #
             if self._traffic_report_que.empty():
