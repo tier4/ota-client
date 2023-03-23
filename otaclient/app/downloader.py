@@ -322,8 +322,6 @@ class Downloader:
         compression_alg: Optional[str] = None,
         use_http_if_proxy_set: bool = True,
     ) -> Tuple[int, int, int]:
-        _start_time = time.thread_time_ns()
-
         # special treatment for empty file
         if digest == self.EMPTY_STR_SHA256:
             if not (dst_p := Path(dst)).is_file():
@@ -427,8 +425,7 @@ class Downloader:
             logger.error(msg)
             raise HashVerificaitonError(url, dst, msg)
 
-        _end_time = time.thread_time_ns()
-        return _err_count, traffic_on_wire, _end_time - _start_time
+        return _err_count, traffic_on_wire, 0
 
     def download(
         self,
@@ -446,8 +443,8 @@ class Downloader:
         """Dispatcher for download tasks.
 
         Returns:
-            A tuple of ints, which are error counts, real downloaded bytes and
-                the download time cost.
+            A tuple of ints, which are error counts, real downloaded bytes
+                and a const 0.
         """
         if self.shutdowned.is_set():
             raise ValueError("downloader already shutdowned.")
