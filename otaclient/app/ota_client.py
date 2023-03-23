@@ -213,31 +213,32 @@ class _OTAUpdater:
                 executor=_executor,
             )
             for _, task_result in _mapper.map(_download_file, download_list):
-                # task successfully finished
                 is_successful, entry, fut = task_result
+                # reset keep_failing timer on succeeded task or
+                # downloader is active during the last <POLL_INTERVAL> period.
+                if is_successful or self._downloader.is_downloader_active:
+                    keep_failing_timer = time.time()
+                else:
+                    # task group keeps stuck longer than limit,
+                    # shutdown the task group and raise the exception
+                    if (
+                        time.time() - keep_failing_timer
+                        > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                    ):
+                        _mapper.shutdown()
+
                 if is_successful:
                     self._update_stats_collector.report_download_ota_files(fut.result())
-                    # reset the failing timer on one succeeded task
-                    keep_failing_timer = time.time()
-                    continue
-
-                # task failed
-                # NOTE: for failed task, it must have retried <DOWNLOAD_RETRY>
-                #       time, so we manually create one download report
-                logger.debug(f"failed to download {entry=}: {fut}")
-                self._update_stats_collector.report_download_ota_files(
-                    RegInfProcessedStats(
-                        op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
-                        download_errors=cfg.DOWNLOAD_RETRY,
-                    ),
-                )
-                # task group keeps failing longer than limit,
-                # shutdown the task group and raise the exception
-                if (
-                    time.time() - keep_failing_timer
-                    > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
-                ):
-                    _mapper.shutdown()
+                else:
+                    # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
+                    #       time, so we manually create one download report
+                    logger.debug(f"failed to download {entry=}: {fut}")
+                    self._update_stats_collector.report_download_ota_files(
+                        RegInfProcessedStats(
+                            op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
+                            download_errors=cfg.DOWNLOAD_RETRY,
+                        ),
+                    )
 
         # all tasks are finished, waif for stats collector to finish processing
         # all the reported stats
