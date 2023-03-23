@@ -45,30 +45,30 @@ logger = log_setting.get_logger(
 )
 
 
-class OtaProxyWrapper:
-    def __init__(self):
+class OTAProxyLauncher:
+    def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._closed = True
-        self._launcher_gen: Generator = None  # type: ignore
+        self._started = threading.Event()
+        self._ready = threading.Event()
+        self._otaproxy = None
+        self.cache_base_dir = Path(proxy_srv_cfg.BASE_DIR)
+        self.cache_db_file = Path(proxy_srv_cfg.DB_FILE)
 
     @staticmethod
-    def _start_otaproxy(init_cache):
-        """Main entry for ota_proxy in separate process.
-
-        NOTE: logging needs to be configured again.
-        """
+    def _start_otaproxy_process(*, init_cache: bool):
+        """Main entry for ota_proxy in separate process."""
         import uvloop
         import uvicorn
 
-        # configure logging for ota_proxy process
+        # configure logging for ota_proxy in new process
         log_setting.configure_logging(
             loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
         )
-        _otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
-        _otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
+        otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
+        otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
 
-        async def _start_uvicorn(init_cache: bool):
-            _ota_cache = OTACache(
+        async def _start():
+            ota_cache = OTACache(
                 cache_enabled=proxy_cfg.enable_local_ota_proxy_cache,
                 upper_proxy=proxy_cfg.upper_ota_proxy,
                 enable_https=proxy_cfg.gateway,
@@ -76,10 +76,11 @@ class OtaProxyWrapper:
             )
 
             # NOTE: explicitly set loop and http options
-            # to prevent using wrong libs
-            # NOTE 2: http=="httptools" will break ota_proxy
+            #       to prevent using wrong libs
+            # NOTE 2: explicitly set http="h11",
+            #       as http=="httptools" breaks ota_proxy functionality
             config = uvicorn.Config(
-                App(_ota_cache),
+                App(ota_cache),
                 host=proxy_cfg.local_ota_proxy_listen_addr,
                 port=proxy_cfg.local_ota_proxy_listen_port,
                 log_level="error",
@@ -91,84 +92,54 @@ class OtaProxyWrapper:
             await server.serve()
 
         uvloop.install()
-        asyncio.run(_start_uvicorn(init_cache))
+        asyncio.run(_start())
 
-    def _launcher(self, *, init_cache: bool):
-        _mp_ctx = multiprocessing.get_context("spawn")
-        _server_p = _mp_ctx.Process(
-            target=self._start_otaproxy,
-            args=[init_cache],
+    def start(self, *, init_cache: bool) -> Optional[int]:
+        with self._lock:
+            if self._started.is_set():
+                logger.warning("ignore multiple otaproxy start request")
+                return
+            self._started.set()
+
+        # scrub cache folder if cache re-use is possible
+        should_init_cache = init_cache or not (
+            self.cache_base_dir.is_dir() and self.cache_db_file.is_file()
         )
-        try:
-            _server_p.start()
-            logger.info(f"ota proxy server started(pid={_server_p.pid}, {proxy_cfg=})")
-            # wait for stop
-            _cleanup_cache = yield _server_p.pid
-            logger.info(f"closing otaproxy: {_cleanup_cache=}")
-            _server_p.terminate()
-            _server_p.join(timeout=16)
-            _server_p.close()
-            if _cleanup_cache:
-                shutil.rmtree(proxy_srv_cfg.BASE_DIR, ignore_errors=True)
-        finally:
-            self._closed, _server_p = True, None
-            logger.info("ota proxy server closed")
-
-    def start(self, init_cache: bool) -> Optional[int]:
-        """Launch ota_proxy as a separate process."""
-        if self._lock.acquire(blocking=False) and self._closed:
-            self._closed = False
+        if not should_init_cache:
+            scrub_helper = OTACacheScrubHelper(self.cache_db_file, self.cache_base_dir)
             try:
-                # NOTE, TODO: currently we always wait for otacache scrubing
-                #             before launching the otaproxy
-                _cache_base_dir = Path(proxy_srv_cfg.BASE_DIR)
-                _cache_db_file = Path(proxy_srv_cfg.DB_FILE)
-
-                _should_init_cache = init_cache or not (
-                    _cache_base_dir.is_dir() and _cache_db_file.is_file()
-                )
-                if not _should_init_cache:
-                    _scrub_helper = OTACacheScrubHelper(_cache_db_file, _cache_base_dir)
-                    try:
-                        _scrub_helper.scrub_cache()
-                    except Exception as e:
-                        logger.error(
-                            f"failed to complete cache scrub: {e!r}, force init cache"
-                        )
-                        _should_init_cache = True
-                    finally:
-                        del _scrub_helper
-
-                self._launcher_gen = self._launcher(init_cache=_should_init_cache)
-                return next(self._launcher_gen)
+                scrub_helper.scrub_cache()
             except Exception as e:
-                logger.error(f"failed to start otaproxy: {e!r}")
-                self._launcher_gen = None  # type: ignore
+                logger.error(f"scrub cache failed, force init: {e!r}")
+                should_init_cache = True
             finally:
-                self._lock.release()
-        else:
-            logger.warning("try to launch otaproxy again, ignored")
+                del scrub_helper
 
-    def stop(self, cleanup_cache=False):
-        """Shutdown ota_proxy.
+        # launch otaproxy server process
+        mp_ctx = multiprocessing.get_context("spawn")
+        self._otaproxy = mp_ctx.Process(
+            target=self._start_otaproxy_process,
+            kwargs={"init_cache": should_init_cache},
+            daemon=True,  # kill otaproxy if otaclient exists
+        )
+        self._otaproxy.start()
+        self._ready.set()
+        return self._otaproxy.pid
 
-        NOTE: cache folder cleanup is done in shutdown process.
-        """
-        if (
-            self._lock.acquire(blocking=False)
-            and not self._closed
-            and self._launcher_gen
-        ):
-            logger.info("shutdown otaproxy...")
-            try:
-                self._launcher_gen.send(cleanup_cache)
-            except StopIteration:
-                pass  # expected when gen finished
-            finally:
-                self._closed, self._launcher_gen = True, None  # type: ignore
-                self._lock.release()
-        else:
-            logger.warning("ignored unproper otaproxy shutdown request")
+    def stop(self, *, cleanup_cache: bool):
+        with self._lock:
+            if self._ready.is_set() and self._otaproxy:
+                self._otaproxy.terminate()
+                self._otaproxy.join()
+            self._otaproxy = None
+
+            if cleanup_cache:
+                logger.info("cleanup ota_cache on success")
+                shutil.rmtree(self.cache_base_dir, ignore_errors=True)
+
+            self._ready.clear()
+            self._started.clear()
+            logger.info("otaproxy closed")
 
 
 class _RequestHandlingSession:
@@ -188,7 +159,7 @@ class _RequestHandlingSession:
 
         # local ota_proxy server
         self.enable_otaproxy = enable_otaproxy
-        self._ota_proxy: Optional[OtaProxyWrapper] = None
+        self._ota_proxy: Optional[OTAProxyLauncher] = None
 
     @property
     def is_running(self) -> bool:
@@ -202,7 +173,7 @@ class _RequestHandlingSession:
                 self.update_request = request
 
                 if self.enable_otaproxy:
-                    self._ota_proxy = OtaProxyWrapper()
+                    self._ota_proxy = OTAProxyLauncher()
                     try:
                         await asyncio.get_running_loop().run_in_executor(
                             self._executor,
