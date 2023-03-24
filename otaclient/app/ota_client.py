@@ -199,6 +199,7 @@ class _OTAUpdater:
             cur_stat.size = _local_copy.stat().st_size
             return cur_stat
 
+        last_active_timestamp = int(time.time())
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
                 title="downloading_ota_files",
@@ -215,6 +216,7 @@ class _OTAUpdater:
                 is_successful, entry, fut = task_result
                 if is_successful:
                     self._update_stats_collector.report_download_ota_files(fut.result())
+                    last_active_timestamp = int(time.time())
                     continue
 
                 # on failed task
@@ -227,18 +229,18 @@ class _OTAUpdater:
                         download_errors=cfg.DOWNLOAD_RETRY,
                     ),
                 )
-                # if downloader becomes inactive longer than <limit>,
+                # if the download group becomes inactive longer than <limit>,
                 # force shutdown and breakout.
                 # NOTE: considering the edge condition that all downloading threads
                 #       are downloading large file, resulting time cost longer than
                 #       timeout limit, and one task is interrupted and yielded,
                 #       we should not breakout on this situation as other threads are
                 #       still downloading.
-                #       so we check the downloader's last active timestamp instead,
-                #       only breakout when downloader keeps inactive(no traffic)
-                #       for a certain long time, we breakou.
+                last_active_timestamp = max(
+                    last_active_timestamp, self._downloader.last_active_timestamp
+                )
                 if (
-                    int(time.time()) - self._downloader.last_active_timestamp
+                    int(time.time()) - last_active_timestamp
                     > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
                 ):
                     logger.error(
