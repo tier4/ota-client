@@ -178,6 +178,29 @@ class Downloader:
     DOWNLOAD_STAT_COLLECT_INTERVAL = 1
     MAX_TRAFFIC_STATS_COLLECT_PER_ROUND = 512
 
+    def __init__(self) -> None:
+        self._local = threading.local()
+        self._executor = ThreadPoolExecutor(
+            max_workers=min(self.MAX_DOWNLOAD_THREADS, (os.cpu_count() or 1) + 4),
+            thread_name_prefix="downloader",
+            initializer=self._thread_initializer,
+        )
+        self._hash_func = sha256
+        self._proxies: Optional[Dict[str, str]] = None
+        self._cookies: Optional[Dict[str, str]] = None
+        self.shutdowned = threading.Event()
+
+        # downloading stats collecting
+        self._traffic_report_que = Queue()
+        self._downloading_thread_active_flag: Dict[int, threading.Event] = {}
+        self._last_active_timestamp = 0
+        self._downloaded_bytes = 0
+        self._downloader_active_seconds = 0
+
+        # launch traffic collector
+        self._stats_collector = threading.Thread(target=self._download_stats_collector)
+        self._stats_collector.start()
+
     def _thread_initializer(self):
         # ------ setup the requests.Session ------ #
         session = requests.Session()
@@ -227,29 +250,6 @@ class Downloader:
         """Get thread-local private decompressor adapter accordingly."""
         return self._local._compression_support_matrix.get(compression_alg)
 
-    def __init__(self) -> None:
-        self._local = threading.local()
-        self._executor = ThreadPoolExecutor(
-            max_workers=min(self.MAX_DOWNLOAD_THREADS, (os.cpu_count() or 1) + 4),
-            thread_name_prefix="downloader",
-            initializer=self._thread_initializer,
-        )
-        self._hash_func = sha256
-        self._proxies: Optional[Dict[str, str]] = None
-        self._cookies: Optional[Dict[str, str]] = None
-        self.shutdowned = threading.Event()
-
-        # downloading stats collecting
-        self._traffic_report_que = Queue()
-        self._downloading_thread_active_flag: Dict[int, threading.Event] = {}
-        self._downloader_active = threading.Event()
-        self._downloaded_bytes = 0
-        self._downloader_active_seconds = 0
-
-        # launch traffic collector
-        self._stats_collector = threading.Thread(target=self._download_stats_collector)
-        self._stats_collector.start()
-
     @property
     def downloaded_bytes(self) -> int:
         return self._downloaded_bytes
@@ -260,25 +260,23 @@ class Downloader:
         return self._downloader_active_seconds
 
     @property
-    def is_downloader_active(self) -> bool:
-        return self._downloader_active.is_set()
+    def last_active_timestamp(self) -> int:
+        return self._last_active_timestamp
 
     def _download_stats_collector(self):
         while not self.shutdowned.is_set():
             time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
             # ------ collect downloading_elapsed time by sampling ------ #
             # if any of the threads is actively downloading,
-            # then we treat the downloader is active during the <INTERVAL> period.
+            # we update the last_active_timestamp.
             if any(
                 map(
                     lambda _event: _event.is_set(),
                     self._downloading_thread_active_flag.values(),
                 )
             ):
-                self._downloader_active.set()
+                self._last_active_timestamp = int(time.time())
                 self._downloader_active_seconds += self.DOWNLOAD_STAT_COLLECT_INTERVAL
-            else:
-                self._downloader_active.clear()
 
             # ------ collect downloaded bytes ------ #
             if self._traffic_report_que.empty():
@@ -291,8 +289,6 @@ class Downloader:
             except Empty:
                 pass
             self._downloaded_bytes += traffic_bytes
-        # force clear downloader_active flag
-        self._downloader_active.clear()
 
     def configure_proxies(self, _proxies: Dict[str, str], /):
         self._proxies = _proxies.copy()
