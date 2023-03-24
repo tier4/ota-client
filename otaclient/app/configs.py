@@ -131,7 +131,7 @@ class BaseConfig(_InternalSettings):
     # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
     # download task group and raise NETWORK OTA error.
     MAX_CONCURRENT_DOWNLOAD_TASKS = 128
-    DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT = 5 * 60  # seconds
+    DOWNLOAD_GROUP_INACTIVE_TIMEOUT = 5 * 60  # seconds
     DOWNLOAD_GROUP_BACKOFF_MAX = 12  # seconds
     DOWNLOAD_GROUP_BACKOFF_FACTOR = 1  # seconds
 

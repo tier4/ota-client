@@ -199,7 +199,6 @@ class _OTAUpdater:
             cur_stat.size = _local_copy.stat().st_size
             return cur_stat
 
-        keep_failing_timer = time.time()
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
                 title="downloading_ota_files",
@@ -214,31 +213,38 @@ class _OTAUpdater:
             )
             for _, task_result in _mapper.map(_download_file, download_list):
                 is_successful, entry, fut = task_result
-                # reset keep_failing timer on succeeded task or
-                # downloader is active during the last <POLL_INTERVAL> period.
-                if is_successful or self._downloader.is_downloader_active:
-                    keep_failing_timer = time.time()
-                else:
-                    # task group keeps stuck longer than limit,
-                    # shutdown the task group and raise the exception
-                    if (
-                        time.time() - keep_failing_timer
-                        > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
-                    ):
-                        _mapper.shutdown()
-
                 if is_successful:
                     self._update_stats_collector.report_download_ota_files(fut.result())
-                else:
-                    # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
-                    #       time, so we manually create one download report
-                    logger.debug(f"failed to download {entry=}: {fut}")
-                    self._update_stats_collector.report_download_ota_files(
-                        RegInfProcessedStats(
-                            op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
-                            download_errors=cfg.DOWNLOAD_RETRY,
-                        ),
+                    continue
+
+                # on failed task
+                # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
+                #       time, so we manually create one download report
+                logger.debug(f"failed to download {entry=}: {fut}")
+                self._update_stats_collector.report_download_ota_files(
+                    RegInfProcessedStats(
+                        op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
+                        download_errors=cfg.DOWNLOAD_RETRY,
+                    ),
+                )
+                # if downloader becomes inactive longer than <limit>,
+                # force shutdown and breakout.
+                # NOTE: considering the edge condition that all downloading threads
+                #       are downloading large file, resulting time cost longer than
+                #       timeout limit, and one task is interrupted and yielded,
+                #       we should not breakout on this situation as other threads are
+                #       still downloading.
+                #       so we check the downloader's last active timestamp instead,
+                #       only breakout when downloader keeps inactive(no traffic)
+                #       for a certain long time, we breakou.
+                if (
+                    int(time.time()) - self._downloader.last_active_timestamp
+                    > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
+                ):
+                    logger.error(
+                        f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
                     )
+                    _mapper.shutdown()
 
         # all tasks are finished, waif for stats collector to finish processing
         # all the reported stats
