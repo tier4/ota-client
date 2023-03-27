@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Iterator, Union, Dict, List, Tuple, Any
 
 from . import log_setting
-from .configs import config as cfg
+from .configs import config as cfg, server_cfg
 from .boot_control import BootloaderType
 
 logger = log_setting.get_logger(
@@ -32,6 +32,12 @@ DEFAULT_ECU_INFO = {
     "format_version": 1,  # current version is 1
     "ecu_id": "autoware",  # should be unique for each ECU in vehicle
 }
+
+
+class ECUContact:
+    ecu_id: str
+    host: str
+    port: int = server_cfg.SERVER_PORT
 
 
 @dataclass
@@ -96,6 +102,23 @@ class ECUInfo:
 
         # initialize ECUInfo inst
         return cls(**deepcopy(_ecu_info_dict))
+
+    def iter_direct_subecu_and_self_contact(self) -> Iterator[ECUContact]:
+        # add this ecu first
+        yield ECUContact(
+            ecu_id=self.ecu_id,
+            host=self.ip_addr,
+            port=server_cfg.SERVER_PORT,
+        )
+        for subecu in self.secondaries:
+            try:
+                yield ECUContact(
+                    ecu_id=subecu["ecu_id"],
+                    host=subecu["ip_addr"],
+                    port=subecu.get("port", server_cfg.SERVER_PORT),
+                )
+            except KeyError:
+                raise ValueError(f"{subecu=} info is invalid")
 
     def iter_secondary_ecus(self) -> Iterator[Tuple[str, str]]:
         """
