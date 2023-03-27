@@ -21,10 +21,11 @@ class ChildECUTracker:
     UNREACHABLE_ECU_TIMEOUT = 20 * 60  # seconds
 
     def __init__(self, ecu_info: ECUInfo) -> None:
-        self._direct_subecu = {
-            _ecu.ecu_id: _ecu for _ecu in ecu_info.iter_direct_subecu_contact()
+        self.my_ecu_id = ecu_info.ecu_id
+        self._direct_subecu_and_self = {
+            _ecu.ecu_id: _ecu for _ecu in ecu_info.iter_direct_subecu_and_self_contact()
         }
-        self._direct_subecu_ids = set(ecu_info.get_available_ecu_ids())
+        self._direct_subecu_and_self_ids = set(ecu_info.get_available_ecu_ids())
         self._lock = asyncio.Lock()
         self._started = asyncio.Event()
         self._shutdowned = asyncio.Event()
@@ -48,7 +49,7 @@ class ChildECUTracker:
 
     async def _poll_direct_subECU_once(self):
         poll_tasks: Dict[asyncio.Task, ECUContact] = {}
-        for _, ecu_contact in self._direct_subecu.items():
+        for _, ecu_contact in self._direct_subecu_and_self.items():
             _task = asyncio.create_task(
                 OtaClientCall.status_call(
                     ecu_contact.ecu_id,
