@@ -28,7 +28,7 @@ $(PB2_OUT_DIR)/__init__.py $(PB2_OUT_DIR)/v2/__init__.py:
 setup:
 	python3 -m pip install --upgrade pip
 	python3 -m pip install --upgrade setuptools wheel
-	python3 -m pip install -r ../tests/requirements.txt
+	python3 -m pip install -r requirements.txt
 
 .PHONY: whl
 whl: $(DEPS)
