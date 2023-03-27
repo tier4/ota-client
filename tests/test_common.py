@@ -305,7 +305,7 @@ class TestRetryTaskMap:
                     max_concurrent=self.MAX_CONCURRENT,
                     executor=pool,
                     retry_interval_f=partial(
-                        wait_with_backoff, _backoff_factor=0.01, _backoff_max=1
+                        wait_with_backoff, _backoff_factor=0.1, _backoff_max=1
                     ),
                     max_retry=0,  # we are testing keep failing timeout here
                 )
@@ -334,7 +334,7 @@ class TestRetryTaskMap:
                 max_concurrent=self.MAX_CONCURRENT,
                 executor=pool,
                 retry_interval_f=partial(
-                    wait_with_backoff, _backoff_factor=0.01, _backoff_max=1
+                    wait_with_backoff, _backoff_factor=0.1, _backoff_max=1
                 ),
                 max_retry=0,  # we are testing keep failing timeout here
             )
@@ -361,7 +361,7 @@ class TestRetryTaskMap:
                 max_concurrent=self.MAX_CONCURRENT,
                 executor=pool,
                 retry_interval_f=partial(
-                    wait_with_backoff, _backoff_factor=0.01, _backoff_max=1
+                    wait_with_backoff, _backoff_factor=0.1, _backoff_max=1
                 ),
                 max_retry=0,  # we are testing keep failing timeout here
             )

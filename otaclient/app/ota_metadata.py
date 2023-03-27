@@ -583,7 +583,7 @@ class OTAMetadata:
                 if _metafile.file == MetafilesV1.REGULAR_FNAME:
                     self.total_files_num = _count
 
-        _keep_failing_timer = time.time()
+        last_active_timestamp = int(time.time())
         with ThreadPoolExecutor(thread_name_prefix="process_metafiles") as _executor:
             _mapper = RetryTaskMap(
                 title="process_metafiles",
@@ -602,14 +602,21 @@ class OTAMetadata:
             ):
                 is_successful, entry, fut = task_result
                 if is_successful:
-                    _keep_failing_timer = time.time()
+                    last_active_timestamp = int(time.time())
                     continue
 
+                # on task failed
                 logger.debug(f"metafile downloading failed: {entry=}, {fut=}")
+                last_active_timestamp = max(
+                    last_active_timestamp, self._downloader.last_active_timestamp
+                )
                 if (
-                    time.time() - _keep_failing_timer
-                    > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                    int(time.time()) - last_active_timestamp
+                    > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
                 ):
+                    logger.error(
+                        f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
+                    )
                     _mapper.shutdown()
 
     # APIs

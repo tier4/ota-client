@@ -185,16 +185,11 @@ class _OTAUpdater:
         def _download_file(entry: RegularInf) -> RegInfProcessedStats:
             """Download single OTA image file."""
             cur_stat = RegInfProcessedStats(op=RegProcessOperation.DOWNLOAD_REMOTE_COPY)
-            _start_time, _download_time = time.thread_time_ns(), 0
 
             _fhash_str = entry.get_hash()
             _local_copy = self._ota_tmp_on_standby / _fhash_str
             entry_url, compression_alg = self._otameta.get_download_url(entry)
-            (
-                cur_stat.download_errors,
-                cur_stat.downloaded_bytes,
-                _download_time,
-            ) = self._downloader.download(
+            cur_stat.download_errors, _, _ = self._downloader.download(
                 entry_url,
                 _local_copy,
                 digest=_fhash_str,
@@ -202,10 +197,9 @@ class _OTAUpdater:
                 compression_alg=compression_alg,
             )
             cur_stat.size = _local_copy.stat().st_size
-            cur_stat.elapsed_ns = time.thread_time_ns() - _start_time + _download_time
             return cur_stat
 
-        keep_failing_timer = time.time()
+        last_active_timestamp = int(time.time())
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
             _mapper = RetryTaskMap(
                 title="downloading_ota_files",
@@ -219,16 +213,14 @@ class _OTAUpdater:
                 executor=_executor,
             )
             for _, task_result in _mapper.map(_download_file, download_list):
-                # task successfully finished
                 is_successful, entry, fut = task_result
                 if is_successful:
                     self._update_stats_collector.report_download_ota_files(fut.result())
-                    # reset the failing timer on one succeeded task
-                    keep_failing_timer = time.time()
+                    last_active_timestamp = int(time.time())
                     continue
 
-                # task failed
-                # NOTE: for failed task, it must have retried <DOWNLOAD_RETRY>
+                # on failed task
+                # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
                 #       time, so we manually create one download report
                 logger.debug(f"failed to download {entry=}: {fut}")
                 self._update_stats_collector.report_download_ota_files(
@@ -237,12 +229,23 @@ class _OTAUpdater:
                         download_errors=cfg.DOWNLOAD_RETRY,
                     ),
                 )
-                # task group keeps failing longer than limit,
-                # shutdown the task group and raise the exception
+                # if the download group becomes inactive longer than <limit>,
+                # force shutdown and breakout.
+                # NOTE: considering the edge condition that all downloading threads
+                #       are downloading large file, resulting time cost longer than
+                #       timeout limit, and one task is interrupted and yielded,
+                #       we should not breakout on this situation as other threads are
+                #       still downloading.
+                last_active_timestamp = max(
+                    last_active_timestamp, self._downloader.last_active_timestamp
+                )
                 if (
-                    time.time() - keep_failing_timer
-                    > cfg.DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT
+                    int(time.time()) - last_active_timestamp
+                    > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
                 ):
+                    logger.error(
+                        f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
+                    )
                     _mapper.shutdown()
 
         # all tasks are finished, waif for stats collector to finish processing
@@ -298,6 +301,9 @@ class _OTAUpdater:
         except Exception as e:
             logger.error(f"failed to finish downloading files: {e!r}")
             raise NetworkError from e
+
+        # shutdown downloader on download finished
+        self._downloader.shutdown()
 
         # ------ in_update ------ #
         logger.info("start to apply changes to standby slot...")
@@ -435,6 +441,12 @@ class _OTAUpdater:
         update_progress.total_download_files_num = self.total_download_files_num
         update_progress.total_download_files_size = self.total_download_fiies_size
         update_progress.total_remove_files_num = self.total_remove_files_num
+        # downloading stats
+        update_progress.downloaded_bytes = self._downloader.downloaded_bytes
+        update_progress.downloading_elapsed_time = wrapper.Duration(
+            seconds=self._downloader.downloader_active_seconds
+        )
+
         # update other information
         update_progress.phase = self.update_phase
         update_progress.total_elapsed_time = wrapper.Duration.from_nanoseconds(
