@@ -260,7 +260,7 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
 V2_V1_PHASE_MAPPING = {
     UpdatePhase.INITIALIZING: StatusProgressPhase.INITIAL,
     UpdatePhase.PROCESSING_METADATA: StatusProgressPhase.METADATA,
-    UpdatePhase.CALCULATING_DELTA: StatusProgressPhase.METADATA,
+    UpdatePhase.CALCULATING_DELTA: StatusProgressPhase.REGULAR,
     UpdatePhase.DOWNLOADING_OTA_FILES: StatusProgressPhase.REGULAR,
     UpdatePhase.APPLYING_UPDATE: StatusProgressPhase.REGULAR,
     UpdatePhase.PROCESSING_POSTUPDATE: StatusProgressPhase.POST_PROCESSING,
