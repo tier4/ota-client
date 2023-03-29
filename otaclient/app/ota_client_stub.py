@@ -148,6 +148,31 @@ class OTAProxyLauncher:
             self._ready.clear()
             self._started.clear()
             logger.info("otaproxy closed")
+            
+class OTAClientControlFlags:
+    def __init__(self) -> None:
+        self._can_reboot = threading.Event()
+        self._can_download = threading.Event()
+
+    @property
+    def otaclient_can_reboot(self) -> bool:
+        return self._can_reboot.is_set()
+
+    @property
+    def otaclient_can_download(self) -> bool:
+        return self._can_download.is_set()
+
+    # API
+
+    def on_otaproxy_ready(self):
+        self._can_download.set()
+
+    def on_all_child_ecus_exit_download(self):
+        self._can_reboot.set()
+
+    def reset(self):
+        self._can_reboot.clear()
+        self._can_download.clear()
 
 
 class _RequestHandlingSession:
