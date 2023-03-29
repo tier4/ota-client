@@ -4,8 +4,6 @@ import aiorwlock
 import time
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from otaclient.app.proto.otaclient_v2_pb2 import StatusResponseEcuV2
-
 from .log_setting import get_logger
 from .configs import server_cfg, config as cfg
 from .ota_client_call import OtaClientCall
@@ -28,7 +26,7 @@ class PollingTask:
         self.poll_interval = interval
 
     def start(self, poll_executable: Callable):
-        if self._fut or self.shutdown.is_set():
+        if self._fut or self.shutdown_event.is_set():
             return
 
         async def _inner():
@@ -206,7 +204,7 @@ class ChildECUTracker:
             await self._poll_direct_subECU_once()
 
     async def export_status_report(
-        self, self_ecu_status: StatusResponseEcuV2
+        self, self_ecu_status: wrapper.StatusResponseEcuV2
     ) -> wrapper.StatusResponse:
         async with self._rwlock.reader_lock:
             res = wrapper.StatusResponse()
