@@ -17,7 +17,7 @@ import yaml
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import Path
-from typing import Iterator, Union, Dict, List, Tuple, Any
+from typing import Iterator, NamedTuple, Union, Dict, List, Tuple, Any
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
@@ -34,7 +34,7 @@ DEFAULT_ECU_INFO = {
 }
 
 
-class ECUContact:
+class ECUContact(NamedTuple):
     ecu_id: str
     host: str
     port: int = server_cfg.SERVER_PORT
@@ -103,13 +103,7 @@ class ECUInfo:
         # initialize ECUInfo inst
         return cls(**deepcopy(_ecu_info_dict))
 
-    def iter_direct_subecu_and_self_contact(self) -> Iterator[ECUContact]:
-        # add this ecu first
-        yield ECUContact(
-            ecu_id=self.ecu_id,
-            host=self.ip_addr,
-            port=server_cfg.SERVER_PORT,
-        )
+    def iter_direct_subecu_contact(self) -> Iterator[ECUContact]:
         for subecu in self.secondaries:
             try:
                 yield ECUContact(
