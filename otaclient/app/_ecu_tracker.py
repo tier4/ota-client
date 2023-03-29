@@ -1,6 +1,5 @@
 """Tracking all child ECUs status."""
 import asyncio
-import aiorwlock
 import time
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -68,7 +67,7 @@ class ChildECUTracker:
         self._direct_subecu_ids.discard(ecu_info.ecu_id)
 
         # ------ dynamic updated information per polling ------ #
-        self._rwlock = aiorwlock.RWLock(fast=True)
+        self._writer_lock = asyncio.Lock()
         self._last_updated_timestamp = 0
         # all child ECUs scope stats
         self._all_available_child_ecus_id: Set[str] = set()
@@ -166,10 +165,6 @@ class ChildECUTracker:
     # properties
 
     @property
-    def available_child_ecu_ids(self) -> List[str]:
-        return list(self._all_available_child_ecus_id)
-
-    @property
     def any_in_update(self) -> Tuple[int, bool]:
         """Query whether there is at least one child ECU is updating.
 
@@ -200,25 +195,14 @@ class ChildECUTracker:
         Gathers status reports from all directly connected subECUs and self,
             and then parses and updates the internal summary stats.
         """
-        async with self._rwlock.writer_lock:
+        async with self._writer_lock:
             await self._poll_direct_subECU_once()
 
-    async def export_status_report(
-        self, self_ecu_status: wrapper.StatusResponseEcuV2
-    ) -> wrapper.StatusResponse:
-        async with self._rwlock.reader_lock:
-            res = wrapper.StatusResponse()
-            # ------ update available ecus id ------ #
-            _available_ecus_id = set()
-            _available_ecus_id.update(self._all_available_child_ecus_id)
-            _available_ecus_id.update(self.ecu_info.get_available_ecu_ids())
-            res.available_ecu_ids.extend(_available_ecus_id)
-            # ------ add ECU status report ------ #
-            for ecu_status in self._all_child_ecus_status.values():
-                res.add_ecu(ecu_status)
-            res.add_ecu(self_ecu_status)
+    def get_status_list(self) -> List[wrapper.StatusResponseEcuV2]:
+        return list(self._all_child_ecus_status.values())
 
-            return res
+    def get_available_child_ecu_ids(self) -> List[str]:
+        return list(self._all_available_child_ecus_id)
 
     def create_poll_task(self) -> PollingTask:
         """Create and schedule async background polling task.
