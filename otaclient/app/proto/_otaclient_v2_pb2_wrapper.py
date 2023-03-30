@@ -111,6 +111,11 @@ class RollbackRequest(MessageWrapper[_v2.RollbackRequest]):
                 return True
         return False
 
+    def find_rollback_req(self, ecu_id: str) -> _Optional[RollbackRequestEcu]:
+        for _ecu in self.ecu:
+            if _ecu.ecu_id == ecu_id:
+                return _ecu
+
 
 class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
     __slots__ = calculate_slots(_v2.RollbackRequestEcu)
@@ -395,6 +400,25 @@ class StatusResponseEcuV2(MessageWrapper[_v2.StatusResponseEcuV2]):
                 progress=self.update_status.convert_to_v1_StatusProgress(),
             ),
         )
+
+    @property
+    def is_in_update(self) -> bool:
+        return self.ota_status is StatusOta.UPDATING
+
+    @property
+    def is_failed(self) -> bool:
+        return self.ota_status is StatusOta.FAILURE
+
+    @property
+    def is_success(self) -> bool:
+        return self.ota_status is StatusOta.SUCCESS
+
+    @property
+    def is_updating_and_requires_network(self) -> bool:
+        if not self.ota_status is StatusOta.UPDATING:
+            return False
+        if self.update_status.phase <= UpdatePhase.DOWNLOADING_OTA_FILES:
+            return True
 
 
 class StatusResponse(MessageWrapper[_v2.StatusResponse]):
