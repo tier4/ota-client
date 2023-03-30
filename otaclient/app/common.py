@@ -15,12 +15,13 @@
 
 r"""Utils that shared between modules are listed here."""
 import asyncio
+import aiohttp
 import itertools
 import os
 import shlex
 import shutil
 import enum
-import socket
+import requests
 import subprocess
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, CancelledError, TimeoutError
@@ -42,6 +43,7 @@ from typing import (
     Generic,
 )
 from urllib.parse import urljoin, urlsplit
+
 
 from .log_setting import get_logger
 from .configs import config as cfg
@@ -601,70 +603,33 @@ def create_tmp_fname(prefix="tmp", length=6, sep="_") -> str:
     return f"{prefix}{sep}{os.urandom(length).hex()}"
 
 
-async def ensure_port_open_async(
-    host: str, port: int, *, interval: float, timeout: Optional[float] = None
-):
-    start_time = int(time.time())
-    timeout = timeout if timeout and timeout >= 0 else float("inf")
-    loop = asyncio.get_running_loop()
-    while start_time + timeout > int(time.time()):
-        try:
-            transport, _ = await loop.create_connection(
-                lambda: asyncio.Protocol(), host, port
-            )
-            transport.abort()
-            return
-        except Exception:
-            pass
-        await asyncio.sleep(interval)
-    raise ConnectionError(
-        f"failed to ensure connection to {host}:{port} in {timeout=}seconds"
-    )
-
-
-def ensure_port_open(
-    host: str, port: int, *, interval: float, timeout: Optional[float] = None
-):
-    start_time = int(time.time())
-    timeout = timeout if timeout and timeout >= 0 else float("inf")
-    while start_time + timeout > int(time.time()):
-        try:
-            s = socket.create_connection((host, port))
-            s.close()
-            return
-        except ConnectionError:
-            pass
-        time.sleep(interval)
-    raise ConnectionError(
-        f"failed to ensure connection to {host}:{port} in {timeout=}seconds"
-    )
-
-
 def ensure_http_server_open(
     url: str, *, interval: float, timeout: Optional[float] = None
 ):
-    split_url = urlsplit(url)
-    assert (host := split_url.hostname)
-    if not (port := split_url.port):
-        if split_url.scheme == "https":
-            port = 443
-        elif split_url.scheme == "http":
-            port = 80
-        else:
-            raise ValueError(f"cannot determine port for {url=}")
-    ensure_port_open(host, port, interval=interval, timeout=timeout)
+    start_time = int(time.time())
+    timeout = timeout if timeout and timeout >= 0 else float("inf")
+    with requests.Session() as session:
+        while start_time + timeout > int(time.time()):
+            try:
+                resp = session.get(url)
+                resp.close()
+                return
+            except ConnectionError:
+                time.sleep(interval)
+    raise ConnectionError(f"failed to ensure connection to {url} in {timeout=}seconds")
 
 
 async def ensure_http_server_open_async(
     url: str, *, interval: float, timeout: Optional[float] = None
 ):
-    split_url = urlsplit(url)
-    assert (host := split_url.hostname)
-    if not (port := split_url.port):
-        if split_url.scheme == "https":
-            port = 443
-        elif split_url.scheme == "http":
-            port = 80
-        else:
-            raise ValueError(f"cannot determine port for {url=}")
-    await ensure_port_open_async(host, port, interval=interval, timeout=timeout)
+    start_time = int(time.time())
+    timeout = timeout if timeout and timeout >= 0 else float("inf")
+    async with aiohttp.ClientSession() as session:
+        while start_time + timeout > int(time.time()):
+            try:
+                async with session.get(url) as resp:
+                    resp.close()
+                return
+            except ConnectionError:
+                await asyncio.sleep(interval)
+    raise ConnectionError(f"failed to ensure connection to {url} in {timeout=}seconds")
