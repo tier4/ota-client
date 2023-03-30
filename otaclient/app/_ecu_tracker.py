@@ -1,3 +1,18 @@
+# Copyright 2022 TIER IV, INC. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
 """Tracking all child ECUs status."""
 import asyncio
 import time
@@ -21,7 +36,7 @@ class PollingTask:
         self.shutdown_event = asyncio.Event()
         self._fut = None
 
-    def set_interval(self, interval: int):
+    def set_interval(self, interval: float):
         self.poll_interval = interval
 
     def start(self, poll_executable: Callable):
@@ -72,8 +87,8 @@ class ChildECUTracker:
         # all child ECUs scope stats
         self._all_available_child_ecus_id: Set[str] = set()
         self._all_child_ecus_status: Dict[str, wrapper.StatusResponseEcuV2] = {}
-        self._all_child_ecus_last_checked_timestamp: Dict[str, int] = {}
-        # status polling summary
+        self._all_child_ecus_last_contact_timestamp: Dict[str, int] = {}
+        # status summary
         # grouped by ota_status
         self._UPDATE_ecus_id: Set[str] = set()
         self._FAILURE_ecus_id: Set[str] = set()
@@ -83,7 +98,24 @@ class ChildECUTracker:
         # grouped by lossing connection longer than <limit>
         self._lost_ecus_id: Set[str] = set()
 
+        # ------ tracker fut ------ #
+        self._polling_task = self._start_polling_task()
+
+    def _start_polling_task(self) -> PollingTask:
+        """Create and schedule async background polling task.
+
+        Returns:
+            An instance of PollingTask, which can be used to control the
+                polling task(set polling interval, shutdown).
+        """
+        polling_task = PollingTask(poll_interval=self.NORMAL_INTERVAL)
+        polling_task.start(self.poll_once)
+        return polling_task
+
     async def _poll_direct_subECU_once(self):
+        current_timestamp = int(time.time())
+        self._last_updated_timestamp = current_timestamp
+
         poll_tasks: Dict[asyncio.Future, ECUContact] = {}
         for _, ecu_contact in self._direct_subecu.items():
             _task = asyncio.create_task(
@@ -111,18 +143,16 @@ class ChildECUTracker:
             for child_ecu_resp in subecu_resp.iter_ecu_status_v2():
                 _ecu_id = child_ecu_resp.ecu_id
                 self._all_child_ecus_status[_ecu_id] = child_ecu_resp
-                self._all_child_ecus_last_checked_timestamp[_ecu_id] = int(time.time())
+                self._all_child_ecus_last_contact_timestamp[_ecu_id] = current_timestamp
             self._all_available_child_ecus_id.update(subecu_resp.available_ecu_ids)
         poll_tasks.clear()
 
-        current_timestamp = int(time.time())
-        self._last_updated_timestamp = current_timestamp
         # ------ check lost ECU ------ #
         lost_ecus_id = set()
         for (
             _ecu_id,
             _ecu_last_update,
-        ) in self._all_child_ecus_last_checked_timestamp.items():
+        ) in self._all_child_ecus_last_contact_timestamp.items():
             if _ecu_last_update + self.UNREACHABLE_ECU_TIMEOUT > current_timestamp:
                 lost_ecus_id.add(_ecu_id)
         # add ECUs that never appear
@@ -145,16 +175,13 @@ class ChildECUTracker:
             if _ecu_id in lost_ecus_id:
                 continue
 
-            _ota_status = _ecu_status.ota_status
-            if _ota_status is wrapper.StatusOta.UPDATING:
+            if _ecu_status.is_in_update:
                 UPDATE_ecus_id.add(_ecu_id)
-                # further check the update phase, is this ECU requires network?
-                _update_phase = _ecu_status.update_status.phase
-                if _update_phase <= wrapper.UpdatePhase.DOWNLOADING_OTA_FILES:
+                if _ecu_status.is_updating_and_requires_network:
                     UPDATE_in_downloading_ecus_id.add(_ecu_id)
-            elif _ota_status is wrapper.StatusOta.SUCCESS:
+            elif _ecu_status.is_success:
                 SUCCESS_ecus_id.add(_ecu_id)
-            elif _ota_status is wrapper.StatusOta.FAILURE:
+            elif _ecu_status.is_failed:
                 FAILURE_ecus_id.add(_ecu_id)
 
         self._UPDATE_ecus_id = UPDATE_ecus_id
@@ -176,7 +203,7 @@ class ChildECUTracker:
 
     @property
     def any_requires_otaproxy(self) -> Tuple[int, bool]:
-        """Query Whether there is at least one child ECU requires otaproxy.
+        """Query whether there is at least one child ECU requires otaproxy.
 
         Returns:
             A tuple consists of an int of last_updated_timestamp, and a boll
@@ -186,6 +213,11 @@ class ChildECUTracker:
             self._last_updated_timestamp,
             len(self._UPDATE_in_downloading_ecus_id) > 0,
         )
+
+    @property
+    def any_failed_ecu(self) -> Tuple[int, bool]:
+        """Query whether there is at least one failed ECU."""
+        return self._last_updated_timestamp, len(self._FAILURE_ecus_id) > 0
 
     # API
 
@@ -204,13 +236,11 @@ class ChildECUTracker:
     def get_available_child_ecu_ids(self) -> List[str]:
         return list(self._all_available_child_ecus_id)
 
-    def create_poll_task(self) -> PollingTask:
-        """Create and schedule async background polling task.
+    def set_polling_interval(self, interval: float):
+        if self._polling_task:
+            self._polling_task.set_interval(interval=interval)
 
-        Returns:
-            An instance of PollingTask, which can be used to control the
-                polling task(set polling interval, shutdown).
-        """
-        polling_task = PollingTask(poll_interval=self.NORMAL_INTERVAL)
-        polling_task.start(self.poll_once)
-        return polling_task
+    async def shutdown_polling_task(self):
+        if self._polling_task:
+            await self._polling_task.shutdown()
+            self._polling_task = None
