@@ -22,7 +22,7 @@ from functools import partial
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from typing import Type, Iterator
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from otaclient import __version__  # type: ignore
 from .errors import (
@@ -30,12 +30,16 @@ from .errors import (
     NetworkError,
     OTA_APIError,
     OTAError,
-    OTAProxyFailedToStart,
     OTARollbackError,
     OTAUpdateError,
 )
 from .boot_control import BootControllerProtocol
-from .common import RetryTaskMap, wait_with_backoff
+from .common import (
+    RetryTaskMap,
+    ensure_http_server_open,
+    wait_with_backoff,
+    ensure_port_open,
+)
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol
 from .downloader import (
@@ -71,68 +75,32 @@ logger = log_setting.get_logger(
 )
 
 
-class OTAUpdateFSM:
-    WAIT_INTERVAL = 3
+class OTAClientControlFlags:
+    """
+    When self ECU's otaproxy is enabled, all the child ECUs of this ECU
+        and self ECU OTA update will depend on its otaproxy, we need to
+        control when otaclient can start its downloading/reboot with considering
+        whether local otaproxy is started/required.
+
+    NOTE: if local_otaproxy is not enabled,
+        otaclient_wait_for_reboot and otaclient_can_start_downloading will
+        always return immediately as otaproxy is not used.
+    """
 
     def __init__(self) -> None:
-        self._ota_proxy_ready = threading.Event()
-        self._otaclient_finish_update = threading.Event()
-        self._stub_cleanup_finish = threading.Event()
-        self.otaclient_failed = threading.Event()
-        self.otaservice_failed = threading.Event()
+        self._can_reboot = threading.Event()
+        self.local_otaproxy_enabled = proxy_cfg.enable_local_ota_proxy
 
-    def on_otaclient_failed(self):
-        self.otaclient_failed.set()
+    def otaclient_wait_for_reboot(self):
+        if not self.local_otaproxy_enabled:
+            return
+        self._can_reboot.wait()
 
-    def on_otaservice_failed(self):
-        self.otaservice_failed.set()
+    def set_can_reboot_flag(self):
+        self._can_reboot.set()
 
-    def stub_pre_update_ready(self):
-        self._ota_proxy_ready.set()
-
-    def client_finish_update(self):
-        self._otaclient_finish_update.set()
-
-    def stub_cleanup_finished(self):
-        self._stub_cleanup_finish.set()
-
-    def client_wait_for_ota_proxy(self) -> bool:
-        """Local otaclient wait for stub(to setup ota_proxy server).
-
-        Return:
-            A bool to indicate whether the ota_proxy launching is successful or not.
-        """
-        while (
-            not self.otaservice_failed.is_set() and not self._ota_proxy_ready.is_set()
-        ):
-            time.sleep(self.WAIT_INTERVAL)
-        return not self.otaclient_failed.is_set()
-
-    def client_wait_for_reboot(self) -> bool:
-        """Local otaclient should reboot after the stub cleanup finished.
-
-        Return:
-            A bool indicates whether the ota_client_stub cleans up successfully.
-        """
-        while (
-            not self.otaservice_failed.is_set()
-            and not self._stub_cleanup_finish.is_set()
-        ):
-            time.sleep(self.WAIT_INTERVAL)
-        return not self.otaclient_failed.is_set()
-
-    def stub_wait_for_local_update(self) -> bool:
-        """OTA client stub should wait for local update finish before cleanup.
-
-        Return:
-            A bool indicates whether the local update is successful or not.
-        """
-        while (
-            not self.otaclient_failed.is_set()
-            and not self._otaclient_finish_update.is_set()
-        ):
-            time.sleep(self.WAIT_INTERVAL)
-        return not self.otaclient_failed.is_set()
+    def clear_can_reboot_flag(self):
+        self._can_reboot.clear()
 
 
 class _OTAUpdater:
@@ -316,7 +284,12 @@ class _OTAUpdater:
         logger.info("finished updating standby slot")
 
     def _execute_update(
-        self, version: str, raw_url_base: str, cookies_json: str, *, fsm: OTAUpdateFSM
+        self,
+        version: str,
+        raw_url_base: str,
+        cookies_json: str,
+        *,
+        control_flags: OTAClientControlFlags,
     ):
         """OTA update workflow implementation.
 
@@ -358,9 +331,10 @@ class _OTAUpdater:
         # configure proxy
         logger.debug("configure proxy setting...")
         if proxy := proxy_cfg.get_proxy_for_local_ota():
-            # wait for stub to setup the local ota_proxy server
-            if not fsm.client_wait_for_ota_proxy():
-                raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
+            # wait for otaproxy to be ready
+            # TODO: timeout for waiting otaproxy
+            # TODO: make otaproxy scrubing not blocking the otaproxy starts
+            ensure_http_server_open(proxy, interval=1, timeout=10 * 60)
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.
             logger.debug(f"use {proxy=} for local OTA update")
@@ -398,8 +372,6 @@ class _OTAUpdater:
             raise
         except Exception as e:
             raise ApplyOTAUpdateFailed(f"unspecific applying OTA update failure: {e!r}")
-        # local update finished, set the status to POST_PROCESSING
-        fsm.client_finish_update()
 
         # ------ post update ------ #
         logger.info("local update finished, wait on all subecs...")
@@ -409,12 +381,8 @@ class _OTAUpdater:
         next(_postupdate_gen := self._boot_controller.post_update())
 
         # wait for sub ecu if needed before rebooting
-        # NOTE: still reboot event local cleanup failed as the update itself is successful
-        # TODO: main ecu wait for reboot logic
-        fsm.client_wait_for_reboot()
-
-        # boot controller next: restart
-        next(_postupdate_gen, None)
+        control_flags.otaclient_wait_for_reboot()
+        next(_postupdate_gen, None)  # reboot
 
     # API
 
@@ -455,14 +423,16 @@ class _OTAUpdater:
         return update_progress
 
     def execute(
-        self, version: str, raw_url_base: str, cookies_json: str, *, fsm: OTAUpdateFSM
+        self, version: str, raw_url_base: str, cookies_json: str, *, control_flags
     ):
         """Main entry for executing local OTA update.
 
         Handles OTA failure and logging/finalizing on failure.
         """
         try:
-            self._execute_update(version, raw_url_base, cookies_json, fsm=fsm)
+            self._execute_update(
+                version, raw_url_base, cookies_json, control_flags=control_flags
+            )
         except OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
@@ -546,7 +516,7 @@ class OTAClient(OTAClientProtocol):
         url_base: str,
         cookies_json: str,
         *,
-        fsm: OTAUpdateFSM,
+        control_flags: OTAClientControlFlags,
     ):
         if self._lock.acquire(blocking=False):
             try:
@@ -559,10 +529,11 @@ class OTAClient(OTAClientProtocol):
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
-                self._update_executor.execute(version, url_base, cookies_json, fsm=fsm)
+                self._update_executor.execute(
+                    version, url_base, cookies_json, control_flags=control_flags
+                )
             except OTAUpdateError as e:
                 self._on_failure(e, wrapper.StatusOta.FAILURE)
-                fsm.on_otaclient_failed()
             finally:
                 self._update_executor = None  # type: ignore
                 gc.collect()  # trigger a forced gc
@@ -596,17 +567,16 @@ class OTAClient(OTAClientProtocol):
             )
 
     def status(self) -> StatusResponseEcuV2:
-        _live_ota_status = self.live_ota_status.get_ota_status()
-        _res = StatusResponseEcuV2(
+        live_ota_status = self.live_ota_status.get_ota_status()
+        status_report = StatusResponseEcuV2(
             ecu_id=self.my_ecu_id,
             firmware_version=self.current_version,
             otaclient_version=__version__,
-            ota_status=_live_ota_status,
+            ota_status=live_ota_status,
             failure_type=self.last_failure_type,
             failure_reason=self.last_failure_reason,
             failure_traceback=self.last_failure_traceback,
         )
-        if _live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
-            _res.update_status = self._update_executor.get_update_status()
-
-        return _res
+        if live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
+            status_report.update_status = self._update_executor.get_update_status()
+        return status_report
