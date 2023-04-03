@@ -21,24 +21,23 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 from urllib.parse import urlsplit
 
 
 from . import log_setting
-from ._ecu_tracker import ChildECUTracker, PollingTask
-from .boot_control import get_boot_controller
-from .configs import server_cfg, config as cfg
+from ._ecu_tracker import ECUStatusStorage, SubECUTracker
+from .configs import config as cfg
 from .common import ensure_http_server_open
-from .create_standby import get_standby_slot_creator
 from .ecu_info import ECUInfo
-from .ota_client import OTAClient, OTAClientControlFlags
-from .ota_client_call import OtaClientCall
+from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientStub
+from .ota_client_call import batch_rollback, batch_update
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
 from otaclient.ota_proxy.config import config as proxy_srv_cfg
 from otaclient.ota_proxy import App, OTACache, OTACacheScrubHelper
+
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -122,8 +121,8 @@ class OTAProxyLauncher:
         asyncio.run(_start())
 
     @property
-    def is_started(self) -> bool:
-        return self.started.is_set()
+    def is_running(self) -> bool:
+        return self.started.is_set() and self.ready.is_set()
 
     async def start(self, *, init_cache: bool) -> Optional[int]:
         async with self._lock:
@@ -149,6 +148,9 @@ class OTAProxyLauncher:
         return otaproxy.pid
 
     async def stop(self, *, cleanup_cache: bool):
+        if self._lock.locked():
+            return
+
         def _shutdown():
             if self._otaproxy:
                 self._otaproxy.terminate()
@@ -160,255 +162,16 @@ class OTAProxyLauncher:
                 shutil.rmtree(proxy_srv_cfg.BASE_DIR, ignore_errors=True)
 
         async with self._lock:
-            if self.started.is_set() and self.ready.is_set():
-                await self._run_in_executor(_shutdown)
             self.ready.clear()
             self.started.clear()
+            if self.started.is_set() and self.ready.is_set():
+                await self._run_in_executor(_shutdown)
             logger.info("otaproxy closed")
 
 
-class OTAClientBusy(Exception):
-    """Raised when otaclient receive another request when doing update/rollback."""
-
-
-class OTAClientStub:
-    STATUS_POLLING_INTERVAL = cfg.STATS_COLLECT_INTERVAL
-
-    def __init__(
-        self,
-        *,
-        ecu_info: ECUInfo,
-        executor: ThreadPoolExecutor,
-        control_flags: OTAClientControlFlags,
-    ) -> None:
-        self.update_rollback_lock = (
-            asyncio.Lock()
-        )  # only one update/rollback is allowed at a time
-        self.my_ecu_id = ecu_info.ecu_id
-        self._run_in_executor = partial(
-            asyncio.get_running_loop().run_in_executor, executor
-        )
-        self._control_flags = control_flags
-
-        self.otaclient = OTAClient(
-            boot_control_cls=get_boot_controller(ecu_info.get_bootloader()),
-            create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
-            my_ecu_id=self.my_ecu_id,
-        )
-
-        # proxy used by local otaclient
-        # NOTE: it can be an upper proxy, or local otaproxy
-        self.local_used_proxy_url = (
-            urlsplit(_proxy)
-            if (_proxy := proxy_cfg.get_proxy_for_local_ota())
-            else None
-        )
-        self.local_otaproxy_enabled = proxy_cfg.enable_local_ota_proxy
-
-        self.shutdown_event = asyncio.Event()
-        self.last_status_report = self.otaclient.status()
-        self.last_status_report_timestamp = 0
-        self.last_operation = None  # update/rollback/None
-
-        self._status_polling_task = PollingTask(
-            poll_interval=self.STATUS_POLLING_INTERVAL
-        )
-        self._status_polling_task = self._status_polling_task.start(
-            self._status_polling
-        )
-
-    async def _status_polling(self):
-        status_report = await self._run_in_executor(self.otaclient.status)
-        self.last_status_report = status_report
-        self.last_status_report_timestamp = int(time.time())
-
-    # properties
-
-    @property
-    def requires_local_otaproxy(self) -> bool:
-        if not self.local_otaproxy_enabled:
-            return False
-        return self.last_status_report.is_updating_and_requires_network
-
-    @property
-    def is_updating(self) -> bool:
-        return self.last_status_report.is_in_update
-
-    @property
-    def is_failed(self) -> bool:
-        return self.last_status_report.is_failed
-
-    @property
-    def is_success(self) -> bool:
-        return self.last_status_report.is_success
-
-    # API method
-
-    async def dispatch_update(self, request: wrapper.UpdateRequestEcu):
-        """Dispatch update request to otaclient.
-
-        Raises:
-            OTAClientBusy if otaclient is already executing update/rollback.
-        """
-        if self.update_rollback_lock.locked():
-            raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
-
-        async def _update():
-            async with self.update_rollback_lock:
-                self.last_operation = wrapper.StatusOta.UPDATING
-                try:
-                    await self._run_in_executor(
-                        partial(
-                            self.otaclient.update,
-                            request.version,
-                            request.url,
-                            request.cookies,
-                            control_flags=self._control_flags,
-                        )
-                    )
-                finally:
-                    self.last_operation = None
-
-        # dispatch update to background
-        asyncio.create_task(_update())
-
-    async def dispatch_rollback(self, _: wrapper.RollbackRequestEcu):
-        """Dispatch update request to otaclient.
-
-        Raises:
-            OTAClientBusy if otaclient is already executing update/rollback.
-        """
-        if self.update_rollback_lock.locked():
-            raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
-
-        async def _rollback():
-            async with self.update_rollback_lock:
-                self.last_operation = wrapper.StatusOta.ROLLBACKING
-                try:
-                    await self._run_in_executor(self.otaclient.rollback)
-                finally:
-                    self.last_operation = None
-
-        # dispatch to background
-        asyncio.create_task(_rollback())
-
-    def get_status(self) -> wrapper.StatusResponseEcuV2:
-        return self.last_status_report
-
-
-class _OTAUpdateRequestHandler:
-    """
-    Implementation of logics when an update request is received.
-
-    The following logics are implemented:
-    1. otaclient should not reboot when there is at least one child
-        ECU or self ECU still requires local otaproxy,
-    2. start otaproxy when at least one child ECU or self ECU requires
-        local otaproxy,
-    3. shutdown otaproxy if running when no ECU requires it.
-    """
-
-    DELAY = 60  # seconds
-    POLLING_INTERVAL = 10  # seconds
-    NORMAL_STATUS_POLL_INTERVAL = 30  # seconds
-    ACTIVE_STATUS_POLL_INTERVAL = 1  # seconds
-
-    def __init__(
-        self,
-        *,
-        otaclient_stub: OTAClientStub,
-        ecu_tracker: ChildECUTracker,
-        otaproxy: OTAProxyLauncher,
-        control_flag: OTAClientControlFlags,
-    ) -> None:
-        self.shutdown_event = asyncio.Event()
-        self.active_update_exist = asyncio.Event()
-        self.last_update_request_received_timestamp = 0
-
-        self._otaproxy = otaproxy
-        self._otaclient_stub = otaclient_stub
-        self._ecu_tracker = ecu_tracker
-        self._control_flag = control_flag
-
-    # internal properties
-
-    @property
-    def _any_failed(self) -> bool:
-        _, any_failed_child_ecu = self._ecu_tracker.any_failed_ecu
-        return self._otaclient_stub.is_failed or any_failed_child_ecu
-
-    @property
-    def _any_requires_otaproxy(self) -> bool:
-        """if any of the child ECU or self ECU requires self ECU's otaproxy."""
-        (
-            _,
-            any_child_ecu_requires_otaproxy,
-        ) = self._ecu_tracker.any_requires_otaproxy
-        return (
-            self._otaclient_stub.requires_local_otaproxy
-            and any_child_ecu_requires_otaproxy
-        )
-
-    # internal methods
-
-    async def _start_otaproxy(self):
-        if self._otaproxy.is_started:
-            return
-        await self._otaproxy.start(init_cache=not self._any_failed)
-        self._control_flag
-
-    async def _stop_otaproxy(self):
-        if not self._otaproxy.is_started:
-            return
-        # TODO: only cleanup cache for SUCCESS ECU.
-        await self._otaproxy.stop(cleanup_cache=not self._any_failed)
-
-    async def _status_checking(self):
-        while not self.shutdown_event.is_set():
-            cur_timestamp = int(time.time())
-
-            # NOTE: introduce DELAY to prevent pre-mature otaproxy stopping due to
-            #       some of the child ECUs not yet received/react to update request
-            not_pre_mature_status_switching = (
-                self.last_update_request_received_timestamp + self.DELAY > cur_timestamp
-            )
-
-            # otaproxy lifecycle/dependency management
-            if self._any_requires_otaproxy:
-                if not self._otaproxy.is_started:
-                    await self._otaproxy.start(init_cache=not self._any_failed)
-                    self._control_flag.clear_can_reboot_flag()
-            else:
-                if self._otaproxy.is_started and not_pre_mature_status_switching:
-                    await self._otaproxy.stop(cleanup_cache=not self._any_failed)
-                    self._control_flag.set_can_reboot_flag()
-
-            # status polling interval tunning if no active update
-            if not (
-                self._ecu_tracker.any_in_update or self._otaclient_stub.is_updating
-            ):
-                if (
-                    self.active_update_exist.is_set()
-                    and not_pre_mature_status_switching
-                ):
-                    self.active_update_exist.clear()
-                    self._ecu_tracker.set_polling_interval(
-                        self.NORMAL_STATUS_POLL_INTERVAL
-                    )
-
-            await asyncio.sleep(self.POLLING_INTERVAL)
-
-    # API
-
-    async def on_update_request(self, _: wrapper.UpdateRequest):
-        """A fast-path to trigger active status polling."""
-        self.last_update_request_received_timestamp = int(time.time())
-        self.active_update_exist.set()
-        # reduce status polling task interval on active ECU cluster
-        self._ecu_tracker.set_polling_interval(self.ACTIVE_STATUS_POLL_INTERVAL)
-
-
 class OTAClientServiceStub:
+    DELAY = 60  # seconds
+    POLLING_INTERVAL = 20  # seconds
     NORMAL_STATUS_POLL_INTERVAL = 30  # seconds
     ACTIVE_STATUS_POLL_INTERVAL = 1  # seconds
 
@@ -423,51 +186,67 @@ class OTAClientServiceStub:
         self.my_ecu_id = ecu_info.get_ecu_id()
 
         self._otaclient_control_flags = OTAClientControlFlags()
+
+        # a storage that contains all child ECUs and seld ECU status
+        self._ecu_status_storage = ECUStatusStorage()
+        # tracker that keeps tracking all child ECUs status
+        self._sub_ecu_tracker = SubECUTracker(
+            ecu_info, storage=self._ecu_status_storage
+        )
         self._otaclient_stub = OTAClientStub(
             ecu_info=ecu_info,
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
+            ecu_status_storage=self._ecu_status_storage,
         )
-        self._otaproxy = OTAProxyLauncher(executor=self._executor)
-        self._ecu_tracker = ChildECUTracker(ecu_info)
+        self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
 
-        # update request handler
-        self._update_request_handler = _OTAUpdateRequestHandler(
-            otaclient_stub=self._otaclient_stub,
-            otaproxy=self._otaproxy,
-            ecu_tracker=self._ecu_tracker,
-            control_flag=self._otaclient_control_flags,
-        )
+        # status tracker
+        self._status_checking_shutdown_event = asyncio.Event()
+        self._status_tracker = asyncio.create_task(self._status_checking())
+
+    # internal, status checking loop
+
+    def _is_within_delay_period(self):
+        """OTAProxy should not be altered within the delay period."""
+        cur_timestamp = int(time.time())
+        return cur_timestamp <= self.last_update_request_received_timestamp + self.DELAY
+
+    async def _otaproxy_lifecycle_management(self):
+        if self._otaproxy_launcher.is_running:
+            if not self._ecu_status_storage.any_requires_network:
+                no_failed = not self._ecu_status_storage.any_failed
+                await self._otaproxy_launcher.stop(cleanup_cache=no_failed)
+        else:
+            no_failed = not self._ecu_status_storage.any_failed
+            await self._otaproxy_launcher.start(init_cache=no_failed)
+
+    async def _status_checking(self):
+        while not self._status_checking_shutdown_event.is_set():
+            # otaproxy management
+            if not self._is_within_delay_period():
+                await self._otaproxy_lifecycle_management()
+
+            # otaclient control flag
+            if not self._ecu_status_storage.any_requires_network:
+                self._otaclient_control_flags.set_can_reboot_flag()
+
+    async def _on_update_request(self, _: wrapper.UpdateRequest):
+        """A fast-path to trigger active status polling."""
+        self.last_update_request_received_timestamp = int(time.time())
 
     # API stub
 
     async def update(self, request: wrapper.UpdateRequest) -> wrapper.UpdateResponse:
         logger.info(f"receive update request: {request}")
         # signal the update handler
-        await self._update_request_handler.on_update_request(request)
+        await self._on_update_request(request)
         response = wrapper.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs
         # simultaneously dispatching update requests to all subecus without blocking
-        tasks: List[asyncio.Task] = []
-        for ecu_contact in self.ecu_info.iter_direct_subecu_contact():
-            if request.if_contains_ecu(ecu_contact.ecu_id):
-                logger.debug(f"send update request to ecu@{ecu_contact=}")
-                tasks.append(
-                    asyncio.create_task(
-                        OtaClientCall.update_call(
-                            ecu_contact.ecu_id,
-                            ecu_contact.host,
-                            ecu_contact.port,
-                            request=request,
-                            timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
-                        )
-                    )
-                )
-        for _task in asyncio.as_completed(*tasks):
-            _resp: wrapper.UpdateResponse = _task.result()
+        for _resp in batch_update(self.ecu_info, request):
             response.merge_from(_resp)
-
         # second: dispatch update request to local if required
         if update_req_ecu := request.find_update_meta(self.my_ecu_id):
             _resp_ecu = wrapper.UpdateResponseEcu(ecu_id=self.my_ecu_id)
@@ -477,7 +256,6 @@ class OTAClientServiceStub:
                 logger.error(f"self ECU is busy: {e!r}")
                 _resp_ecu.result = wrapper.FailureType.RECOVERABLE
             response.add_ecu(_resp_ecu)
-
         return response
 
     async def rollback(
@@ -487,25 +265,8 @@ class OTAClientServiceStub:
         response = wrapper.RollbackResponse()
 
         # first: dispatch rollback request to all directly connected subECUs
-        tasks: List[asyncio.Task] = []
-        for ecu_contact in self.ecu_info.iter_direct_subecu_contact():
-            if request.if_contains_ecu(ecu_contact.ecu_id):
-                logger.debug(f"send rollback request to ecu@{ecu_contact=}")
-                tasks.append(
-                    asyncio.create_task(
-                        OtaClientCall.rollback_call(
-                            ecu_contact.ecu_id,
-                            ecu_contact.host,
-                            ecu_contact.port,
-                            request=request,
-                            timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
-                        )
-                    )
-                )
-        for _task in asyncio.as_completed(*tasks):
-            _resp: wrapper.RollbackResponse = _task.result()
+        for _resp in batch_rollback(self.ecu_info, request):
             response.merge_from(_resp)
-
         # second: dispatch rollback request to local if required
         if rollback_req := request.find_rollback_req(self.my_ecu_id):
             _resp_ecu = wrapper.RollbackResponseEcu(ecu_id=self.my_ecu_id)
@@ -515,22 +276,9 @@ class OTAClientServiceStub:
                 logger.error(f"self ECU is busy: {e!r}")
                 _resp_ecu.result = wrapper.FailureType.RECOVERABLE
             response.add_ecu(_resp_ecu)
-
         return response
 
     async def status(
         self, _: Optional[wrapper.StatusRequest] = None
     ) -> wrapper.StatusResponse:
-        res = wrapper.StatusResponse()
-        # populate available_ecu_ids
-        available_ecu_ids = set()
-        available_ecu_ids.update(
-            self.ecu_info.get_available_ecu_ids(),
-            self._ecu_tracker.get_available_child_ecu_ids(),
-        )
-        res.available_ecu_ids.extend(available_ecu_ids)
-        # populate status_resp_ecu
-        for ecu_status in self._ecu_tracker.get_status_list():
-            res.add_ecu(ecu_status)
-        res.add_ecu(self._otaclient_stub.get_status())
-        return res
+        return self._ecu_status_storage.export()
