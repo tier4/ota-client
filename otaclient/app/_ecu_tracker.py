@@ -30,12 +30,15 @@ logger = get_logger(__name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_
 class ECUStatusStorage:
     PROPERTY_REFRESH_INTERVAL = 6  # seconds
     UNREACHABLE_ECU_TIMEOUT = 10 * 60  # seconds
+    DELAY = 30
 
     def __init__(self) -> None:
         self._writer_lock = asyncio.Lock()
         self._all_available_ecus_id: Set[str] = set()
         self._all_ecus_status: Dict[str, wrapper.StatusResponseEcuV2] = {}
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
+
+        self.last_received_update_request_timestamp = 0
 
         # properties cache
         self.properties_last_updated_timestamp = 0
@@ -59,7 +62,6 @@ class ECUStatusStorage:
 
     async def _properties_update(self):
         cur_timestamp = int(time.time())
-        self.properties_last_updated_timestamp = cur_timestamp
 
         # update lost ecu list
         lost_ecus = set()
@@ -91,13 +93,20 @@ class ECUStatusStorage:
                 if status.ecu_id not in lost_ecus
             )
         )
+        self.properties_last_updated_timestamp = cur_timestamp
 
     async def _loop_updating_properties(self):
         while not self.properties_update_shutdown_event.is_set():
             await self._properties_update()
             # reduce polling interval on active updating
+            # NOTE: on first <DELAY> seconds since last_received_update_request,
+            #       we always polling with active polling interval
             # TODO: interval configuration
-            if self.any_in_update:
+            if (
+                self.any_in_update
+                or self.last_received_update_request_timestamp + self.DELAY
+                < int(time.time())
+            ):
                 await asyncio.sleep(6)
             else:
                 await asyncio.sleep(20)
@@ -135,6 +144,10 @@ class ECUStatusStorage:
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status[ecu_id] = ecu_status
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
+
+    def on_received_update_request(self):
+        """Force the tracker to poll actively when receiving update request."""
+        self.last_received_update_request_timestamp = int(time.time())
 
 
 class SubECUTracker:
