@@ -13,11 +13,13 @@
 # limitations under the License.
 
 
+import asyncio
 import gc
 import json
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from functools import partial
 from json.decoder import JSONDecodeError
 from pathlib import Path
@@ -25,6 +27,8 @@ from typing import Type, Iterator
 from urllib.parse import urlparse, urlsplit
 
 from otaclient import __version__  # type: ignore
+from ._ecu_tracker import ECUStatusStorage
+from .ecu_info import ECUInfo
 from .errors import (
     BaseOTAMetaVerificationFailed,
     NetworkError,
@@ -33,15 +37,14 @@ from .errors import (
     OTARollbackError,
     OTAUpdateError,
 )
-from .boot_control import BootControllerProtocol
+from .boot_control import BootControllerProtocol, get_boot_controller
 from .common import (
     RetryTaskMap,
     ensure_http_server_open,
     wait_with_backoff,
-    ensure_port_open,
 )
 from .configs import config as cfg
-from .create_standby import StandbySlotCreatorProtocol
+from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .downloader import (
     DestinationNotAvailableError,
     DownloadFailedSpaceNotEnough,
@@ -61,7 +64,6 @@ from .errors import (
 from .ota_metadata import OTAMetadata
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
-from .proto.wrapper import UpdatePhase, RegularInf, StatusResponseEcuV2, UpdateStatus
 from .proxy_info import proxy_cfg
 from .update_stats import (
     OTAUpdateStatsCollector,
@@ -116,7 +118,7 @@ class _OTAUpdater:
         self._create_standby_cls = create_standby_cls
 
         # init update status
-        self.update_phase: UpdatePhase = UpdatePhase.INITIALIZING
+        self.update_phase = wrapper.UpdatePhase.INITIALIZING
         self.update_start_time = 0
         self.updating_version: str = ""
         self.failure_reason = ""
@@ -146,11 +148,11 @@ class _OTAUpdater:
 
     # helper methods
 
-    def _download_files(self, download_list: Iterator[RegularInf]):
+    def _download_files(self, download_list: Iterator[wrapper.RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
         logger.debug("download neede OTA image files...")
 
-        def _download_file(entry: RegularInf) -> RegInfProcessedStats:
+        def _download_file(entry: wrapper.RegularInf) -> RegInfProcessedStats:
             """Download single OTA image file."""
             cur_stat = RegInfProcessedStats(op=RegProcessOperation.DOWNLOAD_REMOTE_COPY)
 
@@ -237,7 +239,7 @@ class _OTAUpdater:
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
-        self.update_phase = UpdatePhase.CALCULATING_DELTA
+        self.update_phase = wrapper.UpdatePhase.CALCULATING_DELTA
         self._standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
@@ -260,7 +262,7 @@ class _OTAUpdater:
             "start to download needed files..."
             f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
         )
-        self.update_phase = UpdatePhase.DOWNLOADING_OTA_FILES
+        self.update_phase = wrapper.UpdatePhase.DOWNLOADING_OTA_FILES
         try:
             self._download_files(_delta_bundle.get_download_list())
         except DownloadFailedSpaceNotEnough:
@@ -275,7 +277,7 @@ class _OTAUpdater:
 
         # ------ in_update ------ #
         logger.info("start to apply changes to standby slot...")
-        self.update_phase = UpdatePhase.APPLYING_UPDATE
+        self.update_phase = wrapper.UpdatePhase.APPLYING_UPDATE
         try:
             self._standby_slot_creator.create_standby_slot()
         except Exception as e:
@@ -310,7 +312,7 @@ class _OTAUpdater:
         self._update_stats_collector.start()
 
         # ------ init, processing metadata ------ #
-        self.update_phase = UpdatePhase.PROCESSING_METADATA
+        self.update_phase = wrapper.UpdatePhase.PROCESSING_METADATA
         # parse url_base
         # unconditionally regulate the url_base
         _url_base = urlparse(raw_url_base)
@@ -377,7 +379,7 @@ class _OTAUpdater:
         logger.info("local update finished, wait on all subecs...")
         logger.info("enter boot control post update phase...")
         # boot controller postupdate
-        self.update_phase = UpdatePhase.PROCESSING_POSTUPDATE
+        self.update_phase = wrapper.UpdatePhase.PROCESSING_POSTUPDATE
         next(_postupdate_gen := self._boot_controller.post_update())
 
         # wait for sub ecu if needed before rebooting
@@ -387,11 +389,11 @@ class _OTAUpdater:
     # API
 
     def shutdown(self):
-        self.update_phase = UpdatePhase.INITIALIZING
+        self.update_phase = wrapper.UpdatePhase.INITIALIZING
         self._downloader.shutdown()
         self._update_stats_collector.stop()
 
-    def get_update_status(self) -> UpdateStatus:
+    def get_update_status(self) -> wrapper.UpdateStatus:
         """
         Returns:
             A tuple contains the version and the update_progress.
@@ -566,9 +568,9 @@ class OTAClient(OTAClientProtocol):
                 "ignore incoming rollback request as local update/rollback is ongoing"
             )
 
-    def status(self) -> StatusResponseEcuV2:
+    def status(self) -> wrapper.StatusResponseEcuV2:
         live_ota_status = self.live_ota_status.get_ota_status()
-        status_report = StatusResponseEcuV2(
+        status_report = wrapper.StatusResponseEcuV2(
             ecu_id=self.my_ecu_id,
             firmware_version=self.current_version,
             otaclient_version=__version__,
@@ -580,3 +582,116 @@ class OTAClient(OTAClientProtocol):
         if live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
             status_report.update_status = self._update_executor.get_update_status()
         return status_report
+
+
+class OTAClientBusy(Exception):
+    """Raised when otaclient receive another request when doing update/rollback."""
+
+
+class OTAClientStub:
+    STATUS_POLLING_INTERVAL = cfg.STATS_COLLECT_INTERVAL
+
+    def __init__(
+        self,
+        *,
+        ecu_info: ECUInfo,
+        executor: ThreadPoolExecutor,
+        control_flags: OTAClientControlFlags,
+        ecu_status_storage: ECUStatusStorage,
+    ) -> None:
+        # only one update/rollback is allowed at a time
+        self.update_rollback_lock = asyncio.Lock()
+        self.my_ecu_id = ecu_info.ecu_id
+        self._run_in_executor = partial(
+            asyncio.get_running_loop().run_in_executor, executor
+        )
+
+        # create otaclient instance and control flags
+        self._control_flags = control_flags
+        self._otaclient = OTAClient(
+            boot_control_cls=get_boot_controller(ecu_info.get_bootloader()),
+            create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
+            my_ecu_id=self.my_ecu_id,
+        )
+
+        # proxy used by local otaclient
+        # NOTE: it can be an upper proxy, or local otaproxy
+        self.local_used_proxy_url = (
+            urlsplit(_proxy)
+            if (_proxy := proxy_cfg.get_proxy_for_local_ota())
+            else None
+        )
+        self.local_otaproxy_server_enabled = proxy_cfg.enable_local_ota_proxy
+
+        # status polling task
+        self._status_storage = ecu_status_storage
+        self.status_polling_shutdown_event = asyncio.Event()
+        self.last_status_report = self._otaclient.status()
+        self.last_operation = None  # update/rollback/None
+
+        self._loop_status_polling_task = None
+
+    async def _loop_status_polling(self):
+        while not self.status_polling_shutdown_event.is_set():
+            status_report = await self._run_in_executor(self._otaclient.status)
+            self.last_status_report = status_report
+            await self._status_storage.update_from_local_ECU(deepcopy(status_report))
+
+            # sleep less on active updating/rollbacking
+            if self.update_rollback_lock.locked():
+                await asyncio.sleep(1)  # TODO: configuration here
+            else:
+                await asyncio.sleep(10)
+
+    # API method
+
+    async def dispatch_update(self, request: wrapper.UpdateRequestEcu):
+        """Dispatch update request to otaclient.
+
+        Raises:
+            OTAClientBusy if otaclient is already executing update/rollback.
+        """
+        if self.update_rollback_lock.locked():
+            raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
+
+        async def _update():
+            async with self.update_rollback_lock:
+                self.last_operation = wrapper.StatusOta.UPDATING
+                try:
+                    await self._run_in_executor(
+                        partial(
+                            self._otaclient.update,
+                            request.version,
+                            request.url,
+                            request.cookies,
+                            control_flags=self._control_flags,
+                        )
+                    )
+                finally:
+                    self.last_operation = None
+
+        # dispatch update to background
+        asyncio.create_task(_update())
+
+    async def dispatch_rollback(self, _: wrapper.RollbackRequestEcu):
+        """Dispatch update request to otaclient.
+
+        Raises:
+            OTAClientBusy if otaclient is already executing update/rollback.
+        """
+        if self.update_rollback_lock.locked():
+            raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
+
+        async def _rollback():
+            async with self.update_rollback_lock:
+                self.last_operation = wrapper.StatusOta.ROLLBACKING
+                try:
+                    await self._run_in_executor(self._otaclient.rollback)
+                finally:
+                    self.last_operation = None
+
+        # dispatch to background
+        asyncio.create_task(_rollback())
+
+    def get_status(self) -> wrapper.StatusResponseEcuV2:
+        return deepcopy(self.last_status_report)
