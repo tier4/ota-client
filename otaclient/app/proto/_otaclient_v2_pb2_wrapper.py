@@ -232,12 +232,6 @@ class Status(MessageWrapper[_v2.Status]):
     ) -> None:
         ...
 
-    def get_progress(self) -> StatusProgress:
-        return self.progress
-
-    def get_failure(self) -> _Tuple[FailureType, str]:
-        return self.failure, self.failure_reason
-
 
 class StatusRequest(MessageWrapper[_v2.StatusRequest]):
     __slots__ = calculate_slots(_v2.StatusRequest)
@@ -271,6 +265,7 @@ V2_V1_PHASE_MAPPING = {
     UpdatePhase.PROCESSING_POSTUPDATE: StatusProgressPhase.POST_PROCESSING,
     UpdatePhase.FINALIZING_UPDATE: StatusProgressPhase.POST_PROCESSING,
 }
+V1_V2_PHASE_MAPPING = {v: k for k, v in V2_V1_PHASE_MAPPING.items()}
 
 
 class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
@@ -321,6 +316,33 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
 
     def get_snapshot(self) -> Self:
         return deepcopy(self)
+
+    @classmethod
+    def convert_from_v1_statusProgress(cls, _in: StatusProgress) -> Self:
+        res = UpdateStatus(
+            phase=V1_V2_PHASE_MAPPING[_in.phase],
+            total_files_num=_in.total_regular_files,
+            processed_files_num=_in.regular_files_processed,
+            total_files_size_uncompressed=_in.total_regular_file_size,
+            downloading_elapsed_time=_in.elapsed_time_download,
+            update_applying_elapsed_time=_in.elapsed_time_copy,
+            downloading_errors=_in.errors_download,
+            total_elapsed_time=_in.total_elapsed_time,
+            downloaded_bytes=_in.download_bytes,
+        )
+
+        res.downloaded_files_num = _in.files_processed_download
+        res.processed_files_num = (
+            _in.files_processed_copy
+            + _in.files_processed_download
+            + _in.files_processed_link
+        )
+        res.downloaded_files_size = _in.file_size_processed_download
+        res.processed_files_size = (
+            _in.file_size_processed_copy
+            + _in.file_size_processed_download
+            + _in.file_size_processed_link
+        )
 
     def convert_to_v1_StatusProgress(self) -> StatusProgress:
         _snapshot = self.get_snapshot()
@@ -401,6 +423,19 @@ class StatusResponseEcuV2(MessageWrapper[_v2.StatusResponseEcuV2]):
             ),
         )
 
+    @classmethod
+    def convert_from_v1(cls, _in: StatusResponseEcu) -> Self:
+        return StatusResponseEcuV2(
+            ecu_id=_in.ecu_id,
+            failure_type=_in.status.failure,
+            failure_reason=_in.status.failure_reason,
+            ota_status=_in.status.status,
+            firmware_version=_in.status.version,
+            update_status=UpdateStatus.convert_from_v1_statusProgress(
+                _in.status.progress
+            ),
+        )
+
     @property
     def is_in_update(self) -> bool:
         return self.ota_status is StatusOta.UPDATING
@@ -414,7 +449,7 @@ class StatusResponseEcuV2(MessageWrapper[_v2.StatusResponseEcuV2]):
         return self.ota_status is StatusOta.SUCCESS
 
     @property
-    def is_updating_and_requires_network(self) -> bool:
+    def if_requires_network(self) -> bool:
         if not self.ota_status is StatusOta.UPDATING:
             return False
         if self.update_status.phase <= UpdatePhase.DOWNLOADING_OTA_FILES:
