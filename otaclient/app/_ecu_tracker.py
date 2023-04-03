@@ -16,6 +16,7 @@
 """Tracking all child ECUs status."""
 import asyncio
 import time
+from itertools import chain
 from typing import Dict, Set
 
 from .log_setting import get_logger
@@ -35,7 +36,8 @@ class ECUStatusStorage:
     def __init__(self) -> None:
         self._writer_lock = asyncio.Lock()
         self._all_available_ecus_id: Set[str] = set()
-        self._all_ecus_status: Dict[str, wrapper.StatusResponseEcuV2] = {}
+        self._all_ecus_status_v2: Dict[str, wrapper.StatusResponseEcuV2] = {}
+        self._all_ecus_status_v1: Dict[str, wrapper.StatusResponseEcu] = {}
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
 
         self.last_received_update_request_timestamp = 0
@@ -69,27 +71,33 @@ class ECUStatusStorage:
             if self._is_ecu_lost(ecu_id, cur_timestamp=cur_timestamp):
                 lost_ecus.add(ecu_id)
         # add ECUs that never appear
-        lost_ecus.add(self._all_available_ecus_id - set(self._all_ecus_status))
+        lost_ecus.add(self._all_available_ecus_id - set(self._all_ecus_status_v2))
         self.lost_ecus_id = list(lost_ecus)
 
         self.any_in_update = any(
             (
                 status.is_in_update
-                for status in self._all_ecus_status.values()
+                for status in chain(
+                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
+                )
                 if status.ecu_id not in lost_ecus
             )
         )
         self.any_failed = any(
             (
                 status.is_failed
-                for status in self._all_ecus_status.values()
+                for status in chain(
+                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
+                )
                 if status.ecu_id not in lost_ecus
             )
         )
         self.any_requires_network = any(
             (
                 status.if_requires_network
-                for status in self._all_ecus_status.values()
+                for status in chain(
+                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
+                )
                 if status.ecu_id not in lost_ecus
             )
         )
@@ -119,35 +127,41 @@ class ECUStatusStorage:
             self.properties_last_updated_timestamp = cur_timestamp
             self._all_available_ecus_id.update(status_resp.available_ecu_ids)
 
-            ecu_using_v2 = set()
-            for ecu_status in status_resp.ecu_v2:
-                ecu_id = ecu_status.ecu_id
-                self._all_ecus_status[ecu_id] = ecu_status
+            for ecu_status_v2 in status_resp.ecu_v2:
+                ecu_id = ecu_status_v2.ecu_id
+                self._all_ecus_status_v2[ecu_id] = ecu_status_v2
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
-                ecu_using_v2.add(ecu_id)
-
-            # if status report for specific ecu only available in v1 format,
-            # convert it to v2 format and then record it
             for ecu_status_v1 in status_resp.ecu:
                 ecu_id = ecu_status_v1.ecu_id
-                if ecu_id not in ecu_using_v2:
-                    ecu_status = wrapper.StatusResponseEcuV2.convert_from_v1(
-                        ecu_status_v1
-                    )
-                    self._all_ecus_status[ecu_id] = ecu_status
-                    self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
+                self._all_ecus_status_v1[ecu_id] = ecu_status_v1
+                self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
 
     async def update_from_local_ECU(self, ecu_status: wrapper.StatusResponseEcuV2):
         cur_timestamp = int(time.time())
         async with self._writer_lock:
             self.properties_last_updated_timestamp = cur_timestamp
             ecu_id = ecu_status.ecu_id
-            self._all_ecus_status[ecu_id] = ecu_status
+            self._all_ecus_status_v2[ecu_id] = ecu_status
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
 
     def on_received_update_request(self):
         """Force the tracker to poll actively when receiving update request."""
         self.last_received_update_request_timestamp = int(time.time())
+
+    def export(self) -> wrapper.StatusResponse:
+        res = wrapper.StatusResponse()
+        res.available_ecu_ids.extend(self._all_available_ecus_id)
+
+        ecu_using_v2 = set()
+        for ecu_id, ecu_status_v2 in self._all_ecus_status_v2.items():
+            res.ecu_v2.append(ecu_status_v2)
+            ecu_using_v2.add(ecu_id)
+
+        for ecu_id, ecu_status_v1 in self._all_ecus_status_v1.items():
+            if ecu_id in ecu_using_v2:
+                continue  # use v2 in priority
+            res.ecu.append(ecu_status_v1)
+        return res
 
 
 class SubECUTracker:
