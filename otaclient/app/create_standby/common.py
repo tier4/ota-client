@@ -15,7 +15,6 @@
 
 r"""Common used helpers, classes and functions for different bank creating methods."""
 import os
-import shutil
 import time
 from concurrent.futures import (
     Future,
@@ -23,6 +22,7 @@ from concurrent.futures import (
     wait,
 )
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from threading import Event, Lock
 from typing import (
@@ -38,7 +38,7 @@ from typing import (
 )
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
-from ..common import file_sha256
+from ..common import create_tmp_fname
 from ..configs import config as cfg
 from ..ota_metadata import OTAMetadata, MetafilesV1
 from ..proto.wrapper import RegularInf, DirectoryInf
@@ -271,29 +271,40 @@ class DeltaGenerator:
     def _prepare_local_copy_from_active_slot(
         self, fpath: Path, *, _hash: Optional[str] = None
     ) -> None:
-        """Hash(and verify the file) and prepare a copy for it in standby slot."""
-        _fhash = file_sha256(fpath)
-        if _hash and _hash != _fhash:
-            return
+        """Hash(and verify the file) and prepare a copy for it in standby slot.
 
+        NOTE: verify the file before copying to the standby slot!
+        """
+        if _hash and _hash not in self._new_hash_list:
+            return  # skip uneeded/already prepared local copy
+
+        start_time = time.thread_time_ns()
+        tmp_f = self._local_copy_dir / create_tmp_fname()
         try:
-            self._new_hash_list.remove(bytes.fromhex(_fhash))
-        except KeyError:
-            # this hash has already been prepared or
-            # this hash is not included in new OTA image
-            return
+            hash_f = sha256()
+            with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
+                while chunk := src.read(cfg.LOCAL_CHUNK_SIZE):
+                    hash_f.update(chunk)
+                    tmp_dst.write(chunk)
+            hash_value = hash_f.hexdigest()
+            if _hash and _hash != hash_value:
+                return  # skip invalid file
 
-        # collect this entry as the hash existed in _new
-        # and not yet being collected
-        _start = time.thread_time_ns()
-        shutil.copy(fpath, self._local_copy_dir / _fhash)
+            # this tmp is valid, use it as local copy
+            try:  # remove from new_hash_list to mark this hash as prepared
+                self._new_hash_list.remove(hash_f.digest())
+            except KeyError:
+                return  # this hash has already been prepared by other thread
+            tmp_f.rename(self._local_copy_dir / hash_value)
+        finally:
+            tmp_f.unlink(missing_ok=True)
 
         # report to the ota update stats collector
         self._stats_collector.report_prepare_local_copy(
             RegInfProcessedStats(
                 op=RegProcessOperation.PREPARE_LOCAL_COPY,
                 size=fpath.stat().st_size,
-                elapsed_ns=time.thread_time_ns() - _start,
+                elapsed_ns=time.thread_time_ns() - start_time,
             ),
         )
 

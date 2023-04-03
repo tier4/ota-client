@@ -593,3 +593,7 @@ class RetryTaskMap(Generic[_T]):
         """
         self._task_executor = self._execute(_func, _iter)
         return self._task_executor
+
+
+def create_tmp_fname(prefix="tmp", length=6, sep="_") -> str:
+    return f"{prefix}{sep}{os.urandom(length).hex()}"
