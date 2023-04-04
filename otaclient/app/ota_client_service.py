@@ -15,21 +15,12 @@
 
 import grpc.aio
 
-from . import log_setting
-from .proto import wrapper
-from .proto import v2_grpc
-from .proto import v2
-from .ota_client_stub import OtaClientStub
-from .configs import server_cfg, config as cfg
-
-
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+from .proto import wrapper, v2, v2_grpc
+from .ota_client_stub import OTAClientServiceStub
 
 
 class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
-    def __init__(self, ota_client_stub: OtaClientStub):
+    def __init__(self, ota_client_stub: OTAClientServiceStub):
         self._stub = ota_client_stub
 
     async def Update(self, request: v2.UpdateRequest, context) -> v2.UpdateResponse:
@@ -47,35 +38,13 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         return response.export_pb()
 
 
-async def service_start(port, service_list) -> grpc.aio.Server:
+async def run_otaclient_grpc_server():
+    service_stub = OTAClientServiceStub()
+    ota_client_service_v2 = OtaClientServiceV2(service_stub)
+
     server = grpc.aio.server()
-    for service in service_list:
-        service["grpc"].add_OtaClientServiceServicer_to_server(
-            service["instance"], server
-        )
-    server.add_insecure_port(port)
-
-    await server.start()
-    return server
-
-
-async def launch_otaclient_grpc_server():
-    ota_client_stub = OtaClientStub()
-    ota_client_service_v2 = OtaClientServiceV2(ota_client_stub)
-
-    server = await service_start(
-        f"{ota_client_stub.host_addr()}:{server_cfg.SERVER_PORT}",
-        [
-            {"grpc": v2_grpc, "instance": ota_client_service_v2},
-        ],
+    v2_grpc.add_OtaClientServiceServicer_to_server(
+        server=server, servicer=ota_client_service_v2
     )
-
-    await service_wait_for_termination(server)
-
-
-async def service_wait_for_termination(server: grpc.aio.Server):
+    server.add_insecure_port(f"{service_stub.listen_addr}:{service_stub.listen_port}")
     await server.wait_for_termination()
-
-
-async def service_stop(server: grpc.aio.Server):
-    await server.stop(None)
