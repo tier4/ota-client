@@ -15,7 +15,6 @@
 
 r"""Common used helpers, classes and functions for different bank creating methods."""
 import os
-import shutil
 import time
 from concurrent.futures import (
     Future,
@@ -23,6 +22,7 @@ from concurrent.futures import (
     wait,
 )
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from threading import Event, Lock
 from typing import (
@@ -38,7 +38,7 @@ from typing import (
 )
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
-from ..common import file_sha256
+from ..common import create_tmp_fname
 from ..configs import config as cfg
 from ..ota_metadata import OTAMetadata, MetafilesV1
 from ..proto.wrapper import RegularInf, DirectoryInf
@@ -258,7 +258,7 @@ class DeltaGenerator:
         self._new = RegularDelta()
         self._rm: List[str] = []
         self._new_dirs: OrderedDict[DirectoryInf, None] = OrderedDict()
-        self._new_hash_list: Set[bytes] = set()
+        self._new_hash_size_dict: Dict[bytes, int] = {}
         self._download_list: List[RegularInf] = []
 
         self._stats_collector = stats_collector
@@ -269,31 +269,62 @@ class DeltaGenerator:
         self.total_download_files_size = 0
 
     def _prepare_local_copy_from_active_slot(
-        self, fpath: Path, *, _hash: Optional[str] = None
+        self,
+        fpath: Path,
+        *,
+        expected_hash: Optional[str] = None,
     ) -> None:
-        """Hash(and verify the file) and prepare a copy for it in standby slot."""
-        _fhash = file_sha256(fpath)
-        if _hash and _hash != _fhash:
-            return
+        """Hash(and verify the file) and prepare a copy for it in standby slot.
 
+        Params:
+            fpath: the path to the file to be verified
+            expected_hash: (optional) if we have the information for this file
+                (by stored OTA image meta for active slot), use it make the
+                verification process faster.
+
+        NOTE: verify the file before copying to the standby slot!
+        """
+        # if we have information related to this file in advance(with saved
+        #   OTA image meta for the active slot), use this information to
+        #   pre-check the file.
+        if expected_hash:
+            if expected_hash not in self._new_hash_size_dict:
+                return  # skip uneeded/already prepared local copy
+            # check file size with size information
+            try:
+                expected_size = self._new_hash_size_dict[expected_hash]
+                if expected_size and expected_size != fpath.stat().st_size:
+                    return
+            except KeyError:
+                pass
+
+        start_time = time.thread_time_ns()
+        tmp_f = self._local_copy_dir / create_tmp_fname()
         try:
-            self._new_hash_list.remove(bytes.fromhex(_fhash))
-        except KeyError:
-            # this hash has already been prepared or
-            # this hash is not included in new OTA image
-            return
+            hash_f = sha256()
+            with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
+                while chunk := src.read(cfg.LOCAL_CHUNK_SIZE):
+                    hash_f.update(chunk)
+                    tmp_dst.write(chunk)
+            hash_value = hash_f.hexdigest()
+            if expected_hash and expected_hash != hash_value:
+                return  # skip invalid file
 
-        # collect this entry as the hash existed in _new
-        # and not yet being collected
-        _start = time.thread_time_ns()
-        shutil.copy(fpath, self._local_copy_dir / _fhash)
+            # this tmp is valid, use it as local copy
+            try:  # remove from new_hash_list to mark this hash as prepared
+                self._new_hash_size_dict.pop(hash_f.digest())
+            except KeyError:
+                return  # this hash has already been prepared by other thread
+            tmp_f.rename(self._local_copy_dir / hash_value)
+        finally:
+            tmp_f.unlink(missing_ok=True)
 
         # report to the ota update stats collector
         self._stats_collector.report_prepare_local_copy(
             RegInfProcessedStats(
                 op=RegProcessOperation.PREPARE_LOCAL_COPY,
                 size=fpath.stat().st_size,
-                elapsed_ns=time.thread_time_ns() - _start,
+                elapsed_ns=time.thread_time_ns() - start_time,
             ),
         )
 
@@ -402,12 +433,12 @@ class DeltaGenerator:
         # the hash in the self._hash_set after local delta preparation representing
         # the file we need to download from remote
         for _hash, _reginf_set in self._new.items():
-            if _hash in self._new_hash_list:
+            if _hash in self._new_hash_size_dict:
                 # pick one entry from the reginf set for downloading
                 _entry = next(iter(_reginf_set))
                 self._download_list.append(_entry)
                 self.total_download_files_size += _entry.size if _entry.size else 0
-        self._new_hash_list.clear()
+        self._new_hash_size_dict.clear()
 
     # API
 
@@ -416,10 +447,11 @@ class DeltaGenerator:
         for _dir in self._ota_metadata.iter_metafile(MetafilesV1.DIRECTORY_FNAME):
             self._new_dirs[_dir] = None
         # pre-load from new regulars.txt
+        _entry: RegularInf
         for _entry in self._ota_metadata.iter_metafile(MetafilesV1.REGULAR_FNAME):
             self.total_regulars_num += 1
             self._new.add_entry(_entry)
-            self._new_hash_list.add(_entry.sha256hash)
+            self._new_hash_size_dict[_entry.sha256hash] = _entry.size
 
         # generate delta and prepare files
         self._process_delta_src()
