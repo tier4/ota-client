@@ -18,6 +18,8 @@ import asyncio
 import logging
 import uvloop
 
+from . import run_otaproxy, config as cfg
+
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
@@ -51,30 +53,29 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "--cache-dir",
+        helper="where to store the cache entries",
+        default=cfg.BASE_DIR,
+    )
+    parser.add_argument(
+        "--cache-db-file",
+        helper="the location of cache db sqlite file",
+        default=cfg.DB_FILE,
+    )
     args = parser.parse_args()
 
-    async def _launch_server():
-        import uvicorn
-        from . import App, OTACache
-
-        _ota_cache = OTACache(
-            cache_enabled=args.enable_cache,
+    logger.info(f"launch ota_proxy at {args.host}:{args.port}")
+    uvloop.install()
+    asyncio.run(
+        run_otaproxy(
+            host=args.host,
+            port=args.port,
+            cache_dir=args.cache_dir,
+            cache_db_f=args.cache_db_file,
+            enable_cache=args.enable_cache,
             upper_proxy=args.upper_proxy,
             enable_https=args.enable_https,
             init_cache=args.init_cache,
         )
-        _config = uvicorn.Config(
-            App(_ota_cache),
-            host=args.host,
-            port=args.port,
-            log_level="error",
-            lifespan="on",
-            loop="uvloop",
-            http="h11",
-        )
-        _server = uvicorn.Server(_config)
-        await _server.serve()
-
-    logger.info(f"launch ota_proxy at {args.host}:{args.port}")
-    uvloop.install()
-    asyncio.run(_launch_server())
+    )

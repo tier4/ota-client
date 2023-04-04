@@ -52,32 +52,6 @@ def subprocess_start_otaproxy(
 ) -> SpawnProcess:
     """Helper method to launch otaproxy in subprocess."""
 
-    async def _async_main():
-        import uvicorn
-
-        ota_cache = OTACache(
-            cache_enabled=enable_cache,
-            upper_proxy=upper_proxy,
-            enable_https=enable_https,
-            init_cache=init_cache,
-        )
-
-        # NOTE: explicitly set loop and http options
-        #       to prevent using wrong libs
-        # NOTE 2: explicitly set http="h11",
-        #       as http=="httptools" breaks ota_proxy functionality
-        config = uvicorn.Config(
-            App(ota_cache),
-            host=host,
-            port=port,
-            log_level="error",
-            lifespan="on",
-            loop="asyncio",
-            http="h11",
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
-
     def _subprocess_main():
         import uvloop
 
@@ -98,7 +72,18 @@ def subprocess_start_otaproxy(
                 del scrub_helper
 
         uvloop.install()
-        asyncio.run(_async_main())
+        asyncio.run(
+            run_otaproxy(
+                host=host,
+                port=port,
+                cache_dir=cache_dir,
+                cache_db_f=cache_db_f,
+                enable_cache=enable_cache,
+                upper_proxy=upper_proxy,
+                enable_https=enable_https,
+                init_cache=init_cache,
+            )
+        )
 
     # run otaproxy in async loop in new subprocess
     mp_ctx = multiprocessing.get_context("spawn")
@@ -108,3 +93,38 @@ def subprocess_start_otaproxy(
     )
     otaproxy_subprocess.start()
     return otaproxy_subprocess
+
+
+async def run_otaproxy(
+    host: str,
+    port: int,
+    *,
+    init_cache: bool,
+    cache_dir: str,
+    cache_db_f: str,
+    upper_proxy: str,
+    enable_cache: bool,
+    enable_https: bool,
+):
+    import uvicorn
+    from . import App, OTACache
+
+    _ota_cache = OTACache(
+        base_dir=cache_dir,
+        db_file=cache_db_f,
+        cache_enabled=enable_cache,
+        upper_proxy=upper_proxy,
+        enable_https=enable_https,
+        init_cache=init_cache,
+    )
+    _config = uvicorn.Config(
+        App(_ota_cache),
+        host=host,
+        port=port,
+        log_level="error",
+        lifespan="on",
+        loop="uvloop",
+        http="h11",
+    )
+    _server = uvicorn.Server(_config)
+    await _server.serve()
