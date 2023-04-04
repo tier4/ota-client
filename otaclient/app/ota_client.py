@@ -557,6 +557,7 @@ class OTAClient(OTAClientProtocol):
                 )
                 self.last_failure_type = wrapper.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
+                self.last_failure_traceback = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
                 self._update_executor.execute(version, url_base, cookies_json, fsm=fsm)
             except OTAUpdateError as e:
@@ -580,6 +581,7 @@ class OTAClient(OTAClientProtocol):
                 )
                 self.last_failure_type = wrapper.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
+                self.last_failure_traceback = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACKING)
                 self._rollback_executor.execute()
             # silently ignore overlapping request
