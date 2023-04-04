@@ -146,6 +146,18 @@ class BaseConfig(_InternalSettings):
     CREATE_STANDBY_BACKOFF_FACTOR = 1
     CREATE_STANDBY_BACKOFF_MAX = 6
 
+    # --- ECU status polling setting --- #
+    ECU_STATUS_STORAGE_PROPERTY_UPDATE_INTERVAL = 6  # seconds
+    # NOTE: unreachable_timeout should be larger than
+    #       downloading_group timeout
+    UNREACHABLE_ECU_TIMEOUT = 10 * 60  # seconds
+    # when update request is received, the status polling/updating
+    # will always be active during <DELAY> period, to ensure
+    # each ECU acknowledges the request.
+    SWITCHING_TO_INACTIVE_DELAY = 30  # seconds
+    ACTIVE_INTERVAL = 1  # second
+    IDLE_INTERVAL = 20  # seconds
+
 
 # init cfgs
 server_cfg = OtaClientServerConfig()
