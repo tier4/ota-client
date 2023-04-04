@@ -27,7 +27,6 @@ from typing import Type, Iterator
 from urllib.parse import urlparse, urlsplit
 
 from otaclient import __version__  # type: ignore
-from ._ecu_tracker import ECUStatusStorage
 from .ecu_info import ECUInfo
 from .errors import (
     BaseOTAMetaVerificationFailed,
@@ -589,15 +588,12 @@ class OTAClientBusy(Exception):
 
 
 class OTAClientStub:
-    STATUS_POLLING_INTERVAL = cfg.STATS_COLLECT_INTERVAL
-
     def __init__(
         self,
         *,
         ecu_info: ECUInfo,
         executor: ThreadPoolExecutor,
         control_flags: OTAClientControlFlags,
-        ecu_status_storage: ECUStatusStorage,
     ) -> None:
         # only one update/rollback is allowed at a time
         self.update_rollback_lock = asyncio.Lock()
@@ -615,33 +611,20 @@ class OTAClientStub:
         )
 
         # proxy used by local otaclient
+        # TODO: detect network environment
         # NOTE: it can be an upper proxy, or local otaproxy
         self.local_used_proxy_url = (
             urlsplit(_proxy)
             if (_proxy := proxy_cfg.get_proxy_for_local_ota())
             else None
         )
-        self.local_otaproxy_server_enabled = proxy_cfg.enable_local_ota_proxy
-
-        # status polling task
-        self._status_storage = ecu_status_storage
-        self.status_polling_shutdown_event = asyncio.Event()
-        self.last_status_report = self._otaclient.status()
         self.last_operation = None  # update/rollback/None
 
-        self._loop_status_polling_task = None
+    # property
 
-    async def _loop_status_polling(self):
-        while not self.status_polling_shutdown_event.is_set():
-            status_report = await self._run_in_executor(self._otaclient.status)
-            self.last_status_report = status_report
-            await self._status_storage.update_from_local_ECU(deepcopy(status_report))
-
-            # sleep less on active updating/rollbacking
-            if self.update_rollback_lock.locked():
-                await asyncio.sleep(1)  # TODO: configuration here
-            else:
-                await asyncio.sleep(10)
+    @property
+    def is_busy(self) -> bool:
+        return self.update_rollback_lock.locked()
 
     # API method
 
@@ -694,4 +677,4 @@ class OTAClientStub:
         asyncio.create_task(_rollback())
 
     def get_status(self) -> wrapper.StatusResponseEcuV2:
-        return deepcopy(self.last_status_report)
+        return self._otaclient.status()
