@@ -19,12 +19,11 @@ import json
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from copy import deepcopy
 from functools import partial
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Type, Iterator
-from urllib.parse import urlparse, urlsplit
+from typing import Optional, Type, Iterator
+from urllib.parse import urlparse
 
 from otaclient import __version__  # type: ignore
 from .ecu_info import ECUInfo
@@ -63,7 +62,6 @@ from .errors import (
 from .ota_metadata import OTAMetadata
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
-from .proxy_info import proxy_cfg
 from .update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
@@ -82,19 +80,12 @@ class OTAClientControlFlags:
         and self ECU OTA update will depend on its otaproxy, we need to
         control when otaclient can start its downloading/reboot with considering
         whether local otaproxy is started/required.
-
-    NOTE: if local_otaproxy is not enabled,
-        otaclient_wait_for_reboot and otaclient_can_start_downloading will
-        always return immediately as otaproxy is not used.
     """
 
     def __init__(self) -> None:
         self._can_reboot = threading.Event()
-        self.local_otaproxy_enabled = proxy_cfg.enable_local_ota_proxy
 
     def otaclient_wait_for_reboot(self):
-        if not self.local_otaproxy_enabled:
-            return
         self._can_reboot.wait()
 
     def set_can_reboot_flag(self):
@@ -107,12 +98,18 @@ class OTAClientControlFlags:
 class _OTAUpdater:
     """The implementation of OTA update logic."""
 
+    WAIT_FOR_OTAPROXY_TIMEOUT = 10 * 60  # seconds
+    WAIT_FOR_OTAPROXY_POLLING_INTERVAL = 1
+
     def __init__(
         self,
-        boot_controller: BootControllerProtocol,
         *,
+        boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
+        proxy: Optional[str] = None,
+        control_flags: OTAClientControlFlags,
     ) -> None:
+        self._control_flags = control_flags
         self._boot_controller = boot_controller
         self._create_standby_cls = create_standby_cls
 
@@ -134,6 +131,8 @@ class _OTAUpdater:
 
         # init downloader
         self._downloader = Downloader()
+        self.proxy = proxy
+
         # init ota update statics collector
         self._update_stats_collector = OTAUpdateStatsCollector()
 
@@ -289,8 +288,6 @@ class _OTAUpdater:
         version: str,
         raw_url_base: str,
         cookies_json: str,
-        *,
-        control_flags: OTAClientControlFlags,
     ):
         """OTA update workflow implementation.
 
@@ -331,15 +328,18 @@ class _OTAUpdater:
 
         # configure proxy
         logger.debug("configure proxy setting...")
-        if proxy := proxy_cfg.get_proxy_for_local_ota():
-            # wait for otaproxy to be ready
-            # TODO: timeout for waiting otaproxy
+        if self.proxy:
+            logger.info(f"use {self.proxy=} for local OTA update")
+            logger.debug("wait for otaproxy to become ready...")
             # TODO: make otaproxy scrubing not blocking the otaproxy starts
-            ensure_http_server_open(proxy, interval=1, timeout=10 * 60)
+            ensure_http_server_open(
+                self.proxy,
+                interval=self.WAIT_FOR_OTAPROXY_POLLING_INTERVAL,
+                timeout=self.WAIT_FOR_OTAPROXY_TIMEOUT,
+            )
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.
-            logger.debug(f"use {proxy=} for local OTA update")
-            self._downloader.configure_proxies({"http": proxy})
+            self._downloader.configure_proxies({"http": self.proxy})
 
         # process metadata.jwt and ota metafiles
         logger.debug("process metadata.jwt...")
@@ -382,7 +382,7 @@ class _OTAUpdater:
         next(_postupdate_gen := self._boot_controller.post_update())
 
         # wait for sub ecu if needed before rebooting
-        control_flags.otaclient_wait_for_reboot()
+        self._control_flags.otaclient_wait_for_reboot()
         next(_postupdate_gen, None)  # reboot
 
     # API
@@ -424,16 +424,17 @@ class _OTAUpdater:
         return update_progress
 
     def execute(
-        self, version: str, raw_url_base: str, cookies_json: str, *, control_flags
+        self,
+        version: str,
+        raw_url_base: str,
+        cookies_json: str,
     ):
         """Main entry for executing local OTA update.
 
         Handles OTA failure and logging/finalizing on failure.
         """
         try:
-            self._execute_update(
-                version, raw_url_base, cookies_json, control_flags=control_flags
-            )
+            self._execute_update(version, raw_url_base, cookies_json)
         except OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
@@ -477,6 +478,8 @@ class OTAClient(OTAClientProtocol):
         boot_control_cls: Type[BootControllerProtocol],
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         my_ecu_id: str = "",
+        control_flags: OTAClientControlFlags,
+        proxy: Optional[str] = None,
     ):
         self.my_ecu_id = my_ecu_id
         # ensure only one update/rollback session is running
@@ -489,6 +492,8 @@ class OTAClient(OTAClientProtocol):
         self.current_version = (
             self.boot_controller.load_version() or self.DEFAULT_FIRMWARE_VERSION
         )
+        self.proxy = proxy
+        self.control_flags = control_flags
 
         # executors for update/rollback
         self._update_executor: _OTAUpdater = None  # type: ignore
@@ -511,28 +516,21 @@ class OTAClient(OTAClientProtocol):
 
     # API
 
-    def update(
-        self,
-        version: str,
-        url_base: str,
-        cookies_json: str,
-        *,
-        control_flags: OTAClientControlFlags,
-    ):
+    def update(self, version: str, url_base: str, cookies_json: str):
         if self._lock.acquire(blocking=False):
             try:
                 logger.info("[update] entering...")
                 self._update_executor = _OTAUpdater(
                     boot_controller=self.boot_controller,
                     create_standby_cls=self.create_standby_cls,
+                    control_flags=self.control_flags,
+                    proxy=self.proxy,
                 )
                 self.last_failure_type = wrapper.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
-                self._update_executor.execute(
-                    version, url_base, cookies_json, control_flags=control_flags
-                )
+                self._update_executor.execute(version, url_base, cookies_json)
             except OTAUpdateError as e:
                 self._on_failure(e, wrapper.StatusOta.FAILURE)
             finally:
@@ -594,6 +592,7 @@ class OTAClientStub:
         ecu_info: ECUInfo,
         executor: ThreadPoolExecutor,
         control_flags: OTAClientControlFlags,
+        proxy: Optional[str] = None,
     ) -> None:
         # only one update/rollback is allowed at a time
         self.update_rollback_lock = asyncio.Lock()
@@ -603,21 +602,17 @@ class OTAClientStub:
         )
 
         # create otaclient instance and control flags
-        self._control_flags = control_flags
         self._otaclient = OTAClient(
             boot_control_cls=get_boot_controller(ecu_info.get_bootloader()),
             create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
             my_ecu_id=self.my_ecu_id,
+            control_flags=control_flags,
+            proxy=proxy,
         )
 
         # proxy used by local otaclient
-        # TODO: detect network environment
-        # NOTE: it can be an upper proxy, or local otaproxy
-        self.local_used_proxy_url = (
-            urlsplit(_proxy)
-            if (_proxy := proxy_cfg.get_proxy_for_local_ota())
-            else None
-        )
+        # NOTE: it can be an upper otaproxy, local otaproxy, or no proxy
+        self.local_used_proxy_url = proxy
         self.last_operation = None  # update/rollback/None
 
     # property
@@ -647,7 +642,6 @@ class OTAClientStub:
                             request.version,
                             request.url,
                             request.cookies,
-                            control_flags=self._control_flags,
                         )
                     )
                 finally:
