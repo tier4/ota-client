@@ -98,9 +98,6 @@ class OTAClientControlFlags:
 class _OTAUpdater:
     """The implementation of OTA update logic."""
 
-    WAIT_FOR_OTAPROXY_TIMEOUT = 10 * 60  # seconds
-    WAIT_FOR_OTAPROXY_POLLING_INTERVAL = 1
-
     def __init__(
         self,
         *,
@@ -332,11 +329,7 @@ class _OTAUpdater:
             logger.info(f"use {self.proxy=} for local OTA update")
             logger.debug("wait for otaproxy to become ready...")
             # TODO: make otaproxy scrubing not blocking the otaproxy starts
-            ensure_http_server_open(
-                self.proxy,
-                interval=self.WAIT_FOR_OTAPROXY_POLLING_INTERVAL,
-                timeout=self.WAIT_FOR_OTAPROXY_TIMEOUT,
-            )
+            ensure_http_server_open(self.proxy)
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.
             self._downloader.configure_proxies({"http": self.proxy})
