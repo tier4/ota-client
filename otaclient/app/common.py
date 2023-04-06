@@ -14,8 +14,6 @@
 
 
 r"""Utils that shared between modules are listed here."""
-import asyncio
-import aiohttp
 import itertools
 import os
 import shlex
@@ -42,7 +40,7 @@ from typing import (
     TypeVar,
     Generic,
 )
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin
 
 
 from .log_setting import get_logger

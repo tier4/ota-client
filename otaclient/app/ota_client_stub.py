@@ -20,14 +20,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
-from typing import Optional, Set, Dict
+from typing import List, Optional, Set, Dict
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
 from .common import ensure_http_server_open
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientStub
-from .ota_client_call import OtaClientCall, batch_rollback, batch_update
+from .ota_client_call import OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
@@ -344,8 +344,7 @@ class OTAClientServiceStub:
             asyncio.get_running_loop().run_in_executor, self._executor
         )
 
-        ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
-        self.ecu_info = ecu_info
+        self.ecu_info = ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
         self.listen_addr = ecu_info.ip_addr
         self.listen_port = server_cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.get_ecu_id()
@@ -386,14 +385,17 @@ class OTAClientServiceStub:
             )
 
     async def _otaproxy_lifecycle_management(self):
-        if self._otaproxy_launcher.is_running:
-            if not self._ecu_status_storage.any_requires_network:
-                no_failed = not self._ecu_status_storage.any_failed
-                await self._otaproxy_launcher.stop(cleanup_cache=no_failed)
-        else:
-            if self._ecu_status_storage.any_requires_network:
-                no_failed = not self._ecu_status_storage.any_failed
-                await self._otaproxy_launcher.start(init_cache=no_failed)
+        no_failed_ecu = not self._ecu_status_storage.any_failed
+        if (
+            self._otaproxy_launcher.is_running
+            and not self._ecu_status_storage.any_requires_network
+        ):
+            await self._otaproxy_launcher.stop(cleanup_cache=no_failed_ecu)
+        elif (
+            self._ecu_status_storage.any_requires_network
+            and not self._otaproxy_launcher.is_running
+        ):
+            await self._otaproxy_launcher.start(init_cache=no_failed_ecu)
 
     async def _status_checking(self):
         while not self._status_checking_shutdown_event.is_set():
@@ -413,6 +415,7 @@ class OTAClientServiceStub:
 
     async def update(self, request: wrapper.UpdateRequest) -> wrapper.UpdateResponse:
         logger.info(f"receive update request: {request}")
+        asyncio.create_task(self._ecu_status_storage.on_receive_update_request())
         response = wrapper.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs

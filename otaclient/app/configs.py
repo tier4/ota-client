@@ -155,6 +155,7 @@ class BaseConfig(_InternalSettings):
     # will always be active during <DELAY> period, to ensure
     # each ECU acknowledges the request.
     SWITCHING_TO_INACTIVE_DELAY = 30  # seconds
+    ON_RECEIVE_UPDATE_DELAY_ECU_STORAGE_PROPERTIES_UPDATE = 3 * 60  # seconds
     ACTIVE_INTERVAL = 1  # second
     IDLE_INTERVAL = 20  # seconds
 
