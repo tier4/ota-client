@@ -139,10 +139,12 @@ class ECUStatusStorage:
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
 
         # properties cache
+        self.properties_last_update_time = 0
         self.lost_ecus_id = set()
         self.any_in_update = False
         self.any_failed = False
         self.any_requires_network = False
+        self.all_success = False
 
         # property update task
         self.properties_update_shutdown_event = asyncio.Event()
@@ -158,7 +160,7 @@ class ECUStatusStorage:
         )
 
     async def _properties_update(self):
-        cur_timestamp = int(time.time())
+        self.properties_last_update_time = (cur_timestamp := int(time.time()))
 
         # update lost ecu list
         lost_ecus = set()
@@ -167,7 +169,7 @@ class ECUStatusStorage:
                 lost_ecus.add(ecu_id)
         # add ECUs that never appear
         lost_ecus.add(self._all_available_ecus_id - set(self._all_ecus_status_v2))
-        self.lost_ecus_id = list(lost_ecus)
+        self.lost_ecus_id = lost_ecus
 
         self.any_in_update = any(
             (
@@ -196,14 +198,22 @@ class ECUStatusStorage:
                 if status.ecu_id not in lost_ecus
             )
         )
-        self.storage_last_updated_timestamp = cur_timestamp
+        self.all_success = all(
+            (
+                status.is_success
+                for status in chain(
+                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
+                )
+                if status.ecu_id not in lost_ecus
+            )
+        )
 
     async def _loop_updating_properties(self):
-        last_timestamp = self.storage_last_updated_timestamp
+        last_storage_update = self.storage_last_updated_timestamp
         while not self.properties_update_shutdown_event.is_set():
             # only update properties when storage is updated
-            if last_timestamp != self.storage_last_updated_timestamp:
-                last_timestamp = self.storage_last_updated_timestamp
+            if last_storage_update != self.storage_last_updated_timestamp:
+                last_storage_update = self.storage_last_updated_timestamp
                 await self._properties_update()
             await asyncio.sleep(self.PROPERTY_REFRESH_INTERVAL)
 
@@ -212,8 +222,7 @@ class ECUStatusStorage:
     async def update_from_child_ECU(self, status_resp: wrapper.StatusResponse):
         """SubECUTracker calls this method to update storage with subECUs' status report."""
         async with self._writer_lock:
-            cur_timestamp = int(time.time())
-            self.storage_last_updated_timestamp = cur_timestamp
+            self.storage_last_updated_timestamp = (cur_timestamp := int(time.time()))
             self._all_available_ecus_id.update(status_resp.available_ecu_ids)
 
             # NOTE: explicitly support v1 format
@@ -229,8 +238,7 @@ class ECUStatusStorage:
     async def update_from_local_ECU(self, ecu_status: wrapper.StatusResponseEcuV2):
         """OTAClientStub calls this method to update storage with local ECU's status report."""
         async with self._writer_lock:
-            cur_timestamp = int(time.time())
-            self.storage_last_updated_timestamp = cur_timestamp
+            self.storage_last_updated_timestamp = (cur_timestamp := int(time.time()))
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status_v2[ecu_id] = ecu_status
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
