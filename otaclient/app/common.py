@@ -604,32 +604,20 @@ def create_tmp_fname(prefix="tmp", length=6, sep="_") -> str:
 
 
 def ensure_http_server_open(
-    url: str, *, interval: float, timeout: Optional[float] = None
+    url: str, *, interval: float = 1, timeout: Optional[float] = None
 ):
     start_time = int(time.time())
     timeout = timeout if timeout and timeout >= 0 else float("inf")
+    connection_timeout = 3  # seconds
     with requests.Session() as session:
         while start_time + timeout > int(time.time()):
             try:
-                resp = session.get(url)
+                resp = session.get(url, timeout=connection_timeout)
                 resp.close()
                 return
-            except ConnectionError:
+            except ConnectionError:  # server is not up yet
                 time.sleep(interval)
-    raise ConnectionError(f"failed to ensure connection to {url} in {timeout=}seconds")
-
-
-async def ensure_http_server_open_async(
-    url: str, *, interval: float, timeout: Optional[float] = None
-):
-    start_time = int(time.time())
-    timeout = timeout if timeout and timeout >= 0 else float("inf")
-    async with aiohttp.ClientSession() as session:
-        while start_time + timeout > int(time.time()):
-            try:
-                async with session.get(url) as resp:
-                    resp.close()
+            except Exception as e:
+                logger.error(f"unexpected error during probing: {e!r}, abort")
                 return
-            except ConnectionError:
-                await asyncio.sleep(interval)
     raise ConnectionError(f"failed to ensure connection to {url} in {timeout=}seconds")
