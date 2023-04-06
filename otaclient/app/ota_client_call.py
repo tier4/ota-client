@@ -15,11 +15,10 @@
 
 import asyncio
 import grpc.aio
-from typing import Iterable, List, Optional
+from typing import Optional
 
 
 from . import log_setting
-from .ecu_info import ECUInfo
 from .proto import wrapper, v2, v2_grpc
 from .configs import config as cfg, server_cfg
 
@@ -100,47 +99,3 @@ class OtaClientCall:
                 )
             )
             return resp
-
-
-def batch_update(
-    ecu_info: ECUInfo, request: wrapper.UpdateRequest
-) -> Iterable[wrapper.UpdateResponse]:
-    tasks: List[asyncio.Task] = []
-    for ecu_contact in ecu_info.iter_direct_subecu_contact():
-        if request.if_contains_ecu(ecu_contact.ecu_id):
-            logger.debug(f"send update request to ecu@{ecu_contact=}")
-            tasks.append(
-                asyncio.create_task(
-                    OtaClientCall.update_call(
-                        ecu_contact.ecu_id,
-                        ecu_contact.host,
-                        ecu_contact.port,
-                        request=request,
-                        timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
-                    )
-                )
-            )
-    for _task in asyncio.as_completed(*tasks):
-        yield _task.result()
-
-
-def batch_rollback(
-    ecu_info: ECUInfo, request: wrapper.RollbackRequest
-) -> Iterable[wrapper.RollbackResponse]:
-    tasks: List[asyncio.Task] = []
-    for ecu_contact in ecu_info.iter_direct_subecu_contact():
-        if request.if_contains_ecu(ecu_contact.ecu_id):
-            logger.debug(f"send rollback request to ecu@{ecu_contact=}")
-            tasks.append(
-                asyncio.create_task(
-                    OtaClientCall.rollback_call(
-                        ecu_contact.ecu_id,
-                        ecu_contact.host,
-                        ecu_contact.port,
-                        request=request,
-                        timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
-                    )
-                )
-            )
-    for _task in asyncio.as_completed(*tasks):
-        yield _task.result()
