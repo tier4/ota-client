@@ -266,47 +266,43 @@ class SubECUTracker:
     ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
     def __init__(self, ecu_info: ECUInfo, storage: ECUStatusStorage) -> None:
-        self._direct_subecu = {
-            _ecu.ecu_id: _ecu for _ecu in ecu_info.iter_direct_subecu_contact()
-        }
+        self._ecu_info = ecu_info
         self._storage = storage
-
-        self.polling_shutdown_event = asyncio.Event()
+        self._polling_shutdown_event = asyncio.Event()
         self._polling_task = asyncio.create_task(self._polling())
 
     async def _polling(self):
-        while not self.polling_shutdown_event.is_set():
-            await self._poll_direct_subECU_once()
+        ecu_contacts = list(self._ecu_info.iter_direct_subecu_contact())
+        while not self._polling_shutdown_event.is_set():
+            poll_tasks: Dict[asyncio.Future, ECUContact] = {}
+            for ecu_contact in ecu_contacts:
+                _task = asyncio.create_task(
+                    OtaClientCall.status_call(
+                        ecu_contact.ecu_id,
+                        ecu_contact.host,
+                        ecu_contact.port,
+                        timeout=server_cfg.SERVER_PORT,
+                    )
+                )
+                poll_tasks[_task] = ecu_contact
+
+            _fut: asyncio.Future
+            for _fut in asyncio.as_completed(*poll_tasks):
+                ecu_contact = poll_tasks[_fut]
+                try:
+                    subecu_resp: wrapper.StatusResponse = _fut.result()
+                    assert subecu_resp
+                except Exception as e:
+                    logger.debug(f"failed to contact ecu@{ecu_contact=}: {e!r}")
+                    continue
+                await self._storage.update_from_child_ECU(subecu_resp)
+
+            poll_tasks.clear()
             await asyncio.sleep(
                 self.ACTIVE_POLLING_INTERVAL
                 if self._storage.any_in_update
                 else self.IDLE_POLLING_INTERVAL
             )
-
-    async def _poll_direct_subECU_once(self):
-        poll_tasks: Dict[asyncio.Future, ECUContact] = {}
-        for _, ecu_contact in self._direct_subecu.items():
-            _task = asyncio.create_task(
-                OtaClientCall.status_call(
-                    ecu_contact.ecu_id,
-                    ecu_contact.host,
-                    ecu_contact.port,
-                    timeout=server_cfg.SERVER_PORT,
-                )
-            )
-            poll_tasks[_task] = ecu_contact
-
-        _fut: asyncio.Future
-        for _fut in asyncio.as_completed(*poll_tasks):
-            ecu_contact = poll_tasks[_fut]
-            try:
-                subecu_resp: wrapper.StatusResponse = _fut.result()
-                assert subecu_resp
-            except Exception as e:
-                logger.debug(f"failed to contact ecu@{ecu_contact=}: {e!r}")
-                continue
-            await self._storage.update_from_child_ECU(subecu_resp)
-        poll_tasks.clear()
 
 
 class OTAClientServiceStub:
