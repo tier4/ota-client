@@ -391,9 +391,23 @@ class OTAClientServiceStub:
         response = wrapper.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs
-        # simultaneously dispatching update requests to all subecus without blocking
-        for _resp in batch_update(self.ecu_info, request):
-            response.merge_from(_resp)
+        tasks: List[asyncio.Task] = []
+        for ecu_contact in self.ecu_info.iter_direct_subecu_contact():
+            if not request.if_contains_ecu(ecu_contact.ecu_id):
+                continue
+            tasks.append(
+                asyncio.create_task(
+                    OtaClientCall.update_call(
+                        ecu_contact.ecu_id,
+                        ecu_contact.host,
+                        ecu_contact.port,
+                        request=request,
+                        timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
+                    )
+                )
+            )
+        for _task in asyncio.as_completed(*tasks):
+            response.merge_from(_task.result())
         # second: dispatch update request to local if required
         if update_req_ecu := request.find_update_meta(self.my_ecu_id):
             _resp_ecu = wrapper.UpdateResponseEcu(ecu_id=self.my_ecu_id)
@@ -412,8 +426,23 @@ class OTAClientServiceStub:
         response = wrapper.RollbackResponse()
 
         # first: dispatch rollback request to all directly connected subECUs
-        for _resp in batch_rollback(self.ecu_info, request):
-            response.merge_from(_resp)
+        tasks: List[asyncio.Task] = []
+        for ecu_contact in self.ecu_info.iter_direct_subecu_contact():
+            if not request.if_contains_ecu(ecu_contact.ecu_id):
+                continue
+            tasks.append(
+                asyncio.create_task(
+                    OtaClientCall.rollback_call(
+                        ecu_contact.ecu_id,
+                        ecu_contact.host,
+                        ecu_contact.port,
+                        request=request,
+                        timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
+                    )
+                )
+            )
+        for _task in asyncio.as_completed(*tasks):
+            response.merge_from(_task.result())
         # second: dispatch rollback request to local if required
         if rollback_req := request.find_rollback_req(self.my_ecu_id):
             _resp_ecu = wrapper.RollbackResponseEcu(ecu_id=self.my_ecu_id)
