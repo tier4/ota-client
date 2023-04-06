@@ -126,6 +126,7 @@ class OTAProxyLauncher:
 
 
 class ECUStatusStorage:
+    DELAY_PROPERTY_UPDATE = cfg.ON_RECEIVE_UPDATE_DELAY_ECU_STORAGE_PROPERTIES_UPDATE
     UNREACHABLE_ECU_TIMEOUT = cfg.UNREACHABLE_ECU_TIMEOUT
     PROPERTY_REFRESH_INTERVAL = 6
 
@@ -139,6 +140,7 @@ class ECUStatusStorage:
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
 
         # properties cache
+        self._properties_update_lock = asyncio.Lock()
         self.properties_last_update_time = 0
         self.lost_ecus_id = set()
         self.any_in_update = False
@@ -152,6 +154,9 @@ class ECUStatusStorage:
             self._loop_updating_properties()
         )
 
+        # on receive update request
+        self.last_update_request_received_timestamp = 0
+
     def _is_ecu_lost(self, ecu_id: str, cur_timestamp: int) -> bool:
         return (
             cur_timestamp
@@ -160,7 +165,7 @@ class ECUStatusStorage:
         )
 
     async def _properties_update(self):
-        self.properties_last_update_time = (cur_timestamp := int(time.time()))
+        self.properties_last_update_time = cur_timestamp = int(time.time())
 
         # update lost ecu list
         lost_ecus = set()
@@ -211,10 +216,18 @@ class ECUStatusStorage:
     async def _loop_updating_properties(self):
         last_storage_update = self.storage_last_updated_timestamp
         while not self.properties_update_shutdown_event.is_set():
-            # only update properties when storage is updated
-            if last_storage_update != self.storage_last_updated_timestamp:
-                last_storage_update = self.storage_last_updated_timestamp
-                await self._properties_update()
+            async with self._properties_update_lock:
+                # only update properties when storage is updated,
+                # if just receive update request, skip property update
+                #   for DELAY seconds.
+                if (
+                    last_storage_update != self.storage_last_updated_timestamp
+                    and self.last_update_request_received_timestamp
+                    + self.DELAY_PROPERTY_UPDATE
+                    > int(time.time())
+                ):
+                    last_storage_update = self.storage_last_updated_timestamp
+                    await self._properties_update()
             await asyncio.sleep(self.PROPERTY_REFRESH_INTERVAL)
 
     # API
@@ -222,7 +235,7 @@ class ECUStatusStorage:
     async def update_from_child_ECU(self, status_resp: wrapper.StatusResponse):
         """SubECUTracker calls this method to update storage with subECUs' status report."""
         async with self._writer_lock:
-            self.storage_last_updated_timestamp = (cur_timestamp := int(time.time()))
+            self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
             self._all_available_ecus_id.update(status_resp.available_ecu_ids)
 
             # NOTE: explicitly support v1 format
@@ -238,10 +251,26 @@ class ECUStatusStorage:
     async def update_from_local_ECU(self, ecu_status: wrapper.StatusResponseEcuV2):
         """OTAClientStub calls this method to update storage with local ECU's status report."""
         async with self._writer_lock:
-            self.storage_last_updated_timestamp = (cur_timestamp := int(time.time()))
+            self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status_v2[ecu_id] = ecu_status
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
+
+    async def on_receive_update_request(self):
+        """Set any_in_update and any_requires_network to True on update request received.
+
+        Also set the last_update_request_received_timestamp to signal the background property
+            update task to not update the properties to prevent pre-mature properties changing,
+            a.k.a, we assume that network requirement should exist longer than <DELAY> seconds.
+        """
+        async with self._properties_update_lock:
+            self.last_update_request_received_timestamp = int(time.time())
+            self.any_in_update = True
+            self.any_requires_network = True
+            self.all_success = False
+            # NOTE: intentionally not to set self.any_failed to hint the
+            #   OTAClientServiceStub that there is failed ecu before the
+            #   update request received, to let otaproxy re-use cache.
 
     def export(self) -> wrapper.StatusResponse:
         res = wrapper.StatusResponse()
