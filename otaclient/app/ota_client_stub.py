@@ -404,6 +404,8 @@ class OTAClientServiceStub:
             # otaclient control flag
             if not self._ecu_status_storage.any_requires_network:
                 self._otaclient_control_flags.set_can_reboot_flag()
+            else:
+                self._otaclient_control_flags.clear_can_reboot_flag()
 
             await asyncio.sleep(
                 self.ACTIVE_POLLING_INTERVAL
