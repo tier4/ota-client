@@ -22,16 +22,16 @@ from functools import partial
 from itertools import chain
 from typing import Optional, Set, Dict
 
-
 from . import log_setting
 from .configs import config as cfg, server_cfg
+from .common import ensure_http_server_open
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientStub
 from .ota_client_call import OtaClientCall, batch_rollback, batch_update
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
-from otaclient.ota_proxy.config import config as proxy_srv_cfg
+from otaclient.ota_proxy.config import config as local_otaproxy_cfg
 from otaclient.ota_proxy import subprocess_start_otaproxy
 
 
@@ -42,6 +42,8 @@ logger = log_setting.get_logger(
 
 class OTAProxyLauncher:
     def __init__(self, *, executor: ThreadPoolExecutor) -> None:
+        self.upper_otaproxy = proxy_cfg.upper_ota_proxy
+
         self._lock = asyncio.Lock()
         self.started = asyncio.Event()
         self.ready = asyncio.Event()
@@ -56,16 +58,21 @@ class OTAProxyLauncher:
         return self.started.is_set() and self.ready.is_set()
 
     @staticmethod
-    def _subprocess_init():
+    def _subprocess_init(upper_proxy: Optional[str] = None):
         """Initializing the subprocess before launching it.
 
         Currently only used for configuring the logging for otaproxy.
         """
+        # configure logging for otaproxy subprocess
         log_setting.configure_logging(
             loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
         )
         otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
         otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
+
+        # wait for upper otaproxy if any
+        if upper_proxy:
+            ensure_http_server_open(upper_proxy)
 
     async def start(self, *, init_cache: bool) -> Optional[int]:
         async with self._lock:
@@ -81,12 +88,12 @@ class OTAProxyLauncher:
                 host=proxy_cfg.local_ota_proxy_listen_addr,
                 port=proxy_cfg.local_ota_proxy_listen_port,
                 init_cache=init_cache,
-                cache_dir=proxy_srv_cfg.BASE_DIR,
-                cache_db_f=proxy_srv_cfg.DB_FILE,
+                cache_dir=local_otaproxy_cfg.BASE_DIR,
+                cache_db_f=local_otaproxy_cfg.DB_FILE,
                 upper_proxy=proxy_cfg.upper_ota_proxy,
                 enable_cache=proxy_cfg.enable_local_ota_proxy_cache,
                 enable_https=proxy_cfg.gateway,
-                subprocess_init=self._subprocess_init,
+                subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
             )
         )
         self.ready.set()  # process started and ready
@@ -109,7 +116,7 @@ class OTAProxyLauncher:
 
             if cleanup_cache:
                 logger.info("cleanup ota_cache on success")
-                shutil.rmtree(proxy_srv_cfg.BASE_DIR, ignore_errors=True)
+                shutil.rmtree(local_otaproxy_cfg.BASE_DIR, ignore_errors=True)
 
         async with self._lock:
             self.ready.clear()
