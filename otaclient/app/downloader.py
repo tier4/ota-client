@@ -340,7 +340,6 @@ class Downloader:
         _err_count = 0
         # flag this thread as actively downloading thread
         active_flag = self._downloading_thread_active_flag[threading.get_native_id()]
-        active_flag.set()
         try:
             with self._session.get(
                 url,
@@ -350,6 +349,9 @@ class Downloader:
                 headers=headers,
             ) as resp, open(dst, "wb") as _dst:
                 resp.raise_for_status()
+                # NOTE: mark this downloading thread as active after
+                #       the connection is made.
+                active_flag.set()
 
                 raw_resp: HTTPResponse = resp.raw
                 if raw_resp.retries:
