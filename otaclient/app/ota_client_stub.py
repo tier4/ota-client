@@ -431,7 +431,7 @@ class OTAClientServiceStub:
 
     async def update(self, request: wrapper.UpdateRequest) -> wrapper.UpdateResponse:
         logger.info(f"receive update request: {request}")
-        asyncio.create_task(self._ecu_status_storage.on_receive_update_request())
+        any_acked_update_request = False
         response = wrapper.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs
@@ -451,16 +451,26 @@ class OTAClientServiceStub:
                 )
             )
         for _task in asyncio.as_completed(tasks):
-            response.merge_from(_task.result())
+            _ecu_resp: wrapper.UpdateResponse = _task.result()
+            if not any_acked_update_request and _ecu_resp.any_acked_update:
+                any_acked_update_request = True
+            response.merge_from(_ecu_resp)
+
         # second: dispatch update request to local if required
         if update_req_ecu := request.find_update_meta(self.my_ecu_id):
             _resp_ecu = wrapper.UpdateResponseEcu(ecu_id=self.my_ecu_id)
             try:
                 await self._otaclient_stub.dispatch_update(update_req_ecu)
+                if not any_acked_update_request:
+                    any_acked_update_request = True
             except OTAClientBusy as e:
                 logger.error(f"self ECU is busy: {e!r}")
                 _resp_ecu.result = wrapper.FailureType.RECOVERABLE
             response.add_ecu(_resp_ecu)
+
+        # finally, trigger ecu_status_storage entering active mode if needed
+        if any_acked_update_request:
+            asyncio.create_task(self._ecu_status_storage.on_receive_update_request())
         return response
 
     async def rollback(

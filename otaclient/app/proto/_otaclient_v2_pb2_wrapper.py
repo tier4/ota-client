@@ -573,6 +573,13 @@ class UpdateResponse(MessageWrapper[_v2.UpdateResponse]):
     def __init__(self, *, ecu: _Optional[_Iterable[UpdateResponseEcu]] = ...) -> None:
         ...
 
+    @property
+    def any_acked_update(self) -> bool:
+        for ecu_resp in self.ecu:
+            if ecu_resp.result is FailureType.NO_FAILURE:
+                return True
+        return False
+
     def iter_ecu(self) -> _Generator[UpdateResponseEcu, None, None]:
         for _ecu in self.ecu:
             yield _ecu
