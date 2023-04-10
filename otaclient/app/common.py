@@ -602,18 +602,21 @@ def create_tmp_fname(prefix="tmp", length=6, sep="_") -> str:
 
 
 def ensure_http_server_open(
-    url: str, *, interval: float = 1, timeout: Optional[float] = None
+    url: str,
+    *,
+    interval: float = 1,
+    connection_timeout: float = 5,
+    timeout: Optional[float] = None,
 ):
     start_time = int(time.time())
     timeout = timeout if timeout and timeout >= 0 else float("inf")
-    connection_timeout = 3  # seconds
     with requests.Session() as session:
         while start_time + timeout > int(time.time()):
             try:
                 resp = session.get(url, timeout=connection_timeout)
                 resp.close()
                 return
-            except ConnectionError:  # server is not up yet
+            except requests.exceptions.ConnectionError:  # server is not up yet
                 time.sleep(interval)
             except Exception as e:
                 logger.error(f"unexpected error during probing: {e!r}, abort")

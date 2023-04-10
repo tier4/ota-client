@@ -16,6 +16,7 @@
 import asyncio
 import logging
 import multiprocessing
+from functools import partial
 from multiprocessing.context import SpawnProcess
 from pathlib import Path
 from typing import Callable
@@ -38,7 +39,7 @@ __all__ = (
 )
 
 
-def subprocess_start_otaproxy(
+def _subprocess_main(
     host: str,
     port: int,
     *,
@@ -49,46 +50,53 @@ def subprocess_start_otaproxy(
     enable_cache: bool,
     enable_https: bool,
     subprocess_init: Callable,
-) -> SpawnProcess:
-    """Helper method to launch otaproxy in subprocess."""
+):
+    import uvloop
 
-    def _subprocess_main():
-        import uvloop
+    # ------ pre-start callable ------ #
+    subprocess_init()
+    # ------ scrub cache folder if cache re-use is possible ------ #
+    should_init_cache = init_cache or not (
+        Path(cache_dir).is_dir() and Path(cache_db_f).is_file()
+    )
+    if not should_init_cache:
+        scrub_helper = OTACacheScrubHelper(cache_db_f, cache_dir)
+        try:
+            scrub_helper.scrub_cache()
+        except Exception as e:
+            logger.error(f"scrub cache failed, force init: {e!r}")
+            should_init_cache = True
+        finally:
+            del scrub_helper
 
-        # ------ pre-start callable ------ #
-        subprocess_init()
-        # ------ scrub cache folder if cache re-use is possible ------ #
-        should_init_cache = init_cache or not (
-            Path(cache_dir).is_dir() and Path(cache_db_f).is_file()
+    uvloop.install()
+    asyncio.run(
+        run_otaproxy(
+            host=host,
+            port=port,
+            cache_dir=cache_dir,
+            cache_db_f=cache_db_f,
+            enable_cache=enable_cache,
+            upper_proxy=upper_proxy,
+            enable_https=enable_https,
+            init_cache=init_cache,
         )
-        if not should_init_cache:
-            scrub_helper = OTACacheScrubHelper(cache_db_f, cache_dir)
-            try:
-                scrub_helper.scrub_cache()
-            except Exception as e:
-                logger.error(f"scrub cache failed, force init: {e!r}")
-                should_init_cache = True
-            finally:
-                del scrub_helper
+    )
 
-        uvloop.install()
-        asyncio.run(
-            run_otaproxy(
-                host=host,
-                port=port,
-                cache_dir=cache_dir,
-                cache_db_f=cache_db_f,
-                enable_cache=enable_cache,
-                upper_proxy=upper_proxy,
-                enable_https=enable_https,
-                init_cache=init_cache,
-            )
-        )
+
+def subprocess_start_otaproxy(*args, **kwargs) -> SpawnProcess:
+    """Helper method to launch otaproxy in subprocess.
+
+    This method works like a wrapper and passthrough all args and kwargs
+    to the _subprocess_main function, and then execute the function in
+    a subprocess.
+    check _subprocess_main function for more details.
+    """
 
     # run otaproxy in async loop in new subprocess
     mp_ctx = multiprocessing.get_context("spawn")
     otaproxy_subprocess = mp_ctx.Process(
-        target=_subprocess_main,
+        target=partial(_subprocess_main, *args, **kwargs),
         daemon=True,  # kill otaproxy if otaclient exists
     )
     otaproxy_subprocess.start()

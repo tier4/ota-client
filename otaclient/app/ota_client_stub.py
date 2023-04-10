@@ -175,7 +175,7 @@ class ECUStatusStorage:
             if self._is_ecu_lost(ecu_id, cur_timestamp):
                 lost_ecus.add(ecu_id)
         # add ECUs that never appear
-        lost_ecus.add(self._all_available_ecus_id - set(self._all_ecus_status_v2))
+        lost_ecus.update(self._all_available_ecus_id - set(self._all_ecus_status_v2))
         self.lost_ecus_id = lost_ecus
 
         self.any_in_update = any(
