@@ -72,7 +72,12 @@ def detect_bootloader(raise_on_unknown=True) -> BootloaderType:
 def get_boot_controller(
     bootloader_type: BootloaderType,
 ) -> Type[BootControllerProtocol]:
+    # if ecu_info doesn't specify the bootloader type,
+    # we try to detect by ourselves
+    if bootloader_type is BootloaderType.UNSPECIFIED:
+        bootloader_type = detect_bootloader(raise_on_unknown=True)
     logger.info(f"use boot_controller for {bootloader_type=}")
+
     if bootloader_type == BootloaderType.GRUB:
         from ._grub import GrubController
 
@@ -85,4 +90,5 @@ def get_boot_controller(
         from ._rpi_boot import RPIBootController
 
         return RPIBootController
+
     raise BootControlError from NotImplementedError(f"unsupported: {bootloader_type=}")

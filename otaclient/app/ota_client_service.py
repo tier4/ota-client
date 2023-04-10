@@ -47,4 +47,5 @@ async def run_otaclient_grpc_server():
         server=server, servicer=ota_client_service_v2
     )
     server.add_insecure_port(f"{service_stub.listen_addr}:{service_stub.listen_port}")
+    await server.start()
     await server.wait_for_termination()

@@ -214,6 +214,9 @@ class ECUStatusStorage:
                 if status.ecu_id not in lost_ecus
             )
         )
+        logger.debug(
+            f"{self.any_in_update=}, {self.any_failed=}, {self.any_requires_network=}, {self.all_success=}"
+        )
 
     async def _loop_updating_properties(self):
         last_storage_update = self.storage_last_updated_timestamp
@@ -318,7 +321,7 @@ class SubECUTracker:
                 poll_tasks[_task] = ecu_contact
 
             _fut: asyncio.Future
-            for _fut in asyncio.as_completed(*poll_tasks):
+            for _fut in asyncio.as_completed(poll_tasks):
                 ecu_contact = poll_tasks[_fut]
                 try:
                     subecu_resp: wrapper.StatusResponse = _fut.result()
@@ -361,6 +364,7 @@ class OTAClientServiceStub:
             ecu_info=ecu_info,
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
+            proxy=proxy_cfg.get_proxy_for_local_ota(),
         )
         self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
 
@@ -392,11 +396,13 @@ class OTAClientServiceStub:
             self._otaproxy_launcher.is_running
             and not self._ecu_status_storage.any_requires_network
         ):
+            logger.info("stop otaproxy on not required")
             await self._otaproxy_launcher.stop(cleanup_cache=no_failed_ecu)
         elif (
             self._ecu_status_storage.any_requires_network
             and not self._otaproxy_launcher.is_running
         ):
+            logger.info("start otaproxy on required")
             await self._otaproxy_launcher.start(init_cache=no_failed_ecu)
 
     async def _status_checking(self):
@@ -405,8 +411,14 @@ class OTAClientServiceStub:
             await self._otaproxy_lifecycle_management()
             # otaclient control flag
             if not self._ecu_status_storage.any_requires_network:
+                logger.debug(
+                    "local otaclient can reboot as no ECU requires otaproxy now"
+                )
                 self._otaclient_control_flags.set_can_reboot_flag()
             else:
+                logger.debug(
+                    "local otaclient cannot reboot as at least one ECU requires otaproxy now"
+                )
                 self._otaclient_control_flags.clear_can_reboot_flag()
 
             await asyncio.sleep(
@@ -438,7 +450,7 @@ class OTAClientServiceStub:
                     )
                 )
             )
-        for _task in asyncio.as_completed(*tasks):
+        for _task in asyncio.as_completed(tasks):
             response.merge_from(_task.result())
         # second: dispatch update request to local if required
         if update_req_ecu := request.find_update_meta(self.my_ecu_id):
@@ -473,7 +485,7 @@ class OTAClientServiceStub:
                     )
                 )
             )
-        for _task in asyncio.as_completed(*tasks):
+        for _task in asyncio.as_completed(tasks):
             response.merge_from(_task.result())
         # second: dispatch rollback request to local if required
         if rollback_req := request.find_rollback_req(self.my_ecu_id):
