@@ -356,6 +356,7 @@ class SubECUTracker:
 class OTAClientServiceStub:
     IDLE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
     ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
+    OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_SHUTDOWN_DELAY
 
     def __init__(self):
         self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
@@ -382,64 +383,80 @@ class OTAClientServiceStub:
         )
         self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
 
-        # status tracker
-        self._status_checking_shutdown_event = asyncio.Event()
-        self._status_tracker = asyncio.create_task(self._status_checking())
         # local ecu status tracker
         self._local_ecu_status_checking_shutdown_event = asyncio.Event()
-        self._local_ecu_status_tracking_task = asyncio.create_task(
-            self._local_ecu_status_polling()
+        asyncio.create_task(self._local_ecu_status_polling())
+
+        # status monitoring tasks
+        # as the dependency only caused by otaproxy, if local otaproxy is not enabled,
+        # we skip the following logics.
+        if self._otaproxy_launcher.enabled:
+            self._status_checking_shutdown_event = asyncio.Event()
+            asyncio.create_task(self._otaproxy_lifecycle_managing())
+            asyncio.create_task(self._otaclient_control_flags_managing())
+        else:
+            # if otaproxy is not enabled, no dependent relationship will be formed,
+            # always allow local otaclient to reboot
+            self._otaclient_control_flags.set_can_reboot_flag()
+
+    # internal
+
+    async def _polling_interval(self):
+        # polling actively when otaclient is actively updating/rollbacking
+        await asyncio.sleep(
+            self.ACTIVE_POLLING_INTERVAL
+            if self._ecu_status_storage.any_in_update
+            else self.IDLE_POLLING_INTERVAL
         )
 
-    # internal, status checking loop
-
     async def _local_ecu_status_polling(self):
+        """Task entry for loop polling local ECU status when updating."""
         while not self._local_ecu_status_checking_shutdown_event.is_set():
-            status_report = await self._run_in_executor(self._otaclient_stub.get_status)
+            status_report = await self._otaclient_stub.get_status()
             await self._ecu_status_storage.update_from_local_ECU(status_report)
-            # polling actively when otaclient is actively updating/rollbacking
-            await asyncio.sleep(
-                self.ACTIVE_POLLING_INTERVAL
-                if self._otaclient_stub.is_busy
-                else self.IDLE_POLLING_INTERVAL
-            )
+            await self._polling_interval()
 
-    async def _otaproxy_lifecycle_management(self):
-        no_failed_ecu = not self._ecu_status_storage.any_failed
-        if (
-            self._otaproxy_launcher.is_running
-            and not self._ecu_status_storage.any_requires_network
-        ):
-            logger.info("stop otaproxy on not required")
-            await self._otaproxy_launcher.stop(cleanup_cache=no_failed_ecu)
-        elif (
-            self._ecu_status_storage.any_requires_network
-            and not self._otaproxy_launcher.is_running
-        ):
-            logger.info("start otaproxy on required")
-            await self._otaproxy_launcher.start(init_cache=no_failed_ecu)
-
-    async def _status_checking(self):
+    async def _otaproxy_lifecycle_managing(self):
+        """Task entry for managing otaproxy's launching/shutdown."""
+        otaproxy_last_launched_timestamp = 0
         while not self._status_checking_shutdown_event.is_set():
-            # otaproxy management
-            await self._otaproxy_lifecycle_management()
-            # otaclient control flag
+            cur_timestamp = int(time.time())
+            no_failed_ecu = not self._ecu_status_storage.any_failed
+            any_requires_network = self._ecu_status_storage.any_requires_network
+            otaproxy_is_running = self._otaproxy_launcher.is_running
+
+            # check if need to shutdown
+            if (
+                otaproxy_is_running
+                and not any_requires_network
+                and cur_timestamp
+                > otaproxy_last_launched_timestamp + self.OTAPROXY_SHUTDOWN_DELAY
+            ):
+                # NOTE: do not shutdown otaproxy too quick after it just starts!
+                # If otaproxy just starts less than <OTAPROXY_SHUTDOWN_DELAY> seconds,
+                # skip the shutdown
+                logger.info("stop otaproxy as not required")
+                await self._otaproxy_launcher.stop(cleanup_cache=no_failed_ecu)
+                otaproxy_last_launched_timestamp = 0
+
+            # check if need to start
+            elif any_requires_network and not otaproxy_is_running:
+                logger.info("start otaproxy as required now")
+                await self._otaproxy_launcher.start(init_cache=no_failed_ecu)
+                otaproxy_last_launched_timestamp = cur_timestamp
+
+            await self._polling_interval()
+
+    async def _otaclient_control_flags_managing(self):
+        """Task entry for set/clear otaclient control flags."""
+        while not self._status_checking_shutdown_event.is_set():
             if not self._ecu_status_storage.any_requires_network:
-                logger.debug(
-                    "local otaclient can reboot as no ECU requires otaproxy now"
-                )
+                logger.debug("local otaclient can reboot as no ECU requires otaproxy")
                 self._otaclient_control_flags.set_can_reboot_flag()
             else:
-                logger.debug(
-                    "local otaclient cannot reboot as at least one ECU requires otaproxy now"
-                )
+                logger.debug("local otaclient cannot reboot otaproxy is required")
                 self._otaclient_control_flags.clear_can_reboot_flag()
-
-            await asyncio.sleep(
-                self.ACTIVE_POLLING_INTERVAL
-                if self._ecu_status_storage.any_in_update
-                else self.IDLE_POLLING_INTERVAL
-            )
+            await self._polling_interval()
 
     # API stub
 
