@@ -141,7 +141,7 @@ class ECUStatusStorage:
 
         # properties cache
         self._properties_update_lock = asyncio.Lock()
-        self.properties_last_update_time = 0
+        self.properties_last_update_timestamp = 0
         self.lost_ecus_id = set()
         self.any_in_update = False
         self.any_failed = False
@@ -167,7 +167,7 @@ class ECUStatusStorage:
         )
 
     async def _properties_update(self):
-        self.properties_last_update_time = cur_timestamp = int(time.time())
+        self.properties_last_update_timestamp = cur_timestamp = int(time.time())
 
         # update lost ecu list
         lost_ecus = set()
@@ -221,15 +221,15 @@ class ECUStatusStorage:
     async def _loop_updating_properties(self):
         last_storage_update = self.storage_last_updated_timestamp
         while not self.properties_update_shutdown_event.is_set():
+            # only update properties when storage is updated,
+            # if just receive update request, skip property update
+            #   for DELAY seconds.
             async with self._properties_update_lock:
-                # only update properties when storage is updated,
-                # if just receive update request, skip property update
-                #   for DELAY seconds.
-                if (
-                    last_storage_update != self.storage_last_updated_timestamp
-                    and self.last_update_request_received_timestamp
+                current_timestamp = int(time.time())
+                if last_storage_update != self.storage_last_updated_timestamp and (
+                    current_timestamp
+                    > self.last_update_request_received_timestamp
                     + self.DELAY_PROPERTY_UPDATE
-                    > int(time.time())
                 ):
                     last_storage_update = self.storage_last_updated_timestamp
                     await self._properties_update()
@@ -470,6 +470,7 @@ class OTAClientServiceStub:
 
         # finally, trigger ecu_status_storage entering active mode if needed
         if any_acked_update_request:
+            logger.info("at least one ECU accept update request")
             asyncio.create_task(self._ecu_status_storage.on_receive_update_request())
         return response
 
