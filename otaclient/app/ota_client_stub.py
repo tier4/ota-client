@@ -41,8 +41,17 @@ logger = log_setting.get_logger(
 
 
 class OTAProxyLauncher:
-    def __init__(self, *, executor: ThreadPoolExecutor) -> None:
-        self.upper_otaproxy = proxy_cfg.upper_ota_proxy
+    def __init__(
+        self,
+        *,
+        executor: ThreadPoolExecutor,
+        _proxy_info=proxy_cfg,
+        _proxy_server_cfg=local_otaproxy_cfg,
+    ) -> None:
+        self._proxy_info = _proxy_info
+        self._proxy_server_cfg = _proxy_server_cfg
+        self.enabled = _proxy_info.enable_local_ota_proxy
+        self.upper_otaproxy = _proxy_info.upper_ota_proxy
 
         self._lock = asyncio.Lock()
         self.started = asyncio.Event()
@@ -55,6 +64,8 @@ class OTAProxyLauncher:
 
     @property
     def is_running(self) -> bool:
+        if not self.enabled:
+            return False
         return self.started.is_set() and self.ready.is_set()
 
     @staticmethod
@@ -75,6 +86,9 @@ class OTAProxyLauncher:
             ensure_http_server_open(upper_proxy)
 
     async def start(self, *, init_cache: bool) -> Optional[int]:
+        if not self.enabled:
+            return
+
         async with self._lock:
             if self.started.is_set():
                 logger.warning("ignore multiple otaproxy start request")
@@ -85,14 +99,14 @@ class OTAProxyLauncher:
         otaproxy_subprocess = await self._run_in_executor(
             partial(
                 subprocess_start_otaproxy,
-                host=proxy_cfg.local_ota_proxy_listen_addr,
-                port=proxy_cfg.local_ota_proxy_listen_port,
+                host=self._proxy_info.local_ota_proxy_listen_addr,
+                port=self._proxy_info.local_ota_proxy_listen_port,
                 init_cache=init_cache,
-                cache_dir=local_otaproxy_cfg.BASE_DIR,
-                cache_db_f=local_otaproxy_cfg.DB_FILE,
-                upper_proxy=proxy_cfg.upper_ota_proxy,
-                enable_cache=proxy_cfg.enable_local_ota_proxy_cache,
-                enable_https=proxy_cfg.gateway,
+                cache_dir=self._proxy_server_cfg.BASE_DIR,
+                cache_db_f=self._proxy_server_cfg.DB_FILE,
+                upper_proxy=self.upper_otaproxy,
+                enable_cache=self._proxy_info.enable_local_ota_proxy_cache,
+                enable_https=self._proxy_info.gateway,
                 subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
             )
         )
@@ -105,7 +119,7 @@ class OTAProxyLauncher:
         return otaproxy_subprocess.pid
 
     async def stop(self, *, cleanup_cache: bool):
-        if self._lock.locked():
+        if not self.enabled or self._lock.locked():
             return
 
         def _shutdown():
@@ -116,7 +130,7 @@ class OTAProxyLauncher:
 
             if cleanup_cache:
                 logger.info("cleanup ota_cache on success")
-                shutil.rmtree(local_otaproxy_cfg.BASE_DIR, ignore_errors=True)
+                shutil.rmtree(self._proxy_server_cfg.BASE_DIR, ignore_errors=True)
 
         async with self._lock:
             self.ready.clear()
