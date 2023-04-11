@@ -663,5 +663,5 @@ class OTAClientStub:
         # dispatch to background
         asyncio.create_task(_rollback())
 
-    def get_status(self) -> wrapper.StatusResponseEcuV2:
-        return self._otaclient.status()
+    async def get_status(self) -> wrapper.StatusResponseEcuV2:
+        return await self._run_in_executor(self._otaclient.status)
