@@ -55,7 +55,6 @@ class OTAProxyLauncher:
 
         self._lock = asyncio.Lock()
         self.started = asyncio.Event()
-        self.ready = asyncio.Event()
         # process start/shutdown will be dispatched to thread pool
         self._run_in_executor = partial(
             asyncio.get_event_loop().run_in_executor, executor
@@ -64,9 +63,9 @@ class OTAProxyLauncher:
 
     @property
     def is_running(self) -> bool:
-        if not self.enabled:
+        if not self.enabled or self._otaproxy_subprocess is None:
             return False
-        return self.started.is_set() and self.ready.is_set()
+        return self._otaproxy_subprocess.is_alive()
 
     @staticmethod
     def _subprocess_init(upper_proxy: Optional[str] = None):
@@ -86,7 +85,7 @@ class OTAProxyLauncher:
             ensure_http_server_open(upper_proxy)
 
     async def start(self, *, init_cache: bool) -> Optional[int]:
-        if not self.enabled:
+        if not self.enabled or self._lock.locked():
             return
 
         async with self._lock:
@@ -110,7 +109,6 @@ class OTAProxyLauncher:
                 subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
             )
         )
-        self.ready.set()  # process started and ready
         self._otaproxy_subprocess = otaproxy_subprocess
         logger.info(
             f"otaproxy({otaproxy_subprocess.pid=}) started at "
@@ -123,7 +121,7 @@ class OTAProxyLauncher:
             return
 
         def _shutdown():
-            if self._otaproxy_subprocess:
+            if self._otaproxy_subprocess and self._otaproxy_subprocess.is_alive():
                 self._otaproxy_subprocess.terminate()
                 self._otaproxy_subprocess.join()
             self._otaproxy_subprocess = None
@@ -133,7 +131,6 @@ class OTAProxyLauncher:
                 shutil.rmtree(self._proxy_server_cfg.BASE_DIR, ignore_errors=True)
 
         async with self._lock:
-            self.ready.clear()
             self.started.clear()
             await self._run_in_executor(_shutdown)
             logger.info("otaproxy closed")
