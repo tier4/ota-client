@@ -20,6 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
+from pathlib import Path
 from typing import List, Optional, Set, Dict
 
 from . import log_setting
@@ -66,6 +67,11 @@ class OTAProxyLauncher:
         if not self.enabled or self._otaproxy_subprocess is None:
             return False
         return self._otaproxy_subprocess.is_alive()
+
+    def cleanup_cache_dir(self):
+        if (cache_dir := Path(self._proxy_server_cfg.BASE_DIR)).is_dir():
+            logger.info("cleanup ota_cache on success")
+            shutil.rmtree(cache_dir, ignore_errors=True)
 
     @staticmethod
     def _subprocess_init(upper_proxy: Optional[str] = None):
@@ -116,7 +122,7 @@ class OTAProxyLauncher:
         )
         return otaproxy_subprocess.pid
 
-    async def stop(self, *, cleanup_cache: bool):
+    async def stop(self):
         if not self.enabled or self._lock.locked():
             return
 
@@ -125,10 +131,6 @@ class OTAProxyLauncher:
                 self._otaproxy_subprocess.terminate()
                 self._otaproxy_subprocess.join()
             self._otaproxy_subprocess = None
-
-            if cleanup_cache:
-                logger.info("cleanup ota_cache on success")
-                shutil.rmtree(self._proxy_server_cfg.BASE_DIR, ignore_errors=True)
 
         async with self._lock:
             self.started.clear()
@@ -216,15 +218,17 @@ class ECUStatusStorage:
                 if status.ecu_id not in lost_ecus
             )
         )
-        self.all_success = all(
-            (
-                status.is_success
-                for status in chain(
-                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
-                )
-                if status.ecu_id not in lost_ecus
+        ecus_if_is_success = {
+            status.ecu_id: status.is_success
+            for status in chain(
+                self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
             )
-        )
+            if status.ecu_id not in lost_ecus
+        }
+        self.all_success = all(ecus_if_is_success.values()) and len(
+            ecus_if_is_success
+        ) == len(self._all_available_ecus_id)
+
         logger.debug(
             f"{self.any_in_update=}, {self.any_failed=}, {self.any_requires_network=}, {self.all_success=}"
         )
@@ -422,7 +426,8 @@ class OTAClientServiceStub:
             any_requires_network = self._ecu_status_storage.any_requires_network
             otaproxy_is_running = self._otaproxy_launcher.is_running
 
-            # check if need to shutdown
+            # check if need to start or shutdown otaproxy
+            otaproxy_just_shutdown = False
             if (
                 otaproxy_is_running
                 and not any_requires_network
@@ -433,14 +438,17 @@ class OTAClientServiceStub:
                 # If otaproxy just starts less than <OTAPROXY_SHUTDOWN_DELAY> seconds,
                 # skip the shutdown
                 logger.info("stop otaproxy as not required")
-                await self._otaproxy_launcher.stop(cleanup_cache=no_failed_ecu)
+                otaproxy_just_shutdown = True
+                await self._otaproxy_launcher.stop()
                 otaproxy_last_launched_timestamp = 0
-
-            # check if need to start
             elif any_requires_network and not otaproxy_is_running:
                 logger.info("start otaproxy as required now")
                 await self._otaproxy_launcher.start(init_cache=no_failed_ecu)
                 otaproxy_last_launched_timestamp = cur_timestamp
+
+            # if otaproxy is not running, check if we need to cleanup the cleanup cache dir if all ecus in success status
+            if otaproxy_just_shutdown and self._ecu_status_storage.all_success:
+                self._otaproxy_launcher.cleanup_cache_dir()
 
             await self._polling_interval()
 
