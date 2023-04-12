@@ -145,6 +145,8 @@ class ECUStatusStorage:
     DELAY_PROPERTY_UPDATE = cfg.ON_RECEIVE_UPDATE_DELAY_ECU_STORAGE_PROPERTIES_UPDATE
     UNREACHABLE_ECU_TIMEOUT = cfg.UNREACHABLE_ECU_TIMEOUT
     PROPERTY_REFRESH_INTERVAL = 6
+    IDLE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
+    ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
     def __init__(self) -> None:
         self._writer_lock = asyncio.Lock()
@@ -295,6 +297,17 @@ class ECUStatusStorage:
             #   OTAClientServiceStub that there is failed ecu before the
             #   update request received, to let otaproxy re-use cache.
 
+    def get_polling_interval(self) -> int:
+        """
+        All polling task should poll actively when any_in_update(with small interval),
+        otherwise poll idlely(with normal interval).
+        """
+        return (
+            self.ACTIVE_POLLING_INTERVAL
+            if self.any_in_update
+            else self.IDLE_POLLING_INTERVAL
+        )
+
     def export(self) -> wrapper.StatusResponse:
         res = wrapper.StatusResponse()
         res.available_ecu_ids.extend(self._all_available_ecus_id)
@@ -313,9 +326,6 @@ class ECUStatusStorage:
 
 class SubECUTracker:
     """Loop polling ECU status from directly connected ECUs."""
-
-    IDLE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
-    ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
     def __init__(self, ecu_info: ECUInfo, storage: ECUStatusStorage) -> None:
         self._ecu_info = ecu_info
@@ -350,16 +360,10 @@ class SubECUTracker:
                 await self._storage.update_from_child_ECU(subecu_resp)
 
             poll_tasks.clear()
-            await asyncio.sleep(
-                self.ACTIVE_POLLING_INTERVAL
-                if self._storage.any_in_update
-                else self.IDLE_POLLING_INTERVAL
-            )
+            await asyncio.sleep(self._storage.get_polling_interval())
 
 
 class OTAClientServiceStub:
-    IDLE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
-    ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_SHUTDOWN_DELAY
 
     def __init__(self):
@@ -405,20 +409,12 @@ class OTAClientServiceStub:
 
     # internal
 
-    async def _polling_interval(self):
-        # polling actively when otaclient is actively updating/rollbacking
-        await asyncio.sleep(
-            self.ACTIVE_POLLING_INTERVAL
-            if self._ecu_status_storage.any_in_update
-            else self.IDLE_POLLING_INTERVAL
-        )
-
     async def _local_ecu_status_polling(self):
         """Task entry for loop polling local ECU status when updating."""
         while not self._local_ecu_status_checking_shutdown_event.is_set():
             status_report = await self._otaclient_stub.get_status()
             await self._ecu_status_storage.update_from_local_ECU(status_report)
-            await self._polling_interval()
+            await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
 
     async def _otaproxy_lifecycle_managing(self):
         """Task entry for managing otaproxy's launching/shutdown."""
@@ -454,7 +450,7 @@ class OTAClientServiceStub:
             if otaproxy_just_shutdown and self._ecu_status_storage.all_success:
                 self._otaproxy_launcher.cleanup_cache_dir()
 
-            await self._polling_interval()
+            await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
 
     async def _otaclient_control_flags_managing(self):
         """Task entry for set/clear otaclient control flags."""
@@ -465,7 +461,7 @@ class OTAClientServiceStub:
             else:
                 logger.debug("local otaclient cannot reboot otaproxy is required")
                 self._otaclient_control_flags.clear_can_reboot_flag()
-            await self._polling_interval()
+            await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
 
     # API stub
 
