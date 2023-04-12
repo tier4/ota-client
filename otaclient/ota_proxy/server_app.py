@@ -29,7 +29,10 @@ logger = logging.getLogger(__name__)
 connection_err_logger = logging.getLogger(f"{__name__}.connection_err")
 connection_err_logger.addFilter(
     BurstSuppressFilter(
-        f"{__name__}.connection_err", burst_round_length=60, burst_max=10
+        f"{__name__}.connection_err",
+        upper_logger_name=__name__,
+        burst_round_length=60,
+        burst_max=6,
     )
 )
 
@@ -234,7 +237,7 @@ class App:
                     send,
                 )
         except aiohttp.ClientError as e:
-            logger.warning(
+            logger.error(
                 f"request for {url=} failed due to aiohttp client error: {e!r}"
             )
             # terminate the transmission
