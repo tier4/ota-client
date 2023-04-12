@@ -317,13 +317,13 @@ class ECUStatusStorage:
 
         ecu_using_v2 = set()
         for ecu_id, ecu_status_v2 in self._all_ecus_status_v2.items():
-            res.ecu_v2.append(ecu_status_v2)
+            res.add_ecu(ecu_status_v2)
             ecu_using_v2.add(ecu_id)
 
         for ecu_id, ecu_status_v1 in self._all_ecus_status_v1.items():
             if ecu_id in ecu_using_v2:
-                continue  # if v2 is used, skip
-            res.ecu.append(ecu_status_v1)
+                continue  # if already populated by v2, skip
+            res.add_ecu(ecu_status_v1)
         return res
 
 
