@@ -61,9 +61,3 @@ class BurstSuppressFilter(logging.Filter):
             )
             self._round_warned = True
         return False
-
-
-def set_loglevel(level: int, /, name: str = __name__):
-    if not name.startswith(__name__):
-        return  # reject out-of-package logging setting
-    logging.getLogger(name).setLevel(level)
