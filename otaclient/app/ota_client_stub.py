@@ -80,6 +80,9 @@ class OTAProxyLauncher:
         Currently only used for configuring the logging for otaproxy.
         """
         # configure logging for otaproxy subprocess
+        # NOTE: on otaproxy subprocess, we first set log level of the root logger
+        #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
+        #       and then set the otaclient.ota_proxy logger to DEFAULT_LOG_LEVEL
         log_setting.configure_logging(
             loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
         )
@@ -446,7 +449,8 @@ class OTAClientServiceStub:
                 await self._otaproxy_launcher.start(init_cache=no_failed_ecu)
                 otaproxy_last_launched_timestamp = cur_timestamp
 
-            # if otaproxy is not running, check if we need to cleanup the cleanup cache dir if all ecus in success status
+            # if otaproxy is just shutdowned, check if we need to cleanup cache dir
+            # cleanup the cache dir if all ecus in success status
             if otaproxy_just_shutdown and self._ecu_status_storage.all_success:
                 self._otaproxy_launcher.cleanup_cache_dir()
 

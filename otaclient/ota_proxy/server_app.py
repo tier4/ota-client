@@ -18,6 +18,7 @@ import aiohttp
 from http import HTTPStatus
 from typing import Any, Dict, List, Union
 
+from otaclient._utils.logging import BurstSuppressFilter
 from .cache_control import OTAFileCacheControl
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
@@ -25,6 +26,12 @@ from .ota_cache import OTACache
 import logging
 
 logger = logging.getLogger(__name__)
+connection_err_logger = logging.getLogger(f"{__name__}.connection_err")
+connection_err_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.connection_err", burst_round_length=60, burst_max=10
+    )
+)
 
 # only expose app
 __all__ = ("App",)
@@ -211,11 +218,13 @@ class App:
             await self._send_chunk(b"", False, send)
 
         except aiohttp.ClientResponseError as e:
-            logger.warning(f"request for {url=} failed due to HTTP error: {e!r}")
+            logger.error(f"request for {url=} failed due to HTTP error: {e!r}")
             # passthrough 4xx(currently 403 and 404) to otaclient
             await self._respond_with_error(e.status, e.message, send)
         except aiohttp.ClientConnectionError as e:
-            logger.info(f"request for {url=} failed due to connection error: {e!r}")
+            connection_err_logger.error(
+                f"request for {url=} failed due to connection error: {e!r}"
+            )
             if respond_started:
                 await send({"type": "http.response.body", "body": b""})
             else:
