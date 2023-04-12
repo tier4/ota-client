@@ -1049,20 +1049,14 @@ class OTACache:
             raw_url, executor=self._executor
         )
         if is_writer:
-            try:
-                _remote_fd, _meta = await _FileDescriptorHelper.open_remote(
-                    url=self._process_raw_url(raw_url),
-                    raw_url=raw_url,
-                    cookies=cookies,
-                    headers=extra_headers,
-                    session=self._session,
-                    upper_proxy=self._upper_proxy,
-                )
-            except Exception as e:
-                _err_msg = f"failed to open remote connection for {raw_url=}: {e!r}"
-                logger.debug(_err_msg)
-                await _tracker.provider_on_failed()
-                raise CacheStreamingFailed(_err_msg) from e
+            _remote_fd, _meta = await _FileDescriptorHelper.open_remote(
+                url=self._process_raw_url(raw_url),
+                raw_url=raw_url,
+                cookies=cookies,
+                headers=extra_headers,
+                session=self._session,
+                upper_proxy=self._upper_proxy,
+            )
 
             return await RemoteOTAFile(
                 fd=_remote_fd,
