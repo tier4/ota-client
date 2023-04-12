@@ -162,7 +162,10 @@ class ECUStatusStorage:
         self.properties_last_update_timestamp = 0
         self.lost_ecus_id = set()
         self.any_in_update = False
-        self.any_failed = False
+        # initially set any_failed to True to prevent
+        # unintended cache cleanup when initial property update slower
+        # than first incoming OTA update request
+        self.any_failed = True
         self.any_requires_network = False
         self.all_success = False
 
