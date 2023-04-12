@@ -1049,14 +1049,18 @@ class OTACache:
             raw_url, executor=self._executor
         )
         if is_writer:
-            _remote_fd, _meta = await _FileDescriptorHelper.open_remote(
-                url=self._process_raw_url(raw_url),
-                raw_url=raw_url,
-                cookies=cookies,
-                headers=extra_headers,
-                session=self._session,
-                upper_proxy=self._upper_proxy,
-            )
+            try:
+                _remote_fd, _meta = await _FileDescriptorHelper.open_remote(
+                    url=self._process_raw_url(raw_url),
+                    raw_url=raw_url,
+                    cookies=cookies,
+                    headers=extra_headers,
+                    session=self._session,
+                    upper_proxy=self._upper_proxy,
+                )
+            except Exception:
+                await _tracker.provider_on_failed()
+                raise
 
             return await RemoteOTAFile(
                 fd=_remote_fd,
