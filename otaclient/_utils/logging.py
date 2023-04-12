@@ -22,12 +22,12 @@ from typing import Optional
 class BurstSuppressFilter(logging.Filter):
     def __init__(
         self,
-        logger_name: str,
+        name: str,
         burst_max: int,
         burst_round_length: int,
         upper_logger_name: Optional[str] = None,
     ) -> None:
-        self.logger_name = logger_name
+        self.name = name
         self.upper_logger_name = upper_logger_name
         self.round_length = burst_round_length
         self.burst_max = burst_max
@@ -42,7 +42,7 @@ class BurstSuppressFilter(logging.Filter):
         if (cur_timestamp := int(time.time())) > self._round_start + self.round_length:
             if self._round_warned:
                 upper_logger.warning(
-                    f"{next(self._round_logging_count)-1} lines of logging suppressed for logger {self.logger_name} "
+                    f"{next(self._round_logging_count)-1} lines of logging suppressed for logger {self.name} "
                     f"from {self._round_start} to {self._round_start+self.round_length} "
                 )
             # reset logging round
