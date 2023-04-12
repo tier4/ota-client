@@ -1058,11 +1058,9 @@ class OTACache:
                     session=self._session,
                     upper_proxy=self._upper_proxy,
                 )
-            except Exception as e:
-                _err_msg = f"failed to open remote connection for {raw_url=}: {e!r}"
-                logger.debug(_err_msg)
+            except Exception:
                 await _tracker.provider_on_failed()
-                raise CacheStreamingFailed(_err_msg) from e
+                raise
 
             return await RemoteOTAFile(
                 fd=_remote_fd,
