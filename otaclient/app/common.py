@@ -601,24 +601,34 @@ def create_tmp_fname(prefix="tmp", length=6, sep="_") -> str:
     return f"{prefix}{sep}{os.urandom(length).hex()}"
 
 
-def ensure_http_server_open(
-    url: str,
+def ensure_otaproxy_start(
+    otaproxy_url: str,
     *,
     interval: float = 1,
     connection_timeout: float = 5,
     timeout: Optional[float] = None,
+    warning_interval: int = 5 * 60,  # seconds
 ):
     start_time = int(time.time())
+    warning_count, next_warning = 0, start_time + warning_interval
     timeout = timeout if timeout and timeout >= 0 else float("inf")
     with requests.Session() as session:
-        while start_time + timeout > int(time.time()):
+        while start_time + timeout > (cur_time := int(time.time())):
             try:
-                resp = session.get(url, timeout=connection_timeout)
+                resp = session.get(otaproxy_url, timeout=connection_timeout)
                 resp.close()
                 return
-            except requests.exceptions.ConnectionError:  # server is not up yet
+            except Exception as e:  # server is not up yet
+                if cur_time >= next_warning:
+                    logger.warning(
+                        f"otaproxy@{otaproxy_url} is not up after {warning_count * warning_interval} seconds"
+                        f"it might be something wrong with this otaproxy: {e!r}"
+                    )
+                    warning_count, next_warning = (
+                        warning_count + 1,
+                        next_warning + warning_interval,
+                    )
                 time.sleep(interval)
-            except Exception as e:
-                logger.error(f"unexpected error during probing: {e!r}, abort")
-                return
-    raise ConnectionError(f"failed to ensure connection to {url} in {timeout=}seconds")
+    raise ConnectionError(
+        f"failed to ensure connection to {otaproxy_url} in {timeout=}seconds"
+    )
