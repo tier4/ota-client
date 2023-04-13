@@ -45,7 +45,7 @@ from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
 
 from .configs import config as cfg
-from .common import OTAFileCacheControl
+from .common import OTAFileCacheControl, wait_with_backoff
 from . import log_setting
 
 logger = log_setting.get_logger(
@@ -460,17 +460,22 @@ class Downloader:
         ).result()
 
     def download_retry_inf(self, *args, **kwargs) -> Tuple[int, int, int]:
+        retry_count = 0
+        inactive_timeout = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
         while not self.shutdowned.is_set():
             try:
                 return self._executor.submit(
                     self._download_task, *args, **kwargs
                 ).result()
             except (ExceedMaxRetryError, ChunkStreamingError):
-                continue  # infinitly retry on recoverable downloading error
-            except (
-                FileNotFoundError,
-                DownloadFailedSpaceNotEnough,
-                UnhandledHTTPError,
-            ):
-                raise  # only raise on unrecoverable downloading error
+                if int(time.time()) > self._last_active_timestamp + inactive_timeout:
+                    raise
+
+                retry_count += 1
+                wait_with_backoff(
+                    retry_count,
+                    _backoff_factor=self.BACKOFF_FACTOR,
+                    _backoff_max=self.BACKOFF_MAX,
+                )
+                continue  # infinitely retry on recoverable downloading error
         raise ValueError("downloader shutdowned")
