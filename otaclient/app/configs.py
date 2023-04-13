@@ -152,9 +152,9 @@ class BaseConfig(_InternalSettings):
     #       downloading_group timeout
     UNREACHABLE_ECU_TIMEOUT = 10 * 60  # seconds
     OTAPROXY_SHUTDOWN_DELAY = 30  # seconds
-    ON_RECEIVE_UPDATE_DELAY_ECU_STORAGE_PROPERTIES_UPDATE = 3 * 60  # seconds
+    ON_RECEIVE_UPDATE_DELAY_ECU_STORAGE_PROPERTIES_UPDATE = 5 * 60  # seconds
     ACTIVE_INTERVAL = 1  # second
-    IDLE_INTERVAL = 20  # seconds
+    IDLE_INTERVAL = 10  # seconds
 
 
 # init cfgs
