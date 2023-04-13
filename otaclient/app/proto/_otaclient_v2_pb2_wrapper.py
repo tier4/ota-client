@@ -23,6 +23,7 @@ from typing import (
     Iterator as _Iterator,
     Mapping as _Mapping,
     Optional as _Optional,
+    Set as _Set,
     Tuple as _Tuple,
     Iterable as _Iterable,
     Union as _Union,
@@ -574,11 +575,12 @@ class UpdateResponse(MessageWrapper[_v2.UpdateResponse]):
         ...
 
     @property
-    def any_acked_update(self) -> bool:
-        for ecu_resp in self.ecu:
+    def ecus_acked_update(self) -> _Set[str]:
+        return set([
+            ecu_resp.ecu_id
+            for ecu_resp in self.ecu
             if ecu_resp.result is FailureType.NO_FAILURE:
-                return True
-        return False
+        ])
 
     def iter_ecu(self) -> _Generator[UpdateResponseEcu, None, None]:
         for _ecu in self.ecu:
