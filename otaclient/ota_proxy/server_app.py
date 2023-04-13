@@ -27,11 +27,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 connection_err_logger = logging.getLogger(f"{__name__}.connection_err")
+# NOTE: for connection_error, only allow max 6 lines of logging per 30 seconds
 connection_err_logger.addFilter(
     BurstSuppressFilter(
         f"{__name__}.connection_err",
         upper_logger_name=__name__,
-        burst_round_length=60,
+        burst_round_length=30,
         burst_max=6,
     )
 )
