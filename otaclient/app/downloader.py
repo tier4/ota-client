@@ -446,7 +446,6 @@ class Downloader:
         """
         if self.shutdowned.is_set():
             raise ValueError("downloader already shutdowned.")
-
         return self._executor.submit(
             self._download_task,
             url,
@@ -459,3 +458,19 @@ class Downloader:
             compression_alg=compression_alg,
             use_http_if_proxy_set=use_http_if_proxy_set,
         ).result()
+
+    def download_retry_inf(self, *args, **kwargs) -> Tuple[int, int, int]:
+        while not self.shutdowned.is_set():
+            try:
+                return self._executor.submit(
+                    self._download_task, *args, **kwargs
+                ).result()
+            except (ExceedMaxRetryError, ChunkStreamingError):
+                continue  # infinitly retry on recoverable downloading error
+            except (
+                FileNotFoundError,
+                DownloadFailedSpaceNotEnough,
+                UnhandledHTTPError,
+            ):
+                raise  # only raise on unrecoverable downloading error
+        raise ValueError("downloader shutdowned")
