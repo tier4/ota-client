@@ -55,7 +55,6 @@ class OTAProxyLauncher:
         self.upper_otaproxy = _proxy_info.upper_ota_proxy
 
         self._lock = asyncio.Lock()
-        self.started = asyncio.Event()
         # process start/shutdown will be dispatched to thread pool
         self._run_in_executor = partial(
             asyncio.get_event_loop().run_in_executor, executor
@@ -64,9 +63,11 @@ class OTAProxyLauncher:
 
     @property
     def is_running(self) -> bool:
-        if not self.enabled or self._otaproxy_subprocess is None:
-            return False
-        return self._otaproxy_subprocess.is_alive()
+        return (
+            self.enabled
+            and self._otaproxy_subprocess is not None
+            and self._otaproxy_subprocess.is_alive()
+        )
 
     def cleanup_cache_dir(self):
         if (cache_dir := Path(self._proxy_server_cfg.BASE_DIR)).is_dir():
@@ -94,39 +95,33 @@ class OTAProxyLauncher:
             ensure_http_server_open(upper_proxy)
 
     async def start(self, *, init_cache: bool) -> Optional[int]:
-        if not self.enabled or self._lock.locked():
+        if not self.enabled or self._lock.locked() or self.is_running:
             return
-
         async with self._lock:
-            if self.started.is_set():
-                logger.warning("ignore multiple otaproxy start request")
-                return
-            self.started.set()
-
-        # launch otaproxy server process
-        otaproxy_subprocess = await self._run_in_executor(
-            partial(
-                subprocess_start_otaproxy,
-                host=self._proxy_info.local_ota_proxy_listen_addr,
-                port=self._proxy_info.local_ota_proxy_listen_port,
-                init_cache=init_cache,
-                cache_dir=self._proxy_server_cfg.BASE_DIR,
-                cache_db_f=self._proxy_server_cfg.DB_FILE,
-                upper_proxy=self.upper_otaproxy,
-                enable_cache=self._proxy_info.enable_local_ota_proxy_cache,
-                enable_https=self._proxy_info.gateway,
-                subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
+            # launch otaproxy server process
+            otaproxy_subprocess = await self._run_in_executor(
+                partial(
+                    subprocess_start_otaproxy,
+                    host=self._proxy_info.local_ota_proxy_listen_addr,
+                    port=self._proxy_info.local_ota_proxy_listen_port,
+                    init_cache=init_cache,
+                    cache_dir=self._proxy_server_cfg.BASE_DIR,
+                    cache_db_f=self._proxy_server_cfg.DB_FILE,
+                    upper_proxy=self.upper_otaproxy,
+                    enable_cache=self._proxy_info.enable_local_ota_proxy_cache,
+                    enable_https=self._proxy_info.gateway,
+                    subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
+                )
             )
-        )
-        self._otaproxy_subprocess = otaproxy_subprocess
-        logger.info(
-            f"otaproxy({otaproxy_subprocess.pid=}) started at "
-            f"{proxy_cfg.local_ota_proxy_listen_addr}:{proxy_cfg.local_ota_proxy_listen_port}"
-        )
-        return otaproxy_subprocess.pid
+            self._otaproxy_subprocess = otaproxy_subprocess
+            logger.info(
+                f"otaproxy({otaproxy_subprocess.pid=}) started at "
+                f"{proxy_cfg.local_ota_proxy_listen_addr}:{proxy_cfg.local_ota_proxy_listen_port}"
+            )
+            return otaproxy_subprocess.pid
 
     async def stop(self):
-        if not self.enabled or self._lock.locked():
+        if not self.enabled or self._lock.locked() or not self.is_running:
             return
 
         def _shutdown():
@@ -136,7 +131,6 @@ class OTAProxyLauncher:
             self._otaproxy_subprocess = None
 
         async with self._lock:
-            self.started.clear()
             await self._run_in_executor(_shutdown)
             logger.info("otaproxy closed")
 
@@ -454,7 +448,8 @@ class OTAClientServiceStub:
                     logger.info("start otaproxy as required now")
                     await self._otaproxy_launcher.start(init_cache=False)
                     otaproxy_last_launched_timestamp = cur_timestamp
-                # cleanup the cache dir when otaproxy all ECUs are in SUCCESS ota_status,
+                # when otaproxy is not running and any_requires_network is False,
+                # cleanup the cache dir when all ECUs are in SUCCESS ota_status
                 elif self._ecu_status_storage.all_success:
                     self._otaproxy_launcher.cleanup_cache_dir()
 
