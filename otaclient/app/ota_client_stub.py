@@ -280,6 +280,8 @@ class ECUStatusStorage:
         """OTAClientStub calls this method to update storage with local ECU's status report."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
+            self._all_available_ecus_id.add(ecu_status.ecu_id)
+
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status_v2[ecu_id] = ecu_status
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
