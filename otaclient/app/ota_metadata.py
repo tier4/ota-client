@@ -519,7 +519,7 @@ class OTAMetadata:
         # download and parse metadata.jwt
         with NamedTemporaryFile(prefix="metadata_jwt", dir=cfg.RUN_DIR) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
-            self._downloader.download(
+            self._downloader.download_retry_inf(
                 urljoin_ensure_base(self.url_base, self.METADATA_JWT),
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
@@ -539,7 +539,7 @@ class OTAMetadata:
             cert_info = _ota_metadata.certificate
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
-            self._downloader.download(
+            self._downloader.download_retry_inf(
                 urljoin_ensure_base(self.url_base, cert_fname),
                 cert_file,
                 digest=cert_hash,
