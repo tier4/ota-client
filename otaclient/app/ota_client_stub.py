@@ -161,12 +161,12 @@ class ECUStatusStorage:
         self._properties_update_lock = asyncio.Lock()
         self.properties_last_update_timestamp = 0
         self.lost_ecus_id = set()
+        self.updating_ecus = set()
         self.any_in_update = False
-        # initially set any_failed to True to prevent
-        # unintended cache cleanup when initial property update slower
-        # than first incoming OTA update request
-        self.any_failed = True
+        self.failed_ecus = set()
+        self.any_failed = False
         self.any_requires_network = False
+        self.success_ecus = set()
         self.all_success = False
 
         # property update task
@@ -190,33 +190,40 @@ class ECUStatusStorage:
     async def _properties_update(self):
         self.properties_last_update_timestamp = cur_timestamp = int(time.time())
 
-        # update lost ecu list
-        lost_ecus = set()
-        for ecu_id in self._all_available_ecus_id:
-            if self._is_ecu_lost(ecu_id, cur_timestamp):
-                lost_ecus.add(ecu_id)
-        # add ECUs that never appear
-        lost_ecus.update(self._all_available_ecus_id - set(self._all_ecus_status_v2))
-        self.lost_ecus_id = lost_ecus
+        # check ECUs that lost contact
+        self.lost_ecus_id = lost_ecus = set(
+            (
+                ecu_id
+                for ecu_id in self._all_available_ecus_id
+                if self._is_ecu_lost(ecu_id, cur_timestamp)
+            )
+        )
 
-        self.any_in_update = any(
+        # check ECUs that are updating
+        self.updating_ecus = set(
             (
-                status.is_in_update
+                status.ecu_id
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.ecu_id not in lost_ecus
+                if status.is_in_update and status.ecu_id not in lost_ecus
             )
         )
-        self.any_failed = any(
+        self.any_in_update = len(self.updating_ecus) > 0
+
+        # check if there is any failed child/self ECU
+        self.failed_ecus = set(
             (
-                status.is_failed
+                status.ecu_id
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.ecu_id not in lost_ecus
+                if status.is_failed and status.ecu_id not in lost_ecus
             )
         )
+        self.any_failed = len(self.failed_ecus) > 0
+
+        # check if any ECUs require network
         self.any_requires_network = any(
             (
                 status.if_requires_network
@@ -226,27 +233,29 @@ class ECUStatusStorage:
                 if status.ecu_id not in lost_ecus
             )
         )
-        ecus_if_is_success = {
-            status.ecu_id: status.is_success
-            for status in chain(
-                self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
+
+        # check if all child ECUs and self ECU are in SUCCESS ota_status
+        self.success_ecus = set(
+            (
+                status.ecu_id
+                for status in chain(
+                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
+                )
+                if status.is_success and status.ecu_id not in lost_ecus
             )
-            if status.ecu_id not in lost_ecus
-        }
-        self.all_success = all(ecus_if_is_success.values()) and len(
-            ecus_if_is_success
-        ) == len(self._all_available_ecus_id)
+        )
+        self.all_success = len(self.success_ecus) == len(self._all_available_ecus_id)
 
         logger.debug(
-            f"{self.any_in_update=}, {self.any_failed=}, {self.any_requires_network=}, {self.all_success=}"
+            f"{self.updating_ecus=}, {self.failed_ecus=}, {self.any_requires_network=}, {self.success_ecus=}"
         )
 
     async def _loop_updating_properties(self):
         last_storage_update = self.storage_last_updated_timestamp
         while not self.properties_update_shutdown_event.is_set():
             # only update properties when storage is updated,
-            # if just receive update request, skip property update
-            #   for DELAY seconds.
+            # NOTE: if just receive update request, skip for DELAY
+            #   seconds to prevent pre-mature property update.
             async with self._properties_update_lock:
                 current_timestamp = int(time.time())
                 if last_storage_update != self.storage_last_updated_timestamp and (
@@ -256,7 +265,11 @@ class ECUStatusStorage:
                 ):
                     last_storage_update = self.storage_last_updated_timestamp
                     await self._properties_update()
-            await asyncio.sleep(self.PROPERTY_REFRESH_INTERVAL)
+            # if properties are not initialized, use active_interval for update
+            if self.properties_last_update_timestamp == 0:
+                await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
+            else:
+                await asyncio.sleep(self.PROPERTY_REFRESH_INTERVAL)
 
     # API
 
@@ -286,21 +299,18 @@ class ECUStatusStorage:
             self._all_ecus_status_v2[ecu_id] = ecu_status
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
 
-    async def on_receive_update_request(self):
-        """Set any_in_update and any_requires_network to True on update request received.
-
-        Also set the last_update_request_received_timestamp to signal the background property
-            update task to not update the properties to prevent pre-mature properties changing,
-            a.k.a, we assume that network requirement should exist longer than <DELAY> seconds.
-        """
+    async def on_receive_update_request(self, ecus_accept_update: Set[str]):
+        """Update properties accordingly when ECUs accept update requests."""
         async with self._properties_update_lock:
             self.last_update_request_received_timestamp = int(time.time())
+            self.updating_ecus = ecus_accept_update.copy()
+            self.lost_ecus_id -= ecus_accept_update
             self.any_in_update = True
             self.any_requires_network = True
+            self.failed_ecus -= ecus_accept_update
+            self.any_failed = len(self.failed_ecus) > 0
             self.all_success = False
-            # NOTE: intentionally not to set self.any_failed to hint the
-            #   OTAClientServiceStub that there is failed ecu before the
-            #   update request received, to let otaproxy re-use cache.
+            self.success_ecus -= ecus_accept_update
 
     def get_polling_interval(self) -> int:
         """
