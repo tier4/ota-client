@@ -436,34 +436,27 @@ class OTAClientServiceStub:
         otaproxy_last_launched_timestamp = 0
         while not self._status_checking_shutdown_event.is_set():
             cur_timestamp = int(time.time())
-            no_failed_ecu = not self._ecu_status_storage.any_failed
             any_requires_network = self._ecu_status_storage.any_requires_network
-            otaproxy_is_running = self._otaproxy_launcher.is_running
-
-            # check if need to start or shutdown otaproxy
-            otaproxy_just_shutdown = False
-            if (
-                otaproxy_is_running
-                and not any_requires_network
-                and cur_timestamp
-                > otaproxy_last_launched_timestamp + self.OTAPROXY_SHUTDOWN_DELAY
-            ):
+            if self._otaproxy_launcher.is_running:
                 # NOTE: do not shutdown otaproxy too quick after it just starts!
                 # If otaproxy just starts less than <OTAPROXY_SHUTDOWN_DELAY> seconds,
                 # skip the shutdown
-                logger.info("stop otaproxy as not required")
-                otaproxy_just_shutdown = True
-                await self._otaproxy_launcher.stop()
-                otaproxy_last_launched_timestamp = 0
-            elif any_requires_network and not otaproxy_is_running:
-                logger.info("start otaproxy as required now")
-                await self._otaproxy_launcher.start(init_cache=no_failed_ecu)
-                otaproxy_last_launched_timestamp = cur_timestamp
-
-            # if otaproxy is just shutdowned, check if we need to cleanup cache dir
-            # cleanup the cache dir if all ecus in success status
-            if otaproxy_just_shutdown and self._ecu_status_storage.all_success:
-                self._otaproxy_launcher.cleanup_cache_dir()
+                if (
+                    not any_requires_network
+                    and cur_timestamp
+                    > otaproxy_last_launched_timestamp + self.OTAPROXY_SHUTDOWN_DELAY
+                ):
+                    logger.info("stop otaproxy as not required")
+                    await self._otaproxy_launcher.stop()
+                    otaproxy_last_launched_timestamp = 0
+            else:  # otaproxy is not running
+                if any_requires_network:
+                    logger.info("start otaproxy as required now")
+                    await self._otaproxy_launcher.start(init_cache=False)
+                    otaproxy_last_launched_timestamp = cur_timestamp
+                # cleanup the cache dir when otaproxy all ECUs are in SUCCESS ota_status,
+                elif self._ecu_status_storage.all_success:
+                    self._otaproxy_launcher.cleanup_cache_dir()
 
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
 
@@ -482,7 +475,7 @@ class OTAClientServiceStub:
 
     async def update(self, request: wrapper.UpdateRequest) -> wrapper.UpdateResponse:
         logger.info(f"receive update request: {request}")
-        any_acked_update_request = False
+        update_acked_ecus = set()
         response = wrapper.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs
@@ -503,8 +496,7 @@ class OTAClientServiceStub:
             )
         for _task in asyncio.as_completed(tasks):
             _ecu_resp: wrapper.UpdateResponse = _task.result()
-            if not any_acked_update_request and _ecu_resp.any_acked_update:
-                any_acked_update_request = True
+            update_acked_ecus.update(_ecu_resp.ecus_acked_update)
             response.merge_from(_ecu_resp)
 
         # second: dispatch update request to local if required
@@ -512,17 +504,18 @@ class OTAClientServiceStub:
             _resp_ecu = wrapper.UpdateResponseEcu(ecu_id=self.my_ecu_id)
             try:
                 await self._otaclient_stub.dispatch_update(update_req_ecu)
-                if not any_acked_update_request:
-                    any_acked_update_request = True
+                update_acked_ecus.add(self.my_ecu_id)
             except OTAClientBusy as e:
                 logger.error(f"self ECU is busy: {e!r}")
                 _resp_ecu.result = wrapper.FailureType.RECOVERABLE
             response.add_ecu(_resp_ecu)
 
         # finally, trigger ecu_status_storage entering active mode if needed
-        if any_acked_update_request:
+        if update_acked_ecus:
             logger.info("at least one ECU accept update request")
-            asyncio.create_task(self._ecu_status_storage.on_receive_update_request())
+            asyncio.create_task(
+                self._ecu_status_storage.on_receive_update_request(update_acked_ecus)
+            )
         return response
 
     async def rollback(
