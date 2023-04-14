@@ -165,9 +165,7 @@ class ECUStatusStorage:
 
         # property update task
         self.properties_update_shutdown_event = asyncio.Event()
-        self._properties_update_task = asyncio.create_task(
-            self._loop_updating_properties()
-        )
+        asyncio.create_task(self._loop_updating_properties())
 
         # on receive update request
         self.last_update_request_received_timestamp = 0
@@ -340,7 +338,7 @@ class SubECUTracker:
         self._ecu_info = ecu_info
         self._storage = storage
         self._polling_shutdown_event = asyncio.Event()
-        self._polling_task = asyncio.create_task(self._polling())
+        asyncio.create_task(self._polling())
 
     async def _polling(self):
         ecu_contacts = list(self._ecu_info.iter_direct_subecu_contact())
@@ -357,14 +355,11 @@ class SubECUTracker:
                 )
                 poll_tasks[_task] = ecu_contact
 
-            _fut: asyncio.Future
-            for _fut in asyncio.as_completed(poll_tasks):
-                ecu_contact = poll_tasks[_fut]
-                try:
-                    subecu_resp: wrapper.StatusResponse = _fut.result()
-                    assert subecu_resp
-                except Exception as e:
-                    logger.debug(f"failed to contact ecu@{ecu_contact=}: {e!r}")
+            done, _ = await asyncio.wait(poll_tasks)
+            for _task in done:
+                subecu_resp: wrapper.StatusResponse = _task.result()
+                if subecu_resp is None:
+                    logger.debug(f"failed to contact ecu@{poll_tasks[_task]=}")
                     continue
                 await self._storage.update_from_child_ECU(subecu_resp)
 
@@ -489,10 +484,12 @@ class OTAClientServiceStub:
                     )
                 )
             )
-        for _task in asyncio.as_completed(tasks):
-            _ecu_resp: wrapper.UpdateResponse = _task.result()
-            update_acked_ecus.update(_ecu_resp.ecus_acked_update)
-            response.merge_from(_ecu_resp)
+
+            done, _ = await asyncio.wait(tasks)
+            for _task in done:
+                _ecu_resp: wrapper.UpdateResponse = _task.result()
+                update_acked_ecus.update(_ecu_resp.ecus_acked_update)
+                response.merge_from(_ecu_resp)
 
         # second: dispatch update request to local if required
         if update_req_ecu := request.find_update_meta(self.my_ecu_id):
@@ -535,7 +532,8 @@ class OTAClientServiceStub:
                     )
                 )
             )
-        for _task in asyncio.as_completed(tasks):
+        done, _ = await asyncio.wait(tasks)
+        for _task in done:
             response.merge_from(_task.result())
         # second: dispatch rollback request to local if required
         if rollback_req := request.find_rollback_req(self.my_ecu_id):
