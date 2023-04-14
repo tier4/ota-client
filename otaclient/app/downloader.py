@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Empty, Queue
 from functools import partial
 from hashlib import sha256
+from os import PathLike
 from pathlib import Path
 from typing import (
     IO,
@@ -308,7 +309,7 @@ class Downloader:
     def _download_task(
         self,
         url: str,
-        dst: Union[str, Path],
+        dst: PathLike,
         *,
         size: Optional[int] = None,
         digest: Optional[str] = None,
@@ -428,7 +429,7 @@ class Downloader:
     def download(
         self,
         url: str,
-        dst: Union[str, Path],
+        dst: PathLike,
         *,
         size: Optional[int] = None,
         digest: Optional[str] = None,
@@ -459,17 +460,48 @@ class Downloader:
             use_http_if_proxy_set=use_http_if_proxy_set,
         ).result()
 
-    def download_retry_inf(self, *args, **kwargs) -> Tuple[int, int, int]:
+    def download_retry_inf(
+        self,
+        url: str,
+        dst: PathLike,
+        *,
+        size: Optional[int] = None,
+        digest: Optional[str] = None,
+        proxies: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        compression_alg: Optional[str] = None,
+        use_http_if_proxy_set: bool = True,
+    ) -> Tuple[int, int, int]:
         retry_count = 0
         inactive_timeout = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
+        warning_interval, next_warning = 60, 0  # emit a warning every 60s
         while not self.shutdowned.is_set():
             try:
                 return self._executor.submit(
-                    self._download_task, *args, **kwargs
+                    self._download_task,
+                    url,
+                    dst,
+                    size=size,
+                    digest=digest,
+                    proxies=proxies,
+                    cookies=cookies,
+                    headers=headers,
+                    compression_alg=compression_alg,
+                    use_http_if_proxy_set=use_http_if_proxy_set,
                 ).result()
             except (ExceedMaxRetryError, ChunkStreamingError):
-                if int(time.time()) > self._last_active_timestamp + inactive_timeout:
+                cur_time = int(time.time())
+                if (
+                    self._last_active_timestamp > 0
+                    and cur_time > self._last_active_timestamp + inactive_timeout
+                ):
                     raise
+                if cur_time > next_warning:
+                    logger.warning(
+                        f"download {url=} failed for {retry_count+1} times, still keep retry..."
+                    )
+                    next_warning = cur_time + warning_interval
 
                 retry_count += 1
                 wait_with_backoff(
@@ -477,5 +509,5 @@ class Downloader:
                     _backoff_factor=self.BACKOFF_FACTOR,
                     _backoff_max=self.BACKOFF_MAX,
                 )
-                continue  # infinitely retry on recoverable downloading error
-        raise ValueError("downloader shutdowned")
+                continue  # retry on recoverable downloading error
+        raise ValueError(f"abort downloading {url=} as downloader shutdowned")
