@@ -472,10 +472,9 @@ class Downloader:
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
         use_http_if_proxy_set: bool = True,
+        inactive_timeout: int = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
     ) -> Tuple[int, int, int]:
         retry_count = 0
-        inactive_timeout = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
-        warning_interval, next_warning = 60, 0  # emit a warning every 60s
         while not self.shutdowned.is_set():
             try:
                 return self._executor.submit(
@@ -497,17 +496,15 @@ class Downloader:
                     and cur_time > self._last_active_timestamp + inactive_timeout
                 ):
                     raise
-                if cur_time > next_warning:
-                    logger.warning(
-                        f"download {url=} failed for {retry_count+1} times, still keep retry..."
-                    )
-                    next_warning = cur_time + warning_interval
 
-                retry_count += 1
+                logger.warning(
+                    f"download {url=} failed for {retry_count+1} times, still keep retrying..."
+                )
                 wait_with_backoff(
                     retry_count,
                     _backoff_factor=self.BACKOFF_FACTOR,
                     _backoff_max=self.BACKOFF_MAX,
                 )
+                retry_count += 1
                 continue  # retry on recoverable downloading error
         raise ValueError(f"abort downloading {url=} as downloader shutdowned")
