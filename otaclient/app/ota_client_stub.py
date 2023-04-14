@@ -25,7 +25,7 @@ from typing import List, Optional, Set, Dict
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
-from .common import ensure_http_server_open
+from .common import ensure_otaproxy_start
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientStub
 from .ota_client_call import OtaClientCall
@@ -92,7 +92,7 @@ class OTAProxyLauncher:
 
         # wait for upper otaproxy if any
         if upper_proxy:
-            ensure_http_server_open(upper_proxy)
+            ensure_otaproxy_start(upper_proxy)
 
     async def start(self, *, init_cache: bool) -> Optional[int]:
         if not self.enabled or self._lock.locked() or self.is_running:

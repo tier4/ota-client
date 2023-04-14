@@ -607,7 +607,7 @@ def ensure_otaproxy_start(
     interval: float = 1,
     connection_timeout: float = 5,
     timeout: Optional[float] = None,
-    warning_interval: int = 5 * 60,  # seconds
+    warning_interval: int = 3 * 60,  # seconds
 ):
     start_time = int(time.time())
     warning_count, next_warning = 0, start_time + warning_interval

@@ -38,7 +38,7 @@ from .errors import (
 from .boot_control import BootControllerProtocol, get_boot_controller
 from .common import (
     RetryTaskMap,
-    ensure_http_server_open,
+    ensure_otaproxy_start,
     wait_with_backoff,
 )
 from .configs import config as cfg
@@ -329,7 +329,7 @@ class _OTAUpdater:
             logger.info(f"use {self.proxy=} for local OTA update")
             logger.debug("wait for otaproxy to become ready...")
             # TODO: make otaproxy scrubing not blocking the otaproxy starts
-            ensure_http_server_open(self.proxy)
+            ensure_otaproxy_start(self.proxy)
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.
             self._downloader.configure_proxies({"http": self.proxy})
