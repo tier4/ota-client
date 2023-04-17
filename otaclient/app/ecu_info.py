@@ -63,6 +63,10 @@ class ECUInfo:
     secondaries: list = field(default_factory=list)  # list[dict[str, Any]]
     format_version: int = 1
 
+    @property
+    def has_subecu(self) -> bool:
+        return len(self.secondaries) > 0
+
     @classmethod
     def parse_ecu_info(cls, ecu_info_file: Union[str, Path]) -> "ECUInfo":
         ecu_info = deepcopy(DEFAULT_ECU_INFO)

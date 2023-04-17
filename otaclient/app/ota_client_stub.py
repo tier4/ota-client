@@ -354,18 +354,19 @@ class SubECUTracker:
                     )
                 )
                 poll_tasks[_task] = ecu_contact
-            done, _ = await asyncio.wait(poll_tasks)
-            for _task in done:
-                try:
-                    _ecu_resp: wrapper.StatusResponse = _task.result()
-                except ECU_NO_RESPONSE as e:
-                    logger.warning(
-                        f"{poll_tasks[_task]} doesn't respond to status request: {e!r}"
-                    )
-                    continue
-                await self._storage.update_from_child_ECU(_ecu_resp)
 
-            poll_tasks.clear()
+            if poll_tasks:
+                done, _ = await asyncio.wait(poll_tasks)
+                for _task in done:
+                    try:
+                        _ecu_resp: wrapper.StatusResponse = _task.result()
+                    except ECU_NO_RESPONSE as e:
+                        logger.warning(
+                            f"{poll_tasks[_task]} doesn't respond to status request: {e!r}"
+                        )
+                        continue
+                    await self._storage.update_from_child_ECU(_ecu_resp)
+                poll_tasks.clear()
             await asyncio.sleep(self._storage.get_polling_interval())
 
 
@@ -384,10 +385,9 @@ class OTAClientServiceStub:
         self.my_ecu_id = ecu_info.get_ecu_id()
 
         self._ecu_status_storage = ECUStatusStorage()
-        # tracker that keeps tracking all child ECUs status
-        self._sub_ecu_tracker = SubECUTracker(
-            ecu_info, storage=self._ecu_status_storage
-        )
+        # if we have subECU, launch a tracker that keeps tracking all child ECUs status
+        if ecu_info.has_subecu:
+            SubECUTracker(ecu_info, storage=self._ecu_status_storage)
         self._otaclient_control_flags = OTAClientControlFlags()
         self._otaclient_stub = OTAClientStub(
             ecu_info=ecu_info,
@@ -485,18 +485,21 @@ class OTAClientServiceStub:
                 )
             )
             tasks[_task] = ecu_contact
-        done, _ = await asyncio.wait(tasks)
-        for _task in done:
-            try:
-                _ecu_resp: wrapper.UpdateResponse = _task.result()
-            except ECU_NO_RESPONSE as e:
-                logger.warning(
-                    f"{tasks[_task]} doesn't respond to update request: {e!r}"
-                )
-                continue
-            update_acked_ecus.update(_ecu_resp.ecus_acked_update)
-            response.merge_from(_ecu_resp)
-        tasks.clear()
+
+        # only collects task result if we have update request dispatched
+        if tasks:
+            done, _ = await asyncio.wait(tasks)
+            for _task in done:
+                try:
+                    _ecu_resp: wrapper.UpdateResponse = _task.result()
+                except ECU_NO_RESPONSE as e:
+                    logger.warning(
+                        f"{tasks[_task]} doesn't respond to update request: {e!r}"
+                    )
+                    continue
+                update_acked_ecus.update(_ecu_resp.ecus_acked_update)
+                response.merge_from(_ecu_resp)
+            tasks.clear()
 
         # second: dispatch update request to local if required
         if update_req_ecu := request.find_update_meta(self.my_ecu_id):
@@ -538,17 +541,20 @@ class OTAClientServiceStub:
                 )
             )
             tasks[_task] = ecu_contact
-        done, _ = await asyncio.wait(tasks)
-        for _task in done:
-            try:
-                _ecu_resp: wrapper.RollbackResponse = _task.result()
-            except ECU_NO_RESPONSE as e:
-                logger.warning(
-                    f"{tasks[_task]} doesn't respond to rollback request: {e!r}"
-                )
-                continue
-            response.merge_from(_ecu_resp)
-        tasks.clear()
+
+        # only collects task result if we have rollback request dispatched
+        if tasks:
+            done, _ = await asyncio.wait(tasks)
+            for _task in done:
+                try:
+                    _ecu_resp: wrapper.RollbackResponse = _task.result()
+                except ECU_NO_RESPONSE as e:
+                    logger.warning(
+                        f"{tasks[_task]} doesn't respond to rollback request: {e!r}"
+                    )
+                    continue
+                response.merge_from(_ecu_resp)
+            tasks.clear()
 
         # second: dispatch rollback request to local if required
         if rollback_req := request.find_rollback_req(self.my_ecu_id):
