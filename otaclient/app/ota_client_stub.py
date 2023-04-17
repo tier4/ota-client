@@ -28,7 +28,7 @@ from .configs import config as cfg, server_cfg
 from .common import ensure_otaproxy_start
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientStub
-from .ota_client_call import OtaClientCall
+from .ota_client_call import ECU_NO_RESPONSE, OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
@@ -354,14 +354,16 @@ class SubECUTracker:
                     )
                 )
                 poll_tasks[_task] = ecu_contact
-
             done, _ = await asyncio.wait(poll_tasks)
             for _task in done:
-                subecu_resp: wrapper.StatusResponse = _task.result()
-                if subecu_resp is None:
-                    logger.debug(f"failed to contact ecu@{poll_tasks[_task]=}")
+                try:
+                    _ecu_resp: wrapper.StatusResponse = _task.result()
+                except ECU_NO_RESPONSE as e:
+                    logger.warning(
+                        f"{poll_tasks[_task]} doesn't respond to status request: {e!r}"
+                    )
                     continue
-                await self._storage.update_from_child_ECU(subecu_resp)
+                await self._storage.update_from_child_ECU(_ecu_resp)
 
             poll_tasks.clear()
             await asyncio.sleep(self._storage.get_polling_interval())
@@ -469,26 +471,32 @@ class OTAClientServiceStub:
         response = wrapper.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs
-        tasks: List[asyncio.Task] = []
+        tasks: Dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.ecu_info.iter_direct_subecu_contact():
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
-            tasks.append(
-                asyncio.create_task(
-                    OtaClientCall.update_call(
-                        ecu_contact.ecu_id,
-                        ecu_contact.host,
-                        ecu_contact.port,
-                        request=request,
-                        timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
-                    )
+            _task = asyncio.create_task(
+                OtaClientCall.update_call(
+                    ecu_contact.ecu_id,
+                    ecu_contact.host,
+                    ecu_contact.port,
+                    request=request,
+                    timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
+            tasks[_task] = ecu_contact
         done, _ = await asyncio.wait(tasks)
         for _task in done:
-            _ecu_resp: wrapper.UpdateResponse = _task.result()
+            try:
+                _ecu_resp: wrapper.UpdateResponse = _task.result()
+            except ECU_NO_RESPONSE as e:
+                logger.warning(
+                    f"{tasks[_task]} doesn't respond to update request: {e!r}"
+                )
+                continue
             update_acked_ecus.update(_ecu_resp.ecus_acked_update)
             response.merge_from(_ecu_resp)
+        tasks.clear()
 
         # second: dispatch update request to local if required
         if update_req_ecu := request.find_update_meta(self.my_ecu_id):
@@ -497,7 +505,7 @@ class OTAClientServiceStub:
                 await self._otaclient_stub.dispatch_update(update_req_ecu)
                 update_acked_ecus.add(self.my_ecu_id)
             except OTAClientBusy as e:
-                logger.error(f"self ECU is busy: {e!r}")
+                logger.warning(f"self ECU is busy, ignore local update: {e!r}")
                 _resp_ecu.result = wrapper.FailureType.RECOVERABLE
             response.add_ecu(_resp_ecu)
 
@@ -516,24 +524,31 @@ class OTAClientServiceStub:
         response = wrapper.RollbackResponse()
 
         # first: dispatch rollback request to all directly connected subECUs
-        tasks: List[asyncio.Task] = []
+        tasks: Dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.ecu_info.iter_direct_subecu_contact():
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
-            tasks.append(
-                asyncio.create_task(
-                    OtaClientCall.rollback_call(
-                        ecu_contact.ecu_id,
-                        ecu_contact.host,
-                        ecu_contact.port,
-                        request=request,
-                        timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
-                    )
+            _task = asyncio.create_task(
+                OtaClientCall.rollback_call(
+                    ecu_contact.ecu_id,
+                    ecu_contact.host,
+                    ecu_contact.port,
+                    request=request,
+                    timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
+            tasks[_task] = ecu_contact
         done, _ = await asyncio.wait(tasks)
         for _task in done:
-            response.merge_from(_task.result())
+            try:
+                _ecu_resp: wrapper.RollbackResponse = _task.result()
+            except ECU_NO_RESPONSE as e:
+                logger.warning(
+                    f"{tasks[_task]} doesn't respond to rollback request: {e!r}"
+                )
+                continue
+            response.merge_from(_ecu_resp)
+        tasks.clear()
 
         # second: dispatch rollback request to local if required
         if rollback_req := request.find_rollback_req(self.my_ecu_id):
@@ -541,7 +556,7 @@ class OTAClientServiceStub:
             try:
                 await self._otaclient_stub.dispatch_rollback(rollback_req)
             except OTAClientBusy as e:
-                logger.error(f"self ECU is busy: {e!r}")
+                logger.warning(f"self ECU is busy, ignore local rollback: {e!r}")
                 _resp_ecu.result = wrapper.FailureType.RECOVERABLE
             response.add_ecu(_resp_ecu)
         return response

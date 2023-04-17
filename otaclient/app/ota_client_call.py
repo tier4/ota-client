@@ -39,7 +39,7 @@ class OtaClientCall:
         ecu_port: int = server_cfg.SERVER_PORT,
         *,
         timeout=None,
-    ) -> Optional[wrapper.StatusResponse]:
+    ) -> wrapper.StatusResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
@@ -60,7 +60,7 @@ class OtaClientCall:
         *,
         request: wrapper.UpdateRequest,
         timeout=None,
-    ) -> Optional[wrapper.UpdateResponse]:
+    ) -> wrapper.UpdateResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
@@ -81,7 +81,7 @@ class OtaClientCall:
         *,
         request: wrapper.RollbackRequest,
         timeout=None,
-    ) -> Optional[wrapper.RollbackResponse]:
+    ) -> wrapper.RollbackResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
