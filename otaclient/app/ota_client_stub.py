@@ -338,35 +338,24 @@ class SubECUTracker:
         self._ecu_info = ecu_info
         self._storage = storage
         self._polling_shutdown_event = asyncio.Event()
-        asyncio.create_task(self._polling())
+        for ecu_contact in self._ecu_info.iter_direct_subecu_contact():
+            logger.info(f"launch ecu status tracker for {ecu_contact}")
+            asyncio.create_task(self._polling_ecu_status(ecu_contact))
 
-    async def _polling(self):
-        ecu_contacts = list(self._ecu_info.iter_direct_subecu_contact())
+    async def _polling_ecu_status(self, ecu_contact: ECUContact):
         while not self._polling_shutdown_event.is_set():
-            poll_tasks: Dict[asyncio.Future, ECUContact] = {}
-            for ecu_contact in ecu_contacts:
-                _task = asyncio.create_task(
-                    OtaClientCall.status_call(
-                        ecu_contact.ecu_id,
-                        ecu_contact.host,
-                        ecu_contact.port,
-                        timeout=server_cfg.SERVER_PORT,
-                    )
+            try:
+                _ecu_resp = await OtaClientCall.status_call(
+                    ecu_contact.ecu_id,
+                    ecu_contact.host,
+                    ecu_contact.port,
+                    timeout=server_cfg.SERVER_PORT,
                 )
-                poll_tasks[_task] = ecu_contact
-
-            if poll_tasks:
-                done, _ = await asyncio.wait(poll_tasks)
-                for _task in done:
-                    try:
-                        _ecu_resp: wrapper.StatusResponse = _task.result()
-                    except ECU_NO_RESPONSE as e:
-                        logger.warning(
-                            f"{poll_tasks[_task]} doesn't respond to status request: {e!r}"
-                        )
-                        continue
-                    await self._storage.update_from_child_ECU(_ecu_resp)
-                poll_tasks.clear()
+                await self._storage.update_from_child_ECU(_ecu_resp)
+            except ECU_NO_RESPONSE as e:
+                logger.warning(
+                    f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
+                )
             await asyncio.sleep(self._storage.get_polling_interval())
 
 
