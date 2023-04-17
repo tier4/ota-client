@@ -484,12 +484,11 @@ class OTAClientServiceStub:
                     )
                 )
             )
-
-            done, _ = await asyncio.wait(tasks)
-            for _task in done:
-                _ecu_resp: wrapper.UpdateResponse = _task.result()
-                update_acked_ecus.update(_ecu_resp.ecus_acked_update)
-                response.merge_from(_ecu_resp)
+        done, _ = await asyncio.wait(tasks)
+        for _task in done:
+            _ecu_resp: wrapper.UpdateResponse = _task.result()
+            update_acked_ecus.update(_ecu_resp.ecus_acked_update)
+            response.merge_from(_ecu_resp)
 
         # second: dispatch update request to local if required
         if update_req_ecu := request.find_update_meta(self.my_ecu_id):
@@ -535,6 +534,7 @@ class OTAClientServiceStub:
         done, _ = await asyncio.wait(tasks)
         for _task in done:
             response.merge_from(_task.result())
+
         # second: dispatch rollback request to local if required
         if rollback_req := request.find_rollback_req(self.my_ecu_id):
             _resp_ecu = wrapper.RollbackResponseEcu(ecu_id=self.my_ecu_id)
