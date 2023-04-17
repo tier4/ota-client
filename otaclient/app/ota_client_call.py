@@ -27,6 +27,10 @@ logger = log_setting.get_logger(
 )
 
 
+class ECU_NO_RESPONSE(Exception):
+    ...
+
+
 class OtaClientCall:
     @staticmethod
     async def status_call(
@@ -43,10 +47,10 @@ class OtaClientCall:
                 resp = await stub.Status(v2.StatusRequest(), timeout=timeout)
                 return wrapper.StatusResponse.convert(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            # NOTE(20220801): for status querying, if the target ecu
-            # is unreachable, just return nothing, instead of return
-            # a response with result=RECOVERABLE
             logger.debug(f"{ecu_id=} failed to respond to status request on-time.")
+            raise ECU_NO_RESPONSE(f"{ecu_id=} doesn't response on-time")
+        except Exception as e:
+            raise ECU_NO_RESPONSE(f"failed to connect to {ecu_id=}: {e!r}") from e
 
     @staticmethod
     async def update_call(
@@ -56,7 +60,7 @@ class OtaClientCall:
         *,
         request: wrapper.UpdateRequest,
         timeout=None,
-    ) -> wrapper.UpdateResponse:
+    ) -> Optional[wrapper.UpdateResponse]:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
@@ -64,15 +68,10 @@ class OtaClientCall:
                 resp = await stub.Update(request.export_pb(), timeout=timeout)
                 return wrapper.UpdateResponse.convert(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            resp = wrapper.UpdateResponse()
-            # treat unreachable ecu as recoverable
-            resp.add_ecu(
-                wrapper.UpdateResponseEcu(
-                    ecu_id=ecu_id,
-                    result=wrapper.FailureType.RECOVERABLE,
-                )
-            )
-            return resp
+            logger.debug(f"{ecu_id=} failed to respond to update request on-time.")
+            raise ECU_NO_RESPONSE(f"{ecu_id=} doesn't response on-time")
+        except Exception as e:
+            raise ECU_NO_RESPONSE(f"failed to connect to {ecu_id=}: {e!r}") from e
 
     @staticmethod
     async def rollback_call(
@@ -82,7 +81,7 @@ class OtaClientCall:
         *,
         request: wrapper.RollbackRequest,
         timeout=None,
-    ) -> wrapper.RollbackResponse:
+    ) -> Optional[wrapper.RollbackResponse]:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
@@ -90,12 +89,7 @@ class OtaClientCall:
                 resp = await stub.Rollback(request.export_pb(), timeout=timeout)
                 return wrapper.RollbackResponse.convert(resp)
         except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            resp = wrapper.RollbackResponse()
-            # treat unreachable ecu as recoverable
-            resp.add_ecu(
-                wrapper.RollbackResponseEcu(
-                    ecu_id=ecu_id,
-                    result=wrapper.FailureType.RECOVERABLE,
-                )
-            )
-            return resp
+            logger.debug(f"{ecu_id=} failed to respond to rollback request on-time.")
+            raise ECU_NO_RESPONSE(f"{ecu_id=} doesn't response on-time")
+        except Exception as e:
+            raise ECU_NO_RESPONSE(f"failed to connect to {ecu_id=}: {e!r}") from e
