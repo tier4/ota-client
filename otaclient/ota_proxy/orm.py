@@ -82,7 +82,7 @@ class ColumnDescriptor(Generic[FV]):
             self.type_checker = type_guard
 
     @overload
-    def __get__(self, obj: None, objtype: type) -> "ColumnDescriptor[FV]":
+    def __get__(self, obj: None, objtype: type) -> Self:
         """Descriptor accessed via class."""
         ...
 
@@ -91,12 +91,17 @@ class ColumnDescriptor(Generic[FV]):
         """Descriptor accessed via bound instance."""
         ...
 
-    def __get__(self, obj, objtype=None) -> Union[FV, "ColumnDescriptor[FV]"]:
+    def __get__(self, obj, objtype=None) -> Union[FV, Self]:
+        # try accessing bound instance attribute
         if not self._skipped and obj is not None:
             if isinstance(obj, type):
-                return self  # bound inst is type, treated same as accessed via class
+                return self  # bound inst is type, return descriptor itself
             return getattr(obj, self._private_name)  # access via instance
-        return self  # access via class, return the descriptor
+        # handling dataclass requesting default value when initializing
+        if obj is None and objtype is type(self):
+            return self.default
+        # default return the descriptor itself
+        return self
 
     def __set__(self, obj, value: Any) -> None:
         if self._skipped:
