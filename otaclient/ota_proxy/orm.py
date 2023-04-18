@@ -106,27 +106,32 @@ class ColumnDescriptor(Generic[FV]):
         # try accessing bound instance attribute
         if not self._skipped and obj is not None:
             if isinstance(obj, type):
-                return self  # bound inst is type, return descriptor itself
+                return self  # bound inst is type(class access mode), return descriptor itself
             return getattr(obj, self._private_name)  # access via instance
-        # handling dataclass requesting default value when initializing
-        if obj is None and objtype is type(self):
-            return self.default
-        # default return the descriptor itself
-        return self
+        return self  # return descriptor instance by default
 
     def __set__(self, obj, value: Any) -> None:
         if self._skipped:
             return  # ignore value setting on skipped field
-        # use default value if value is None
-        if value is None:
-            value = self.default
+
+        # set default value and ignore input value
+        # 1. field_type is NULL_TYPE
+        # 2. value is None
+        # 3. value is descriptor instance itself
+        #       dataclass will retrieve default value with class access form,
+        #       but we return descriptor instance in class access form to expose
+        #       descriptor helper methods(check_type, etc.), so apply special
+        #       treatment here.
+        if self.field_type is NULL_TYPE or value is None or value is self:
+            return setattr(obj, self._private_name, self.default)
+
         # handle normal value setting
         if self.type_guard_enabled and not self.type_checker(value):
             raise TypeError(f"type_guard: expect {self.field_type}, get {type(value)}")
         # if value's type is not field_type but subclass or compatible types that can pass type_checker,
         # convert the value to the field_type first before assigning
         _input_value = (
-            value if type(value) in SQLITE_DATATYPES_SET else self.field_type(value)
+            value if type(value) is self.field_type else self.field_type(value)
         )
         setattr(obj, self._private_name, _input_value)
 
