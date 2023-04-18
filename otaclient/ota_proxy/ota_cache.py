@@ -653,7 +653,6 @@ class OTACache:
             f"init ota_cache({cache_enabled=}, {init_cache=}, {upper_proxy=}, {enable_https=})"
         )
         self._closed = True
-        self.start_timestamp = 0
 
         self._chunk_size = cfg.CHUNK_SIZE
         self._base_dir = Path(base_dir) if base_dir else Path(cfg.BASE_DIR)
@@ -674,7 +673,6 @@ class OTACache:
             logger.warning("try to launch already launched ota_cache instance, ignored")
             return
         self._closed = False
-        self.start_timestamp = int(time.time())
         self._base_dir.mkdir(exist_ok=True, parents=True)
 
         # NOTE: we configure aiohttp to not decompress the contents,
@@ -921,18 +919,9 @@ class OTACache:
             )
             await self._lru_helper.remove_entry_by_url(raw_url)
             return
-        # check if we need to verify cache file
-        # cache_meta timestamp is older than OTACache instance's starting time,
-        # which means that this cache is created by previously active OTACache instance.
-        if self.start_timestamp > meta_db_entry.last_access:
-            if not await verify_file(
-                cache_file, meta_db_entry.sha256hash, executor=self._executor
-            ):
-                logger.warning(f"invalid cache file found, cleanup: {meta_db_entry}")
-                cache_file.unlink(missing_ok=True)
-                await self._lru_helper.remove_entry_by_url(meta_db_entry.url)
-                return
-        # finally, stream the cache file
+        # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
+        #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
+        #       directory to indicate invalid cache.
         return read_file(cache_file, executor=self._executor), meta_db_entry
 
     async def _retrieve_file_by_cache_streaming(
