@@ -30,9 +30,9 @@ from typing import (
     Generic,
     TypeVar,
     Union,
-    cast,
     overload,
 )
+from typing_extensions import Self
 
 if TYPE_CHECKING:
     import sqlite3
@@ -54,6 +54,7 @@ SQLITE_DATATYPES = Union[
     bool,  # INTEGER 0, 1
     NULL_TYPE,  # NULL
 ]
+SQLITE_DATATYPES_SET = set([int, str, float, bytes, bool, NULL_TYPE])
 FV = TypeVar("FV", bound=SQLITE_DATATYPES)  # field value type
 TYPE_CHECKER = Callable[[Any], bool]
 
@@ -78,12 +79,13 @@ class ColumnDescriptor(Generic[FV]):
         # whether this field should be included in table def or not
         self._skipped = False
         self.constrains = " ".join(constrains)  # TODO: constrains validation
-        self.default = field_type() if default is None else default
+
         self.field_type = field_type
-        self.type_guard_enabled = False if type_guard is False else True
+        self.default = field_type() if default is None else default
 
         # init type checker callable
         # default to check over the specific field type
+        self.type_guard_enabled = False if type_guard is False else True
         self.type_checker = lambda x: isinstance(x, field_type)
         if isinstance(type_guard, tuple):  # check over a list of types
             self.type_checker = lambda x: isinstance(x, type_guard)
@@ -114,18 +116,19 @@ class ColumnDescriptor(Generic[FV]):
 
     def __set__(self, obj, value: Any) -> None:
         if self._skipped:
-            return
-        # handle dataclass's default value setting behavior and NULL type assignment
-        if isinstance(value, type(self)) or self.field_type == NULL_TYPE:
-            return setattr(obj, self._private_name, self.default)
-        # use default value if value is None and field type is not NULL
-        if value is None and self.field_type != NULL_TYPE:
+            return  # ignore value setting on skipped field
+        # use default value if value is None
+        if value is None:
             value = self.default
         # handle normal value setting
         if self.type_guard_enabled and not self.type_checker(value):
             raise TypeError(f"type_guard: expect {self.field_type}, get {type(value)}")
-        # apply type conversion before assign
-        setattr(obj, self._private_name, self.field_type(value))
+        # if value's type is not field_type but subclass or compatible types that can pass type_checker,
+        # convert the value to the field_type first before assigning
+        _input_value = (
+            value if type(value) in SQLITE_DATATYPES_SET else self.field_type(value)
+        )
+        setattr(obj, self._private_name, _input_value)
 
     def __set_name__(self, owner: type, name: str):
         self.owner = owner
