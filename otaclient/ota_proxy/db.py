@@ -17,8 +17,8 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
@@ -170,7 +170,7 @@ class OTACacheDB:
                         f"UPDATE {self.TABLE_NAME} SET {CacheMeta.last_access.name}=? "
                         f"WHERE {CacheMeta.url.name}=?"
                     ),
-                    (int(datetime.now().timestamp()), res.url),
+                    (int(time.time()), res.url),
                 )
                 return res
 

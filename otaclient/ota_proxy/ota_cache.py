@@ -24,9 +24,6 @@ import time
 import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
-from datetime import datetime
-from functools import partial
-from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from typing import (
@@ -413,7 +410,7 @@ class LRUCacheHelper:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
         entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.size) - 1
-        entry.last_access = int(datetime.now().timestamp())
+        entry.last_access = int(time.time())
 
         if (await self._db.insert_entry(entry)) != 1:
             logger.error(f"db: failed to add {entry=}")
