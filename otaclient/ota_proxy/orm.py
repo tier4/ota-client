@@ -14,12 +14,13 @@
 
 
 from __future__ import annotations
-from dataclasses import asdict, astuple, dataclass, fields
+from dataclasses import Field, asdict, astuple, dataclass, fields
 from io import StringIO
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Optional,
@@ -151,6 +152,9 @@ class ORMBase(metaclass=ORMeta):
 
     Subclass of this base class is also a subclass of dataclass.
     """
+
+    # NOTE: add the following type annotation to satisfy type checking
+    __dataclass_fields__: ClassVar[dict[str, Field]]
 
     @classmethod
     def row_to_meta(cls, row: "Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]"):
