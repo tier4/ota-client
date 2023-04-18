@@ -24,7 +24,6 @@ import time
 import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
-from os import urandom
 from pathlib import Path
 from typing import (
     AsyncGenerator,
@@ -52,7 +51,13 @@ from .errors import (
     StorageReachHardLimit,
 )
 from .config import config as cfg
-from .utils import wait_with_backoff, AIOSHA256Hasher
+from .utils import (
+    wait_with_backoff,
+    AIOSHA256Hasher,
+    TmpCacheFileNaming,
+    read_file,
+    verify_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -356,7 +361,7 @@ class CachingRegister:
         self._ref_tracker_dict: Dict[_Weakref, CacheTracker] = weakref.WeakKeyDictionary()  # type: ignore
 
     async def get_tracker(
-        self, url: str, *, executor: Executor
+        self, raw_url: str, *, executor: Executor
     ) -> Tuple[CacheTracker, bool]:
         """Get an inst of CacheTracker for the requested URL.
 
@@ -364,7 +369,7 @@ class CachingRegister:
             An inst of tracker, and a bool indicates whether the caller is subscriber
                 or provider.
         """
-        _ref = self._url_ref_dict.setdefault(url, (_new_ref := _Weakref()))
+        _ref = self._url_ref_dict.setdefault(raw_url, (_new_ref := _Weakref()))
         # subscriber
         if (
             _tracker := self._ref_tracker_dict.get(_ref)
@@ -373,10 +378,10 @@ class CachingRegister:
 
         # provider, or override a failed provider
         if _ref is not _new_ref:  # override a failed tracker
-            self._url_ref_dict[url] = (_ref := _new_ref)
+            self._url_ref_dict[raw_url] = (_ref := _new_ref)
         self._ref_tracker_dict[_ref] = (
             _tracker := CacheTracker(
-                f"tmp_{urandom(16).hex()}",
+                TmpCacheFileNaming.from_url(raw_url),
                 _ref,
                 base_dir=self._base_dir,
                 executor=executor,
