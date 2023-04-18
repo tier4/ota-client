@@ -57,30 +57,32 @@ class TestORM:
         self.table_cls = TableCls
 
     @pytest.mark.parametrize(
-        "row, as_dict, as_tuple",
+        "raw_row, as_dict, as_tuple",
         (
             (
                 {
                     "str_field": "unique_str",
-                    "int_field": 123.9,
-                    "float_field": 456,
-                    "null_field": "not null",
+                    "int_field": 123.123,  # expect to be converted into int
+                    "float_field": 456.123,
+                    "null_field": "should_not_be_set",
                 },
                 {
                     "str_field": "unique_str",
                     "int_field": 123,
-                    "float_field": 456,
+                    "float_field": 456.123,
                     "op_str_field": "",
                     "op_int_field": 0,
                     "null_field": None,
                 },
-                ("unique_str", 123, 456, "", 0, None),
+                ("unique_str", 123, 456.123, "", 0, None),
             ),
         ),
     )
-    def test_parse_and_export(self, row, as_dict: Dict[str, Any], as_tuple: Tuple[Any]):
+    def test_parse_and_export(
+        self, raw_row, as_dict: Dict[str, Any], as_tuple: Tuple[Any]
+    ):
         table_cls = self.table_cls
-        parsed = table_cls.row_to_meta(row)
+        parsed = table_cls.row_to_meta(raw_row)
         assert parsed.asdict() == as_dict
         assert parsed.astuple() == as_tuple
         assert table_cls.row_to_meta(parsed.astuple()).asdict() == as_dict
@@ -180,7 +182,6 @@ class TestOTACacheDB:
 
     @pytest.fixture(scope="class")
     def prepare_entries(self):
-
         entries: List[CacheMeta] = []
         for target_size, rotate_num in cfg.BUCKET_FILE_SIZE_DICT.items():
             for _i in range(rotate_num):
