@@ -925,7 +925,7 @@ class OTACache:
         # cache_meta timestamp is older than OTACache instance's starting time,
         # which means that this cache is created by previously active OTACache instance.
         if self.start_timestamp > meta_db_entry.last_access:
-            if not verify_file(
+            if not await verify_file(
                 cache_file, meta_db_entry.sha256hash, executor=self._executor
             ):
                 logger.warning(f"invalid cache file found, cleanup: {meta_db_entry}")
