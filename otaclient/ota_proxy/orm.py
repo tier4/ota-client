@@ -14,6 +14,7 @@
 
 
 from __future__ import annotations
+from abc import ABC
 from dataclasses import Field, asdict, astuple, dataclass, fields
 from io import StringIO
 from typing import (
@@ -36,14 +37,22 @@ from typing import (
 if TYPE_CHECKING:
     import sqlite3
 
-NULL_TYPE = cast(Type, type(None))
+
+class NULL_TYPE(ABC):
+    def __new__(cls, *args, **kwargs):
+        return None
+
+
+NULL_TYPE.register(type(None))  # let None instance of NULL_TYPE
+
+
 SQLITE_DATATYPES = Union[
     int,  # INTEGER
     str,  # TEXT
     float,  # REAL
     bytes,  # BLOB
     bool,  # INTEGER 0, 1
-    NULL_TYPE,  # NULL, read-only datatype
+    NULL_TYPE,  # NULL
 ]
 FV = TypeVar("FV", bound=SQLITE_DATATYPES)  # field value type
 TYPE_CHECKER = Callable[[Any], bool]
