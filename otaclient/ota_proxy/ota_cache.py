@@ -562,142 +562,61 @@ class RemoteOTAFile:
         return (self._cache_streamer(), self.meta)
 
 
-class OTACacheScrubHelper:
-    """Helper to scrub ota caches."""
+async def open_remote(
+    url: str,
+    raw_url: str,
+    *,
+    cookies: Dict[str, str],
+    headers: Dict[str, str],
+    session: aiohttp.ClientSession,
+    upper_proxy: str = "",
+) -> Tuple[AsyncIterator[bytes], CacheMeta]:
+    """Open a file descriptor to remote resource.
 
-    def __init__(self, db_file: Union[str, Path], base_dir: Union[str, Path]):
-        self._db_file = Path(db_file)
-        self._base_dir = Path(base_dir)
+    Args:
+        url: quoted url.
+        raw_url: unquoted url, used in CacheMeta.
+        cookies: cookies that client passes in the request.
+        extra_headers: other headers we need to pass to the remote
+            from the original request.
+        session: an inst of aiohttp.ClientSession used for opening
+            remote connection.
+        upper_proxy: if chained proxy is used.
 
-    @staticmethod
-    def _check_entry(base_dir: Path, meta: CacheMeta) -> Tuple[CacheMeta, bool]:
-        if (fpath := base_dir / meta.sha256hash).is_file():
-            _hash_f = sha256()
-            with open(fpath, "rb") as _f:
-                while data := _f.read(cfg.CHUNK_SIZE):
-                    _hash_f.update(data)
-            if _hash_f.hexdigest() == meta.sha256hash:
-                return meta, True
+    Returns:
+        An AsyncIterator that can yield data chunks from, and an inst
+            of CacheMeta for the requested url.
 
-        # check failed, try to remove the cache entry
-        fpath.unlink(missing_ok=True)
-        return meta, False
+    Raises:
+        Any exceptions during aiohttp connecting to the remote.
+    """
+    cache_meta = CacheMeta(url=raw_url)
 
-    def scrub_cache(self):
-        """Main entry for scrubbing cache folder.
+    async def _inner() -> AsyncIterator[bytes]:
+        async with session.get(
+            url,
+            proxy=upper_proxy,
+            cookies=cookies,
+            headers=headers,
+        ) as response:
+            # assembling output cachemeta
+            # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
+            # NOTE.2: store the original unquoted url into the CacheMeta
+            # NOTE.3: hash, and size will be assigned at background_write_cache method
+            # NOTE.4: bucket and last_access will be assigned at commit_entry method
+            cache_meta.content_encoding = response.headers.get("content-encoding", "")
+            cache_meta.content_type = response.headers.get(
+                "content-type", "application/octet-stream"
+            )
+            # open the connection and update the CacheMeta
+            yield b""
+            async for data, _ in response.content.iter_chunks():
+                if data:  # only yield non-empty data chunk
+                    yield data
 
-        OTACacheScrubHelper instance will close itself after finishing scrubing.
-        """
-        logger.info("start to scrub the cache entries...")
-        dangling_db_entry = []
-        # NOTE: pre-add db related files into the set
-        # to prevent db related files being deleted
-        # NOTE 2: cache_db related files: <cache_db>, <cache_db>-shm, <cache_db>-wal, <cache>-journal
-        valid_cache_entry = {
-            (_db_fname := self._db_file.name),
-            f"{_db_fname}-shm",
-            f"{_db_fname}-wal",
-            f"{_db_fname}-journal",
-        }
-
-        with ThreadPoolExecutor(
-            thread_name_prefix="otacahe_scrub"
-        ) as _executor, OTACacheDB(self._db_file) as _db:
-            for _meta, _is_valid in _executor.map(
-                partial(self._check_entry, self._base_dir),
-                _db.lookup_all(),
-                chunksize=128,
-            ):
-                if not _is_valid:
-                    logger.debug(f"invalid db entry found: {_meta.url}")
-                    dangling_db_entry.append(_meta.url)
-                else:
-                    valid_cache_entry.add(_meta.sha256hash)
-            # remove any dangling db entries that don't point to valid cache
-            _db.remove_entries(CacheMeta.url, *dangling_db_entry)
-
-        # loop over all files under cache folder,
-        # if entry's hash is not presented in the valid_cache_entry set,
-        # we treat it as dangling cache entry and delete it
-        for _entry in self._base_dir.glob("*"):
-            if _entry.name not in valid_cache_entry:
-                logger.debug(f"dangling cache entry found: {_entry.name}")
-                (self._base_dir / _entry.name).unlink(missing_ok=True)
-
-        logger.info("cache scrub finished")
-
-
-class _FileDescriptorHelper:
-    CHUNK_SIZE = cfg.CHUNK_SIZE
-
-    @classmethod
-    async def open_remote(
-        cls,
-        url: str,
-        raw_url: str,
-        *,
-        cookies: Dict[str, str],
-        headers: Dict[str, str],
-        session: aiohttp.ClientSession,
-        upper_proxy: str = "",
-    ) -> Tuple[AsyncIterator[bytes], CacheMeta]:
-        """Open a file descriptor to remote resource.
-
-        Args:
-            url: quoted url.
-            raw_url: unquoted url, used in CacheMeta.
-            cookies: cookies that client passes in the request.
-            extra_headers: other headers we need to pass to the remote
-                from the original request.
-            session: an inst of aiohttp.ClientSession used for opening
-                remote connection.
-            upper_proxy: if chained proxy is used.
-
-        Returns:
-            An AsyncIterator that can yield data chunks from, and an inst
-                of CacheMeta for the requested url.
-
-        Raises:
-            Any exceptions during aiohttp connecting to the remote.
-        """
-        cache_meta = CacheMeta(url=raw_url)
-
-        async def _inner() -> AsyncIterator[bytes]:
-            async with session.get(
-                url,
-                proxy=upper_proxy,
-                cookies=cookies,
-                headers=headers,
-            ) as response:
-                # assembling output cachemeta
-                # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
-                # NOTE.2: store the original unquoted url into the CacheMeta
-                # NOTE.3: hash, and size will be assigned at background_write_cache method
-                # NOTE.4: bucket and last_access will be assigned at commit_entry method
-                cache_meta.content_encoding = response.headers.get(
-                    "content-encoding", ""
-                )
-                cache_meta.content_type = response.headers.get(
-                    "content-type", "application/octet-stream"
-                )
-                # open the connection and update the CacheMeta
-                yield b""
-                async for data, _ in response.content.iter_chunks():
-                    if data:  # only yield non-empty data chunk
-                        yield data
-
-        # open remote connection
-        await (_remote_fd := _inner()).__anext__()
-        return _remote_fd, cache_meta
-
-    @staticmethod
-    async def read_file(
-        fpath: Union[str, Path], *, executor: Executor
-    ) -> AsyncIterator[bytes]:
-        """Open and read a file asynchronously with aiofiles."""
-        async with aiofiles.open(fpath, "rb", executor=executor) as f:
-            while data := await f.read(cfg.CHUNK_SIZE):
-                yield data
+    # open remote connection
+    await (_remote_fd := _inner()).__anext__()
+    return _remote_fd, cache_meta
 
 
 class OTACache:
@@ -1003,6 +922,8 @@ class OTACache:
             await self._lru_helper.remove_entry_by_url(raw_url)
             return
         # check if we need to verify cache file
+        # cache_meta timestamp is older than OTACache instance's starting time,
+        # which means that this cache is created by previously active OTACache instance.
         if self.start_timestamp > meta_db_entry.last_access:
             if not verify_file(
                 cache_file, meta_db_entry.sha256hash, executor=self._executor
