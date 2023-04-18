@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 
 class NULL_TYPE(ABC):
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args, **kwargs) -> None:
         return None
 
 
@@ -135,7 +135,7 @@ class ColumnDescriptor(Generic[FV]):
         )
         setattr(obj, self._private_name, _input_value)
 
-    def __set_name__(self, owner: type, name: str):
+    def __set_name__(self, owner: type, name: str) -> None:
         self.owner = owner
         try:
             self._index = list(owner.__annotations__).index(name)
@@ -179,7 +179,7 @@ class ORMBase(metaclass=ORMeta):
     __dataclass_fields__: ClassVar[dict[str, Field]]
 
     @classmethod
-    def row_to_meta(cls, row: "Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]"):
+    def row_to_meta(cls, row: "Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]") -> Self:
         parsed = {}
         for field in fields(cls):
             try:
