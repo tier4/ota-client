@@ -866,29 +866,6 @@ class OTACache:
             fragment="",
         ).geturl()
 
-    async def _lookup_cachedb(
-        self, raw_url: str, *, retry_cache: bool
-    ) -> Optional[CacheMeta]:
-        if meta_db_entry := await self._lru_helper.lookup_entry_by_url(
-            raw_url
-        ):  # cache hit
-            logger.debug(f"cache hit for {raw_url=}, {meta_db_entry=}")
-            cache_path: Path = self._base_dir / meta_db_entry.sha256hash
-            # clear the cache entry if the ota_client instructs so
-            if retry_cache:
-                logger.warning(
-                    f"retry_cache: try to clear entry for {meta_db_entry=}.."
-                )
-                cache_path.unlink(missing_ok=True)
-
-            # check whether cache file is presented
-            if not cache_path.is_file():
-                # invalid cache entry found in the db, cleanup it
-                logger.warning(f"dangling cache entry found: {meta_db_entry=}")
-                await self._lru_helper.remove_entry_by_url(raw_url)
-                return
-            return meta_db_entry
-
     # retrieve_file handlers
 
     async def _retrieve_file_by_downloading(
@@ -907,18 +884,26 @@ class OTACache:
     async def _retrieve_file_by_cache(
         self, raw_url: str, *, retry_cache: bool
     ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
-        meta_db_entry = await self._lookup_cachedb(raw_url, retry_cache=retry_cache)
+        meta_db_entry = await self._lru_helper.lookup_entry_by_url(raw_url)
         if not meta_db_entry:
             return
 
-        # check if cache file exists
         cache_file = self._base_dir / meta_db_entry.sha256hash
+        # otaclient indicates that this cache entry is invalid, cleanup and exit
+        if retry_cache:
+            logger.debug(f"requested with retry_cache: {meta_db_entry=}..")
+            await self._lru_helper.remove_entry_by_url(raw_url)
+            cache_file.unlink(missing_ok=True)
+            return
+
+        # check if cache file exists
         if not cache_file.is_file():
             logger.warning(
                 f"dangling cache entry found, remove db entry: {meta_db_entry}"
             )
             await self._lru_helper.remove_entry_by_url(raw_url)
             return
+
         # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
         #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
         #       directory to indicate invalid cache.
