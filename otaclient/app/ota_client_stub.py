@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import List, Optional, Set, Dict
+from typing import Optional, Set, Dict
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
@@ -331,34 +331,6 @@ class ECUStatusStorage:
         return res
 
 
-class SubECUTracker:
-    """Loop polling ECU status from directly connected ECUs."""
-
-    def __init__(self, ecu_info: ECUInfo, storage: ECUStatusStorage) -> None:
-        self._ecu_info = ecu_info
-        self._storage = storage
-        self._polling_shutdown_event = asyncio.Event()
-        for ecu_contact in self._ecu_info.iter_direct_subecu_contact():
-            logger.info(f"launch ecu status tracker for {ecu_contact}")
-            asyncio.create_task(self._polling_ecu_status(ecu_contact))
-
-    async def _polling_ecu_status(self, ecu_contact: ECUContact):
-        while not self._polling_shutdown_event.is_set():
-            try:
-                _ecu_resp = await OtaClientCall.status_call(
-                    ecu_contact.ecu_id,
-                    ecu_contact.host,
-                    ecu_contact.port,
-                    timeout=server_cfg.SERVER_PORT,
-                )
-                await self._storage.update_from_child_ECU(_ecu_resp)
-            except ECU_NO_RESPONSE as e:
-                logger.warning(
-                    f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
-                )
-            await asyncio.sleep(self._storage.get_polling_interval())
-
-
 class OTAClientServiceStub:
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_SHUTDOWN_DELAY
 
@@ -374,9 +346,7 @@ class OTAClientServiceStub:
         self.my_ecu_id = ecu_info.get_ecu_id()
 
         self._ecu_status_storage = ECUStatusStorage()
-        # if we have subECU, launch a tracker that keeps tracking all child ECUs status
-        if ecu_info.has_subecu:
-            SubECUTracker(ecu_info, storage=self._ecu_status_storage)
+
         self._otaclient_control_flags = OTAClientControlFlags()
         self._otaclient_stub = OTAClientStub(
             ecu_info=ecu_info,
@@ -386,9 +356,13 @@ class OTAClientServiceStub:
         )
         self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
 
-        # local ecu status tracker
-        self._local_ecu_status_checking_shutdown_event = asyncio.Event()
-        asyncio.create_task(self._local_ecu_status_polling())
+        # ecu status tracking
+        self._ecu_status_polling_shutdown_event = asyncio.Event()
+        # tracker for polling local ECU status
+        asyncio.create_task(self._polling_local_ecu_status())
+        # tracker for polling subECU status
+        for ecu_contact in ecu_info.iter_direct_subecu_contact():
+            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
         # status monitoring tasks
         # as the dependency only caused by otaproxy, if local otaproxy is not enabled,
@@ -404,9 +378,26 @@ class OTAClientServiceStub:
 
     # internal
 
-    async def _local_ecu_status_polling(self):
-        """Task entry for loop polling local ECU status when updating."""
-        while not self._local_ecu_status_checking_shutdown_event.is_set():
+    async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
+        """Task entry for loop polling one subECU's status."""
+        while not self._ecu_status_polling_shutdown_event.is_set():
+            try:
+                _ecu_resp = await OtaClientCall.status_call(
+                    ecu_contact.ecu_id,
+                    ecu_contact.host,
+                    ecu_contact.port,
+                    timeout=server_cfg.SERVER_PORT,
+                )
+                await self._ecu_status_storage.update_from_child_ECU(_ecu_resp)
+            except ECU_NO_RESPONSE as e:
+                logger.warning(
+                    f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
+                )
+            await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
+
+    async def _polling_local_ecu_status(self):
+        """Task entry for loop polling local ECU status."""
+        while not self._ecu_status_polling_shutdown_event.is_set():
             status_report = await self._otaclient_stub.get_status()
             await self._ecu_status_storage.update_from_local_ECU(status_report)
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
