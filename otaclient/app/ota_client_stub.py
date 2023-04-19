@@ -343,9 +343,7 @@ class OTAClientServiceStub:
         self.ecu_info = ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
         self.listen_addr = ecu_info.ip_addr
         self.listen_port = server_cfg.SERVER_PORT
-        self.my_ecu_id = ecu_info.get_ecu_id()
-
-        self._ecu_status_storage = ECUStatusStorage()
+        self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
         self._otaclient_stub = OTAClientStub(
@@ -357,6 +355,7 @@ class OTAClientServiceStub:
         self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
 
         # ecu status tracking
+        self._ecu_status_storage = ECUStatusStorage()
         self._ecu_status_polling_shutdown_event = asyncio.Event()
         # tracker for polling local ECU status
         asyncio.create_task(self._polling_local_ecu_status())

@@ -15,8 +15,6 @@
 
 import asyncio
 import grpc.aio
-from typing import Optional
-
 
 from . import log_setting
 from .proto import wrapper, v2, v2_grpc

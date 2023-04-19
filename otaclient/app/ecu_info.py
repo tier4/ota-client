@@ -17,7 +17,7 @@ import yaml
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import Path
-from typing import Iterator, NamedTuple, Union, Dict, List, Tuple, Any
+from typing import Iterator, NamedTuple, Union, Dict, List, Any
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
@@ -62,10 +62,6 @@ class ECUInfo:
     available_ecu_ids: list = field(default_factory=list)  # list[str]
     secondaries: list = field(default_factory=list)  # list[dict[str, Any]]
     format_version: int = 1
-
-    @property
-    def has_subecu(self) -> bool:
-        return len(self.secondaries) > 0
 
     @classmethod
     def parse_ecu_info(cls, ecu_info_file: Union[str, Path]) -> "ECUInfo":
@@ -117,26 +113,6 @@ class ECUInfo:
                 )
             except KeyError:
                 raise ValueError(f"{subecu=} info is invalid")
-
-    def iter_secondary_ecus(self) -> Iterator[Tuple[str, str]]:
-        """
-        Return a tuple contains ecu_id and ip_addr in str.
-
-        Format:
-            "ecu_id": str
-            "ip_addr": str
-        """
-        for subecu in self.secondaries:
-            try:
-                yield subecu["ecu_id"], subecu["ip_addr"]
-            except KeyError:
-                raise ValueError(f"{subecu=} info is invalid")
-
-    def get_ecu_id(self) -> str:
-        return self.ecu_id
-
-    def get_ecu_ip_addr(self) -> str:
-        return self.ip_addr
 
     def get_bootloader(self) -> BootloaderType:
         return BootloaderType.parse_str(self.bootloader)
