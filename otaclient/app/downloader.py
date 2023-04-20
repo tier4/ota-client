@@ -29,21 +29,17 @@ from hashlib import sha256
 from os import PathLike
 from pathlib import Path
 from typing import (
-    IO,
     Any,
-    ByteString,
     Callable,
     Dict,
     Iterator,
     Optional,
     Protocol,
     Tuple,
-    Union,
 )
 from requests.adapters import HTTPAdapter
 from urllib.parse import urlsplit
 from urllib3.util.retry import Retry
-from urllib3.response import HTTPResponse
 
 from .configs import config as cfg
 from .common import OTAFileCacheControl, wait_with_backoff
