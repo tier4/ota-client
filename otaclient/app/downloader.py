@@ -386,6 +386,11 @@ class Downloader:
                             _traffic_on_wire - traffic_on_wire
                         )
                         traffic_on_wire = _traffic_on_wire
+                    # double check the wrapper's bytes_read in case we left anything
+                    self._traffic_report_que.put_nowait(
+                        wrapped_resp.tell() - traffic_on_wire
+                    )
+                    traffic_on_wire = wrapped_resp.tell()
                 # un-compressed file
                 else:
                     for data_chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
