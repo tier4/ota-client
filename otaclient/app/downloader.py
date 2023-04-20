@@ -258,11 +258,6 @@ class Downloader:
             threading.get_native_id()
         ] = threading.Event()
 
-    @property
-    def _session(self) -> requests.Session:
-        """A thread-local private session."""
-        return self._local.session
-
     def _get_decompressor(
         self, compression_alg: Any
     ) -> Optional[DecompressionAdapterProtocol]:
@@ -359,7 +354,7 @@ class Downloader:
         # flag this thread as actively downloading thread
         active_flag = self._downloading_thread_active_flag[threading.get_native_id()]
         try:
-            with self._session.get(
+            with self._local.session.get(
                 url,
                 stream=True,
                 proxies=_proxies,
