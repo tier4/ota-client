@@ -144,8 +144,11 @@ class DecompressionAdapterProtocol(Protocol):
     """DecompressionAdapter protocol for Downloader."""
 
     @abstractmethod
-    def iter_chunk(self, src_stream: Union[IO[bytes], ByteString]) -> Iterator[bytes]:
+    def iter_chunk(self, src_stream) -> Iterator[bytes]:
         """Decompresses the source stream.
+
+        Params:
+            src_stream: a readable stream that at least support read method.
 
         This Method take a src_stream of compressed file and
         return another stream that yields decompressed data chunks.
@@ -158,8 +161,23 @@ class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
     def __init__(self) -> None:
         self._dctx = zstandard.ZstdDecompressor()
 
-    def iter_chunk(self, src_stream: Union[IO[bytes], ByteString]) -> Iterator[bytes]:
+    def iter_chunk(self, src_stream) -> Iterator[bytes]:
         yield from self._dctx.read_to_iter(src_stream)
+
+
+class _HTTPResponseWrapper:
+    def __init__(self, resp: urllib3.HTTPResponse) -> None:
+        self._resp = resp
+        self._bytes_read = 0
+        self.retry_count = len(resp.retries.history) if resp.retries else 0
+
+    def read(self, size: int) -> bytes:
+        data = self._resp.read(size)
+        self._bytes_read += len(data)
+        return data
+
+    def tell(self) -> int:
+        return self._bytes_read
 
 
 class Downloader:
@@ -337,8 +355,7 @@ class Downloader:
         #       the number will be of the decompressed file)
         _hash_inst, downloaded_file_size = self._hash_func(), 0
         # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
-        traffic_on_wire = 0
-        _err_count = 0
+        traffic_on_wire, err_count = 0, 0
         # flag this thread as actively downloading thread
         active_flag = self._downloading_thread_active_flag[threading.get_native_id()]
         try:
@@ -354,29 +371,28 @@ class Downloader:
                 #       the connection is made.
                 active_flag.set()
 
-                raw_resp: HTTPResponse = resp.raw
-                if raw_resp.retries:
-                    _err_count = len(raw_resp.retries.history)
+                wrapped_resp = _HTTPResponseWrapper(resp.raw)
+                err_count = wrapped_resp.retry_count
 
                 # support for compresed file
                 if decompressor := self._get_decompressor(compression_alg):
-                    for _chunk in decompressor.iter_chunk(resp.raw):
-                        _hash_inst.update(_chunk)
-                        _dst.write(_chunk)
-                        downloaded_file_size += len(_chunk)
+                    for data_chunk in decompressor.iter_chunk(wrapped_resp):
+                        _hash_inst.update(data_chunk)
+                        _dst.write(data_chunk)
+                        downloaded_file_size += len(data_chunk)
 
-                        _traffic_on_wire = raw_resp.tell()
+                        _traffic_on_wire = wrapped_resp.tell()
                         self._traffic_report_que.put_nowait(
                             _traffic_on_wire - traffic_on_wire
                         )
                         traffic_on_wire = _traffic_on_wire
                 # un-compressed file
                 else:
-                    for _chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
-                        _hash_inst.update(_chunk)
-                        _dst.write(_chunk)
+                    for data_chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
+                        _hash_inst.update(data_chunk)
+                        _dst.write(data_chunk)
 
-                        chunk_len = len(_chunk)
+                        chunk_len = len(data_chunk)
                         downloaded_file_size += chunk_len
                         self._traffic_report_que.put_nowait(chunk_len)
                         traffic_on_wire += chunk_len
@@ -424,7 +440,7 @@ class Downloader:
             logger.error(msg)
             raise HashVerificaitonError(url, dst, msg)
 
-        return _err_count, traffic_on_wire, 0
+        return err_count, traffic_on_wire, 0
 
     def download(
         self,
