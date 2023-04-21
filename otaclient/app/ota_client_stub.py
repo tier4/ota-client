@@ -483,9 +483,8 @@ class OTAClientServiceStub:
             ecu_info=ecu_info,
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
-            proxy=proxy_cfg.get_proxy_for_local_ota(),
+            proxy=_proxy_cfg.get_proxy_for_local_ota(),
         )
-        self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
 
         # ecu status tracking
         self._ecu_status_storage = ECUStatusStorage()
@@ -496,7 +495,8 @@ class OTAClientServiceStub:
         )
 
         # otaproxy lifecycle and dependency managing
-        if self._otaproxy_launcher.enabled:
+        if _proxy_cfg.enable_local_ota_proxy:
+            self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
             self._status_checking_shutdown_event = asyncio.Event()
             asyncio.create_task(self._otaproxy_lifecycle_managing())
             asyncio.create_task(self._otaclient_control_flags_managing())
