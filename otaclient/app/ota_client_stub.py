@@ -179,10 +179,11 @@ class ECUStatusStorage:
             + self.UNREACHABLE_ECU_TIMEOUT
         )
 
-    async def _properties_update(self):
+    async def _generate_overall_status_report(self):
         self.properties_last_update_timestamp = cur_timestamp = int(time.time())
 
-        # check ECUs that lost contact
+        # check unreachable ECUs
+        _old_lost_ecus_id = self.lost_ecus_id
         self.lost_ecus_id = lost_ecus = set(
             (
                 ecu_id
@@ -190,9 +191,15 @@ class ECUStatusStorage:
                 if self._is_ecu_lost(ecu_id, cur_timestamp)
             )
         )
+        if _new_lost_ecus_id := lost_ecus.difference(_old_lost_ecus_id):
+            logger.warning(
+                f"new lost ecu(s)(disconnected longer than{self.UNREACHABLE_ECU_TIMEOUT}s)"
+                f" detected: {_new_lost_ecus_id}, current {lost_ecus=}"
+            )
 
         # check ECUs that are updating
-        self.updating_ecus = set(
+        _old_in_update_ecus_id = self.in_update_ecus_id
+        self.in_update_ecus_id = set(
             (
                 status.ecu_id
                 for status in chain(
@@ -201,10 +208,18 @@ class ECUStatusStorage:
                 if status.is_in_update and status.ecu_id not in lost_ecus
             )
         )
-        self.any_in_update = len(self.updating_ecus) > 0
+        self.any_in_update = len(self.in_update_ecus_id) > 0
+        if _new_in_update_ecu := self.in_update_ecus_id.difference(
+            _old_in_update_ecus_id
+        ):
+            logger.info(
+                "new ECU(s) that acks update request and enters OTA update detected"
+                f"{_new_in_update_ecu}, current {self.in_update_ecus_id=}"
+            )
 
         # check if there is any failed child/self ECU
-        self.failed_ecus = set(
+        _old_failed_ecus_id = self.failed_ecus_id
+        self.failed_ecus_id = set(
             (
                 status.ecu_id
                 for status in chain(
@@ -213,7 +228,11 @@ class ECUStatusStorage:
                 if status.is_failed and status.ecu_id not in lost_ecus
             )
         )
-        self.any_failed = len(self.failed_ecus) > 0
+        self.any_failed = len(self.failed_ecus_id) > 0
+        if _new_failed_ecu := self.failed_ecus_id.difference(_old_failed_ecus_id):
+            logger.warning(
+                f"new failed ECU(s) detected: {_new_failed_ecu}, current {self.failed_ecus_id=}"
+            )
 
         # check if any ECUs require network
         self.any_requires_network = any(
@@ -227,7 +246,8 @@ class ECUStatusStorage:
         )
 
         # check if all child ECUs and self ECU are in SUCCESS ota_status
-        self.success_ecus = set(
+        _old_all_success, _old_success_ecus_id = self.all_success, self.success_ecus_id
+        self.success_ecus_id = set(
             (
                 status.ecu_id
                 for status in chain(
@@ -236,10 +256,16 @@ class ECUStatusStorage:
                 if status.is_success and status.ecu_id not in lost_ecus
             )
         )
-        self.all_success = len(self.success_ecus) == len(self._all_available_ecus_id)
+        self.all_success = len(self.success_ecus_id) == len(self._all_available_ecus_id)
+        if _new_success_ecu := self.success_ecus_id.difference(_old_success_ecus_id):
+            logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
+            if not _old_all_success and self.all_success:
+                logger.info("all ECUs in the cluster are in SUCCESS ota_status")
 
         logger.debug(
-            f"{self.updating_ecus=}, {self.failed_ecus=}, {self.any_requires_network=}, {self.success_ecus=}"
+            "overall ECU status reporrt updated:"
+            f"{self.lost_ecus_id=}, {self.in_update_ecus_id=},{self.any_requires_network=}"
+            f"{self.failed_ecus_id=}, {self.success_ecus_id=}, {self.all_success=}"
         )
 
     async def _loop_updating_properties(self):
@@ -256,7 +282,7 @@ class ECUStatusStorage:
                     + self.DELAY_PROPERTY_UPDATE
                 ):
                     last_storage_update = self.storage_last_updated_timestamp
-                    await self._properties_update()
+                    await self._generate_overall_status_report()
             # if properties are not initialized, use active_interval for update
             if self.properties_last_update_timestamp == 0:
                 await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
