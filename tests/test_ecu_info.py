@@ -108,7 +108,7 @@ def test_ecu_info(
 
     ecu_info = ECUInfo.parse_ecu_info(ecu_info_file)
     assert ecu_info.secondaries == secondary_ecus
-    assert ecu_info.get_ecu_id() == ecu_id
-    assert ecu_info.get_ecu_ip_addr() == ip_addr
+    assert ecu_info.ecu_id == ecu_id
+    assert ecu_info.ip_addr == ip_addr
     assert ecu_info.get_available_ecu_ids() == available_ecu_ids
     assert ecu_info.get_bootloader() == bootloader
