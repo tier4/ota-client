@@ -579,6 +579,18 @@ class OTAClientBusy(Exception):
 
 
 class OTAClientStub:
+    """OTAClient stub implementation that wraps OTAClient and exposes async API.
+
+    All actual API request handlings are wrapped and dispatched into threadpool for execution.
+    Only one ongoing update/rollback is allowed, with the help of exclusive update_rollback lock.
+
+    If this ECU enables otaproxy and has child ECUs depend on it, control_flags is used to prevent
+    this ECU's reboot before the otaproxy dependency is resolved.
+
+    OTAClient itself is self-contained, its error handling is done internally, no exception will be raised
+    from calling API methods of OTAClient.
+    """
+
     def __init__(
         self,
         *,
@@ -614,15 +626,15 @@ class OTAClientStub:
     def is_busy(self) -> bool:
         return self.update_rollback_lock.locked()
 
-    # API method
+    # API
 
     async def dispatch_update(self, request: wrapper.UpdateRequestEcu):
-        """Dispatch update request to otaclient.
+        """Dispatch OTA update execution to background thread.
 
         Raises:
             OTAClientBusy if otaclient is already executing update/rollback.
         """
-        if self.update_rollback_lock.locked():
+        if self.is_busy:
             raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
 
         async def _update():
@@ -644,12 +656,12 @@ class OTAClientStub:
         asyncio.create_task(_update())
 
     async def dispatch_rollback(self, _: wrapper.RollbackRequestEcu):
-        """Dispatch update request to otaclient.
+        """Dispatch OTA rollback execution to background thread.
 
         Raises:
             OTAClientBusy if otaclient is already executing update/rollback.
         """
-        if self.update_rollback_lock.locked():
+        if self.is_busy:
             raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
 
         async def _rollback():
