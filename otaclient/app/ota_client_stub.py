@@ -357,51 +357,25 @@ class ECUStatusStorage:
         return res
 
 
-class OTAClientServiceStub:
-    OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_SHUTDOWN_DELAY
+class _ECUTracker:
+    """Tracker that tracks and stores ECU status from all child ECUs and self ECU."""
 
-    def __init__(self):
-        self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
-        self._run_in_executor = partial(
-            asyncio.get_running_loop().run_in_executor, self._executor
-        )
-
-        self.ecu_info = ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
-        self.listen_addr = ecu_info.ip_addr
-        self.listen_port = server_cfg.SERVER_PORT
-        self.my_ecu_id = ecu_info.ecu_id
-
-        self._otaclient_control_flags = OTAClientControlFlags()
-        self._otaclient_stub = OTAClientStub(
-            ecu_info=ecu_info,
-            executor=self._executor,
-            control_flags=self._otaclient_control_flags,
-            proxy=proxy_cfg.get_proxy_for_local_ota(),
-        )
-        self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
-
-        # ecu status tracking
-        self._ecu_status_storage = ECUStatusStorage()
+    def __init__(
+        self,
+        ecu_status_storage: ECUStatusStorage,
+        *,
+        ecu_info: ECUInfo,
+        otaclient_stub: OTAClientStub,
+    ) -> None:
+        self._otaclient_stub = otaclient_stub  # for local ECU status polling
+        self._ecu_status_storage = ecu_status_storage
         self._ecu_status_polling_shutdown_event = asyncio.Event()
-        # tracker for polling local ECU status
+
+        # launch tracker for polling local ECU status
         asyncio.create_task(self._polling_local_ecu_status())
-        # tracker for polling subECU status
+        # launch tracker for polling subECU status
         for ecu_contact in ecu_info.iter_direct_subecu_contact():
             asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
-
-        # status monitoring tasks
-        # as the dependency only caused by otaproxy, if local otaproxy is not enabled,
-        # we skip the following logics.
-        if self._otaproxy_launcher.enabled:
-            self._status_checking_shutdown_event = asyncio.Event()
-            asyncio.create_task(self._otaproxy_lifecycle_managing())
-            asyncio.create_task(self._otaclient_control_flags_managing())
-        else:
-            # if otaproxy is not enabled, no dependent relationship will be formed,
-            # always allow local otaclient to reboot
-            self._otaclient_control_flags.set_can_reboot_flag()
-
-    # internal
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
@@ -426,6 +400,52 @@ class OTAClientServiceStub:
             status_report = await self._otaclient_stub.get_status()
             await self._ecu_status_storage.update_from_local_ECU(status_report)
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
+
+
+class OTAClientServiceStub:
+    """Handlers for otaclient service API."""
+
+    OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
+
+    def __init__(self, *, _proxy_cfg=proxy_cfg):
+        self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
+        self._run_in_executor = partial(
+            asyncio.get_running_loop().run_in_executor, self._executor
+        )
+
+        self.ecu_info = ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
+        self.listen_addr = ecu_info.ip_addr
+        self.listen_port = server_cfg.SERVER_PORT
+        self.my_ecu_id = ecu_info.ecu_id
+
+        self._otaclient_control_flags = OTAClientControlFlags()
+        self._otaclient_stub = OTAClientStub(
+            ecu_info=ecu_info,
+            executor=self._executor,
+            control_flags=self._otaclient_control_flags,
+            proxy=proxy_cfg.get_proxy_for_local_ota(),
+        )
+        self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
+
+        # ecu status tracking
+        self._ecu_status_storage = ECUStatusStorage()
+        self._ecu_status_tracker = _ECUTracker(
+            self._ecu_status_storage,
+            ecu_info=ecu_info,
+            otaclient_stub=self._otaclient_stub,
+        )
+
+        # otaproxy lifecycle and dependency managing
+        if self._otaproxy_launcher.enabled:
+            self._status_checking_shutdown_event = asyncio.Event()
+            asyncio.create_task(self._otaproxy_lifecycle_managing())
+            asyncio.create_task(self._otaclient_control_flags_managing())
+        else:
+            # if otaproxy is not enabled, no dependency relationship will be formed,
+            # always allow local otaclient to reboot
+            self._otaclient_control_flags.set_can_reboot_flag()
+
+    # internal
 
     async def _otaproxy_lifecycle_managing(self):
         """Task entry for managing otaproxy's launching/shutdown."""
