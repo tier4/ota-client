@@ -171,6 +171,11 @@ class ECUStatusStorage:
 
     """
 
+    DELAY_OVERALL_STATUS_REPORT_UPDATE = (
+        cfg.KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED
+    )
+    UNREACHABLE_ECU_TIMEOUT = cfg.ECU_UNREACHABLE_TIMEOUT
+    PROPERTY_REFRESH_INTERVAL = cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL
     IDLE_POLLING_INTERVAL = cfg.IDLE_INTERVAL
     ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
@@ -311,15 +316,12 @@ class ECUStatusStorage:
         """
         last_storage_update = self.storage_last_updated_timestamp
         while not self.properties_update_shutdown_event.is_set():
-            # only update properties when storage is updated,
-            # NOTE: if just receive update request, skip for DELAY
-            #   seconds to prevent pre-mature property update.
             async with self._properties_update_lock:
                 current_timestamp = int(time.time())
                 if last_storage_update != self.storage_last_updated_timestamp and (
                     current_timestamp
                     > self.last_update_request_received_timestamp
-                    + self.DELAY_PROPERTY_UPDATE
+                    + self.DELAY_OVERALL_STATUS_REPORT_UPDATE
                 ):
                     last_storage_update = self.storage_last_updated_timestamp
                     await self._generate_overall_status_report()
