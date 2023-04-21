@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Optional, Type, Iterator
 from urllib.parse import urlparse
 
-from otaclient import __version__  # type: ignore
 from .ecu_info import ECUInfo
 from .errors import (
     BaseOTAMetaVerificationFailed,
@@ -68,6 +67,11 @@ from .update_stats import (
     RegProcessOperation,
 )
 from . import log_setting
+
+try:
+    from otaclient import __version__  # type: ignore
+except ImportError:
+    __version__ = "unknown"
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -464,6 +468,7 @@ class OTAClient(OTAClientProtocol):
     """
 
     DEFAULT_FIRMWARE_VERSION = "unknown"
+    OTACLIENT_VERSION = __version__
 
     def __init__(
         self,
@@ -563,7 +568,7 @@ class OTAClient(OTAClientProtocol):
         status_report = wrapper.StatusResponseEcuV2(
             ecu_id=self.my_ecu_id,
             firmware_version=self.current_version,
-            otaclient_version=__version__,
+            otaclient_version=self.OTACLIENT_VERSION,
             ota_status=live_ota_status,
             failure_type=self.last_failure_type,
             failure_reason=self.last_failure_reason,
