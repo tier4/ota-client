@@ -591,7 +591,8 @@ class OTAClientServiceStub:
                     _ecu_resp: wrapper.UpdateResponse = _task.result()
                 except ECU_NO_RESPONSE as e:
                     logger.warning(
-                        f"{tasks[_task]} doesn't respond to update request: {e!r}"
+                        f"{tasks[_task]} doesn't respond to update request on-time"
+                        f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     continue
                 update_acked_ecus.update(_ecu_resp.ecus_acked_update)
@@ -605,7 +606,7 @@ class OTAClientServiceStub:
                 await self._otaclient_stub.dispatch_update(update_req_ecu)
                 update_acked_ecus.add(self.my_ecu_id)
             except OTAClientBusy as e:
-                logger.warning(f"self ECU is busy, ignore local update: {e!r}")
+                logger.warning(f"self ECU is busy, ignore local update request: {e!r}")
                 _resp_ecu.result = wrapper.FailureType.RECOVERABLE
             response.add_ecu(_resp_ecu)
 
@@ -645,7 +646,8 @@ class OTAClientServiceStub:
                     _ecu_resp: wrapper.RollbackResponse = _task.result()
                 except ECU_NO_RESPONSE as e:
                     logger.warning(
-                        f"{tasks[_task]} doesn't respond to rollback request: {e!r}"
+                        f"{tasks[_task]} doesn't respond to rollback request on-time"
+                        f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     continue
                 response.merge_from(_ecu_resp)
@@ -662,7 +664,5 @@ class OTAClientServiceStub:
             response.add_ecu(_resp_ecu)
         return response
 
-    async def status(
-        self, _: Optional[wrapper.StatusRequest] = None
-    ) -> wrapper.StatusResponse:
+    async def status(self, _=None) -> wrapper.StatusResponse:
         return self._ecu_status_storage.export()
