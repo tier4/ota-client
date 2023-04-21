@@ -38,7 +38,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         return response.export_pb()
 
 
-async def run_otaclient_grpc_server():
+async def launch_otaclient_grpc_server():
     service_stub = OTAClientServiceStub()
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
