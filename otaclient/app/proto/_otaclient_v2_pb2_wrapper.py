@@ -287,7 +287,6 @@ V2_V1_PHASE_MAPPING = {
     UpdatePhase.PROCESSING_POSTUPDATE: StatusProgressPhase.POST_PROCESSING,
     UpdatePhase.FINALIZING_UPDATE: StatusProgressPhase.POST_PROCESSING,
 }
-V1_V2_PHASE_MAPPING = {v: k for k, v in V2_V1_PHASE_MAPPING.items()}
 
 
 class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):

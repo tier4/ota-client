@@ -18,7 +18,8 @@ import asyncio
 import logging
 import uvloop
 
-from . import run_otaproxy, config as cfg
+from . import run_otaproxy
+from .config import config as cfg
 
 logger = logging.getLogger(__name__)
 

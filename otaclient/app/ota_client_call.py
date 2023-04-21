@@ -26,7 +26,7 @@ logger = log_setting.get_logger(
 
 
 class ECU_NO_RESPONSE(Exception):
-    ...
+    """Raised when ECU cannot response to request on-time."""
 
 
 class OtaClientCall:
