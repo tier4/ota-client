@@ -71,11 +71,6 @@ class OTAProxyLauncher:
             and self._otaproxy_subprocess.is_alive()
         )
 
-    def cleanup_cache_dir(self):
-        if (cache_dir := Path(self._proxy_server_cfg.BASE_DIR)).is_dir():
-            logger.info("cleanup ota_cache on success")
-            shutil.rmtree(cache_dir, ignore_errors=True)
-
     @staticmethod
     def _subprocess_init(upper_proxy: Optional[str] = None):
         """Initializing the subprocess before launching it.
@@ -96,7 +91,19 @@ class OTAProxyLauncher:
         if upper_proxy:
             ensure_otaproxy_start(upper_proxy)
 
+    # API
+
+    def cleanup_cache_dir(self):
+        """
+        NOTE: this method should only be called when all ECUs in the cluster
+              are in SUCCESS ota_status(overall_ecu_status.all_success==True).
+        """
+        if (cache_dir := Path(self._proxy_server_cfg.BASE_DIR)).is_dir():
+            logger.info("cleanup ota_cache on success")
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
     async def start(self, *, init_cache: bool) -> Optional[int]:
+        """Start the otaproxy in a subprocess."""
         if not self.enabled or self._lock.locked() or self.is_running:
             return
         async with self._lock:
@@ -188,16 +195,16 @@ class ECUStatusStorage:
         self._all_ecus_status_v1: Dict[str, wrapper.StatusResponseEcu] = {}
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
 
-        # properties cache
+        # overall ECU status report
         self._properties_update_lock = asyncio.Lock()
         self.properties_last_update_timestamp = 0
         self.lost_ecus_id = set()
-        self.updating_ecus = set()
+        self.in_update_ecus_id = set()
         self.any_in_update = False
-        self.failed_ecus = set()
+        self.failed_ecus_id = set()
         self.any_failed = False
         self.any_requires_network = False
-        self.success_ecus = set()
+        self.success_ecus_id = set()
         self.all_success = False
 
         # property update task
@@ -372,14 +379,14 @@ class ECUStatusStorage:
         """
         async with self._properties_update_lock:
             self.last_update_request_received_timestamp = int(time.time())
-            self.updating_ecus = ecus_accept_update.copy()
+            self.in_update_ecus_id = ecus_accept_update.copy()
             self.lost_ecus_id -= ecus_accept_update
             self.any_in_update = True
             self.any_requires_network = True
-            self.failed_ecus -= ecus_accept_update
-            self.any_failed = len(self.failed_ecus) > 0
+            self.failed_ecus_id -= ecus_accept_update
+            self.any_failed = len(self.failed_ecus_id) > 0
             self.all_success = False
-            self.success_ecus -= ecus_accept_update
+            self.success_ecus_id -= ecus_accept_update
 
     def get_polling_interval(self) -> int:
         """
