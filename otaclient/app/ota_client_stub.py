@@ -553,14 +553,20 @@ class OTAClientServiceStub:
     async def _otaclient_control_flags_managing(self):
         """Task entry for set/clear otaclient control flags.
 
-        Prevent self ECU's reboot if there is dependency for otaproxy on this ECU.
+        Prevent self ECU from rebooting when their is at least one ECU
+        under UPDATING ota_status.
         """
         while not self._status_checking_shutdown_event.is_set():
-            if not self._ecu_status_storage.any_requires_network:
-                logger.debug("local otaclient can reboot as no ECU requires otaproxy")
+            if not self._ecu_status_storage.any_in_update:
+                logger.debug(
+                    "local otaclient can reboot as all ECUs are not in UPDATING ota_status"
+                )
                 self._otaclient_control_flags.set_can_reboot_flag()
             else:
-                logger.debug("local otaclient cannot reboot otaproxy is required")
+                logger.debug(
+                    f"local otaclient cannot reboot as {self._ecu_status_storage.in_update_ecus_id}"
+                    " are in UPDATING ota_status"
+                )
                 self._otaclient_control_flags.clear_can_reboot_flag()
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
 
