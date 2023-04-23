@@ -216,7 +216,7 @@ class ECUStatusStorage:
 
     def _is_ecu_lost(self, ecu_id: str, cur_timestamp: int) -> bool:
         if ecu_id not in self._all_ecus_last_contact_timestamp:
-            return False  # we have not yet connected to this ECU
+            return True  # we have not yet connected to this ECU
         return (
             cur_timestamp
             > self._all_ecus_last_contact_timestamp[ecu_id]
