@@ -236,9 +236,10 @@ class ECUStatusStorage:
             )
         )
         if _new_lost_ecus_id := lost_ecus.difference(_old_lost_ecus_id):
+            logger.warning(f"new lost ecu(s) detected: {_new_lost_ecus_id}")
+        if lost_ecus:
             logger.warning(
-                f"new lost ecu(s)(disconnected longer than{self.UNREACHABLE_ECU_TIMEOUT}s)"
-                f" detected: {_new_lost_ecus_id}, current {lost_ecus=}"
+                f"lost ecu(s)(disconnected longer than{self.UNREACHABLE_ECU_TIMEOUT}s): {lost_ecus=}"
             )
 
         # check ECUs that are updating
