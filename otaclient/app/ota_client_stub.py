@@ -366,20 +366,22 @@ class ECUStatusStorage:
             self._all_ecus_status_v2[ecu_id] = ecu_status
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
 
-    async def on_receive_update_request(self, ecus_accept_update: Set[str]):
-        """Set overall ECU status report to specific value when update requests accepted.
+    async def on_ecus_accept_update_request(self, ecus_accept_update: Set[str]):
+        """Update overall ECU status report directly on ECU(s) accept OTA update request.
 
-        The overall ECU status report will be set to reflect the fact that
-        1. the ECUs in <ecus_accept_update> should be in updating mode,
-        2. there is at least one ECU requires network(trigger the start of otaproxy),
+        for the ECUs that accepts OTA update request, we:
+        1. add these ECUs' id into in_update_ecus_id set
+        2. remove these ECUs' id from failed_ecus_id and success_ecus_id set
+        3. remove these ECUs' id from lost_ecus_id set
+        3. re-calculate overall ECUs status
 
-        To prevent pre-mature overall status change(for example, the child ECU doesn't send
-        updated ECU status report on-time), the above set value will be kept for
-        <DELAY_OVERALL_STATUS_REPORT_UPDATE> seconds.
+        To prevent pre-mature overall status change(for example, the child ECU doesn't change
+        their ota_status to UPDATING on-time due to status polling interval mismatch),
+        the above set value will be kept for <DELAY_OVERALL_STATUS_REPORT_UPDATE> seconds.
         """
         async with self._properties_update_lock:
             self.last_update_request_received_timestamp = int(time.time())
-            self.in_update_ecus_id = ecus_accept_update.copy()
+            self.in_update_ecus_id.update(ecus_accept_update)
             self.lost_ecus_id -= ecus_accept_update
             self.any_in_update = True
             self.any_requires_network = True
@@ -614,7 +616,9 @@ class OTAClientServiceStub:
         if update_acked_ecus:
             logger.info("at least one ECU accept update request")
             asyncio.create_task(
-                self._ecu_status_storage.on_receive_update_request(update_acked_ecus)
+                self._ecu_status_storage.on_ecus_accept_update_request(
+                    update_acked_ecus
+                )
             )
         return response
 
