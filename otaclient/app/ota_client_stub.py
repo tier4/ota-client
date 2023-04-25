@@ -148,6 +148,9 @@ class OTAProxyLauncher:
             logger.info("otaproxy closed")
 
 
+_OrderedSet = Dict[str, None]
+
+
 class ECUStatusStorage:
     """Storage for holding ECU status reports from all ECUs in the cluster.
 
@@ -184,11 +187,13 @@ class ECUStatusStorage:
     IDLE_POLLING_INTERVAL = cfg.IDLE_INTERVAL
     ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
-    def __init__(self, *, directly_connected_ecus_id: Iterable[str]) -> None:
+    def __init__(self, ecu_info: ECUInfo) -> None:
         self._writer_lock = asyncio.Lock()
         # ECU status storage
         self.storage_last_updated_timestamp = 0
-        self._all_available_ecus_id: Set[str] = set(directly_connected_ecus_id)
+        self._all_available_ecus_id: _OrderedSet = {
+            ecu_id: None for ecu_id in ecu_info.get_available_ecu_ids()
+        }
         self._all_ecus_status_v2: Dict[str, wrapper.StatusResponseEcuV2] = {}
         self._all_ecus_status_v1: Dict[str, wrapper.StatusResponseEcu] = {}
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
@@ -344,7 +349,9 @@ class ECUStatusStorage:
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
             # discover further child ECUs from directly connected sub ECUs.
-            self._all_available_ecus_id.update(status_resp.available_ecu_ids)
+            self._all_available_ecus_id.update(
+                {ecu_id: None for ecu_id in status_resp.available_ecu_ids}
+            )
 
             # NOTE: explicitly support v1 format for backward-compatible with old otaclient
             for ecu_status_v2 in status_resp.ecu_v2:
@@ -360,7 +367,7 @@ class ECUStatusStorage:
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
-            self._all_available_ecus_id.add(ecu_status.ecu_id)
+            self._all_available_ecus_id[ecu_status.ecu_id] = None
 
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status_v2[ecu_id] = ecu_status
@@ -496,9 +503,7 @@ class OTAClientServiceStub:
         )
 
         # ecu status tracking
-        self._ecu_status_storage = ECUStatusStorage(
-            directly_connected_ecus_id=ecu_info.get_available_ecu_ids()
-        )
+        self._ecu_status_storage = ECUStatusStorage(ecu_info)
         self._ecu_status_tracker = _ECUTracker(
             self._ecu_status_storage,
             ecu_info=ecu_info,
