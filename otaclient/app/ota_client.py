@@ -330,8 +330,10 @@ class _OTAUpdater:
         # configure proxy
         logger.debug("configure proxy setting...")
         if self.proxy:
-            logger.info(f"use {self.proxy=} for local OTA update")
-            logger.debug("wait for otaproxy to become ready...")
+            logger.info(
+                f"use {self.proxy=} for local OTA update, "
+                f"wait for otaproxy@{self.proxy} online..."
+            )
             # TODO: make otaproxy scrubing not blocking the otaproxy starts
             ensure_otaproxy_start(self.proxy)
             # NOTE(20221013): check requests document for how to set proxy,
@@ -584,7 +586,8 @@ class OTAClientBusy(Exception):
 
 
 class OTAClientStub:
-    """OTAClient stub implementation that wraps OTAClient and exposes async API.
+    """OTAClient stub implementation that wraps OTAClient, manage update/rollback session,
+    and exposes async API for OTAClientServiceStub.
 
     All actual API request handlings are wrapped and dispatched into threadpool for execution.
     Only one ongoing update/rollback is allowed, with the help of exclusive update_rollback lock.

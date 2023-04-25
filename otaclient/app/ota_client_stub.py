@@ -73,10 +73,7 @@ class OTAProxyLauncher:
 
     @staticmethod
     def _subprocess_init(upper_proxy: Optional[str] = None):
-        """Initializing the subprocess before launching it.
-
-        Currently only used for configuring the logging for otaproxy.
-        """
+        """Initializing the subprocess before launching it."""
         # configure logging for otaproxy subprocess
         # NOTE: on otaproxy subprocess, we first set log level of the root logger
         #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
@@ -89,6 +86,7 @@ class OTAProxyLauncher:
 
         # wait for upper otaproxy if any
         if upper_proxy:
+            logger.info(f"wait for {upper_proxy=} online...")
             ensure_otaproxy_start(upper_proxy)
 
     # API
@@ -125,7 +123,7 @@ class OTAProxyLauncher:
             self._otaproxy_subprocess = otaproxy_subprocess
             logger.info(
                 f"otaproxy({otaproxy_subprocess.pid=}) started at "
-                f"{proxy_cfg.local_ota_proxy_listen_addr}:{proxy_cfg.local_ota_proxy_listen_port}"
+                f"{self._proxy_info.local_ota_proxy_listen_addr}:{self._proxy_info.local_ota_proxy_listen_port}"
             )
             return otaproxy_subprocess.pid
 
