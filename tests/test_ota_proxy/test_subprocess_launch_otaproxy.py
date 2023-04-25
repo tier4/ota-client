@@ -13,18 +13,23 @@
 # limitations under the License.
 
 
+import time
+from functools import partial
 from pathlib import Path
 from otaclient.ota_proxy import subprocess_start_otaproxy
 
 
-def test_subprocess_start_otaproxy(self, tmp_path: Path):
+def _subprocess_init(_sentinel_file):
+    Path(_sentinel_file).touch()
+
+
+def test_subprocess_start_otaproxy(tmp_path: Path):
+    # --- setup --- #
     (ota_cache_dir := tmp_path / "ota-cache").mkdir(exist_ok=True)
     ota_cache_db = ota_cache_dir / "cache_db"
-    otaproxy_subprocess_initialized = tmp_path / "otaproxy_started"
+    subprocess_init_sentinel = tmp_path / "otaproxy_started"
 
-    def _subprocess_init():
-        otaproxy_subprocess_initialized.touch()
-
+    # --- execution --- #
     otaproxy_subprocess = subprocess_start_otaproxy(
         host="127.0.0.1",
         port=8082,
@@ -34,9 +39,13 @@ def test_subprocess_start_otaproxy(self, tmp_path: Path):
         upper_proxy="",
         enable_cache=True,
         enable_https=False,
-        subprocess_init=_subprocess_init,
+        subprocess_init=partial(_subprocess_init, subprocess_init_sentinel),
     )
-    assert otaproxy_subprocess.is_alive()
-    assert otaproxy_subprocess_initialized.is_file()
+    time.sleep(1)  # wait for subprocess to finish up initializing
 
-    otaproxy_subprocess.terminate()
+    # --- assertion --- #
+    try:
+        assert otaproxy_subprocess.is_alive()
+        assert subprocess_init_sentinel.is_file()
+    finally:
+        otaproxy_subprocess.terminate()
