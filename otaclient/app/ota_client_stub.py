@@ -388,12 +388,13 @@ class ECUStatusStorage:
         """
         async with self._properties_update_lock:
             self.last_update_request_received_timestamp = int(time.time())
-            self.in_update_ecus_id.update(ecus_accept_update)
             self.lost_ecus_id -= ecus_accept_update
-            self.any_in_update = True
-            self.any_requires_network = True
             self.failed_ecus_id -= ecus_accept_update
-            self.any_failed = len(self.failed_ecus_id) > 0
+
+            self.in_update_ecus_id.update(ecus_accept_update)
+            self.in_update_childecus_id = self.in_update_ecus_id - {self.my_ecu_id}
+
+            self.any_requires_network = True
             self.all_success = False
             self.success_ecus_id -= ecus_accept_update
 
@@ -404,7 +405,7 @@ class ECUStatusStorage:
         """
         return (
             self.ACTIVE_POLLING_INTERVAL
-            if self.any_in_update
+            if self.in_update_ecus_id
             else self.IDLE_POLLING_INTERVAL
         )
 
