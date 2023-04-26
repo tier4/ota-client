@@ -564,9 +564,9 @@ class OTAClientServiceStub:
         under UPDATING ota_status.
         """
         while not self._status_checking_shutdown_event.is_set():
-            if not self._ecu_status_storage.any_in_update:
+            if not self._ecu_status_storage.in_update_childecus_id:
                 logger.debug(
-                    "local otaclient can reboot as all ECUs are not in UPDATING ota_status"
+                    "local otaclient can reboot as no child ECU is in UPDATING ota_status"
                 )
                 self._otaclient_control_flags.set_can_reboot_flag()
             else:
