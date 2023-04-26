@@ -61,13 +61,14 @@ class ECUInfo:
     def parse_ecu_info(cls, ecu_info_file: Union[str, Path]) -> "ECUInfo":
         ecu_info = deepcopy(DEFAULT_ECU_INFO)
         try:
-            ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
+            _ecu_info = yaml.safe_load(Path(ecu_info_file).read_text())
             assert isinstance(ecu_info, Dict)
-        except Exception:
+            ecu_info = _ecu_info
+        except Exception as e:
             logger.warning(
-                f"failed to load {ecu_info_file=} or config file corrupted, use default config"
+                f"failed to load {ecu_info_file=} or config file corrupted, use default config: {e!r}"
             )
-        logger.info(f"ecu_info={ecu_info}")
+        logger.info(f"{ecu_info=}")
 
         # load options
         # NOTE: if option is not presented,
