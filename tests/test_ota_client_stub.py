@@ -440,9 +440,8 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p2"},
-                    "any_in_update": True,
+                    "in_update_childecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
-                    "any_failed": True,
                     "any_requires_network": True,
                     "success_ecus_id": set(),
                     "all_success": False,
@@ -487,9 +486,8 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"p2"},
-                    "any_in_update": True,
+                    "in_update_childecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
-                    "any_failed": True,
                     "any_requires_network": True,
                     "success_ecus_id": {"autoware"},
                     "all_success": False,
@@ -562,9 +560,8 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p2"},
-                    "any_in_update": True,
+                    "in_update_childecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
-                    "any_failed": True,
                     "any_requires_network": True,
                     "success_ecus_id": set(),
                     "all_success": False,
@@ -614,9 +611,8 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p1"},
-                    "any_in_update": True,
+                    "in_update_childecus_id": {"p1"},
                     "failed_ecus_id": set(),
-                    "any_failed": False,
                     "any_requires_network": True,
                     "success_ecus_id": {"p2"},
                     "all_success": False,
@@ -735,6 +731,10 @@ class TestOTAClientServiceStub:
             await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)  # ensure shutdown
 
     async def test__otaproxy_lifecycle_managing(self):
+        """
+        otaproxy startup/shutdown is only controlled by any_requires_network
+        in overall ECU status report.
+        """
         # set the OTAPROXY_SHUTDOWN_DELAY to allow start/stop in single test
         self.otaclient_service_stub.OTAPROXY_SHUTDOWN_DELAY = 1  # type: ignore
 
@@ -742,7 +742,6 @@ class TestOTAClientServiceStub:
         # --- prepartion --- #
         self.otaproxy_launcher.is_running = False
         self.ecu_storage.any_requires_network = True
-        self.ecu_storage.any_in_update = True
 
         # --- wait for execution --- #
         # wait for _otaproxy_lifecycle_managing to launch
@@ -756,7 +755,6 @@ class TestOTAClientServiceStub:
         # --- prepartion --- #
         self.otaproxy_launcher.is_running = True
         self.ecu_storage.any_requires_network = False
-        self.ecu_storage.any_in_update = False
 
         # --- wait for execution --- #
         # wait for _otaproxy_lifecycle_managing to shutdown
@@ -768,6 +766,7 @@ class TestOTAClientServiceStub:
 
         # ---- cache dir cleanup --- #
         # only cleanup cache dir on all ECUs in SUCCESS ota_status
+        self.ecu_storage.any_requires_network = False
         self.ecu_storage.all_success = True
         self.otaproxy_launcher.is_running = False
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)
@@ -777,12 +776,13 @@ class TestOTAClientServiceStub:
 
     async def test__otaclient_control_flags_managing(self):
         otaclient_control_flags = self.otaclient_service_stub._otaclient_control_flags
-
-        self.ecu_storage.any_in_update = True
+        # there are child ECUs in UPDATING
+        self.ecu_storage.in_update_childecus_id = {"p1", "p2"}
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)
         assert not otaclient_control_flags._can_reboot.is_set()
 
-        self.ecu_storage.any_in_update = False
+        # no more child ECUs in UPDATING
+        self.ecu_storage.in_update_childecus_id = set()
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)
         assert otaclient_control_flags._can_reboot.is_set()
 
