@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Iterable, Optional, Set, Dict
+from typing import Optional, Set, Dict
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
@@ -483,13 +483,13 @@ class OTAClientServiceStub:
 
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
 
-    def __init__(self, *, _proxy_cfg=proxy_cfg):
+    def __init__(self, *, ecu_info: ECUInfo, _proxy_cfg=proxy_cfg):
         self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
         )
 
-        self.ecu_info = ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
+        self.ecu_info = ecu_info
         self.listen_addr = ecu_info.ip_addr
         self.listen_port = server_cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
