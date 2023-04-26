@@ -39,7 +39,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         return response.export_pb()
 
 
-async def launch_otaclient_grpc_server():
+def create_otaclient_grpc_server():
     service_stub = OtaClientStub()
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
@@ -48,5 +48,10 @@ async def launch_otaclient_grpc_server():
         server=server, servicer=ota_client_service_v2
     )
     server.add_insecure_port(f"{service_stub.host_addr()}:{server_cfg.SERVER_PORT}")
+    return server
+
+
+async def launch_otaclient_grpc_server():
+    server = create_otaclient_grpc_server()
     await server.start()
     await server.wait_for_termination()
