@@ -163,14 +163,13 @@ class ECUStatusStorage:
     every <PROPERTY_REFRESH_INTERVAL> seconds, if there is any update to the storage.
 
     Currently it will generate the following overall ECU status report:
-    1. any_in_update:        at least one ECU in the cluster is doing OTA update or not,
-    2. any_failed:           at least one ECU is in FAILURE ota_status or not,
-    3. any_requires_network: at least one ECU requires network(for downloading) during update,
-    4. all_success:          all ECUs are in SUCCESS ota_status or not,
-    5. lost_ecus_id:         a list of ecu_ids of all disconnected ECUs,
-    6. in_update_ecus_id:    a list of ecu_id of all updating ECUs,
-    7. failed_ecus_id:       a list of ecu_id of all failed ECUs,
-    8. success_ecus_id:      a list of ecu_id of all succeeded ECUs.
+    1. any_requires_network:        at least one ECU requires network(for downloading) during update,
+    2. all_success:                 all ECUs are in SUCCESS ota_status or not,
+    3. lost_ecus_id:                a list of ecu_ids of all disconnected ECUs,
+    4. in_update_ecus_id:           a list of ecu_ids of all updating ECUs,
+    5. failed_ecus_id:              a list of ecu_ids of all failed ECUs,
+    6. success_ecus_id:             a list of ecu_ids of all succeeded ECUs,
+    7. in_update_childecus_id:      a list of ecu_ids of all updating child ECUs.
 
     NOTE:
         If ECU has been disconnected(doesn't respond to status probing) longer than <UNREACHABLE_TIMEOUT>,
@@ -188,6 +187,7 @@ class ECUStatusStorage:
     ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
     def __init__(self, ecu_info: ECUInfo) -> None:
+        self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
         # ECU status storage
         self.storage_last_updated_timestamp = 0
@@ -201,12 +201,14 @@ class ECUStatusStorage:
         # overall ECU status report
         self._properties_update_lock = asyncio.Lock()
         self.properties_last_update_timestamp = 0
+
         self.lost_ecus_id = set()
-        self.in_update_ecus_id = set()
-        self.any_in_update = False
         self.failed_ecus_id = set()
-        self.any_failed = False
+
+        self.in_update_ecus_id = set()
+        self.in_update_childecus_id = set()
         self.any_requires_network = False
+
         self.success_ecus_id = set()
         self.all_success = False
 
@@ -247,7 +249,7 @@ class ECUStatusStorage:
 
         # check ECUs that are updating
         _old_in_update_ecus_id = self.in_update_ecus_id
-        self.in_update_ecus_id = set(
+        self.in_update_ecus_id = in_update_ecus_id = set(
             (
                 status.ecu_id
                 for status in chain(
@@ -256,13 +258,11 @@ class ECUStatusStorage:
                 if status.is_in_update and status.ecu_id not in lost_ecus
             )
         )
-        self.any_in_update = len(self.in_update_ecus_id) > 0
-        if _new_in_update_ecu := self.in_update_ecus_id.difference(
-            _old_in_update_ecus_id
-        ):
+        self.in_update_childecus_id = in_update_ecus_id - {self.my_ecu_id}
+        if _new_in_update_ecu := in_update_ecus_id.difference(_old_in_update_ecus_id):
             logger.info(
                 "new ECU(s) that acks update request and enters OTA update detected"
-                f"{_new_in_update_ecu}, current {self.in_update_ecus_id=}"
+                f"{_new_in_update_ecu}, current updating ECUs: {in_update_ecus_id}"
             )
 
         # check if there is any failed child/self ECU
@@ -276,7 +276,6 @@ class ECUStatusStorage:
                 if status.is_failed and status.ecu_id not in lost_ecus
             )
         )
-        self.any_failed = len(self.failed_ecus_id) > 0
         if _new_failed_ecu := self.failed_ecus_id.difference(_old_failed_ecus_id):
             logger.warning(
                 f"new failed ECU(s) detected: {_new_failed_ecu}, current {self.failed_ecus_id=}"
@@ -304,6 +303,7 @@ class ECUStatusStorage:
                 if status.is_success and status.ecu_id not in lost_ecus
             )
         )
+        # NOTE: all_success doesn't count the lost ECUs
         self.all_success = len(self.success_ecus_id) == len(self._all_available_ecus_id)
         if _new_success_ecu := self.success_ecus_id.difference(_old_success_ecus_id):
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
