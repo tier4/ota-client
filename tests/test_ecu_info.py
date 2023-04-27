@@ -16,99 +16,141 @@
 import yaml
 import pytest
 from pathlib import Path
-from otaclient.app.boot_control import BootloaderType
 from typing import Any, List, Dict
+
+from otaclient.app.boot_control import BootloaderType
+from otaclient.app.ecu_info import ECUInfo
+
+# please refer to ecu_info.py for the DEFAULT_ECU_INFO definition
+DEFAULT_ECU_INFO_OBJ = ECUInfo(
+    format_version=1,
+    ecu_id="autoware",
+    bootloader=BootloaderType.UNSPECIFIED.value,
+)
+DEFAULT_ECU_INFO_YAML = """\
+format_version: 1
+ecu_id: "autoware"    
+"""
 
 
 @pytest.mark.parametrize(
-    "ecu_info_dict, secondary_ecus, ecu_id, ip_addr, available_ecu_ids, bootloader",
+    "ecu_info_yaml, expected_ecu_info",
     (
+        # --- case 1: invalid ecu_info --- #
+        # case 1.1: valid yaml(empty file), invalid ecu_info
         (
-            None,
-            [],
-            "autoware",
-            "127.0.0.1",
-            ["autoware"],
-            BootloaderType.UNSPECIFIED,
+            "# this is an empty file",
+            DEFAULT_ECU_INFO_OBJ,
         ),
+        # case 1.2: valid yaml(array), invalid ecu_info
         (
-            {"format_version": 1, "ecu_id": "autoware"},
-            [],
-            "autoware",
-            "127.0.0.1",
-            ["autoware"],
-            BootloaderType.UNSPECIFIED,
+            ("- this is an\n" "- yaml file that\n" "- contains a array\n"),
+            DEFAULT_ECU_INFO_OBJ,
         ),
+        # case 1.2: invalid yaml
         (
-            {"format_version": 2, "ecu_id": "autoware", "ip_addr": "192.168.1.1"},
-            [],
-            "autoware",
-            "192.168.1.1",
-            ["autoware"],
-            BootloaderType.UNSPECIFIED,
+            "    - \n not a \n [ valid yaml",
+            DEFAULT_ECU_INFO_OBJ,
         ),
+        # --- case 2: single ECU --- #
+        # case 2.1: basic single ECU
         (
-            {
-                "format_version": 1,
-                "ecu_id": "autoware",
-                "secondaries": [
-                    {"ecu_id": "perception1", "ip_addr": "192.168.0.11"},
-                    {"ecu_id": "perception2", "ip_addr": "192.168.0.12"},
+            ("format_version: 1\n" 'ecu_id: "autoware"\n' 'ip_addr: "192.168.1.1"\n'),
+            ECUInfo(
+                format_version=1,
+                ecu_id="autoware",
+                ip_addr="192.168.1.1",
+                bootloader=BootloaderType.UNSPECIFIED.value,
+            ),
+        ),
+        # case 2.2: single ECU with bootloader type specified
+        (
+            (
+                "format_version: 1\n"
+                'ecu_id: "autoware"\n'
+                'ip_addr: "192.168.1.1"\n'
+                'bootloader: "grub"\n'
+            ),
+            ECUInfo(
+                format_version=1,
+                ecu_id="autoware",
+                ip_addr="192.168.1.1",
+                bootloader=BootloaderType.GRUB.value,
+            ),
+        ),
+        # --- case 3: multiple ECUs --- #
+        # case 3.1: basic multiple ECUs
+        (
+            (
+                "format_version: 1\n"
+                'ecu_id: "autoware"\n'
+                'ip_addr: "192.168.1.1"\n'
+                'available_ecu_ids: ["autoware", "p1", "p2"]\n'
+                "secondaries: \n"
+                '- ecu_id: "p1"\n'
+                '  ip_addr: "192.168.0.11"\n'
+                '- ecu_id: "p2"\n'
+                '  ip_addr: "192.168.0.12"\n'
+            ),
+            ECUInfo(
+                format_version=1,
+                ecu_id="autoware",
+                ip_addr="192.168.1.1",
+                bootloader=BootloaderType.UNSPECIFIED.value,
+                available_ecu_ids=["autoware", "p1", "p2"],
+                secondaries=[
+                    {
+                        "ecu_id": "p1",
+                        "ip_addr": "192.168.0.11",
+                    },
+                    {
+                        "ecu_id": "p2",
+                        "ip_addr": "192.168.0.12",
+                    },
                 ],
-                "available_ecu_ids": ["autoware", "perception1", "perception2"],
-            },
-            [
-                {"ecu_id": "perception1", "ip_addr": "192.168.0.11"},
-                {"ecu_id": "perception2", "ip_addr": "192.168.0.12"},
-            ],
-            "autoware",
-            "127.0.0.1",
-            ["autoware", "perception1", "perception2"],
-            BootloaderType.UNSPECIFIED,
+            ),
         ),
+        # case 3.2: multiple ECUs, with main ECU's bootloader specified
         (
-            {
-                "format_version": 1,
-                "bootloader": "grub",
-                "ecu_id": "autoware",
-                "secondaries": [
-                    {"ecu_id": "perception1", "ip_addr": "192.168.0.11"},
-                    {"ecu_id": "perception2", "ip_addr": "192.168.0.12"},
+            (
+                "format_version: 1\n"
+                'ecu_id: "autoware"\n'
+                'ip_addr: "192.168.1.1"\n'
+                'bootloader: "grub"\n'
+                'available_ecu_ids: ["autoware", "p1", "p2"]\n'
+                "secondaries: \n"
+                '- ecu_id: "p1"\n'
+                '  ip_addr: "192.168.0.11"\n'
+                '- ecu_id: "p2"\n'
+                '  ip_addr: "192.168.0.12"\n'
+            ),
+            ECUInfo(
+                format_version=1,
+                ecu_id="autoware",
+                ip_addr="192.168.1.1",
+                available_ecu_ids=["autoware", "p1", "p2"],
+                bootloader=BootloaderType.GRUB.value,
+                secondaries=[
+                    {
+                        "ecu_id": "p1",
+                        "ip_addr": "192.168.0.11",
+                    },
+                    {
+                        "ecu_id": "p2",
+                        "ip_addr": "192.168.0.12",
+                    },
                 ],
-                "available_ecu_ids": ["autoware", "perception1", "perception2"],
-            },
-            [
-                {"ecu_id": "perception1", "ip_addr": "192.168.0.11"},
-                {"ecu_id": "perception2", "ip_addr": "192.168.0.12"},
-            ],
-            "autoware",
-            "127.0.0.1",
-            ["autoware", "perception1", "perception2"],
-            BootloaderType.GRUB,
+            ),
         ),
     ),
 )
-def test_ecu_info(
-    tmp_path: Path,
-    ecu_info_dict: Dict[str, Any],
-    secondary_ecus: List[Dict[str, Any]],
-    ecu_id: str,
-    ip_addr: str,
-    available_ecu_ids: List[str],
-    bootloader: BootloaderType,
-):
-    from otaclient.app.ecu_info import ECUInfo
+def test_ecu_info(tmp_path: Path, ecu_info_yaml: str, expected_ecu_info: ECUInfo):
+    # --- preparation --- #
+    (ota_dir := tmp_path / "boot" / "ota").mkdir(parents=True, exist_ok=True)
+    (ecu_info_file := ota_dir / "ecu_info.yaml").write_text(ecu_info_yaml)
 
-    boot_dir = tmp_path / "boot"
-    boot_dir.mkdir()
-    (boot_dir / "ota").mkdir()
-    ecu_info_file = boot_dir / "ota" / "ecu_info.yaml"
-    if ecu_info_dict is not None:
-        ecu_info_file.write_text(yaml.dump(ecu_info_dict))
+    # --- execution --- #
+    loaded_ecu_info = ECUInfo.parse_ecu_info(ecu_info_file)
 
-    ecu_info = ECUInfo.parse_ecu_info(ecu_info_file)
-    assert ecu_info.secondaries == secondary_ecus
-    assert ecu_info.ecu_id == ecu_id
-    assert ecu_info.ip_addr == ip_addr
-    assert ecu_info.get_available_ecu_ids() == available_ecu_ids
-    assert ecu_info.get_bootloader() == bootloader
+    # --- assertion --- #
+    assert loaded_ecu_info == expected_ecu_info
