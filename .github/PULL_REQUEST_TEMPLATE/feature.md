@@ -33,8 +33,8 @@ Does this PR introduce behavior change(s)?
 ## Breaking change
 
 Does this PR introduce breaking change?
-- [] Yes.
-- [] No.
+- [ ] Yes.
+- [ ] No.
 
 <!-- List the breaking change(s) -->
 
