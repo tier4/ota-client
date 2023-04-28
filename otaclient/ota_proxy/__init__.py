@@ -98,7 +98,7 @@ def subprocess_start_otaproxy(*args, **kwargs) -> SpawnProcess:
     mp_ctx = multiprocessing.get_context("spawn")
     otaproxy_subprocess = mp_ctx.Process(
         target=partial(_subprocess_main, *args, **kwargs),
-        daemon=True,  # kill otaproxy if otaclient exists
+        daemon=True,  # kill otaproxy if the parent process exists
     )
     otaproxy_subprocess.start()
     return otaproxy_subprocess
