@@ -629,7 +629,7 @@ def ensure_otaproxy_start(
             except Exception as e:  # server is not up yet
                 if cur_time >= next_warning:
                     logger.warning(
-                        f"otaproxy@{otaproxy_url} is not up after {warning_count * warning_interval} seconds"
+                        f"otaproxy@{otaproxy_url} is not up after {cur_time - start_time} seconds"
                         f"it might be something wrong with this otaproxy: {e!r}"
                     )
                     warning_count, next_warning = (
