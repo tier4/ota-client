@@ -616,7 +616,7 @@ def ensure_otaproxy_start(
         A ConnectionError if exceeds <probing_timeout>.
     """
     start_time = int(time.time())
-    warning_count, next_warning = 0, start_time + warning_interval
+    next_warning = start_time + warning_interval
     probing_timeout = (
         probing_timeout if probing_timeout and probing_timeout >= 0 else float("inf")
     )
@@ -632,10 +632,7 @@ def ensure_otaproxy_start(
                         f"otaproxy@{otaproxy_url} is not up after {cur_time - start_time} seconds"
                         f"it might be something wrong with this otaproxy: {e!r}"
                     )
-                    warning_count, next_warning = (
-                        warning_count + 1,
-                        next_warning + warning_interval,
-                    )
+                    next_warning = next_warning + warning_interval
                 time.sleep(interval)
     raise ConnectionError(
         f"failed to ensure connection to {otaproxy_url} in {probing_timeout=}seconds"
