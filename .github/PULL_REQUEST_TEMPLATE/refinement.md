@@ -5,6 +5,13 @@
 For better understanding, adding reason/motivation of this PR are also recommended.
 -->
 
+## Check list
+
+<!-- A list of things needed to be done before set the PR as ready-for-review. -->
+
+- [ ] test file(s) that covers the change(s) is implemented.
+- [ ] local test is passed. 
+
 ## Changes
 
 <!-- A list of code change(s) that introduced by this PR. -->
