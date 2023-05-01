@@ -495,15 +495,38 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
     ) -> None:
         ...
 
-    def iter_ecu_status(
-        self,
-    ) -> _Generator[_Tuple[str, FailureType, Status], None, None]:
-        """
-        Returns:
-            A _Tuple of (<ecu_id>, <failure_type>, <status>)
-        """
-        for _ecu in self.ecu:
-            yield _ecu.ecu_id, _ecu.result, _ecu.status
+    # overall ECUs' status summary properties
+
+    @cached_property
+    def failed_ecus_id(self) -> _Set[str]:
+        _checked_ecus_id, res = set(), set()
+        for ecu in chain(self.ecu_v2, self.ecu):
+            if (ecu_id := ecu.ecu_id) not in _checked_ecus_id:
+                _checked_ecus_id.add(ecu_id)
+                if ecu.is_failed:
+                    res.add(ecu_id)
+        return res
+
+    @cached_property
+    def requires_network_ecus_id(self) -> _Set[str]:
+        _checked_ecus_id, res = set(), set()
+        for ecu in chain(self.ecu_v2, self.ecu):
+            if (ecu_id := ecu.ecu_id) not in _checked_ecus_id:
+                _checked_ecus_id.add(ecu_id)
+                if ecu.if_requires_network:
+                    res.add(ecu_id)
+        return res
+
+    @cached_property
+    def success_ecus_id(self) -> _Set[str]:
+        _checked_ecus_id, res = set(), set()
+        for ecu in chain(self.ecu_v2, self.ecu):
+            if (ecu_id := ecu.ecu_id) not in _checked_ecus_id:
+                _checked_ecus_id.add(ecu_id)
+                if ecu.is_success:
+                    res.add(ecu_id)
+        return res
+
 
     def iter_ecu_status_v2(self) -> _Iterator[StatusResponseEcuV2]:
         yield from self.ecu_v2
