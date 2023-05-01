@@ -616,7 +616,7 @@ class OTAClientServiceStub:
             tasks.clear()
 
         # second: dispatch update request to local if required by incoming request
-        if update_req_ecu := request.find_update_meta(self.my_ecu_id):
+        if update_req_ecu := request.find_ecu(self.my_ecu_id):
             _resp_ecu = wrapper.UpdateResponseEcu(ecu_id=self.my_ecu_id)
             try:
                 await self._otaclient_stub.dispatch_update(update_req_ecu)
@@ -672,7 +672,7 @@ class OTAClientServiceStub:
             tasks.clear()
 
         # second: dispatch rollback request to local if required
-        if rollback_req := request.find_rollback_req(self.my_ecu_id):
+        if rollback_req := request.find_ecu(self.my_ecu_id):
             _resp_ecu = wrapper.RollbackResponseEcu(ecu_id=self.my_ecu_id)
             try:
                 await self._otaclient_stub.dispatch_rollback(rollback_req)
