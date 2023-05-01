@@ -496,38 +496,6 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
     ) -> None:
         ...
 
-    # overall ECUs' status summary properties
-
-    @cached_property
-    def failed_ecus_id(self) -> _Set[str]:
-        _checked_ecus_id, res = set(), set()
-        for ecu in chain(self.ecu_v2, self.ecu):
-            if (ecu_id := ecu.ecu_id) not in _checked_ecus_id:
-                _checked_ecus_id.add(ecu_id)
-                if ecu.is_failed:
-                    res.add(ecu_id)
-        return res
-
-    @cached_property
-    def requires_network_ecus_id(self) -> _Set[str]:
-        _checked_ecus_id, res = set(), set()
-        for ecu in chain(self.ecu_v2, self.ecu):
-            if (ecu_id := ecu.ecu_id) not in _checked_ecus_id:
-                _checked_ecus_id.add(ecu_id)
-                if ecu.if_requires_network:
-                    res.add(ecu_id)
-        return res
-
-    @cached_property
-    def success_ecus_id(self) -> _Set[str]:
-        _checked_ecus_id, res = set(), set()
-        for ecu in chain(self.ecu_v2, self.ecu):
-            if (ecu_id := ecu.ecu_id) not in _checked_ecus_id:
-                _checked_ecus_id.add(ecu_id)
-                if ecu.is_success:
-                    res.add(ecu_id)
-        return res
-
     # ECUsList protocol methods
 
     def if_contains_ecu(self, ecu_id: str) -> bool:
