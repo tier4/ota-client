@@ -40,6 +40,28 @@ from ._common import (
 )
 
 
+class ECUStatusSummary(_Protocol):
+    @property
+    @abstractmethod
+    def is_in_update(self) -> bool:
+        ...
+
+    @property
+    @abstractmethod
+    def is_failed(self) -> bool:
+        ...
+
+    @property
+    @abstractmethod
+    def is_success(self) -> bool:
+        ...
+
+    @property
+    @abstractmethod
+    def if_requires_network(self) -> bool:
+        ...
+
+
 # enum
 
 
@@ -238,7 +260,7 @@ class StatusRequest(MessageWrapper[_v2.StatusRequest]):
     __slots__ = calculate_slots(_v2.StatusRequest)
 
 
-class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
+class StatusResponseEcu(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcu]):
     __slots__ = calculate_slots(_v2.StatusResponseEcu)
     ecu_id: str
     result: FailureType
@@ -378,7 +400,7 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
         return _res
 
 
-class StatusResponseEcuV2(MessageWrapper[_v2.StatusResponseEcuV2]):
+class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcuV2]):
     __slots__ = calculate_slots(_v2.StatusResponseEcuV2)
     ecu_id: str
     failure_reason: str
