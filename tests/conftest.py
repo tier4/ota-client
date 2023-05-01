@@ -39,6 +39,7 @@ class TestConfiguration:
     RPI_BOOT_MODULE_PATH = "otaclient.app.boot_control._rpi_boot"
     OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
+    OTACLIENT_SERVICE_MODULE_PATH = "otaclient.app.ota_client_service"
     OTAMETA_MODULE_PATH = "otaclient.app.ota_metadata"
     OTAPROXY_MODULE_PATH = "otaclient.ota_proxy"
     CREATE_STANDBY_MODULE_PATH = "otaclient.app.create_standby"
