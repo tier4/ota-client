@@ -459,7 +459,7 @@ class _ECUTracker:
                     ecu_contact.ecu_id,
                     ecu_contact.host,
                     ecu_contact.port,
-                    timeout=server_cfg.SERVER_PORT,
+                    timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                 )
                 await self._ecu_status_storage.update_from_child_ECU(_ecu_resp)
             except ECU_NO_RESPONSE as e:
