@@ -15,7 +15,8 @@
 
 import grpc.aio
 
-from .configs import server_cfg
+from .configs import config as cfg, server_cfg
+from .ecu_info import ECUInfo
 from .proto import wrapper, v2, v2_grpc
 from .ota_client_stub import OtaClientStub
 
@@ -40,6 +41,8 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
 
 def create_otaclient_grpc_server():
+    ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
+
     service_stub = OtaClientStub()
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
@@ -47,7 +50,7 @@ def create_otaclient_grpc_server():
     v2_grpc.add_OtaClientServiceServicer_to_server(
         server=server, servicer=ota_client_service_v2
     )
-    server.add_insecure_port(f"{service_stub.host_addr()}:{server_cfg.SERVER_PORT}")
+    server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
     return server
 
 
