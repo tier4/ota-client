@@ -269,10 +269,10 @@ class StatusResponseEcu(MessageWrapper[_v2.StatusResponseEcu]):
 
     @property
     def if_requires_network(self) -> bool:
-        if not self.status.status is StatusOta.UPDATING:
-            return False
-        if self.status.progress.phase < StatusProgressPhase.POST_PROCESSING:
-            return True
+        return (
+            self.status.status is StatusOta.UPDATING
+            and self.status.progress.phase < StatusProgressPhase.POST_PROCESSING
+        )
 
 
 # status response format v2
@@ -433,10 +433,10 @@ class StatusResponseEcuV2(MessageWrapper[_v2.StatusResponseEcuV2]):
 
     @property
     def if_requires_network(self) -> bool:
-        if not self.ota_status is StatusOta.UPDATING:
-            return False
-        if self.update_status.phase <= UpdatePhase.DOWNLOADING_OTA_FILES:
-            return True
+        return (
+            self.ota_status is StatusOta.UPDATING
+            and self.update_status.phase <= UpdatePhase.DOWNLOADING_OTA_FILES
+        )
 
 
 class StatusResponse(MessageWrapper[_v2.StatusResponse]):
