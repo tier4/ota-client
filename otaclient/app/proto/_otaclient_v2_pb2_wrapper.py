@@ -482,6 +482,9 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcu
 
 
 class StatusResponse(MessageWrapper[_v2.StatusResponse]):
+    """NOTE: StatusResponse aligns to ECUsList protocol, but it handles
+    both v1 and v2 ECU status report format, and use v2 format in prior."""
+
     __slots__ = calculate_slots(_v2.StatusResponse)
     available_ecu_ids: RepeatedScalarContainer[str]
     ecu: RepeatedCompositeContainer[StatusResponseEcu]
@@ -527,9 +530,32 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
                     res.add(ecu_id)
         return res
 
+    # ECUsList protocol methods
 
-    def iter_ecu_status_v2(self) -> _Iterator[StatusResponseEcuV2]:
-        yield from self.ecu_v2
+    def if_contains_ecu(self, ecu_id: str) -> bool:
+        for ecu in chain(self.ecu_v2, self.ecu):
+            if ecu.ecu_id == ecu_id:
+                return True
+        return False
+
+    def find_ecu(
+        self, ecu_id: str
+    ) -> _Optional[_Union[StatusResponseEcu, StatusResponseEcuV2]]:
+        for ecu in chain(self.ecu_v2, self.ecu):
+            if ecu.ecu_id == ecu_id:
+                return ecu
+
+    def iter_ecu(self) -> _Iterator[StatusResponseEcuV2 | StatusResponseEcu]:
+        """NOTE: if ECU status is available in v2, use v2 in prior."""
+        ecus_in_v2 = set()
+        for ecu in self.ecu_v2:
+            ecus_in_v2.add(ecu.ecu_id)
+            yield ecu
+        for ecu in self.ecu:
+            if ecu.ecu_id not in ecus_in_v2:
+                yield ecu
+
+    # other helper methods
 
     def add_ecu(self, _response_ecu: Any):
         # v2
