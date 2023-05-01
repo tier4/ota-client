@@ -21,13 +21,11 @@ from itertools import chain
 from copy import deepcopy
 from typing import (
     Any,
-    Generator as _Generator,
     Iterator as _Iterator,
     Mapping as _Mapping,
     Optional as _Optional,
     Protocol as _Protocol,
     Set as _Set,
-    Tuple as _Tuple,
     Iterable as _Iterable,
     TypeVar as _TypeVar,
     Union as _Union,
@@ -582,22 +580,6 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
         self.ecu.extend(status_resp.ecu)
         self.ecu_v2.extend(status_resp.ecu_v2)
 
-    def get_ecu_status(
-        self, ecu_id: str
-    ) -> _Optional[_Tuple[str, FailureType, Status]]:
-        """
-        Returns:
-            A _Tuple of (<ecu_id>, <failure_type>, <status>)
-        """
-        for _ecu_status in self.ecu:
-            if _ecu_status.ecu_id == ecu_id:
-                return _ecu_status.ecu_id, _ecu_status.result, _ecu_status.status
-
-    def get_ecu_status_v2(self, ecu_id: str) -> _Optional[StatusResponseEcuV2]:
-        for _ecu_status in self.ecu_v2:
-            if _ecu_status.ecu_id == ecu_id:
-                return _ecu_status
-
 
 # update API
 
@@ -649,7 +631,7 @@ class UpdateResponse(ECUsList[UpdateResponseEcu], MessageWrapper[_v2.UpdateRespo
     def __init__(self, *, ecu: _Optional[_Iterable[UpdateResponseEcu]] = ...) -> None:
         ...
 
-    @property
+    @cached_property
     def ecus_acked_update(self) -> _Set[str]:
         return set(
             [

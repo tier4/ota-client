@@ -46,12 +46,12 @@ extend-exclude = '''(
 branch = false
 
 [tool.coverage.report]
-omit = ["**/*pb2*", "**/__*.py"]
+omit = ["**/*_pb2.*", "**/__*.py"]
 show_missing = true
 
 [tool.pyright]
 exclude = ["**/__pycache__"]
-ignore = ["**/*pb2*"]
+ignore = ["**/*_pb2.*"]
 pythonVersion = "3.8"
 
 [tool.pytest.ini_options]
