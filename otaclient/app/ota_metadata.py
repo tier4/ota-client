@@ -385,24 +385,15 @@ class _MetadataJWTClaimsLayout:
             logger.warning(f"metadata version is missing in metadata.jwt!")
 
     @classmethod
-    def parse_payload(cls, _input: Union[str, bytes], /) -> Self:
-        # NOTE: in version1, payload is a list of dict
-        payload: List[Dict[str, Any]] = json.loads(_input)
-        if not payload or not isinstance(payload, list):
-            raise ValueError(f"invalid payload: {_input}")
+    def parse_payload(cls, payload: Union[str, bytes], /) -> Self:
+        # NOTE: in version1, payload is a list of dict,
+        #   check module docstring for more details
+        claims: List[Dict[str, Any]] = json.loads(payload)
+        if not claims or not isinstance(claims, list):
+            raise ValueError(f"invalid {payload=}")
+        cls.check_metadata_version(claims)
 
-        res = cls()
-        for entry in payload:
-            # if entry is version, check version compatibility
-            if (
-                cls.VERSION_KEY in entry
-                and entry[cls.VERSION_KEY] != cls.SCHEME_VERSION
-            ):
-                logger.warning(f"metadata version is {entry['version']}.")
-            # parse other fields
-            for f in fields(cls):
-                if (fn := f.name) in entry:
-                    setattr(res, fn, entry)
+        (res := cls()).assign_fields(claims)
         return res
 
     def assign_fields(self, claims: List[Dict[str, Any]]):
