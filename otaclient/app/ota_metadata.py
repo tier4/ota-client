@@ -134,9 +134,8 @@ class MetaFieldDescriptor(Generic[FV]):
 
     HASH_KEY = "hash"  # version1
 
-    def __init__(self, field_type: type, *, default=None, type_check=True) -> None:
+    def __init__(self, field_type: type, *, default=None) -> None:
         self.field_type = field_type
-        self.type_check = type_check
         # NOTE: if field not presented, set to None
         self.default = default
 
@@ -178,6 +177,7 @@ class MetaFieldDescriptor(Generic[FV]):
                     return setattr(
                         obj,
                         self._attrn,
+                        # NOTE: do str conversion
                         MetaFile(
                             file=str(value[self.field_name]),
                             hash=str(value[self.HASH_KEY]),
@@ -189,20 +189,15 @@ class MetaFieldDescriptor(Generic[FV]):
                     )
             # normal key-value field
             else:
-                # use <field_type> to do default conversion before assignment
-                if not isinstance(
-                    (field_value := value[self.field_name]), self.field_type
-                ):
-                    if self.type_check:
-                        raise ValueError(
-                            f"invalid field value for {self.field_name}: {field_value=}"
-                        )
-                    else:
-                        # if we doesn't enable type_check over the field, and field_value
-                        # has wrong type, convert it into field_type before assigning
-                        return setattr(obj, self._attrn, self.field_type(field_value))
-                else:
-                    return setattr(obj, self._attrn, field_value)
+                try:
+                    # use <field_type> to do default conversion before assignment
+                    return setattr(
+                        obj, self._attrn, self.field_type(value[self.field_name])
+                    )
+                except KeyError:
+                    raise ValueError(
+                        f"invalid metafile field {self.field_name}: {value}"
+                    )
         raise ValueError(f"attempt to assign invalid {value=} to {self.field_name=}")
 
     def __set_name__(self, owner: type, name: str):
@@ -369,7 +364,7 @@ class _MetadataJWTClaimsLayout:
     # WARNING: total_regular_size should be int, but it comes as str in metadata.jwt,
     #          so we disable type_check for it, and convert it as field_type before assigning
     total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(
-        int, default=0, type_check=False
+        int, default=0
     )  # in bytes
     rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(
         str, default=_MUST_SET_CLAIM
