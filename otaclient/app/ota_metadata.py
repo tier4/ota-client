@@ -116,16 +116,11 @@ class MetaFile:
 
 
 class MetaFieldDescriptor(Generic[FV]):
-    """
-    Expecting field value like:
-    - a dict with one key-value pair,
-        { "version": 1 }
-    or
-    - a dict with 2 fields,
-        {
-            <metafile_name>: <metafile_file_name>,
-            "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
-        },
+    """Field descriptor for dataclass _MetadataJWTClaimsLayout.
+
+    This descriptor takes one dict from parsed metadata.jwt, parses
+        and assigns it to each field in _MetadataJWTClaimsLayout.
+        Check __set__ method's docstring for more details.
     """
 
     HASH_KEY = "hash"  # version1
@@ -151,23 +146,36 @@ class MetaFieldDescriptor(Generic[FV]):
         return self  # access via class, return the descriptor
 
     def __set__(self, obj, value: Any) -> None:
-        if isinstance(value, type(self)):
+        """
+        Expecting input value like:
+        - a dict with one key-value pair,
+            { "version": 1 }
+        or
+        - a dict with 2 fields,
+            {
+                <metafile_name>: <metafile_file_name>,
+                "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
+            }
+        """
+        if isinstance(value, self.__class__):
             setattr(obj, self._attrn, self.default)
             return  # handle dataclass default value setting
 
         if isinstance(value, dict):
-            # special treatment for MetaFile field
+            # metafile field
             if self.field_type is MetaFile:
-                setattr(
+                return setattr(
                     obj,
                     self._attrn,
                     MetaFile(file=value[self.field_name], hash=value[self.HASH_KEY]),
                 )
+            # normal key-value field
             else:
                 # use <field_type> to do default conversion before assignment
-                setattr(obj, self._attrn, self.field_type(value[self.field_name]))
-        else:
-            setattr(obj, self._attrn, self.field_type(value))
+                return setattr(
+                    obj, self._attrn, self.field_type(value[self.field_name])
+                )
+        raise ValueError(f"attempt to assign invalid {value=} to {self.field_name=}")
 
     def __set_name__(self, owner: type, name: str):
         self.name = name
