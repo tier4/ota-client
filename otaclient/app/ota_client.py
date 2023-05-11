@@ -152,7 +152,7 @@ class _OTAUpdater:
         self.updating_version: str = ""
         self.failure_reason = ""
         # init variables needed for update
-        self._otameta: OTAMetadata = None  # type: ignore
+        self._otameta: ota_metadata.OTAMetadata = None  # type: ignore
         self._url_base: str = None  # type: ignore
 
         # dynamic update status
