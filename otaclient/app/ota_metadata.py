@@ -182,6 +182,14 @@ class MetaFieldDescriptor(Generic[FV]):
         self.field_name = name
         self._attrn = f"_{owner.__name__}_{name}"
 
+    # API
+
+    def check_is_target_claim(self, value: Any) -> bool:
+        """Check whether the input claim dict is for this field."""
+        if not isinstance(value, dict):
+            return False
+        return self.field_name in value
+
 
 class _MetadataJWTParser:
     """Implementation of custom JWT parsing/loading/validating logic.
