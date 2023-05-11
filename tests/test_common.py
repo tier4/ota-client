@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-from functools import partial
 import os
 import subprocess
 import time
@@ -21,7 +20,9 @@ import pytest
 import random
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from hashlib import sha256
+from multiprocessing import Process
 from pathlib import Path
 from typing import Tuple
 
@@ -29,6 +30,7 @@ from otaclient.app.common import (
     RetryTaskMap,
     RetryTaskMapInterrupted,
     copytree_identical,
+    ensure_otaproxy_start,
     file_sha256,
     re_symlink_atomic,
     read_str_from_file,
@@ -39,6 +41,7 @@ from otaclient.app.common import (
     write_str_to_file_sync,
 )
 from tests.utils import compare_dir
+from tests.conftest import cfg, run_http_server
 
 logger = logging.getLogger(__name__)
 
@@ -380,3 +383,51 @@ class TestRetryTaskMap:
                 ):
                     _mapper.shutdown()
         assert all(self._succeeded_tasks)
+
+
+class Test_ensure_otaproxy_start:
+    DUMMY_SERVER_ADDR, DUMMY_SERVER_PORT = "127.0.0.1", 18888
+    DUMMY_SERVER_URL = f"http://{DUMMY_SERVER_ADDR}:{DUMMY_SERVER_PORT}"
+    LAUNCH_DELAY = 6
+
+    @pytest.fixture
+    def subprocess_launch_server(self, tmp_path: Path):
+        (dummy_webroot := tmp_path / "webroot").mkdir(exist_ok=True)
+        _server_p = Process(
+            target=run_http_server,
+            args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
+            kwargs={"directory": dummy_webroot},
+        )
+        try:
+            yield
+            logger.info(f"wait for {self.LAUNCH_DELAY}s before launching the server")
+            time.sleep(self.LAUNCH_DELAY)
+            _server_p.start()
+        finally:
+            _server_p.kill()
+
+    def test_timeout_waiting(self):
+        """
+        NOTE: we intentionally not use the subprocess_launch_server fixture here
+              to let the probing timeout.
+        """
+        probing_timeout = 3
+
+        start_time = int(time.time())
+        with pytest.raises(ConnectionError):
+            ensure_otaproxy_start(
+                self.DUMMY_SERVER_URL,
+                interval=0.1,
+                connection_timeout=0.1,
+                probing_timeout=probing_timeout,
+            )
+        assert int(time.time()) >= start_time + probing_timeout
+
+    def test_probing_delayed_online_server(self, subprocess_launch_server):
+        probing_timeout = self.LAUNCH_DELAY + 6
+        ensure_otaproxy_start(
+            cfg.OTA_IMAGE_URL,
+            interval=0.1,
+            connection_timeout=0.1,
+            probing_timeout=probing_timeout,
+        )
