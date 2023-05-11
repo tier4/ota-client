@@ -419,9 +419,17 @@ class _MetadataJWTClaimsLayout:
             field_assigned = False
             for claim in claims:
                 if fd.check_is_target_claim(claim):
-                    setattr(self, fd.field_name, claim)
-                    field_assigned = True
-                    break
+                    try:
+                        setattr(self, fd.field_name, claim)
+                        field_assigned = True
+                        break
+                    except ValueError as e:
+                        _err_msg = (
+                            f"failed to assign {fd.field_name} with {claim}: {e!r}"
+                        )
+                        logger.error(_err_msg)
+                        raise MetadataJWTPayloadInvalid(_err_msg) from e
+
             # failed to find target claim in metadata.jwt, and
             # this field is MUST_SET field
             if not field_assigned and fd.default is _MUST_SET_CLAIM:
