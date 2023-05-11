@@ -365,7 +365,24 @@ class _MetadataJWTClaimsLayout:
         MetaFile, default=_MUST_SET_CLAIM
     )
 
-    def assign_fields(self, claims: List[Dict[str, Any]]):
+    @classmethod
+    def check_metadata_version(cls, claims: List[Dict[str, Any]]):
+        """Check the <version> field in claims and issue warning if needed.
+
+        Warnings will be issued for the following 2 cases:
+        1. <version> field is missing,
+        2. <version> doesn't match <SCHEME_VERSION>
+        """
+        version_field_found = False
+        for entry in claims:
+            # if entry is version, check version compatibility
+            if cls.VERSION_KEY in entry:
+                version_field_found = True
+                if (version := entry[cls.VERSION_KEY]) != cls.SCHEME_VERSION:
+                    logger.warning(f"metadata {version=}, expect {cls.SCHEME_VERSION}")
+                break
+        if not version_field_found:
+            logger.warning(f"metadata version is missing in metadata.jwt!")
 
     @classmethod
     def parse_payload(cls, _input: Union[str, bytes], /) -> Self:
@@ -387,6 +404,23 @@ class _MetadataJWTClaimsLayout:
                 if (fn := f.name) in entry:
                     setattr(res, fn, entry)
         return res
+
+    def assign_fields(self, claims: List[Dict[str, Any]]):
+        """Assign each fields in _MetadataJWTClaimsLayout with input claims
+        in parsed metadata.jwt."""
+        for field in fields(self):
+            # NOTE: default value for each field in dataclass is the descriptor
+            # NOTE: skip non-metafield field
+            if not isinstance((fd := field.default), MetaFieldDescriptor):
+                return
+
+            for claim in claims:
+                if fd.check_is_target_claim(claim):
+                    return setattr(self, fd.field_name, claim)
+            # failed to find target claim in metadata.jwt, and
+            # this field is MUST_SET field
+            if fd.default is _MUST_SET_CLAIM:
+                raise ValueError(f"must set field {fd.name} not found")
 
     def get_img_metafiles(self) -> Iterator[MetaFile]:
         """Get the metafiles that describes the OTA image."""
