@@ -322,25 +322,50 @@ class _MetadataJWTParser:
         self._verify_metadata(metadata_cert)
 
 
+# place holder for unset must field in _MetadataJWTClaimsLayout
+_MUST_SET_CLAIM = object()
+
+
 @dataclass
 class _MetadataJWTClaimsLayout:
     """Version1 metadata.jwt payload mapping and parsing."""
 
     SCHEME_VERSION: ClassVar[int] = 1
     VERSION_KEY: ClassVar[str] = "version"
+    UNKNOWN_VERSION: ClassVar[int] = -1
 
     # metadata scheme
-    version: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)
-    total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)  # in bytes
-    rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(str)
-    compressed_rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(str)
+    version: MetaFieldDescriptor[int] = MetaFieldDescriptor(
+        int, default=UNKNOWN_VERSION
+    )
+    total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(
+        int, default=0
+    )  # in bytes
+    rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(
+        str, default=_MUST_SET_CLAIM
+    )
+    compressed_rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(
+        str, default=""
+    )
     # sign certificate
-    certificate: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
+    certificate: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
     # metadata files definition
-    directory: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
-    symboliclink: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
-    regular: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
-    persistent: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
+    directory: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
+    symboliclink: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
+    regular: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
+    persistent: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
+
+    def assign_fields(self, claims: List[Dict[str, Any]]):
 
     @classmethod
     def parse_payload(cls, _input: Union[str, bytes], /) -> Self:
