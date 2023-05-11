@@ -355,11 +355,10 @@ class _MetadataJWTClaimsLayout:
 
     SCHEME_VERSION: ClassVar[int] = 1
     VERSION_KEY: ClassVar[str] = "version"
-    UNKNOWN_VERSION: ClassVar[int] = -1
 
     # metadata scheme
     version: MetaFieldDescriptor[int] = MetaFieldDescriptor(
-        int, default=UNKNOWN_VERSION
+        int, default=_MUST_SET_CLAIM
     )
     # WARNING: total_regular_size should be int, but it comes as str in metadata.jwt,
     #          so we disable type_check for it, and convert it as field_type before assigning
