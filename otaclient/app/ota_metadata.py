@@ -178,7 +178,8 @@ class MetaFieldDescriptor(Generic[FV]):
                         obj,
                         self._attrn,
                         MetaFile(
-                            file=value[self.field_name], hash=value[self.HASH_KEY]
+                            file=str(value[self.field_name]),
+                            hash=str(value[self.HASH_KEY]),
                         ),
                     )
                 except KeyError:
@@ -188,9 +189,13 @@ class MetaFieldDescriptor(Generic[FV]):
             # normal key-value field
             else:
                 # use <field_type> to do default conversion before assignment
-                return setattr(
-                    obj, self._attrn, self.field_type(value[self.field_name])
-                )
+                if not isinstance(
+                    (field_value := value[self.field_name]), self.field_type
+                ):
+                    raise ValueError(
+                        f"invalid field value for {self.field_name}: {field_value=}"
+                    )
+                return setattr(obj, self._attrn, field_value)
         raise ValueError(f"attempt to assign invalid {value=} to {self.field_name=}")
 
     def __set_name__(self, owner: type, name: str):
