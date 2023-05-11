@@ -403,14 +403,17 @@ class _MetadataJWTClaimsLayout:
             # NOTE: default value for each field in dataclass is the descriptor
             # NOTE: skip non-metafield field
             if not isinstance((fd := field.default), MetaFieldDescriptor):
-                return
+                continue
 
+            field_assigned = False
             for claim in claims:
                 if fd.check_is_target_claim(claim):
-                    return setattr(self, fd.field_name, claim)
+                    setattr(self, fd.field_name, claim)
+                    field_assigned = True
+                    break
             # failed to find target claim in metadata.jwt, and
             # this field is MUST_SET field
-            if fd.default is _MUST_SET_CLAIM:
+            if not field_assigned and fd.default is _MUST_SET_CLAIM:
                 raise ValueError(f"must set field {fd.name} not found")
 
     def get_img_metafiles(self) -> Iterator[MetaFile]:
