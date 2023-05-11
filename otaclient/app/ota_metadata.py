@@ -391,7 +391,7 @@ class _MetadataJWTClaimsLayout:
                     logger.warning(f"metadata {version=}, expect {cls.SCHEME_VERSION}")
                 break
         if not version_field_found:
-            logger.warning(f"metadata version is missing in metadata.jwt!")
+            logger.warning("metadata version is missing in metadata.jwt!")
 
     @classmethod
     def parse_payload(cls, payload: Union[str, bytes], /) -> Self:
