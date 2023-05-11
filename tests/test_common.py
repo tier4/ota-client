@@ -390,19 +390,27 @@ class Test_ensure_otaproxy_start:
     DUMMY_SERVER_URL = f"http://{DUMMY_SERVER_ADDR}:{DUMMY_SERVER_PORT}"
     LAUNCH_DELAY = 6
 
+    @staticmethod
+    def _launch_server_helper(addr: str, port: int, launch_delay: int, directory: str):
+        time.sleep(launch_delay)
+        run_http_server(addr, port, directory=directory)
+
     @pytest.fixture
     def subprocess_launch_server(self, tmp_path: Path):
         (dummy_webroot := tmp_path / "webroot").mkdir(exist_ok=True)
         _server_p = Process(
-            target=run_http_server,
-            args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
-            kwargs={"directory": dummy_webroot},
+            target=self._launch_server_helper,
+            args=[
+                self.DUMMY_SERVER_ADDR,
+                self.DUMMY_SERVER_PORT,
+                self.LAUNCH_DELAY,
+                str(dummy_webroot),
+            ],
         )
         try:
-            yield
             logger.info(f"wait for {self.LAUNCH_DELAY}s before launching the server")
-            time.sleep(self.LAUNCH_DELAY)
             _server_p.start()
+            yield
         finally:
             _server_p.kill()
 
@@ -424,10 +432,13 @@ class Test_ensure_otaproxy_start:
         assert int(time.time()) >= start_time + probing_timeout
 
     def test_probing_delayed_online_server(self, subprocess_launch_server):
+        start_time = int(time.time())
         probing_timeout = self.LAUNCH_DELAY + 6
+
         ensure_otaproxy_start(
-            cfg.OTA_IMAGE_URL,
+            self.DUMMY_SERVER_URL,
             interval=0.1,
             connection_timeout=0.1,
             probing_timeout=probing_timeout,
         )
+        assert int(time.time()) >= start_time + self.LAUNCH_DELAY
