@@ -173,11 +173,18 @@ class MetaFieldDescriptor(Generic[FV]):
         if isinstance(value, dict):
             # metafile field
             if self.field_type is MetaFile:
-                return setattr(
-                    obj,
-                    self._attrn,
-                    MetaFile(file=value[self.field_name], hash=value[self.HASH_KEY]),
-                )
+                try:
+                    return setattr(
+                        obj,
+                        self._attrn,
+                        MetaFile(
+                            file=value[self.field_name], hash=value[self.HASH_KEY]
+                        ),
+                    )
+                except KeyError:
+                    raise ValueError(
+                        f"invalid metafile field {self.field_name}: {value}"
+                    )
             # normal key-value field
             else:
                 # use <field_type> to do default conversion before assignment
