@@ -16,7 +16,7 @@
 OTA metadata format definition: https://tier4.atlassian.net/l/cp/PCvwC6qk
 
 Version1 JWT verification algorithm: ES256
-Version1 JWT payload layout:
+Version1 JWT payload layout(revision2):
 [
     {"version": 1}, # must
     {"directory": "dirs.txt", "hash": <sha256_hash>}, # must
@@ -24,9 +24,9 @@ Version1 JWT payload layout:
     {"regular": "regulars.txt", "hash": <sha256_hash>}, # must
     {"persistent": "persistents.txt", "hash": <sha256_hash>}, # must
     {"certificate": "sign.pem", "hash": <sha256_hash>}, # must
-    {"total_regular_size": "23637537004"}, # optional
     {"rootfs_directory": "data"}, # must
-    {"compressed_rootfs_directory": "data.zstd"} # optional
+    {"total_regular_size": "23637537004"}, # revision1: optional
+    {"compressed_rootfs_directory": "data.zstd"} # revision2: optional
 ]
 Version1 OTA metafiles list:
 - directory: all directories in the image,
@@ -90,6 +90,15 @@ from . import log_setting
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
+
+
+class MetadataJWTPayloadInvalid(Exception):
+    """Raised when verification passed, but input metadata.jwt is invalid."""
+
+
+class MetadataJWTVerificationFailed(Exception):
+    pass
+
 
 FV = TypeVar("FV")
 
@@ -237,7 +246,7 @@ class _MetadataJWTParser:
         """Verify the metadata's sign certificate against local pinned CA.
 
         Raises:
-            Raise ValueError on verification failed.
+            Raise MetadataJWTVerificationFailed on verification failed.
         """
         ca_set_prefix = set()
         # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
@@ -245,7 +254,7 @@ class _MetadataJWTParser:
             if m := re.match(r"(.*)\..*.pem", cert.name):
                 ca_set_prefix.add(m.group(1))
             else:
-                raise ValueError("no pem file is found")
+                raise MetadataJWTVerificationFailed("no pem file is found")
         if len(ca_set_prefix) == 0:
             logger.warning("there is no root or intermediate certificate")
             return
@@ -255,9 +264,11 @@ class _MetadataJWTParser:
 
         try:
             cert_to_verify = load_pem(metadata_cert)
-        except crypto.Error:
+        except crypto.Error as e:
             logger.exception(f"invalid certificate {metadata_cert}")
-            raise ValueError(f"invalid certificate {metadata_cert}")
+            raise MetadataJWTVerificationFailed(
+                f"invalid certificate {metadata_cert}"
+            ) from e
 
         for ca_prefix in sorted(ca_set_prefix):
             certs_list = [
@@ -278,7 +289,7 @@ class _MetadataJWTParser:
                 logger.info(f"verify against {ca_prefix} failed: {e}")
 
         logger.error(f"metadata sign certificate {metadata_cert} could not be verified")
-        raise ValueError(
+        raise MetadataJWTVerificationFailed(
             f"metadata sign certificate {metadata_cert} could not be verified"
         )
 
@@ -286,7 +297,7 @@ class _MetadataJWTParser:
         """Verify metadata against sign certificate.
 
         Raises:
-            Raise ValueError on validation failed.
+            Raise MetadataJWTVerificationFailed on validation failed.
         """
         try:
             cert = crypto.load_certificate(crypto.FILETYPE_PEM, metadata_cert)
@@ -300,7 +311,7 @@ class _MetadataJWTParser:
         except crypto.Error as e:
             msg = f"failed to verify metadata against sign cert: {e!r}"
             logger.error(msg)
-            raise ValueError(msg) from None
+            raise MetadataJWTVerificationFailed(msg) from e
 
     def get_otametadata(self) -> "_MetadataJWTClaimsLayout":
         """Get parsed OTAMetaData.
@@ -314,7 +325,7 @@ class _MetadataJWTParser:
         """Verify metadata_jwt against metadata cert and local pinned CA certs.
 
         Raises:
-            Raise ValueError on verification failed.
+            Raise MetadataJWTVerificationFailed on verification failed.
         """
         # step1: verify the cert itself against local pinned CA cert
         self._verify_metadata_cert(metadata_cert)
@@ -390,7 +401,7 @@ class _MetadataJWTClaimsLayout:
         #   check module docstring for more details
         claims: List[Dict[str, Any]] = json.loads(payload)
         if not claims or not isinstance(claims, list):
-            raise ValueError(f"invalid {payload=}")
+            raise MetadataJWTPayloadInvalid(f"invalid {payload=}")
         cls.check_metadata_version(claims)
 
         (res := cls()).assign_fields(claims)
@@ -414,7 +425,9 @@ class _MetadataJWTClaimsLayout:
             # failed to find target claim in metadata.jwt, and
             # this field is MUST_SET field
             if not field_assigned and fd.default is _MUST_SET_CLAIM:
-                raise ValueError(f"must set field {fd.name} not found")
+                raise MetadataJWTPayloadInvalid(
+                    f"must set field {fd.name} not found in metadata.jwt"
+                )
 
     def get_img_metafiles(self) -> Iterator[MetaFile]:
         """Get the metafiles that describes the OTA image."""
