@@ -265,10 +265,9 @@ class _MetadataJWTParser:
         try:
             cert_to_verify = load_pem(metadata_cert)
         except crypto.Error as e:
-            logger.exception(f"invalid certificate {metadata_cert}")
-            raise MetadataJWTVerificationFailed(
-                f"invalid certificate {metadata_cert}"
-            ) from e
+            _err_msg = f"invalid certificate {metadata_cert}: {e!r}"
+            logger.exception(_err_msg)
+            raise MetadataJWTVerificationFailed(_err_msg) from e
 
         for ca_prefix in sorted(ca_set_prefix):
             certs_list = [
@@ -288,10 +287,9 @@ class _MetadataJWTParser:
             except crypto.X509StoreContextError as e:
                 logger.info(f"verify against {ca_prefix} failed: {e}")
 
-        logger.error(f"metadata sign certificate {metadata_cert} could not be verified")
-        raise MetadataJWTVerificationFailed(
-            f"metadata sign certificate {metadata_cert} could not be verified"
-        )
+        _err_msg = f"metadata sign certificate {metadata_cert} could not be verified"
+        logger.error(_err_msg)
+        raise MetadataJWTVerificationFailed(_err_msg)
 
     def _verify_metadata(self, metadata_cert: bytes):
         """Verify metadata against sign certificate.
@@ -401,7 +399,9 @@ class _MetadataJWTClaimsLayout:
         #   check module docstring for more details
         claims: List[Dict[str, Any]] = json.loads(payload)
         if not claims or not isinstance(claims, list):
-            raise MetadataJWTPayloadInvalid(f"invalid {payload=}")
+            _err_msg = f"invalid {payload=}"
+            logger.error(_err_msg)
+            raise MetadataJWTPayloadInvalid(_err_msg)
         cls.check_metadata_version(claims)
 
         (res := cls()).assign_fields(claims)
@@ -433,9 +433,9 @@ class _MetadataJWTClaimsLayout:
             # failed to find target claim in metadata.jwt, and
             # this field is MUST_SET field
             if not field_assigned and fd.default is _MUST_SET_CLAIM:
-                raise MetadataJWTPayloadInvalid(
-                    f"must set field {fd.name} not found in metadata.jwt"
-                )
+                _err_msg = f"must set field {fd.name} not found in metadata.jwt"
+                logger.error(_err_msg)
+                raise MetadataJWTPayloadInvalid(_err_msg)
 
     def get_img_metafiles(self) -> Iterator[MetaFile]:
         """Get the metafiles that describes the OTA image."""
