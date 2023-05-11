@@ -13,18 +13,20 @@
 # limitations under the License.
 """OTA metadata version1 implementation.
 
+OTA metadata format definition: https://tier4.atlassian.net/l/cp/PCvwC6qk
+
 Version1 JWT verification algorithm: ES256
 Version1 JWT payload layout:
 [
-    {"version": 1},
-    {"directory": "dirs.txt", "hash": <sha256_hash>},
-    {"symboliclink": "symlinks.txt", "hash": <sha256_hash>},
-    {"regular": "regulars.txt", "hash": <sha256_hash>},
-    {"persistent": "persistents.txt", "hash": <sha256_hash>},
-    {"certificate": "sign.pem", "hash": <sha256_hash>},
-    {"total_regular_size": "23637537004"},
-    {"rootfs_directory": "data"},
-    {"compressed_rootfs_directory": "data.zstd"}
+    {"version": 1}, # must
+    {"directory": "dirs.txt", "hash": <sha256_hash>}, # must
+    {"symboliclink": "symlinks.txt", "hash": <sha256_hash>}, # must
+    {"regular": "regulars.txt", "hash": <sha256_hash>}, # must
+    {"persistent": "persistents.txt", "hash": <sha256_hash>}, # must
+    {"certificate": "sign.pem", "hash": <sha256_hash>}, # must
+    {"total_regular_size": "23637537004"}, # optional
+    {"rootfs_directory": "data"}, # must
+    {"compressed_rootfs_directory": "data.zstd"} # optional
 ]
 Version1 OTA metafiles list:
 - directory: all directories in the image,
