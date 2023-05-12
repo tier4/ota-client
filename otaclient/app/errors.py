@@ -35,8 +35,9 @@ class OTAErrorCode(Enum):
     E_OTAMETA_VERIFICATION_FAILED = 205
     E_UPDATEDELTA_GENERATION_FAILED = 206
     E_APPLY_OTAUPDATE_FAILED = 207
-    E_BASE_OTAMETA_VERIFICATION_FAILED = 208
+    E_METADATA_JWT_VERIFICATION_FAILED = 208
     E_OTAPROXY_FAILED_TO_START = 209
+    E_INVALID_METADATAJWT = 210
 
     E_OTA_ERR_UNRECOVERABLE = 300
     E_BOOTCONTROL_PLATFORM_UNSUPPORTED = 301
@@ -251,10 +252,16 @@ class ApplyOTAUpdateFailed(OTAErrorRecoverable):
     desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: failed to apply ota update"
 
 
-class BaseOTAMetaVerificationFailed(OTAErrorRecoverable):
+class MetadataJWTVerficationFailed(OTAErrorRecoverable):
     module: OTAModules = OTAModules.API
-    errcode: OTAErrorCode = OTAErrorCode.E_BASE_OTAMETA_VERIFICATION_FAILED
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: verification failed for base otameta"
+    errcode: OTAErrorCode = OTAErrorCode.E_METADATA_JWT_VERIFICATION_FAILED
+    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: verification failed for metadata.jwt"
+
+
+class MetadataJWTInvalid(OTAErrorRecoverable):
+    module: OTAModules = OTAModules.API
+    errcode: OTAErrorCode = OTAErrorCode.E_INVALID_METADATAJWT
+    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: invalid metadata.jwt"
 
 
 class OTAProxyFailedToStart(OTAErrorRecoverable):

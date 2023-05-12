@@ -606,14 +606,23 @@ def ensure_otaproxy_start(
     *,
     interval: float = 1,
     connection_timeout: float = 5,
-    timeout: Optional[float] = None,
+    probing_timeout: Optional[float] = None,
     warning_interval: int = 3 * 60,  # seconds
 ):
+    """Loop probing <otaproxy_url> until online or exceed <probing_timeout>.
+
+    This function will issue a logging.warning every <warning_interval> seconds.
+
+    Raises:
+        A ConnectionError if exceeds <probing_timeout>.
+    """
     start_time = int(time.time())
-    warning_count, next_warning = 0, start_time + warning_interval
-    timeout = timeout if timeout and timeout >= 0 else float("inf")
+    next_warning = start_time + warning_interval
+    probing_timeout = (
+        probing_timeout if probing_timeout and probing_timeout >= 0 else float("inf")
+    )
     with requests.Session() as session:
-        while start_time + timeout > (cur_time := int(time.time())):
+        while start_time + probing_timeout > (cur_time := int(time.time())):
             try:
                 resp = session.get(otaproxy_url, timeout=connection_timeout)
                 resp.close()
@@ -621,14 +630,11 @@ def ensure_otaproxy_start(
             except Exception as e:  # server is not up yet
                 if cur_time >= next_warning:
                     logger.warning(
-                        f"otaproxy@{otaproxy_url} is not up after {warning_count * warning_interval} seconds"
+                        f"otaproxy@{otaproxy_url} is not up after {cur_time - start_time} seconds"
                         f"it might be something wrong with this otaproxy: {e!r}"
                     )
-                    warning_count, next_warning = (
-                        warning_count + 1,
-                        next_warning + warning_interval,
-                    )
+                    next_warning = next_warning + warning_interval
                 time.sleep(interval)
     raise ConnectionError(
-        f"failed to ensure connection to {otaproxy_url} in {timeout=}seconds"
+        f"failed to ensure connection to {otaproxy_url} in {probing_timeout=}seconds"
     )
