@@ -390,6 +390,10 @@ class Test_ensure_otaproxy_start:
     DUMMY_SERVER_URL = f"http://{DUMMY_SERVER_ADDR}:{DUMMY_SERVER_PORT}"
     LAUNCH_DELAY = 6
 
+    # for faster testing
+    PROBING_INTERVAL = 0.1
+    PROBING_CONNECTION_TIMEOUT = 0.1
+
     @staticmethod
     def _launch_server_helper(addr: str, port: int, launch_delay: int, directory: str):
         time.sleep(launch_delay)
@@ -419,26 +423,28 @@ class Test_ensure_otaproxy_start:
         NOTE: we intentionally not use the subprocess_launch_server fixture here
               to let the probing timeout.
         """
-        probing_timeout = 3
+        probing_timeout = self.LAUNCH_DELAY * 2
 
         start_time = int(time.time())
         with pytest.raises(ConnectionError):
             ensure_otaproxy_start(
                 self.DUMMY_SERVER_URL,
-                interval=0.1,
-                connection_timeout=0.1,
+                interval=self.PROBING_INTERVAL,
+                connection_timeout=self.PROBING_CONNECTION_TIMEOUT,
                 probing_timeout=probing_timeout,
             )
+        # probing should cost at least <LAUNCH_DELAY> seconds
         assert int(time.time()) >= start_time + probing_timeout
 
     def test_probing_delayed_online_server(self, subprocess_launch_server):
         start_time = int(time.time())
-        probing_timeout = self.LAUNCH_DELAY + 6
+        probing_timeout = self.LAUNCH_DELAY * 2
 
         ensure_otaproxy_start(
             self.DUMMY_SERVER_URL,
-            interval=0.1,
-            connection_timeout=0.1,
+            interval=self.PROBING_INTERVAL,
+            connection_timeout=self.PROBING_CONNECTION_TIMEOUT,
             probing_timeout=probing_timeout,
         )
+        # probing should cost at least <LAUNCH_DELAY> seconds
         assert int(time.time()) >= start_time + self.LAUNCH_DELAY
