@@ -423,7 +423,8 @@ class Test_ensure_otaproxy_start:
         NOTE: we intentionally not use the subprocess_launch_server fixture here
               to let the probing timeout.
         """
-        probing_timeout = self.LAUNCH_DELAY * 2
+        # make testing faster
+        probing_timeout = self.LAUNCH_DELAY // 2
 
         start_time = int(time.time())
         with pytest.raises(ConnectionError):
