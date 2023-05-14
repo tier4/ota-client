@@ -25,15 +25,7 @@ from typing import Type, Iterator
 from urllib.parse import urlparse
 
 from otaclient import __version__  # type: ignore
-from .errors import (
-    BaseOTAMetaVerificationFailed,
-    NetworkError,
-    OTA_APIError,
-    OTAError,
-    OTAProxyFailedToStart,
-    OTARollbackError,
-    OTAUpdateError,
-)
+from . import ota_metadata
 from .boot_control import BootControllerProtocol
 from .common import RetryTaskMap, wait_with_backoff
 from .configs import config as cfg
@@ -44,8 +36,10 @@ from .downloader import (
     Downloader,
     HashVerificaitonError,
 )
-from .interface import OTAClientProtocol
 from .errors import (
+    MetadataJWTInvalid,
+    MetadataJWTVerficationFailed,
+    NetworkError,
     ApplyOTAUpdateFailed,
     InvalidUpdateRequest,
     OTAMetaVerificationFailed,
@@ -53,8 +47,13 @@ from .errors import (
     OTAMetaDownloadFailed,
     StandbySlotSpaceNotEnoughError,
     UpdateDeltaGenerationFailed,
+    OTA_APIError,
+    OTAError,
+    OTAProxyFailedToStart,
+    OTARollbackError,
+    OTAUpdateError,
 )
-from .ota_metadata import OTAMetadata
+from .interface import OTAClientProtocol
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
 from .proto.wrapper import UpdatePhase, RegularInf, StatusResponseEcuV2, UpdateStatus
@@ -153,7 +152,7 @@ class _OTAUpdater:
         self.updating_version: str = ""
         self.failure_reason = ""
         # init variables needed for update
-        self._otameta: OTAMetadata = None  # type: ignore
+        self._otameta: ota_metadata.OTAMetadata = None  # type: ignore
         self._url_base: str = None  # type: ignore
 
         # dynamic update status
@@ -369,7 +368,7 @@ class _OTAUpdater:
         # process metadata.jwt and ota metafiles
         logger.debug("process metadata.jwt...")
         try:
-            self._otameta = OTAMetadata(
+            self._otameta = ota_metadata.OTAMetadata(
                 url_base=self._url_base,
                 downloader=self._downloader,
             )
@@ -383,11 +382,14 @@ class _OTAUpdater:
         except DestinationNotAvailableError as e:
             logger.error("failed to save ota metafiles")
             raise OTAErrorUnRecoverable from e
-        except ValueError as e:
+        except ota_metadata.MetadataJWTVerificationFailed as e:
             logger.error(f"failed to verify metadata.jwt: {e!r}")
-            raise BaseOTAMetaVerificationFailed from e
+            raise MetadataJWTVerficationFailed from e
+        except ota_metadata.MetadataJWTPayloadInvalid as e:
+            logger.error(f"metadata.jwt is invalid: {e!r}")
+            raise MetadataJWTInvalid from e
         except Exception as e:
-            logger.error(f"failed to download ota metafiles: {e!r}")
+            logger.error(f"failed to prepare ota metafiles: {e!r}")
             raise OTAMetaDownloadFailed from e
 
         # ------ execute local update ------ #

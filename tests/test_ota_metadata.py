@@ -22,6 +22,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from otaclient.app.ota_metadata import (
+    MetadataJWTVerificationFailed,
+    MetadataJWTPayloadInvalid,
     _MetadataJWTParser,
     parse_dirs_from_txt,
     parse_persistents_from_txt,
@@ -34,6 +36,8 @@ HEADER = """\
 {"alg": "ES256"}\
 """
 
+# --- valid metadata.jwt --- #
+# original layout
 PAYLOAD = """\
 [\
 {"version": 1}, \
@@ -46,6 +50,7 @@ PAYLOAD = """\
 ]\
 """
 
+# revision1: add total_regular_size
 PAYLOAD_W_TOTAL_SIZE = """\
 [\
 {"version": 1}, \
@@ -59,6 +64,47 @@ PAYLOAD_W_TOTAL_SIZE = """\
 ]\
 """
 
+# revision2: add compressed_rootfs
+PAYLOAD_W_COMPRESSED_ROOTFS = """\
+[\
+{"version": 1}, \
+{"directory": "dirs.txt", "hash": "43afbd19eab7c9e27f402a3332c38d072a69c7932fb35c32c1fc7069695235f1"}, \
+{"symboliclink": "symlinks.txt", "hash": "6643bf896d3ac3bd4034d742fae0d7eb82bd384062492235404114aeb34efd7d"}, \
+{"regular": "regulars.txt", "hash": "a390f92fe49b8402a2bb9f0b594e9de70f70dc6bf429031ac4d0b21365251600"}, \
+{"persistent": "persistents.txt", "hash": "3195ded730474d0181257204ba0fd79766721ab62ace395f20decd44983cb2d3"}, \
+{"rootfs_directory": "data"}, \
+{"certificate": "ota-intermediate.pem", "hash": "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c62ed2"}, \
+{"total_regular_size": "108708870"},\
+{"compressed_rootfs_directory": "data.zstd"}\
+]\
+"""
+
+# --- invalid metadata.jwt --- #
+PAYLOAD_MISSING_MUST_SET_FIELD_DIRECTORY = """\
+[\
+{"version": 1}, \
+{"symboliclink": "symlinks.txt", "hash": "6643bf896d3ac3bd4034d742fae0d7eb82bd384062492235404114aeb34efd7d"}, \
+{"regular": "regulars.txt", "hash": "a390f92fe49b8402a2bb9f0b594e9de70f70dc6bf429031ac4d0b21365251600"}, \
+{"persistent": "persistents.txt", "hash": "3195ded730474d0181257204ba0fd79766721ab62ace395f20decd44983cb2d3"}, \
+{"rootfs_directory": "data"}, \
+{"certificate": "ota-intermediate.pem", "hash": "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c62ed2"}, \
+{"total_regular_size": "108708870"},\
+{"compressed_rootfs_directory": "data.zstd"}\
+]\
+"""
+
+PAYLOAD_MISSING_MUST_SET_FIELD_ROOTFS = """\
+[\
+{"version": 1}, \
+{"directory": "dirs.txt", "hash": "43afbd19eab7c9e27f402a3332c38d072a69c7932fb35c32c1fc7069695235f1"}, \
+{"symboliclink": "symlinks.txt", "hash": "6643bf896d3ac3bd4034d742fae0d7eb82bd384062492235404114aeb34efd7d"}, \
+{"regular": "regulars.txt", "hash": "a390f92fe49b8402a2bb9f0b594e9de70f70dc6bf429031ac4d0b21365251600"}, \
+{"persistent": "persistents.txt", "hash": "3195ded730474d0181257204ba0fd79766721ab62ace395f20decd44983cb2d3"}, \
+{"certificate": "ota-intermediate.pem", "hash": "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c62ed2"}, \
+{"total_regular_size": "108708870"},\
+{"compressed_rootfs_directory": "data.zstd"}\
+]\
+"""
 
 DIR_FNAME = "dirs.txt"
 DIR_HASH = "43afbd19eab7c9e27f402a3332c38d072a69c7932fb35c32c1fc7069695235f1"
@@ -84,6 +130,7 @@ CERTIFICATE_HASH = "24c0c9ea292458398f05b9b2a31b483c45d27e284743a3f0c7963e2ac0c6
 CERTIFICATE_INFO = {"file": CERTIFICATE_FNAME, "hash": CERTIFICATE_HASH}
 
 TOTAL_REGULAR_SIZE = 108708870
+COMPRESSED_ROOTFS_DIRECTORY = "data.zstd"
 
 
 def sign(sign_key_file, data: str):
@@ -117,7 +164,9 @@ def dir_test() -> Path:
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
+@pytest.mark.parametrize(
+    "payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE), (PAYLOAD_W_COMPRESSED_ROOTFS)]
+)
 def test_ota_metadata(dir_test: Path, payload_str: str):
     certs_dir = dir_test / "keys"
     sign_pem = dir_test / "keys" / "sign.pem"
@@ -136,23 +185,16 @@ def test_ota_metadata(dir_test: Path, payload_str: str):
     if "total_regular_size" in payload_str:
         assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.total_regular_size is None
+        assert metadata.total_regular_size is 0
+    if "compressed_rootfs_directory" in payload_str:
+        assert metadata.compressed_rootfs_directory == COMPRESSED_ROOTFS_DIRECTORY
+    else:
+        assert metadata.compressed_rootfs_directory == ""
 
 
-@pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
-def test_ota_metadata_exception(dir_test: Path, payload_str):
-    certs_dir = dir_test / "keys"
-    sign_pem = dir_test / "keys" / "sign.pem"
-
-    metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
-    with pytest.raises(ValueError):
-        # sing.key is not a valid cert
-        sign_pem = dir_test / "keys" / "sign.key"
-        parser.verify_metadata(sign_pem.read_bytes())
-
-
-@pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
+@pytest.mark.parametrize(
+    "payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE), (PAYLOAD_W_COMPRESSED_ROOTFS)]
+)
 def test_ota_metadata_with_verify_certificate(
     tmp_path: Path,
     dir_test: Path,
@@ -185,10 +227,16 @@ def test_ota_metadata_with_verify_certificate(
     if "total_regular_size" in payload_str:
         assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.total_regular_size is None
+        assert metadata.total_regular_size is 0
+    if "compressed_rootfs_directory" in payload_str:
+        assert metadata.compressed_rootfs_directory == COMPRESSED_ROOTFS_DIRECTORY
+    else:
+        assert metadata.compressed_rootfs_directory == ""
 
 
-@pytest.mark.parametrize("payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE)])
+@pytest.mark.parametrize(
+    "payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE), (PAYLOAD_W_COMPRESSED_ROOTFS)]
+)
 def test_ota_metadata_with_verify_certificate_exception(
     dir_test: Path,
     tmp_path: Path,
@@ -205,24 +253,31 @@ def test_ota_metadata_with_verify_certificate_exception(
 
     metadata_jwt = generate_jwt(payload_str, dir_test)
     parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
-    metadata = parser.get_otametadata()
-    assert asdict(metadata.directory) == DIR_INFO
-    assert asdict(metadata.symboliclink) == SYMLINK_INFO
-    assert asdict(metadata.regular) == REGULAR_INFO
-    assert asdict(metadata.persistent) == PERSISTENT_INFO
-    assert asdict(metadata.certificate) == CERTIFICATE_INFO
-    assert metadata.rootfs_directory == ROOTFS_DIR_INFO
-    with pytest.raises(ValueError):
+    with pytest.raises(MetadataJWTVerificationFailed):
         # NOTE: intentionally use sign.key as sign cert here,
         #       to test verify against invalid cert
         parser.verify_metadata(Path(dir_test / "keys" / "sign.key").read_bytes())
-    if "total_regular_size" in payload_str:
-        assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
-    else:
-        assert metadata.total_regular_size is None
+
+
+@pytest.mark.parametrize(
+    "payload_str",
+    [
+        (PAYLOAD_MISSING_MUST_SET_FIELD_DIRECTORY),
+        (PAYLOAD_MISSING_MUST_SET_FIELD_ROOTFS),
+    ],
+)
+def test_invalid_metadata_jwt(dir_test: Path, payload_str):
+    certs_dir = dir_test / "keys"
+    sign_pem = dir_test / "keys" / "sign.pem"
+
+    with pytest.raises(MetadataJWTPayloadInvalid):
+        metadata_jwt = generate_jwt(payload_str, dir_test)
+        parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
+        parser.verify_metadata(sign_pem.read_bytes())
 
 
 # ------ text based ota metafiles parsing test ------ #
+
 
 # try to include as any special characters as possible
 @pytest.mark.parametrize(

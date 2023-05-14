@@ -19,6 +19,7 @@ import os
 import shlex
 import shutil
 import enum
+import requests
 import subprocess
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, CancelledError, TimeoutError
@@ -597,3 +598,42 @@ class RetryTaskMap(Generic[_T]):
 
 def create_tmp_fname(prefix="tmp", length=6, sep="_") -> str:
     return f"{prefix}{sep}{os.urandom(length).hex()}"
+
+
+def ensure_otaproxy_start(
+    otaproxy_url: str,
+    *,
+    interval: float = 1,
+    connection_timeout: float = 5,
+    probing_timeout: Optional[float] = None,
+    warning_interval: int = 3 * 60,  # seconds
+):
+    """Loop probing <otaproxy_url> until online or exceed <probing_timeout>.
+
+    This function will issue a logging.warning every <warning_interval> seconds.
+
+    Raises:
+        A ConnectionError if exceeds <probing_timeout>.
+    """
+    start_time = int(time.time())
+    next_warning = start_time + warning_interval
+    probing_timeout = (
+        probing_timeout if probing_timeout and probing_timeout >= 0 else float("inf")
+    )
+    with requests.Session() as session:
+        while start_time + probing_timeout > (cur_time := int(time.time())):
+            try:
+                resp = session.get(otaproxy_url, timeout=connection_timeout)
+                resp.close()
+                return
+            except Exception as e:  # server is not up yet
+                if cur_time >= next_warning:
+                    logger.warning(
+                        f"otaproxy@{otaproxy_url} is not up after {cur_time - start_time} seconds"
+                        f"it might be something wrong with this otaproxy: {e!r}"
+                    )
+                    next_warning = next_warning + warning_interval
+                time.sleep(interval)
+    raise ConnectionError(
+        f"failed to ensure connection to {otaproxy_url} in {probing_timeout=}seconds"
+    )

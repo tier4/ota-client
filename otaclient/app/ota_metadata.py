@@ -13,18 +13,20 @@
 # limitations under the License.
 """OTA metadata version1 implementation.
 
+OTA metadata format definition: https://tier4.atlassian.net/l/cp/PCvwC6qk
+
 Version1 JWT verification algorithm: ES256
-Version1 JWT payload layout:
+Version1 JWT payload layout(revision2):
 [
-    {"version": 1},
-    {"directory": "dirs.txt", "hash": <sha256_hash>},
-    {"symboliclink": "symlinks.txt", "hash": <sha256_hash>},
-    {"regular": "regulars.txt", "hash": <sha256_hash>},
-    {"persistent": "persistents.txt", "hash": <sha256_hash>},
-    {"certificate": "sign.pem", "hash": <sha256_hash>},
-    {"total_regular_size": "23637537004"},
-    {"rootfs_directory": "data"},
-    {"compressed_rootfs_directory": "data.zstd"}
+    {"version": 1}, # must
+    {"directory": "dirs.txt", "hash": <sha256_hash>}, # must
+    {"symboliclink": "symlinks.txt", "hash": <sha256_hash>}, # must
+    {"regular": "regulars.txt", "hash": <sha256_hash>}, # must
+    {"persistent": "persistents.txt", "hash": <sha256_hash>}, # must
+    {"certificate": "sign.pem", "hash": <sha256_hash>}, # must
+    {"rootfs_directory": "data"}, # must
+    {"total_regular_size": "23637537004"}, # revision1: optional
+    {"compressed_rootfs_directory": "data.zstd"} # revision2: optional
 ]
 Version1 OTA metafiles list:
 - directory: all directories in the image,
@@ -89,6 +91,15 @@ logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+
+class MetadataJWTPayloadInvalid(Exception):
+    """Raised when verification passed, but input metadata.jwt is invalid."""
+
+
+class MetadataJWTVerificationFailed(Exception):
+    pass
+
+
 FV = TypeVar("FV")
 
 
@@ -114,16 +125,11 @@ class MetaFile:
 
 
 class MetaFieldDescriptor(Generic[FV]):
-    """
-    Expecting field value like:
-    - a dict with one key-value pair,
-        { "version": 1 }
-    or
-    - a dict with 2 fields,
-        {
-            <metafile_name>: <metafile_file_name>,
-            "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
-        },
+    """Field descriptor for dataclass _MetadataJWTClaimsLayout.
+
+    This descriptor takes one dict from parsed metadata.jwt, parses
+        and assigns it to each field in _MetadataJWTClaimsLayout.
+        Check __set__ method's docstring for more details.
     """
 
     HASH_KEY = "hash"  # version1
@@ -149,28 +155,63 @@ class MetaFieldDescriptor(Generic[FV]):
         return self  # access via class, return the descriptor
 
     def __set__(self, obj, value: Any) -> None:
-        if isinstance(value, type(self)):
+        """
+        Expecting input value like:
+        - a dict with one key-value pair,
+            { "version": 1 }
+        or
+        - a dict with 2 fields,
+            {
+                <metafile_name>: <metafile_file_name>,
+                "hash": "faaea3ee13b4cc0e107ab2840f792d480636bec6b4d1ccd4a0a3ce8046b2c549"
+            }
+        """
+        if isinstance(value, self.__class__):
             setattr(obj, self._attrn, self.default)
             return  # handle dataclass default value setting
 
         if isinstance(value, dict):
-            # special treatment for MetaFile field
+            # metafile field
             if self.field_type is MetaFile:
-                setattr(
-                    obj,
-                    self._attrn,
-                    MetaFile(file=value[self.field_name], hash=value[self.HASH_KEY]),
-                )
+                try:
+                    return setattr(
+                        obj,
+                        self._attrn,
+                        # NOTE: do str conversion
+                        MetaFile(
+                            file=str(value[self.field_name]),
+                            hash=str(value[self.HASH_KEY]),
+                        ),
+                    )
+                except KeyError:
+                    raise ValueError(
+                        f"invalid metafile field {self.field_name}: {value}"
+                    )
+            # normal key-value field
             else:
-                # use <field_type> to do default conversion before assignment
-                setattr(obj, self._attrn, self.field_type(value[self.field_name]))
-        else:
-            setattr(obj, self._attrn, self.field_type(value))
+                try:
+                    # use <field_type> to do default conversion before assignment
+                    return setattr(
+                        obj, self._attrn, self.field_type(value[self.field_name])
+                    )
+                except KeyError:
+                    raise ValueError(
+                        f"invalid metafile field {self.field_name}: {value}"
+                    )
+        raise ValueError(f"attempt to assign invalid {value=} to {self.field_name=}")
 
     def __set_name__(self, owner: type, name: str):
         self.name = name
         self.field_name = name
         self._attrn = f"_{owner.__name__}_{name}"
+
+    # API
+
+    def check_is_target_claim(self, value: Any) -> bool:
+        """Check whether the input claim dict is for this field."""
+        if not isinstance(value, dict):
+            return False
+        return self.field_name in value
 
 
 class _MetadataJWTParser:
@@ -219,7 +260,7 @@ class _MetadataJWTParser:
         """Verify the metadata's sign certificate against local pinned CA.
 
         Raises:
-            Raise ValueError on verification failed.
+            Raise MetadataJWTVerificationFailed on verification failed.
         """
         ca_set_prefix = set()
         # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
@@ -227,7 +268,7 @@ class _MetadataJWTParser:
             if m := re.match(r"(.*)\..*.pem", cert.name):
                 ca_set_prefix.add(m.group(1))
             else:
-                raise ValueError("no pem file is found")
+                raise MetadataJWTVerificationFailed("no pem file is found")
         if len(ca_set_prefix) == 0:
             logger.warning("there is no root or intermediate certificate")
             return
@@ -237,9 +278,10 @@ class _MetadataJWTParser:
 
         try:
             cert_to_verify = load_pem(metadata_cert)
-        except crypto.Error:
-            logger.exception(f"invalid certificate {metadata_cert}")
-            raise ValueError(f"invalid certificate {metadata_cert}")
+        except crypto.Error as e:
+            _err_msg = f"invalid certificate {metadata_cert}: {e!r}"
+            logger.exception(_err_msg)
+            raise MetadataJWTVerificationFailed(_err_msg) from e
 
         for ca_prefix in sorted(ca_set_prefix):
             certs_list = [
@@ -259,16 +301,15 @@ class _MetadataJWTParser:
             except crypto.X509StoreContextError as e:
                 logger.info(f"verify against {ca_prefix} failed: {e}")
 
-        logger.error(f"metadata sign certificate {metadata_cert} could not be verified")
-        raise ValueError(
-            f"metadata sign certificate {metadata_cert} could not be verified"
-        )
+        _err_msg = f"metadata sign certificate {metadata_cert} could not be verified"
+        logger.error(_err_msg)
+        raise MetadataJWTVerificationFailed(_err_msg)
 
     def _verify_metadata(self, metadata_cert: bytes):
         """Verify metadata against sign certificate.
 
         Raises:
-            Raise ValueError on validation failed.
+            Raise MetadataJWTVerificationFailed on validation failed.
         """
         try:
             cert = crypto.load_certificate(crypto.FILETYPE_PEM, metadata_cert)
@@ -282,7 +323,7 @@ class _MetadataJWTParser:
         except crypto.Error as e:
             msg = f"failed to verify metadata against sign cert: {e!r}"
             logger.error(msg)
-            raise ValueError(msg) from None
+            raise MetadataJWTVerificationFailed(msg) from e
 
     def get_otametadata(self) -> "_MetadataJWTClaimsLayout":
         """Get parsed OTAMetaData.
@@ -296,12 +337,16 @@ class _MetadataJWTParser:
         """Verify metadata_jwt against metadata cert and local pinned CA certs.
 
         Raises:
-            Raise ValueError on verification failed.
+            Raise MetadataJWTVerificationFailed on verification failed.
         """
         # step1: verify the cert itself against local pinned CA cert
         self._verify_metadata_cert(metadata_cert)
         # step2: verify the metadata against input metadata_cert
         self._verify_metadata(metadata_cert)
+
+
+# place holder for unset must field in _MetadataJWTClaimsLayout
+_MUST_SET_CLAIM = object()
 
 
 @dataclass
@@ -312,38 +357,100 @@ class _MetadataJWTClaimsLayout:
     VERSION_KEY: ClassVar[str] = "version"
 
     # metadata scheme
-    version: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)
-    total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(int)  # in bytes
-    rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(str)
-    compressed_rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(str)
+    version: MetaFieldDescriptor[int] = MetaFieldDescriptor(
+        int, default=_MUST_SET_CLAIM
+    )
+    # WARNING: total_regular_size should be int, but it comes as str in metadata.jwt,
+    #          so we disable type_check for it, and convert it as field_type before assigning
+    total_regular_size: MetaFieldDescriptor[int] = MetaFieldDescriptor(
+        int, default=0
+    )  # in bytes
+    rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(
+        str, default=_MUST_SET_CLAIM
+    )
+    compressed_rootfs_directory: MetaFieldDescriptor[str] = MetaFieldDescriptor(
+        str, default=""
+    )
     # sign certificate
-    certificate: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
+    certificate: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
     # metadata files definition
-    directory: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
-    symboliclink: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
-    regular: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
-    persistent: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(MetaFile)
+    directory: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
+    symboliclink: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
+    regular: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
+    persistent: MetaFieldDescriptor[MetaFile] = MetaFieldDescriptor(
+        MetaFile, default=_MUST_SET_CLAIM
+    )
 
     @classmethod
-    def parse_payload(cls, _input: Union[str, bytes], /) -> Self:
-        # NOTE: in version1, payload is a list of dict
-        payload: List[Dict[str, Any]] = json.loads(_input)
-        if not payload or not isinstance(payload, list):
-            raise ValueError(f"invalid payload: {_input}")
+    def check_metadata_version(cls, claims: List[Dict[str, Any]]):
+        """Check the <version> field in claims and issue warning if needed.
 
-        res = cls()
-        for entry in payload:
+        Warnings will be issued for the following 2 cases:
+        1. <version> field is missing,
+        2. <version> doesn't match <SCHEME_VERSION>
+        """
+        version_field_found = False
+        for entry in claims:
             # if entry is version, check version compatibility
-            if (
-                cls.VERSION_KEY in entry
-                and entry[cls.VERSION_KEY] != cls.SCHEME_VERSION
-            ):
-                logger.warning(f"metadata version is {entry['version']}.")
-            # parse other fields
-            for f in fields(cls):
-                if (fn := f.name) in entry:
-                    setattr(res, fn, entry)
+            if cls.VERSION_KEY in entry:
+                version_field_found = True
+                if (version := entry[cls.VERSION_KEY]) != cls.SCHEME_VERSION:
+                    logger.warning(f"metadata {version=}, expect {cls.SCHEME_VERSION}")
+                break
+        if not version_field_found:
+            logger.warning("metadata version is missing in metadata.jwt!")
+
+    @classmethod
+    def parse_payload(cls, payload: Union[str, bytes], /) -> Self:
+        # NOTE: in version1, payload is a list of dict,
+        #   check module docstring for more details
+        claims: List[Dict[str, Any]] = json.loads(payload)
+        if not claims or not isinstance(claims, list):
+            _err_msg = f"invalid {payload=}"
+            logger.error(_err_msg)
+            raise MetadataJWTPayloadInvalid(_err_msg)
+        cls.check_metadata_version(claims)
+
+        (res := cls()).assign_fields(claims)
         return res
+
+    def assign_fields(self, claims: List[Dict[str, Any]]):
+        """Assign each fields in _MetadataJWTClaimsLayout with input claims
+        in parsed metadata.jwt."""
+        for field in fields(self):
+            # NOTE: default value for each field in dataclass is the descriptor
+            # NOTE: skip non-metafield field
+            if not isinstance((fd := field.default), MetaFieldDescriptor):
+                continue
+
+            field_assigned = False
+            for claim in claims:
+                if fd.check_is_target_claim(claim):
+                    try:
+                        setattr(self, fd.field_name, claim)
+                        field_assigned = True
+                        break
+                    except ValueError as e:
+                        _err_msg = (
+                            f"failed to assign {fd.field_name} with {claim}: {e!r}"
+                        )
+                        logger.error(_err_msg)
+                        raise MetadataJWTPayloadInvalid(_err_msg) from e
+
+            # failed to find target claim in metadata.jwt, and
+            # this field is MUST_SET field
+            if not field_assigned and fd.default is _MUST_SET_CLAIM:
+                _err_msg = f"must set field {fd.name} not found in metadata.jwt"
+                logger.error(_err_msg)
+                raise MetadataJWTPayloadInvalid(_err_msg)
 
     def get_img_metafiles(self) -> Iterator[MetaFile]:
         """Get the metafiles that describes the OTA image."""
