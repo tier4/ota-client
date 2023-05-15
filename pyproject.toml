@@ -35,23 +35,20 @@ local_scheme = "no-local-version"
 [tool.black]
 line-length = 88
 target-version = ['py38']
-include = '''(
-  otaclient.*\.py$
-)'''
 extend-exclude = '''(
-  (.*_pb2.pyi? | .*_pb2_grpc.pyi? )
+  (_pb2.pyi?|_pb2_grpc.pyi?)$
 )'''
 
 [tool.coverage.run]
 branch = false
 
 [tool.coverage.report]
-omit = ["**/*_pb2.py*","**/*_pb2_grpc.py*", "**/__*.py"]
+omit = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
 show_missing = true
 
 [tool.pyright]
 exclude = ["**/__pycache__"]
-ignore = ["**/*_pb2.py*","**/*_pb2_grpc.py*", "**/__*.py"]
+ignore = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
 pythonVersion = "3.8"
 
 [tool.pytest.ini_options]
