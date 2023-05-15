@@ -164,6 +164,7 @@ class TestOTAClientCall:
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
             ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            request=wrapper.StatusRequest(),
         )
 
         assert _response is not None

@@ -32,7 +32,7 @@ from .configs import server_cfg, config as cfg
 from .create_standby import get_standby_slot_creator
 from .ecu_info import ECUInfo
 from .ota_client import OTAClient, OTAUpdateFSM
-from .ota_client_call import OtaClientCall
+from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
 from .proto.wrapper import StatusRequest, StatusResponse
 from .proxy_info import proxy_cfg
@@ -298,13 +298,14 @@ class _SubECUTracker:
 
     async def _query_ecu(self, ecu_id: str, ecu_addr: str, ecu_port: int) -> ECUStatus:
         """Query ecu status API once."""
-        resp = await OtaClientCall.status_call(
-            ecu_id, ecu_addr, ecu_port, timeout=self.subecu_query_timeout
-        )
-        # this subecu is unreachable
-        if resp is None:
+        try:
+            resp = await OtaClientCall.status_call(
+                ecu_id, ecu_addr, ecu_port, request=wrapper.StatusRequest(), timeout=self.subecu_query_timeout,
+            )
+        except ECUNoResponse as e:
+            logger.debug(f"failed to query ECU's status: {e!r}")
             return self.ECUStatus.UNREACHABLE
-
+        
         # if ANY OF the subecu and its child ecu are
         # not in SUCCESS/FAILURE otastatus, or unreacable, return False
         all_ready, all_success = True, True
@@ -615,12 +616,14 @@ class OtaClientStub:
                             subecu_id,
                             subecu_addr,
                             server_cfg.SERVER_PORT,
+                            request=wrapper.StatusRequest(),
                             timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                         )
                     )
                 # merge the subecu and its child ecus status
-                for subecu_resp in await asyncio.gather(*coros):
-                    if subecu_resp is None:
+                for subecu_resp in await asyncio.gather(*coros, return_exceptions=True):
+                    if isinstance(subecu_resp, ECUNoResponse):
+                        logger.debug(f"failed to query ECU's status: {subecu_resp!r}")
                         continue
                     resp.merge_from(subecu_resp)
                 # prepare my_ecu status
