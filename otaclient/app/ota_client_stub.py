@@ -469,7 +469,10 @@ class OtaClientStub:
 
         # wait for all sub ecu acknowledge ota update requests
         update_resp: wrapper.UpdateResponse
-        for update_resp in await asyncio.gather(*coros):
+        for update_resp in await asyncio.gather(*coros, return_exceptions=True):
+            if isinstance(update_resp, ECUNoResponse):
+                logger.error(f"update request dispatch failed: {update_resp!r}")
+                continue
             response.merge_from(update_resp)
 
         # after all subecus ack the update request, update my ecu
