@@ -565,7 +565,10 @@ class OtaClientStub:
         logger.info(f"rollback: {tracked_ecus_dict=}")
 
         # wait for all sub ecu acknowledge ota rollback requests
-        for rollback_resp in await asyncio.gather(*coros):
+        for rollback_resp in await asyncio.gather(*coros, return_exceptions=True):
+            if isinstance(rollback_resp, ECUNoResponse):
+                logger.error(f"failed to dispatch rollback req: {rollback_resp!r}")
+                continue
             response.merge_from(rollback_resp)
 
         # after all subecus response the request, rollback my ecu
