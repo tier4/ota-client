@@ -1,4 +1,11 @@
 [flake8]
 max-line-length = 88
+# ignore the following Errors:
+#   E266(too many leading '#'):
+#       sometimes we use multiple # for separting sections
+#   E203(white space before ':'):
+#       this error conflicts with black linting
+#   E501(line is too long):
+#       TODO: deal with it in the future
 extend-ignore = E266, E501, E203
-exclude = **/*_pb2.py*, **/*_pb2_grpc.py*
+extend-exclude = *_pb2.py*, *_pb2_grpc.py*

@@ -15,7 +15,7 @@
 
 import grpc.aio
 
-from .configs import config as cfg
+from .configs import config as cfg, server_cfg
 from .ecu_info import ECUInfo
 from .proto import wrapper, v2, v2_grpc
 from .ota_client_stub import OTAClientServiceStub
@@ -40,7 +40,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
         return response.export_pb()
 
 
-async def launch_otaclient_grpc_server():
+def create_otaclient_grpc_server():
     ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
 
     service_stub = OTAClientServiceStub(ecu_info=ecu_info)
@@ -50,6 +50,11 @@ async def launch_otaclient_grpc_server():
     v2_grpc.add_OtaClientServiceServicer_to_server(
         server=server, servicer=ota_client_service_v2
     )
-    server.add_insecure_port(f"{service_stub.listen_addr}:{service_stub.listen_port}")
+    server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
+    return server
+
+
+async def launch_otaclient_grpc_server():
+    server = create_otaclient_grpc_server()
     await server.start()
     await server.wait_for_termination()
