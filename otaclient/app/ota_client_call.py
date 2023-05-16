@@ -17,7 +17,7 @@ import asyncio
 import grpc.aio
 
 from . import log_setting
-from .proto import wrapper, v2, v2_grpc
+from .proto import wrapper, v2_grpc
 from .configs import config as cfg, server_cfg
 
 logger = log_setting.get_logger(
