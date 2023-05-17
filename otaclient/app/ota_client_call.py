@@ -45,11 +45,10 @@ class OtaClientCall:
                 stub = v2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Status(request.export_pb(), timeout=timeout)
                 return wrapper.StatusResponse.convert(resp)
-        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            logger.debug(f"{ecu_id=} failed to respond to status request on-time.")
-            raise ECUNoResponse(f"{ecu_id=} doesn't response on-time")
         except Exception as e:
-            raise ECUNoResponse(f"failed to connect to {ecu_id=}: {e!r}") from e
+            _msg = f"{ecu_id=} failed to respond to status request on-time: {e!r}"
+            logger.debug(_msg)
+            raise ECUNoResponse(_msg)
 
     @staticmethod
     async def update_call(
@@ -66,11 +65,10 @@ class OtaClientCall:
                 stub = v2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Update(request.export_pb(), timeout=timeout)
                 return wrapper.UpdateResponse.convert(resp)
-        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            logger.debug(f"{ecu_id=} failed to respond to update request on-time.")
-            raise ECUNoResponse(f"{ecu_id=} doesn't response on-time")
         except Exception as e:
-            raise ECUNoResponse(f"failed to connect to {ecu_id=}: {e!r}") from e
+            _msg = f"{ecu_id=} failed to respond to update request on-time: {e!r}"
+            logger.debug(_msg)
+            raise ECUNoResponse(_msg)
 
     @staticmethod
     async def rollback_call(
@@ -87,8 +85,7 @@ class OtaClientCall:
                 stub = v2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Rollback(request.export_pb(), timeout=timeout)
                 return wrapper.RollbackResponse.convert(resp)
-        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            logger.debug(f"{ecu_id=} failed to respond to rollback request on-time.")
-            raise ECUNoResponse(f"{ecu_id=} doesn't response on-time")
         except Exception as e:
-            raise ECUNoResponse(f"failed to connect to {ecu_id=}: {e!r}") from e
+            _msg = f"{ecu_id=} failed to respond to rollback request on-time: {e!r}"
+            logger.debug(_msg)
+            raise ECUNoResponse(_msg)
