@@ -312,7 +312,7 @@ class ECUStatusStorage:
 
         logger.debug(
             "overall ECU status reporrt updated:"
-            f"{self.lost_ecus_id=}, {self.in_update_ecus_id=},{self.any_requires_network=}"
+            f"{self.lost_ecus_id=}, {self.in_update_ecus_id=},{self.any_requires_network=},"
             f"{self.failed_ecus_id=}, {self.success_ecus_id=}, {self.all_success=}"
         )
 
@@ -544,12 +544,10 @@ class OTAClientServiceStub:
                     and cur_timestamp
                     > otaproxy_last_launched_timestamp + self.OTAPROXY_SHUTDOWN_DELAY
                 ):
-                    logger.info("stop otaproxy as not required")
                     await self._otaproxy_launcher.stop()
                     otaproxy_last_launched_timestamp = 0
             else:  # otaproxy is not running
                 if any_requires_network:
-                    logger.info("start otaproxy as required now")
                     await self._otaproxy_launcher.start(init_cache=False)
                     otaproxy_last_launched_timestamp = cur_timestamp
                 # when otaproxy is not running and any_requires_network is False,
@@ -636,7 +634,7 @@ class OTAClientServiceStub:
 
         # finally, trigger ecu_status_storage entering active mode if needed
         if update_acked_ecus:
-            logger.info("at least one ECU accept update request")
+            logger.info(f"ECUs accept OTA request: {update_acked_ecus}")
             asyncio.create_task(
                 self._ecu_status_storage.on_ecus_accept_update_request(
                     update_acked_ecus
