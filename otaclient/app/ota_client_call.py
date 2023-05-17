@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-import asyncio
 import grpc.aio
 
 from . import log_setting
