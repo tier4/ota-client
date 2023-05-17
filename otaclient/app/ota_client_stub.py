@@ -28,7 +28,7 @@ from .configs import config as cfg, server_cfg
 from .common import ensure_otaproxy_start
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientStub
-from .ota_client_call import ECU_NO_RESPONSE, OtaClientCall
+from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
@@ -460,9 +460,10 @@ class _ECUTracker:
                     ecu_contact.host,
                     ecu_contact.port,
                     timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
+                    request=wrapper.StatusRequest(),
                 )
                 await self._ecu_status_storage.update_from_child_ECU(_ecu_resp)
-            except ECU_NO_RESPONSE as e:
+            except ECUNoResponse as e:
                 logger.warning(
                     f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
                 )
@@ -605,7 +606,7 @@ class OTAClientServiceStub:
             for _task in done:
                 try:
                     _ecu_resp: wrapper.UpdateResponse = _task.result()
-                except ECU_NO_RESPONSE as e:
+                except ECUNoResponse as e:
                     logger.warning(
                         f"{tasks[_task]} doesn't respond to update request on-time"
                         f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
@@ -662,7 +663,7 @@ class OTAClientServiceStub:
             for _task in done:
                 try:
                     _ecu_resp: wrapper.RollbackResponse = _task.result()
-                except ECU_NO_RESPONSE as e:
+                except ECUNoResponse as e:
                     logger.warning(
                         f"{tasks[_task]} doesn't respond to rollback request on-time"
                         f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"

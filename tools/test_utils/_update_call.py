@@ -13,9 +13,8 @@
 # limitations under the License.
 
 
-import asyncio
 import yaml
-from otaclient.app.ota_client_call import OtaClientCall
+from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 from otaclient.app.proto import wrapper
 from . import _logutil
 
@@ -53,5 +52,5 @@ async def call_update(
             ecu_id, ecu_ip, ecu_port, request=update_request
         )
         logger.info(f"{update_response.export_pb()=}")
-    except Exception as e:
+    except ECUNoResponse as e:
         logger.exception(f"update request failed: {e!r}")

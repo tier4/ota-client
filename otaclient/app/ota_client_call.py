@@ -13,11 +13,10 @@
 # limitations under the License.
 
 
-import asyncio
 import grpc.aio
 
 from . import log_setting
-from .proto import wrapper, v2, v2_grpc
+from .proto import wrapper, v2_grpc
 from .configs import config as cfg, server_cfg
 
 logger = log_setting.get_logger(
@@ -25,7 +24,7 @@ logger = log_setting.get_logger(
 )
 
 
-class ECU_NO_RESPONSE(Exception):
+class ECUNoResponse(Exception):
     """Raised when ECU cannot response to request on-time."""
 
 
@@ -36,19 +35,19 @@ class OtaClientCall:
         ecu_ipaddr: str,
         ecu_port: int = server_cfg.SERVER_PORT,
         *,
+        request: wrapper.StatusRequest,
         timeout=None,
     ) -> wrapper.StatusResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
                 stub = v2_grpc.OtaClientServiceStub(channel)
-                resp = await stub.Status(v2.StatusRequest(), timeout=timeout)
+                resp = await stub.Status(request.export_pb(), timeout=timeout)
                 return wrapper.StatusResponse.convert(resp)
-        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            logger.debug(f"{ecu_id=} failed to respond to status request on-time.")
-            raise ECU_NO_RESPONSE(f"{ecu_id=} doesn't response on-time")
         except Exception as e:
-            raise ECU_NO_RESPONSE(f"failed to connect to {ecu_id=}: {e!r}") from e
+            _msg = f"{ecu_id=} failed to respond to status request on-time: {e!r}"
+            logger.debug(_msg)
+            raise ECUNoResponse(_msg)
 
     @staticmethod
     async def update_call(
@@ -65,11 +64,10 @@ class OtaClientCall:
                 stub = v2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Update(request.export_pb(), timeout=timeout)
                 return wrapper.UpdateResponse.convert(resp)
-        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            logger.debug(f"{ecu_id=} failed to respond to update request on-time.")
-            raise ECU_NO_RESPONSE(f"{ecu_id=} doesn't response on-time")
         except Exception as e:
-            raise ECU_NO_RESPONSE(f"failed to connect to {ecu_id=}: {e!r}") from e
+            _msg = f"{ecu_id=} failed to respond to update request on-time: {e!r}"
+            logger.debug(_msg)
+            raise ECUNoResponse(_msg)
 
     @staticmethod
     async def rollback_call(
@@ -86,8 +84,7 @@ class OtaClientCall:
                 stub = v2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Rollback(request.export_pb(), timeout=timeout)
                 return wrapper.RollbackResponse.convert(resp)
-        except (grpc.aio.AioRpcError, asyncio.TimeoutError):
-            logger.debug(f"{ecu_id=} failed to respond to rollback request on-time.")
-            raise ECU_NO_RESPONSE(f"{ecu_id=} doesn't response on-time")
         except Exception as e:
-            raise ECU_NO_RESPONSE(f"failed to connect to {ecu_id=}: {e!r}") from e
+            _msg = f"{ecu_id=} failed to respond to rollback request on-time: {e!r}"
+            logger.debug(_msg)
+            raise ECUNoResponse(_msg)
