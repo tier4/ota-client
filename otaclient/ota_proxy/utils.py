@@ -74,11 +74,3 @@ async def read_file(fpath: PathLike, *, executor: Executor) -> AsyncIterator[byt
     async with aiofiles.open(fpath, "rb", executor=executor) as f:
         while data := await f.read(cfg.CHUNK_SIZE):
             yield data
-
-
-async def verify_file(fpath: PathLike, _hash: str, *, executor: Executor) -> bool:
-    _hash_f = sha256()
-    async with aiofiles.open(fpath, "rb", executor=executor) as f:
-        while data := await f.read(cfg.CHUNK_SIZE):
-            _hash_f.update(data)
-    return _hash_f.hexdigest() == _hash

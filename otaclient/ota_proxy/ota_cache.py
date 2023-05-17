@@ -56,7 +56,6 @@ from .utils import (
     AIOSHA256Hasher,
     TmpCacheFileNaming,
     read_file,
-    verify_file,
 )
 
 logger = logging.getLogger(__name__)
