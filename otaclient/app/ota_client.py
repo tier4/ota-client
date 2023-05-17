@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Optional, Type, Iterator
 from urllib.parse import urlparse
 
-from otaclient import __version__  # type: ignore
 from . import ota_metadata
 from .boot_control import BootControllerProtocol, get_boot_controller
 from .common import RetryTaskMap, wait_with_backoff, ensure_otaproxy_start

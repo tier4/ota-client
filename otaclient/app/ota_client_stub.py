@@ -464,7 +464,7 @@ class _ECUTracker:
                 )
                 await self._ecu_status_storage.update_from_child_ECU(_ecu_resp)
             except ECUNoResponse as e:
-                logger.warning(
+                logger.debug(
                     f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
                 )
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
@@ -573,7 +573,7 @@ class OTAClientServiceStub:
                 self._otaclient_control_flags.set_can_reboot_flag()
             else:
                 logger.debug(
-                    f"local otaclient cannot reboot as {self._ecu_status_storage.in_update_ecus_id}"
+                    f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_childecus_id}"
                     " are in UPDATING ota_status"
                 )
                 self._otaclient_control_flags.clear_can_reboot_flag()

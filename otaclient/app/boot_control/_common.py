@@ -218,7 +218,7 @@ class CMDHelperFuncs:
         cmd = f"-Pp -o NAME {parent_device}"
         res = list(
             map(
-                lambda l: l.split("=")[-1].strip('"'),
+                lambda line: line.split("=")[-1].strip('"'),
                 cls._lsblk(cmd).splitlines(),
             )
         )
