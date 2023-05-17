@@ -606,14 +606,21 @@ class OTAClientServiceStub:
             for _task in done:
                 try:
                     _ecu_resp: wrapper.UpdateResponse = _task.result()
+                    update_acked_ecus.update(_ecu_resp.ecus_acked_update)
+                    response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
+                    _ecu_contact = tasks[_task]
                     logger.warning(
-                        f"{tasks[_task]} doesn't respond to update request on-time"
+                        f"{_ecu_contact} doesn't respond to update request on-time"
                         f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
-                    continue
-                update_acked_ecus.update(_ecu_resp.ecus_acked_update)
-                response.merge_from(_ecu_resp)
+                    # NOTE(20230517): aligns with the previous behavior
+                    response.add_ecu(
+                        wrapper.UpdateResponseEcu(
+                            ecu_id=_ecu_contact.ecu_id,
+                            result=wrapper.FailureType.RECOVERABLE,
+                        )
+                    )
             tasks.clear()
 
         # second: dispatch update request to local if required by incoming request
@@ -663,13 +670,20 @@ class OTAClientServiceStub:
             for _task in done:
                 try:
                     _ecu_resp: wrapper.RollbackResponse = _task.result()
+                    response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
+                    _ecu_contact = tasks[_task]
                     logger.warning(
-                        f"{tasks[_task]} doesn't respond to rollback request on-time"
+                        f"{_ecu_contact} doesn't respond to rollback request on-time"
                         f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
-                    continue
-                response.merge_from(_ecu_resp)
+                    # NOTE(20230517): aligns with the previous behavior
+                    response.add_ecu(
+                        wrapper.RollbackResponseEcu(
+                            ecu_id=_ecu_contact.ecu_id,
+                            result=wrapper.FailureType.RECOVERABLE,
+                        )
+                    )
             tasks.clear()
 
         # second: dispatch rollback request to local if required
