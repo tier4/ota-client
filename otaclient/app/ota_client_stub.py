@@ -612,7 +612,9 @@ class OTAClientServiceStub:
                         f"{_ecu_contact} doesn't respond to update request on-time"
                         f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
-                    # NOTE(20230517): aligns with the previous behavior
+                    # NOTE(20230517): aligns with the previous behavior that create
+                    #                 response with RECOVERABLE OTA error for unresponsive
+                    #                 ECU.
                     response.add_ecu(
                         wrapper.UpdateResponseEcu(
                             ecu_id=_ecu_contact.ecu_id,
@@ -675,7 +677,9 @@ class OTAClientServiceStub:
                         f"{_ecu_contact} doesn't respond to rollback request on-time"
                         f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
-                    # NOTE(20230517): aligns with the previous behavior
+                    # NOTE(20230517): aligns with the previous behavior that create
+                    #                 response with RECOVERABLE OTA error for unresponsive
+                    #                 ECU.
                     response.add_ecu(
                         wrapper.RollbackResponseEcu(
                             ecu_id=_ecu_contact.ecu_id,
