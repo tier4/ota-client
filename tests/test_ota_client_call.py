@@ -14,8 +14,9 @@
 
 
 import grpc
+import pytest
 import pytest_asyncio
-from otaclient.app.ota_client_call import OtaClientCall
+from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 
 from otaclient.app.proto import v2, v2_grpc, wrapper
 from tests.utils import compare_message
@@ -118,7 +119,7 @@ class TestOTAClientCall:
     OTA_CLIENT_SERVICE_IP = "127.0.0.1"
     DUMMY_ECU_ID = "autoware"
 
-    @pytest_asyncio.fixture(autouse=True)
+    @pytest_asyncio.fixture
     async def dummy_ota_client_service(self):
         server = grpc.aio.server()
         v2_grpc.add_OtaClientServiceServicer_to_server(_DummyOTAClientService(), server)
@@ -131,7 +132,7 @@ class TestOTAClientCall:
         finally:
             await server.stop(None)
 
-    async def test_update_call(self):
+    async def test_update_call(self, dummy_ota_client_service):
         _req = wrapper.UpdateRequest.convert(
             _DummyOTAClientService.DUMMY_UPDATE_REQUEST
         )
@@ -145,7 +146,7 @@ class TestOTAClientCall:
             _response.export_pb(), _DummyOTAClientService.DUMMY_UPDATE_RESPONSE
         )
 
-    async def test_rollback_call(self):
+    async def test_rollback_call(self, dummy_ota_client_service):
         _req = wrapper.RollbackRequest.convert(
             _DummyOTAClientService.DUMMY_ROLLBACK_REQUEST
         )
@@ -159,12 +160,26 @@ class TestOTAClientCall:
             _response.export_pb(), _DummyOTAClientService.DUMMY_ROLLBACK_RESPONSE
         )
 
-    async def test_status_call(self):
+    async def test_status_call(self, dummy_ota_client_service):
         _response = await OtaClientCall.status_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
             ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            request=wrapper.StatusRequest(),
         )
 
         assert _response is not None
         compare_message(_response.export_pb(), _DummyOTAClientService.DUMMY_STATUS)
+
+    async def test_update_call_no_response(self):
+        _req = wrapper.UpdateRequest.convert(
+            _DummyOTAClientService.DUMMY_UPDATE_REQUEST
+        )
+        with pytest.raises(ECUNoResponse):
+            await OtaClientCall.update_call(
+                ecu_id=self.DUMMY_ECU_ID,
+                ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                request=_req,
+                timeout=1,
+            )

@@ -114,5 +114,6 @@ class Test_ota_client_service:
             ecu_id=self.MY_ECU_ID,
             ecu_ipaddr=self.LISTEN_ADDR,
             ecu_port=self.LISTEN_PORT,
+            request=wrapper.StatusRequest(),
         )
         compare_message(status_resp, self.otaclient_service_stub.STATUS_RESP)

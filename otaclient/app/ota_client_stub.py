@@ -32,7 +32,7 @@ from .configs import server_cfg, config as cfg
 from .create_standby import get_standby_slot_creator
 from .ecu_info import ECUInfo
 from .ota_client import OTAClient, OTAUpdateFSM
-from .ota_client_call import OtaClientCall
+from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
 from .proto.wrapper import StatusRequest, StatusResponse
 from .proxy_info import proxy_cfg
@@ -298,11 +298,16 @@ class _SubECUTracker:
 
     async def _query_ecu(self, ecu_id: str, ecu_addr: str, ecu_port: int) -> ECUStatus:
         """Query ecu status API once."""
-        resp = await OtaClientCall.status_call(
-            ecu_id, ecu_addr, ecu_port, timeout=self.subecu_query_timeout
-        )
-        # this subecu is unreachable
-        if resp is None:
+        try:
+            resp = await OtaClientCall.status_call(
+                ecu_id,
+                ecu_addr,
+                ecu_port,
+                request=wrapper.StatusRequest(),
+                timeout=self.subecu_query_timeout,
+            )
+        except ECUNoResponse as e:
+            logger.debug(f"failed to query ECU's status: {e!r}")
             return self.ECUStatus.UNREACHABLE
 
         # if ANY OF the subecu and its child ecu are
@@ -435,7 +440,6 @@ class OtaClientStub:
                     result=wrapper.FailureType.RECOVERABLE,
                 )
             )
-
             logger.debug("ignore duplicated update request")
             return response
         else:
@@ -450,26 +454,43 @@ class OtaClientStub:
         tracked_ecus_dict: Dict[str, str] = {}
 
         # simultaneously dispatching update requests to all subecus without blocking
-        coros: List[Coroutine] = []
+        tasks: Dict[asyncio.Task, str] = {}
         for _ecu_id, _ecu_ip in self.subecus_dict.items():
-            if request.if_contains_ecu(_ecu_id):
-                # add to tracked ecu list
-                tracked_ecus_dict[_ecu_id] = _ecu_ip
-                coros.append(
-                    OtaClientCall.update_call(
-                        _ecu_id,
-                        _ecu_ip,
-                        server_cfg.SERVER_PORT,
-                        request=request,
-                        timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
-                    )
-                )
-        logger.info(f"update: {tracked_ecus_dict=}")
+            if not request.if_contains_ecu(_ecu_id):
+                continue
 
-        # wait for all sub ecu acknowledge ota update requests
-        update_resp: wrapper.UpdateResponse
-        for update_resp in await asyncio.gather(*coros):
-            response.merge_from(update_resp)
+            # add to tracked ecu list
+            tracked_ecus_dict[_ecu_id] = _ecu_ip
+            _task = asyncio.create_task(
+                OtaClientCall.update_call(
+                    _ecu_id,
+                    _ecu_ip,
+                    server_cfg.SERVER_PORT,
+                    request=request,
+                    timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
+                )
+            )
+            tasks[_task] = _ecu_id
+
+        if tasks:  # NOTE: input for asyncio.wait must not be empty!
+            done, _ = await asyncio.wait(tasks)
+            for _task in done:
+                try:
+                    _ecu_resp: wrapper.UpdateResponse = _task.result()
+                    response.merge_from(_ecu_resp)
+                except ECUNoResponse as e:
+                    ecu_id = tasks[_task]
+                    logger.warning(
+                        f"{tasks[_task]} doesn't respond to update request on-time"
+                        f"(within {server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT}s): {e!r}"
+                    )
+                    response.add_ecu(
+                        wrapper.UpdateResponseEcu(
+                            ecu_id=ecu_id,
+                            result=wrapper.FailureType.RECOVERABLE,
+                        )
+                    )
+            tasks.clear()
 
         # after all subecus ack the update request, update my ecu
         my_ecu_tracking_task: Optional[Coroutine] = None
@@ -541,28 +562,46 @@ class OtaClientStub:
         logger.info(f"{request=}")
         response = wrapper.RollbackResponse()
 
-        # wait for all subecus to ack the requests
         tracked_ecus_dict: Dict[str, str] = {}
-        coros: List[Coroutine] = []
+        tasks: Dict[asyncio.Task, str] = {}
         for _ecu_id, _ecu_ip in self.subecus_dict.items():
-            if request.if_contains_ecu(_ecu_id):
-                # add to tracked ecu list
-                tracked_ecus_dict[_ecu_id] = _ecu_ip
-                coros.append(
-                    OtaClientCall.rollback_call(
-                        _ecu_id,
-                        _ecu_ip,
-                        server_cfg.SERVER_PORT,
-                        request=request,
-                        # TODO: should rollback timeout has its own value?
-                        timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
-                    )
-                )
-        logger.info(f"rollback: {tracked_ecus_dict=}")
+            if not request.if_contains_ecu(_ecu_id):
+                continue
 
-        # wait for all sub ecu acknowledge ota rollback requests
-        for rollback_resp in await asyncio.gather(*coros):
-            response.merge_from(rollback_resp)
+            # add to tracked ecu list
+            tracked_ecus_dict[_ecu_id] = _ecu_ip
+            _task = asyncio.create_task(
+                OtaClientCall.rollback_call(
+                    _ecu_id,
+                    _ecu_ip,
+                    server_cfg.SERVER_PORT,
+                    request=request,
+                    timeout=server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT,
+                )
+            )
+            tasks[_task] = _ecu_id
+
+        if tasks:  # NOTE: input for asyncio.wait must not be empty!
+            done, _ = await asyncio.wait(tasks)
+            for _task in done:
+                try:
+                    _ecu_resp: wrapper.RollbackResponse = _task.result()
+                    response.merge_from(_ecu_resp)
+                except ECUNoResponse as e:
+                    ecu_id = tasks[_task]
+                    logger.warning(
+                        f"{tasks[_task]} doesn't respond to rollback request on-time"
+                        f"(within {server_cfg.WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT}s): {e!r}"
+                    )
+                    response.add_ecu(
+                        wrapper.RollbackResponseEcu(
+                            ecu_id=ecu_id,
+                            result=wrapper.FailureType.RECOVERABLE,
+                        )
+                    )
+            tasks.clear()
+        # NOTE: we don't track ECU rollbacking currently
+        logger.info(f"rollback: {tracked_ecus_dict=}")
 
         # after all subecus response the request, rollback my ecu
         if entry := request.if_contains_ecu(self.my_ecu_id):
@@ -615,12 +654,14 @@ class OtaClientStub:
                             subecu_id,
                             subecu_addr,
                             server_cfg.SERVER_PORT,
+                            request=wrapper.StatusRequest(),
                             timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                         )
                     )
                 # merge the subecu and its child ecus status
-                for subecu_resp in await asyncio.gather(*coros):
-                    if subecu_resp is None:
+                for subecu_resp in await asyncio.gather(*coros, return_exceptions=True):
+                    if isinstance(subecu_resp, ECUNoResponse):
+                        logger.debug(f"failed to query ECU's status: {subecu_resp!r}")
                         continue
                     resp.merge_from(subecu_resp)
                 # prepare my_ecu status

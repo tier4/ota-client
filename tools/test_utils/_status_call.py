@@ -16,7 +16,8 @@
 import itertools
 import time
 from typing import Optional
-from otaclient.app.ota_client_call import OtaClientCall
+from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
+from otaclient.app.proto import wrapper
 from . import _logutil
 
 logger = _logutil.get_logger(__name__)
@@ -37,9 +38,9 @@ async def call_status(
     for poll_round in count_iter:
         logger.debug(f"status request#{poll_round}")
         try:
-            if response := await OtaClientCall.status_call(ecu_id, ecu_ip, ecu_port):
-                logger.debug(f"{response.export_pb()=}")
-        except Exception as e:
+            response = await OtaClientCall.status_call(ecu_id, ecu_ip, ecu_port, request=wrapper.StatusRequest())
+            logger.debug(f"{response.export_pb()=}")
+        except ECUNoResponse as e:
             logger.debug(f"API request failed: {e!r}")
             continue
         time.sleep(interval)
