@@ -415,18 +415,23 @@ class ECUStatusStorage:
         NOTE: wrapper.StatusResponse's add_ecu method already takes care of
               v1 format backward-compatibility(input v2 format will result in
               v1 format and v2 format in the StatusResponse).
+        NOTE: to align with preivous behavior that disconnected/unreachable ECU should have no
+              entry in status API response, simulate this behavior by skipping unreachable ECU's
+              entry.
         """
         res = wrapper.StatusResponse()
         res.available_ecu_ids.extend(self._all_available_ecus_id)
 
         ecu_using_v2 = set()
         for ecu_id, ecu_status_v2 in self._all_ecus_status_v2.items():
+            if ecu_id in self.lost_ecus_id:
+                continue
             res.add_ecu(ecu_status_v2)
             ecu_using_v2.add(ecu_id)
 
         for ecu_id, ecu_status_v1 in self._all_ecus_status_v1.items():
-            if ecu_id in ecu_using_v2:
-                continue  # if already populated by v2, skip
+            if ecu_id in ecu_using_v2 or ecu_id in self.lost_ecus_id:
+                continue
             res.add_ecu(ecu_status_v1)
         return res
 
