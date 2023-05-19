@@ -42,7 +42,6 @@ from typing import (
 )
 from urllib.parse import urljoin
 
-
 from .log_setting import get_logger
 from .configs import config as cfg
 
