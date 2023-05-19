@@ -683,7 +683,7 @@ class TestOTAClientServiceStub:
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)  # ensure the task stopping
 
         # --- mocker --- #
-        self.otaclient_stub = mocker.MagicMock(spec=OTAClientWrapper)
+        self.otaclient_wrapper = mocker.MagicMock(spec=OTAClientWrapper)
         self.ecu_status_tracker = mocker.MagicMock()
         self.otaproxy_launcher = mocker.MagicMock(spec=OTAProxyLauncher)
         # mock OTAClientCall, make update_call return success on any update dispatches to subECUs
@@ -703,8 +703,8 @@ class TestOTAClientServiceStub:
             mocker.MagicMock(return_value=self.ecu_storage),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAClientStub",
-            mocker.MagicMock(return_value=self.otaclient_stub),
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAClientWrapper",
+            mocker.MagicMock(return_value=self.otaclient_wrapper),
         )
         mocker.patch(
             f"{cfg.OTACLIENT_STUB_MODULE_PATH}._ECUTracker",
@@ -866,7 +866,7 @@ class TestOTAClientServiceStub:
 
     async def test_update_local_ecu_busy(self):
         # --- preparation --- #
-        self.otaclient_stub.dispatch_update.side_effect = OTAClientBusy()
+        self.otaclient_wrapper.dispatch_update.side_effect = OTAClientBusy()
         update_request_ecu = wrapper.UpdateRequestEcu(
             ecu_id="autoware", version="version", url="url", cookies="cookies"
         )
@@ -885,4 +885,6 @@ class TestOTAClientServiceStub:
                 )
             ]
         )
-        self.otaclient_stub.dispatch_update.assert_called_once_with(update_request_ecu)
+        self.otaclient_wrapper.dispatch_update.assert_called_once_with(
+            update_request_ecu
+        )

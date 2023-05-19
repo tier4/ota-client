@@ -354,7 +354,7 @@ class Test_OTAClient:
         )
 
 
-class TestOTAClientStub:
+class TestOTAClientWrapper:
     BOOTLOADER_TYPE = BootloaderType.GRUB
     ECU_INFO = ECUInfo(
         format_version=1,
