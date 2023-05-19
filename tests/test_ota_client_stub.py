@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Set
 import pytest_mock
 
 from otaclient.app.ecu_info import ECUInfo
-from otaclient.app.ota_client import OTAClientBusy, OTAClientStub
+from otaclient.app.ota_client import OTAClientBusy, OTAClientWrapper
 from otaclient.app.ota_client_call import OtaClientCall
 from otaclient.app.ota_client_stub import (
     ECUStatusStorage,
@@ -386,9 +386,9 @@ class TestECUStatusStorage:
         expected: wrapper.StatusResponse,
     ):
         # --- prepare --- #
-        await self.ecu_storage.update_from_local_ECU(local_ecu_status)
+        await self.ecu_storage.update_from_local_ecu(local_ecu_status)
         for ecu_status_report in sub_ecus_status:
-            await self.ecu_storage.update_from_child_ECU(ecu_status_report)
+            await self.ecu_storage.update_from_child_ecu(ecu_status_report)
 
         # --- execution --- #
         exported = self.ecu_storage.export()
@@ -502,9 +502,9 @@ class TestECUStatusStorage:
         properties_dict: Dict[str, Any],
     ):
         # --- prepare --- #
-        await self.ecu_storage.update_from_local_ECU(local_ecu_status)
+        await self.ecu_storage.update_from_local_ecu(local_ecu_status)
         for ecu_status_report in sub_ecus_status:
-            await self.ecu_storage.update_from_child_ECU(ecu_status_report)
+            await self.ecu_storage.update_from_child_ecu(ecu_status_report)
         await asyncio.sleep(
             self.SAFE_INTERVAL_FOR_PROPERTY_UPDATE
         )  # wait for status report generation
@@ -628,9 +628,9 @@ class TestECUStatusStorage:
         properties_dict: Dict[str, Any],
     ):
         # --- prepare --- #
-        await self.ecu_storage.update_from_local_ECU(local_ecu_status)
+        await self.ecu_storage.update_from_local_ecu(local_ecu_status)
         for ecu_status_report in sub_ecus_status:
-            await self.ecu_storage.update_from_child_ECU(ecu_status_report)
+            await self.ecu_storage.update_from_child_ecu(ecu_status_report)
         await asyncio.sleep(
             self.SAFE_INTERVAL_FOR_PROPERTY_UPDATE
         )  # wait for status report generation
@@ -683,7 +683,7 @@ class TestOTAClientServiceStub:
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)  # ensure the task stopping
 
         # --- mocker --- #
-        self.otaclient_stub = mocker.MagicMock(spec=OTAClientStub)
+        self.otaclient_stub = mocker.MagicMock(spec=OTAClientWrapper)
         self.ecu_status_tracker = mocker.MagicMock()
         self.otaproxy_launcher = mocker.MagicMock(spec=OTAProxyLauncher)
         # mock OTAClientCall, make update_call return success on any update dispatches to subECUs

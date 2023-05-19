@@ -36,7 +36,7 @@ from otaclient.app.ota_client import (
     _OTAUpdater,
     OTAClientBusy,
     OTAClientControlFlags,
-    OTAClientStub,
+    OTAClientWrapper,
 )
 from otaclient.app.ota_metadata import parse_regulars_from_txt, parse_dirs_from_txt
 from otaclient.app.proto.wrapper import RegularInf, DirectoryInf
@@ -386,7 +386,7 @@ class TestOTAClientStub:
 
         # start the stub
         self.local_use_proxy = ""
-        self.otaclient_stub = OTAClientStub(
+        self.otaclient_stub = OTAClientWrapper(
             ecu_info=self.ECU_INFO,
             executor=self._executor,
             control_flags=self.control_flags,

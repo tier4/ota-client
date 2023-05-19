@@ -27,7 +27,7 @@ from . import log_setting
 from .configs import config as cfg, server_cfg
 from .common import ensure_otaproxy_start
 from .ecu_info import ECUContact, ECUInfo
-from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientStub
+from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientWrapper
 from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
@@ -344,7 +344,7 @@ class ECUStatusStorage:
 
     # API
 
-    async def update_from_child_ECU(self, status_resp: wrapper.StatusResponse):
+    async def update_from_child_ecu(self, status_resp: wrapper.StatusResponse):
         """Update the ECU status storage with child ECU's status report(StatusResponse)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
@@ -363,7 +363,7 @@ class ECUStatusStorage:
                 self._all_ecus_status_v1[ecu_id] = ecu_status_v1
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
 
-    async def update_from_local_ECU(self, ecu_status: wrapper.StatusResponseEcuV2):
+    async def update_from_local_ecu(self, ecu_status: wrapper.StatusResponseEcuV2):
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
@@ -439,7 +439,7 @@ class _ECUTracker:
         ecu_status_storage: ECUStatusStorage,
         *,
         ecu_info: ECUInfo,
-        otaclient_stub: OTAClientStub,
+        otaclient_stub: OTAClientWrapper,
     ) -> None:
         self._otaclient_stub = otaclient_stub  # for local ECU status polling
         self._ecu_status_storage = ecu_status_storage
@@ -462,7 +462,7 @@ class _ECUTracker:
                     timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                     request=wrapper.StatusRequest(),
                 )
-                await self._ecu_status_storage.update_from_child_ECU(_ecu_resp)
+                await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)
             except ECUNoResponse as e:
                 logger.debug(
                     f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
@@ -473,7 +473,7 @@ class _ECUTracker:
         """Task entry for loop polling local ECU status."""
         while not self._ecu_status_polling_shutdown_event.is_set():
             status_report = await self._otaclient_stub.get_status()
-            await self._ecu_status_storage.update_from_local_ECU(status_report)
+            await self._ecu_status_storage.update_from_local_ecu(status_report)
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
 
 
@@ -497,7 +497,7 @@ class OTAClientServiceStub:
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
-        self._otaclient_stub = OTAClientStub(
+        self._otaclient_stub = OTAClientWrapper(
             ecu_info=ecu_info,
             executor=self._executor,
             control_flags=self._otaclient_control_flags,

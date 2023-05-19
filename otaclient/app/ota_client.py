@@ -583,7 +583,7 @@ class OTAClientBusy(Exception):
     """Raised when otaclient receive another request when doing update/rollback."""
 
 
-class OTAClientStub:
+class OTAClientWrapper:
     """OTAClient stub implementation that wraps OTAClient, manage update/rollback session,
     and exposes async API for OTAClientServiceStub.
 
