@@ -354,11 +354,11 @@ class ECUStatusStorage:
             )
 
             # NOTE: explicitly support v1 format for backward-compatible with old otaclient
-            for ecu_status_v2 in status_resp.ecu_v2:
+            for ecu_status_v2 in status_resp.iter_ecu_v2():
                 ecu_id = ecu_status_v2.ecu_id
                 self._all_ecus_status_v2[ecu_id] = ecu_status_v2
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
-            for ecu_status_v1 in status_resp.ecu:
+            for ecu_status_v1 in status_resp.iter_ecu():
                 ecu_id = ecu_status_v1.ecu_id
                 self._all_ecus_status_v1[ecu_id] = ecu_status_v1
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
