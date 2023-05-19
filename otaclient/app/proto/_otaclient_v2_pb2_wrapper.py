@@ -17,16 +17,16 @@
 from __future__ import annotations
 from abc import abstractmethod
 from functools import cached_property
-from itertools import chain
 from copy import deepcopy
 from typing import (
     Any,
+    List as _List,
+    Iterable as _Iterable,
     Iterator as _Iterator,
     Mapping as _Mapping,
     Optional as _Optional,
     Protocol as _Protocol,
     Set as _Set,
-    Iterable as _Iterable,
     TypeVar as _TypeVar,
     Union as _Union,
 )
@@ -53,10 +53,13 @@ class ECU(_Protocol):
 ECUType = _TypeVar("ECUType", bound=ECU)
 
 
-class ECUsList(_Protocol[ECUType]):
+class ECUList(_Protocol[ECUType]):
     """A type of message that contains a list of ECUType."""
 
-    ecu: _Iterable[ECUType]
+    ecu: _List[ECUType]
+
+    def add_ecu(self, ecu: ECUType):
+        self.ecu.append(ecu)
 
     def if_contains_ecu(self, ecu_id: str) -> bool:
         for ecu in self.ecu:
@@ -69,30 +72,56 @@ class ECUsList(_Protocol[ECUType]):
             if ecu.ecu_id == ecu_id:
                 return ecu
 
-    def iter_ecu(self) -> _Iterable[ECUType]:
+    def iter_ecu(self) -> _Iterator[ECUType]:
         yield from self.ecu
 
 
+class ECUV2List(_Protocol[ECUType]):
+    """A type of message that contains a list of ECUType."""
+
+    ecu_v2: _List[ECUType]
+
+    @abstractmethod
+    def add_ecu(self, ecu: ECUType):
+        """NOTE: add_ecu method should also support adding ecu_v1 inst."""
+
+    def if_contains_ecu_v2(self, ecu_id: str) -> bool:
+        for ecu in self.ecu_v2:
+            if ecu.ecu_id == ecu_id:
+                return True
+        return False
+
+    def find_ecu_v2(self, ecu_id: str) -> _Optional[ECUType]:
+        for ecu in self.ecu_v2:
+            if ecu.ecu_id == ecu_id:
+                return ecu
+
+    def iter_ecu_v2(self) -> _Iterable[ECUType]:
+        yield from self.ecu_v2
+
+
 class ECUStatusSummary(_Protocol):
+    """Common status summary protocol for StatusResponseEcu and StatusResponseEcuV2."""
+
     @property
     @abstractmethod
     def is_in_update(self) -> bool:
-        ...
+        """If this ECU is in UPDATING ota_status."""
 
     @property
     @abstractmethod
     def is_failed(self) -> bool:
-        ...
+        """If this ECU is in FAILURE ota_status."""
 
     @property
     @abstractmethod
     def is_success(self) -> bool:
-        ...
+        """If this ECU is in SUCCESS ota_status."""
 
     @property
     @abstractmethod
     def if_requires_network(self) -> bool:
-        ...
+        """If this ECU is in UPDATING and requires network connection for OTA."""
 
 
 # enum
@@ -150,17 +179,11 @@ class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
         ...
 
 
-class RollbackRequest(
-    ECUsList[RollbackRequestEcu], MessageWrapper[_v2.RollbackRequest]
-):
+class RollbackRequest(ECUList[RollbackRequestEcu], MessageWrapper[_v2.RollbackRequest]):
     __slots__ = calculate_slots(_v2.RollbackRequest)
     ecu: RepeatedCompositeContainer[RollbackRequestEcu]
 
-    def __init__(
-        self,
-        *,
-        ecu: _Optional[_Iterable[RollbackRequestEcu]] = ...,
-    ) -> None:
+    def __init__(self, *, ecu: _Optional[_Iterable[RollbackRequestEcu]] = ...) -> None:
         ...
 
 
@@ -179,23 +202,13 @@ class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
 
 
 class RollbackResponse(
-    ECUsList[RollbackResponseEcu], MessageWrapper[_v2.RollbackResponse]
+    ECUList[RollbackResponseEcu], MessageWrapper[_v2.RollbackResponse]
 ):
     __slots__ = calculate_slots(_v2.RollbackResponse)
     ecu: RepeatedCompositeContainer[RollbackResponseEcu]
 
     def __init__(self, *, ecu: _Optional[_Iterable[RollbackResponseEcu]] = ...) -> None:
         ...
-
-    def add_ecu(
-        self, _response_ecu: _Union[RollbackResponseEcu, _v2.RollbackResponseEcu]
-    ):
-        if isinstance(_response_ecu, RollbackResponseEcu):
-            self.ecu.append(_response_ecu)
-        elif isinstance(_response_ecu, _v2.RollbackRequestEcu):
-            self.ecu.append(RollbackResponseEcu.convert(_response_ecu))
-        else:
-            raise TypeError
 
     def merge_from(self, rollback_response: _Union[Self, _v2.RollbackResponse]):
         if isinstance(rollback_response, _v2.RollbackResponse):
@@ -457,8 +470,6 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcu
             ),
         )
 
-    # helper properties
-
     @property
     def is_in_update(self) -> bool:
         return self.ota_status is StatusOta.UPDATING
@@ -479,10 +490,11 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcu
         )
 
 
-class StatusResponse(MessageWrapper[_v2.StatusResponse]):
-    """NOTE: StatusResponse aligns to ECUsList protocol, but it handles
-    both v1 and v2 ECU status report format, and use v2 format in prior."""
-
+class StatusResponse(
+    ECUV2List[StatusResponseEcuV2],
+    ECUList[StatusResponseEcu],
+    MessageWrapper[_v2.StatusResponse],
+):
     __slots__ = calculate_slots(_v2.StatusResponse)
     available_ecu_ids: RepeatedScalarContainer[str]
     ecu: RepeatedCompositeContainer[StatusResponseEcu]
@@ -495,33 +507,6 @@ class StatusResponse(MessageWrapper[_v2.StatusResponse]):
         ecu_v2: _Optional[_Iterable[_Union[StatusResponseEcuV2, _Mapping]]] = ...,
     ) -> None:
         ...
-
-    # ECUsList protocol methods
-
-    def if_contains_ecu(self, ecu_id: str) -> bool:
-        for ecu in chain(self.ecu_v2, self.ecu):
-            if ecu.ecu_id == ecu_id:
-                return True
-        return False
-
-    def find_ecu(
-        self, ecu_id: str
-    ) -> _Optional[_Union[StatusResponseEcu, StatusResponseEcuV2]]:
-        for ecu in chain(self.ecu_v2, self.ecu):
-            if ecu.ecu_id == ecu_id:
-                return ecu
-
-    def iter_ecu(self) -> _Iterator[StatusResponseEcuV2 | StatusResponseEcu]:
-        """NOTE: if ECU status is available in v2, use v2 in prior."""
-        ecus_in_v2 = set()
-        for ecu in self.ecu_v2:
-            ecus_in_v2.add(ecu.ecu_id)
-            yield ecu
-        for ecu in self.ecu:
-            if ecu.ecu_id not in ecus_in_v2:
-                yield ecu
-
-    # other helper methods
 
     def add_ecu(self, _response_ecu: Any):
         # v2
@@ -570,7 +555,7 @@ class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
         ...
 
 
-class UpdateRequest(ECUsList[UpdateRequestEcu], MessageWrapper[_v2.UpdateRequest]):
+class UpdateRequest(ECUList[UpdateRequestEcu], MessageWrapper[_v2.UpdateRequest]):
     __slots__ = calculate_slots(_v2.UpdateRequest)
     ecu: RepeatedCompositeContainer[UpdateRequestEcu]
 
@@ -592,7 +577,7 @@ class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
         ...
 
 
-class UpdateResponse(ECUsList[UpdateResponseEcu], MessageWrapper[_v2.UpdateResponse]):
+class UpdateResponse(ECUList[UpdateResponseEcu], MessageWrapper[_v2.UpdateResponse]):
     __slots__ = calculate_slots(_v2.UpdateResponse)
     ecu: RepeatedCompositeContainer[UpdateResponseEcu]
 
@@ -608,14 +593,6 @@ class UpdateResponse(ECUsList[UpdateResponseEcu], MessageWrapper[_v2.UpdateRespo
                 if ecu_resp.result is FailureType.NO_FAILURE
             ]
         )
-
-    def add_ecu(self, _response_ecu: _Union[UpdateResponseEcu, _v2.UpdateResponseEcu]):
-        if isinstance(_response_ecu, UpdateResponseEcu):
-            self.ecu.append(_response_ecu)
-        elif isinstance(_response_ecu, _v2.UpdateResponseEcu):
-            self.ecu.append(UpdateResponseEcu.convert(_response_ecu))
-        else:
-            raise TypeError
 
     def merge_from(self, update_response: _Union[Self, _v2.UpdateResponse]):
         if isinstance(update_response, _v2.UpdateResponse):
