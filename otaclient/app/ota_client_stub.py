@@ -580,16 +580,19 @@ class OTAClientServiceStub:
         under UPDATING ota_status.
         """
         while not self._status_checking_shutdown_event.is_set():
+            _can_reboot = self._otaclient_control_flags._can_reboot.is_set()
             if not self._ecu_status_storage.in_update_childecus_id:
-                logger.debug(
-                    "local otaclient can reboot as no child ECU is in UPDATING ota_status"
-                )
+                if not _can_reboot:
+                    logger.debug(
+                        "local otaclient can reboot as no child ECU is in UPDATING ota_status"
+                    )
                 self._otaclient_control_flags.set_can_reboot_flag()
             else:
-                logger.debug(
-                    f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_childecus_id}"
-                    " are in UPDATING ota_status"
-                )
+                if _can_reboot:
+                    logger.debug(
+                        f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_childecus_id}"
+                        " are in UPDATING ota_status"
+                    )
                 self._otaclient_control_flags.clear_can_reboot_flag()
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
 
