@@ -156,7 +156,7 @@ class BaseConfig(_InternalSettings):
     # ECUs status report.
     # NOTE: unreachable_timeout should be larger than
     #       downloading_group timeout
-    ECU_UNREACHABLE_TIMEOUT = 10 * 60  # seconds
+    ECU_UNREACHABLE_TIMEOUT = 20 * 60  # seconds
 
     # Otaproxy should not be shutdowned with less than <INTERVAL> seconds
     # after it just starts to prevent repeatedly start/stop cycle.
