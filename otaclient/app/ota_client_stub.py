@@ -186,6 +186,12 @@ class ECUStatusStorage:
     IDLE_POLLING_INTERVAL = cfg.IDLE_INTERVAL
     ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
+    # NOTE(20230522):
+    #   ECU will be treated as disconnected if we cannot get in touch with it
+    #   longer than <DISCONNECTED_ECU_TIMEOUT_FACTOR> * <current_polling_interval>.
+    #   disconnected ECU will be excluded from status API response.
+    DISCONNECTED_ECU_TIMEOUT_FACTOR = 3
+
     def __init__(self, ecu_info: ECUInfo) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
@@ -415,24 +421,29 @@ class ECUStatusStorage:
         NOTE: wrapper.StatusResponse's add_ecu method already takes care of
               v1 format backward-compatibility(input v2 format will result in
               v1 format and v2 format in the StatusResponse).
-        NOTE: to align with preivous behavior that disconnected/unreachable ECU should have no
-              entry in status API response, simulate this behavior by skipping unreachable ECU's
-              entry.
+        NOTE: to align with preivous behavior that disconnected ECU should have no
+              entry in status API response, simulate this behavior by skipping
+              disconnected ECU's status report entry.
         """
         res = wrapper.StatusResponse()
         res.available_ecu_ids.extend(self._all_available_ecus_id)
 
-        ecu_using_v2 = set()
-        for ecu_id, ecu_status_v2 in self._all_ecus_status_v2.items():
+        for ecu_id in self._all_available_ecus_id:
             if ecu_id in self.lost_ecus_id:
                 continue
-            res.add_ecu(ecu_status_v2)
-            ecu_using_v2.add(ecu_id)
-
-        for ecu_id, ecu_status_v1 in self._all_ecus_status_v1.items():
-            if ecu_id in ecu_using_v2 or ecu_id in self.lost_ecus_id:
+            _timout = (
+                self._all_ecus_last_contact_timestamp.get(ecu_id, 0)
+                + self.DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
+            )
+            # if this ECU doesn't respond recently enough
+            if self.storage_last_updated_timestamp > _timout:
                 continue
-            res.add_ecu(ecu_status_v1)
+
+            _ecu_status_rep = self._all_ecus_status_v2.get(
+                ecu_id, self._all_ecus_status_v1.get(ecu_id, None)
+            )
+            if _ecu_status_rep:
+                res.add_ecu(_ecu_status_rep)
         return res
 
 
