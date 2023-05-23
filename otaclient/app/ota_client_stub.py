@@ -359,15 +359,22 @@ class ECUStatusStorage:
                 {ecu_id: None for ecu_id in status_resp.available_ecu_ids}
             )
 
-            # NOTE: explicitly support v1 format for backward-compatible with old otaclient
+            # NOTE: use v2 if v2 is available, but explicitly support v1 format
+            #       for backward-compatible with old otaclient
+            # NOTE: edge condition of ECU doing OTA downgrade to old image with old otaclient,
+            #       this ECU will report status in v1 when downgrade is finished! So if we use
+            #       v1 status report, we should remove the entry in v2, vice versa.
             for ecu_status_v2 in status_resp.iter_ecu_v2():
                 ecu_id = ecu_status_v2.ecu_id
                 self._all_ecus_status_v2[ecu_id] = ecu_status_v2
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
+                self._all_ecus_status_v1.pop(ecu_id, None)
+
             for ecu_status_v1 in status_resp.iter_ecu():
                 ecu_id = ecu_status_v1.ecu_id
                 self._all_ecus_status_v1[ecu_id] = ecu_status_v1
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
+                self._all_ecus_status_v2.pop(ecu_id, None)
 
     async def update_from_local_ecu(self, ecu_status: wrapper.StatusResponseEcuV2):
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
