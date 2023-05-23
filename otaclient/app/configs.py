@@ -167,7 +167,8 @@ class BaseConfig(_InternalSettings):
     # pre-mature overall ECU status changed caused by child ECU delayed ack to update request.
     #
     # This pre-set overall ECU status will be kept for <KEEP_TIME> seconds.
-    KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED = 5 * 60  # seconds
+    # This value is expected to be larger than the time cost for subECU acks the OTA request.
+    KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED = 60  # seconds
 
     # Active status polling interval, when there is active OTA update in the cluster.
     ACTIVE_INTERVAL = 1  # second
