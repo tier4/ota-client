@@ -364,14 +364,18 @@ class ECUStatusStorage:
             # NOTE: edge condition of ECU doing OTA downgrade to old image with old otaclient,
             #       this ECU will report status in v1 when downgrade is finished! So if we use
             #       v1 status report, we should remove the entry in v2, vice versa.
+            _processed_ecus_id = set()
             for ecu_status_v2 in status_resp.iter_ecu_v2():
                 ecu_id = ecu_status_v2.ecu_id
                 self._all_ecus_status_v2[ecu_id] = ecu_status_v2
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
                 self._all_ecus_status_v1.pop(ecu_id, None)
+                _processed_ecus_id.add(ecu_id)
 
             for ecu_status_v1 in status_resp.iter_ecu():
                 ecu_id = ecu_status_v1.ecu_id
+                if ecu_id in _processed_ecus_id:
+                    continue  # use v2 in prior
                 self._all_ecus_status_v1[ecu_id] = ecu_status_v1
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
                 self._all_ecus_status_v2.pop(ecu_id, None)
