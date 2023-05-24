@@ -23,11 +23,11 @@ import requests.exceptions
 import urllib3.exceptions
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from queue import Empty, Queue
 from functools import partial, wraps
 from hashlib import sha256
 from os import PathLike
-from pathlib import Path
 from typing import (
     IO,
     Any,
@@ -179,8 +179,8 @@ class Downloader:
             initializer=self._thread_initializer,
         )
         self._hash_func = sha256
-        self._proxies: Optional[Dict[str, str]] = None
-        self._cookies: Optional[Dict[str, str]] = None
+        self._proxies: Dict[str, str] = {}
+        self._cookies: Dict[str, str] = {}
         self.shutdowned = threading.Event()
 
         # downloading stats collecting
@@ -282,71 +282,12 @@ class Downloader:
             # wait for collector
             self._stats_collector.join()
 
-    @partial(
-        _retry_on_transfer_interruption, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX
-    )
-    def _download_task(
-        self,
-        url: str,
-        dst: PathLike,
-        *,
-        size: Optional[int] = None,
-        digest: Optional[str] = None,
-        proxies: Optional[Dict[str, str]] = None,
-        cookies: Optional[Dict[str, str]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        compression_alg: Optional[str] = None,
-        use_http_if_proxy_set: bool = True,
-    ) -> Tuple[int, int, int]:
-        # NOTE: if proxy is set and use_http_if_proxy_set is true,
-        #       unconditionally change scheme to HTTP
-        _proxies = proxies or self._proxies
-        if _proxies and use_http_if_proxy_set and "http" in _proxies:
-            url = urlsplit(url)._replace(scheme="http").geturl()
-
-        # use input cookies or inst's cookie
-        _cookies = cookies or self._cookies
-
-        _hash_inst = self._hash_func()
-        # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
-        #       the number will be of the decompressed file)
-        downloaded_file_size = 0
-        # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
-        traffic_on_wire = 0
-        _err_count = 0
-
+    @contextmanager
+    @staticmethod
+    def _downloading_exception_handler(url, dst):
+        """Mapping exceptions to downloading exceptions."""
         try:
-            with self._session.get(
-                url, stream=True, proxies=_proxies, cookies=_cookies, headers=headers
-            ) as resp, open(dst, "wb") as _dst:
-                resp.raise_for_status()
-
-                raw_resp: HTTPResponse = resp.raw
-                if raw_resp.retries:
-                    _err_count = len(raw_resp.retries.history)
-
-                # support for compresed file
-                if decompressor := self._get_decompressor(compression_alg):
-                    for _chunk in decompressor.iter_chunk(resp.raw):
-                        _hash_inst.update(_chunk)
-                        _dst.write(_chunk)
-                        downloaded_file_size += len(_chunk)
-
-                        _traffic_on_wire = raw_resp.tell()
-                        self._traffic_report_que.put_nowait(
-                            _traffic_on_wire - traffic_on_wire
-                        )
-                        traffic_on_wire = _traffic_on_wire
-                # un-compressed file
-                else:
-                    for _chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
-                        _hash_inst.update(_chunk)
-                        _dst.write(_chunk)
-
-                        chunk_len = len(_chunk)
-                        downloaded_file_size += chunk_len
-                        self._traffic_report_que.put_nowait(chunk_len)
-                        traffic_on_wire += chunk_len
+            yield
         except requests.exceptions.RetryError as e:
             raise ExceedMaxRetryError(url, dst, f"{e!r}")
         except (
@@ -374,15 +315,80 @@ class Downloader:
             # only handle disk out-of-space error
             if e.errno == errno.ENOSPC:
                 raise DownloadFailedSpaceNotEnough(url, dst) from None
-        finally:
-            # download is finished, clear the active flag
-            active_flag.clear()
+
+    @partial(
+        _retry_on_transfer_interruption, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX
+    )
+    def _download_task(
+        self,
+        url: str,
+        dst: PathLike,
+        *,
+        size: Optional[int] = None,
+        digest: Optional[str] = None,
+        proxies: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        compression_alg: Optional[str] = None,
+        use_http_if_proxy_set: bool = True,
+    ) -> Tuple[int, int, int]:
+        # NOTE: if proxy is set and use_http_if_proxy_set is true,
+        #       unconditionally change scheme to HTTP
+        proxies = proxies or self._proxies
+        if use_http_if_proxy_set and "http" in proxies:
+            url = urlsplit(url)._replace(scheme="http").geturl()
+
+        # use input cookies or inst's cookie
+        cookies = cookies or self._cookies
+
+        _hash_inst = self._hash_func()
+        # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
+        #       the number will be of the decompressed file)
+        downloaded_file_size = 0
+        # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
+        traffic_on_wire = 0
+        err_count = 0
+
+        with self._session.get(
+            url, stream=True, proxies=proxies, cookies=cookies, headers=headers
+        ) as resp, open(dst, "wb") as _dst, self._downloading_exception_handler(
+            url, dst
+        ):
+            resp.raise_for_status()
+
+            raw_resp: HTTPResponse = resp.raw
+            if raw_resp.retries:
+                err_count = len(raw_resp.retries.history)
+
+            # support for compresed file
+            if decompressor := self._get_decompressor(compression_alg):
+                for _chunk in decompressor.iter_chunk(resp.raw):
+                    _hash_inst.update(_chunk)
+                    _dst.write(_chunk)
+                    downloaded_file_size += len(_chunk)
+
+                    _traffic_on_wire = raw_resp.tell()
+                    self._traffic_report_que.put_nowait(
+                        _traffic_on_wire - traffic_on_wire
+                    )
+                    traffic_on_wire = _traffic_on_wire
+            # un-compressed file
+            else:
+                for _chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
+                    _hash_inst.update(_chunk)
+                    _dst.write(_chunk)
+
+                    chunk_len = len(_chunk)
+                    downloaded_file_size += chunk_len
+                    self._traffic_report_que.put_nowait(chunk_len)
+                    traffic_on_wire += chunk_len
 
         # checking the download result
-        if size is not None and size != downloaded_file_size:
+        if size and size != downloaded_file_size:
             msg = f"partial download detected: {size=},{downloaded_file_size=}"
             logger.error(msg)
             raise ChunkStreamingError(url, dst, msg)
+
         if digest and ((calc_digest := _hash_inst.hexdigest()) != digest):
             msg = (
                 "sha256hash check failed detected: "
@@ -391,7 +397,7 @@ class Downloader:
             logger.error(msg)
             raise HashVerificaitonError(url, dst, msg)
 
-        return _err_count, traffic_on_wire, 0
+        return err_count, traffic_on_wire, 0
 
     def download(
         self,
