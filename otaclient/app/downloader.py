@@ -53,6 +53,8 @@ logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
 
 class DownloadError(Exception):
     def __init__(self, url: str, dst: Any, *args: object) -> None:
@@ -156,9 +158,6 @@ class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
 
 
 class Downloader:
-    EMPTY_STR_SHA256 = (
-        r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    )
     MAX_DOWNLOAD_THREADS = cfg.MAX_DOWNLOAD_THREAD
     MAX_CONCURRENT_DOWNLOAD = cfg.DOWNLOADER_CONNPOOL_SIZE_PER_THREAD
     CHUNK_SIZE = cfg.CHUNK_SIZE
@@ -299,12 +298,6 @@ class Downloader:
         compression_alg: Optional[str] = None,
         use_http_if_proxy_set: bool = True,
     ) -> Tuple[int, int, int]:
-        # special treatment for empty file
-        if digest == self.EMPTY_STR_SHA256:
-            if not (dst_p := Path(dst)).is_file():
-                dst_p.write_bytes(b"")
-            return 0, 0, 0
-
         # NOTE: if proxy is set and use_http_if_proxy_set is true,
         #       unconditionally change scheme to HTTP
         _proxies = proxies or self._proxies

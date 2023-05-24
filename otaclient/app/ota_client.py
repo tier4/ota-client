@@ -31,6 +31,7 @@ from .common import RetryTaskMap, wait_with_backoff, ensure_otaproxy_start
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .downloader import (
+    EMPTY_FILE_SHA256,
     DestinationNotAvailableError,
     DownloadFailedSpaceNotEnough,
     Downloader,
@@ -147,13 +148,16 @@ class _OTAUpdater:
 
     def _download_files(self, download_list: Iterator[wrapper.RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
-        logger.debug("download neede OTA image files...")
 
         def _download_file(entry: wrapper.RegularInf) -> RegInfProcessedStats:
             """Download single OTA image file."""
             cur_stat = RegInfProcessedStats(op=RegProcessOperation.DOWNLOAD_REMOTE_COPY)
 
             _fhash_str = entry.get_hash()
+            # special treatment to empty file
+            if _fhash_str == EMPTY_FILE_SHA256:
+                return cur_stat
+
             _local_copy = self._ota_tmp_on_standby / _fhash_str
             entry_url, compression_alg = self._otameta.get_download_url(entry)
             cur_stat.download_errors, _, _ = self._downloader.download(
@@ -165,6 +169,11 @@ class _OTAUpdater:
             )
             cur_stat.size = _local_copy.stat().st_size
             return cur_stat
+
+        logger.debug("download neede OTA image files...")
+        # special treatment to empty file, create it first
+        _empty_file = self._ota_tmp_on_standby / EMPTY_FILE_SHA256
+        _empty_file.touch()
 
         last_active_timestamp = int(time.time())
         with ThreadPoolExecutor(thread_name_prefix="downloading") as _executor:
