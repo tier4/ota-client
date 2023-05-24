@@ -181,6 +181,7 @@ class Downloader:
         self._hash_func = sha256
         self._proxies: Dict[str, str] = {}
         self._cookies: Dict[str, str] = {}
+        self.use_http_if_http_proxy_set = False
         self.shutdowned = threading.Event()
 
         # downloading stats collecting
@@ -268,8 +269,11 @@ class Downloader:
 
             time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
 
-    def configure_proxies(self, _proxies: Dict[str, str], /):
+    def configure_proxies(
+        self, _proxies: Dict[str, str], /, use_http_if_http_proxy_set: bool = True
+    ):
         self._proxies = _proxies.copy()
+        self.use_http_if_http_proxy_set = use_http_if_http_proxy_set
 
     def configure_cookies(self, _cookies: Dict[str, str], /):
         self._cookies = _cookies.copy()
@@ -332,15 +336,13 @@ class Downloader:
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
-        use_http_if_proxy_set: bool = True,
     ) -> Tuple[int, int, int]:
         # NOTE: if proxy is set and use_http_if_proxy_set is true,
         #       unconditionally change scheme to HTTP
         proxies = proxies or self._proxies
-        if use_http_if_proxy_set and "http" in proxies:
+        if self.use_http_if_http_proxy_set and "http" in proxies:
             url = urlsplit(url)._replace(scheme="http").geturl()
 
-        # use input cookies or inst's cookie
         cookies = cookies or self._cookies
 
         _hash_inst = self._hash_func()
