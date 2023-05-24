@@ -282,8 +282,8 @@ class Downloader:
             # wait for collector
             self._stats_collector.join()
 
-    @contextmanager
     @staticmethod
+    @contextmanager
     def _downloading_exception_handler(url, dst):
         """Mapping exceptions to downloading exceptions."""
         try:
@@ -315,6 +315,8 @@ class Downloader:
             # only handle disk out-of-space error
             if e.errno == errno.ENOSPC:
                 raise DownloadFailedSpaceNotEnough(url, dst) from None
+        except Exception as e:
+            raise DownloadError(url, dst, f"unexpected failed: {e!r}")
 
     @partial(
         _retry_on_transfer_interruption, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX
@@ -349,11 +351,9 @@ class Downloader:
         traffic_on_wire = 0
         err_count = 0
 
-        with self._session.get(
+        with self._downloading_exception_handler(url, dst), self._session.get(
             url, stream=True, proxies=proxies, cookies=cookies, headers=headers
-        ) as resp, open(dst, "wb") as _dst, self._downloading_exception_handler(
-            url, dst
-        ):
+        ) as resp, open(dst, "wb") as _dst:
             resp.raise_for_status()
 
             raw_resp: HTTPResponse = resp.raw
