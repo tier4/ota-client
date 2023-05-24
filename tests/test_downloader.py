@@ -199,10 +199,6 @@ class TestDownloader:
         expected_ota_download_err,
         mocker: pytest_mock.MockerFixture,
     ):
-        import requests
-        from otaclient.app.downloader import Downloader
-
-        _mocked_session = requests.Session()
         _mock_adapter = requests_mock.Adapter()
         _mock_adapter.register_uri(
             requests_mock.ANY,
@@ -211,24 +207,17 @@ class TestDownloader:
         )
 
         # load the mocker adapter to the Downloader session
-        _mocked_session.mount(cfg.OTA_IMAGE_URL, _mock_adapter)
-        # patch the mocked session to the downloader module
-        mocker.patch(
-            "app.downloader.requests.Session",
-            return_value=_mocked_session,
-        )
+        self.session.mount(cfg.OTA_IMAGE_URL, _mock_adapter)
 
-        _downloader = Downloader()
         _target_path = tmp_path / self.TEST_FILE
         url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(expected_ota_download_err):
-            _downloader.download(
+            self.downloader.download(
                 url,
                 _target_path,
                 size=self.TEST_FILE_SIZE,
                 digest=self.TEST_FILE_SHA256,
             )
-        _downloader.shutdown()
 
     @pytest.mark.parametrize(
         "status_code, expected_ota_download_err",
@@ -269,7 +258,6 @@ class TestDownloader:
         self.session.get = _mock_get
 
         _target_path = tmp_path / self.TEST_FILE
-
         url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(HashVerificaitonError):
             self.downloader.download(url, _target_path, digest="wrong_digest")
