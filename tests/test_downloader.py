@@ -117,6 +117,8 @@ class TestDownloader:
 
     @pytest.fixture(autouse=True)
     def launch_downloader(self, mocker: pytest_mock.MockerFixture):
+        self.session = requests.Session()
+        mocker.patch("requests.Session", return_value=self.session)
         mocker.patch.object(Downloader, "BACKOFF_MAX", 0.1)
         mocker.patch.object(Downloader, "RETRY_COUNT", 3)
         try:
@@ -263,36 +265,29 @@ class TestDownloader:
     def test_retry_headers_injection(
         self, tmp_path: Path, mocker: pytest_mock.MockerFixture
     ):
-        from otaclient.app import downloader
+        _mock_get = mocker.MagicMock(wraps=self.session.get)
+        self.session.get = _mock_get
 
-        _session_cls = downloader.requests.Session
         _target_path = tmp_path / self.TEST_FILE
 
-        # directly mock the Session.get method to return a HashVerificationError
-        # for test convenience(it won't happen in the real world!)
-        _mock_get = mocker.MagicMock(side_effect=HashVerificaitonError(url="", dst=""))
-        mocker.patch.object(_session_cls, "get", _mock_get)
-        mocker.patch.object(downloader.requests, "Session", _session_cls)
-
-        _downloader = downloader.Downloader()
-        url = urljoin("http://127.0.0.1:9999/", "anything")
+        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(HashVerificaitonError):
-            _downloader.download(url, _target_path)
-        _downloader.shutdown()
+            self.downloader.download(url, _target_path, digest="wrong_digest")
 
         # one normal get call
+        logger.error(f"{_mock_get.mock_calls=}")
         _mock_get.assert_any_call(
             url,
             stream=True,
-            proxies=None,
-            cookies=None,
+            proxies={},  # the proxies and cookies are regulated by download
+            cookies={},
             headers=None,
         )
-        # following at least one get call with ota-cache retry header
+        # # following at least one get call with ota-cache retry header
         _mock_get.assert_any_call(
             url,
             stream=True,
-            proxies=None,
-            cookies=None,
+            proxies={},
+            cookies={},
             headers={"ota-file-cache-control": "retry_caching"},
         )
