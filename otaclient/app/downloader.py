@@ -24,7 +24,7 @@ import urllib3.exceptions
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from queue import Empty, Queue
-from functools import partial
+from functools import partial, wraps
 from hashlib import sha256
 from os import PathLike
 from pathlib import Path
@@ -73,8 +73,6 @@ class UnhandledHTTPError(DownloadError):
     Currently include 403 and 404.
     """
 
-    pass
-
 
 class DestinationNotAvailableError(DownloadError):
     pass
@@ -86,8 +84,6 @@ class ExceedMaxRetryError(DownloadError):
 
 class ChunkStreamingError(DownloadError):
     """Exceptions that happens during chunk transfering."""
-
-    pass
 
 
 class HashVerificaitonError(DownloadError):
@@ -103,13 +99,14 @@ REQUEST_RECACHE_HEADER: Dict[str, str] = {
 }
 
 
-def _retry(retry: int, backoff_factor: float, backoff_max: int, func: Callable):
+def _retry_on_transfer_interruption(
+    retry: int, backoff_factor: float, backoff_max: int, func: Callable
+):
     """
     NOTE: this retry decorator expects the input func to have 'headers' kwarg.
-    NOTE: only retry on errors that doesn't handled by the urllib3.Retry module,
-          which are ChunkStreamingError and HashVerificationError.
+    NOTE: only retry on errors during/after data transfering, which are ChunkStreamingError
+          and HashVerificationError.
     """
-    from functools import wraps
 
     @wraps(func)
     def _wrapper(*args, **kwargs):
@@ -117,10 +114,6 @@ def _retry(retry: int, backoff_factor: float, backoff_max: int, func: Callable):
         while True:
             try:
                 return func(*args, **kwargs)
-            except (ExceedMaxRetryError, UnhandledHTTPError):
-                # if urllib3.Retry has already handled the retry,
-                # or we hit an UnhandledHTTPError, just re-raise
-                raise
             except (HashVerificaitonError, ChunkStreamingError):
                 _retry_count += 1
                 _backoff = min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
@@ -193,7 +186,6 @@ class Downloader:
 
         # downloading stats collecting
         self._traffic_report_que = Queue()
-        self._downloading_thread_active_flag: Dict[int, threading.Event] = {}
         self._last_active_timestamp = 0
         self._downloaded_bytes = 0
         self._downloader_active_seconds = 0
@@ -235,11 +227,6 @@ class Downloader:
         self._local._compression_support_matrix["zst"] = self._local._zstd
         self._local._compression_support_matrix["zstd"] = self._local._zstd
 
-        # ------ download timing flag ------ #
-        self._downloading_thread_active_flag[
-            threading.get_native_id()
-        ] = threading.Event()
-
     @property
     def _session(self) -> requests.Session:
         """A thread-local private session."""
@@ -266,30 +253,21 @@ class Downloader:
 
     def _download_stats_collector(self):
         while not self.shutdowned.is_set():
-            time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
-            # ------ collect downloading_elapsed time by sampling ------ #
-            # if any of the threads is actively downloading,
-            # we update the last_active_timestamp.
-            if any(
-                map(
-                    lambda _event: _event.is_set(),
-                    self._downloading_thread_active_flag.values(),
-                )
-            ):
-                self._last_active_timestamp = int(time.time())
-                self._downloader_active_seconds += self.DOWNLOAD_STAT_COLLECT_INTERVAL
-
-            # ------ collect downloaded bytes ------ #
-            if self._traffic_report_que.empty():
-                continue
-
             traffic_bytes = 0
             try:
                 for _ in range(self.MAX_TRAFFIC_STATS_COLLECT_PER_ROUND):
                     traffic_bytes += self._traffic_report_que.get_nowait()
             except Empty:
                 pass
-            self._downloaded_bytes += traffic_bytes
+
+            # traffic_bytes is not 0 in this polling, means the downloader
+            #   is active in the last period
+            if traffic_bytes > 0:
+                self._last_active_timestamp = int(time.time())
+                self._downloaded_bytes += traffic_bytes
+                self._downloader_active_seconds += self.DOWNLOAD_STAT_COLLECT_INTERVAL
+
+            time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
 
     def configure_proxies(self, _proxies: Dict[str, str], /):
         self._proxies = _proxies.copy()
@@ -305,7 +283,9 @@ class Downloader:
             # wait for collector
             self._stats_collector.join()
 
-    @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
+    @partial(
+        _retry_on_transfer_interruption, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX
+    )
     def _download_task(
         self,
         url: str,
@@ -330,29 +310,23 @@ class Downloader:
         _proxies = proxies or self._proxies
         if _proxies and use_http_if_proxy_set and "http" in _proxies:
             url = urlsplit(url)._replace(scheme="http").geturl()
+
         # use input cookies or inst's cookie
         _cookies = cookies or self._cookies
 
+        _hash_inst = self._hash_func()
         # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
         #       the number will be of the decompressed file)
-        _hash_inst, downloaded_file_size = self._hash_func(), 0
+        downloaded_file_size = 0
         # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
         traffic_on_wire = 0
         _err_count = 0
-        # flag this thread as actively downloading thread
-        active_flag = self._downloading_thread_active_flag[threading.get_native_id()]
+
         try:
             with self._session.get(
-                url,
-                stream=True,
-                proxies=_proxies,
-                cookies=_cookies,
-                headers=headers,
+                url, stream=True, proxies=_proxies, cookies=_cookies, headers=headers
             ) as resp, open(dst, "wb") as _dst:
                 resp.raise_for_status()
-                # NOTE: mark this downloading thread as active after
-                #       the connection is made.
-                active_flag.set()
 
                 raw_resp: HTTPResponse = resp.raw
                 if raw_resp.retries:
