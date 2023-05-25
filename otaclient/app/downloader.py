@@ -104,7 +104,13 @@ REQUEST_RECACHE_HEADER: Dict[str, str] = {
 def _retry_on_transfer_interruption(
     retry: int, backoff_factor: float, backoff_max: int, func: Callable
 ):
-    """
+    """Retry mechanism that covers interruption during data transfering.
+
+    Retry mechanism applied on requests only retries during making connection to remote server,
+        this retry method retries on the transfer interruption and/or recevied data invalid.
+    When doing retry, this retrier will inject OTAFileCacheControl header into the request,
+        to indicate the otaproxy to redo the cache for this corrupted file.
+
     NOTE: this retry decorator expects the input func to have 'headers' kwarg.
     NOTE: only retry on errors during/after data transfering, which are ChunkStreamingError
           and HashVerificationError.
@@ -394,17 +400,17 @@ class Downloader:
 
         # checking the download result
         if size and size != downloaded_file_size:
-            msg = f"partial download detected: {size=},{downloaded_file_size=}"
-            logger.error(msg)
-            raise ChunkStreamingError(url, dst, msg)
+            _msg = f"partial download detected: {size=},{downloaded_file_size=}"
+            logger.warning(_msg)
+            raise ChunkStreamingError(url, dst, _msg)
 
         if digest and ((calc_digest := _hash_inst.hexdigest()) != digest):
-            msg = (
+            _msg = (
                 "sha256hash check failed detected: "
                 f"act={calc_digest}, exp={digest}, {url=}"
             )
-            logger.error(msg)
-            raise HashVerificaitonError(url, dst, msg)
+            logger.warning(_msg)
+            raise HashVerificaitonError(url, dst, _msg)
 
         return err_count, traffic_on_wire, 0
 
@@ -419,7 +425,6 @@ class Downloader:
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
-        use_http_if_proxy_set: bool = True,
     ) -> Tuple[int, int, int]:
         """Dispatcher for download tasks.
 
@@ -439,7 +444,6 @@ class Downloader:
             cookies=cookies,
             headers=headers,
             compression_alg=compression_alg,
-            use_http_if_proxy_set=use_http_if_proxy_set,
         ).result()
 
     def download_retry_inf(
@@ -453,7 +457,6 @@ class Downloader:
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
-        use_http_if_proxy_set: bool = True,
         inactive_timeout: int = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
     ) -> Tuple[int, int, int]:
         retry_count = 0
@@ -469,7 +472,6 @@ class Downloader:
                     cookies=cookies,
                     headers=headers,
                     compression_alg=compression_alg,
-                    use_http_if_proxy_set=use_http_if_proxy_set,
                 ).result()
             except (ExceedMaxRetryError, ChunkStreamingError):
                 cur_time = int(time.time())
