@@ -26,6 +26,7 @@ from urllib.parse import urlsplit, urljoin
 
 from otaclient.app.common import file_sha256, urljoin_ensure_base
 from otaclient.app.downloader import (
+    DownloadError,
     Downloader,
     DestinationNotAvailableError,
     ChunkStreamingError,
@@ -186,10 +187,10 @@ class TestDownloader:
         "inject_requests_err, expected_ota_download_err",
         (
             (requests.exceptions.ChunkedEncodingError, ChunkStreamingError),
-            (requests.exceptions.ConnectionError, ChunkStreamingError),
+            (requests.exceptions.ConnectionError, ExceedMaxRetryError),
             (requests.exceptions.HTTPError, UnhandledHTTPError),
             (FileNotFoundError, DestinationNotAvailableError),
-            (requests.exceptions.RequestException, ExceedMaxRetryError),
+            (requests.exceptions.RequestException, DownloadError),
         ),
     )
     def test_download_errors_handling(
