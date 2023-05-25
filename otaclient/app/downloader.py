@@ -288,39 +288,46 @@ class Downloader:
 
     @staticmethod
     @contextmanager
-    def _downloading_exception_handler(url, dst):
-        """Mapping exceptions to downloading exceptions."""
+    def _downloading_exception_mapping(url, dst):
+        """Mapping requests exceptions to downloader exceptions."""
         try:
             yield
-        except requests.exceptions.RetryError as e:
-            raise ExceedMaxRetryError(url, dst, f"{e!r}")
+        # exception group 1: raised by requests retry
+        #   RetryError: last error before exceeding limit is retrying on
+        #       handled HTTP status(413, 429, 500, 502, 503, 504).
+        #   ConnectionError: last error before exceeding limit is retrying
+        #       on unreachable server, failed to connect to remote server.
         except (
-            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.RetryError,
             requests.exceptions.ConnectionError,
-            urllib3.exceptions.ProtocolError,
         ) as e:
-            # streaming interrupted
+            raise ExceedMaxRetryError(
+                url, dst, f"failed due to exceed max retries: {e!r}"
+            )
+        # exception group 2: raise during chunk transfering
+        except requests.exceptions.ChunkedEncodingError as e:
             raise ChunkStreamingError(url, dst) from e
+        # exception group 3: raise on unhandled HTTP error(403, 404, etc.)
         except requests.exceptions.HTTPError as e:
-            # HTTPErrors that cannot be handled by retry,
-            # include 403 and 404
-            raise UnhandledHTTPError(url, dst, e.strerror)
-        except (
-            requests.exceptions.RequestException,
-            urllib3.exceptions.HTTPError,
-        ) as e:
-            # any errors that happens during handling request
-            # and are not the above exceptions
-            raise ExceedMaxRetryError(url, dst) from e
+            _msg = f"failed to download due to unhandled HTTP error: {e.strerror}"
+            logger.warning(_msg)
+            raise UnhandledHTTPError(url, dst, _msg) from e
+        # exception group 4: any requests error escaped from the above catching
+        except requests.exceptions.RequestException as e:
+            _msg = f"failed due to unhandled request error: {e!r}"
+            logger.warning(_msg)
+            raise DownloadError(url, dst, _msg) from e
+        # exception group 5: file saving location not available
         except FileNotFoundError as e:
-            # dst is not available
-            raise DestinationNotAvailableError(url, dst) from e
+            _msg = f"failed due to dst not available: {e!r}"
+            logger.warning(_msg)
+            raise DestinationNotAvailableError(url, dst, _msg) from e
+        # exception group 6: Disk out-of-space
         except OSError as e:
-            # only handle disk out-of-space error
             if e.errno == errno.ENOSPC:
-                raise DownloadFailedSpaceNotEnough(url, dst) from None
-        except Exception as e:
-            raise DownloadError(url, dst, f"unexpected failed: {e!r}")
+                _msg = f"failed due to disk out-of-space: {e!r}"
+                logger.error(_msg)
+                raise DownloadFailedSpaceNotEnough(url, dst, _msg) from e
 
     @partial(
         _retry_on_transfer_interruption, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX
@@ -353,7 +360,7 @@ class Downloader:
         traffic_on_wire = 0
         err_count = 0
 
-        with self._downloading_exception_handler(url, dst), self._session.get(
+        with self._downloading_exception_mapping(url, dst), self._session.get(
             url, stream=True, proxies=proxies, cookies=cookies, headers=headers
         ) as resp, open(dst, "wb") as _dst:
             resp.raise_for_status()
