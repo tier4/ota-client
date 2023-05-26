@@ -20,14 +20,14 @@ import threading
 import time
 import zstandard
 import requests.exceptions
-import urllib3.exceptions
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from queue import Empty, Queue
-from functools import partial, wraps
+from functools import wraps
 from hashlib import sha256
 from os import PathLike
+from requests.adapters import HTTPAdapter
 from typing import (
     IO,
     Any,
@@ -40,7 +40,7 @@ from typing import (
     Tuple,
     Union,
 )
-from requests.adapters import HTTPAdapter
+from typing_extensions import ParamSpec, TypeVar
 from urllib.parse import urlsplit
 from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
@@ -100,10 +100,11 @@ REQUEST_RECACHE_HEADER: Dict[str, str] = {
     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
 }
 
+T = TypeVar("T")
+P = ParamSpec("P")
 
-def _retry_on_transfer_interruption(
-    retry: int, backoff_factor: float, backoff_max: int, func: Callable
-):
+
+class _TransferInterruptRetrier:
     """Retry mechanism that covers interruption during data transfering.
 
     Retry mechanism applied on requests only retries during making connection to remote server,
@@ -113,32 +114,41 @@ def _retry_on_transfer_interruption(
 
     NOTE: this retry decorator expects the input func to have 'headers' kwarg.
     NOTE: only retry on errors during/after data transfering, which are ChunkStreamingError
-          and HashVerificationError.
+        and HashVerificationError.
     """
 
-    @wraps(func)
-    def _wrapper(*args, **kwargs):
-        _retry_count = 0
-        while True:
-            try:
-                return func(*args, **kwargs)
-            except (HashVerificaitonError, ChunkStreamingError):
-                _retry_count += 1
-                _backoff = min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
+    def __init__(self, retries: int, backoff_factor: float, backoff_max: int) -> None:
+        self.retries = retries
+        self.backoff_factor = backoff_factor
+        self.backoff_max = backoff_max
 
-                # inject a OTA-File-Cache-Control header to indicate ota_proxy
-                # to re-cache the possible corrupted file.
-                # modify header if needed and inject it into kwargs
-                if "headers" in kwargs and isinstance(kwargs["headers"], dict):
-                    kwargs["headers"].update(REQUEST_RECACHE_HEADER.copy())
-                else:
-                    kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
+    def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
+        @wraps(func)
+        def _wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            _retry_count = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except (HashVerificaitonError, ChunkStreamingError):
+                    _retry_count += 1
+                    _backoff = min(
+                        self.backoff_max,
+                        self.backoff_factor * (2 ** (_retry_count - 1)),
+                    )
 
-                if _retry_count > retry:
-                    raise
-                time.sleep(_backoff)
+                    # inject a OTA-File-Cache-Control header to indicate ota_proxy
+                    # to re-cache the possible corrupted file.
+                    # modify header if needed and inject it into kwargs
+                    if "headers" in kwargs and isinstance(kwargs["headers"], dict):
+                        kwargs["headers"].update(REQUEST_RECACHE_HEADER.copy())
+                    else:
+                        kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
 
-    return _wrapper
+                    if _retry_count > self.retries:
+                        raise
+                    time.sleep(_backoff)
+
+        return _wrapper
 
 
 class DecompressionAdapterProtocol(Protocol):
@@ -335,9 +345,7 @@ class Downloader:
                 logger.error(_msg)
                 raise DownloadFailedSpaceNotEnough(url, dst, _msg) from e
 
-    @partial(
-        _retry_on_transfer_interruption, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX
-    )
+    @_TransferInterruptRetrier(RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
         self,
         url: str,
