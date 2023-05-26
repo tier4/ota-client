@@ -440,7 +440,7 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p2"},
-                    "in_update_childecus_id": {"p2"},
+                    "in_update_child_ecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
                     "any_requires_network": True,
                     "success_ecus_id": set(),
@@ -486,7 +486,7 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"p2"},
-                    "in_update_childecus_id": {"p2"},
+                    "in_update_child_ecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
                     "any_requires_network": True,
                     "success_ecus_id": {"autoware"},
@@ -560,7 +560,7 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p2"},
-                    "in_update_childecus_id": {"p2"},
+                    "in_update_child_ecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
                     "any_requires_network": True,
                     "success_ecus_id": set(),
@@ -611,7 +611,7 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p1"},
-                    "in_update_childecus_id": {"p1"},
+                    "in_update_child_ecus_id": {"p1"},
                     "failed_ecus_id": set(),
                     "any_requires_network": True,
                     "success_ecus_id": {"p2"},
