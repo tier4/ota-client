@@ -62,15 +62,13 @@ class ECUList(_Protocol[ECUType]):
         self.ecu.append(ecu)
 
     def if_contains_ecu(self, ecu_id: str) -> bool:
-        for ecu in self.ecu:
-            if ecu.ecu_id == ecu_id:
-                return True
-        return False
+        return self.find_ecu(ecu_id) != None
 
     def find_ecu(self, ecu_id: str) -> _Optional[ECUType]:
         for ecu in self.ecu:
             if ecu.ecu_id == ecu_id:
                 return ecu
+        return None
 
     def iter_ecu(self) -> _Iterator[ECUType]:
         yield from self.ecu
@@ -86,15 +84,13 @@ class ECUV2List(_Protocol[ECUType]):
         """NOTE: add_ecu method should also support adding ecu_v1 inst."""
 
     def if_contains_ecu_v2(self, ecu_id: str) -> bool:
-        for ecu in self.ecu_v2:
-            if ecu.ecu_id == ecu_id:
-                return True
-        return False
+        return self.find_ecu_v2(ecu_id) != None
 
     def find_ecu_v2(self, ecu_id: str) -> _Optional[ECUType]:
         for ecu in self.ecu_v2:
             if ecu.ecu_id == ecu_id:
                 return ecu
+        return None
 
     def iter_ecu_v2(self) -> _Iterable[ECUType]:
         yield from self.ecu_v2
@@ -120,7 +116,7 @@ class ECUStatusSummary(_Protocol):
 
     @property
     @abstractmethod
-    def if_requires_network(self) -> bool:
+    def requires_network(self) -> bool:
         """If this ECU is in UPDATING and requires network connection for OTA."""
 
 
@@ -321,7 +317,7 @@ class StatusResponseEcu(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcu])
         return self.status.status is StatusOta.SUCCESS
 
     @property
-    def if_requires_network(self) -> bool:
+    def requires_network(self) -> bool:
         return (
             self.status.status is StatusOta.UPDATING
             and self.status.progress.phase < StatusProgressPhase.POST_PROCESSING
@@ -483,7 +479,7 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcu
         return self.ota_status is StatusOta.SUCCESS
 
     @property
-    def if_requires_network(self) -> bool:
+    def requires_network(self) -> bool:
         return (
             self.ota_status is StatusOta.UPDATING
             and self.update_status.phase <= UpdatePhase.DOWNLOADING_OTA_FILES

@@ -293,7 +293,7 @@ class ECUStatusStorage:
         # check if any ECUs require network
         self.any_requires_network = any(
             (
-                status.if_requires_network
+                status.requires_network
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
