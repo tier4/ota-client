@@ -219,6 +219,8 @@ class ECUStatusStorage:
         self.all_success = False
 
         # property update task
+        # NOTE: properties_update_shutdown_event is for test only, allow us to stop background task
+        #       without changing codes. In normal running this event will never be set.
         self.properties_update_shutdown_event = asyncio.Event()
         asyncio.create_task(self._loop_updating_properties())
 
@@ -470,11 +472,12 @@ class _ECUTracker:
     ) -> None:
         self._otaclient_stub = otaclient_stub  # for local ECU status polling
         self._ecu_status_storage = ecu_status_storage
-        self._ecu_status_polling_shutdown_event = asyncio.Event()
 
-        # launch tracker for polling local ECU status
+        # launch ECU trackers
+        # NOTE: _ecu_status_polling_shutdown_event is for test only, allow us to stop background task
+        #       without changing codes. In normal running this event will never be set.
+        self._ecu_status_polling_shutdown_event = asyncio.Event()
         asyncio.create_task(self._polling_local_ecu_status())
-        # launch tracker for polling subECUs status
         for ecu_contact in ecu_info.iter_direct_subecu_contact():
             asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
@@ -542,6 +545,8 @@ class OTAClientServiceStub:
         # otaproxy lifecycle and dependency managing
         if _proxy_cfg.enable_local_ota_proxy:
             self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
+            # NOTE: _status_checking_shutdown_event is for test only, allow us to stop background task
+            #       without changing codes. In normal running this event will never be set.
             self._status_checking_shutdown_event = asyncio.Event()
             asyncio.create_task(self._otaproxy_lifecycle_managing())
             asyncio.create_task(self._otaclient_control_flags_managing())
