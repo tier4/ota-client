@@ -62,7 +62,7 @@ class ECUList(_Protocol[ECUType]):
         self.ecu.append(ecu)
 
     def if_contains_ecu(self, ecu_id: str) -> bool:
-        return self.find_ecu(ecu_id) != None
+        return self.find_ecu(ecu_id) is not None
 
     def find_ecu(self, ecu_id: str) -> _Optional[ECUType]:
         for ecu in self.ecu:
@@ -84,7 +84,7 @@ class ECUV2List(_Protocol[ECUType]):
         """NOTE: add_ecu method should also support adding ecu_v1 inst."""
 
     def if_contains_ecu_v2(self, ecu_id: str) -> bool:
-        return self.find_ecu_v2(ecu_id) != None
+        return self.find_ecu_v2(ecu_id) is not None
 
     def find_ecu_v2(self, ecu_id: str) -> _Optional[ECUType]:
         for ecu in self.ecu_v2:
