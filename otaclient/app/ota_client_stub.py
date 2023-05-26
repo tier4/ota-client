@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Optional, Set, Dict
+from typing import Iterable, Optional, Set, Dict, TypeVar
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
@@ -148,7 +148,24 @@ class OTAProxyLauncher:
             logger.info("otaproxy closed")
 
 
-_OrderedSet = Dict[str, None]
+T = TypeVar("T")
+
+
+class _OrderedSet(Dict[T, None]):
+    def __init__(self, _input: Optional[Iterable[T]]):
+        if _input:
+            for elem in _input:
+                self[elem] = None
+        super().__init__()
+
+    def add(self, value: T):
+        self[value] = None
+
+    def remove(self, value: T):
+        super().pop(value)
+
+    def discard(self, value: T):
+        super().pop(value, None)
 
 
 class ECUStatusStorage:
@@ -197,9 +214,9 @@ class ECUStatusStorage:
         self._writer_lock = asyncio.Lock()
         # ECU status storage
         self.storage_last_updated_timestamp = 0
-        self._all_available_ecus_id: _OrderedSet = {
-            ecu_id: None for ecu_id in ecu_info.get_available_ecu_ids()
-        }
+        self._all_available_ecus_id: _OrderedSet[str] = _OrderedSet(
+            ecu_info.get_available_ecu_ids()
+        )
         self._all_ecus_status_v2: Dict[str, wrapper.StatusResponseEcuV2] = {}
         self._all_ecus_status_v1: Dict[str, wrapper.StatusResponseEcu] = {}
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
@@ -359,7 +376,7 @@ class ECUStatusStorage:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
             # discover further child ECUs from directly connected sub ECUs.
             self._all_available_ecus_id.update(
-                {ecu_id: None for ecu_id in status_resp.available_ecu_ids}
+                _OrderedSet(status_resp.available_ecu_ids)
             )
 
             # NOTE: use v2 if v2 is available, but explicitly support v1 format
@@ -387,7 +404,7 @@ class ECUStatusStorage:
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
-            self._all_available_ecus_id[ecu_status.ecu_id] = None
+            self._all_available_ecus_id.add(ecu_status.ecu_id)
 
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status_v2[ecu_id] = ecu_status
