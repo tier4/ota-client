@@ -62,7 +62,7 @@ class _SimpleDummyApp:
         await send({"type": "http.response.body", "body": _input_status_code.encode()})
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def launch_dummy_server(host: str = "127.0.0.1", port: int = 9999):
     _should_exit = threading.Event()
 
