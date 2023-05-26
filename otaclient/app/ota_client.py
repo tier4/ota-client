@@ -84,7 +84,7 @@ class OTAClientControlFlags:
     def __init__(self) -> None:
         self._can_reboot = threading.Event()
 
-    def otaclient_wait_for_reboot(self):
+    def wait_can_reboot_flag(self):
         self._can_reboot.wait()
 
     def set_can_reboot_flag(self):
@@ -379,7 +379,7 @@ class _OTAUpdater:
         next(_postupdate_gen := self._boot_controller.post_update())
 
         # wait for sub ecu if needed before rebooting
-        self._control_flags.otaclient_wait_for_reboot()
+        self._control_flags.wait_can_reboot_flag()
         next(_postupdate_gen, None)  # reboot
 
     # API

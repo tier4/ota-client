@@ -183,7 +183,7 @@ class Test_OTAUpdater:
             _downloaded_files_size += _f.stat().st_size
         assert _downloaded_files_size == self._delta_bundle.total_download_files_size
         # assert the control_flags has been waited
-        otaclient_control_flags.otaclient_wait_for_reboot.assert_called_once()
+        otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
         assert _updater.updating_version == cfg.UPDATE_VERSION
         # assert boot controller is used
         self._boot_control.pre_update.assert_called_once()
