@@ -139,7 +139,7 @@ class TestECUStatusStorage:
         try:
             yield
         finally:
-            self.ecu_storage.properties_update_shutdown_event.set()
+            self.ecu_storage._debug_properties_update_shutdown_event.set()
             await asyncio.sleep(self.SAFE_INTERVAL_FOR_PROPERTY_UPDATE)
 
     @pytest.mark.parametrize(
@@ -679,7 +679,7 @@ class TestOTAClientServiceStub:
         self.ecu_storage.get_polling_interval = lambda: self.POLLING_INTERVAL
         # NOTE: disable internal overall ecu status generation task as we
         #       will manipulate the values by ourselves.
-        self.ecu_storage.properties_update_shutdown_event.set()
+        self.ecu_storage._debug_properties_update_shutdown_event.set()
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)  # ensure the task stopping
 
         # --- mocker --- #
@@ -726,7 +726,7 @@ class TestOTAClientServiceStub:
         try:
             yield
         finally:
-            self.otaclient_service_stub._status_checking_shutdown_event.set()
+            self.otaclient_service_stub._debug_status_checking_shutdown_event.set()
             threadpool.shutdown()
             await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)  # ensure shutdown
 

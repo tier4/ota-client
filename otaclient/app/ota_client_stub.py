@@ -219,9 +219,10 @@ class ECUStatusStorage:
         self.all_success = False
 
         # property update task
-        # NOTE: properties_update_shutdown_event is for test only, allow us to stop background task
-        #       without changing codes. In normal running this event will never be set.
-        self.properties_update_shutdown_event = asyncio.Event()
+        # NOTE: _debug_properties_update_shutdown_event is for test only,
+        #       allow us to stop background task without changing codes.
+        #       In normal running this event will never be set.
+        self._debug_properties_update_shutdown_event = asyncio.Event()
         asyncio.create_task(self._loop_updating_properties())
 
         # on receive update request
@@ -334,7 +335,7 @@ class ECUStatusStorage:
             check on_receive_update_request method below for more details.
         """
         last_storage_update = self.storage_last_updated_timestamp
-        while not self.properties_update_shutdown_event.is_set():
+        while not self._debug_properties_update_shutdown_event.is_set():
             async with self._properties_update_lock:
                 current_timestamp = int(time.time())
                 if last_storage_update != self.storage_last_updated_timestamp and (
@@ -474,16 +475,17 @@ class _ECUTracker:
         self._ecu_status_storage = ecu_status_storage
 
         # launch ECU trackers
-        # NOTE: _ecu_status_polling_shutdown_event is for test only, allow us to stop background task
-        #       without changing codes. In normal running this event will never be set.
-        self._ecu_status_polling_shutdown_event = asyncio.Event()
+        # NOTE: _debug_ecu_status_polling_shutdown_event is for test only,
+        #       allow us to stop background task without changing codes.
+        #       In normal running this event will never be set.
+        self._debug_ecu_status_polling_shutdown_event = asyncio.Event()
         asyncio.create_task(self._polling_local_ecu_status())
         for ecu_contact in ecu_info.iter_direct_subecu_contact():
             asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
-        while not self._ecu_status_polling_shutdown_event.is_set():
+        while not self._debug_ecu_status_polling_shutdown_event.is_set():
             try:
                 _ecu_resp = await OtaClientCall.status_call(
                     ecu_contact.ecu_id,
@@ -501,7 +503,7 @@ class _ECUTracker:
 
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
-        while not self._ecu_status_polling_shutdown_event.is_set():
+        while not self._debug_ecu_status_polling_shutdown_event.is_set():
             status_report = await self._otaclient_stub.get_status()
             await self._ecu_status_storage.update_from_local_ecu(status_report)
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
@@ -543,11 +545,12 @@ class OTAClientServiceStub:
         )
 
         # otaproxy lifecycle and dependency managing
+        # NOTE: _debug_status_checking_shutdown_event is for test only,
+        #       allow us to stop background task without changing codes.
+        #       In normal running this event will never be set.
+        self._debug_status_checking_shutdown_event = asyncio.Event()
         if _proxy_cfg.enable_local_ota_proxy:
             self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
-            # NOTE: _status_checking_shutdown_event is for test only, allow us to stop background task
-            #       without changing codes. In normal running this event will never be set.
-            self._status_checking_shutdown_event = asyncio.Event()
             asyncio.create_task(self._otaproxy_lifecycle_managing())
             asyncio.create_task(self._otaclient_control_flags_managing())
         else:
@@ -564,7 +567,7 @@ class OTAClientServiceStub:
               cache_dir will be removed.
         """
         otaproxy_last_launched_timestamp = 0
-        while not self._status_checking_shutdown_event.is_set():
+        while not self._debug_status_checking_shutdown_event.is_set():
             cur_timestamp = int(time.time())
             any_requires_network = self._ecu_status_storage.any_requires_network
             if self._otaproxy_launcher.is_running:
@@ -595,7 +598,7 @@ class OTAClientServiceStub:
         Prevent self ECU from rebooting when their is at least one ECU
         under UPDATING ota_status.
         """
-        while not self._status_checking_shutdown_event.is_set():
+        while not self._debug_status_checking_shutdown_event.is_set():
             _can_reboot = self._otaclient_control_flags._can_reboot.is_set()
             if not self._ecu_status_storage.in_update_childecus_id:
                 if not _can_reboot:
