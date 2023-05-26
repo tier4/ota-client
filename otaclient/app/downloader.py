@@ -201,7 +201,7 @@ class Downloader:
         self.shutdowned = threading.Event()
 
         # downloading stats collecting
-        self._traffic_report_que = Queue()
+        self._workers_downloaded_bytes: Dict[int, int] = {}
         self._last_active_timestamp = 0
         self._downloaded_bytes = 0
         self._downloader_active_seconds = 0
@@ -211,6 +211,9 @@ class Downloader:
         self._stats_collector.start()
 
     def _thread_initializer(self):
+        thread_id = threading.get_ident()
+        self._workers_downloaded_bytes[thread_id] = 0
+
         # ------ setup the requests.Session ------ #
         session = requests.Session()
         # init retry mechanism
@@ -268,21 +271,16 @@ class Downloader:
         return self._last_active_timestamp
 
     def _download_stats_collector(self):
+        _last_recorded_downloaded_bytes = 0
         while not self.shutdowned.is_set():
-            traffic_bytes = 0
-            try:
-                for _ in range(self.MAX_TRAFFIC_STATS_COLLECT_PER_ROUND):
-                    traffic_bytes += self._traffic_report_que.get_nowait()
-            except Empty:
-                pass
-
-            # traffic_bytes is not 0 in this polling, means the downloader
-            #   is active in the last period
-            if traffic_bytes > 0:
+            _downloaded_bytes = sum(self._workers_downloaded_bytes.values())
+            # if recorded downloaded bytes increased in this polling,
+            # it means the downloader is active during the last polling period
+            if _downloaded_bytes > _last_recorded_downloaded_bytes:
+                _last_recorded_downloaded_bytes = _downloaded_bytes
                 self._last_active_timestamp = int(time.time())
-                self._downloaded_bytes += traffic_bytes
+                self._downloaded_bytes = _downloaded_bytes
                 self._downloader_active_seconds += self.DOWNLOAD_STAT_COLLECT_INTERVAL
-
             time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
 
     def configure_proxies(
@@ -358,6 +356,8 @@ class Downloader:
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
     ) -> Tuple[int, int, int]:
+        _thread_id = threading.get_ident()
+
         # NOTE: if proxy is set and use_http_if_proxy_set is true,
         #       unconditionally change scheme to HTTP
         proxies = proxies or self._proxies
@@ -391,9 +391,11 @@ class Downloader:
                     downloaded_file_size += len(_chunk)
 
                     _traffic_on_wire = raw_resp.tell()
-                    self._traffic_report_que.put_nowait(
+                    # addon downloaded bytes
+                    self._workers_downloaded_bytes[_thread_id] += (
                         _traffic_on_wire - traffic_on_wire
                     )
+
                     traffic_on_wire = _traffic_on_wire
             # un-compressed file
             else:
@@ -403,8 +405,9 @@ class Downloader:
 
                     chunk_len = len(_chunk)
                     downloaded_file_size += chunk_len
-                    self._traffic_report_que.put_nowait(chunk_len)
                     traffic_on_wire += chunk_len
+                    # addon downloaded bytes
+                    self._workers_downloaded_bytes[_thread_id] += chunk_len
 
         # checking the download result
         if size and size != downloaded_file_size:
