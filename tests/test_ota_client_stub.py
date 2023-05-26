@@ -777,12 +777,12 @@ class TestOTAClientServiceStub:
     async def test__otaclient_control_flags_managing(self):
         otaclient_control_flags = self.otaclient_service_stub._otaclient_control_flags
         # there are child ECUs in UPDATING
-        self.ecu_storage.in_update_childecus_id = {"p1", "p2"}
+        self.ecu_storage.in_update_child_ecus_id = {"p1", "p2"}
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)
         assert not otaclient_control_flags._can_reboot.is_set()
 
         # no more child ECUs in UPDATING
-        self.ecu_storage.in_update_childecus_id = set()
+        self.ecu_storage.in_update_child_ecus_id = set()
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)
         assert otaclient_control_flags._can_reboot.is_set()
 

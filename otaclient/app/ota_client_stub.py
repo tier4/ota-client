@@ -190,9 +190,8 @@ class ECUStatusStorage:
 
     NOTE:
         If ECU has been disconnected(doesn't respond to status probing) longer than <UNREACHABLE_TIMEOUT>,
-        it will be treated as UNREACHABLE, listed in <lost_ecus_id>, and excluded when generating
-        overall ECU status report (except lost_ecus_id).
-
+        it will be treated as UNREACHABLE and listed in <lost_ecus_id>, further being excluded when generating
+        any_requires_network, all_success, in_update_ecus_id, failed_ecus_id, success_ecus_id and in_update_childecus_id.
     """
 
     DELAY_OVERALL_STATUS_REPORT_UPDATE = (
@@ -229,7 +228,7 @@ class ECUStatusStorage:
         self.failed_ecus_id = set()
 
         self.in_update_ecus_id = set()
-        self.in_update_childecus_id = set()
+        self.in_update_child_ecus_id = set()
         self.any_requires_network = False
 
         self.success_ecus_id = set()
@@ -284,7 +283,7 @@ class ECUStatusStorage:
                 if status.is_in_update and status.ecu_id not in lost_ecus
             )
         )
-        self.in_update_childecus_id = in_update_ecus_id - {self.my_ecu_id}
+        self.in_update_child_ecus_id = in_update_ecus_id - {self.my_ecu_id}
         if _new_in_update_ecu := in_update_ecus_id.difference(_old_in_update_ecus_id):
             logger.info(
                 "new ECU(s) that acks update request and enters OTA update detected"
@@ -429,7 +428,7 @@ class ECUStatusStorage:
             self.failed_ecus_id -= ecus_accept_update
 
             self.in_update_ecus_id.update(ecus_accept_update)
-            self.in_update_childecus_id = self.in_update_ecus_id - {self.my_ecu_id}
+            self.in_update_child_ecus_id = self.in_update_ecus_id - {self.my_ecu_id}
 
             self.any_requires_network = True
             self.all_success = False
@@ -486,9 +485,9 @@ class _ECUTracker:
         ecu_status_storage: ECUStatusStorage,
         *,
         ecu_info: ECUInfo,
-        otaclient_stub: OTAClientWrapper,
+        otaclient_wrapper: OTAClientWrapper,
     ) -> None:
-        self._otaclient_stub = otaclient_stub  # for local ECU status polling
+        self._otaclient_wrapper = otaclient_wrapper  # for local ECU status polling
         self._ecu_status_storage = ecu_status_storage
 
         # launch ECU trackers
@@ -521,7 +520,7 @@ class _ECUTracker:
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
-            status_report = await self._otaclient_stub.get_status()
+            status_report = await self._otaclient_wrapper.get_status()
             await self._ecu_status_storage.update_from_local_ecu(status_report)
             await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
 
@@ -546,7 +545,7 @@ class OTAClientServiceStub:
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
-        self._otaclient_stub = OTAClientWrapper(
+        self._otaclient_wrapper = OTAClientWrapper(
             ecu_info=ecu_info,
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
@@ -558,7 +557,7 @@ class OTAClientServiceStub:
         self._ecu_status_tracker = _ECUTracker(
             self._ecu_status_storage,
             ecu_info=ecu_info,
-            otaclient_stub=self._otaclient_stub,
+            otaclient_wrapper=self._otaclient_wrapper,
         )
 
         # otaproxy lifecycle and dependency managing
@@ -616,17 +615,17 @@ class OTAClientServiceStub:
         under UPDATING ota_status.
         """
         while not self._debug_status_checking_shutdown_event.is_set():
-            _can_reboot = self._otaclient_control_flags._can_reboot.is_set()
-            if not self._ecu_status_storage.in_update_childecus_id:
+            _can_reboot = self._otaclient_control_flags.is_can_reboot_flag_set()
+            if not self._ecu_status_storage.in_update_child_ecus_id:
                 if not _can_reboot:
-                    logger.debug(
+                    logger.info(
                         "local otaclient can reboot as no child ECU is in UPDATING ota_status"
                     )
                 self._otaclient_control_flags.set_can_reboot_flag()
             else:
                 if _can_reboot:
-                    logger.debug(
-                        f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_childecus_id}"
+                    logger.info(
+                        f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_child_ecus_id}"
                         " are in UPDATING ota_status"
                     )
                 self._otaclient_control_flags.clear_can_reboot_flag()
@@ -682,7 +681,7 @@ class OTAClientServiceStub:
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
             _resp_ecu = wrapper.UpdateResponseEcu(ecu_id=self.my_ecu_id)
             try:
-                await self._otaclient_stub.dispatch_update(update_req_ecu)
+                await self._otaclient_wrapper.dispatch_update(update_req_ecu)
                 update_acked_ecus.add(self.my_ecu_id)
             except OTAClientBusy as e:
                 logger.warning(f"self ECU is busy, ignore local update request: {e!r}")
@@ -747,7 +746,7 @@ class OTAClientServiceStub:
         if rollback_req := request.find_ecu(self.my_ecu_id):
             _resp_ecu = wrapper.RollbackResponseEcu(ecu_id=self.my_ecu_id)
             try:
-                await self._otaclient_stub.dispatch_rollback(rollback_req)
+                await self._otaclient_wrapper.dispatch_rollback(rollback_req)
             except OTAClientBusy as e:
                 logger.warning(f"self ECU is busy, ignore local rollback: {e!r}")
                 _resp_ecu.result = wrapper.FailureType.RECOVERABLE

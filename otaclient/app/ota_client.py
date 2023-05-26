@@ -84,6 +84,9 @@ class OTAClientControlFlags:
     def __init__(self) -> None:
         self._can_reboot = threading.Event()
 
+    def is_can_reboot_flag_set(self) -> bool:
+        return self._can_reboot.is_set()
+
     def wait_can_reboot_flag(self):
         self._can_reboot.wait()
 
