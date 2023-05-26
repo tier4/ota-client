@@ -640,23 +640,27 @@ class OTAClientWrapper:
         Raises:
             OTAClientBusy if otaclient is already executing update/rollback.
         """
-        if self.is_busy:
+        if self.update_rollback_lock.locked():
             raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
+        else:  # immediately take the lock if not locked
+            await self.update_rollback_lock.acquire()
+            self.last_operation = wrapper.StatusOta.UPDATING
 
         async def _update():
-            async with self.update_rollback_lock:
-                self.last_operation = wrapper.StatusOta.UPDATING
-                try:
-                    await self._run_in_executor(
-                        partial(
-                            self._otaclient.update,
-                            request.version,
-                            request.url,
-                            request.cookies,
-                        )
+            """Background waiting for update to be finished and
+            release update_rollback lock."""
+            try:
+                await self._run_in_executor(
+                    partial(
+                        self._otaclient.update,
+                        request.version,
+                        request.url,
+                        request.cookies,
                     )
-                finally:
-                    self.last_operation = None
+                )
+            finally:
+                self.last_operation = None
+                self.update_rollback_lock.release()
 
         # dispatch update to background
         asyncio.create_task(_update())
@@ -667,16 +671,20 @@ class OTAClientWrapper:
         Raises:
             OTAClientBusy if otaclient is already executing update/rollback.
         """
-        if self.is_busy:
+        if self.update_rollback_lock.locked():
             raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
+        else:  # immediately take the lock if not locked
+            await self.update_rollback_lock.acquire()
+            self.last_operation = wrapper.StatusOta.ROLLBACKING
 
         async def _rollback():
-            async with self.update_rollback_lock:
-                self.last_operation = wrapper.StatusOta.ROLLBACKING
-                try:
-                    await self._run_in_executor(self._otaclient.rollback)
-                finally:
-                    self.last_operation = None
+            """Background waiting for rollback to be finished and
+            release update_rollback lock."""
+            try:
+                await self._run_in_executor(self._otaclient.rollback)
+            finally:
+                self.last_operation = None
+                self.update_rollback_lock.release()
 
         # dispatch to background
         asyncio.create_task(_rollback())
