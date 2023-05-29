@@ -676,7 +676,8 @@ class TestOTAClientServiceStub:
         self.ecu_storage.on_ecus_accept_update_request = mocker.AsyncMock()
         # NOTE: decrease the interval to speed up testing
         #       (used by _otaproxy_lifecycle_managing/_otaclient_control_flags_managing task)
-        self.ecu_storage.get_polling_interval = lambda: self.POLLING_INTERVAL
+        self.ecu_storage.ACTIVE_POLLING_INTERVAL = 0.1  # type: ignore
+        self.ecu_storage.IDLE_POLLING_INTERVAL = 0.1  # type: ignore
         # NOTE: disable internal overall ecu status generation task as we
         #       will manipulate the values by ourselves.
         self.ecu_storage._debug_properties_update_shutdown_event.set()
