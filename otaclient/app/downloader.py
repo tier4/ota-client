@@ -23,7 +23,6 @@ import requests.exceptions
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from queue import Empty, Queue
 from functools import wraps
 from hashlib import sha256
 from os import PathLike
@@ -45,6 +44,7 @@ from urllib.parse import urlsplit
 from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
 
+from otaclient._utils import copy_callable_typehint
 from .configs import config as cfg
 from .common import OTAFileCacheControl, wait_with_backoff
 from . import log_setting
@@ -100,8 +100,7 @@ REQUEST_RECACHE_HEADER: Dict[str, str] = {
     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
 }
 
-T = TypeVar("T")
-P = ParamSpec("P")
+T, P = TypeVar("T"), ParamSpec("P")
 
 
 class _TransferInterruptRetrier:
@@ -425,64 +424,29 @@ class Downloader:
 
         return err_count, traffic_on_wire, 0
 
-    def download(
-        self,
-        url: str,
-        dst: PathLike,
-        *,
-        size: Optional[int] = None,
-        digest: Optional[str] = None,
-        proxies: Optional[Dict[str, str]] = None,
-        cookies: Optional[Dict[str, str]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        compression_alg: Optional[str] = None,
-    ) -> Tuple[int, int, int]:
-        """Dispatcher for download tasks.
-
-        Returns:
-            A tuple of ints, which are error counts, real downloaded bytes
-                and a const 0.
-        """
+    @copy_callable_typehint(_download_task)
+    def download(self, *args, **kwargs) -> Tuple[int, int, int]:
+        """A wrapper that dispatch download task to threadpool."""
         if self.shutdowned.is_set():
             raise ValueError("downloader already shutdowned.")
-        return self._executor.submit(
-            self._download_task,
-            url,
-            dst,
-            size=size,
-            digest=digest,
-            proxies=proxies,
-            cookies=cookies,
-            headers=headers,
-            compression_alg=compression_alg,
-        ).result()
+        return self._executor.submit(self._download_task, *args, **kwargs).result()
 
+    @copy_callable_typehint(_download_task)
     def download_retry_inf(
         self,
-        url: str,
-        dst: PathLike,
-        *,
-        size: Optional[int] = None,
-        digest: Optional[str] = None,
-        proxies: Optional[Dict[str, str]] = None,
-        cookies: Optional[Dict[str, str]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        compression_alg: Optional[str] = None,
+        url,
+        *args,
+        # NOTE: inactive_timeout is hinded from the caller
         inactive_timeout: int = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
+        **kwargs,
     ) -> Tuple[int, int, int]:
+        """A wrapper that dispatch download task to threadpool, and keep retrying until
+        downloading succeeds or exceeded inactive_timeout."""
         retry_count = 0
         while not self.shutdowned.is_set():
             try:
                 return self._executor.submit(
-                    self._download_task,
-                    url,
-                    dst,
-                    size=size,
-                    digest=digest,
-                    proxies=proxies,
-                    cookies=cookies,
-                    headers=headers,
-                    compression_alg=compression_alg,
+                    self._download_task, url, *args, **kwargs
                 ).result()
             except (ExceedMaxRetryError, ChunkStreamingError):
                 cur_time = int(time.time())
