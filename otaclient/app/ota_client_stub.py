@@ -223,6 +223,7 @@ class ECUStatusStorage:
         # overall ECU status report
         self._properties_update_lock = asyncio.Lock()
         self.properties_last_update_timestamp = 0
+        self.active_ota_update_present = asyncio.Event()
 
         self.lost_ecus_id = set()
         self.failed_ecus_id = set()
@@ -289,6 +290,10 @@ class ECUStatusStorage:
                 "new ECU(s) that acks update request and enters OTA update detected"
                 f"{_new_in_update_ecu}, current updating ECUs: {in_update_ecus_id}"
             )
+        if in_update_ecus_id:
+            self.active_ota_update_present.set()
+        else:
+            self.active_ota_update_present.clear()
 
         # check if there is any failed child/self ECU
         _old_failed_ecus_id = self.failed_ecus_id
@@ -434,16 +439,46 @@ class ECUStatusStorage:
             self.all_success = False
             self.success_ecus_id -= ecus_accept_update
 
+            self.active_ota_update_present.set()
+
     def get_polling_interval(self) -> int:
-        """
-        All polling task should poll actively when any_in_update(with small interval),
-        otherwise poll idlely(with normal interval).
+        """Return <ACTIVE_POLLING_INTERVAL> if there is active OTA update,
+        otherwise <IDLE_POLLING_INTERVAL>.
+
+        NOTE: use get_polling_waiter if want to wait, only call this method
+            if one only wants to get the polling interval value.
         """
         return (
             self.ACTIVE_POLLING_INTERVAL
-            if self.in_update_ecus_id
+            if self.active_ota_update_present.is_set()
             else self.IDLE_POLLING_INTERVAL
         )
+
+    def get_polling_waiter(self):
+        """Get a executable async waiter which waiting time is decided by
+        whether there is active OTA updating or not.
+
+        This waiter will wait for <ACTIVE_POLLING_INTERVAL> and then return
+            if there is active OTA in the cluster.
+        Or if the cluster doesn't have active OTA, wait <IDLE_POLLING_INTERVAL>
+            or self.active_ota_update_present is set, return when one of the
+            condition is met.
+        """
+
+        async def _waiter():
+            if self.active_ota_update_present.is_set():
+                await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
+                return
+
+            try:
+                await asyncio.wait_for(
+                    self.active_ota_update_present.wait(),
+                    timeout=self.IDLE_POLLING_INTERVAL,
+                )
+            except asyncio.TimeoutError:
+                return
+
+        return _waiter
 
     def export(self) -> wrapper.StatusResponse:
         """Export the contents of this storage to an instance of StatusResponse.
@@ -489,6 +524,7 @@ class _ECUTracker:
     ) -> None:
         self._otaclient_wrapper = otaclient_wrapper  # for local ECU status polling
         self._ecu_status_storage = ecu_status_storage
+        self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
         # launch ECU trackers
         # NOTE: _debug_ecu_status_polling_shutdown_event is for test only,
@@ -515,14 +551,14 @@ class _ECUTracker:
                 logger.debug(
                     f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
                 )
-            await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
+            await self._polling_waiter()
 
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
             status_report = await self._otaclient_wrapper.get_status()
             await self._ecu_status_storage.update_from_local_ecu(status_report)
-            await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
+            await self._polling_waiter()
 
 
 class OTAClientServiceStub:
@@ -559,6 +595,8 @@ class OTAClientServiceStub:
             ecu_info=ecu_info,
             otaclient_wrapper=self._otaclient_wrapper,
         )
+
+        self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
         # otaproxy lifecycle and dependency managing
         # NOTE: _debug_status_checking_shutdown_event is for test only,
@@ -605,8 +643,7 @@ class OTAClientServiceStub:
                 # cleanup the cache dir when all ECUs are in SUCCESS ota_status
                 elif self._ecu_status_storage.all_success:
                     self._otaproxy_launcher.cleanup_cache_dir()
-
-            await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
+            await self._polling_waiter()
 
     async def _otaclient_control_flags_managing(self):
         """Task entry for set/clear otaclient control flags.
@@ -629,7 +666,7 @@ class OTAClientServiceStub:
                         " are in UPDATING ota_status"
                     )
                 self._otaclient_control_flags.clear_can_reboot_flag()
-            await asyncio.sleep(self._ecu_status_storage.get_polling_interval())
+            await self._polling_waiter()
 
     # API stub
 
