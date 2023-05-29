@@ -646,6 +646,26 @@ class TestECUStatusStorage:
         # --- assertion --- #
         for k, v in properties_dict.items():
             assert getattr(self.ecu_storage, k) == v, f"status_report attr {k} mismatch"
+        assert self.ecu_storage.active_ota_update_present.is_set()
+
+    async def test_polling_waiter_switching_from_idling_to_active(self):
+        """Waiter should immediately return if active_ota_update_present is set."""
+        _sleep_time, _mocked_interval = 3, 60
+        self.ecu_storage.IDLE_POLLING_INTERVAL = _mocked_interval  # type: ignore
+
+        async def _event_setter():
+            await asyncio.sleep(_sleep_time)
+            self.ecu_storage.active_ota_update_present.set()
+
+        self.ecu_storage.active_ota_update_present.clear()
+        _waiter = self.ecu_storage.get_polling_waiter()
+        asyncio.create_task(_event_setter())
+        # waiter should return on active_ota_update_present is set, instead of waiting the
+        #   full <IDLE_POLLING_INTERVAL>.
+        # expected behavior:
+        #   1. wait until _event_setter finished, or with a little bit delay.
+        #   2. wait much less time than <_mocked_interval>.
+        await asyncio.wait_for(_waiter(), timeout=_sleep_time + 1)
 
 
 class TestOTAClientServiceStub:
@@ -676,8 +696,8 @@ class TestOTAClientServiceStub:
         self.ecu_storage.on_ecus_accept_update_request = mocker.AsyncMock()
         # NOTE: decrease the interval to speed up testing
         #       (used by _otaproxy_lifecycle_managing/_otaclient_control_flags_managing task)
-        self.ecu_storage.ACTIVE_POLLING_INTERVAL = 0.1  # type: ignore
-        self.ecu_storage.IDLE_POLLING_INTERVAL = 0.1  # type: ignore
+        self.ecu_storage.ACTIVE_POLLING_INTERVAL = self.POLLING_INTERVAL  # type: ignore
+        self.ecu_storage.IDLE_POLLING_INTERVAL = self.POLLING_INTERVAL  # type: ignore
         # NOTE: disable internal overall ecu status generation task as we
         #       will manipulate the values by ourselves.
         self.ecu_storage._debug_properties_update_shutdown_event.set()
@@ -736,9 +756,6 @@ class TestOTAClientServiceStub:
         otaproxy startup/shutdown is only controlled by any_requires_network
         in overall ECU status report.
         """
-        # set the OTAPROXY_SHUTDOWN_DELAY to allow start/stop in single test
-        self.otaclient_service_stub.OTAPROXY_SHUTDOWN_DELAY = 1  # type: ignore
-
         # ------ otaproxy startup ------- #
         # --- prepartion --- #
         self.otaproxy_launcher.is_running = False
@@ -754,6 +771,8 @@ class TestOTAClientServiceStub:
 
         # ------ otaproxy shutdown ------ #
         # --- prepartion --- #
+        # set the OTAPROXY_SHUTDOWN_DELAY to allow start/stop in single test
+        self.otaclient_service_stub.OTAPROXY_SHUTDOWN_DELAY = 1  # type: ignore
         self.otaproxy_launcher.is_running = True
         self.ecu_storage.any_requires_network = False
 
