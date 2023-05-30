@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import asyncio
 import gc
 import json
 import time
@@ -21,21 +22,21 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Type, Iterator
+from typing import Optional, Type, Iterator
 from urllib.parse import urlparse
 
-from otaclient import __version__  # type: ignore
 from . import ota_metadata
-from .boot_control import BootControllerProtocol
-from .common import RetryTaskMap, wait_with_backoff
+from .boot_control import BootControllerProtocol, get_boot_controller
+from .common import RetryTaskMap, wait_with_backoff, ensure_otaproxy_start
 from .configs import config as cfg
-from .create_standby import StandbySlotCreatorProtocol
+from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .downloader import (
     DestinationNotAvailableError,
     DownloadFailedSpaceNotEnough,
     Downloader,
     HashVerificaitonError,
 )
+from .ecu_info import ECUInfo
 from .errors import (
     MetadataJWTInvalid,
     MetadataJWTVerficationFailed,
@@ -49,15 +50,12 @@ from .errors import (
     UpdateDeltaGenerationFailed,
     OTA_APIError,
     OTAError,
-    OTAProxyFailedToStart,
     OTARollbackError,
     OTAUpdateError,
 )
 from .interface import OTAClientProtocol
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
-from .proto.wrapper import UpdatePhase, RegularInf, StatusResponseEcuV2, UpdateStatus
-from .proxy_info import proxy_cfg
 from .update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
@@ -65,73 +63,38 @@ from .update_stats import (
 )
 from . import log_setting
 
+try:
+    from otaclient import __version__  # type: ignore
+except ImportError:
+    __version__ = "unknown"
+
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
 
-class OTAUpdateFSM:
-    WAIT_INTERVAL = 3
+class OTAClientControlFlags:
+    """
+    When self ECU's otaproxy is enabled, all the child ECUs of this ECU
+        and self ECU OTA update will depend on its otaproxy, we need to
+        control when otaclient can start its downloading/reboot with considering
+        whether local otaproxy is started/required.
+    """
 
     def __init__(self) -> None:
-        self._ota_proxy_ready = threading.Event()
-        self._otaclient_finish_update = threading.Event()
-        self._stub_cleanup_finish = threading.Event()
-        self.otaclient_failed = threading.Event()
-        self.otaservice_failed = threading.Event()
+        self._can_reboot = threading.Event()
 
-    def on_otaclient_failed(self):
-        self.otaclient_failed.set()
+    def is_can_reboot_flag_set(self) -> bool:
+        return self._can_reboot.is_set()
 
-    def on_otaservice_failed(self):
-        self.otaservice_failed.set()
+    def wait_can_reboot_flag(self):
+        self._can_reboot.wait()
 
-    def stub_pre_update_ready(self):
-        self._ota_proxy_ready.set()
+    def set_can_reboot_flag(self):
+        self._can_reboot.set()
 
-    def client_finish_update(self):
-        self._otaclient_finish_update.set()
-
-    def stub_cleanup_finished(self):
-        self._stub_cleanup_finish.set()
-
-    def client_wait_for_ota_proxy(self) -> bool:
-        """Local otaclient wait for stub(to setup ota_proxy server).
-
-        Return:
-            A bool to indicate whether the ota_proxy launching is successful or not.
-        """
-        while (
-            not self.otaservice_failed.is_set() and not self._ota_proxy_ready.is_set()
-        ):
-            time.sleep(self.WAIT_INTERVAL)
-        return not self.otaclient_failed.is_set()
-
-    def client_wait_for_reboot(self) -> bool:
-        """Local otaclient should reboot after the stub cleanup finished.
-
-        Return:
-            A bool indicates whether the ota_client_stub cleans up successfully.
-        """
-        while (
-            not self.otaservice_failed.is_set()
-            and not self._stub_cleanup_finish.is_set()
-        ):
-            time.sleep(self.WAIT_INTERVAL)
-        return not self.otaclient_failed.is_set()
-
-    def stub_wait_for_local_update(self) -> bool:
-        """OTA client stub should wait for local update finish before cleanup.
-
-        Return:
-            A bool indicates whether the local update is successful or not.
-        """
-        while (
-            not self.otaclient_failed.is_set()
-            and not self._otaclient_finish_update.is_set()
-        ):
-            time.sleep(self.WAIT_INTERVAL)
-        return not self.otaclient_failed.is_set()
+    def clear_can_reboot_flag(self):
+        self._can_reboot.clear()
 
 
 class _OTAUpdater:
@@ -139,15 +102,18 @@ class _OTAUpdater:
 
     def __init__(
         self,
-        boot_controller: BootControllerProtocol,
         *,
+        boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
+        proxy: Optional[str] = None,
+        control_flags: OTAClientControlFlags,
     ) -> None:
+        self._control_flags = control_flags
         self._boot_controller = boot_controller
         self._create_standby_cls = create_standby_cls
 
         # init update status
-        self.update_phase: UpdatePhase = UpdatePhase.INITIALIZING
+        self.update_phase = wrapper.UpdatePhase.INITIALIZING
         self.update_start_time = 0
         self.updating_version: str = ""
         self.failure_reason = ""
@@ -164,6 +130,8 @@ class _OTAUpdater:
 
         # init downloader
         self._downloader = Downloader()
+        self.proxy = proxy
+
         # init ota update statics collector
         self._update_stats_collector = OTAUpdateStatsCollector()
 
@@ -177,11 +145,11 @@ class _OTAUpdater:
 
     # helper methods
 
-    def _download_files(self, download_list: Iterator[RegularInf]):
+    def _download_files(self, download_list: Iterator[wrapper.RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
         logger.debug("download neede OTA image files...")
 
-        def _download_file(entry: RegularInf) -> RegInfProcessedStats:
+        def _download_file(entry: wrapper.RegularInf) -> RegInfProcessedStats:
             """Download single OTA image file."""
             cur_stat = RegInfProcessedStats(op=RegProcessOperation.DOWNLOAD_REMOTE_COPY)
 
@@ -268,7 +236,7 @@ class _OTAUpdater:
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
-        self.update_phase = UpdatePhase.CALCULATING_DELTA
+        self.update_phase = wrapper.UpdatePhase.CALCULATING_DELTA
         self._standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
@@ -291,7 +259,7 @@ class _OTAUpdater:
             "start to download needed files..."
             f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
         )
-        self.update_phase = UpdatePhase.DOWNLOADING_OTA_FILES
+        self.update_phase = wrapper.UpdatePhase.DOWNLOADING_OTA_FILES
         try:
             self._download_files(_delta_bundle.get_download_list())
         except DownloadFailedSpaceNotEnough:
@@ -306,7 +274,7 @@ class _OTAUpdater:
 
         # ------ in_update ------ #
         logger.info("start to apply changes to standby slot...")
-        self.update_phase = UpdatePhase.APPLYING_UPDATE
+        self.update_phase = wrapper.UpdatePhase.APPLYING_UPDATE
         try:
             self._standby_slot_creator.create_standby_slot()
         except Exception as e:
@@ -315,7 +283,10 @@ class _OTAUpdater:
         logger.info("finished updating standby slot")
 
     def _execute_update(
-        self, version: str, raw_url_base: str, cookies_json: str, *, fsm: OTAUpdateFSM
+        self,
+        version: str,
+        raw_url_base: str,
+        cookies_json: str,
     ):
         """OTA update workflow implementation.
 
@@ -336,7 +307,7 @@ class _OTAUpdater:
         self._update_stats_collector.start()
 
         # ------ init, processing metadata ------ #
-        self.update_phase = UpdatePhase.PROCESSING_METADATA
+        self.update_phase = wrapper.UpdatePhase.PROCESSING_METADATA
         # parse url_base
         # unconditionally regulate the url_base
         _url_base = urlparse(raw_url_base)
@@ -356,14 +327,16 @@ class _OTAUpdater:
 
         # configure proxy
         logger.debug("configure proxy setting...")
-        if proxy := proxy_cfg.get_proxy_for_local_ota():
-            # wait for stub to setup the local ota_proxy server
-            if not fsm.client_wait_for_ota_proxy():
-                raise OTAProxyFailedToStart("ota_proxy failed to start, abort")
+        if self.proxy:
+            logger.info(
+                f"use {self.proxy=} for local OTA update, "
+                f"wait for otaproxy@{self.proxy} online..."
+            )
+            # TODO: make otaproxy scrubing not blocking the otaproxy starts
+            ensure_otaproxy_start(self.proxy)
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.
-            logger.debug(f"use {proxy=} for local OTA update")
-            self._downloader.configure_proxies({"http": proxy})
+            self._downloader.configure_proxies({"http": self.proxy})
 
         # process metadata.jwt and ota metafiles
         logger.debug("process metadata.jwt...")
@@ -400,32 +373,26 @@ class _OTAUpdater:
             raise
         except Exception as e:
             raise ApplyOTAUpdateFailed(f"unspecific applying OTA update failure: {e!r}")
-        # local update finished, set the status to POST_PROCESSING
-        fsm.client_finish_update()
 
         # ------ post update ------ #
         logger.info("local update finished, wait on all subecs...")
         logger.info("enter boot control post update phase...")
         # boot controller postupdate
-        self.update_phase = UpdatePhase.PROCESSING_POSTUPDATE
+        self.update_phase = wrapper.UpdatePhase.PROCESSING_POSTUPDATE
         next(_postupdate_gen := self._boot_controller.post_update())
 
         # wait for sub ecu if needed before rebooting
-        # NOTE: still reboot event local cleanup failed as the update itself is successful
-        # TODO: main ecu wait for reboot logic
-        fsm.client_wait_for_reboot()
-
-        # boot controller next: restart
-        next(_postupdate_gen, None)
+        self._control_flags.wait_can_reboot_flag()
+        next(_postupdate_gen, None)  # reboot
 
     # API
 
     def shutdown(self):
-        self.update_phase = UpdatePhase.INITIALIZING
+        self.update_phase = wrapper.UpdatePhase.INITIALIZING
         self._downloader.shutdown()
         self._update_stats_collector.stop()
 
-    def get_update_status(self) -> UpdateStatus:
+    def get_update_status(self) -> wrapper.UpdateStatus:
         """
         Returns:
             A tuple contains the version and the update_progress.
@@ -457,14 +424,17 @@ class _OTAUpdater:
         return update_progress
 
     def execute(
-        self, version: str, raw_url_base: str, cookies_json: str, *, fsm: OTAUpdateFSM
+        self,
+        version: str,
+        raw_url_base: str,
+        cookies_json: str,
     ):
         """Main entry for executing local OTA update.
 
         Handles OTA failure and logging/finalizing on failure.
         """
         try:
-            self._execute_update(version, raw_url_base, cookies_json, fsm=fsm)
+            self._execute_update(version, raw_url_base, cookies_json)
         except OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
@@ -501,6 +471,7 @@ class OTAClient(OTAClientProtocol):
     """
 
     DEFAULT_FIRMWARE_VERSION = "unknown"
+    OTACLIENT_VERSION = __version__
 
     def __init__(
         self,
@@ -508,6 +479,8 @@ class OTAClient(OTAClientProtocol):
         boot_control_cls: Type[BootControllerProtocol],
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         my_ecu_id: str = "",
+        control_flags: OTAClientControlFlags,
+        proxy: Optional[str] = None,
     ):
         self.my_ecu_id = my_ecu_id
         # ensure only one update/rollback session is running
@@ -520,6 +493,8 @@ class OTAClient(OTAClientProtocol):
         self.current_version = (
             self.boot_controller.load_version() or self.DEFAULT_FIRMWARE_VERSION
         )
+        self.proxy = proxy
+        self.control_flags = control_flags
 
         # executors for update/rollback
         self._update_executor: _OTAUpdater = None  # type: ignore
@@ -542,29 +517,23 @@ class OTAClient(OTAClientProtocol):
 
     # API
 
-    def update(
-        self,
-        version: str,
-        url_base: str,
-        cookies_json: str,
-        *,
-        fsm: OTAUpdateFSM,
-    ):
+    def update(self, version: str, url_base: str, cookies_json: str):
         if self._lock.acquire(blocking=False):
             try:
                 logger.info("[update] entering...")
                 self._update_executor = _OTAUpdater(
                     boot_controller=self.boot_controller,
                     create_standby_cls=self.create_standby_cls,
+                    control_flags=self.control_flags,
+                    proxy=self.proxy,
                 )
                 self.last_failure_type = wrapper.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
-                self._update_executor.execute(version, url_base, cookies_json, fsm=fsm)
+                self._update_executor.execute(version, url_base, cookies_json)
             except OTAUpdateError as e:
                 self._on_failure(e, wrapper.StatusOta.FAILURE)
-                fsm.on_otaclient_failed()
             finally:
                 self._update_executor = None  # type: ignore
                 gc.collect()  # trigger a forced gc
@@ -597,18 +566,131 @@ class OTAClient(OTAClientProtocol):
                 "ignore incoming rollback request as local update/rollback is ongoing"
             )
 
-    def status(self) -> StatusResponseEcuV2:
-        _live_ota_status = self.live_ota_status.get_ota_status()
-        _res = StatusResponseEcuV2(
+    def status(self) -> wrapper.StatusResponseEcuV2:
+        live_ota_status = self.live_ota_status.get_ota_status()
+        status_report = wrapper.StatusResponseEcuV2(
             ecu_id=self.my_ecu_id,
             firmware_version=self.current_version,
-            otaclient_version=__version__,
-            ota_status=_live_ota_status,
+            otaclient_version=self.OTACLIENT_VERSION,
+            ota_status=live_ota_status,
             failure_type=self.last_failure_type,
             failure_reason=self.last_failure_reason,
             failure_traceback=self.last_failure_traceback,
         )
-        if _live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
-            _res.update_status = self._update_executor.get_update_status()
+        if live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
+            status_report.update_status = self._update_executor.get_update_status()
+        return status_report
 
-        return _res
+
+class OTAClientBusy(Exception):
+    """Raised when otaclient receive another request when doing update/rollback."""
+
+
+class OTAClientWrapper:
+    """OTAClient stub implementation that wraps OTAClient, manage update/rollback session,
+    and exposes async API for OTAClientServiceStub.
+
+    All actual API request handlings are wrapped and dispatched into threadpool for execution.
+    Only one ongoing update/rollback is allowed, with the help of exclusive update_rollback lock.
+
+    If this ECU enables otaproxy and has child ECUs depend on it, control_flags is used to prevent
+    this ECU's reboot before the otaproxy dependency is resolved.
+
+    OTAClient itself is self-contained, its error handling is done internally, no exception will be raised
+    from calling API methods of OTAClient.
+    """
+
+    def __init__(
+        self,
+        *,
+        ecu_info: ECUInfo,
+        executor: ThreadPoolExecutor,
+        control_flags: OTAClientControlFlags,
+        proxy: Optional[str] = None,
+    ) -> None:
+        # only one update/rollback is allowed at a time
+        self.update_rollback_lock = asyncio.Lock()
+        self.my_ecu_id = ecu_info.ecu_id
+        self._run_in_executor = partial(
+            asyncio.get_running_loop().run_in_executor, executor
+        )
+
+        # create otaclient instance and control flags
+        self._otaclient = OTAClient(
+            boot_control_cls=get_boot_controller(ecu_info.get_bootloader()),
+            create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
+            my_ecu_id=self.my_ecu_id,
+            control_flags=control_flags,
+            proxy=proxy,
+        )
+
+        # proxy used by local otaclient
+        # NOTE: it can be an upper otaproxy, local otaproxy, or no proxy
+        self.local_used_proxy_url = proxy
+        self.last_operation = None  # update/rollback/None
+
+    # property
+
+    @property
+    def is_busy(self) -> bool:
+        return self.update_rollback_lock.locked()
+
+    # API
+
+    async def dispatch_update(self, request: wrapper.UpdateRequestEcu):
+        """Dispatch OTA update execution to background thread.
+
+        Raises:
+            OTAClientBusy if otaclient is already executing update/rollback.
+        """
+        if self.update_rollback_lock.locked():
+            raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
+        else:  # immediately take the lock if not locked
+            await self.update_rollback_lock.acquire()
+            self.last_operation = wrapper.StatusOta.UPDATING
+
+        async def _update():
+            """Background waiting for update to be finished and
+            release update_rollback lock."""
+            try:
+                await self._run_in_executor(
+                    partial(
+                        self._otaclient.update,
+                        request.version,
+                        request.url,
+                        request.cookies,
+                    )
+                )
+            finally:
+                self.last_operation = None
+                self.update_rollback_lock.release()
+
+        # dispatch update to background
+        asyncio.create_task(_update())
+
+    async def dispatch_rollback(self, _: wrapper.RollbackRequestEcu):
+        """Dispatch OTA rollback execution to background thread.
+
+        Raises:
+            OTAClientBusy if otaclient is already executing update/rollback.
+        """
+        if self.update_rollback_lock.locked():
+            raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
+        else:  # immediately take the lock if not locked
+            await self.update_rollback_lock.acquire()
+            self.last_operation = wrapper.StatusOta.ROLLBACKING
+
+        async def _rollback():
+            """Background waiting for rollback to be finished and
+            release update_rollback lock."""
+            try:
+                await self._run_in_executor(self._otaclient.rollback)
+            finally:
+                self.last_operation = None
+                self.update_rollback_lock.release()
+
+        # dispatch to background
+        asyncio.create_task(_rollback())
+
+    async def get_status(self) -> wrapper.StatusResponseEcuV2:
+        return await self._run_in_executor(self._otaclient.status)

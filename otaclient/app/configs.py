@@ -34,7 +34,7 @@ class CreateStandbyMechanism(Enum):
 
 class OtaClientServerConfig:
     SERVER_PORT = 50051
-    WAITING_SUBECU_ACK_UPDATE_REQ_TIMEOUT = 6
+    WAITING_SUBECU_ACK_REQ_TIMEOUT = 6
     QUERYING_SUBECU_STATUS_TIMEOUT = 30
     LOOP_QUERYING_SUBECU_STATUS_INTERVAL = 10
     STATUS_UPDATE_INTERVAL = 1
@@ -145,6 +145,36 @@ class BaseConfig(_InternalSettings):
     CREATE_STANDBY_RETRY_MAX = 3
     CREATE_STANDBY_BACKOFF_FACTOR = 1
     CREATE_STANDBY_BACKOFF_MAX = 6
+
+    # --- ECU status polling setting, otaproxy dependency managing --- #
+    # The ECU status storage will summarize the stored ECUs' status report
+    # and generate overall status report for all ECUs every <INTERVAL> seconds.
+    OVERALL_ECUS_STATUS_UPDATE_INTERVAL = 6  # seconds
+
+    # If ECU has been disconnected longer than <TIMEOUT> seconds, it will be
+    # treated as UNREACHABLE, and will not be counted when generating overall
+    # ECUs status report.
+    # NOTE: unreachable_timeout should be larger than
+    #       downloading_group timeout
+    ECU_UNREACHABLE_TIMEOUT = 20 * 60  # seconds
+
+    # Otaproxy should not be shutdowned with less than <INTERVAL> seconds
+    # after it just starts to prevent repeatedly start/stop cycle.
+    OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL = 1 * 60  # seconds
+
+    # When any ECU acks update request, this ECU will directly set the overall ECU status
+    # to any_in_update=True, any_requires_network=True, all_success=False, to prevent
+    # pre-mature overall ECU status changed caused by child ECU delayed ack to update request.
+    #
+    # This pre-set overall ECU status will be kept for <KEEP_TIME> seconds.
+    # This value is expected to be larger than the time cost for subECU acks the OTA request.
+    KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED = 60  # seconds
+
+    # Active status polling interval, when there is active OTA update in the cluster.
+    ACTIVE_INTERVAL = 1  # second
+
+    # Idle status polling interval, when ther is no active OTA updaste in the cluster.
+    IDLE_INTERVAL = 10  # seconds
 
 
 # init cfgs

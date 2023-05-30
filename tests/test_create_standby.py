@@ -74,13 +74,6 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         )
         self._boot_control.get_standby_boot_dir.return_value = self.slot_b_boot_dir
 
-        # ------ mock proxy info ------ #
-        # configure not to use proxy for this test
-        _proxy_cfg = typing.cast(ProxyInfo, mocker.MagicMock(spec=ProxyInfo))
-        _proxy_cfg.enable_local_ota_proxy = False
-        _proxy_cfg.get_proxy_for_local_ota.return_value = None
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.proxy_cfg", _proxy_cfg)
-
         # ------ mock otaclient cfg ------ #
         _cfg = BaseConfig()
         _cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
@@ -91,7 +84,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg", _cfg)
 
     def test_update_with_create_standby_RebuildMode(self, mocker: MockerFixture):
-        from otaclient.app.ota_client import _OTAUpdater, OTAUpdateFSM
+        from otaclient.app.ota_client import _OTAUpdater, OTAClientControlFlags
         from otaclient.app.create_standby.rebuild_mode import RebuildMode
 
         # TODO: not test process_persistent currently,
@@ -100,10 +93,14 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         RebuildMode._process_persistents = mocker.MagicMock()
 
         # ------ execution ------ #
-        _ota_update_fsm = typing.cast(OTAUpdateFSM, mocker.MagicMock(spec=OTAUpdateFSM))
+        otaclient_control_flags = typing.cast(
+            OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
+        )
         _updater = _OTAUpdater(
-            self._boot_control,
+            boot_controller=self._boot_control,
             create_standby_cls=RebuildMode,
+            proxy=None,
+            control_flags=otaclient_control_flags,
         )
         # NOTE: mock the shutdown method as we need to assert before the
         #       updater is closed.
@@ -114,13 +111,13 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
             version=cfg.UPDATE_VERSION,
             raw_url_base=cfg.OTA_IMAGE_URL,
             cookies_json=r'{"test": "my-cookie"}',
-            fsm=_ota_update_fsm,
         )
         time.sleep(2)  # wait for downloader to record stats
 
         # ------ assertions ------ #
         # --- assert update finished
         _updater.shutdown.assert_called_once()
+        otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
         # --- ensure the update stats are collected
         _snapshot = _updater._update_stats_collector.get_snapshot()
         assert _snapshot.processed_files_num
@@ -130,7 +127,8 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         # assert _snapshot.downloaded_bytes
         # assert _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
         assert _snapshot.update_applying_elapsed_time.export_pb().ToNanoseconds()
-        # --- check slot creating result
+
+        # --- check slot creating result, ensure slot_a and slot_b is the same --- #
         # NOTE: merge contents from slot_b_boot_dir to slot_b
         shutil.copytree(self.slot_b_boot_dir, self.slot_b / "boot", dirs_exist_ok=True)
         # NOTE: for some reason tmp dir is created under OTA_IMAGE_DIR/data, but not listed

@@ -15,13 +15,8 @@
 
 import grpc.aio
 
-from . import log_setting
 from .proto import wrapper, v2_grpc
-from .configs import config as cfg, server_cfg
-
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+from .configs import server_cfg
 
 
 class ECUNoResponse(Exception):
@@ -46,7 +41,6 @@ class OtaClientCall:
                 return wrapper.StatusResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to status request on-time: {e!r}"
-            logger.debug(_msg)
             raise ECUNoResponse(_msg)
 
     @staticmethod
@@ -66,7 +60,6 @@ class OtaClientCall:
                 return wrapper.UpdateResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to update request on-time: {e!r}"
-            logger.debug(_msg)
             raise ECUNoResponse(_msg)
 
     @staticmethod
@@ -86,5 +79,4 @@ class OtaClientCall:
                 return wrapper.RollbackResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to rollback request on-time: {e!r}"
-            logger.debug(_msg)
             raise ECUNoResponse(_msg)

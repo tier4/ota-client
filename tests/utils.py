@@ -208,4 +208,4 @@ def compare_message(l, r):
         if isinstance(_attrv_l, _Message):
             compare_message(_attrv_l, _attrv_r)
         else:
-            assert _attrv_l == _attrv_r
+            assert _attrv_l == _attrv_r, f"mismatch {_attrv_l=}, {_attrv_r=}"

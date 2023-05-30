@@ -68,7 +68,7 @@ class Test_ota_client_service:
     def setup_test(self, mocker: pytest_mock.MockerFixture):
         self.otaclient_service_stub = _MockedOTAClientServiceStub()
         mocker.patch(
-            f"{cfg.OTACLIENT_SERVICE_MODULE_PATH}.OtaClientStub",
+            f"{cfg.OTACLIENT_SERVICE_MODULE_PATH}.OTAClientServiceStub",
             return_value=self.otaclient_service_stub,
         )
 

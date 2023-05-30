@@ -17,10 +17,10 @@ import yaml
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, MISSING
 from pathlib import Path
-from typing import Iterator, Union, Dict, List, Tuple, Any
+from typing import Iterator, NamedTuple, Union, Dict, List, Any
 
 from . import log_setting
-from .configs import config as cfg
+from .configs import config as cfg, server_cfg
 from .boot_control import BootloaderType
 
 logger = log_setting.get_logger(
@@ -32,6 +32,12 @@ DEFAULT_ECU_INFO = {
     "format_version": 1,  # current version is 1
     "ecu_id": "autoware",  # should be unique for each ECU in vehicle
 }
+
+
+class ECUContact(NamedTuple):
+    ecu_id: str
+    host: str
+    port: int = server_cfg.SERVER_PORT
 
 
 @dataclass
@@ -103,25 +109,16 @@ class ECUInfo:
         # initialize ECUInfo inst
         return cls(**deepcopy(_ecu_info_dict))
 
-    def iter_secondary_ecus(self) -> Iterator[Tuple[str, str]]:
-        """
-        Return a tuple contains ecu_id and ip_addr in str.
-
-        Format:
-            "ecu_id": str
-            "ip_addr": str
-        """
+    def iter_direct_subecu_contact(self) -> Iterator[ECUContact]:
         for subecu in self.secondaries:
             try:
-                yield subecu["ecu_id"], subecu["ip_addr"]
+                yield ECUContact(
+                    ecu_id=subecu["ecu_id"],
+                    host=subecu["ip_addr"],
+                    port=subecu.get("port", server_cfg.SERVER_PORT),
+                )
             except KeyError:
                 raise ValueError(f"{subecu=} info is invalid")
-
-    def get_ecu_id(self) -> str:
-        return self.ecu_id
-
-    def get_ecu_ip_addr(self) -> str:
-        return self.ip_addr
 
     def get_bootloader(self) -> BootloaderType:
         return BootloaderType.parse_str(self.bootloader)
