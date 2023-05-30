@@ -103,8 +103,8 @@ REQUEST_RECACHE_HEADER: Dict[str, str] = {
 T, P = TypeVar("T"), ParamSpec("P")
 
 
-class _TransferInterruptRetrier:
-    """Retry mechanism that covers interruption during data transfering.
+def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: int):
+    """Retry mechanism that covers interruption/validation failed of data transfering.
 
     Retry mechanism applied on requests only retries during making connection to remote server,
         this retry method retries on the transfer interruption and/or recevied data invalid.
@@ -116,12 +116,7 @@ class _TransferInterruptRetrier:
         and HashVerificationError.
     """
 
-    def __init__(self, retries: int, backoff_factor: float, backoff_max: int) -> None:
-        self.retries = retries
-        self.backoff_factor = backoff_factor
-        self.backoff_max = backoff_max
-
-    def __call__(self, func: Callable[P, T]) -> Callable[P, T]:
+    def _decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
         def _wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             _retry_count = 0
@@ -131,8 +126,8 @@ class _TransferInterruptRetrier:
                 except (HashVerificaitonError, ChunkStreamingError):
                     _retry_count += 1
                     _backoff = min(
-                        self.backoff_max,
-                        self.backoff_factor * (2 ** (_retry_count - 1)),
+                        backoff_max,
+                        backoff_factor * (2 ** (_retry_count - 1)),
                     )
 
                     # inject a OTA-File-Cache-Control header to indicate ota_proxy
@@ -143,11 +138,13 @@ class _TransferInterruptRetrier:
                     else:
                         kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
 
-                    if _retry_count > self.retries:
+                    if _retry_count > retries:
                         raise
                     time.sleep(_backoff)
 
         return _wrapper
+
+    return _decorator
 
 
 class DecompressionAdapterProtocol(Protocol):
@@ -342,7 +339,7 @@ class Downloader:
                 logger.error(_msg)
                 raise DownloadFailedSpaceNotEnough(url, dst, _msg) from e
 
-    @_TransferInterruptRetrier(RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
+    @_transfer_invalid_retrier(RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
         self,
         url: str,
