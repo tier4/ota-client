@@ -326,7 +326,7 @@ class Downloader:
         # exception group 3: raise on unhandled HTTP error(403, 404, etc.)
         except requests.exceptions.HTTPError as e:
             _msg = f"failed to download due to unhandled HTTP error: {e.strerror}"
-            logger.warning(_msg)
+            logger.error(_msg)
             raise UnhandledHTTPError(url, dst, _msg) from e
         # exception group 4: any requests error escaped from the above catching
         except requests.exceptions.RequestException as e:
@@ -336,7 +336,7 @@ class Downloader:
         # exception group 5: file saving location not available
         except FileNotFoundError as e:
             _msg = f"failed due to dst not available: {e!r}"
-            logger.warning(_msg)
+            logger.error(_msg)
             raise DestinationNotAvailableError(url, dst, _msg) from e
         # exception group 6: Disk out-of-space
         except OSError as e:
