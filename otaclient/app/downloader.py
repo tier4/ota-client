@@ -96,6 +96,12 @@ class DownloadFailedSpaceNotEnough(DownloadError):
     pass
 
 
+class UnhandledRequestException(DownloadError):
+    """requests exception that we didn't cover.
+    If we get this exc, we should consider handle it.
+    """
+
+
 REQUEST_RECACHE_HEADER: Dict[str, str] = {
     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
 }
@@ -325,8 +331,8 @@ class Downloader:
         # exception group 4: any requests error escaped from the above catching
         except requests.exceptions.RequestException as e:
             _msg = f"failed due to unhandled request error: {e!r}"
-            logger.warning(_msg)
-            raise DownloadError(url, dst, _msg) from e
+            logger.error(_msg)
+            raise UnhandledRequestException(url, dst, _msg) from e
         # exception group 5: file saving location not available
         except FileNotFoundError as e:
             _msg = f"failed due to dst not available: {e!r}"
