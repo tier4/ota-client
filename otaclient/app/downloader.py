@@ -118,8 +118,9 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
         to indicate the otaproxy to redo the cache for this corrupted file.
 
     NOTE: this retry decorator expects the input func to have 'headers' kwarg.
-    NOTE: only retry on errors during/after data transfering, which are ChunkStreamingError
+    NOTE: retry on errors during/after data transfering, which are ChunkStreamingError
         and HashVerificationError.
+    NOTE: also cover the unhandled requests errors.
     """
 
     def _decorator(func: Callable[P, T]) -> Callable[P, T]:
@@ -129,7 +130,11 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
             while True:
                 try:
                     return func(*args, **kwargs)
-                except (HashVerificaitonError, ChunkStreamingError):
+                except (
+                    HashVerificaitonError,
+                    ChunkStreamingError,
+                    UnhandledRequestException,
+                ):
                     _retry_count += 1
                     _backoff = min(
                         backoff_max,
