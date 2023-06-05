@@ -33,6 +33,7 @@ from typing import (
     Dict,
     Generic,
     List,
+    MutableMapping,
     Optional,
     Set,
     Tuple,
@@ -356,8 +357,12 @@ class CachingRegister:
 
     def __init__(self, base_dir: Union[str, Path]):
         self._base_dir = Path(base_dir)
-        self._url_ref_dict: Dict[str, _Weakref] = weakref.WeakValueDictionary()  # type: ignore
-        self._ref_tracker_dict: Dict[_Weakref, CacheTracker] = weakref.WeakKeyDictionary()  # type: ignore
+        self._url_ref_dict: MutableMapping[
+            str, _Weakref
+        ] = weakref.WeakValueDictionary()
+        self._ref_tracker_dict: MutableMapping[
+            _Weakref, CacheTracker
+        ] = weakref.WeakKeyDictionary()
 
     async def get_tracker(
         self, raw_url: str, *, executor: Executor
@@ -377,15 +382,16 @@ class CachingRegister:
 
         # provider, or override a failed provider
         if _ref is not _new_ref:  # override a failed tracker
-            self._url_ref_dict[raw_url] = (_ref := _new_ref)
-        self._ref_tracker_dict[_ref] = (
-            _tracker := CacheTracker(
-                TmpCacheFileNaming.from_url(raw_url),
-                _ref,
-                base_dir=self._base_dir,
-                executor=executor,
-            )
+            self._url_ref_dict[raw_url] = _new_ref
+            _ref = _new_ref
+
+        _tracker = CacheTracker(
+            TmpCacheFileNaming.from_url(raw_url),
+            _ref,
+            base_dir=self._base_dir,
+            executor=executor,
         )
+        self._ref_tracker_dict[_ref] = _tracker
         return _tracker, True
 
 
