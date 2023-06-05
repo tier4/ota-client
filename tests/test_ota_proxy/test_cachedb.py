@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 from otaclient.ota_proxy.ota_cache import CacheMeta, OTACacheDB
+from otaclient.ota_proxy.orm import NULL_TYPE
 from otaclient.ota_proxy import config as cfg
 
 logger = logging.getLogger(__name__)
@@ -72,9 +73,9 @@ class TestORM:
                     "float_field": 456.123,
                     "op_str_field": "",
                     "op_int_field": 0,
-                    "null_field": None,
+                    "null_field": NULL_TYPE(),
                 },
-                ("unique_str", 123, 456.123, "", 0, None),
+                ("unique_str", 123, 456.123, "", 0, NULL_TYPE()),
             ),
         ),
     )

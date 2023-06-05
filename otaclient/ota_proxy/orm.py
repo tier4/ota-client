@@ -39,11 +39,10 @@ if TYPE_CHECKING:
 
 
 class NULL_TYPE(ABC):
+    """Singleton for NULL type."""
+
     def __new__(cls, *args, **kwargs) -> None:
         return None
-
-
-NULL_TYPE.register(type(None))  # let None instance of NULL_TYPE
 
 
 SQLITE_DATATYPES = Union[
