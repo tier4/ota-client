@@ -55,9 +55,15 @@ def _subprocess_main(
     # ------ pre-start callable ------ #
     subprocess_init()
     # ------ scrub cache folder if cache re-use is possible ------ #
+    _cache_dir = Path(cache_dir)
     should_init_cache = (
-        init_cache or not Path(cache_dir).is_dir() or not Path(cache_db_f).is_file()
+        init_cache or not _cache_dir.is_dir() or not Path(cache_db_f).is_file()
     )
+    # NOTE: although we don't scrub the cache entries anymore, we still want to
+    #       cleanup the unfinished tmp entries
+    if not should_init_cache:
+        for _tmp in _cache_dir.glob(f"{config.TMP_FILE_PREFIX}*"):
+            _tmp.unlink(missing_ok=True)
 
     uvloop.install()
     asyncio.run(
