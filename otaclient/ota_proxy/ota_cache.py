@@ -534,7 +534,7 @@ class RemoteOTAFile:
                 if not self._tracker.writer_finished:
                     try:
                         await _cache_write_gen.asend(chunk)
-                    except (Exception, StopAsyncIteration) as e:
+                    except Exception as e:
                         await self._tracker.provider_on_failed()  # signal tracker
                         logger.error(
                             f"cache write coroutine failed for {self.meta=}, abort caching: {e!r}"
@@ -671,6 +671,14 @@ class OTACache:
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
 
+    def _check_otacache(self) -> bool:
+        """Check ota_cache can be reused or not."""
+        return (
+            self._base_dir.is_dir()
+            and self._db_file.is_file()
+            and OTACacheDB.check_db_file(self._db_file)
+        )
+
     async def start(self):
         """Start the ota_cache instance."""
         # silently ignore multi launching of ota_cache
@@ -694,23 +702,19 @@ class OTACache:
             auto_decompress=False, raise_for_status=True, timeout=timeout
         )
 
-        if self._cache_enabled:
-            # prepare cache dir
-            if self._init_cache:
+        if not self._cache_enabled:
+            # purge cache dir if requested(init_cache=True) or ota_cache invalid
+            if self._init_cache or self._check_otacache():
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
                 # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
-                # init only
-                _init_only = OTACacheDB(self._db_file, init=True)
-                _init_only.close()
-            else:  # cleanup unfinished tmp files
-                for tmp_f in self._base_dir.glob(f"{cfg.TMP_FILE_PREFIX}*"):
-                    tmp_f.unlink(missing_ok=True)
+                # init db file with table created
+                OTACacheDB.init_db_file(self._db_file)
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
-            # init cache helper
+            # init cache helper(and connect to ota_cache db)
             self._lru_helper = LRUCacheHelper(self._db_file)
             self._on_going_caching = CachingRegister(self._base_dir)
 
