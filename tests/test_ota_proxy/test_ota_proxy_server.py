@@ -59,14 +59,6 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
     CLIENTS_NUM = 6
 
-    @pytest.fixture
-    def test_inst(self):
-        # NOTE:
-        #   according to https://github.com/pytest-dev/pytest-asyncio/issues/297,
-        #   the self in async fixture is no the test instance, so we use this fixture
-        #   to get the test instance.
-        return self
-
     @pytest.fixture(
         params=[
             "below_soft_limit",
@@ -74,8 +66,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             "exceed_hard_limit",
         ],
     )
-    async def setup_ota_proxy_server(self, test_inst, tmp_path: Path, request):
-        self = test_inst  # use real test inst as self, see test_inst fixture above
+    async def setup_ota_proxy_server(self, tmp_path: Path, request):
         import uvicorn
         from otaclient.ota_proxy import App, OTACache
 
@@ -148,15 +139,10 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         self.ota_cache = _ota_cache
 
     @pytest.fixture(autouse=True)
-    async def launch_ota_proxy_server(
-        self,
-        test_inst,
-        setup_ota_proxy_server,
-    ):
+    async def launch_ota_proxy_server(self, setup_ota_proxy_server):
         """
         NOTE: launch ota_proxy in different space availability condition
         """
-        self = test_inst
         try:
             await _start_uvicorn_server(self.otaproxy_inst)
             await asyncio.sleep(1)  # wait before otaproxy server is ready
@@ -260,6 +246,107 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                             ):
                                 continue
                             raise
+
+    async def test_multiple_clients_download_ota_image(self, parse_regulars):
+        """Test multiple client download the whole ota image simultaneously."""
+        # ------ dispatch many clients to download from otaproxy simultaneously ------ #
+        # --- execution --- #
+        sync_event = asyncio.Event()
+        tasks: List[asyncio.Task] = []
+        for _ in range(self.CLIENTS_NUM):
+            tasks.append(
+                asyncio.create_task(
+                    self.ota_image_downloader(parse_regulars, sync_event)
+                )
+            )
+        logger.info(
+            f"all {self.CLIENTS_NUM} clients have started to download ota image..."
+        )
+        sync_event.set()
+
+        # --- assertions --- #
+        # 1. ensure all clients finished the downloading successfully
+        await asyncio.gather(*tasks, return_exceptions=False)
+        await self.otaproxy_inst.shutdown()
+        # 2. check there is no tmp files left in the ota_cache dir
+        #    ensure that the gc for multi-cache-streaming works
+        assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
+
+
+class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTAPROXY_MODULE_PATH}.otacache"
+    OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
+    OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
+    REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
+    CLIENTS_NUM = 3
+
+    @pytest.fixture(autouse=True)
+    async def setup_ota_proxy_server(self, tmp_path: Path):
+        import uvicorn
+        from otaclient.ota_proxy import App, OTACache
+
+        ota_cache_dir = tmp_path / "ota-cache"
+        ota_cache_dir.mkdir(parents=True, exist_ok=True)
+        ota_cachedb = ota_cache_dir / "cachedb"
+        self.ota_cache_dir = ota_cache_dir  # bind to test inst
+        self.ota_cachedb = ota_cachedb
+
+        # create a OTACache instance within the test process
+        _ota_cache = OTACache(
+            cache_enabled=False,
+            upper_proxy="",
+            enable_https=False,
+            init_cache=True,
+            base_dir=ota_cache_dir,
+            db_file=ota_cachedb,
+        )
+        _config = uvicorn.Config(
+            App(_ota_cache),
+            host=cfg.OTA_PROXY_SERVER_ADDR,
+            port=cfg.OTA_PROXY_SERVER_PORT,
+            log_level="error",
+            lifespan="on",
+            loop="asyncio",
+            http="h11",
+        )
+        otaproxy_inst = uvicorn.Server(_config)
+        self.otaproxy_inst = otaproxy_inst
+        self.ota_cache = _ota_cache
+
+        try:
+            await _start_uvicorn_server(self.otaproxy_inst)
+            await asyncio.sleep(1)  # wait before otaproxy server is ready
+            yield
+        finally:
+            shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
+            try:
+                await self.otaproxy_inst.shutdown()
+            except Exception:
+                pass  # ignore exp on shutting down
+
+    @pytest.fixture(scope="class")
+    def parse_regulars(self):
+        regular_entries: List[RegularInf] = []
+        with open(self.REGULARS_TXT_PATH, "r") as f:
+            for _line in f:
+                _entry = parse_regulars_from_txt(_line)
+                regular_entries.append(_entry)
+        return regular_entries
+
+    async def ota_image_downloader(self, regular_entries, sync_event: asyncio.Event):
+        """Test single client download the whole ota image."""
+        async with aiohttp.ClientSession() as session:
+            await sync_event.wait()
+            await asyncio.sleep(random.randrange(100, 200) // 100)
+            for entry in regular_entries:
+                url = urljoin(
+                    cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
+                )
+                async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
+                    hash_f = sha256()
+                    async for data, _ in resp.content.iter_chunks():
+                        hash_f.update(data)
+                    assert hash_f.digest() == entry.sha256hash
 
     async def test_multiple_clients_download_ota_image(self, parse_regulars):
         """Test multiple client download the whole ota image simultaneously."""
