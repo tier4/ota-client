@@ -16,9 +16,10 @@
 import logging
 import pytest
 import sqlite3
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from os import urandom
+from pathlib import Path
+from typing import Any, Dict, Tuple
 from otaclient.ota_proxy.ota_cache import CacheMeta, OTACacheDB
 from otaclient.ota_proxy.orm import NULL_TYPE
 from otaclient.ota_proxy import config as cfg
@@ -171,19 +172,12 @@ class TestORM:
 
 
 class TestOTACacheDB:
-    @pytest.fixture(scope="class")
-    def setup_db(self):
-        """Setup a new conn to a in-memory otacache_db."""
-        try:
-            ota_cache_db = OTACacheDB(":memory:", init=True)
-            time.sleep(0.5)
-            yield ota_cache_db
-        finally:
-            ota_cache_db.close()
+    @pytest.fixture(autouse=True)
+    def prepare_db(self, tmp_path: Path):
+        self.db_f = db_f = tmp_path / "db_f"
+        self.entries = entries = []
 
-    @pytest.fixture(scope="class")
-    def prepare_entries(self):
-        entries: List[CacheMeta] = []
+        # prepare data
         for target_size, rotate_num in cfg.BUCKET_FILE_SIZE_DICT.items():
             for _i in range(rotate_num):
                 entries.append(
@@ -193,25 +187,49 @@ class TestOTACacheDB:
                         size=target_size,
                     )
                 )
-        return entries
+        # insert entry into db
+        OTACacheDB.init_db_file(db_f)
+        with OTACacheDB(db_f) as db_conn:
+            db_conn.insert_entry(*self.entries)
 
-    @pytest.fixture(autouse=True)
-    def setup_test(self, setup_db, prepare_entries):
-        self.ota_cache_db: OTACacheDB = setup_db
-        self.entries: List[CacheMeta] = prepare_entries
+        # prepare connection
+        try:
+            self.conn = OTACacheDB(self.db_f)
+            yield
+        finally:
+            self.conn.close()
 
-    def test_insert(self):
-        """
-        insert all prepared entries into the database
-        """
-        assert self.ota_cache_db.insert_entry(*self.entries) == len(self.entries)
+    def test_insert(self, tmp_path: Path):
+        db_f = tmp_path / "db_f2"
+        # first insert
+        OTACacheDB.init_db_file(db_f)
+        with OTACacheDB(db_f) as db_conn:
+            assert db_conn.insert_entry(*self.entries) == len(self.entries)
+        # check the insertion with another connection
+        with OTACacheDB(db_f) as db_conn:
+            _all = db_conn.lookup_all()
+            # should have the same order as insertion
+            assert _all == self.entries
+
+    def test_db_corruption(self, tmp_path: Path):
+        test_db_f = tmp_path / "corrupted_db_f"
+        # intensionally create corrupted db file
+        with open(self.db_f, "rb") as src, open(test_db_f, "wb") as dst:
+            count = 0
+            while data := src.read(32):
+                count += 1
+                dst.write(data)
+                if count % 2 == 0:
+                    dst.write(urandom(8))
+
+        assert not OTACacheDB.check_db_file(test_db_f)
 
     def test_lookup_all(self):
         """
         NOTE: the timestamp update is only executed at lookup method
         """
         entries_set = set(self.entries)
-        checked_entries = self.ota_cache_db.lookup_all()
+        checked_entries = self.conn.lookup_all()
         assert entries_set == set(checked_entries)
 
     def test_lookup(self):
@@ -220,9 +238,9 @@ class TestOTACacheDB:
         """
         target = self.entries[-1]
         # lookup once to update last_acess
-        checked_entry = self.ota_cache_db.lookup_entry(CacheMeta.url, target.url)
+        checked_entry = self.conn.lookup_entry(CacheMeta.url, target.url)
         assert checked_entry == target
-        checked_entry = self.ota_cache_db.lookup_entry(CacheMeta.url, target.url)
+        checked_entry = self.conn.lookup_entry(CacheMeta.url, target.url)
         assert checked_entry and checked_entry.last_access > target.last_access
 
     def test_delete(self):
@@ -231,10 +249,10 @@ class TestOTACacheDB:
         """
         bucket_size = 8 * (1024**2)
         assert (
-            self.ota_cache_db.remove_entries(CacheMeta.bucket_idx, bucket_size)
+            self.conn.remove_entries(CacheMeta.bucket_idx, bucket_size)
             == cfg.BUCKET_FILE_SIZE_DICT[bucket_size]
         )
         assert (
-            len(self.ota_cache_db.lookup_all())
+            len(self.conn.lookup_all())
             == len(self.entries) - cfg.BUCKET_FILE_SIZE_DICT[bucket_size]
         )
