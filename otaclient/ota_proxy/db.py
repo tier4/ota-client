@@ -60,7 +60,54 @@ class OTACacheDB:
         ),
     ]
 
-    def __init__(self, db_file: Union[str, Path], init=False):
+    @classmethod
+    def check_db_file(cls, db_file: Union[str, Path]) -> bool:
+        try:
+            with sqlite3.connect(db_file) as con:
+                con.execute("PRAGMA integrity_check;")
+                # check whether expected table is in it or not
+                cur = con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (cls.TABLE_NAME,),
+                )
+                if cur.fetchone() is None:
+                    logger.warning(
+                        f"{cls.TABLE_NAME} not found, this db file should be initialized"
+                    )
+                    return False
+                return True
+        except sqlite3.DatabaseError as e:
+            logger.warning(f"{db_file} is corrupted: {e!r}")
+            return False
+
+    @classmethod
+    def init_db_file(cls, db_file: Union[str, Path]):
+        """
+        Purge the old db file and init the db files, creating table in it.
+        """
+        # remove the db file first
+        Path(db_file).unlink(missing_ok=True)
+        try:
+            with sqlite3.connect(db_file) as con:
+                # create ota_cache table
+                con.execute(CacheMeta.get_create_table_stmt(cls.TABLE_NAME), ())
+                # create indices
+                for idx in cls.OTA_CACHE_IDX:
+                    con.execute(idx, ())
+
+                ### db performance tunning
+                # enable WAL mode
+                con.execute("PRAGMA journal_mode = WAL;")
+                # set temp_store to memory
+                con.execute("PRAGMA temp_store = memory;")
+                # enable mmap (size in bytes)
+                mmap_size = 16 * 1024 * 1024  # 16MiB
+                con.execute(f"PRAGMA mmap_size = {mmap_size};")
+        except sqlite3.Error as e:
+            logger.debug(f"init db failed: {e!r}")
+            raise e
+
+    def __init__(self, db_file: Union[str, Path]):
         """Connects to database(and initialize database if needed).
 
         If database doesn't have required table, or init==True,
@@ -73,43 +120,22 @@ class OTACacheDB:
         Raise:
             Raises sqlite3.Error if database init/configuration failed.
         """
-        if init:
-            Path(db_file).unlink(missing_ok=True)
-
         self._con = sqlite3.connect(
             db_file,
             check_same_thread=True,  # one thread per connection in the threadpool
             # isolation_level=None,  # enable autocommit mode
         )
         self._con.row_factory = sqlite3.Row
-        # check if the table exists/check whether the db file is valid
-        try:
-            with self._con as con:
-                cur = con.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                    (self.TABLE_NAME,),
-                )
-                if cur.fetchone() is None:
-                    logger.warning(f"{self.TABLE_NAME} not found, init db...")
-                    # create ota_cache table
-                    con.execute(
-                        CacheMeta.get_create_table_stmt(self.TABLE_NAME),
-                        (),
-                    )
-                    # create indices
-                    for idx in self.OTA_CACHE_IDX:
-                        con.execute(idx, ())
-                ### db performance tunning
-                # enable WAL mode
-                con.execute("PRAGMA journal_mode = WAL;")
-                # set temp_store to memory
-                con.execute("PRAGMA temp_store = memory;")
-                # enable mmap (size in bytes)
-                mmap_size = 16 * 1024 * 1024  # 16MiB
-                con.execute(f"PRAGMA mmap_size = {mmap_size};")
-        except sqlite3.Error as e:
-            logger.debug(f"init db failed: {e!r}")
-            raise e
+
+        # db performance tunning, enable optimization
+        with self._con as con:
+            # enable WAL mode
+            con.execute("PRAGMA journal_mode = WAL;")
+            # set temp_store to memory
+            con.execute("PRAGMA temp_store = memory;")
+            # enable mmap (size in bytes)
+            mmap_size = 16 * 1024 * 1024  # 16MiB
+            con.execute(f"PRAGMA mmap_size = {mmap_size};")
 
     def __enter__(self):
         return self
