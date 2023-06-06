@@ -290,9 +290,9 @@ class _ProxyBase:
     def _thread_initializer(self, db_f):
         """Init a db connection for each thread worker"""
         # NOTE: set init to False always as we only operate db when using proxy
-        self._thread_local.db = OTACacheDB(db_f, init=False)
+        self._thread_local.db = OTACacheDB(db_f)
 
-    def __init__(self, db_f: Union[str, Path], *, init=False):
+    def __init__(self, db_f: Union[str, Path]):
         """Init the database connecting thread pool."""
         self._thread_local = threading.local()
         # set thread_pool_size to 1 to make the db access
