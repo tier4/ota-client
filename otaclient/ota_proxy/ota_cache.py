@@ -710,6 +710,10 @@ class OTACache:
                 self._base_dir.mkdir(exist_ok=True, parents=True)
                 # init db file with table created
                 OTACacheDB.init_db_file(self._db_file)
+            # reuse the previously left ota_cache
+            else:  # cleanup unfinished tmp files
+                for tmp_f in self._base_dir.glob(f"{cfg.TMP_FILE_PREFIX}*"):
+                    tmp_f.unlink(missing_ok=True)
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
