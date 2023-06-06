@@ -703,10 +703,10 @@ class OTACache:
         )
 
         if not self._cache_enabled:
-            # purge cache dir if requested(init_cache=True) or ota_cache invalid
+            # purge cache dir if requested(init_cache=True) or ota_cache invalid,
+            #   and then recreate the cache folder and cache db file.
             if self._init_cache or self._check_otacache():
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
-                # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
                 # init db file with table created
                 OTACacheDB.init_db_file(self._db_file)
