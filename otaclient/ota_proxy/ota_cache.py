@@ -702,7 +702,7 @@ class OTACache:
             auto_decompress=False, raise_for_status=True, timeout=timeout
         )
 
-        if not self._cache_enabled:
+        if self._cache_enabled:
             # purge cache dir if requested(init_cache=True) or ota_cache invalid,
             #   and then recreate the cache folder and cache db file.
             if self._init_cache or self._check_otacache():
