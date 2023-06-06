@@ -62,6 +62,8 @@ class OTACacheDB:
 
     @classmethod
     def check_db_file(cls, db_file: Union[str, Path]) -> bool:
+        if not Path(db_file).is_file():
+            return False
         try:
             with sqlite3.connect(db_file) as con:
                 con.execute("PRAGMA integrity_check;")
@@ -108,17 +110,14 @@ class OTACacheDB:
             raise e
 
     def __init__(self, db_file: Union[str, Path]):
-        """Connects to database(and initialize database if needed).
-
-        If database doesn't have required table, or init==True,
-        we will initialize the table here.
+        """Connects to OTA cache database.
 
         Args:
-            db_file: target to connect to
-            init: whether to init database table or not
+            db_file: target db file to connect to.
 
-        Raise:
-            Raises sqlite3.Error if database init/configuration failed.
+        Raises:
+            ValueError on invalid ota_cache db file,
+            sqlite3.Error if optimization settings applied failed.
         """
         self._con = sqlite3.connect(
             db_file,
@@ -126,6 +125,8 @@ class OTACacheDB:
             # isolation_level=None,  # enable autocommit mode
         )
         self._con.row_factory = sqlite3.Row
+        if not self.check_db_file(db_file):
+            raise ValueError(f"invalid db file: {db_file}")
 
         # db performance tunning, enable optimization
         with self._con as con:
