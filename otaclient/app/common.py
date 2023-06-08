@@ -315,9 +315,9 @@ def replace_atomic(src: Union[str, Path], dst: Union[str, Path]):
     try:
         # prepare a copy of src file under dst's parent folder
         shutil.copy(src, _tmp_file, follow_symlinks=True)
-        os.sync()
         # atomically rename/replace the dst file with the copy
         os.replace(_tmp_file, dst)
+        os.sync()
     except Exception:
         _tmp_file.unlink(missing_ok=True)
         raise
