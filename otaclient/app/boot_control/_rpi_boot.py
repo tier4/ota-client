@@ -222,6 +222,7 @@ class _RPIBootControl:
         logger.info("update firmware with flash-kernel...")
         try:
             subprocess_call("flash-kernel", raise_exception=True)
+            os.sync()
         except Exception as e:
             logger.error(f"flash-kernel failed: {e!r}")
             raise
@@ -236,11 +237,10 @@ class _RPIBootControl:
                 _initrd_img := Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.INITRD_IMG
             ).is_file():
                 os.replace(_initrd_img, self.initrd_img_active_slot)
+            os.sync()
         except Exception:
             logger.error(f"apply new kernel,initrd.img for {self.active_slot} failed")
             raise
-
-        os.sync()
 
     # exposed API methods/properties
     @property
