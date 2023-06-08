@@ -301,8 +301,8 @@ class _RPIBootControl:
                 replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
                 logger.info(
                     "finalizing boot configuration,"
-                    f"replace {self.config_txt=} with {self.config_txt_active_slot}, "
-                    f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot}"
+                    f"replace {self.config_txt=} with {self.config_txt_active_slot=}, "
+                    f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot=}"
                 )
                 self._update_firmware()
                 # set the flag file
@@ -342,7 +342,7 @@ class _RPIBootControl:
         try:
             replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
             logger.info(
-                f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot}"
+                f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot=}"
             )
         except Exception as e:
             _err_msg = f"failed to prepare tryboot.txt for {self._standby_slot}"
