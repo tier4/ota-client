@@ -299,11 +299,17 @@ class _RPIBootControl:
             else:
                 replace_atomic(self.config_txt_active_slot, self.config_txt)
                 replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
+                logger.info(
+                    "finalizing boot configuration,"
+                    f"replace {self.config_txt=} with {self.config_txt_active_slot}, "
+                    f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot}"
+                )
                 self._update_firmware()
                 # set the flag file
                 write_str_to_file_sync(_flag_file, "")
                 # reboot to the same slot to apply the new firmware
-                logger.info("2stage reboot: apply new firmware...")
+
+                logger.info("reboot to apply new firmware...")
                 CMDHelperFuncs.reboot()
                 return True
         except Exception as e:
@@ -335,6 +341,9 @@ class _RPIBootControl:
         logger.debug("prepare tryboot.txt...")
         try:
             replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
+            logger.info(
+                f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot}"
+            )
         except Exception as e:
             _err_msg = f"failed to prepare tryboot.txt for {self._standby_slot}"
             logger.error(_err_msg)
