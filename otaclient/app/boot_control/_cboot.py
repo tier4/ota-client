@@ -396,12 +396,23 @@ class CBootController(
             self._load_current_slot_in_use() == self._cboot_control.get_current_slot()
         )
 
+        # NOTE(20230609): only check _ota_status_ and _is_slot_in_use, remove _nvboot_res check.
+        #                 as long as we are in UPDATING(_ota_status flag),
+        #                 and we should in this slot(_is_slot_in_use), then we are OK to finalize.
+        _is_switching_boot = _ota_status and _is_slot_in_use
         logger.info(
-            f"[switch_boot detect result] nvboot: {_nvboot_res}, "
-            f"ota_status: {_ota_status}, "
-            f"slot_in_use: {_is_slot_in_use}"
+            "[switch_boot detection]\n"
+            f"ota_status is UPDATING in this slot: {_ota_status=}\n"
+            f"slot_in_use indicates we should in this slot: {_is_slot_in_use=}\n"
+            f"{_is_switching_boot=}"
         )
-        return _nvboot_res and _ota_status and _is_slot_in_use
+        if _is_switching_boot and not _nvboot_res:
+            logger.warning(
+                f"{_ota_status=} and {_is_slot_in_use=}"
+                "show that we should be in finalizing switching boot stage,"
+                f"but this slot is not marked as unbootable."
+            )
+        return _is_switching_boot
 
     def _populate_boot_folder_to_separate_bootdev(self):
         # mount the actual standby_boot_dev now
