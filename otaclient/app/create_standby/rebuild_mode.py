@@ -16,12 +16,11 @@
 import os
 import shutil
 import time
-from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import List, Set, Tuple
 
-from ..common import RetryTaskMap, wait_with_backoff
+from ..common import RetryTaskMap, get_backoff
 from ..configs import config as cfg
 from ..ota_metadata import MetafilesV1, OTAMetadata
 from ..update_stats import (
@@ -111,28 +110,23 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self._hardlink_register = HardlinkRegister()
 
         logger.info("start applying delta...")
-        with ThreadPoolExecutor(thread_name_prefix="create_standby_slot") as pool:
-            _mapper = RetryTaskMap(
-                title="process_regulars",
-                max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
-                max_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-                retry_interval_f=partial(
-                    wait_with_backoff,
-                    _backoff_factor=cfg.CREATE_STANDBY_BACKOFF_FACTOR,
-                    _backoff_max=cfg.CREATE_STANDBY_BACKOFF_MAX,
-                ),
-                executor=pool,
-            )
-            for _, task_result in _mapper.map(
-                self._process_regular,
-                self.delta_bundle.new_delta.items(),
-            ):
-                is_successful, entry, fut = task_result
-                if not is_successful:
-                    logger.error(
-                        f"[process_regular] failed to process {entry=}: {fut=}"
-                    )
-            self.stats_collector.wait_staging()
+        _mapper = RetryTaskMap(
+            max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
+            max_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+            backoff_func=partial(
+                get_backoff,
+                factor=cfg.CREATE_STANDBY_BACKOFF_FACTOR,
+                _max=cfg.CREATE_STANDBY_BACKOFF_MAX,
+            ),
+        )
+        for _, task_result in _mapper.map(
+            self._process_regular,
+            self.delta_bundle.new_delta.items(),
+        ):
+            is_successful, entry, fut = task_result
+            if not is_successful:
+                logger.error(f"[process_regular] failed to process {entry=}: {fut=}")
+        self.stats_collector.wait_staging()
 
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
         _hash, _regs_set = _input

@@ -37,7 +37,6 @@ from typing import (
     NamedTuple,
     Optional,
     Set,
-    Tuple,
     Union,
     Iterable,
     TypeVar,
