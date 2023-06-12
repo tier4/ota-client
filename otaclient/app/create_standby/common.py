@@ -15,6 +15,7 @@
 
 r"""Common used helpers, classes and functions for different bank creating methods."""
 import os
+import random
 import time
 from concurrent.futures import (
     Future,
@@ -462,6 +463,11 @@ class DeltaGenerator:
             f"rm_list len: {len(self._rm)} \n"
             f"donwload_list len: {len(self._download_list)}"
         )
+
+        # 20230609: shuffle the download list to avoid multiple ECU downloading
+        #           the same file at the same time to improve performance and
+        #           cache efficiency.
+        random.Random(os.urandom(32)).shuffle(self._download_list)
 
         return DeltaBundle(
             rm_delta=self._rm,
