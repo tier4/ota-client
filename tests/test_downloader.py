@@ -26,6 +26,7 @@ from urllib.parse import urlsplit, urljoin
 
 from otaclient.app.common import file_sha256, urljoin_ensure_base
 from otaclient.app.downloader import (
+    DownloadError,
     Downloader,
     DestinationNotAvailableError,
     ChunkStreamingError,
@@ -61,7 +62,7 @@ class _SimpleDummyApp:
         await send({"type": "http.response.body", "body": _input_status_code.encode()})
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def launch_dummy_server(host: str = "127.0.0.1", port: int = 9999):
     _should_exit = threading.Event()
 
@@ -117,6 +118,8 @@ class TestDownloader:
 
     @pytest.fixture(autouse=True)
     def launch_downloader(self, mocker: pytest_mock.MockerFixture):
+        self.session = requests.Session()
+        mocker.patch("requests.Session", return_value=self.session)
         mocker.patch.object(Downloader, "BACKOFF_MAX", 0.1)
         mocker.patch.object(Downloader, "RETRY_COUNT", 3)
         try:
@@ -184,10 +187,10 @@ class TestDownloader:
         "inject_requests_err, expected_ota_download_err",
         (
             (requests.exceptions.ChunkedEncodingError, ChunkStreamingError),
-            (requests.exceptions.ConnectionError, ChunkStreamingError),
+            (requests.exceptions.ConnectionError, ExceedMaxRetryError),
             (requests.exceptions.HTTPError, UnhandledHTTPError),
             (FileNotFoundError, DestinationNotAvailableError),
-            (requests.exceptions.RequestException, ExceedMaxRetryError),
+            (requests.exceptions.RequestException, DownloadError),
         ),
     )
     def test_download_errors_handling(
@@ -197,10 +200,6 @@ class TestDownloader:
         expected_ota_download_err,
         mocker: pytest_mock.MockerFixture,
     ):
-        import requests
-        from otaclient.app.downloader import Downloader
-
-        _mocked_session = requests.Session()
         _mock_adapter = requests_mock.Adapter()
         _mock_adapter.register_uri(
             requests_mock.ANY,
@@ -209,24 +208,17 @@ class TestDownloader:
         )
 
         # load the mocker adapter to the Downloader session
-        _mocked_session.mount(cfg.OTA_IMAGE_URL, _mock_adapter)
-        # patch the mocked session to the downloader module
-        mocker.patch(
-            "app.downloader.requests.Session",
-            return_value=_mocked_session,
-        )
+        self.session.mount(cfg.OTA_IMAGE_URL, _mock_adapter)
 
-        _downloader = Downloader()
         _target_path = tmp_path / self.TEST_FILE
         url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(expected_ota_download_err):
-            _downloader.download(
+            self.downloader.download(
                 url,
                 _target_path,
                 size=self.TEST_FILE_SIZE,
                 digest=self.TEST_FILE_SHA256,
             )
-        _downloader.shutdown()
 
     @pytest.mark.parametrize(
         "status_code, expected_ota_download_err",
@@ -263,36 +255,28 @@ class TestDownloader:
     def test_retry_headers_injection(
         self, tmp_path: Path, mocker: pytest_mock.MockerFixture
     ):
-        from otaclient.app import downloader
+        _mock_get = mocker.MagicMock(wraps=self.session.get)
+        self.session.get = _mock_get
 
-        _session_cls = downloader.requests.Session
         _target_path = tmp_path / self.TEST_FILE
-
-        # directly mock the Session.get method to return a HashVerificationError
-        # for test convenience(it won't happen in the real world!)
-        _mock_get = mocker.MagicMock(side_effect=HashVerificaitonError(url="", dst=""))
-        mocker.patch.object(_session_cls, "get", _mock_get)
-        mocker.patch.object(downloader.requests, "Session", _session_cls)
-
-        _downloader = downloader.Downloader()
-        url = urljoin("http://127.0.0.1:9999/", "anything")
+        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(HashVerificaitonError):
-            _downloader.download(url, _target_path)
-        _downloader.shutdown()
+            self.downloader.download(url, _target_path, digest="wrong_digest")
 
         # one normal get call
+        logger.error(f"{_mock_get.mock_calls=}")
         _mock_get.assert_any_call(
             url,
             stream=True,
-            proxies=None,
-            cookies=None,
+            proxies={},  # the proxies and cookies are regulated by download
+            cookies={},
             headers=None,
         )
-        # following at least one get call with ota-cache retry header
+        # # following at least one get call with ota-cache retry header
         _mock_get.assert_any_call(
             url,
             stream=True,
-            proxies=None,
-            cookies=None,
+            proxies={},
+            cookies={},
             headers={"ota-file-cache-control": "retry_caching"},
         )

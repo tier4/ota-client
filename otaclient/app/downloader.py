@@ -20,14 +20,13 @@ import threading
 import time
 import zstandard
 import requests.exceptions
-import urllib3.exceptions
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from queue import Empty, Queue
-from functools import partial
+from contextlib import contextmanager
+from functools import wraps
 from hashlib import sha256
 from os import PathLike
-from pathlib import Path
+from requests.adapters import HTTPAdapter
 from typing import (
     IO,
     Any,
@@ -40,11 +39,12 @@ from typing import (
     Tuple,
     Union,
 )
-from requests.adapters import HTTPAdapter
+from typing_extensions import ParamSpec, TypeVar
 from urllib.parse import urlsplit
 from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
 
+from otaclient._utils import copy_callable_typehint
 from .configs import config as cfg
 from .common import OTAFileCacheControl, wait_with_backoff
 from . import log_setting
@@ -52,6 +52,8 @@ from . import log_setting
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
+
+EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
 class DownloadError(Exception):
@@ -73,8 +75,6 @@ class UnhandledHTTPError(DownloadError):
     Currently include 403 and 404.
     """
 
-    pass
-
 
 class DestinationNotAvailableError(DownloadError):
     pass
@@ -87,8 +87,6 @@ class ExceedMaxRetryError(DownloadError):
 class ChunkStreamingError(DownloadError):
     """Exceptions that happens during chunk transfering."""
 
-    pass
-
 
 class HashVerificaitonError(DownloadError):
     pass
@@ -98,46 +96,66 @@ class DownloadFailedSpaceNotEnough(DownloadError):
     pass
 
 
+class UnhandledRequestException(DownloadError):
+    """requests exception that we didn't cover.
+    If we get this exc, we should consider handle it.
+    """
+
+
 REQUEST_RECACHE_HEADER: Dict[str, str] = {
     OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
 }
 
+T, P = TypeVar("T"), ParamSpec("P")
 
-def _retry(retry: int, backoff_factor: float, backoff_max: int, func: Callable):
-    """
+
+def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: int):
+    """Retry mechanism that covers interruption/validation failed of data transfering.
+
+    Retry mechanism applied on requests only retries during making connection to remote server,
+        this retry method retries on the transfer interruption and/or recevied data invalid.
+    When doing retry, this retrier will inject OTAFileCacheControl header into the request,
+        to indicate the otaproxy to redo the cache for this corrupted file.
+
     NOTE: this retry decorator expects the input func to have 'headers' kwarg.
-    NOTE: only retry on errors that doesn't handled by the urllib3.Retry module,
-          which are ChunkStreamingError and HashVerificationError.
+    NOTE: retry on errors during/after data transfering, which are ChunkStreamingError
+        and HashVerificationError.
+    NOTE: also cover the unhandled requests errors.
     """
-    from functools import wraps
 
-    @wraps(func)
-    def _wrapper(*args, **kwargs):
-        _retry_count = 0
-        while True:
-            try:
-                return func(*args, **kwargs)
-            except (ExceedMaxRetryError, UnhandledHTTPError):
-                # if urllib3.Retry has already handled the retry,
-                # or we hit an UnhandledHTTPError, just re-raise
-                raise
-            except (HashVerificaitonError, ChunkStreamingError):
-                _retry_count += 1
-                _backoff = min(backoff_max, backoff_factor * (2 ** (_retry_count - 1)))
+    def _decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @wraps(func)
+        def _wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            _retry_count = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except (
+                    HashVerificaitonError,
+                    ChunkStreamingError,
+                    UnhandledRequestException,
+                ):
+                    _retry_count += 1
+                    _backoff = min(
+                        backoff_max,
+                        backoff_factor * (2 ** (_retry_count - 1)),
+                    )
 
-                # inject a OTA-File-Cache-Control header to indicate ota_proxy
-                # to re-cache the possible corrupted file.
-                # modify header if needed and inject it into kwargs
-                if "headers" in kwargs and isinstance(kwargs["headers"], dict):
-                    kwargs["headers"].update(REQUEST_RECACHE_HEADER.copy())
-                else:
-                    kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
+                    # inject a OTA-File-Cache-Control header to indicate ota_proxy
+                    # to re-cache the possible corrupted file.
+                    # modify header if needed and inject it into kwargs
+                    if "headers" in kwargs and isinstance(kwargs["headers"], dict):
+                        kwargs["headers"].update(REQUEST_RECACHE_HEADER.copy())
+                    else:
+                        kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
 
-                if _retry_count > retry:
-                    raise
-                time.sleep(_backoff)
+                    if _retry_count > retries:
+                        raise
+                    time.sleep(_backoff)
 
-    return _wrapper
+        return _wrapper
+
+    return _decorator
 
 
 class DecompressionAdapterProtocol(Protocol):
@@ -163,9 +181,6 @@ class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
 
 
 class Downloader:
-    EMPTY_STR_SHA256 = (
-        r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    )
     MAX_DOWNLOAD_THREADS = cfg.MAX_DOWNLOAD_THREAD
     MAX_CONCURRENT_DOWNLOAD = cfg.DOWNLOADER_CONNPOOL_SIZE_PER_THREAD
     CHUNK_SIZE = cfg.CHUNK_SIZE
@@ -187,13 +202,13 @@ class Downloader:
             initializer=self._thread_initializer,
         )
         self._hash_func = sha256
-        self._proxies: Optional[Dict[str, str]] = None
-        self._cookies: Optional[Dict[str, str]] = None
+        self._proxies: Dict[str, str] = {}
+        self._cookies: Dict[str, str] = {}
+        self.use_http_if_http_proxy_set = False
         self.shutdowned = threading.Event()
 
         # downloading stats collecting
-        self._traffic_report_que = Queue()
-        self._downloading_thread_active_flag: Dict[int, threading.Event] = {}
+        self._workers_downloaded_bytes: Dict[int, int] = {}
         self._last_active_timestamp = 0
         self._downloaded_bytes = 0
         self._downloader_active_seconds = 0
@@ -203,6 +218,9 @@ class Downloader:
         self._stats_collector.start()
 
     def _thread_initializer(self):
+        thread_id = threading.get_ident()
+        self._workers_downloaded_bytes[thread_id] = 0
+
         # ------ setup the requests.Session ------ #
         session = requests.Session()
         # init retry mechanism
@@ -235,11 +253,6 @@ class Downloader:
         self._local._compression_support_matrix["zst"] = self._local._zstd
         self._local._compression_support_matrix["zstd"] = self._local._zstd
 
-        # ------ download timing flag ------ #
-        self._downloading_thread_active_flag[
-            threading.get_native_id()
-        ] = threading.Event()
-
     @property
     def _session(self) -> requests.Session:
         """A thread-local private session."""
@@ -265,34 +278,23 @@ class Downloader:
         return self._last_active_timestamp
 
     def _download_stats_collector(self):
+        _last_recorded_downloaded_bytes = 0
         while not self.shutdowned.is_set():
-            time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
-            # ------ collect downloading_elapsed time by sampling ------ #
-            # if any of the threads is actively downloading,
-            # we update the last_active_timestamp.
-            if any(
-                map(
-                    lambda _event: _event.is_set(),
-                    self._downloading_thread_active_flag.values(),
-                )
-            ):
+            _downloaded_bytes = sum(self._workers_downloaded_bytes.values())
+            # if recorded downloaded bytes increased in this polling,
+            # it means the downloader is active during the last polling period
+            if _downloaded_bytes > _last_recorded_downloaded_bytes:
+                _last_recorded_downloaded_bytes = _downloaded_bytes
                 self._last_active_timestamp = int(time.time())
+                self._downloaded_bytes = _downloaded_bytes
                 self._downloader_active_seconds += self.DOWNLOAD_STAT_COLLECT_INTERVAL
+            time.sleep(self.DOWNLOAD_STAT_COLLECT_INTERVAL)
 
-            # ------ collect downloaded bytes ------ #
-            if self._traffic_report_que.empty():
-                continue
-
-            traffic_bytes = 0
-            try:
-                for _ in range(self.MAX_TRAFFIC_STATS_COLLECT_PER_ROUND):
-                    traffic_bytes += self._traffic_report_que.get_nowait()
-            except Empty:
-                pass
-            self._downloaded_bytes += traffic_bytes
-
-    def configure_proxies(self, _proxies: Dict[str, str], /):
+    def configure_proxies(
+        self, _proxies: Dict[str, str], /, use_http_if_http_proxy_set: bool = True
+    ):
         self._proxies = _proxies.copy()
+        self.use_http_if_http_proxy_set = use_http_if_http_proxy_set
 
     def configure_cookies(self, _cookies: Dict[str, str], /):
         self._cookies = _cookies.copy()
@@ -305,7 +307,50 @@ class Downloader:
             # wait for collector
             self._stats_collector.join()
 
-    @partial(_retry, RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
+    @staticmethod
+    @contextmanager
+    def _downloading_exception_mapping(url, dst):
+        """Mapping requests exceptions to downloader exceptions."""
+        try:
+            yield
+        # exception group 1: raised by requests retry
+        #   RetryError: last error before exceeding limit is retrying on
+        #       handled HTTP status(413, 429, 500, 502, 503, 504).
+        #   ConnectionError: last error before exceeding limit is retrying
+        #       on unreachable server, failed to connect to remote server.
+        except (
+            requests.exceptions.RetryError,
+            requests.exceptions.ConnectionError,
+        ) as e:
+            raise ExceedMaxRetryError(
+                url, dst, f"failed due to exceed max retries: {e!r}"
+            )
+        # exception group 2: raise during chunk transfering
+        except requests.exceptions.ChunkedEncodingError as e:
+            raise ChunkStreamingError(url, dst) from e
+        # exception group 3: raise on unhandled HTTP error(403, 404, etc.)
+        except requests.exceptions.HTTPError as e:
+            _msg = f"failed to download due to unhandled HTTP error: {e.strerror}"
+            logger.error(_msg)
+            raise UnhandledHTTPError(url, dst, _msg) from e
+        # exception group 4: any requests error escaped from the above catching
+        except requests.exceptions.RequestException as e:
+            _msg = f"failed due to unhandled request error: {e!r}"
+            logger.error(_msg)
+            raise UnhandledRequestException(url, dst, _msg) from e
+        # exception group 5: file saving location not available
+        except FileNotFoundError as e:
+            _msg = f"failed due to dst not available: {e!r}"
+            logger.error(_msg)
+            raise DestinationNotAvailableError(url, dst, _msg) from e
+        # exception group 6: Disk out-of-space
+        except OSError as e:
+            if e.errno == errno.ENOSPC:
+                _msg = f"failed due to disk out-of-space: {e!r}"
+                logger.error(_msg)
+                raise DownloadFailedSpaceNotEnough(url, dst, _msg) from e
+
+    @_transfer_invalid_retrier(RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
         self,
         url: str,
@@ -317,177 +362,99 @@ class Downloader:
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         compression_alg: Optional[str] = None,
-        use_http_if_proxy_set: bool = True,
     ) -> Tuple[int, int, int]:
-        # special treatment for empty file
-        if digest == self.EMPTY_STR_SHA256:
-            if not (dst_p := Path(dst)).is_file():
-                dst_p.write_bytes(b"")
-            return 0, 0, 0
+        _thread_id = threading.get_ident()
 
         # NOTE: if proxy is set and use_http_if_proxy_set is true,
         #       unconditionally change scheme to HTTP
-        _proxies = proxies or self._proxies
-        if _proxies and use_http_if_proxy_set and "http" in _proxies:
+        proxies = proxies or self._proxies
+        if self.use_http_if_http_proxy_set and "http" in proxies:
             url = urlsplit(url)._replace(scheme="http").geturl()
-        # use input cookies or inst's cookie
-        _cookies = cookies or self._cookies
 
+        cookies = cookies or self._cookies
+
+        _hash_inst = self._hash_func()
         # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
         #       the number will be of the decompressed file)
-        _hash_inst, downloaded_file_size = self._hash_func(), 0
+        downloaded_file_size = 0
         # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
         traffic_on_wire = 0
-        _err_count = 0
-        # flag this thread as actively downloading thread
-        active_flag = self._downloading_thread_active_flag[threading.get_native_id()]
-        try:
-            with self._session.get(
-                url,
-                stream=True,
-                proxies=_proxies,
-                cookies=_cookies,
-                headers=headers,
-            ) as resp, open(dst, "wb") as _dst:
-                resp.raise_for_status()
-                # NOTE: mark this downloading thread as active after
-                #       the connection is made.
-                active_flag.set()
+        err_count = 0
 
-                raw_resp: HTTPResponse = resp.raw
-                if raw_resp.retries:
-                    _err_count = len(raw_resp.retries.history)
+        with self._downloading_exception_mapping(url, dst), self._session.get(
+            url, stream=True, proxies=proxies, cookies=cookies, headers=headers
+        ) as resp, open(dst, "wb") as _dst:
+            resp.raise_for_status()
 
-                # support for compresed file
-                if decompressor := self._get_decompressor(compression_alg):
-                    for _chunk in decompressor.iter_chunk(resp.raw):
-                        _hash_inst.update(_chunk)
-                        _dst.write(_chunk)
-                        downloaded_file_size += len(_chunk)
+            raw_resp: HTTPResponse = resp.raw
+            if raw_resp.retries:
+                err_count = len(raw_resp.retries.history)
 
-                        _traffic_on_wire = raw_resp.tell()
-                        self._traffic_report_que.put_nowait(
-                            _traffic_on_wire - traffic_on_wire
-                        )
-                        traffic_on_wire = _traffic_on_wire
-                # un-compressed file
-                else:
-                    for _chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
-                        _hash_inst.update(_chunk)
-                        _dst.write(_chunk)
+            # support for compresed file
+            if decompressor := self._get_decompressor(compression_alg):
+                for _chunk in decompressor.iter_chunk(resp.raw):
+                    _hash_inst.update(_chunk)
+                    _dst.write(_chunk)
+                    downloaded_file_size += len(_chunk)
 
-                        chunk_len = len(_chunk)
-                        downloaded_file_size += chunk_len
-                        self._traffic_report_que.put_nowait(chunk_len)
-                        traffic_on_wire += chunk_len
-        except requests.exceptions.RetryError as e:
-            raise ExceedMaxRetryError(url, dst, f"{e!r}")
-        except (
-            requests.exceptions.ChunkedEncodingError,
-            requests.exceptions.ConnectionError,
-            urllib3.exceptions.ProtocolError,
-        ) as e:
-            # streaming interrupted
-            raise ChunkStreamingError(url, dst) from e
-        except requests.exceptions.HTTPError as e:
-            # HTTPErrors that cannot be handled by retry,
-            # include 403 and 404
-            raise UnhandledHTTPError(url, dst, e.strerror)
-        except (
-            requests.exceptions.RequestException,
-            urllib3.exceptions.HTTPError,
-        ) as e:
-            # any errors that happens during handling request
-            # and are not the above exceptions
-            raise ExceedMaxRetryError(url, dst) from e
-        except FileNotFoundError as e:
-            # dst is not available
-            raise DestinationNotAvailableError(url, dst) from e
-        except OSError as e:
-            # only handle disk out-of-space error
-            if e.errno == errno.ENOSPC:
-                raise DownloadFailedSpaceNotEnough(url, dst) from None
-        finally:
-            # download is finished, clear the active flag
-            active_flag.clear()
+                    _traffic_on_wire = raw_resp.tell()
+                    # addon downloaded bytes
+                    self._workers_downloaded_bytes[_thread_id] += (
+                        _traffic_on_wire - traffic_on_wire
+                    )
+
+                    traffic_on_wire = _traffic_on_wire
+            # un-compressed file
+            else:
+                for _chunk in resp.iter_content(chunk_size=self.CHUNK_SIZE):
+                    _hash_inst.update(_chunk)
+                    _dst.write(_chunk)
+
+                    chunk_len = len(_chunk)
+                    downloaded_file_size += chunk_len
+                    traffic_on_wire += chunk_len
+                    # addon downloaded bytes
+                    self._workers_downloaded_bytes[_thread_id] += chunk_len
 
         # checking the download result
-        if size is not None and size != downloaded_file_size:
-            msg = f"partial download detected: {size=},{downloaded_file_size=}"
-            logger.error(msg)
-            raise ChunkStreamingError(url, dst, msg)
+        if size and size != downloaded_file_size:
+            _msg = f"partial download detected: {size=},{downloaded_file_size=}"
+            logger.warning(_msg)
+            raise ChunkStreamingError(url, dst, _msg)
+
         if digest and ((calc_digest := _hash_inst.hexdigest()) != digest):
-            msg = (
+            _msg = (
                 "sha256hash check failed detected: "
                 f"act={calc_digest}, exp={digest}, {url=}"
             )
-            logger.error(msg)
-            raise HashVerificaitonError(url, dst, msg)
+            logger.warning(_msg)
+            raise HashVerificaitonError(url, dst, _msg)
 
-        return _err_count, traffic_on_wire, 0
+        return err_count, traffic_on_wire, 0
 
-    def download(
-        self,
-        url: str,
-        dst: PathLike,
-        *,
-        size: Optional[int] = None,
-        digest: Optional[str] = None,
-        proxies: Optional[Dict[str, str]] = None,
-        cookies: Optional[Dict[str, str]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        compression_alg: Optional[str] = None,
-        use_http_if_proxy_set: bool = True,
-    ) -> Tuple[int, int, int]:
-        """Dispatcher for download tasks.
-
-        Returns:
-            A tuple of ints, which are error counts, real downloaded bytes
-                and a const 0.
-        """
+    @copy_callable_typehint(_download_task)
+    def download(self, *args, **kwargs) -> Tuple[int, int, int]:
+        """A wrapper that dispatch download task to threadpool."""
         if self.shutdowned.is_set():
             raise ValueError("downloader already shutdowned.")
-        return self._executor.submit(
-            self._download_task,
-            url,
-            dst,
-            size=size,
-            digest=digest,
-            proxies=proxies,
-            cookies=cookies,
-            headers=headers,
-            compression_alg=compression_alg,
-            use_http_if_proxy_set=use_http_if_proxy_set,
-        ).result()
+        return self._executor.submit(self._download_task, *args, **kwargs).result()
 
+    @copy_callable_typehint(_download_task)
     def download_retry_inf(
         self,
-        url: str,
-        dst: PathLike,
-        *,
-        size: Optional[int] = None,
-        digest: Optional[str] = None,
-        proxies: Optional[Dict[str, str]] = None,
-        cookies: Optional[Dict[str, str]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        compression_alg: Optional[str] = None,
-        use_http_if_proxy_set: bool = True,
+        url,
+        *args,
+        # NOTE: inactive_timeout is hinded from the caller
         inactive_timeout: int = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
+        **kwargs,
     ) -> Tuple[int, int, int]:
+        """A wrapper that dispatch download task to threadpool, and keep retrying until
+        downloading succeeds or exceeded inactive_timeout."""
         retry_count = 0
         while not self.shutdowned.is_set():
             try:
                 return self._executor.submit(
-                    self._download_task,
-                    url,
-                    dst,
-                    size=size,
-                    digest=digest,
-                    proxies=proxies,
-                    cookies=cookies,
-                    headers=headers,
-                    compression_alg=compression_alg,
-                    use_http_if_proxy_set=use_http_if_proxy_set,
+                    self._download_task, url, *args, **kwargs
                 ).result()
             except (ExceedMaxRetryError, ChunkStreamingError):
                 cur_time = int(time.time())
