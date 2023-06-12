@@ -352,6 +352,7 @@ class CBootController(
 
         if _ota_status in [wrapper.StatusOta.UPDATING, wrapper.StatusOta.ROLLBACKING]:
             if self._is_switching_boot():
+                logger.info("finalizing switching boot...")
                 # set the current slot(switched slot) as boot successful
                 self._cboot_control.mark_current_slot_boot_successful()
                 # switch ota_status
@@ -408,7 +409,7 @@ class CBootController(
         )
         if _is_switching_boot and not _nvboot_res:
             logger.warning(
-                f"{_ota_status=} and {_is_slot_in_use=}"
+                f"{_ota_status=} and {_is_slot_in_use=} "
                 "show that we should be in finalizing switching boot stage,"
                 f"but this slot is not marked as unbootable."
             )
