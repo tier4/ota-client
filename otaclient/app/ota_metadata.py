@@ -699,17 +699,17 @@ class OTAMetadata:
             ),
             max_retry=0,  # NOTE: we use another strategy below
         )
-        for _, task_result in _mapper.map(
+        for task_result in _mapper.map(
             _process_text_base_otameta_file,
             self._ota_metadata.get_img_metafiles(),
         ):
-            is_successful, entry, fut = task_result
-            if is_successful:
+            _fut, _entry = task_result
+            if not _fut.exception():
                 last_active_timestamp = int(time.time())
                 continue
 
             # on task failed
-            logger.debug(f"metafile downloading failed: {entry=}, {fut=}")
+            logger.debug(f"metafile downloading failed: {_entry=}, {_fut=}")
             last_active_timestamp = max(
                 last_active_timestamp, self._downloader.last_active_timestamp
             )

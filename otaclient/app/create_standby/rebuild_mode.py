@@ -119,13 +119,13 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 _max=cfg.CREATE_STANDBY_BACKOFF_MAX,
             ),
         )
-        for _, task_result in _mapper.map(
+        for task_result in _mapper.map(
             self._process_regular,
             self.delta_bundle.new_delta.items(),
         ):
-            is_successful, entry, fut = task_result
-            if not is_successful:
-                logger.error(f"[process_regular] failed to process {entry=}: {fut=}")
+            _fut, _entry = task_result
+            if task_result.fut.exception():
+                logger.error(f"[process_regular] failed to process {_entry=}: {_fut=}")
         self.stats_collector.wait_staging()
 
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):

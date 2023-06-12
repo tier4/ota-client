@@ -185,17 +185,17 @@ class _OTAUpdater:
             ),
             max_retry=0,  # NOTE: we use another strategy below
         )
-        for _, task_result in _mapper.map(_download_file, download_list):
-            is_successful, entry, fut = task_result
-            if is_successful:
-                self._update_stats_collector.report_download_ota_files(fut.result())
+        for task_result in _mapper.map(_download_file, download_list):
+            _fut, _entry = task_result
+            if not _fut.exception():
+                self._update_stats_collector.report_download_ota_files(_fut.result())
                 last_active_timestamp = int(time.time())
                 continue
 
             # on failed task
             # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
             #       time, so we manually create one download report
-            logger.debug(f"failed to download {entry=}: {fut}")
+            logger.debug(f"failed to download {_entry=}: {_fut}")
             self._update_stats_collector.report_download_ota_files(
                 RegInfProcessedStats(
                     op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
