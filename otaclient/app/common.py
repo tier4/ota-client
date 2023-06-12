@@ -454,9 +454,9 @@ class _TaskMap(Generic[T]):
             _failed_items = list(self._failed_tasks.values())
             _fut, _item = self._failed_tasks.popitem()
             if _exc := _fut.exception():
-                _err_msg = f"last failed {_item=}: {_exc!r}"
+                _err_msg = f"{len(_failed_items)=}, last failed {_item=}: {_exc!r}"
                 if raise_last_exc:
-                    raise RetryTaskMapInterrupted(_err_msg)
+                    raise RetryTaskMapInterrupted(_err_msg) from _exc
                 else:
                     logger.warning(_err_msg)
             return _failed_items
@@ -504,7 +504,7 @@ class RetryTaskMap:
                 self._running_inst, _inst = None, None
                 return
         try:
-            raise RetryTaskMapInterrupted("exceed try limit")
+            raise RetryTaskMapInterrupted(f"exceed try limit: {retry_round}")
         finally:
             # cleanup the defs
             _func, _iter = None, None
