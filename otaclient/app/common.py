@@ -356,7 +356,7 @@ class _TaskMap(Generic[T]):
         self,
         executor: ThreadPoolExecutor,
         max_concurrent: int,
-        backoff_func: Callable[[int], int],
+        backoff_func: Callable[[int], float],
     ) -> None:
         # task dispatch interval for continues failling
         self.started = False  # can only be started once
@@ -466,11 +466,11 @@ class _TaskMap(Generic[T]):
             _fut, _item, _exc, self = None, None, None, None
 
 
-class RetryTaskMap:
+class RetryTaskMap(Generic[T]):
     def __init__(
         self,
         *,
-        backoff_func: Callable[[int], int],
+        backoff_func: Callable[[int], float],
         max_retry: int,
         max_concurrent: int,
         max_workers: Optional[int] = None,
@@ -487,6 +487,7 @@ class RetryTaskMap:
     def map(
         self, _func: Callable[[T], Any], _iter: Iterable[T]
     ) -> Generator[DoneTask, None, None]:
+        retry_round = 0
         for retry_round in self._retry_counter:
             self._running_inst = _inst = _TaskMap(
                 self._executor, self._max_concurrent, self._backoff_func
@@ -496,7 +497,8 @@ class RetryTaskMap:
             yield from _inst.map(_func, _iter)
 
             # this retry round ends, check overall result
-            if _iter := _inst.shutdown(raise_last_exc=False):
+            if _failed_list := _inst.shutdown(raise_last_exc=False):
+                _iter = _failed_list  # feed failed to next round
                 # deref before entering sleep
                 self._running_inst, _inst = None, None
                 time.sleep(self._backoff_func(retry_round))
@@ -507,7 +509,7 @@ class RetryTaskMap:
             raise RetryTaskMapInterrupted(f"exceed try limit: {retry_round}")
         finally:
             # cleanup the defs
-            _func, _iter = None, None
+            _func, _iter = None, None  # type: ignore
 
     def shutdown(self, *, raise_last_exc: bool):
         try:
