@@ -671,7 +671,7 @@ class OTACache:
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
 
-    def _check_otacache(self) -> bool:
+    def _check_cache_db(self) -> bool:
         """Check ota_cache can be reused or not."""
         return (
             self._base_dir.is_dir()
@@ -705,7 +705,7 @@ class OTACache:
         if self._cache_enabled:
             # purge cache dir if requested(init_cache=True) or ota_cache invalid,
             #   and then recreate the cache folder and cache db file.
-            db_f_valid = self._check_otacache()
+            db_f_valid = self._check_cache_db()
             if self._init_cache or not db_f_valid:
                 logger.warning(
                     f"purge and init ota_cache: {self._init_cache=}, {db_f_valid}"
