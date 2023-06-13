@@ -366,7 +366,8 @@ class _TaskMap(Generic[T]):
 
         self._total_tasks_count = 0
         self._dispatched_tasks: Set[Future] = set()
-        self._failed_tasks: Dict[Future, T] = {}
+        self._failed_tasks: Set[T] = set()
+        self._last_failed_fut: Optional[Future] = None
 
         self._done_task_counter = itertools.count(start=1)
         self._all_done = threading.Event()
@@ -392,7 +393,8 @@ class _TaskMap(Generic[T]):
             self._all_done.set()
 
         if fut.exception():
-            self._failed_tasks[fut] = item
+            self._failed_tasks.add(item)
+            self._last_failed_fut = fut
         self._done_que.put_nowait(DoneTask(fut, item))
 
     def _task_dispatcher(self, func: Callable[[T], Any], _iter: Iterable[T]):
@@ -450,19 +452,18 @@ class _TaskMap(Generic[T]):
         if not self._failed_tasks:
             return
         try:
-            _failed_items = list(self._failed_tasks.values())
-            _fut, _item = self._failed_tasks.popitem()
-            if _exc := _fut.exception():
-                _err_msg = f"{len(_failed_items)=}, last failed {_item=}: {_exc!r}"
+            if self._last_failed_fut:
+                _exc = self._last_failed_fut.exception()
+                _err_msg = f"{len(self._failed_tasks)=}, last failed: {_exc!r}"
                 if raise_last_exc:
                     raise RetryTaskMapInterrupted(_err_msg) from _exc
                 else:
                     logger.warning(_err_msg)
-            return _failed_items
+            return self._failed_tasks.copy()
         finally:
             # be careful not to create ref cycle here
             self._failed_tasks.clear()
-            _fut, _item, _exc, self = None, None, None, None
+            _exc, self = None, None, None, None
 
 
 class RetryTaskMap(Generic[T]):
