@@ -463,7 +463,7 @@ class _TaskMap(Generic[T]):
         finally:
             # be careful not to create ref cycle here
             self._failed_tasks.clear()
-            _exc, self = None, None, None, None
+            _exc, self = None, None
 
 
 class RetryTaskMap(Generic[T]):
