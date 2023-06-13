@@ -501,6 +501,8 @@ class RetryTaskMap(Generic[T]):
                 _iter = _failed_list  # feed failed to next round
                 # deref before entering sleep
                 self._running_inst, _inst = None, None
+
+                logger.warning(f"retry#{retry_round+1}: retry on {len(_failed_list)=}")
                 time.sleep(self._backoff_func(retry_round))
             else:  # all tasks finished successfully
                 self._running_inst, _inst = None, None
