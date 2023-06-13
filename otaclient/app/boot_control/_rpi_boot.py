@@ -384,6 +384,17 @@ class RPIBootController(BootControllerProtocol):
             / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
             finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
         )
+
+        # 20230613: remove any leftover flag file if ota_status is not UPDATING/ROLLBACKING
+        if self._ota_status_control.ota_status not in (
+            wrapper.StatusOta.UPDATING,
+            wrapper.StatusOta.ROLLBACKING,
+        ):
+            _flag_file = (
+                self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
+            )
+            _flag_file.unlink(missing_ok=True)
+
         logger.debug("rpi_boot initialization finished")
 
     def _copy_kernel_for_standby_slot(self):
@@ -475,6 +486,12 @@ class RPIBootController(BootControllerProtocol):
 
             ### update standby slot's ota_status files ###
             self._ota_status_control.pre_update_standby(version=version)
+
+            # 20230613: remove any leftover flag file if presented
+            _flag_file = (
+                self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
+            )
+            _flag_file.unlink(missing_ok=True)
         except OTAError:
             raise
         except Exception as e:
