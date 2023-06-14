@@ -496,7 +496,7 @@ class OTAStatusFilesControl:
         else:
             logger.error(
                 f"we are in {_loaded_ota_status.name} ota_status, "
-                f"but {_loaded_slot_in_use} doesn't match {self.active_slot}, "
+                f"but {_loaded_slot_in_use=} doesn't match {self.active_slot=}, "
                 "this indicates a failed first reboot"
             )
             self._ota_status = (
