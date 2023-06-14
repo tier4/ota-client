@@ -379,8 +379,14 @@ class CMDHelperFuncs:
 
     @classmethod
     def reboot(cls):
+        """Reboot the whole system otaclient running at and terminate otaclient.
+
+        NOTE(20230614): this command MUST also make otaclient exit immediately.
+        """
+        os.sync()
         try:
             subprocess_call("reboot", raise_exception=True)
+            sys.exit(0)
         except CalledProcessError:
             logger.exception("failed to reboot")
             raise
