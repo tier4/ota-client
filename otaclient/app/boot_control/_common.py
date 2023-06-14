@@ -36,7 +36,6 @@ from ..common import (
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from ..errors import BootControlInitError
 from ..proto import wrapper
 
 
