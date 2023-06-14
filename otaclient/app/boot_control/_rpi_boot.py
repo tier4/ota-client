@@ -311,7 +311,12 @@ class _RPIBootControl:
 
                 logger.info("reboot to apply new firmware...")
                 CMDHelperFuncs.reboot()
-                return True
+
+                # NOTE(20230614): after calling reboot, otaclient SHOULD be terminated or exception raised
+                #                 on failed reboot command subprocess call. But if somehow it doesn't,
+                #                 it should be treated as failure and return False here.
+                return False
+
         except Exception as e:
             _err_msg = f"failed to finalize boot switching: {e!r}"
             logger.error(_err_msg)
