@@ -435,10 +435,18 @@ class OTAStatusFilesControl:
         #       then update it after the init_ota_status_files finished.
         _loaded_ota_status = self._load_current_status()
         self._ota_status = (
-            _loaded_ota_status
-            if _loaded_ota_status is not None
-            else wrapper.StatusOta.INITIALIZED
+            _loaded_ota_status if _loaded_ota_status else wrapper.StatusOta.INITIALIZED
         )
+
+        _loaded_slot_in_use = self._load_current_slot_in_use()
+        if _loaded_slot_in_use and _loaded_slot_in_use != self.active_slot:
+            logger.warning(
+                f"boot into old slot {self.active_slot}, "
+                f"but slot_in_use indicates it should boot into {_loaded_slot_in_use}, "
+                "this might indicate a failed finalization at first reboot after update/rollback"
+            )
+
+        # initializing ota_status control
         self._init_ota_status_files()
         logger.info(
             f"ota_status files parsing completed, ota_status is {self._ota_status}"
