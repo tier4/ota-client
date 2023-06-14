@@ -14,7 +14,9 @@
 r"""Shared utils for boot_controller."""
 
 
+import os
 import shutil
+import sys
 from pathlib import Path
 from subprocess import CalledProcessError
 from typing import List, Optional, Union, Callable
@@ -398,7 +400,8 @@ FinalizeSwitchBootFunc = Callable[[], bool]
 
 
 class OTAStatusFilesControl:
-    """Logics for controlling ota_status files, including status, slot_in_use, version.
+    """Logics for controlling otaclient's behavior using ota_status files,
+    including status, slot_in_use and version.
 
     OTAStatus files:
         status: current slot's OTA status
@@ -460,44 +463,48 @@ class OTAStatusFilesControl:
             self._ota_status = wrapper.StatusOta.INITIALIZED
             return
 
-        # updating or rollbacking,
-        # with status==UPDATING or ROLLBACKING, we are expecting this is the first reboot
-        # during switching boot, and we should try finalizing the switch boot.
-        if _loaded_ota_status in [
+        # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
+        # are remained as it
+        if _loaded_ota_status not in [
             wrapper.StatusOta.UPDATING,
             wrapper.StatusOta.ROLLBACKING,
         ]:
-            # finalization failed or not in switching boot
-            if not (
-                self._is_switching_boot(self.active_slot)
-                and self.finalize_switching_boot()
-            ):
+            self._ota_status = _loaded_ota_status
+            return
+
+        # updating or rollbacking,
+        # if is_switching_boot, execute the injected finalize_switching_boot function from
+        #   boot controller, transit the ota_status according to the execution result.
+        # NOTE(20230614): for boot controller during multi-stage reboot(like rpi_boot),
+        #                 calling finalize_switching_boot might result in direct reboot,
+        #                 in such case, otaclient will terminate and ota_status will not be updated.
+        if self._is_switching_boot(self.active_slot):
+            if self.finalize_switching_boot():
+                self._ota_status = wrapper.StatusOta.SUCCESS
+                self._store_current_status(wrapper.StatusOta.SUCCESS)
+            else:
                 self._ota_status = (
                     wrapper.StatusOta.ROLLBACK_FAILURE
                     if _loaded_ota_status == wrapper.StatusOta.ROLLBACKING
                     else wrapper.StatusOta.FAILURE
                 )
                 self._store_current_status(self._ota_status)
-                _err_msg = "finalization failed on first reboot during switching boot"
-                logger.error(_err_msg)
-                raise BootControlInitError(_err_msg)
-
-            # finalizing switch boot successfully
-            self._ota_status = wrapper.StatusOta.SUCCESS
-            self._store_current_status(wrapper.StatusOta.SUCCESS)
-            return
-
-        # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
-        # are remained as it
-        else:
-            self._ota_status = _loaded_ota_status
-            # detect failed reboot, but only print error logging currently
-            if _loaded_slot_in_use != self.active_slot:
                 logger.error(
-                    f"boot into old slot {self.active_slot}, "
-                    f"but slot_in_use indicates it should boot into {_loaded_slot_in_use}, "
-                    "this might indicate a failed finalization at first reboot after update/rollback"
+                    "finalization failed on first reboot during switching boot"
                 )
+
+        else:
+            logger.error(
+                f"we are in {_loaded_ota_status.name} ota_status, "
+                f"but {_loaded_slot_in_use} doesn't match {self.active_slot}, "
+                "this indicates a failed first reboot"
+            )
+            self._ota_status = (
+                wrapper.StatusOta.ROLLBACK_FAILURE
+                if _loaded_ota_status == wrapper.StatusOta.ROLLBACKING
+                else wrapper.StatusOta.FAILURE
+            )
+            self._store_current_status(self._ota_status)
 
     # slot_in_use control
 
