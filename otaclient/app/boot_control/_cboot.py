@@ -130,14 +130,15 @@ class Nvbootctrl:
             raise NvbootctrlError
 
     @classmethod
-    def dump_slots_info(cls) -> str:
+    def dump_slots_info(cls) -> Optional[str]:
         return cls._nvbootctrl(
             "dump-slots-info", call_only=False, raise_exception=False
         )
 
     @classmethod
-    def mark_boot_successful(cls, slot: str):
-        cls._nvbootctrl(f"mark-boot-successful {slot}")
+    def mark_boot_successful(cls):
+        """Mark current slot as boot successfully."""
+        cls._nvbootctrl("mark-boot-successful")
 
     @classmethod
     def set_active_boot_slot(cls, slot: str, target="rootfs"):
@@ -258,8 +259,8 @@ class _CBootControl:
         return self.is_rootfs_on_external
 
     def mark_current_slot_boot_successful(self):
-        slot = self.current_slot
-        Nvbootctrl.mark_boot_successful(slot)
+        logger.info(f"mark {self.current_slot=} as boot successful")
+        Nvbootctrl.mark_boot_successful()
 
     def set_standby_slot_unbootable(self):
         slot = self.standby_slot
