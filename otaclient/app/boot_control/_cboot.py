@@ -130,6 +130,12 @@ class Nvbootctrl:
             raise NvbootctrlError
 
     @classmethod
+    def dump_slots_info(cls) -> str:
+        return cls._nvbootctrl(
+            "dump-slots-info", call_only=False, raise_exception=False
+        )
+
+    @classmethod
     def mark_boot_successful(cls, slot: str):
         cls._nvbootctrl(f"mark-boot-successful {slot}")
 
@@ -175,6 +181,7 @@ class _CBootControl:
 
             # initializing dev info
             self._init_dev_info()
+            logger.info(f"finished cboot control init: {Nvbootctrl.dump_slots_info()=}")
         except NotImplementedError as e:
             raise BootControlPlatformUnsupported from e
         except Exception as e:
@@ -530,6 +537,8 @@ class CBootController(
             logger.info("post update finished, rebooting...")
             self._umount_all(ignore_error=True)
             self._cboot_control.switch_boot()
+
+            logger.info(f"[post-update]: {Nvbootctrl.dump_slots_info()=}")
             yield  # hand over control back to otaclient
             CMDHelperFuncs.reboot()
         except _errors.BootControlError as e:
