@@ -17,13 +17,12 @@ import asyncio
 import logging
 import pytest
 import random
-from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Coroutine
 
-from otaclient.ota_proxy.db import CacheMeta
 from otaclient.ota_proxy import config as cfg
+from otaclient.ota_proxy.db import CacheMeta, OTACacheDB
 from otaclient.ota_proxy.ota_cache import LRUCacheHelper, CachingRegister
 
 logger = logging.getLogger(__name__)
@@ -46,9 +45,14 @@ class TestLRUCacheHelper:
         return entries
 
     @pytest.fixture(scope="class")
-    def launch_lru_helper(self):
+    def launch_lru_helper(self, tmp_path_factory: pytest.TempPathFactory):
+        # init db
+        ota_cache_folder = tmp_path_factory.mktemp("ota-cache")
+        self._db_f = ota_cache_folder / "db_f"
+        OTACacheDB.init_db_file(self._db_f)
+
         try:
-            lru_cache_helper = LRUCacheHelper(":memory:")
+            lru_cache_helper = LRUCacheHelper(self._db_f)
             yield lru_cache_helper
         finally:
             lru_cache_helper.close()
