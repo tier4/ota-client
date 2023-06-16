@@ -678,6 +678,14 @@ class OTACache:
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
 
+    def _check_cache_db(self) -> bool:
+        """Check ota_cache can be reused or not."""
+        return (
+            self._base_dir.is_dir()
+            and self._db_file.is_file()
+            and OTACacheDB.check_db_file(self._db_file)
+        )
+
     async def start(self):
         """Start the ota_cache instance."""
         # silently ignore multi launching of ota_cache
@@ -702,19 +710,26 @@ class OTACache:
         )
 
         if self._cache_enabled:
-            # prepare cache dir
-            if self._init_cache:
+            # purge cache dir if requested(init_cache=True) or ota_cache invalid,
+            #   and then recreate the cache folder and cache db file.
+            db_f_valid = self._check_cache_db()
+            if self._init_cache or not db_f_valid:
+                logger.warning(
+                    f"purge and init ota_cache: {self._init_cache=}, {db_f_valid}"
+                )
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
-                # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
-                # init only
-                _init_only = OTACacheDB(self._db_file, init=True)
-                _init_only.close()
+                # init db file with table created
+                OTACacheDB.init_db_file(self._db_file)
+            # reuse the previously left ota_cache
+            else:  # cleanup unfinished tmp files
+                for tmp_f in self._base_dir.glob("tmp_*"):
+                    tmp_f.unlink(missing_ok=True)
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
-            # init cache helper
+            # init cache helper(and connect to ota_cache db)
             self._lru_helper = LRUCacheHelper(self._db_file)
             self._on_going_caching = CachingRegister(self._base_dir)
 
