@@ -233,6 +233,7 @@ class TestCBootControl:
         mocker.patch(
             f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs", _CMDHelper_mock
         )
+        mocker.patch(f"{cfg.CBOOT_MODULE_PATH}.Nvbootctrl")
 
         ###### binding mocked object to test instance ######
         self._CBootControl_mock = _CBootControl_mock
