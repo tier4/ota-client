@@ -15,13 +15,12 @@
 
 from __future__ import annotations
 from abc import ABC
-from dataclasses import Field, asdict, astuple, dataclass, fields
+from dataclasses import asdict, astuple, dataclass, fields
 from io import StringIO
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    ClassVar,
     Dict,
     List,
     Optional,
@@ -32,7 +31,7 @@ from typing import (
     Union,
     overload,
 )
-from typing_extensions import Self
+from typing_extensions import Self, dataclass_transform
 
 if TYPE_CHECKING:
     import sqlite3
@@ -155,6 +154,7 @@ class ColumnDescriptor(Generic[FV]):
         return self.type_checker(value)
 
 
+@dataclass_transform()
 class ORMeta(type):
     """This metaclass is for generating customized <TableCls>."""
 
@@ -173,9 +173,6 @@ class ORMBase(metaclass=ORMeta):
 
     Subclass of this base class is also a subclass of dataclass.
     """
-
-    # NOTE: add the following type annotation to satisfy type checking
-    __dataclass_fields__: ClassVar[dict[str, Field]]
 
     @classmethod
     def row_to_meta(cls, row: "Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]") -> Self:
