@@ -367,6 +367,9 @@ class _TaskMap(Generic[T]):
         self._failed_tasks: Set[T] = set()
         self._last_failed_fut: Optional[Future] = None
 
+        # NOTE: itertools.count is only thread-safe in CPython with GIL,
+        #       as itertools.count is pure C implemented, calling next over
+        #       it is atomic in Python level.
         self._done_task_counter = itertools.count(start=1)
         self._all_done = threading.Event()
         self._dispatch_done = False
