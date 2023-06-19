@@ -217,10 +217,16 @@ class GrubHelper:
                 res.append(option_line)
                 continue
 
-            key, _ = option_line.strip().split("=")
-            if key in kvp:
-                option_line = "=".join((key, kvp[key]))
-                del kvp[key]
+            # NOTE(20230619): skip illegal option that
+            #                 is not in key=value form.
+            _raw_split = option_line.strip().split("=", maxsplit=1)
+            if len(_raw_split) != 2:
+                continue
+
+            option_name, _ = _raw_split
+            if option_name in kvp:
+                option_line = "=".join((option_name, kvp[option_name]))
+                del kvp[option_name]
 
             res.append(option_line)
 
