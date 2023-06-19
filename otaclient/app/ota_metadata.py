@@ -45,7 +45,6 @@ import shutil
 import time
 from enum import Enum
 from os import PathLike
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields
 from urllib.parse import quote
 from OpenSSL import crypto
@@ -73,8 +72,8 @@ from .configs import config as cfg
 from .common import (
     OTAFileCacheControl,
     RetryTaskMap,
+    get_backoff,
     urljoin_ensure_base,
-    wait_with_backoff,
 )
 from .downloader import Downloader
 from .proto.wrapper import (
@@ -691,40 +690,37 @@ class OTAMetadata:
                     self.total_files_num = _count
 
         last_active_timestamp = int(time.time())
-        with ThreadPoolExecutor(thread_name_prefix="process_metafiles") as _executor:
-            _mapper = RetryTaskMap(
-                title="process_metafiles",
-                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-                retry_interval_f=partial(
-                    wait_with_backoff,
-                    _backoff_factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
-                    _backoff_max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
-                ),
-                max_retry=0,  # NOTE: we use another strategy below
-                executor=_executor,
-            )
-            for _, task_result in _mapper.map(
-                _process_text_base_otameta_file,
-                self._ota_metadata.get_img_metafiles(),
-            ):
-                is_successful, entry, fut = task_result
-                if is_successful:
-                    last_active_timestamp = int(time.time())
-                    continue
+        _mapper = RetryTaskMap(
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            backoff_func=partial(
+                get_backoff,
+                factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
+                _max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+            ),
+            max_retry=0,  # NOTE: we use another strategy below
+        )
+        for task_result in _mapper.map(
+            _process_text_base_otameta_file,
+            self._ota_metadata.get_img_metafiles(),
+        ):
+            _fut, _entry = task_result
+            if not _fut.exception():
+                last_active_timestamp = int(time.time())
+                continue
 
-                # on task failed
-                logger.debug(f"metafile downloading failed: {entry=}, {fut=}")
-                last_active_timestamp = max(
-                    last_active_timestamp, self._downloader.last_active_timestamp
+            # on task failed
+            logger.debug(f"metafile downloading failed: {_entry=}, {_fut=}")
+            last_active_timestamp = max(
+                last_active_timestamp, self._downloader.last_active_timestamp
+            )
+            if (
+                int(time.time()) - last_active_timestamp
+                > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
+            ):
+                logger.error(
+                    f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
                 )
-                if (
-                    int(time.time()) - last_active_timestamp
-                    > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
-                ):
-                    logger.error(
-                        f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
-                    )
-                    _mapper.shutdown()
+                _mapper.shutdown(raise_last_exc=True)
 
     # APIs
 
