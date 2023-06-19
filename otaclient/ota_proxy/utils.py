@@ -3,7 +3,7 @@ import asyncio
 import aiofiles
 from concurrent.futures import Executor
 from hashlib import sha256
-from os import PathLike, urandom
+from os import PathLike
 from typing import AsyncIterator
 
 from .config import config as cfg
@@ -45,28 +45,6 @@ class AIOSHA256Hasher:
         return await asyncio.get_running_loop().run_in_executor(
             self._executor, self._hashf.hexdigest
         )
-
-
-class TmpCacheFileNaming:
-    """Naming scheme: tmp_<sha256_hash_of_URL>_<4_chars>"""
-
-    PREFIX = cfg.TMP_FILE_PREFIX
-    SEP = "_"
-
-    @classmethod
-    def get_url_hash(cls, url: str) -> str:
-        return sha256(url.encode()).hexdigest()
-
-    @classmethod
-    def extract_url_hash(cls, tmp_fname: str) -> str:
-        _tuple = tmp_fname.split(cls.SEP)
-        if len(_tuple) != 3:
-            raise ValueError(f"not a valid tmp_file_naming: {tmp_fname}")
-        return _tuple[1]
-
-    @classmethod
-    def from_url(cls, url: str) -> str:
-        return f"{cfg.TMP_FILE_PREFIX}{cls.SEP}{cls.get_url_hash(url)}{cls.SEP}{urandom(4).hex()}"
 
 
 async def read_file(fpath: PathLike, *, executor: Executor) -> AsyncIterator[bytes]:

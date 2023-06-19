@@ -25,6 +25,7 @@ import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
 from pathlib import Path
+from os import urandom
 from typing import (
     AsyncGenerator,
     AsyncIterator,
@@ -55,7 +56,6 @@ from .config import config as cfg
 from .utils import (
     wait_with_backoff,
     AIOSHA256Hasher,
-    TmpCacheFileNaming,
     read_file,
 )
 
@@ -386,7 +386,7 @@ class CachingRegister:
             _ref = _new_ref
 
         _tracker = CacheTracker(
-            TmpCacheFileNaming.from_url(raw_url),
+            f"{cfg.TMP_FILE_PREFIX}_{urandom(16).hex()}",
             _ref,
             base_dir=self._base_dir,
             executor=executor,
