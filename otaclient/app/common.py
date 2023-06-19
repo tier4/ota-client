@@ -32,7 +32,6 @@ from typing import (
     Any,
     Callable,
     Generator,
-    List,
     NamedTuple,
     Optional,
     Set,
@@ -411,7 +410,7 @@ class _TaskMap(Generic[T]):
         logger.debug(f"dispatcher done: {self._total_tasks_count=}")
         self._dispatch_done = True
 
-    def _done_task_collecter(self) -> Generator[DoneTask, None, None]:
+    def _done_task_collector(self) -> Generator[DoneTask, None, None]:
         """A generator for caller to yield done task from."""
         _count = 0
         while not self._shutdown_event.is_set():
@@ -430,16 +429,16 @@ class _TaskMap(Generic[T]):
         self._task_dispatcher_fut = self._executor.submit(
             self._task_dispatcher, func, _iter
         )
-        self._task_collecter_gen = self._done_task_collecter()
-        return self._task_collecter_gen
+        self._task_collector_gen = self._done_task_collector()
+        return self._task_collector_gen
 
-    def shutdown(self, *, raise_last_exc=False) -> Optional[List[T]]:
+    def shutdown(self, *, raise_last_exc=False) -> Optional[Set[T]]:
         """Set the shutdown event, and cancal/cleanup ongoing tasks."""
         if not self.started or self._shutdown_event.is_set():
             return
 
         self._shutdown_event.set()
-        self._task_collecter_gen.close()
+        self._task_collector_gen.close()
         # wait for dispatch to stop
         self._task_dispatcher_fut.result()
 
