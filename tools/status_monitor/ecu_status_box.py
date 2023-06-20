@@ -67,6 +67,7 @@ class ECUStatusDisplayBox:
                         f"downloaded_bytes: {FormatValue.bytes_count(update_status.downloaded_bytes)}",
                     ]
                 )
+                self.failure_contents.clear()
             elif ecu_status.ota_status is proto_wrapper.StatusOta.FAILURE:
                 self.contents.append(f"Press {self.index} key for failure info.")
                 self.failure_contents.extend(
@@ -77,6 +78,8 @@ class ECUStatusDisplayBox:
                         *ecu_status.failure_traceback.splitlines(),
                     ]
                 )
+            else:
+                self.failure_contents.clear()
 
             self._last_status = ecu_status
             self.last_updated = int(time.time())

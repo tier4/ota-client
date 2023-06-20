@@ -1,5 +1,4 @@
 import curses
-import curses.panel as panel
 import time
 from typing import NamedTuple
 
