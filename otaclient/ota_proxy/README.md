@@ -18,7 +18,7 @@ proxy server to serve multiple ECUs' update simultaneously.
 
 ### Static configuration
 
-The behavior of ota-proxy can be adjusted by modifying the config.py. The common use configurations are as follow:
+The behavior of ota-proxy can be adjusted by modifying the `config.py`. The common use configurations are as follow:
 
 1. **BASE_DIR**: the cache folder to store cache entries.
 2. **DISK_USE_LIMIT_SOFT_P**: when reached, ota-proxy will enable LRU cache rotate to reserver space for new cached files.
@@ -27,13 +27,30 @@ The behavior of ota-proxy can be adjusted by modifying the config.py. The common
 
 ### Runtime configuration
 
-Runtime configuration is configured by setting up `ota-cache` instance when launching ota-proxy.
+Runtime configuration can be configured by passing parameters to CLI.
 
-1. **upper_proxy** str: the upper proxy that ota_cache uses to send out request, default is None
-2. **cache_enabled** bool: when set to False, ota_cache will only relay requested data, default is False.
-3. **enable_https** bool: whether the ota_cache should send out the requests with HTTPS, default is False. NOTE: scheme change is applied unconditionally.
-4. **init_cache** bool: whether to clear the existed cache, default is True.
-5. **scrub_cache_event**: optional, an multiprocessing.Event that sync status with the ota-client.
+```python
+usage: ota_proxy [-h] [--host HOST] [--port PORT] [--upper-proxy UPPER_PROXY]
+                 [--enable-cache] [--enable-https] [--init-cache]
+                 [--cache-dir CACHE_DIR] [--cache-db-file CACHE_DB_FILE]
+
+ota_proxy server with local cache feature
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --host HOST           server listen ip (default: 0.0.0.0)
+  --port PORT           server listen port (default: 8080)
+  --upper-proxy UPPER_PROXY
+                        upper proxy that used for requesting remote (default: )
+  --enable-cache        enable local ota cache (default: False)
+  --enable-https        enable HTTPS when retrieving data from remote (default: False)
+  --init-cache          cleanup remaining cache if any (default: False)
+  --cache-dir CACHE_DIR
+                        where to store the cache entries (default: /ota-cache)
+  --cache-db-file CACHE_DB_FILE
+                        the location of cache db sqlite file (default: /ota-
+                        cache/cache_db)
+```
 
 ## Usage
 
