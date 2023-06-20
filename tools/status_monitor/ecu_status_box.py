@@ -5,7 +5,7 @@ import threading
 from itertools import zip_longest
 from otaclient.app.proto import wrapper as proto_wrapper
 
-from .utils import FormatValue
+from .utils import FormatValue, splitline_break_long_string
 
 
 class ECUStatusDisplayBox:
@@ -75,7 +75,7 @@ class ECUStatusDisplayBox:
                         f"failure_type: {ecu_status.failure_type.name}",
                         f"failure_reason: {ecu_status.failure_reason}",
                         "failure_traceback: ",
-                        *ecu_status.failure_traceback.splitlines(),
+                        ecu_status.failure_traceback,
                     ]
                 )
             else:
@@ -149,13 +149,18 @@ class ECUStatusDisplayBox:
         pad.idlok(True)
 
         stdscr.addstr(
-            stdscrn_h - 1, 1, "press x key to go back, press arrow_up/down to scroll."
+            stdscrn_h - 2, 1, "press x key to go back, press arrow_up/down to scroll."
         )
         stdscr.refresh()
 
+        # pre_process the failure info
+        _processed = []
+        for line in self.failure_contents:
+            _processed.extend(splitline_break_long_string(line, length=stdscrn_w - 1))
+
         line_idx = 0
-        for line_idx, line_content in enumerate(self.failure_contents):
-            pad.addstr(line_idx, 1, line_content[:stdscrn_w])
+        for line_idx, line_content in enumerate(_processed):
+            pad.addstr(line_idx, 0, line_content)
 
         pad.move(0, 0)
         pad.refresh(
