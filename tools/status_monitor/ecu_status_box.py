@@ -10,7 +10,7 @@ from .utils import FormatValue, splitline_break_long_string
 
 class ECUStatusDisplayBox:
     DISPLAY_BOX_HLINES = 12
-    DISPLAY_BOX_HCOLS = 66
+    DISPLAY_BOX_HCOLS = 60
 
     def __init__(self, ecu_id: str, index: int) -> None:
         self.ecu_id = ecu_id

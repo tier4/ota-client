@@ -20,4 +20,14 @@ def main(title: str, host: str, port: int):
 
 
 if __name__ == "__main__":
-    main("OTA status monitor", "10.0.1.10", 50051)
+    parser = argparse.ArgumentParser(
+        prog="ota_status_monitor",
+        description="CLI program for monitoring target ecu status",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--host", help="server listen ip", default="192.168.10.11")
+    parser.add_argument("--port", help="server listen port", default=50051, type=int)
+    parser.add_argument("--title", help="terminal title", default="OTA status monitor")
+
+    args = parser.parse_args()
+    main(args.title, args.host, args.port)
