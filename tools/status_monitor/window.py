@@ -153,6 +153,7 @@ class MainScreen:
         return new_cursor_y
 
     def _window_session(self, stdscr: curses.window):
+        _stdscrn_h, _stdscrn_w = stdscr.getmaxyx()
         _, begin_y, begin_x, hlines, hcols = self._init_mainwin(stdscr)
         pad = self._init_pad(
             ECUStatusDisplayBox.DISPLAY_BOX_HLINES * 30,
@@ -201,6 +202,12 @@ class MainScreen:
             elif key == curses.KEY_RESIZE:
                 stdscr.clear()
                 return
+            elif key == ord("p"):
+                stdscr.addstr(_stdscrn_h - 1, 0, "Paused, press any key to resume.")
+                stdscr.refresh()
+                stdscr.getch()
+                stdscr.addstr(_stdscrn_h - 1, 0, " " * (_stdscrn_w - 1))
+                stdscr.refresh()
             else:
                 time.sleep(0.1)
 
