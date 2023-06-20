@@ -338,7 +338,6 @@ class _OTAUpdater:
                 f"use {self.proxy=} for local OTA update, "
                 f"wait for otaproxy@{self.proxy} online..."
             )
-            # TODO: make otaproxy scrubing not blocking the otaproxy starts
             ensure_otaproxy_start(self.proxy)
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.

@@ -17,8 +17,8 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
@@ -60,45 +60,43 @@ class OTACacheDB:
         ),
     ]
 
-    def __init__(self, db_file: Union[str, Path], init=False):
-        """Connects to database(and initialize database if needed).
-
-        If database doesn't have required table, or init==True,
-        we will initialize the table here.
-
-        Args:
-            db_file: target to connect to
-            init: whether to init database table or not
-
-        Raise:
-            Raises sqlite3.Error if database init/configuration failed.
-        """
-        if init:
-            Path(db_file).unlink(missing_ok=True)
-
-        self._con = sqlite3.connect(
-            db_file,
-            check_same_thread=True,  # one thread per connection in the threadpool
-            # isolation_level=None,  # enable autocommit mode
-        )
-        self._con.row_factory = sqlite3.Row
-        # check if the table exists/check whether the db file is valid
+    @classmethod
+    def check_db_file(cls, db_file: Union[str, Path]) -> bool:
+        if not Path(db_file).is_file():
+            return False
         try:
-            with self._con as con:
+            with sqlite3.connect(db_file) as con:
+                con.execute("PRAGMA integrity_check;")
+                # check whether expected table is in it or not
                 cur = con.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                    (self.TABLE_NAME,),
+                    (cls.TABLE_NAME,),
                 )
                 if cur.fetchone() is None:
-                    logger.warning(f"{self.TABLE_NAME} not found, init db...")
-                    # create ota_cache table
-                    con.execute(
-                        CacheMeta.get_create_table_stmt(self.TABLE_NAME),
-                        (),
+                    logger.warning(
+                        f"{cls.TABLE_NAME} not found, this db file should be initialized"
                     )
-                    # create indices
-                    for idx in self.OTA_CACHE_IDX:
-                        con.execute(idx, ())
+                    return False
+                return True
+        except sqlite3.DatabaseError as e:
+            logger.warning(f"{db_file} is corrupted: {e!r}")
+            return False
+
+    @classmethod
+    def init_db_file(cls, db_file: Union[str, Path]):
+        """
+        Purge the old db file and init the db files, creating table in it.
+        """
+        # remove the db file first
+        Path(db_file).unlink(missing_ok=True)
+        try:
+            with sqlite3.connect(db_file) as con:
+                # create ota_cache table
+                con.execute(CacheMeta.get_create_table_stmt(cls.TABLE_NAME), ())
+                # create indices
+                for idx in cls.OTA_CACHE_IDX:
+                    con.execute(idx, ())
+
                 ### db performance tunning
                 # enable WAL mode
                 con.execute("PRAGMA journal_mode = WAL;")
@@ -110,6 +108,35 @@ class OTACacheDB:
         except sqlite3.Error as e:
             logger.debug(f"init db failed: {e!r}")
             raise e
+
+    def __init__(self, db_file: Union[str, Path]):
+        """Connects to OTA cache database.
+
+        Args:
+            db_file: target db file to connect to.
+
+        Raises:
+            ValueError on invalid ota_cache db file,
+            sqlite3.Error if optimization settings applied failed.
+        """
+        self._con = sqlite3.connect(
+            db_file,
+            check_same_thread=True,  # one thread per connection in the threadpool
+            # isolation_level=None,  # enable autocommit mode
+        )
+        self._con.row_factory = sqlite3.Row
+        if not self.check_db_file(db_file):
+            raise ValueError(f"invalid db file: {db_file}")
+
+        # db performance tunning, enable optimization
+        with self._con as con:
+            # enable WAL mode
+            con.execute("PRAGMA journal_mode = WAL;")
+            # set temp_store to memory
+            con.execute("PRAGMA temp_store = memory;")
+            # enable mmap (size in bytes)
+            mmap_size = 16 * 1024 * 1024  # 16MiB
+            con.execute(f"PRAGMA mmap_size = {mmap_size};")
 
     def __enter__(self):
         return self
@@ -170,7 +197,7 @@ class OTACacheDB:
                         f"UPDATE {self.TABLE_NAME} SET {CacheMeta.last_access.name}=? "
                         f"WHERE {CacheMeta.url.name}=?"
                     ),
-                    (int(datetime.now().timestamp()), res.url),
+                    (int(time.time()), res.url),
                 )
                 return res
 
@@ -264,9 +291,9 @@ class _ProxyBase:
     def _thread_initializer(self, db_f):
         """Init a db connection for each thread worker"""
         # NOTE: set init to False always as we only operate db when using proxy
-        self._thread_local.db = OTACacheDB(db_f, init=False)
+        self._thread_local.db = OTACacheDB(db_f)
 
-    def __init__(self, db_f: Union[str, Path], *, init=False):
+    def __init__(self, db_f: Union[str, Path]):
         """Init the database connecting thread pool."""
         self._thread_local = threading.local()
         # set thread_pool_size to 1 to make the db access

@@ -56,12 +56,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--cache-dir",
-        helper="where to store the cache entries",
+        help="where to store the cache entries",
         default=cfg.BASE_DIR,
     )
     parser.add_argument(
         "--cache-db-file",
-        helper="the location of cache db sqlite file",
+        help="the location of cache db sqlite file",
         default=cfg.DB_FILE,
     )
     args = parser.parse_args()

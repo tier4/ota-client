@@ -25,8 +25,6 @@ import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
 from datetime import datetime
-from functools import partial
-from hashlib import sha256
 from os import urandom
 from pathlib import Path
 from typing import (
@@ -560,71 +558,6 @@ class RemoteOTAFile:
         return (self._cache_streamer(), self.meta)
 
 
-class OTACacheScrubHelper:
-    """Helper to scrub ota caches."""
-
-    def __init__(self, db_file: Union[str, Path], base_dir: Union[str, Path]):
-        self._db_file = Path(db_file)
-        self._base_dir = Path(base_dir)
-
-    @staticmethod
-    def _check_entry(base_dir: Path, meta: CacheMeta) -> Tuple[CacheMeta, bool]:
-        if (fpath := base_dir / meta.sha256hash).is_file():
-            _hash_f = sha256()
-            with open(fpath, "rb") as _f:
-                while data := _f.read(cfg.CHUNK_SIZE):
-                    _hash_f.update(data)
-            if _hash_f.hexdigest() == meta.sha256hash:
-                return meta, True
-
-        # check failed, try to remove the cache entry
-        fpath.unlink(missing_ok=True)
-        return meta, False
-
-    def scrub_cache(self):
-        """Main entry for scrubbing cache folder.
-
-        OTACacheScrubHelper instance will close itself after finishing scrubing.
-        """
-        logger.info("start to scrub the cache entries...")
-        dangling_db_entry = []
-        # NOTE: pre-add db related files into the set
-        # to prevent db related files being deleted
-        # NOTE 2: cache_db related files: <cache_db>, <cache_db>-shm, <cache_db>-wal, <cache>-journal
-        valid_cache_entry = {
-            (_db_fname := self._db_file.name),
-            f"{_db_fname}-shm",
-            f"{_db_fname}-wal",
-            f"{_db_fname}-journal",
-        }
-
-        with ThreadPoolExecutor(
-            thread_name_prefix="otacahe_scrub"
-        ) as _executor, OTACacheDB(self._db_file) as _db:
-            for _meta, _is_valid in _executor.map(
-                partial(self._check_entry, self._base_dir),
-                _db.lookup_all(),
-                chunksize=128,
-            ):
-                if not _is_valid:
-                    logger.debug(f"invalid db entry found: {_meta.url}")
-                    dangling_db_entry.append(_meta.url)
-                else:
-                    valid_cache_entry.add(_meta.sha256hash)
-            # remove any dangling db entries that don't point to valid cache
-            _db.remove_entries(CacheMeta.url, *dangling_db_entry)
-
-        # loop over all files under cache folder,
-        # if entry's hash is not presented in the valid_cache_entry set,
-        # we treat it as dangling cache entry and delete it
-        for _entry in self._base_dir.glob("*"):
-            if _entry.name not in valid_cache_entry:
-                logger.debug(f"dangling cache entry found: {_entry.name}")
-                (self._base_dir / _entry.name).unlink(missing_ok=True)
-
-        logger.info("cache scrub finished")
-
-
 class _FileDescriptorHelper:
     CHUNK_SIZE = cfg.CHUNK_SIZE
 
@@ -712,7 +645,6 @@ class OTACache:
         enable_https: whether the ota_cache should send out the requests with HTTPS,
             default is False. NOTE: scheme change is applied unconditionally.
         init_cache: whether to clear the existed cache, default is True.
-        scrub_cache_event: an multiprocessing.Event that sync status with the ota-client.
         base_dir: the location to store cached files.
         db_file: the location to store database file.
     """
@@ -745,6 +677,14 @@ class OTACache:
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
 
+    def _check_cache_db(self) -> bool:
+        """Check ota_cache can be reused or not."""
+        return (
+            self._base_dir.is_dir()
+            and self._db_file.is_file()
+            and OTACacheDB.check_db_file(self._db_file)
+        )
+
     async def start(self):
         """Start the ota_cache instance."""
         # silently ignore multi launching of ota_cache
@@ -769,19 +709,26 @@ class OTACache:
         )
 
         if self._cache_enabled:
-            # prepare cache dir
-            if self._init_cache:
+            # purge cache dir if requested(init_cache=True) or ota_cache invalid,
+            #   and then recreate the cache folder and cache db file.
+            db_f_valid = self._check_cache_db()
+            if self._init_cache or not db_f_valid:
+                logger.warning(
+                    f"purge and init ota_cache: {self._init_cache=}, {db_f_valid}"
+                )
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
-                # if init, we also have to set the scrub_finished_event
                 self._base_dir.mkdir(exist_ok=True, parents=True)
-                # init only
-                _init_only = OTACacheDB(self._db_file, init=True)
-                _init_only.close()
+                # init db file with table created
+                OTACacheDB.init_db_file(self._db_file)
+            # reuse the previously left ota_cache
+            else:  # cleanup unfinished tmp files
+                for tmp_f in self._base_dir.glob("tmp_*"):
+                    tmp_f.unlink(missing_ok=True)
 
             # dispatch a background task to pulling the disk usage info
             self._executor.submit(self._background_check_free_space)
 
-            # init cache helper
+            # init cache helper(and connect to ota_cache db)
             self._lru_helper = LRUCacheHelper(self._db_file)
             self._on_going_caching = CachingRegister(self._base_dir)
 
