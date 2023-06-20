@@ -1,3 +1,6 @@
+from typing import List
+
+
 class FormatValue:
     KB = 1000
     MB = 1000**2
@@ -16,3 +19,15 @@ class FormatValue:
     @classmethod
     def count(cls, count: int) -> str:
         return f"{count:,}"
+
+
+def splitline_break_long_string(_str: str, length: int) -> List[str]:
+    # first split the line
+    _input = _str.splitlines()
+    _output = []
+    # search through all lines and break up long line
+    for line in _input:
+        _cuts = len(line) // length + 1
+        for _cut in range(_cuts):
+            _output.append(line[_cut * length : (_cut + 1) * length])
+    return _output
