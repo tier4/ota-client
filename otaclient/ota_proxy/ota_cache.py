@@ -24,9 +24,8 @@ import time
 import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
-from datetime import datetime
-from os import urandom
 from pathlib import Path
+from os import urandom
 from typing import (
     AsyncGenerator,
     AsyncIterator,
@@ -35,6 +34,7 @@ from typing import (
     Dict,
     Generic,
     List,
+    MutableMapping,
     Optional,
     Set,
     Tuple,
@@ -53,7 +53,11 @@ from .errors import (
     StorageReachHardLimit,
 )
 from .config import config as cfg
-from .utils import wait_with_backoff, AIOSHA256Hasher
+from .utils import (
+    wait_with_backoff,
+    AIOSHA256Hasher,
+    read_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -353,11 +357,15 @@ class CachingRegister:
 
     def __init__(self, base_dir: Union[str, Path]):
         self._base_dir = Path(base_dir)
-        self._url_ref_dict: Dict[str, _Weakref] = weakref.WeakValueDictionary()  # type: ignore
-        self._ref_tracker_dict: Dict[_Weakref, CacheTracker] = weakref.WeakKeyDictionary()  # type: ignore
+        self._url_ref_dict: MutableMapping[
+            str, _Weakref
+        ] = weakref.WeakValueDictionary()
+        self._ref_tracker_dict: MutableMapping[
+            _Weakref, CacheTracker
+        ] = weakref.WeakKeyDictionary()
 
     async def get_tracker(
-        self, url: str, *, executor: Executor
+        self, raw_url: str, *, executor: Executor
     ) -> Tuple[CacheTracker, bool]:
         """Get an inst of CacheTracker for the requested URL.
 
@@ -365,7 +373,7 @@ class CachingRegister:
             An inst of tracker, and a bool indicates whether the caller is subscriber
                 or provider.
         """
-        _ref = self._url_ref_dict.setdefault(url, (_new_ref := _Weakref()))
+        _ref = self._url_ref_dict.setdefault(raw_url, (_new_ref := _Weakref()))
         # subscriber
         if (
             _tracker := self._ref_tracker_dict.get(_ref)
@@ -374,15 +382,16 @@ class CachingRegister:
 
         # provider, or override a failed provider
         if _ref is not _new_ref:  # override a failed tracker
-            self._url_ref_dict[url] = (_ref := _new_ref)
-        self._ref_tracker_dict[_ref] = (
-            _tracker := CacheTracker(
-                f"tmp_{urandom(16).hex()}",
-                _ref,
-                base_dir=self._base_dir,
-                executor=executor,
-            )
+            self._url_ref_dict[raw_url] = _new_ref
+            _ref = _new_ref
+
+        _tracker = CacheTracker(
+            f"{cfg.TMP_FILE_PREFIX}_{urandom(16).hex()}",
+            _ref,
+            base_dir=self._base_dir,
+            executor=executor,
         )
+        self._ref_tracker_dict[_ref] = _tracker
         return _tracker, True
 
 
@@ -411,7 +420,7 @@ class LRUCacheHelper:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
         entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.size) - 1
-        entry.last_access = int(datetime.now().timestamp())
+        entry.last_access = int(time.time())
 
         if (await self._db.insert_entry(entry)) != 1:
             logger.error(f"db: failed to add {entry=}")
@@ -525,7 +534,7 @@ class RemoteOTAFile:
                 if not self._tracker.writer_finished:
                     try:
                         await _cache_write_gen.asend(chunk)
-                    except (Exception, StopAsyncIteration) as e:
+                    except Exception as e:
                         await self._tracker.provider_on_failed()  # signal tracker
                         logger.error(
                             f"cache write coroutine failed for {self.meta=}, abort caching: {e!r}"
@@ -558,77 +567,61 @@ class RemoteOTAFile:
         return (self._cache_streamer(), self.meta)
 
 
-class _FileDescriptorHelper:
-    CHUNK_SIZE = cfg.CHUNK_SIZE
+async def open_remote(
+    url: str,
+    raw_url: str,
+    *,
+    cookies: Dict[str, str],
+    headers: Dict[str, str],
+    session: aiohttp.ClientSession,
+    upper_proxy: str = "",
+) -> Tuple[AsyncIterator[bytes], CacheMeta]:
+    """Open a file descriptor to remote resource.
 
-    @classmethod
-    async def open_remote(
-        cls,
-        url: str,
-        raw_url: str,
-        *,
-        cookies: Dict[str, str],
-        headers: Dict[str, str],
-        session: aiohttp.ClientSession,
-        upper_proxy: str = "",
-    ) -> Tuple[AsyncIterator[bytes], CacheMeta]:
-        """Open a file descriptor to remote resource.
+    Args:
+        url: quoted url.
+        raw_url: unquoted url, used in CacheMeta.
+        cookies: cookies that client passes in the request.
+        extra_headers: other headers we need to pass to the remote
+            from the original request.
+        session: an inst of aiohttp.ClientSession used for opening
+            remote connection.
+        upper_proxy: if chained proxy is used.
 
-        Args:
-            url: quoted url.
-            raw_url: unquoted url, used in CacheMeta.
-            cookies: cookies that client passes in the request.
-            extra_headers: other headers we need to pass to the remote
-                from the original request.
-            session: an inst of aiohttp.ClientSession used for opening
-                remote connection.
-            upper_proxy: if chained proxy is used.
+    Returns:
+        An AsyncIterator that can yield data chunks from, and an inst
+            of CacheMeta for the requested url.
 
-        Returns:
-            An AsyncIterator that can yield data chunks from, and an inst
-                of CacheMeta for the requested url.
+    Raises:
+        Any exceptions during aiohttp connecting to the remote.
+    """
+    cache_meta = CacheMeta(url=raw_url)
 
-        Raises:
-            Any exceptions during aiohttp connecting to the remote.
-        """
-        cache_meta = CacheMeta(url=raw_url)
+    async def _inner() -> AsyncIterator[bytes]:
+        async with session.get(
+            url,
+            proxy=upper_proxy,
+            cookies=cookies,
+            headers=headers,
+        ) as response:
+            # assembling output cachemeta
+            # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
+            # NOTE.2: store the original unquoted url into the CacheMeta
+            # NOTE.3: hash, and size will be assigned at background_write_cache method
+            # NOTE.4: bucket and last_access will be assigned at commit_entry method
+            cache_meta.content_encoding = response.headers.get("content-encoding", "")
+            cache_meta.content_type = response.headers.get(
+                "content-type", "application/octet-stream"
+            )
+            # open the connection and update the CacheMeta
+            yield b""
+            async for data, _ in response.content.iter_chunks():
+                if data:  # only yield non-empty data chunk
+                    yield data
 
-        async def _inner() -> AsyncIterator[bytes]:
-            async with session.get(
-                url,
-                proxy=upper_proxy,
-                cookies=cookies,
-                headers=headers,
-            ) as response:
-                # assembling output cachemeta
-                # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
-                # NOTE.2: store the original unquoted url into the CacheMeta
-                # NOTE.3: hash, and size will be assigned at background_write_cache method
-                # NOTE.4: bucket and last_access will be assigned at commit_entry method
-                cache_meta.content_encoding = response.headers.get(
-                    "content-encoding", ""
-                )
-                cache_meta.content_type = response.headers.get(
-                    "content-type", "application/octet-stream"
-                )
-                # open the connection and update the CacheMeta
-                yield b""
-                async for data, _ in response.content.iter_chunks():
-                    if data:  # only yield non-empty data chunk
-                        yield data
-
-        # open remote connection
-        await (_remote_fd := _inner()).__anext__()
-        return _remote_fd, cache_meta
-
-    @staticmethod
-    async def read_file(
-        fpath: Union[str, Path], *, executor: Executor
-    ) -> AsyncIterator[bytes]:
-        """Open and read a file asynchronously with aiofiles."""
-        async with aiofiles.open(fpath, "rb", executor=executor) as f:
-            while data := await f.read(cfg.CHUNK_SIZE):
-                yield data
+    # open remote connection
+    await (_remote_fd := _inner()).__anext__()
+    return _remote_fd, cache_meta
 
 
 class OTACache:
@@ -722,7 +715,7 @@ class OTACache:
                 OTACacheDB.init_db_file(self._db_file)
             # reuse the previously left ota_cache
             else:  # cleanup unfinished tmp files
-                for tmp_f in self._base_dir.glob("tmp_*"):
+                for tmp_f in self._base_dir.glob(f"{cfg.TMP_FILE_PREFIX}*"):
                     tmp_f.unlink(missing_ok=True)
 
             # dispatch a background task to pulling the disk usage info
@@ -889,28 +882,84 @@ class OTACache:
             fragment="",
         ).geturl()
 
-    async def _lookup_cachedb(
-        self, raw_url: str, *, retry_cache: bool
-    ) -> Optional[CacheMeta]:
-        if meta_db_entry := await self._lru_helper.lookup_entry_by_url(
-            raw_url
-        ):  # cache hit
-            logger.debug(f"cache hit for {raw_url=}, {meta_db_entry=}")
-            cache_path: Path = self._base_dir / meta_db_entry.sha256hash
-            # clear the cache entry if the ota_client instructs so
-            if retry_cache:
-                logger.warning(
-                    f"retry_cache: try to clear entry for {meta_db_entry=}.."
-                )
-                cache_path.unlink(missing_ok=True)
+    # retrieve_file handlers
 
-            # check whether cache file is presented
-            if not cache_path.is_file():
-                # invalid cache entry found in the db, cleanup it
-                logger.warning(f"dangling cache entry found: {meta_db_entry=}")
-                await self._lru_helper.remove_entry_by_url(raw_url)
-                return
-            return meta_db_entry
+    async def _retrieve_file_by_downloading(
+        self, raw_url: str, *, cookies, extra_headers
+    ) -> Tuple[AsyncIterator[bytes], CacheMeta]:
+        # NOTE: store unquoted url in database
+        return await open_remote(
+            url=self._process_raw_url(raw_url),
+            raw_url=raw_url,
+            cookies=cookies,
+            headers=extra_headers,
+            session=self._session,
+            upper_proxy=self._upper_proxy,
+        )
+
+    async def _retrieve_file_by_cache(
+        self, raw_url: str, *, retry_cache: bool
+    ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
+        meta_db_entry = await self._lru_helper.lookup_entry_by_url(raw_url)
+        if not meta_db_entry:
+            return
+
+        cache_file = self._base_dir / meta_db_entry.sha256hash
+        # otaclient indicates that this cache entry is invalid, cleanup and exit
+        if retry_cache:
+            logger.debug(f"requested with retry_cache: {meta_db_entry=}..")
+            await self._lru_helper.remove_entry_by_url(raw_url)
+            cache_file.unlink(missing_ok=True)
+            return
+
+        # check if cache file exists
+        if not cache_file.is_file():
+            logger.warning(
+                f"dangling cache entry found, remove db entry: {meta_db_entry}"
+            )
+            await self._lru_helper.remove_entry_by_url(raw_url)
+            return
+
+        # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
+        #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
+        #       directory to indicate invalid cache.
+        return read_file(cache_file, executor=self._executor), meta_db_entry
+
+    async def _retrieve_file_by_cache_streaming(
+        self, raw_url: str, *, cookies, extra_headers
+    ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
+        tracker, is_writer = await self._on_going_caching.get_tracker(
+            raw_url, executor=self._executor
+        )
+        if is_writer:
+            try:
+                _remote_fd, _meta = await self._retrieve_file_by_downloading(
+                    raw_url, cookies=cookies, extra_headers=extra_headers
+                )
+            except Exception:
+                await tracker.provider_on_failed()
+                raise
+
+            return await RemoteOTAFile(
+                fd=_remote_fd,
+                meta=_meta,
+                tracker=tracker,
+                below_hard_limit_event=self._storage_below_hard_limit_event,
+                base_dir=self._base_dir,
+                commit_cache_callback=self._commit_cache_callback,
+            ).start_cache_streaming()
+        else:
+            # get the ongoing cache file descriptor if available
+            stream_fd = await tracker.subscriber_subscribe_tracker()
+            if stream_fd and tracker.meta:
+                logger.debug(f"reader subscribe for {tracker.meta=}")
+                return stream_fd, tracker.meta
+
+            # if no stream_fd is available(caching is finished), try to directly use already finished tmp cache
+            cache_file_fd = await tracker.subscriber_read_cache()
+            if cache_file_fd and tracker.meta:
+                logger.debug(f"reader directly use cached file for {tracker.meta=}")
+                return cache_file_fd, tracker.meta
 
     # exposed API
 
@@ -945,6 +994,7 @@ class OTACache:
         if self._closed:
             raise BaseOTACacheError("ota cache pool is closed")
 
+        # --- parsing cache control headers --- #
         # default cache control policy:
         retry_cache, use_cache = False, True
         # parse input policies
@@ -968,69 +1018,22 @@ class OTACache:
                 f"not use cache({self._cache_enabled=}, {use_cache=}, "
                 f"{self._storage_below_hard_limit_event.is_set()=}): {raw_url=}"
             )
-            # NOTE: store unquoted url in database
-            return await _FileDescriptorHelper.open_remote(
-                url=self._process_raw_url(raw_url),
-                raw_url=raw_url,
-                cookies=cookies,
-                headers=extra_headers,
-                session=self._session,
-                upper_proxy=self._upper_proxy,
+            return await self._retrieve_file_by_downloading(
+                raw_url, cookies=cookies, extra_headers=extra_headers
             )
 
-        # cache enabled, lookup the database
-        # --- case 2: cache is available and valid, use cache --- #
-        if meta_db_entry := await self._lookup_cachedb(
-            raw_url, retry_cache=retry_cache
+        # --- case 2: try to use cache --- #
+        if _res := await self._retrieve_file_by_cache(raw_url, retry_cache=retry_cache):
+            return _res
+
+        # --- case 3: no cache available, streaming remote file and cache --- #
+        if _res := await self._retrieve_file_by_cache_streaming(
+            raw_url, cookies=cookies, extra_headers=extra_headers
         ):
-            logger.debug(f"use cache for {raw_url=}")
-            fd = _FileDescriptorHelper.read_file(
-                self._base_dir / meta_db_entry.sha256hash, executor=self._executor
-            )
-            return fd, meta_db_entry
+            logger.debug(f"no cache entry for {raw_url=}, start caching")
+            return _res
 
-        # --- case 3: no valid cache entry presented, try to download from remote --- #
-        logger.debug(f"no cache entry for {raw_url=}")
-        # -- case 3.1: provider, download and cache new file -- #
-        _tracker, is_writer = await self._on_going_caching.get_tracker(
-            raw_url, executor=self._executor
-        )
-        if is_writer:
-            try:
-                _remote_fd, _meta = await _FileDescriptorHelper.open_remote(
-                    url=self._process_raw_url(raw_url),
-                    raw_url=raw_url,
-                    cookies=cookies,
-                    headers=extra_headers,
-                    session=self._session,
-                    upper_proxy=self._upper_proxy,
-                )
-            except Exception:
-                await _tracker.provider_on_failed()
-                raise
-
-            return await RemoteOTAFile(
-                fd=_remote_fd,
-                meta=_meta,
-                tracker=_tracker,
-                below_hard_limit_event=self._storage_below_hard_limit_event,
-                base_dir=self._base_dir,
-                commit_cache_callback=self._commit_cache_callback,
-            ).start_cache_streaming()
-        # -- case 3.2: subscriber, try to subcribe to the corresponding tracker -- #
-        else:
-            # case 3.2.1: first try to subscribe on multi cache streaming
-            if (
-                _stream_fd := await _tracker.subscriber_subscribe_tracker()
-            ) and _tracker.meta:
-                logger.debug(f"reader subscribe for {_tracker.meta=}")
-                return _stream_fd, _tracker.meta
-            # case 3.2.2: if case 3.2.1 failed, try to directly use already finished tmp cache
-            if (_fd := await _tracker.subscriber_read_cache()) and _tracker.meta:
-                logger.debug(f"reader directly use cached file for {_tracker.meta=}")
-                return _fd, _tracker.meta
-
-        # --- case 4: failed to handle request --- #
+        # --- case 4: failed to handle request--- #
         # NOTE: this is basically caused by network, so return None, let otaproxy
         #       interrupt the connection and let otaclient retry again
         logger.warning(

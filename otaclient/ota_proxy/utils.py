@@ -1,6 +1,12 @@
+from __future__ import annotations
 import asyncio
+import aiofiles
 from concurrent.futures import Executor
 from hashlib import sha256
+from os import PathLike
+from typing import AsyncIterator
+
+from .config import config as cfg
 
 
 def get_backoff(n: int, factor: float, _max: float) -> float:
@@ -39,3 +45,10 @@ class AIOSHA256Hasher:
         return await asyncio.get_running_loop().run_in_executor(
             self._executor, self._hashf.hexdigest
         )
+
+
+async def read_file(fpath: PathLike, *, executor: Executor) -> AsyncIterator[bytes]:
+    """Open and read a file asynchronously with aiofiles."""
+    async with aiofiles.open(fpath, "rb", executor=executor) as f:
+        while data := await f.read(cfg.CHUNK_SIZE):
+            yield data

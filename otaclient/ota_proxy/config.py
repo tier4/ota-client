@@ -51,5 +51,7 @@ class Config:
     STREAMING_BACKOFF_FACTOR = 0.01  # second
     STREAMING_CACHED_TMP_TIMEOUT = 10  # second
 
+    TMP_FILE_PREFIX = "tmp"
+
 
 config = Config()

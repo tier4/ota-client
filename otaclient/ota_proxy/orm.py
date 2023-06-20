@@ -14,6 +14,7 @@
 
 
 from __future__ import annotations
+from abc import ABC
 from dataclasses import asdict, astuple, dataclass, fields
 from io import StringIO
 from typing import (
@@ -28,22 +29,30 @@ from typing import (
     Generic,
     TypeVar,
     Union,
-    cast,
     overload,
 )
+from typing_extensions import Self, dataclass_transform
 
 if TYPE_CHECKING:
     import sqlite3
 
-NULL_TYPE = cast(Type, type(None))
+
+class NULL_TYPE(ABC):
+    """Singleton for NULL type."""
+
+    def __new__(cls, *args, **kwargs) -> None:
+        return None
+
+
 SQLITE_DATATYPES = Union[
     int,  # INTEGER
     str,  # TEXT
     float,  # REAL
     bytes,  # BLOB
     bool,  # INTEGER 0, 1
-    NULL_TYPE,  # NULL, read-only datatype
+    NULL_TYPE,  # NULL
 ]
+SQLITE_DATATYPES_SET = set([int, str, float, bytes, bool, NULL_TYPE])
 FV = TypeVar("FV", bound=SQLITE_DATATYPES)  # field value type
 TYPE_CHECKER = Callable[[Any], bool]
 
@@ -68,12 +77,13 @@ class ColumnDescriptor(Generic[FV]):
         # whether this field should be included in table def or not
         self._skipped = False
         self.constrains = " ".join(constrains)  # TODO: constrains validation
-        self.default = field_type() if default is None else default
+
         self.field_type = field_type
-        self.type_guard_enabled = False if type_guard is False else True
+        self.default = field_type() if default is None else default
 
         # init type checker callable
         # default to check over the specific field type
+        self.type_guard_enabled = False if type_guard is False else True
         self.type_checker = lambda x: isinstance(x, field_type)
         if isinstance(type_guard, tuple):  # check over a list of types
             self.type_checker = lambda x: isinstance(x, type_guard)
@@ -81,7 +91,7 @@ class ColumnDescriptor(Generic[FV]):
             self.type_checker = type_guard
 
     @overload
-    def __get__(self, obj: None, objtype: type) -> "ColumnDescriptor[FV]":
+    def __get__(self, obj: None, objtype: type) -> Self:
         """Descriptor accessed via class."""
         ...
 
@@ -90,29 +100,40 @@ class ColumnDescriptor(Generic[FV]):
         """Descriptor accessed via bound instance."""
         ...
 
-    def __get__(self, obj, objtype=None) -> Union[FV, "ColumnDescriptor[FV]"]:
+    def __get__(self, obj, objtype=None) -> Union[FV, Self]:
+        # try accessing bound instance attribute
         if not self._skipped and obj is not None:
             if isinstance(obj, type):
-                return self  # bound inst is type, treated same as accessed via class
+                return self  # bound inst is type(class access mode), return descriptor itself
             return getattr(obj, self._private_name)  # access via instance
-        return self  # access via class, return the descriptor
+        return self  # return descriptor instance by default
 
     def __set__(self, obj, value: Any) -> None:
         if self._skipped:
-            return
-        # handle dataclass's default value setting behavior and NULL type assignment
-        if isinstance(value, type(self)) or self.field_type == NULL_TYPE:
+            return  # ignore value setting on skipped field
+
+        # set default value and ignore input value
+        # 1. field_type is NULL_TYPE
+        # 2. value is None
+        # 3. value is descriptor instance itself
+        #       dataclass will retrieve default value with class access form,
+        #       but we return descriptor instance in class access form to expose
+        #       descriptor helper methods(check_type, etc.), so apply special
+        #       treatment here.
+        if self.field_type is NULL_TYPE or value is None or value is self:
             return setattr(obj, self._private_name, self.default)
-        # use default value if value is None and field type is not NULL
-        if value is None and self.field_type != NULL_TYPE:
-            value = self.default
+
         # handle normal value setting
         if self.type_guard_enabled and not self.type_checker(value):
             raise TypeError(f"type_guard: expect {self.field_type}, get {type(value)}")
-        # apply type conversion before assign
-        setattr(obj, self._private_name, self.field_type(value))
+        # if value's type is not field_type but subclass or compatible types that can pass type_checker,
+        # convert the value to the field_type first before assigning
+        _input_value = (
+            value if type(value) is self.field_type else self.field_type(value)
+        )
+        setattr(obj, self._private_name, _input_value)
 
-    def __set_name__(self, owner: type, name: str):
+    def __set_name__(self, owner: type, name: str) -> None:
         self.owner = owner
         try:
             self._index = list(owner.__annotations__).index(name)
@@ -133,6 +154,7 @@ class ColumnDescriptor(Generic[FV]):
         return self.type_checker(value)
 
 
+@dataclass_transform()
 class ORMeta(type):
     """This metaclass is for generating customized <TableCls>."""
 
@@ -153,7 +175,7 @@ class ORMBase(metaclass=ORMeta):
     """
 
     @classmethod
-    def row_to_meta(cls, row: "Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]"):
+    def row_to_meta(cls, row: "Union[sqlite3.Row, Dict[str, Any], Tuple[Any]]") -> Self:
         parsed = {}
         for field in fields(cls):
             try:
