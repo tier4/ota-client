@@ -1,6 +1,6 @@
 import curses
 import time
-from typing import NamedTuple
+from typing import NamedTuple, Tuple
 
 from .ecu_status_box import ECUStatusDisplayBox
 
@@ -89,6 +89,7 @@ class MainScreen:
         self,
         pad: curses.window,
         cursor_y: int,
+        cursor_x: int,
         begin_y: int,
         begin_x: int,
         hlines: int,
@@ -98,14 +99,10 @@ class MainScreen:
 
         This method is called when window scroll detected or pad is updated.
         """
-        if cursor_y < 0:
-            cursor_y = 0
-        # TODO: lower bound
-
         pad.move(cursor_y, 0)
         pad.refresh(
             cursor_y,
-            0,
+            cursor_x,
             begin_y,
             begin_x,
             hlines,
@@ -116,6 +113,8 @@ class MainScreen:
     _PAGE_SCROLL_KEYS = (
         curses.KEY_DOWN,
         curses.KEY_UP,
+        curses.KEY_LEFT,
+        curses.KEY_RIGHT,
         curses.KEY_SR,
         curses.KEY_SF,
         curses.KEY_PPAGE,
@@ -126,31 +125,25 @@ class MainScreen:
 
     def _page_scroll_key_handler(
         self, pad: curses.window, key_pressed: int, *, hlines: int
-    ) -> int:
+    ) -> Tuple[int, int]:
         """
 
         Params:
             hlines: the display area's count of lines
         """
-        cursor_y, _ = pad.getyx()
-        pad_hlines, _ = pad.getmaxyx()
+        pad_hlines, pad_hcols = pad.getmaxyx()
 
-        new_cursor_y = cursor_y
+        new_cursor_y, new_cursor_x = pad.getyx()
         if key_pressed == curses.KEY_DOWN or key_pressed == curses.KEY_SR:
-            new_cursor_y += 1
+            new_cursor_y = min(new_cursor_y + 1, pad_hlines - hlines)
         elif key_pressed == curses.KEY_UP or key_pressed == curses.KEY_SF:
-            new_cursor_y -= 1
+            new_cursor_y = max(0, new_cursor_y - 1)
         if key_pressed == curses.KEY_PPAGE:
-            new_cursor_y -= hlines - 3
+            new_cursor_y = max(0, new_cursor_y - 3)
         elif key_pressed == curses.KEY_NPAGE:
-            new_cursor_y += hlines - 3
+            new_cursor_y = min(new_cursor_y + 3, pad_hlines - hlines)
 
-        if new_cursor_y < 0:
-            new_cursor_y = 0
-        elif new_cursor_y > pad_hlines - hlines:
-            new_cursor_y = pad_hlines - hlines
-
-        return new_cursor_y
+        return new_cursor_y, new_cursor_x
 
     def _window_session(self, stdscr: curses.window):
         _stdscrn_h, _stdscrn_w = stdscr.getmaxyx()
@@ -160,14 +153,15 @@ class MainScreen:
             ECUStatusDisplayBox.DISPLAY_BOX_HCOLS * 2,
         )
 
-        last_cursor_y, _ = pad.getyx()
+        last_cursor_y, last_cursor_x = pad.getyx()
         while True:
             # try to update the contents at current location first
             if self._draw_ecu_status_to_pad(pad):
-                current_cursor_y, _ = pad.getyx()
+                current_cursor_y, current_cursor_x = pad.getyx()
                 self._render_pad(
                     pad,
                     current_cursor_y,
+                    current_cursor_x,
                     begin_y,
                     begin_x,
                     hlines,
@@ -177,12 +171,15 @@ class MainScreen:
             # wait for key_press event unblockingly
             key = pad.getch()
             if key in self._PAGE_SCROLL_KEYS:
-                new_cursor_y = self._page_scroll_key_handler(pad, key, hlines=hlines)
-                if last_cursor_y != new_cursor_y:
-                    last_cursor_y = new_cursor_y
+                new_cursor_y, new_cursor_x = self._page_scroll_key_handler(
+                    pad, key, hlines=hlines
+                )
+                if last_cursor_y != new_cursor_y or last_cursor_x != new_cursor_x:
+                    last_cursor_y, last_cursor_x = new_cursor_y, new_cursor_x
                     self._render_pad(
                         pad,
                         new_cursor_y,
+                        new_cursor_x,
                         begin_y,
                         begin_x,
                         hlines,
@@ -208,8 +205,8 @@ class MainScreen:
                 stdscr.getch()
                 stdscr.addstr(_stdscrn_h - 1, 0, " " * (_stdscrn_w - 1))
                 stdscr.refresh()
-            else:
-                time.sleep(0.1)
+
+            time.sleep(0.1)
 
     def main(self, stdscr: curses.window):
         """Main entry for the screen."""
