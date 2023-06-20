@@ -638,7 +638,6 @@ class OTACache:
         enable_https: whether the ota_cache should send out the requests with HTTPS,
             default is False. NOTE: scheme change is applied unconditionally.
         init_cache: whether to clear the existed cache, default is True.
-        scrub_cache_event: an multiprocessing.Event that sync status with the ota-client.
         base_dir: the location to store cached files.
         db_file: the location to store database file.
     """
@@ -1042,4 +1041,3 @@ class OTACache:
             f"network interruption or space limitation): {raw_url=}"
         )
         return None
-      
