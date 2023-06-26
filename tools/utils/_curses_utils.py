@@ -9,6 +9,7 @@ __all__ = (
     "draw_pad",
     "render_pad",
     "PAGE_SCROLL_KEYS",
+    "pad_scroll_handler",
 )
 
 PAGE_SCROLL_KEYS = (
@@ -22,6 +23,8 @@ PAGE_SCROLL_KEYS = (
     curses.KEY_SF,
     curses.KEY_PPAGE,
     curses.KEY_NPAGE,
+    # reset the cursor location
+    curses.KEY_HOME,
 )
 
 
@@ -66,9 +69,12 @@ def init_pad(hlines: int, hcols: int) -> curses.window:
     return pad
 
 
-def draw_pad(pad: curses.window, contents: List[str]):
+def draw_pad(pad: curses.window, contents: List[str], *, cleanup=True):
     """Redraw the whole pad and render it onto the stdscr."""
     _, pad_hcols = pad.getmaxyx()
+
+    if cleanup:
+        pad.clear()
     for y, line in enumerate(contents):
         pad.addstr(y, 0, truncate_long_string(line, pad_hcols))
 
@@ -123,5 +129,7 @@ def pad_scroll_handler(
         )
     elif key_pressed == curses.KEY_RIGHT or key_pressed == curses.KEY_SRIGHT:
         new_cursor_x = max(0, new_cursor_x - scroll_leftright_col)
+    elif key_pressed == curses.KEY_HOME:
+        new_cursor_y, new_cursor_x = 0, 0
 
     return (new_cursor_y, new_cursor_x)
