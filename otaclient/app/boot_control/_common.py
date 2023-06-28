@@ -189,7 +189,12 @@ class CMDHelperFuncs:
 
     @classmethod
     def get_dev_by_mount_point(cls, mount_point: str) -> str:
-        """Return the underlying mounted dev of the given mount_point."""
+        """Return the underlying mounted dev of the given mount_point.
+
+        Return:
+            Dev corresponding to the mount_point, or empty str if mount_point is
+                not mounted.
+        """
         return cls._findmnt(f"-no SOURCE {mount_point}")
 
     @classmethod
@@ -214,21 +219,15 @@ class CMDHelperFuncs:
     def get_dev_family(cls, parent_device: str, *, include_parent=True) -> List[str]:
         """
         When `/dev/nvme0n1` is specified as parent_device,
-        ["/dev/nvme0n1", "/dev/nvme0n1p1", "/dev/nvme0n1p2"...] will be return
+        ["/dev/nvme0n1", "/dev/nvme0n1p1", "/dev/nvme0n1p2", ...] will be returned.
+        (if include_parent is False, "/dev/nvme0n1" will be excluded).
         """
-        cmd = f"-Pp -o NAME {parent_device}"
-        res = list(
-            map(
-                lambda line: line.split("=")[-1].strip('"'),
-                cls._lsblk(cmd).splitlines(),
-            )
-        )
-
+        cmd = f"-lpn -o NAME {parent_device}"
+        res = cls._lsblk(cmd).splitlines()
         # the first line is the parent of the dev family
         if include_parent:
             return res
-        else:
-            return res[1:]
+        return res[1:]
 
     @classmethod
     def get_dev_size(cls, dev: str) -> int:
