@@ -43,7 +43,7 @@ from typing import (
 )
 from urllib.parse import SplitResult, quote, urlsplit
 
-from .cache_control import OTAFileCacheControl
+from .cache_control import OTAFileCacheControl, ParsedOTAFileCacheControlHeader
 from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
     BaseOTACacheError,
@@ -969,7 +969,7 @@ class OTACache:
         /,
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
-        cache_control_policies: Set[OTAFileCacheControl],
+        cache_control_policies: ParsedOTAFileCacheControlHeader,
     ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
         """Retrieve a file descriptor for the requested <raw_url>.
 
@@ -995,18 +995,19 @@ class OTACache:
             raise BaseOTACacheError("ota cache pool is closed")
 
         # --- parsing cache control headers --- #
-        # default cache control policy:
+        # default to use cache, and not retry_caching
+        # also ParsedOTAFileCacheControlHeader uses the same default policy
         retry_cache, use_cache = False, True
-        # parse input policies
-        if OTAFileCacheControl.retry_caching in cache_control_policies:
+        if cache_control_policies.retry_caching:
             retry_cache = True
             logger.warning(f"client indicates that cache for {raw_url=} is invalid")
-        if OTAFileCacheControl.no_cache in cache_control_policies:
-            logger.info(f"client indicates that do not cache for {raw_url=}")
+        if cache_control_policies.no_cache:
             use_cache = False
+            logger.info(f"client indicates that do not cache for {raw_url=}")
+
         # if there is no upper_ota_proxy, trim the custom headers away
         if self._enable_https:
-            extra_headers.pop(OTAFileCacheControl.header.value, None)
+            extra_headers.pop(OTAFileCacheControl.header, None)
 
         # --- case 1: not using cache, directly download file --- #
         if (

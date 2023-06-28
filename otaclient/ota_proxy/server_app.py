@@ -16,10 +16,10 @@
 import asyncio
 import aiohttp
 from http import HTTPStatus
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from otaclient._utils.logging import BurstSuppressFilter
-from .cache_control import OTAFileCacheControl
+from .cache_control import OTAFileCacheControl, ParsedOTAFileCacheControlHeader
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 
@@ -134,7 +134,7 @@ class App:
             await send({"type": "http.response.body", "body": b""})
 
     async def _init_response(
-        self, status: HTTPStatus, headers: List[Dict[str, Any]], send
+        self, status: Union[HTTPStatus, int], headers: List[Dict[str, Any]], send
     ):
         """Helper method for constructing and sending HTTP response back to client
 
@@ -165,23 +165,25 @@ class App:
         # pass cookies and other headers needed for proxy into the ota_cache module
         cookies_dict: Dict[str, str] = dict()
         extra_headers: Dict[str, str] = dict()
+
         # currently we only need cookie and/or authorization header
         # also parse OTA-File-Cache-Control header
-        ota_cache_control_policies = set()
+        ota_cache_control_policies = ParsedOTAFileCacheControlHeader()
+        header: Tuple[bytes, bytes]  # <lower_case_header_name>, <header_str>
         for header in scope["headers"]:
             if header[0] == b"cookie":
                 cookies_dict = self.parse_raw_cookies(header[1])
             elif header[0] == b"authorization":
                 extra_headers["Authorization"] = header[1].decode()
             # custome header for ota_file, see retrieve_file and OTACache for details
-            elif header[0] == OTAFileCacheControl.header_lower.value.encode():
+            elif header[0] == OTAFileCacheControl.header_lower.encode():
                 try:
                     # NOTE: this statement can check over the received directives
-                    ota_cache_control_policies = OTAFileCacheControl.parse_to_enum_set(
+                    ota_cache_control_policies = OTAFileCacheControl.parse_header(
                         header[1].decode()
                     )
                     # also preserved the raw headers value string
-                    extra_headers[OTAFileCacheControl.header.value] = header[1].decode()
+                    extra_headers[OTAFileCacheControl.header] = header[1].decode()
                 except KeyError:
                     await self._respond_with_error(
                         HTTPStatus.BAD_REQUEST,
