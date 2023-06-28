@@ -266,8 +266,8 @@ class GrubABPartitionDetecter:
     or
     (system boots with UEFI)
         /dev/sdx
-            - sdx1: /boot/uefi
-            - sdx2: /boot
+            - sdx1: /boot/efi or /boot
+            - sdx2: /boot/efi or /boot
             - sdx3: A partition
             - sdx4: B partition
 
@@ -276,71 +276,109 @@ class GrubABPartitionDetecter:
     if the current rootfs is not one of the last 2 partitions.
     """
 
+    DEV_PREFIX = "/dev/"
+    BOOT_MOUNT_POINT = "/boot"
+    EFI_MOUNT_POINT = ["/boot/efi", "/efi"]
+    EFI_SYSFS_INTERFACE = "/sys/firmware/efi"
+
+    @classmethod
+    def _get_ab_dev_on_bios(cls) -> Tuple[str, str]:
+        """Detect AB partition on legacy BIOS booted system.
+
+        Return:
+            A tuple of (active_slot_dev, standby_slot_dev).
+        """
+        active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+        boot_dev = CMDHelperFuncs.get_dev_by_mount_point(cls.BOOT_MOUNT_POINT)
+
+        parent_dev = CMDHelperFuncs.get_parent_dev(active_slot_dev)
+        child_dev_list = CMDHelperFuncs.get_dev_family(parent_dev, include_parent=False)
+
+        _dev_info = f"{active_slot_dev=},{boot_dev=},{child_dev_list=}"
+        logger.debug(f"{_dev_info=}")
+        if len(child_dev_list) < 3:
+            raise ValueError(
+                f"unexpected A/B partition layout for BIOS booted sys: {_dev_info}"
+            )
+
+        # expecting A/B partitions to be silibing, and sits at the end of partition table
+        standby_slot_dev, active_slot_dev_detected = "", False
+        for _child_dev in child_dev_list[-2:]:
+            if _child_dev == active_slot_dev:
+                active_slot_dev_detected = True
+            elif _child_dev != active_slot_dev and _child_dev != boot_dev:
+                standby_slot_dev = _child_dev
+                break
+
+        if not standby_slot_dev:
+            raise ValueError(f"failed to find standby_slot dev: {_dev_info}")
+        if not active_slot_dev_detected:
+            raise ValueError(f"active rootfs is not in A/B slot: {_dev_info}")
+
+        return active_slot_dev, standby_slot_dev
+
+    @classmethod
+    def _get_ab_dev_on_efi(cls) -> Tuple[str, str]:
+        """Detect AB partition on UEFI booted system.
+
+        Return:
+            A tuple of (active_slot_dev, standby_slot_dev).
+        """
+        active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+        boot_dev = CMDHelperFuncs.get_dev_by_mount_point(cls.BOOT_MOUNT_POINT)
+
+        efi_dev = ""
+        for _efi_mp in cls.EFI_MOUNT_POINT:
+            if _efi_dev := CMDHelperFuncs.get_dev_by_mount_point(_efi_mp):
+                efi_dev = _efi_dev
+                break
+        else:
+            logger.warning("EFI parition is not mounted")
+
+        parent_dev = CMDHelperFuncs.get_parent_dev(active_slot_dev)
+        child_dev_list = CMDHelperFuncs.get_dev_family(parent_dev, include_parent=False)
+
+        _dev_info = f"{active_slot_dev=},{boot_dev=},{efi_dev=},{child_dev_list=}"
+        logger.debug(f"{_dev_info=}")
+        # NOTE: at least (EFI, slot_a, slot_b) should be presented
+        if len(child_dev_list) < 3:
+            raise ValueError(
+                f"unexpected A/B partition layout for UEFI booted sys: {_dev_info}"
+            )
+
+        # expecting A/B partitions to be silibing, and sits at the end of partition table
+        standby_slot_dev, active_slot_dev_detected = "", False
+        for _child_dev in child_dev_list[-2:]:
+            if _child_dev == active_slot_dev:
+                active_slot_dev_detected = True
+            elif (
+                _child_dev != active_slot_dev
+                and _child_dev != boot_dev
+                and _child_dev != efi_dev
+            ):
+                standby_slot_dev = _child_dev
+                break
+
+        if not standby_slot_dev:
+            raise ValueError(f"failed to find standby_slot dev: {_dev_info}")
+        if not active_slot_dev_detected:
+            raise ValueError(f"active rootfs is not in A/B slot: {_dev_info}")
+
+        return active_slot_dev, standby_slot_dev
+
     def __init__(self) -> None:
-        self.active_slot, self.active_dev = self._detect_active_slot()
-        self.standby_slot, self.standby_dev = self._detect_standby_slot(self.active_dev)
-
-    def _get_sibling_dev(self, active_dev: str) -> str:
-        """
-        NOTE: revert to use previous detection mechanism.
-        TODO: refine this method.
-        """
-        parent = CMDHelperFuncs.get_parent_dev(active_dev)
-        boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
-        if not boot_dev:
-            raise _errors.ABPartitionError("/boot is not mounted")
-
-        # list children device file from parent device
-        cmd = f"-Pp -o NAME,FSTYPE {parent}"
-        # exclude parent dev
-        output = CMDHelperFuncs._lsblk(cmd).splitlines()[1:]
-        # FSTYPE="ext4" and
-        # not (parent_device_file, root_device_file and boot_device_file)
-        for blk in output:
-            if m := re.search(r'NAME="(.*)"\s+FSTYPE="(.*)"', blk):
-                if (
-                    m.group(1) != active_dev
-                    and m.group(1) != boot_dev
-                    and m.group(2) == "ext4"
-                ):
-                    return m.group(1)
-
-        raise _errors.ABPartitionError(
-            f"{parent=} has unexpected partition layout: {output=}"
-        )
-
-    def _detect_active_slot(self) -> Tuple[str, str]:
-        """
-        Returns:
-            A tuple contains the slot_name and the full dev path
-            of the active slot.
-        """
-        dev_path = CMDHelperFuncs.get_current_rootfs_dev()
-        slot_name = dev_path.lstrip("/dev/")
-        return slot_name, dev_path
-
-    def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
-        """
-        Returns:
-            A tuple contains the slot_name and the full dev path
-            of the standby slot.
-        """
-        dev_path = self._get_sibling_dev(active_dev)
-        slot_name = dev_path.lstrip("/dev/")
-        return slot_name, dev_path
-
-    ###### public methods ######
-    def get_standby_slot(self) -> str:
-        return self.standby_slot
-
-    def get_standby_slot_dev(self) -> str:
-        return self.standby_dev
-
-    def get_active_slot(self) -> str:
-        return self.active_slot
-
-    def get_active_slot_dev(self) -> str:
-        return self.active_dev
+        try:
+            # if EFI ABI is exposed, then the sys is booted with UEFI
+            if os.path.isdir(self.EFI_SYSFS_INTERFACE):
+                self.active_slot_dev, self.standby_slot_dev = self._get_ab_dev_on_efi()
+            else:
+                self.active_slot_dev, self.standby_slot_dev = self._get_ab_dev_on_bios()
+            self.active_slot = self.active_slot_dev.lstrip(self.DEV_PREFIX)
+            self.standby_slot = self.standby_slot_dev.lstrip(self.DEV_PREFIX)
+        except Exception as e:
+            _msg = f"[grub] failed to detect A/B partitions: {e!r}"
+            logger.exception(_msg)
+            raise _errors.ABPartitionError(_msg)
 
 
 class _SymlinkABPartitionDetecter:
@@ -394,10 +432,10 @@ class _GrubControl:
     def __init__(self) -> None:
         """NOTE: init only, no changes will be made in the __init__."""
         ab_detecter = GrubABPartitionDetecter()
-        self.active_root_dev = ab_detecter.get_active_slot_dev()
-        self.standby_root_dev = ab_detecter.get_standby_slot_dev()
-        self.active_slot = ab_detecter.get_active_slot()
-        self.standby_slot = ab_detecter.get_standby_slot()
+        self.active_root_dev = ab_detecter.active_slot_dev
+        self.standby_root_dev = ab_detecter.standby_slot_dev
+        self.active_slot = ab_detecter.active_slot
+        self.standby_slot = ab_detecter.standby_slot
         logger.info(f"{self.active_slot=}, {self.standby_slot=}")
 
         self.boot_dir = Path(cfg.BOOT_DIR)
