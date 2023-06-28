@@ -212,8 +212,7 @@ class CMDHelperFuncs:
         cmd = f"-idpn -o PKNAME {child_device}"
         if res := cls._lsblk(cmd):
             return res
-        else:
-            raise ValueError(f"{child_device} not found or not a partition")
+        raise ValueError(f"{child_device} not found or not a partition")
 
     @classmethod
     def get_dev_family(cls, parent_device: str, *, include_parent=True) -> List[str]:
