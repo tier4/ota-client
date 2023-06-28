@@ -70,7 +70,6 @@ from typing_extensions import Self
 
 from .configs import config as cfg
 from .common import (
-    OTAFileCacheControl,
     RetryTaskMap,
     get_backoff,
     urljoin_ensure_base,
@@ -85,6 +84,8 @@ from .proto.wrapper import (
 )
 from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
 from . import log_setting
+
+from otaclient.ota_proxy.ota_cache import OTAFileCacheControl
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -630,7 +631,7 @@ class OTAMetadata:
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
                 headers={
-                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
+                    OTAFileCacheControl.header_lower: OTAFileCacheControl.DIRECTIVE.no_cache,
                 },
             )
 
@@ -650,7 +651,7 @@ class OTAMetadata:
                 cert_file,
                 digest=cert_hash,
                 headers={
-                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
+                    OTAFileCacheControl.header_lower: OTAFileCacheControl.DIRECTIVE.no_cache,
                 },
             )
             _parser.verify_metadata(cert_file.read_bytes())
@@ -671,7 +672,7 @@ class OTAMetadata:
                     _metafile_fpath,
                     digest=_metafile.hash,
                     headers={
-                        OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                        OTAFileCacheControl.header_lower: OTAFileCacheControl.DIRECTIVE.no_cache
                     },
                 )
                 # convert to internal used version and store as binary files

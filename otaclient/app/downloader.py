@@ -46,8 +46,10 @@ from urllib3.response import HTTPResponse
 
 from otaclient._utils import copy_callable_typehint
 from .configs import config as cfg
-from .common import OTAFileCacheControl, wait_with_backoff
+from .common import wait_with_backoff
 from . import log_setting
+
+from otaclient.ota_proxy.ota_cache import OTAFileCacheControl
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -103,7 +105,7 @@ class UnhandledRequestException(DownloadError):
 
 
 REQUEST_RECACHE_HEADER: Dict[str, str] = {
-    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
+    OTAFileCacheControl.header_lower: OTAFileCacheControl.DIRECTIVE.retry_caching
 }
 
 T, P = TypeVar("T"), ParamSpec("P")

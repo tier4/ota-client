@@ -18,7 +18,6 @@ import itertools
 import os
 import shlex
 import shutil
-import enum
 import threading
 import requests
 import subprocess
@@ -46,30 +45,6 @@ from .log_setting import get_logger
 from .configs import config as cfg
 
 logger = get_logger(__name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
-
-
-class OTAFileCacheControl(enum.Enum):
-    """Custom header for ota file caching control policies.
-
-    format:
-        Ota-File-Cache-Control: <directive>
-    directives:
-        retry_cache: indicates that ota_proxy should clear cache entry for <URL>
-            and retry caching
-        no_cache: indicates that ota_proxy should not use cache for <URL>
-        use_cache: implicitly applied default value, conflicts with no_cache directive
-            no need(and no effect) to add this directive into the list
-
-    NOTE: using retry_cache and no_cache together will not work as expected,
-        only no_cache will be respected, already cached file will not be deleted as retry_cache indicates.
-    """
-
-    use_cache = "use_cache"
-    no_cache = "no_cache"
-    retry_caching = "retry_caching"
-
-    header = "Ota-File-Cache-Control"
-    header_lower = "ota-file-cache-control"
 
 
 def get_backoff(n: int, factor: float, _max: float) -> float:
