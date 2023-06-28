@@ -63,7 +63,7 @@ class OTAFileCacheControl:
     def parse_header(cls, _input: str) -> ParsedOTAFileCacheControlHeader:
         res = ParsedOTAFileCacheControlHeader()
         for _raw_directive in _input.split(cls.SEPARATOR):
-            _parsed = _raw_directive.split("=", maxsplit=1)
+            _parsed = _raw_directive.strip().split("=", maxsplit=1)
             # key only field, set to True on presented
             if len(_parsed) == 1 and (
                 _directive := cls.DIRECTIVE.check_directive(_parsed[0])
