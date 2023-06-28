@@ -13,39 +13,65 @@
 # limitations under the License.
 
 
+from dataclasses import dataclass
 from enum import Enum
-from typing import Set
+from typing import Optional
+from typing_extensions import Self
 
 
-class OTAFileCacheControl(Enum):
+@dataclass
+class ParsedOTAFileCacheControlHeader:
+    no_cache: bool = False
+    retry_caching: bool = False
+    file_sha256: str = ""
+    file_compression_alg: str = ""
+
+
+class OTAFileCacheControl:
     """Custom header for ota file caching control policies.
 
     format:
-        Ota-File-Cache-Control: <directive>
-    directives:
-        retry_cache: indicates that ota_proxy should clear cache entry for <URL>
-            and retry caching
-        no_cache: indicates that ota_proxy should not use cache for <URL>
-        use_cache: implicitly applied default value, conflicts with no_cache directive
-            no need(and no effect) to add this directive into the list
+        Ota-File-Cache-Control: <directive or directive_kv_pair>[, <directive_kv_pair>,[...]]
 
-    NOTE: using retry_cache and no_cache together will not work as expected,
-        only no_cache will be respected, already cached file will not be deleted as retry_cache indicates.
+    directives:
+        no_cache: indicates that ota_proxy should not use cache for <URL>,
+            this will void all other directives when presented,
+        retry_caching: indicates that ota_proxy should clear cache entry for <URL>
+            and retry caching
+        file_sha256: the hash value of the original requested OTA file
+        file_compression_alg: the compression alg used for the OTA file
     """
 
-    use_cache = "use_cache"
-    no_cache = "no_cache"
-    retry_caching = "retry_caching"
+    class DIRECTIVE(str, Enum):
+        no_cache = "no_cache"
+        retry_caching = "retry_caching"
+        file_sha256 = "file_sha256"
+        file_compression_alg = "file_compression_alg"
+
+        @classmethod
+        def check_directive(cls, _input: str) -> Optional[Self]:
+            try:
+                return cls(_input)
+            except ValueError:
+                return
 
     header = "Ota-File-Cache-Control"
     header_lower = "ota-file-cache-control"
+    SEPARATOR = ","
 
     @classmethod
-    def parse_to_enum_set(cls, input: str) -> Set["OTAFileCacheControl"]:
-        res = set()
-        for policy in input.split(","):
-            try:
-                res.add(OTAFileCacheControl[policy.strip()])
-            except KeyError:
-                pass
+    def parse_header(cls, _input: str) -> ParsedOTAFileCacheControlHeader:
+        res = ParsedOTAFileCacheControlHeader()
+        for _raw_directive in _input.split(cls.SEPARATOR):
+            _parsed = _raw_directive.split("=", maxsplit=1)
+            # key only field, set to True on presented
+            if len(_parsed) == 1 and (
+                _directive := cls.DIRECTIVE.check_directive(_parsed[0])
+            ):
+                setattr(res, _directive, True)
+            # kv field
+            elif len(_parsed) == 2 and (
+                _directive := cls.DIRECTIVE.check_directive(_parsed[0])
+            ):
+                setattr(res, _directive, _parsed[1])
         return res
