@@ -31,8 +31,12 @@ logger = logging.getLogger(__name__)
 
 
 class CacheMeta(ORMBase):
+    # revision 4
+    file_sha256: ColumnDescriptor[str] = ColumnDescriptor(
+        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY"
+    )
     url: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
+        str, "TEXT", "NOT NULL", default="no_url"
     )
     bucket_idx: ColumnDescriptor[int] = ColumnDescriptor(
         int, "INTEGER", "NOT NULL", type_guard=True
@@ -40,14 +44,12 @@ class CacheMeta(ORMBase):
     last_access: ColumnDescriptor[int] = ColumnDescriptor(
         int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
-    sha256hash: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "NOT NULL", default="invalid_hash"
+    file_compression_alg: ColumnDescriptor[str] = ColumnDescriptor(
+        str, "TEXT", "NOT NULL", default=""
     )
-    size: ColumnDescriptor[int] = ColumnDescriptor(
-        int, "INTEGER", "NOT NULL", type_guard=(int, float)
+    headers: ColumnDescriptor[str] = ColumnDescriptor(
+        str, "TEXT", "NOT NULL", default=""
     )
-    content_type: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
-    content_encoding: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
 
 
 class OTACacheDB:
@@ -236,7 +238,7 @@ class OTACacheDB:
             num: num of entries needed to be deleted in this bucket
 
         Return:
-            A list of hashes that needed to be deleted for space reserving,
+            A list of OTA file's hashes that needed to be deleted for space reserving,
                 or None if no enough entries for space reserving.
         """
         bucket_fn, last_access_fn = (
@@ -280,7 +282,7 @@ class OTACacheDB:
                     ),
                     (bucket_idx, num),
                 )
-                return [row[CacheMeta.sha256hash.name] for row in _rows]
+                return [row[CacheMeta.file_sha256.name] for row in _rows]
 
 
 class _ProxyBase:
