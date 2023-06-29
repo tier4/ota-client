@@ -630,9 +630,7 @@ class OTAMetadata:
                 urljoin_ensure_base(self.url_base, self.METADATA_JWT),
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
-                headers={
-                    OTAFileCacheControl.header_lower: OTAFileCacheControl.DIRECTIVE.no_cache,
-                },
+                headers={**OTAFileCacheControl.no_cache_header()},
             )
 
             _parser = _MetadataJWTParser(
@@ -650,9 +648,7 @@ class OTAMetadata:
                 urljoin_ensure_base(self.url_base, cert_fname),
                 cert_file,
                 digest=cert_hash,
-                headers={
-                    OTAFileCacheControl.header_lower: OTAFileCacheControl.DIRECTIVE.no_cache,
-                },
+                headers={**OTAFileCacheControl.no_cache_header()},
             )
             _parser.verify_metadata(cert_file.read_bytes())
 
@@ -671,9 +667,7 @@ class OTAMetadata:
                     urljoin_ensure_base(self.url_base, quote(_metafile.file)),
                     _metafile_fpath,
                     digest=_metafile.hash,
-                    headers={
-                        OTAFileCacheControl.header_lower: OTAFileCacheControl.DIRECTIVE.no_cache
-                    },
+                    headers={**OTAFileCacheControl.no_cache_header()},
                 )
                 # convert to internal used version and store as binary files
                 _count = 0

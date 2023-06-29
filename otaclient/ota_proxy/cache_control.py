@@ -15,7 +15,7 @@
 
 from dataclasses import dataclass, fields
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 from typing_extensions import Self
 
 
@@ -55,9 +55,17 @@ class OTAFileCacheControl:
             except ValueError:
                 return
 
-    header = "Ota-File-Cache-Control"
-    header_lower = "ota-file-cache-control"
+    HEADER = "Ota-File-Cache-Control"
+    HEADER_LOWER = "ota-file-cache-control"
     SEPARATOR = ","
+
+    # pre-defined helper header dict
+    _NO_CACHE_HEADER = {HEADER_LOWER: DIRECTIVE.no_cache.value}
+
+    @classmethod
+    def no_cache_header(cls) -> Dict[str, str]:
+        """Helper method that produce a header dict contains no_cache directive."""
+        return cls._NO_CACHE_HEADER.copy()
 
     @classmethod
     def parse_header(cls, _input: str) -> CacheControlPolicy:

@@ -1007,7 +1007,7 @@ class OTACache:
 
         # if there is no upper_ota_proxy, trim the custom headers away
         if self._enable_https:
-            extra_headers.pop(OTAFileCacheControl.header, None)
+            extra_headers.pop(OTAFileCacheControl.HEADER, None)
 
         # --- case 1: not using cache, directly download file --- #
         if (

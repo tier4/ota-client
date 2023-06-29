@@ -105,7 +105,7 @@ class UnhandledRequestException(DownloadError):
 
 
 REQUEST_RECACHE_HEADER: Dict[str, str] = {
-    OTAFileCacheControl.header_lower: OTAFileCacheControl.DIRECTIVE.retry_caching
+    OTAFileCacheControl.HEADER_LOWER: OTAFileCacheControl.DIRECTIVE.retry_caching
 }
 
 T, P = TypeVar("T"), ParamSpec("P")
