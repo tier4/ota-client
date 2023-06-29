@@ -15,8 +15,9 @@
 
 import asyncio
 import aiohttp
+import json
 from http import HTTPStatus
-from typing import Any, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 from otaclient._utils.logging import BurstSuppressFilter
 from .cache_control import OTAFileCacheControl, CacheControlPolicy
@@ -134,7 +135,7 @@ class App:
             await send({"type": "http.response.body", "body": b""})
 
     async def _init_response(
-        self, status: Union[HTTPStatus, int], headers: List[Dict[str, Any]], send
+        self, status: Union[HTTPStatus, int], headers: List[Tuple[bytes, bytes]], send
     ):
         """Helper method for constructing and sending HTTP response back to client
 
@@ -208,11 +209,18 @@ class App:
             fp, meta = _bundle
 
             # NOTE: currently only record content_type and content_encoding
-            headers = []
-            if meta.content_type:
-                headers.append([b"Content-Type", meta.content_type.encode()])
-            if meta.content_encoding:
-                headers.append([b"Content-Encoding", meta.content_encoding.encode()])
+            # header provided to uvicorn is a list of list, which list contains
+            #   a pair of header name and header value, both in bytes.
+            headers: List[Tuple[bytes, bytes]] = []
+            try:
+                _loaded_headers: Dict[str, str] = json.loads(meta.headers)
+                assert isinstance(_loaded_headers, dict)
+
+                # NOTE: uvicorn takes all headers name in lower case
+                for k, v in _loaded_headers:
+                    headers.append((k.lower().encode(), v.encode()))
+            except Exception as e:
+                logger.warning(f"invalid cache metadata for {url=}, ignored: {e!r}")
 
             # prepare the response to the client
             await self._init_response(HTTPStatus.OK, headers, send)
