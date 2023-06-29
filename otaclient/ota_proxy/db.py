@@ -31,7 +31,20 @@ logger = logging.getLogger(__name__)
 
 
 class CacheMeta(ORMBase):
-    # revision 4
+    """revision 4
+
+    url: unquoted URL from the request of this cache entry
+    bucket_id: the LRU bucket this cache entry in
+    last_access: the UNIX timestamp of last access
+    file_sha256:
+        a. string of the sha256 hash of original OTA file(uncompressed),
+        b. if a. is not available, then it is in form of "URL_<sha256_of_URL>",
+    file_compression_alg: the compression used for the cached OTA file entry,
+        if no compression is applied, then empty,
+    headers: headers com with the response from remote OTA server or upper otaproxy
+        when creating this cache entry, in the form of JSON serialized string.
+    """
+
     file_sha256: ColumnDescriptor[str] = ColumnDescriptor(
         str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY"
     )
