@@ -16,18 +16,18 @@
 import pytest
 from otaclient.ota_proxy.cache_control import (
     OTAFileCacheControl,
-    ParsedOTAFileCacheControlHeader,
+    CacheControlPolicy,
 )
 
 
 @pytest.mark.parametrize(
     "raw_str, expected",
     (
-        ("no_cache", ParsedOTAFileCacheControlHeader(no_cache=True)),
-        ("retry_caching", ParsedOTAFileCacheControlHeader(retry_caching=True)),
+        ("no_cache", CacheControlPolicy(no_cache=True)),
+        ("retry_caching", CacheControlPolicy(retry_caching=True)),
         (
             "no_cache, file_sha256=sha256value, file_compression_alg=zst",
-            ParsedOTAFileCacheControlHeader(
+            CacheControlPolicy(
                 no_cache=True,
                 file_sha256="sha256value",
                 file_compression_alg="zst",

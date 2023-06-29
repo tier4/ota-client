@@ -13,14 +13,14 @@
 # limitations under the License.
 
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 from typing_extensions import Self
 
 
 @dataclass
-class ParsedOTAFileCacheControlHeader:
+class CacheControlPolicy:
     no_cache: bool = False
     retry_caching: bool = False
     file_sha256: str = ""
@@ -31,7 +31,7 @@ class OTAFileCacheControl:
     """Custom header for ota file caching control policies.
 
     format:
-        Ota-File-Cache-Control: <directive or directive_kv_pair>[, <directive_kv_pair>,[...]]
+        Ota-File-Cache-Control: <directive or directive_kv_pair>[, <directive or directive_kv_pair>,[...]]
 
     directives:
         no_cache: indicates that ota_proxy should not use cache for <URL>,
@@ -60,8 +60,8 @@ class OTAFileCacheControl:
     SEPARATOR = ","
 
     @classmethod
-    def parse_header(cls, _input: str) -> ParsedOTAFileCacheControlHeader:
-        res = ParsedOTAFileCacheControlHeader()
+    def parse_header(cls, _input: str) -> CacheControlPolicy:
+        res = CacheControlPolicy()
         for _raw_directive in _input.split(cls.SEPARATOR):
             _parsed = _raw_directive.strip().split("=", maxsplit=1)
             # key only field, set to True on presented
@@ -75,3 +75,24 @@ class OTAFileCacheControl:
             ):
                 setattr(res, _directive, _parsed[1])
         return res
+
+    @classmethod
+    def to_header_str(cls, cache_control_policy: CacheControlPolicy) -> str:
+        _directives: List[str] = []
+        for field in fields(cache_control_policy):
+            _key, _value = field.name, getattr(cache_control_policy, field.name)
+            # key only field
+            if field.type is bool:
+                if _value:
+                    _directives.append(field.name)
+            # key_value pair field
+            else:
+                _directives.append(f"{_key}={_value}")
+        return cls.SEPARATOR.join(_directives)
+
+    @classmethod
+    def merge_policy(cls, cache_control_policy: CacheControlPolicy, header: str):
+        """Merge raw policy str to an CacheControlPolicy instance."""
+        input_policy = cls.parse_header(header)
+        for field in fields(CacheControlPolicy):
+            setattr(cache_control_policy, field.name, getattr(input_policy, field.name))

@@ -19,7 +19,7 @@ from http import HTTPStatus
 from typing import Any, Dict, List, Tuple, Union
 
 from otaclient._utils.logging import BurstSuppressFilter
-from .cache_control import OTAFileCacheControl, ParsedOTAFileCacheControlHeader
+from .cache_control import OTAFileCacheControl, CacheControlPolicy
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 
@@ -168,7 +168,7 @@ class App:
 
         # currently we only need cookie and/or authorization header
         # also parse OTA-File-Cache-Control header
-        ota_cache_control_policies = ParsedOTAFileCacheControlHeader()
+        ota_cache_control_policies = CacheControlPolicy()
         header: Tuple[bytes, bytes]  # <lower_case_header_name>, <header_str>
         for header in scope["headers"]:
             if header[0] == b"cookie":
