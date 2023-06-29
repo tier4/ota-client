@@ -68,6 +68,8 @@ from typing import (
 )
 from typing_extensions import Self
 
+from otaclient.ota_proxy.cache_control import CacheControlPolicy, OTAFileCacheControl
+
 from .configs import config as cfg
 from .common import (
     RetryTaskMap,
@@ -84,8 +86,6 @@ from .proto.wrapper import (
 )
 from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
 from . import log_setting
-
-from otaclient.ota_proxy.ota_cache import OTAFileCacheControl
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -630,7 +630,11 @@ class OTAMetadata:
                 urljoin_ensure_base(self.url_base, self.METADATA_JWT),
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
-                headers={**OTAFileCacheControl.no_cache_header()},
+                headers={
+                    OTAFileCacheControl.HEADER_LOWER: OTAFileCacheControl.to_header_str(
+                        CacheControlPolicy(no_cache=True)
+                    )
+                },
             )
 
             _parser = _MetadataJWTParser(
@@ -648,7 +652,11 @@ class OTAMetadata:
                 urljoin_ensure_base(self.url_base, cert_fname),
                 cert_file,
                 digest=cert_hash,
-                headers={**OTAFileCacheControl.no_cache_header()},
+                headers={
+                    OTAFileCacheControl.HEADER_LOWER: OTAFileCacheControl.to_header_str(
+                        CacheControlPolicy(no_cache=True)
+                    )
+                },
             )
             _parser.verify_metadata(cert_file.read_bytes())
 
@@ -667,7 +675,11 @@ class OTAMetadata:
                     urljoin_ensure_base(self.url_base, quote(_metafile.file)),
                     _metafile_fpath,
                     digest=_metafile.hash,
-                    headers={**OTAFileCacheControl.no_cache_header()},
+                    headers={
+                        OTAFileCacheControl.HEADER_LOWER: OTAFileCacheControl.to_header_str(
+                            CacheControlPolicy(no_cache=True)
+                        )
+                    },
                 )
                 # convert to internal used version and store as binary files
                 _count = 0

@@ -55,17 +55,11 @@ class OTAFileCacheControl:
             except ValueError:
                 return
 
+    # NOTE: in normal case, we retrieve/set header with <HEADER> header name,
+    #       HEADER_LOWER currently only for parsing header passed by uvicorn.
     HEADER = "Ota-File-Cache-Control"
     HEADER_LOWER = "ota-file-cache-control"
     SEPARATOR = ","
-
-    # pre-defined helper header dict
-    _NO_CACHE_HEADER = {HEADER_LOWER: DIRECTIVE.no_cache.value}
-
-    @classmethod
-    def no_cache_header(cls) -> Dict[str, str]:
-        """Helper method that produce a header dict contains no_cache directive."""
-        return cls._NO_CACHE_HEADER.copy()
 
     @classmethod
     def parse_header(cls, _input: str) -> CacheControlPolicy:
@@ -97,10 +91,3 @@ class OTAFileCacheControl:
             else:
                 _directives.append(f"{_key}={_value}")
         return cls.SEPARATOR.join(_directives)
-
-    @classmethod
-    def merge_policy(cls, cache_control_policy: CacheControlPolicy, header: str):
-        """Merge raw policy str to an CacheControlPolicy instance."""
-        input_policy = cls.parse_header(header)
-        for field in fields(CacheControlPolicy):
-            setattr(cache_control_policy, field.name, getattr(input_policy, field.name))
