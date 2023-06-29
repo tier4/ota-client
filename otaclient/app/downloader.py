@@ -34,6 +34,7 @@ from typing import (
     Callable,
     Dict,
     Iterator,
+    Mapping,
     Optional,
     Protocol,
     Tuple,
@@ -45,11 +46,10 @@ from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
 
 from otaclient._utils import copy_callable_typehint
+from otaclient.ota_proxy.cache_control import OTAFileCacheControl
 from .configs import config as cfg
 from .common import wait_with_backoff
 from . import log_setting
-
-from otaclient.ota_proxy.ota_cache import OTAFileCacheControl
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
@@ -104,10 +104,6 @@ class UnhandledRequestException(DownloadError):
     """
 
 
-REQUEST_RECACHE_HEADER: Dict[str, str] = {
-    OTAFileCacheControl.HEADER_LOWER: OTAFileCacheControl.DIRECTIVE.retry_caching
-}
-
 T, P = TypeVar("T"), ParamSpec("P")
 
 
@@ -146,10 +142,24 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
                     # inject a OTA-File-Cache-Control header to indicate ota_proxy
                     # to re-cache the possible corrupted file.
                     # modify header if needed and inject it into kwargs
-                    if "headers" in kwargs and isinstance(kwargs["headers"], dict):
-                        kwargs["headers"].update(REQUEST_RECACHE_HEADER.copy())
-                    else:
-                        kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
+                    _parsed_header: Dict[str, str] = {}
+
+                    _popped_headers = kwargs.pop("headers", {})
+                    if isinstance(_popped_headers, Mapping):
+                        _parsed_header.update(_popped_headers)
+
+                    # preserve the already set policies, while add retry_caching policy
+                    _cache_policy = OTAFileCacheControl.parse_header(
+                        _parsed_header.pop(OTAFileCacheControl.HEADER, "")
+                    )
+                    _cache_policy.retry_caching = True
+                    # re-inject the cache policy header
+                    _parsed_header[
+                        OTAFileCacheControl.HEADER
+                    ] = OTAFileCacheControl.to_header_str(_cache_policy)
+
+                    # replace with updated header
+                    kwargs["headers"] = _parsed_header
 
                     if _retry_count > retries:
                         raise
@@ -352,6 +362,38 @@ class Downloader:
                 logger.error(_msg)
                 raise DownloadFailedSpaceNotEnough(url, dst, _msg) from e
 
+    @staticmethod
+    def _prepare_header(
+        input_header: Optional[Dict[str, str]] = None,
+        digest: Optional[str] = None,
+        compression_alg: Optional[str] = None,
+        proxies: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, str]:
+        """Modify input_header or prepare new header.
+
+        Currently this method preserves the input_header, while
+            updating/injecting Ota-File-Cache-Control header.
+        """
+        res: Dict[str, str] = {}
+        if isinstance(input_header, Mapping):
+            res.update(input_header)
+
+        # only inject cache control header if we have upper otaproxy
+        _target_policy = OTAFileCacheControl.parse_header(
+            res.pop(OTAFileCacheControl.HEADER, "")
+        )
+        if proxies:
+            _target_policy.file_sha256 = digest if digest else ""
+            _target_policy.file_compression_alg = (
+                compression_alg if compression_alg else ""
+            )
+
+            res[OTAFileCacheControl.HEADER] = OTAFileCacheControl.to_header_str(
+                _target_policy
+            )
+
+        return res
+
     @_transfer_invalid_retrier(RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
         self,
@@ -374,6 +416,10 @@ class Downloader:
             url = urlsplit(url)._replace(scheme="http").geturl()
 
         cookies = cookies or self._cookies
+        # NOTE: process headers after proxies setting is parsed
+        headers = self._prepare_header(
+            headers, digest=digest, compression_alg=compression_alg, proxies=proxies
+        )
 
         _hash_inst = self._hash_func()
         # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
