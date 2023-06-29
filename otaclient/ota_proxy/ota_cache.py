@@ -436,6 +436,9 @@ class LRUCacheHelper:
     async def rotate_cache(self, size: int) -> Union[List[str], None]:
         """Wrapper method for calling the database LRU cache rotating method.
 
+        NOTE: item will be placed in the last bucket will not trigger
+                cache rotating.
+
         Args:
             size int: the size of file that we want to reserve space for
 
@@ -443,27 +446,24 @@ class LRUCacheHelper:
             A list of hashes that needed to be cleaned, or None if cache rotation
                 cannot be executed.
         """
-        # NOTE: currently file size >= 512MiB or file size < 1KiB
-        # will be saved without cache rotating.
-        if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
-            return []
+        if size >= self.BSIZE_LIST[-1]:
+            return
 
         _cur_bucket_idx = bisect.bisect_right(self.BSIZE_LIST, size) - 1
         _cur_bucket_size = self.BSIZE_LIST[_cur_bucket_idx]
 
-        # first check the upper bucket
-        _next_idx = _cur_bucket_idx + 1
-        for _bucket_size in self.BSIZE_LIST[_next_idx:]:
-            if res := await self._db.rotate_cache(
-                _next_idx, self.BSIZE_DICT[_bucket_size]
-            ):
-                return res
-            _next_idx += 1
+        # first: check the current bucket
+        _num_of_item_to_be_cleared = self.BSIZE_DICT[_cur_bucket_size]
+        if res := await self._db.rotate_cache(
+            _cur_bucket_idx, _num_of_item_to_be_cleared
+        ):
+            return res
 
-        # if cannot find one entry at any upper bucket, check current bucket
-        return await self._db.rotate_cache(
-            _cur_bucket_idx, self.BSIZE_DICT[_cur_bucket_size]
-        )
+        # second: check upper bucket
+        # NOTE: skip the last bucket
+        for _next_idx in range(_cur_bucket_idx + 1, len(self.BSIZE_LIST) - 1):
+            if res := await self._db.rotate_cache(_next_idx, 1):
+                return res
 
 
 class RemoteOTAFile:
