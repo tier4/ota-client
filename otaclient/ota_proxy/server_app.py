@@ -166,34 +166,27 @@ class App:
         # pass cookies and other headers needed for proxy into the ota_cache module
         cookies_dict: Dict[str, str] = dict()
         extra_headers: Dict[str, str] = dict()
-
-        # currently we only need cookie and/or authorization header
-        # also parse OTA-File-Cache-Control header
         ota_cache_control_policies = CacheControlPolicy()
-        header: Tuple[bytes, bytes]  # <lower_case_header_name>, <header_str>
-        for header in scope["headers"]:
+
+        # NOTE: passthrough the headers from client to upper server via extra_headers,
+        #       currently cookie, authorization and ota-file-cache-control headers will
+        #       be passed through.
+        req_headers: List[Tuple[bytes, bytes]] = scope["headers"]
+        for header in req_headers:
+            # we expects each header to have header value
+            if len(header) != 2:
+                continue
+
             if header[0] == b"cookie":
                 cookies_dict = self.parse_raw_cookies(header[1])
             elif header[0] == b"authorization":
                 extra_headers["authorization"] = header[1].decode()
             # custome header for ota_file, see retrieve_file and OTACache for details
             elif header[0] == OTAFileCacheControl.HEADER_LOWERCASE.encode():
-                try:
-                    # NOTE: this statement can check over the received directives
-                    ota_cache_control_policies = OTAFileCacheControl.parse_header(
-                        header[1].decode()
-                    )
-                    # also preserved the raw headers value string
-                    extra_headers[OTAFileCacheControl.HEADER_LOWERCASE] = header[
-                        1
-                    ].decode()
-                except KeyError:
-                    await self._respond_with_error(
-                        HTTPStatus.BAD_REQUEST,
-                        f"bad OTA-File-Cache-Control headers: {header[1]}",
-                        send,
-                    )
-                    return
+                # NOTE(20230630): now just ignored invalid header instead of responding with 400
+                _value = header[1].decode()
+                ota_cache_control_policies = OTAFileCacheControl.parse_header(_value)
+                extra_headers[OTAFileCacheControl.HEADER_LOWERCASE] = _value
 
         respond_started = False
         try:
@@ -209,9 +202,9 @@ class App:
                 return
             fp, meta = _bundle
 
-            # NOTE: currently only record content_type and content_encoding
-            # header provided to uvicorn is a list of list, which list contains
-            #   a pair of header name and header value, both in bytes.
+            # extra headers from CacheMeta and send it back to otaclient
+            # these headers consist of content-type, content-encoding and
+            # ota-file-cache-control.
             headers: List[Tuple[bytes, bytes]] = []
             try:
                 _loaded_headers: Dict[str, str] = json.loads(meta.headers)
@@ -221,7 +214,9 @@ class App:
                 for k, v in _loaded_headers:
                     headers.append((k.lower().encode(), v.encode()))
             except Exception as e:
-                logger.warning(f"invalid cache metadata for {url=}, ignored: {e!r}")
+                logger.warning(
+                    f"invalid headers from CacheMeta({meta=}) for {url=}, ignored: {e!r}"
+                )
 
             # prepare the response to the client
             await self._init_response(HTTPStatus.OK, headers, send)
