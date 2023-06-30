@@ -103,7 +103,7 @@ class App:
         cookie_pairs: List[str] = cookies_bytes.decode().split(";")
         res = dict()
         for p in cookie_pairs:
-            k, v = p.strip().split("=")
+            k, v = p.strip().split("=", maxsplit=1)
             res[k] = v
 
         return res
