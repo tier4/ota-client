@@ -15,7 +15,7 @@
 
 from dataclasses import dataclass, fields
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import List, Optional
 from typing_extensions import Self
 
 
@@ -55,10 +55,10 @@ class OTAFileCacheControl:
             except ValueError:
                 return
 
-    # NOTE: in normal case, we retrieve/set header with <HEADER> header name,
-    #       HEADER_LOWER currently only for parsing header passed by uvicorn.
-    HEADER = "Ota-File-Cache-Control"
-    HEADER_LOWER = "ota-file-cache-control"
+    # NOTE: according to RFC7230, the header name is case-insensitive,
+    #       so for convenience during code implementation, we always use lower-case
+    #       header name.
+    HEADER_LOWERCASE = "ota-file-cache-control"
     SEPARATOR = ","
 
     @classmethod

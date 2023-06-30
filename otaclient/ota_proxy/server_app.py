@@ -175,17 +175,18 @@ class App:
             if header[0] == b"cookie":
                 cookies_dict = self.parse_raw_cookies(header[1])
             elif header[0] == b"authorization":
-                extra_headers["Authorization"] = header[1].decode()
+                extra_headers["authorization"] = header[1].decode()
             # custome header for ota_file, see retrieve_file and OTACache for details
-            # NOTE: the input raw header string will make the header name lower case.
-            elif header[0] == OTAFileCacheControl.HEADER_LOWER.encode():
+            elif header[0] == OTAFileCacheControl.HEADER_LOWERCASE.encode():
                 try:
                     # NOTE: this statement can check over the received directives
                     ota_cache_control_policies = OTAFileCacheControl.parse_header(
                         header[1].decode()
                     )
                     # also preserved the raw headers value string
-                    extra_headers[OTAFileCacheControl.HEADER] = header[1].decode()
+                    extra_headers[OTAFileCacheControl.HEADER_LOWERCASE] = header[
+                        1
+                    ].decode()
                 except KeyError:
                     await self._respond_with_error(
                         HTTPStatus.BAD_REQUEST,

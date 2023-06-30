@@ -150,12 +150,12 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
 
                     # preserve the already set policies, while add retry_caching policy
                     _cache_policy = OTAFileCacheControl.parse_header(
-                        _parsed_header.pop(OTAFileCacheControl.HEADER, "")
+                        _parsed_header.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
                     )
                     _cache_policy.retry_caching = True
                     # re-inject the cache policy header
                     _parsed_header[
-                        OTAFileCacheControl.HEADER
+                        OTAFileCacheControl.HEADER_LOWERCASE
                     ] = OTAFileCacheControl.to_header_str(_cache_policy)
 
                     # replace with updated header
@@ -380,7 +380,7 @@ class Downloader:
 
         # only inject cache control header if we have upper otaproxy
         _target_policy = OTAFileCacheControl.parse_header(
-            res.pop(OTAFileCacheControl.HEADER, "")
+            res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
         )
         if proxies:
             _target_policy.file_sha256 = digest if digest else ""
@@ -388,9 +388,9 @@ class Downloader:
                 compression_alg if compression_alg else ""
             )
 
-            res[OTAFileCacheControl.HEADER] = OTAFileCacheControl.to_header_str(
-                _target_policy
-            )
+            res[
+                OTAFileCacheControl.HEADER_LOWERCASE
+            ] = OTAFileCacheControl.to_header_str(_target_policy)
 
         return res
 
