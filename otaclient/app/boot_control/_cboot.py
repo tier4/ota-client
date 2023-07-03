@@ -433,17 +433,25 @@ class CBootController(
                 self._cboot_control.get_standby_boot_dev(),
                 _boot_dir_mount_point,
             )
+        except _errors.MountError as e:
+            _msg = f"failed to mount standby boot dev: {e!r}"
+            logger.error(_msg)
+            raise _errors.BootControlError(_msg) from e
 
+        try:
             dst = _boot_dir_mount_point / "boot"
             dst.mkdir(exist_ok=True, parents=True)
             src = self.standby_slot_mount_point / "boot"
 
             # copy the standby slot's boot folder to emmc boot dev
             copytree_identical(src, dst)
+        except Exception as e:
+            _msg = f"failed to populate boot folder to separate bootdev: {e!r}"
+            logger.error(_msg)
+            raise _errors.BootControlError(_msg) from e
         finally:
+            # unmount standby emmc boot dev on finish/failure
             try:
-                # finish populating new boot folder to boot dev,
-                # we can umount the boot dev right now
                 CMDHelperFuncs.umount(_boot_dir_mount_point)
             except _errors.MountError as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
