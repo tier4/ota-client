@@ -510,8 +510,8 @@ class CBootController(
             self._store_standby_slot_in_use(_target_slot)
 
             logger.info("pre-update setting finished")
-        except _errors.BootControlError as e:
-            logger.error(f"failed on pre_update: {e!r}")
+        except Exception as e:
+            logger.exception(f"failed on pre_update: {e!r}")
             raise BootControlPreUpdateFailed from e
 
     def post_update(self) -> Generator[None, None, None]:
@@ -563,14 +563,13 @@ class CBootController(
             # store ROLLBACKING status to standby
             self._store_standby_ota_status(wrapper.StatusOta.ROLLBACKING)
         except Exception as e:
-            logger.error(f"failed on pre_rollback: {e!r}")
-            # TODO: bootcontrol prerollback failure
+            logger.exception(f"failed on pre_rollback: {e!r}")
             raise BootControlPreRollbackFailed from e
 
     def post_rollback(self):
         try:
             self._cboot_control.switch_boot()
             CMDHelperFuncs.reboot()
-        except _errors.BootControlError as e:
-            logger.error(f"failed on post_rollback: {e!r}")
+        except Exception as e:
+            logger.exception(f"failed on post_rollback: {e!r}")
             raise BootControlPostRollbackFailed from e
