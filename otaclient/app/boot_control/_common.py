@@ -58,6 +58,9 @@ class CMDHelperFuncs:
     ):
         """
         mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
+
+        Raises:
+            MountError on failed mounting.
         """
         _option_str = ""
         if options:
@@ -259,6 +262,9 @@ class CMDHelperFuncs:
 
         NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
               mount events propagation to/from this mount point.
+
+        Raises:
+            MountError on failed mounting.
         """
         options = ["rw"]
         args = ["--make-private", "--make-unbindable"]
@@ -270,6 +276,9 @@ class CMDHelperFuncs:
 
         NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
               mount events propagation to/from this mount point.
+
+        Raises:
+            MountError on failed mounting.
         """
         options = ["bind", "ro"]
         args = ["--make-private", "--make-unbindable"]
@@ -277,6 +286,11 @@ class CMDHelperFuncs:
 
     @classmethod
     def umount(cls, target: Union[Path, str], *, ignore_error=False):
+        """Try to unmount the <target>.
+
+        Raises:
+            If ignore_error is False, raises MountError on failed unmounting.
+        """
         # first try to check whether the target(either a mount point or a dev)
         # is mounted
         if not cls.is_target_mounted(target):
@@ -293,10 +307,15 @@ class CMDHelperFuncs:
             logger.warning(_failure_msg)
 
             if not ignore_error:
-                raise BootControlError(_failure_msg) from None
+                raise MountError(_failure_msg) from None
 
     @classmethod
     def mkfs_ext4(cls, dev: str, *, fslabel: Optional[str] = None):
+        """Call mkfs.ext4 on <dev>.
+
+        Raises:
+            MkfsError on failed ext4 partition formatting.
+        """
         # NOTE: preserve the UUID and FSLABEL(if set)
         _specify_uuid = ""
         try:
@@ -334,6 +353,9 @@ class CMDHelperFuncs:
 
         This method bind mount refroot as ro with make-private flag and make-unbindable flag,
         to prevent ANY accidental writes/changes to the refroot.
+
+        Raises:
+            MountError on failed mounting.
         """
         _refroot_dev = standby_slot_dev if standby_as_ref else active_slot_dev
 
@@ -362,6 +384,9 @@ class CMDHelperFuncs:
 
         This method mount the target as ro with make-private flag and make-unbindable flag,
         to prevent ANY accidental writes/changes to the target.
+
+        Raises:
+            MountError on failed mounting.
         """
         # NOTE: set raise_exception to false to allow not mounted
         #       not mounted dev will have empty return str
