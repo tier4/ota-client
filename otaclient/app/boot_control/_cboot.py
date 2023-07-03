@@ -535,7 +535,6 @@ class CBootController(
 
             # NOTE: we didn't prepare /boot/ota here,
             #       process_persistent does this for us
-
             if self._cboot_control.is_external_rootfs_enabled():
                 logger.info(
                     "rootfs on external storage detected: "
@@ -550,8 +549,8 @@ class CBootController(
             logger.info(f"[post-update]: {Nvbootctrl.dump_slots_info()=}")
             yield  # hand over control back to otaclient
             CMDHelperFuncs.reboot()
-        except _errors.BootControlError as e:
-            logger.error(f"failed on post_update: {e!r}")
+        except Exception as e:
+            logger.exception(f"failed on post_update: {e!r}")
             raise BootControlPostUpdateFailed from e
 
     def pre_rollback(self):
