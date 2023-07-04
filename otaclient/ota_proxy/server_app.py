@@ -42,6 +42,72 @@ connection_err_logger.addFilter(
 __all__ = ("App",)
 
 
+# uvicorn HTTP resp type
+TYPE_RESP_BODY = "http.response.body"
+TYPE_RESP_START = "http.response.start"
+
+
+# helper methods
+
+
+def parse_raw_cookies(cookies_bytes: bytes) -> Dict[str, str]:
+    """Parses raw cookies bytes into dict.
+
+    Converts an input raw cookies string in bytes into a dict.
+
+    Args:
+        cookies_bytes bytes: raw cookies string in bytes
+            i.e.: b"cpk0=cpv0;cpk1=cpv1;cpk2=cpv2"
+
+    Returns:
+        Dict[str, str]: dict represented cookies
+    """
+    cookie_pairs: List[str] = cookies_bytes.decode().split(";")
+    res = dict()
+    for p in cookie_pairs:
+        k, v = p.strip().split("=", maxsplit=1)
+        res[k] = v
+
+    return res
+
+
+def parse_raw_headers(
+    headers: List[Tuple[bytes, bytes]]
+) -> Tuple[Dict[str, str], Dict[str, str], CacheControlPolicy]:
+    """Parsing raw headers from uvicorn response scope.
+
+    NOTE: all headers name are case insensitive, and uvicorn regulates them
+          into lower case.
+
+    Returns:
+        A tuple of parsed extra_headers, cookies and CacheControlPolicy inst.
+    """
+    extra_headers: Dict[str, str] = {}
+    cookies: Dict[str, str] = {}
+    cache_policy = CacheControlPolicy()
+
+    for header in headers:
+        # we expects each header to have header value
+        if len(header) != 2:
+            continue
+
+        if header[0] == b"cookie":
+            cookies = parse_raw_cookies(header[1])
+        elif header[0] == b"authorization":
+            extra_headers["authorization"] = header[1].decode()
+        # custome header for ota_file, see retrieve_file and OTACache for details
+        elif header[0] == OTAFileCacheControl.HEADER_LOWERCASE.encode():
+            # NOTE(20230630): now just ignored invalid header instead of responding with 400
+            _value = header[1].decode()
+            cache_policy = OTAFileCacheControl.parse_header(_value)
+            extra_headers[OTAFileCacheControl.HEADER_LOWERCASE] = _value
+
+    return extra_headers, cookies, cache_policy
+
+
+# uvicorn APP
+
+
 class App:
     """The ASGI application for ota_proxy server passed to unvicorn.
 
@@ -88,27 +154,7 @@ class App:
                 await self._ota_cache.close()
 
     @staticmethod
-    def parse_raw_cookies(cookies_bytes: bytes) -> Dict[str, str]:
-        """Parses raw cookies bytes into dict.
-
-        Converts an input raw cookies string in bytes into a dict.
-
-        Args:
-            cookies_bytes bytes: raw cookies string in bytes
-                i.e.: b"cpk0=cpv0;cpk1=cpv1;cpk2=cpv2"
-
-        Returns:
-            Dict[str, str]: dict represented cookies
-        """
-        cookie_pairs: List[str] = cookies_bytes.decode().split(";")
-        res = dict()
-        for p in cookie_pairs:
-            k, v = p.strip().split("=", maxsplit=1)
-            res[k] = v
-
-        return res
-
-    async def _respond_with_error(self, status: Union[HTTPStatus, int], msg: str, send):
+    async def _respond_with_error(status: Union[HTTPStatus, int], msg: str, send):
         """Helper method for sending errors back to client"""
         await send(
             {
@@ -164,29 +210,14 @@ class App:
             send: ASGI send method
         """
         # pass cookies and other headers needed for proxy into the ota_cache module
-        cookies_dict: Dict[str, str] = dict()
-        extra_headers: Dict[str, str] = dict()
-        ota_cache_control_policies = CacheControlPolicy()
-
         # NOTE: passthrough the headers from client to upper server via extra_headers,
         #       currently cookie, authorization and ota-file-cache-control headers will
         #       be passed through.
-        req_headers: List[Tuple[bytes, bytes]] = scope["headers"]
-        for header in req_headers:
-            # we expects each header to have header value
-            if len(header) != 2:
-                continue
-
-            if header[0] == b"cookie":
-                cookies_dict = self.parse_raw_cookies(header[1])
-            elif header[0] == b"authorization":
-                extra_headers["authorization"] = header[1].decode()
-            # custome header for ota_file, see retrieve_file and OTACache for details
-            elif header[0] == OTAFileCacheControl.HEADER_LOWERCASE.encode():
-                # NOTE(20230630): now just ignored invalid header instead of responding with 400
-                _value = header[1].decode()
-                ota_cache_control_policies = OTAFileCacheControl.parse_header(_value)
-                extra_headers[OTAFileCacheControl.HEADER_LOWERCASE] = _value
+        (
+            extra_headers,
+            cookies_dict,
+            ota_cache_control_policies,
+        ) = parse_raw_headers(scope["headers"])
 
         respond_started = False
         try:
