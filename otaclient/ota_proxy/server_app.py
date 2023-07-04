@@ -158,16 +158,17 @@ class App:
         """Helper method for sending errors back to client"""
         await send(
             {
-                "type": "http.response.start",
+                "type": TYPE_RESP_START,
                 "status": status,
                 "headers": [
                     [b"content-type", b"text/html;charset=UTF-8"],
                 ],
             }
         )
-        await send({"type": "http.response.body", "body": msg.encode("utf8")})
+        await send({"type": TYPE_RESP_BODY, "body": msg.encode("utf8")})
 
-    async def _send_chunk(self, data: bytes, more: bool, send):
+    @staticmethod
+    async def _send_chunk(data: bytes, more: bool, send):
         """Helper method for sending data chunks to client
 
         Args:
@@ -176,12 +177,13 @@ class App:
             send: ASGI send method
         """
         if more:
-            await send({"type": "http.response.body", "body": data, "more_body": True})
+            await send({"type": TYPE_RESP_BODY, "body": data, "more_body": True})
         else:
-            await send({"type": "http.response.body", "body": b""})
+            await send({"type": TYPE_RESP_BODY, "body": b""})
 
+    @staticmethod
     async def _init_response(
-        self, status: Union[HTTPStatus, int], headers: List[Tuple[bytes, bytes]], send
+        status: Union[HTTPStatus, int], headers: List[Tuple[bytes, bytes]], send
     ):
         """Helper method for constructing and sending HTTP response back to client
 
@@ -351,6 +353,6 @@ class App:
                     await self.stop()
                     await send({"type": "lifespan.shutdown.complete"})
                     return
-        else:
-            # real app entry
-            await self.app(scope, send)
+        elif scope["type"] == "http":
+            await self.http_handler(scope, send)
+        # ignore unknown request type
