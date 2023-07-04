@@ -84,10 +84,9 @@ class OTAFileCacheControl:
         for field in fields(cache_control_policy):
             _key, _value = field.name, getattr(cache_control_policy, field.name)
             # key only field
-            if field.type is bool:
-                if _value:
-                    _directives.append(field.name)
-            # key_value pair field
-            else:
+            if field.type is bool and _value:
+                _directives.append(field.name)
+            # key_value pair field(ignore empty field)
+            elif _value:
                 _directives.append(f"{_key}={_value}")
         return cls.SEPARATOR.join(_directives)
