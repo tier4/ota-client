@@ -433,17 +433,25 @@ class CBootController(
                 self._cboot_control.get_standby_boot_dev(),
                 _boot_dir_mount_point,
             )
+        except _errors.MountError as e:
+            _msg = f"failed to mount standby boot dev: {e!r}"
+            logger.error(_msg)
+            raise _errors.BootControlError(_msg) from e
 
+        try:
             dst = _boot_dir_mount_point / "boot"
             dst.mkdir(exist_ok=True, parents=True)
             src = self.standby_slot_mount_point / "boot"
 
             # copy the standby slot's boot folder to emmc boot dev
             copytree_identical(src, dst)
+        except Exception as e:
+            _msg = f"failed to populate boot folder to separate bootdev: {e!r}"
+            logger.error(_msg)
+            raise _errors.BootControlError(_msg) from e
         finally:
+            # unmount standby emmc boot dev on finish/failure
             try:
-                # finish populating new boot folder to boot dev,
-                # we can umount the boot dev right now
                 CMDHelperFuncs.umount(_boot_dir_mount_point)
             except _errors.MountError as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
@@ -502,8 +510,8 @@ class CBootController(
             self._store_standby_slot_in_use(_target_slot)
 
             logger.info("pre-update setting finished")
-        except _errors.BootControlError as e:
-            logger.error(f"failed on pre_update: {e!r}")
+        except Exception as e:
+            logger.exception(f"failed on pre_update: {e!r}")
             raise BootControlPreUpdateFailed from e
 
     def post_update(self) -> Generator[None, None, None]:
@@ -527,7 +535,6 @@ class CBootController(
 
             # NOTE: we didn't prepare /boot/ota here,
             #       process_persistent does this for us
-
             if self._cboot_control.is_external_rootfs_enabled():
                 logger.info(
                     "rootfs on external storage detected: "
@@ -542,8 +549,8 @@ class CBootController(
             logger.info(f"[post-update]: {Nvbootctrl.dump_slots_info()=}")
             yield  # hand over control back to otaclient
             CMDHelperFuncs.reboot()
-        except _errors.BootControlError as e:
-            logger.error(f"failed on post_update: {e!r}")
+        except Exception as e:
+            logger.exception(f"failed on post_update: {e!r}")
             raise BootControlPostUpdateFailed from e
 
     def pre_rollback(self):
@@ -556,14 +563,13 @@ class CBootController(
             # store ROLLBACKING status to standby
             self._store_standby_ota_status(wrapper.StatusOta.ROLLBACKING)
         except Exception as e:
-            logger.error(f"failed on pre_rollback: {e!r}")
-            # TODO: bootcontrol prerollback failure
+            logger.exception(f"failed on pre_rollback: {e!r}")
             raise BootControlPreRollbackFailed from e
 
     def post_rollback(self):
         try:
             self._cboot_control.switch_boot()
             CMDHelperFuncs.reboot()
-        except _errors.BootControlError as e:
-            logger.error(f"failed on post_rollback: {e!r}")
+        except Exception as e:
+            logger.exception(f"failed on post_rollback: {e!r}")
             raise BootControlPostRollbackFailed from e
