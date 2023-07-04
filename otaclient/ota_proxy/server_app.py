@@ -16,8 +16,10 @@
 import asyncio
 import aiohttp
 import json
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Dict, List, Tuple, Union
+from urllib.parse import urlparse
 
 from otaclient._utils.logging import BurstSuppressFilter
 from .cache_control import OTAFileCacheControl, CacheControlPolicy
@@ -194,11 +196,72 @@ class App:
         """
         await send(
             {
-                "type": "http.response.start",
+                "type": TYPE_RESP_START,
                 "status": status,
                 "headers": headers,
             }
         )
+
+    @asynccontextmanager
+    async def _error_handling_for_cache_retrieving(
+        self, url: str, send, *, cache_policy: CacheControlPolicy
+    ):
+        _common_err_msg = f"request for {url=}({cache_policy=}) failed"
+        try:
+            yield
+        except aiohttp.ClientResponseError as e:
+            logger.error(f"{_common_err_msg} due to HTTP error: {e!r}")
+            # passthrough 4xx(currently 403 and 404) to otaclient
+            await self._respond_with_error(e.status, e.message, send)
+        except aiohttp.ClientConnectionError as e:
+            connection_err_logger.error(
+                f"{_common_err_msg} due to connection error: {e!r}"
+            )
+            await self._respond_with_error(
+                HTTPStatus.BAD_GATEWAY,
+                "failed to connect to remote server",
+                send,
+            )
+        except aiohttp.ClientError as e:
+            logger.error(f"{_common_err_msg} due to aiohttp client error: {e!r}")
+            await self._respond_with_error(
+                HTTPStatus.SERVICE_UNAVAILABLE, f"client error: {e!r}", send
+            )
+        except (BaseOTACacheError, StopAsyncIteration) as e:
+            logger.error(
+                f"{_common_err_msg} due to handled ota_cache internal error: {e!r}"
+            )
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, f"internal error: {e!r}", send
+            )
+        except Exception as e:
+            # exceptions rather than aiohttp error indicates
+            # internal errors of ota_cache
+            logger.exception(
+                f"{_common_err_msg} due to unhandled ota_cache internal error: {e!r}"
+            )
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR, f"internal error: {e!r}", send
+            )
+
+    @asynccontextmanager
+    async def _error_handling_during_transferring(
+        self, url: str, send, *, cache_policy: CacheControlPolicy
+    ):
+        _common_err_msg = f"request for {url=}({cache_policy=}) failed"
+        try:
+            yield
+        except (BaseOTACacheError, StopAsyncIteration) as e:
+            logger.error(
+                f"{_common_err_msg=} due to handled ota_cache internal error: {e!r}"
+            )
+            await send({"type": TYPE_RESP_BODY, "body": b""})
+        except Exception as e:
+            # unexpected internal errors of ota_cache
+            logger.exception(
+                f"{_common_err_msg=} due to unhandled ota_cache internal error: {e!r}"
+            )
+            await send({"type": TYPE_RESP_BODY, "body": b""})
 
     async def _pull_data_and_send(self, url: str, scope, send):
         """Streaming data between OTACache instance and ota_client
@@ -218,13 +281,15 @@ class App:
         (
             extra_headers,
             cookies_dict,
-            ota_cache_control_policies,
+            cache_policy,
         ) = parse_raw_headers(scope["headers"])
 
-        respond_started = False
-        try:
+        # try to get a cache entry for this URL or for file_sha256 indicated by cache_policy
+        async with self._error_handling_for_cache_retrieving(
+            url, send, cache_policy=cache_policy
+        ):
             _bundle = await self._ota_cache.retrieve_file(
-                url, cookies_dict, extra_headers, ota_cache_control_policies
+                url, cookies_dict, extra_headers, cache_policy
             )
             if _bundle is None:
                 await self._respond_with_error(
@@ -235,90 +300,34 @@ class App:
                 return
             fp, meta = _bundle
 
-            # extra headers from CacheMeta and send it back to otaclient
-            # these headers consist of content-type, content-encoding and
-            # ota-file-cache-control.
-            headers: List[Tuple[bytes, bytes]] = []
-            try:
-                _loaded_headers: Dict[str, str] = json.loads(meta.headers)
-                assert isinstance(_loaded_headers, dict)
+        # extra headers from CacheMeta and send it back to otaclient
+        # these headers consist of content-type, content-encoding and
+        # ota-file-cache-control.
+        resp_headers: List[Tuple[bytes, bytes]] = []
+        try:
+            _loaded_headers: Dict[str, str] = json.loads(meta.headers)
+            assert isinstance(_loaded_headers, dict)
 
-                # NOTE: uvicorn takes all headers name in lower case
-                for k, v in _loaded_headers:
-                    headers.append((k.lower().encode(), v.encode()))
-            except Exception as e:
-                logger.warning(
-                    f"invalid headers from CacheMeta({meta=}) for {url=}, ignored: {e!r}"
-                )
+            # NOTE: uvicorn takes all headers name in lower case
+            for k, v in _loaded_headers:
+                if not isinstance(v, str):
+                    continue
+                resp_headers.append((k.lower().encode(), v.encode()))
+        except Exception as e:
+            logger.warning(
+                f"invalid headers from CacheMeta({meta=}) for {url=}, ignored: {e!r}"
+            )
 
-            # prepare the response to the client
-            await self._init_response(HTTPStatus.OK, headers, send)
-            respond_started = True
-
-            # stream the response to the client
+        async with self._error_handling_during_transferring(
+            url, send, cache_policy=cache_policy
+        ):
+            await self._init_response(HTTPStatus.OK, resp_headers, send)
             async for chunk in fp:
                 await self._send_chunk(chunk, True, send)
-            # finish the streaming by send a 0 len payload
             await self._send_chunk(b"", False, send)
 
-        except aiohttp.ClientResponseError as e:
-            logger.error(f"request for {url=} failed due to HTTP error: {e!r}")
-            # passthrough 4xx(currently 403 and 404) to otaclient
-            await self._respond_with_error(e.status, e.message, send)
-        except aiohttp.ClientConnectionError as e:
-            connection_err_logger.error(
-                f"request for {url=} failed due to connection error: {e!r}"
-            )
-            if respond_started:
-                await send({"type": "http.response.body", "body": b""})
-            else:
-                await self._respond_with_error(
-                    HTTPStatus.BAD_GATEWAY,
-                    "failed to connect to remote server",
-                    send,
-                )
-        except aiohttp.ClientError as e:
-            logger.error(
-                f"request for {url=} failed due to aiohttp client error: {e!r}"
-            )
-            # terminate the transmission
-            if respond_started:
-                await send({"type": "http.response.body", "body": b""})
-            else:
-                await self._respond_with_error(
-                    HTTPStatus.SERVICE_UNAVAILABLE, f"client error: {e!r}", send
-                )
-        except (BaseOTACacheError, StopAsyncIteration) as e:
-            logger.error(
-                f"request for {url=} failed due to handled ota_cache internal error: {e!r}"
-            )
-            # terminate the transmission
-            if respond_started:
-                await send({"type": "http.response.body", "body": b""})
-            else:
-                await self._respond_with_error(
-                    HTTPStatus.INTERNAL_SERVER_ERROR, f"internal error: {e!r}", send
-                )
-        except Exception as e:
-            # exceptions rather than aiohttp error indicates
-            # internal errors of ota_cache
-            logger.exception(
-                f"request for {url=} failed due to unhandled ota_cache internal error: {e!r}"
-            )
-            # terminate the transmission
-            if respond_started:
-                await send({"type": "http.response.body", "body": b""})
-            else:
-                await self._respond_with_error(
-                    HTTPStatus.INTERNAL_SERVER_ERROR, f"internal error: {e!r}", send
-                )
-
-    async def app(self, scope, send):
+    async def http_handler(self, scope, send):
         """The real entry for the ota_proxy."""
-        from urllib.parse import urlparse
-
-        assert scope["type"] == "http"
-        # check method, currently only support GET method
         if scope["method"] != "GET":
             msg = "ONLY SUPPORT GET METHOD."
             await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
