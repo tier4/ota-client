@@ -331,10 +331,7 @@ class _Weakref:
 class CachingRegister:
     """A tracker register that manages cache trackers.
 
-    For each requested URL for remote OTA file, there will be only one tracker.
-    This first caller that requests to a URL will become the provider and create
-    a new tracker for this URL. The later comes callers will become the subscriber
-    to this tracker.
+    Each caching session is uniquely identified by a token.
     """
 
     def __init__(self, base_dir: Union[str, Path]):
@@ -347,15 +344,15 @@ class CachingRegister:
         ] = weakref.WeakKeyDictionary()
 
     async def get_tracker(
-        self, raw_url: str, *, executor: Executor
+        self, token: str, *, executor: Executor
     ) -> Tuple[CacheTracker, bool]:
-        """Get an inst of CacheTracker for the requested URL.
+        """Get an inst of CacheTracker for a unique token.
 
         Returns:
             An inst of tracker, and a bool indicates whether the caller is subscriber
                 or provider.
         """
-        _ref = self._url_ref_dict.setdefault(raw_url, (_new_ref := _Weakref()))
+        _ref = self._url_ref_dict.setdefault(token, (_new_ref := _Weakref()))
         # subscriber
         if (
             _tracker := self._ref_tracker_dict.get(_ref)
@@ -364,7 +361,7 @@ class CachingRegister:
 
         # provider, or override a failed provider
         if _ref is not _new_ref:  # override a failed tracker
-            self._url_ref_dict[raw_url] = _new_ref
+            self._url_ref_dict[token] = _new_ref
             _ref = _new_ref
 
         _tracker = CacheTracker(
