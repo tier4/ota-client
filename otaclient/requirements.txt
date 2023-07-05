@@ -1,6 +1,6 @@
 pyOpenSSL==23.0.0
 cryptography>=39.0.1, <40.0.0
-grpcio==1.51.1
+grpcio==1.53.0
 protobuf==4.21.12
 PyYAML>=3.12
 requests==2.31.0
