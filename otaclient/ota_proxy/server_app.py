@@ -15,14 +15,12 @@
 
 import asyncio
 import aiohttp
-import json
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
 from otaclient._utils.logging import BurstSuppressFilter
-from .cache_control import OTAFileCacheControl, CacheControlPolicy
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 
@@ -52,59 +50,24 @@ TYPE_RESP_START = "http.response.start"
 # helper methods
 
 
-def parse_raw_cookies(cookies_bytes: bytes) -> Dict[str, str]:
-    """Parses raw cookies bytes into dict.
-
-    Converts an input raw cookies string in bytes into a dict.
-
-    Args:
-        cookies_bytes bytes: raw cookies string in bytes
-            i.e.: b"cpk0=cpv0;cpk1=cpv1;cpk2=cpv2"
-
-    Returns:
-        Dict[str, str]: dict represented cookies
-    """
-    cookie_pairs: List[str] = cookies_bytes.decode().split(";")
-    res = dict()
-    for p in cookie_pairs:
-        k, v = p.strip().split("=", maxsplit=1)
-        res[k] = v
-
-    return res
-
-
-def parse_raw_headers(
-    headers: List[Tuple[bytes, bytes]]
-) -> Tuple[Dict[str, str], Dict[str, str], CacheControlPolicy]:
-    """Parsing raw headers from uvicorn response scope.
-
-    NOTE: all headers name are case insensitive, and uvicorn regulates them
-          into lower case.
-
-    Returns:
-        A tuple of parsed extra_headers, cookies and CacheControlPolicy inst.
-    """
-    extra_headers: Dict[str, str] = {}
-    cookies: Dict[str, str] = {}
-    cache_policy = CacheControlPolicy()
-
-    for header in headers:
-        # we expects each header to have header value
-        if len(header) != 2:
+def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
+    """Decode raw headers from client's request."""
+    headers: Dict[str, str] = {}
+    for raw_header in raw_headers:
+        if len(raw_header) != 2 or not raw_header[-1]:
             continue
+        hname, hvalue = raw_header
+        headers[hname.decode()] = hvalue.decode()
+    return headers
 
-        if header[0] == b"cookie":
-            cookies = parse_raw_cookies(header[1])
-        elif header[0] == b"authorization":
-            extra_headers["authorization"] = header[1].decode()
-        # custome header for ota_file, see retrieve_file and OTACache for details
-        elif header[0] == OTAFileCacheControl.HEADER_LOWERCASE.encode():
-            # NOTE(20230630): now just ignored invalid header instead of responding with 400
-            _value = header[1].decode()
-            cache_policy = OTAFileCacheControl.parse_header(_value)
-            extra_headers[OTAFileCacheControl.HEADER_LOWERCASE] = _value
 
-    return extra_headers, cookies, cache_policy
+def encode_headers(headers: Dict[str, str]) -> List[Tuple[bytes, bytes]]:
+    raw_headers: List[Tuple[bytes, bytes]] = []
+    for hname, hvalue in headers.items():
+        if not (hvalue and isinstance(hvalue, str)):
+            continue
+        raw_headers.append((hname.lower().encode(), hvalue.encode()))
+    return raw_headers
 
 
 # uvicorn APP
@@ -203,10 +166,8 @@ class App:
         )
 
     @asynccontextmanager
-    async def _error_handling_for_cache_retrieving(
-        self, url: str, send, *, cache_policy: CacheControlPolicy
-    ):
-        _common_err_msg = f"request for {url=}({cache_policy=}) failed"
+    async def _error_handling_for_cache_retrieving(self, url: str, send):
+        _common_err_msg = f"request for {url=} failed"
         try:
             yield
         except aiohttp.ClientResponseError as e:
@@ -245,23 +206,25 @@ class App:
             )
 
     @asynccontextmanager
-    async def _error_handling_during_transferring(
-        self, url: str, send, *, cache_policy: CacheControlPolicy
-    ):
-        _common_err_msg = f"request for {url=}({cache_policy=}) failed"
+    async def _error_handling_during_transferring(self, url: str, send):
+        """
+        NOTE: for exeception during transferring, only thing we can do is to
+              terminate the transfer by sending empty chunk back to otaclient.
+        """
+        _common_err_msg = f"request for {url=} failed"
         try:
             yield
         except (BaseOTACacheError, StopAsyncIteration) as e:
             logger.error(
                 f"{_common_err_msg=} due to handled ota_cache internal error: {e!r}"
             )
-            await send({"type": TYPE_RESP_BODY, "body": b""})
+            await self._send_chunk(b"", False, send)
         except Exception as e:
             # unexpected internal errors of ota_cache
             logger.exception(
                 f"{_common_err_msg=} due to unhandled ota_cache internal error: {e!r}"
             )
-            await send({"type": TYPE_RESP_BODY, "body": b""})
+            await self._send_chunk(b"", False, send)
 
     async def _pull_data_and_send(self, url: str, scope, send):
         """Streaming data between OTACache instance and ota_client
@@ -274,23 +237,11 @@ class App:
             scope: ASGI scope for current request
             send: ASGI send method
         """
-        # pass cookies and other headers needed for proxy into the ota_cache module
-        # NOTE: passthrough the headers from client to upper server via extra_headers,
-        #       currently cookie, authorization and ota-file-cache-control headers will
-        #       be passed through.
-        (
-            extra_headers,
-            cookies_dict,
-            cache_policy,
-        ) = parse_raw_headers(scope["headers"])
+        headers_from_client = decode_raw_headers(scope["headers"])
 
         # try to get a cache entry for this URL or for file_sha256 indicated by cache_policy
-        async with self._error_handling_for_cache_retrieving(
-            url, send, cache_policy=cache_policy
-        ):
-            _bundle = await self._ota_cache.retrieve_file(
-                url, cookies_dict, extra_headers, cache_policy
-            )
+        async with self._error_handling_for_cache_retrieving(url, send):
+            _bundle = await self._ota_cache.retrieve_file(url, headers_from_client)
             if _bundle is None:
                 await self._respond_with_error(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -298,30 +249,12 @@ class App:
                     send,
                 )
                 return
-            fp, meta = _bundle
+            fp, headers_to_client = _bundle
 
-        # extra headers from CacheMeta and send it back to otaclient
-        # these headers consist of content-type, content-encoding and
-        # ota-file-cache-control.
-        resp_headers: List[Tuple[bytes, bytes]] = []
-        try:
-            _loaded_headers: Dict[str, str] = json.loads(meta.headers)
-            assert isinstance(_loaded_headers, dict)
-
-            # NOTE: uvicorn takes all headers name in lower case
-            for k, v in _loaded_headers:
-                if not isinstance(v, str):
-                    continue
-                resp_headers.append((k.lower().encode(), v.encode()))
-        except Exception as e:
-            logger.warning(
-                f"invalid headers from CacheMeta({meta=}) for {url=}, ignored: {e!r}"
+        async with self._error_handling_during_transferring(url, send):
+            await self._init_response(
+                HTTPStatus.OK, encode_headers(headers_to_client), send
             )
-
-        async with self._error_handling_during_transferring(
-            url, send, cache_policy=cache_policy
-        ):
-            await self._init_response(HTTPStatus.OK, resp_headers, send)
             async for chunk in fp:
                 await self._send_chunk(chunk, True, send)
             await self._send_chunk(b"", False, send)
