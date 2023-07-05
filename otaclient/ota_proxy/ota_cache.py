@@ -83,7 +83,6 @@ class CacheTracker(Generic[_WEAKREF]):
 
     Attributes:
         fpath: the path to the temporary cache file.
-        meta: an inst of CacheMeta for the remote OTA file that being cached.
         writer_ready: a property indicates whether the provider is
             ready to write and streaming data chunks.
         writer_finished: a property indicates whether the provider finished the caching.
@@ -102,7 +101,6 @@ class CacheTracker(Generic[_WEAKREF]):
         executor: Executor,
     ):
         self.fpath = Path(base_dir) / fn
-        self.meta = None
         self._writer_ready = asyncio.Event()
         self._writer_finished = asyncio.Event()
         self._writer_failed = asyncio.Event()
@@ -136,11 +134,7 @@ class CacheTracker(Generic[_WEAKREF]):
     @property
     def is_cache_valid(self) -> bool:
         """Indicates whether the temp cache entry for this tracker is valid."""
-        return (
-            self.meta is not None
-            and self._writer_finished.is_set()
-            and not self._writer_failed.is_set()
-        )
+        return self._writer_finished.is_set() and not self._writer_failed.is_set()
 
     def get_cache_write_gen(self) -> AsyncGenerator[int, bytes]:
         if not self._cache_write_gen:
@@ -163,23 +157,15 @@ class CacheTracker(Generic[_WEAKREF]):
             the upper caller.
             The exception from upper caller via throw() will also be re-raised directly.
         """
-        logger.debug(f"start to cache for {self.meta=}...")
-        _sha256hash_f = AIOSHA256Hasher(executor=self._executor)
         async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
             _written = 0
             while _data := (yield _written):
                 if not storage_below_hard_limit.is_set():
-                    logger.warning(f"reach storage hard limit, abort: {self.meta=}")
+                    logger.warning(f"reach storage hard limit, abort: {self.fpath=}")
                     raise StorageReachHardLimit
-                await _sha256hash_f.update(_data)
                 _written = await f.write(_data)
                 self._bytes_written += _written
-        self.meta.size = self._bytes_written  # type: ignore
-        self.meta.sha256hash = await _sha256hash_f.hexdigest()  # type: ignore
-        logger.debug(
-            "cache write finished, total bytes written"
-            f"({self._bytes_written}) for {self.meta=}"
-        )
+        logger.debug(f"cache write finished, {self._bytes_written=} for {self.fpath=}")
 
     async def _subscribe_cache_streaming(self) -> AsyncIterator[bytes]:
         """Subscriber keeps polling chunks from ongoing tmp cache file.
@@ -197,7 +183,7 @@ class CacheTracker(Generic[_WEAKREF]):
                 while not (self.writer_finished and _bytes_read == self._bytes_written):
                     if self.writer_failed:
                         raise CacheMultiStreamingFailed(
-                            f"provider aborted for {self.meta}"
+                            f"provider aborted for {self.fpath=}"
                         )
                     _bytes_read += len(_chunk := await f.read(cfg.CHUNK_SIZE))
                     if _chunk:
@@ -212,13 +198,12 @@ class CacheTracker(Generic[_WEAKREF]):
                         _backoff_max=cfg.STREAMING_BACKOFF_MAX,
                     ):
                         # abort caching due to potential dead streaming coro
-                        _err_msg = f"failed to stream({self.meta=}): timeout getting data, partial read might happen"
+                        _err_msg = f"failed to stream {self.fpath=}: timeout getting data, partial read might happen"
                         logger.error(_err_msg)
                         # signal streamer to stop streaming
                         raise CacheMultiStreamingFailed(_err_msg)
         finally:
-            # unsubscribe on finish
-            self._subscriber_ref_holder.pop()
+            self._subscriber_ref_holder.pop()  # unsubscribe on finish
 
     async def _read_cache(self) -> AsyncIterator[bytes]:
         """Directly open the tmp cache entry and yield data chunks from it."""
@@ -241,7 +226,7 @@ class CacheTracker(Generic[_WEAKREF]):
                 ):
                     # abort caching due to potential dead streaming coro
                     _err_msg = (
-                        f"open_cached_tmp failed for ({self.meta=}): "
+                        f"read failed for {self.fpath=}: "
                         "timeout getting more data, partial read detected"
                     )
                     logger.debug(_err_msg)
@@ -261,9 +246,7 @@ class CacheTracker(Generic[_WEAKREF]):
             return
         return self._read_cache()
 
-    async def provider_start(
-        self, meta: CacheMeta, *, storage_below_hard_limit: threading.Event
-    ):
+    async def provider_start(self, *, storage_below_hard_limit: threading.Event):
         """Register meta to the Tracker, create tmp cache entry and get ready.
 
         Check _provider_write_cache for more details.
@@ -274,7 +257,6 @@ class CacheTracker(Generic[_WEAKREF]):
             storage_below_hard_limit: an inst of threading.Event indicates whether the
                 storage usage is below hard limit for allowing caching.
         """
-        self.meta = meta
         self._cache_write_gen = self._provider_write_cache(
             storage_below_hard_limit=storage_below_hard_limit,
         )
@@ -304,7 +286,7 @@ class CacheTracker(Generic[_WEAKREF]):
             try:
                 await self._cache_write_gen.athrow(CacheStreamingInterrupt)
             except (StopAsyncIteration, CacheStreamingInterrupt):
-                logger.warning(f"interrupt writer coroutine for {self.meta=}")
+                logger.warning(f"interrupt writer coroutine for {self.fpath=}")
         try:
             # prevent future subscription, and let gc
             # collect this tracker along with the tmp
