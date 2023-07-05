@@ -52,6 +52,7 @@ class Config:
     STREAMING_CACHED_TMP_TIMEOUT = 10  # second
 
     TMP_FILE_PREFIX = "tmp"
+    URL_BASED_HASH_PREFIX = "URL_"
 
 
 config = Config()
