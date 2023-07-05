@@ -20,10 +20,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Tuple, Union
 
 from .config import config as cfg
 from .orm import ColumnDescriptor, ORMBase
+from .cache_control import CacheControlPolicy, OTAFileCacheControl
 
 import logging
 
@@ -36,33 +37,57 @@ class CacheMeta(ORMBase):
     url: unquoted URL from the request of this cache entry
     bucket_id: the LRU bucket this cache entry in
     last_access: the UNIX timestamp of last access
+    cache_size: the file size of cached file(not the size of corresponding OTA file!)
     file_sha256:
         a. string of the sha256 hash of original OTA file(uncompressed),
         b. if a. is not available, then it is in form of "URL_<sha256_of_URL>",
     file_compression_alg: the compression used for the cached OTA file entry,
         if no compression is applied, then empty,
-    headers: headers com with the response from remote OTA server or upper otaproxy
-        when creating this cache entry, in the form of JSON serialized string.
+    extra_headers: JSON dumped headers dict which will be sent to client along with the response,
+        currently only contains content-type and content-encoding.
     """
 
     file_sha256: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY"
+        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default=""
     )
-    url: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "NOT NULL", default="no_url"
-    )
+    url: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL", default="")
     bucket_idx: ColumnDescriptor[int] = ColumnDescriptor(
         int, "INTEGER", "NOT NULL", type_guard=True
     )
     last_access: ColumnDescriptor[int] = ColumnDescriptor(
         int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
+    cache_size: ColumnDescriptor[int] = ColumnDescriptor(
+        int, "INTEGER", "NOT NULL", type_guard=(int, float)
+    )
     file_compression_alg: ColumnDescriptor[str] = ColumnDescriptor(
         str, "TEXT", "NOT NULL", default=""
     )
-    headers: ColumnDescriptor[str] = ColumnDescriptor(
+    extra_headers: ColumnDescriptor[str] = ColumnDescriptor(
         str, "TEXT", "NOT NULL", default=""
     )
+
+    def export_cache_policy_header(self) -> Optional[Tuple[str, str]]:
+        """export <file_sha256> and <file_compression_alg> as CacheControlPolicy inst.
+
+        NOTE: URL based file_sha256 will not be exported and used in resp to client.
+
+        Returns:
+            An inst of CacheControlPolicy, or None if no valid file_sha256 presented.
+        """
+        if not self.file_sha256 or self.file_sha256.startswith(
+            cfg.URL_BASED_HASH_PREFIX
+        ):
+            return
+
+        return OTAFileCacheControl.HEADER_LOWERCASE, OTAFileCacheControl.to_header_str(
+            CacheControlPolicy(
+                no_cache=False,
+                retry_caching=False,
+                file_sha256=self.file_sha256,
+                file_compression_alg=self.file_compression_alg,
+            )
+        )
 
 
 class OTACacheDB:
