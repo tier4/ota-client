@@ -57,6 +57,12 @@ logger = log_setting.get_logger(
 
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
+def get_retry_counts(resp: requests.Response) -> int:
+    raw_resp: HTTPResponse = resp.raw
+    if raw_resp.retries:
+        return len(raw_resp.retries.history)
+    return 0
+
 
 class DownloadError(Exception):
     def __init__(self, url: str, dst: Any, *args: object) -> None:
@@ -465,6 +471,7 @@ class Downloader:
             url, stream=True, proxies=proxies, cookies=cookies, headers=headers
         ) as resp, open(dst, "wb") as _dst:
             resp.raise_for_status()
+            err_count = get_retry_counts(resp)
 
             digest, compression_alg = self._check_against_cache_policy_in_resp(
                 url, dst, digest, compression_alg, resp.headers
@@ -477,7 +484,7 @@ class Downloader:
                     _dst.write(_chunk)
                     downloaded_file_size += len(_chunk)
 
-                    _traffic_on_wire = raw_resp.tell()
+                    _traffic_on_wire = resp.raw.tell()
                     # addon downloaded bytes
                     self._workers_downloaded_bytes[_thread_id] += (
                         _traffic_on_wire - traffic_on_wire
