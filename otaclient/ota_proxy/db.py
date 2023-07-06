@@ -15,12 +15,13 @@
 
 from __future__ import annotations
 import asyncio
+import json
 import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from .config import config as cfg
 from .orm import ColumnDescriptor, ORMBase
@@ -67,7 +68,7 @@ class CacheMeta(ORMBase):
         str, "TEXT", "NOT NULL", default=""
     )
 
-    def export_cache_policy_header(self) -> Optional[Tuple[str, str]]:
+    def export_cache_policy_header(self) -> Optional[Dict[str, str]]:
         """export <file_sha256> and <file_compression_alg> as CacheControlPolicy inst.
 
         NOTE: URL based file_sha256 will not be exported and used in resp to client.
@@ -80,7 +81,7 @@ class CacheMeta(ORMBase):
         ):
             return
 
-        return OTAFileCacheControl.HEADER_LOWERCASE, OTAFileCacheControl.to_header_str(
+        _cache_policy_str = OTAFileCacheControl.to_header_str(
             CacheControlPolicy(
                 no_cache=False,
                 retry_caching=False,
@@ -88,6 +89,23 @@ class CacheMeta(ORMBase):
                 file_compression_alg=self.file_compression_alg,
             )
         )
+        if _cache_policy_str:
+            return {OTAFileCacheControl.HEADER_LOWERCASE: _cache_policy_str}
+
+    def export_headers_to_client(self) -> Dict[str, str]:
+        """Export required headers for client.
+
+        Currently includes content-type, content-encoding and ota-file-cache-control headers.
+        """
+        res = {}
+
+        _extra_headers = json.loads(self.extra_headers)
+        if isinstance(_extra_headers, dict):
+            res = _extra_headers
+
+        if _cache_policy := self.export_cache_policy_header():
+            res.update(_cache_policy)
+        return res
 
 
 class OTACacheDB:
