@@ -411,7 +411,7 @@ class CachingRegister:
         ] = weakref.WeakKeyDictionary()
 
     async def get_tracker(
-        self, raw_url: str, *, executor: Executor
+        self, cache_identifier: str, *, executor: Executor
     ) -> Tuple[CacheTracker, bool]:
         """Get an inst of CacheTracker for the requested URL.
 
@@ -419,7 +419,7 @@ class CachingRegister:
             An inst of tracker, and a bool indicates whether the caller is subscriber
                 or provider.
         """
-        _ref = self._url_ref_dict.setdefault(raw_url, (_new_ref := _Weakref()))
+        _ref = self._url_ref_dict.setdefault(cache_identifier, (_new_ref := _Weakref()))
         # subscriber
         if (
             _tracker := self._ref_tracker_dict.get(_ref)
@@ -428,11 +428,11 @@ class CachingRegister:
 
         # provider, or override a failed provider
         if _ref is not _new_ref:  # override a failed tracker
-            self._url_ref_dict[raw_url] = _new_ref
+            self._url_ref_dict[cache_identifier] = _new_ref
             _ref = _new_ref
 
         _tracker = CacheTracker(
-            f"{cfg.TMP_FILE_PREFIX}_{urandom(16).hex()}",
+            f"{cfg.TMP_FILE_PREFIX}_{cache_identifier}",
             _ref,
             base_dir=self._base_dir,
             executor=executor,
