@@ -614,33 +614,31 @@ class RemoteOTAFile:
 
 async def open_remote(
     url: str,
-    raw_url: str,
     *,
     cookies: Dict[str, str],
     headers: Dict[str, str],
     session: aiohttp.ClientSession,
     upper_proxy: str = "",
-) -> Tuple[AsyncIterator[bytes], CacheMeta]:
+) -> Tuple[AsyncIterator[bytes], Dict[str, str]]:
     """Open a file descriptor to remote resource.
 
     Args:
         url: quoted url.
-        raw_url: unquoted url, used in CacheMeta.
         cookies: cookies that client passes in the request.
-        extra_headers: other headers we need to pass to the remote
+        headers: other headers we need to pass to the remote
             from the original request.
         session: an inst of aiohttp.ClientSession used for opening
             remote connection.
         upper_proxy: if chained proxy is used.
 
     Returns:
-        An AsyncIterator that can yield data chunks from, and an inst
-            of CacheMeta for the requested url.
+        An AsyncIterator that can yield data chunks from, and headers dict
+            from the response.
 
     Raises:
         Any exceptions during aiohttp connecting to the remote.
     """
-    cache_meta = CacheMeta(url=raw_url)
+    resp_headers = {}
 
     async def _inner() -> AsyncIterator[bytes]:
         async with session.get(
@@ -649,16 +647,8 @@ async def open_remote(
             cookies=cookies,
             headers=headers,
         ) as response:
-            # assembling output cachemeta
-            # NOTE: output cachemeta doesn't have hash, size, bucket, last_access defined set yet
-            # NOTE.2: store the original unquoted url into the CacheMeta
-            # NOTE.3: hash, and size will be assigned at background_write_cache method
-            # NOTE.4: bucket and last_access will be assigned at commit_entry method
-            cache_meta.content_encoding = response.headers.get("content-encoding", "")
-            cache_meta.content_type = response.headers.get(
-                "content-type", "application/octet-stream"
-            )
-            # open the connection and update the CacheMeta
+            resp_headers.update(response.headers)
+
             yield b""
             async for data, _ in response.content.iter_chunks():
                 if data:  # only yield non-empty data chunk
@@ -666,7 +656,7 @@ async def open_remote(
 
     # open remote connection
     await (_remote_fd := _inner()).__anext__()
-    return _remote_fd, cache_meta
+    return _remote_fd, resp_headers
 
 
 class OTACache:
