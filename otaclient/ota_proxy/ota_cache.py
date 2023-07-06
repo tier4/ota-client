@@ -110,6 +110,11 @@ def parse_headers_from_client(headers: Dict[str, str]):
     return cookies, cache_policy, extra_headers
 
 
+def regulate_headers(headers: Mapping[str, str]) -> Dict[str, str]:
+    """Parse input headers and return a copy of it which all header names are lowercase."""
+    return {k.lower(): v for k, v in headers.items()}
+
+
 class CacheTracker(Generic[_WEAKREF]):
     """A tracker for an ongoing cache entry.
 
@@ -647,7 +652,7 @@ async def open_remote(
             cookies=cookies,
             headers=headers,
         ) as response:
-            resp_headers.update(response.headers)
+            resp_headers.update(regulate_headers(response.headers))
 
             yield b""
             async for data, _ in response.content.iter_chunks():
