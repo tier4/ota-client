@@ -26,7 +26,6 @@ import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
 from pathlib import Path
-from os import urandom
 from typing import (
     AsyncGenerator,
     AsyncIterator,
@@ -112,6 +111,9 @@ def regulate_headers(headers: Mapping[str, str]) -> Dict[str, str]:
     return {k.lower(): v for k, v in headers.items()}
 
 
+# cache tracker
+
+
 class CacheTracker(Generic[_WEAKREF]):
     """A tracker for an ongoing cache entry.
 
@@ -149,7 +151,7 @@ class CacheTracker(Generic[_WEAKREF]):
         executor: Executor,
     ):
         self.fpath = Path(base_dir) / fn
-        self.meta = None
+        self.meta: CacheMeta = None  # type: ignore
         self._writer_ready = asyncio.Event()
         self._writer_finished = asyncio.Event()
         self._writer_failed = asyncio.Event()
@@ -211,18 +213,15 @@ class CacheTracker(Generic[_WEAKREF]):
             The exception from upper caller via throw() will also be re-raised directly.
         """
         logger.debug(f"start to cache for {self.meta=}...")
-        _sha256hash_f = AIOSHA256Hasher(executor=self._executor)
         async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
             _written = 0
             while _data := (yield _written):
                 if not storage_below_hard_limit.is_set():
                     logger.warning(f"reach storage hard limit, abort: {self.meta=}")
                     raise StorageReachHardLimit
-                await _sha256hash_f.update(_data)
                 _written = await f.write(_data)
                 self._bytes_written += _written
-        self.meta.size = self._bytes_written  # type: ignore
-        self.meta.sha256hash = await _sha256hash_f.hexdigest()  # type: ignore
+        self.meta.cache_size = self._bytes_written
         logger.debug(
             "cache write finished, total bytes written"
             f"({self._bytes_written}) for {self.meta=}"
