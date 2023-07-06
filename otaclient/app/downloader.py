@@ -391,22 +391,25 @@ class Downloader:
         digest: Optional[str] = None,
         compression_alg: Optional[str] = None,
         proxies: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, str]:
-        """Modify input_header or prepare new header.
+    ) -> Optional[Dict[str, str]]:
+        """Inject ota-file-cache-control header if digest is available.
 
         Currently this method preserves the input_header, while
             updating/injecting Ota-File-Cache-Control header.
         """
+        if not digest:
+            return input_header
+
         res: Dict[str, str] = {}
         if isinstance(input_header, Mapping):
             res.update(input_header)
 
-        # only inject cache control header if we have upper otaproxy
+        # inject digest and compression_alg into ota-file-cache-control-header
         _target_policy = OTAFileCacheControl.parse_header(
             res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
         )
         if proxies:
-            _target_policy.file_sha256 = digest if digest else ""
+            _target_policy.file_sha256 = digest
             _target_policy.file_compression_alg = (
                 compression_alg if compression_alg else ""
             )
