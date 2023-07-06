@@ -925,17 +925,42 @@ class OTACache:
     # retrieve_file handlers
 
     async def _retrieve_file_by_downloading(
-        self, raw_url: str, *, cookies, extra_headers
-    ) -> Tuple[AsyncIterator[bytes], CacheMeta]:
-        # NOTE: store unquoted url in database
-        return await open_remote(
+        self,
+        raw_url: str,
+        *,
+        cookies: Dict[str, str],
+        extra_headers: Dict[str, str],
+    ) -> Tuple[AsyncIterator[bytes], Dict[str, str]]:
+        remote_fd, resp_headers = await open_remote(
             url=self._process_raw_url(raw_url),
-            raw_url=raw_url,
             cookies=cookies,
             headers=extra_headers,
             session=self._session,
             upper_proxy=self._upper_proxy,
         )
+
+        # currently ota-file-cache-control, content-type and content-encoding
+        # will be passed through back to client.
+        headers_back_to_client = {}
+
+        # process cache_policy
+        # if upper resp_headers contains cache_policy, passthrough it to client,
+        # otherwise not sending cache_policy back to client.
+        if _cache_policy_str := resp_headers.get(
+            OTAFileCacheControl.HEADER_LOWERCASE, None
+        ):
+            headers_back_to_client[
+                OTAFileCacheControl.HEADER_LOWERCASE
+            ] = _cache_policy_str
+        # process content-type and content-encoding if any
+        if _content_encoding := resp_headers.get("content-encoding", None):
+            headers_back_to_client["content-encoding"] = _content_encoding
+        # default to use octet-stream for unspecified content-type
+        headers_back_to_client["content-type"] = resp_headers.get(
+            "content-type", "application/octet-stream"
+        )
+
+        return remote_fd, headers_back_to_client
 
     async def _retrieve_file_by_cache(
         self, raw_url: str, *, retry_cache: bool
@@ -1047,7 +1072,6 @@ class OTACache:
             return await self._retrieve_file_by_downloading(
                 raw_url,
                 cookies=cookies_from_client,
-                cache_policy=cache_policy_from_client,
                 extra_headers=extra_headers_from_client,
             )
 
