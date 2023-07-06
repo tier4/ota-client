@@ -938,12 +938,20 @@ class OTACache:
         raw_url: str,
         *,
         cookies: Dict[str, str],
+        cache_policy: CacheControlPolicy,
         extra_headers: Dict[str, str],
     ) -> Tuple[AsyncIterator[bytes], Dict[str, str]]:
+        # passthrough cache_policy from client to upper
+        _headers_to_upper = extra_headers.copy()
+        if _cache_policy_to_upper := OTAFileCacheControl.to_header_str(cache_policy):
+            _headers_to_upper[
+                OTAFileCacheControl.HEADER_LOWERCASE
+            ] = _cache_policy_to_upper
+
         remote_fd, resp_headers = await open_remote(
             url=self._process_raw_url(raw_url),
             cookies=cookies,
-            headers=extra_headers,
+            headers=_headers_to_upper,
             session=self._session,
             upper_proxy=self._upper_proxy,
         )
@@ -1104,6 +1112,7 @@ class OTACache:
             return await self._retrieve_file_by_downloading(
                 raw_url,
                 cookies=cookies_from_client,
+                cache_policy=cache_policy_from_client,
                 extra_headers=extra_headers_from_client,
             )
 
