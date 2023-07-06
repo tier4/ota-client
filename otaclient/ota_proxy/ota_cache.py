@@ -54,7 +54,7 @@ from .errors import (
     StorageReachHardLimit,
 )
 from .config import config as cfg
-from .utils import wait_with_backoff, read_file
+from .utils import url_based_hash, wait_with_backoff, read_file
 
 logger = logging.getLogger(__name__)
 
@@ -466,7 +466,7 @@ class LRUCacheHelper:
     async def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
-        entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.size) - 1
+        entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.cache_size) - 1
         entry.last_access = int(time.time())
 
         if (await self._db.insert_entry(entry)) != 1:
@@ -474,13 +474,25 @@ class LRUCacheHelper:
             return False
         return True
 
-    async def lookup_entry_by_url(self, url: str) -> Optional[CacheMeta]:
-        return await self._db.lookup_entry(CacheMeta.url, url)
+    async def lookup_entry(
+        self, raw_url: str, cache_policy: CacheControlPolicy
+    ) -> Optional[CacheMeta]:
+        """
+        If cache_policy provides valid file_sha256, use it to lookup,
+        otherwise fallback to use URL based hash from raw_url.
+        """
+        if cache_policy.file_sha256:
+            return await self._db.lookup_entry(
+                CacheMeta.file_sha256, cache_policy.file_sha256
+            )
+        return await self._db.lookup_entry(
+            CacheMeta.file_sha256, url_based_hash(raw_url)
+        )
 
-    async def remove_entry_by_url(self, url: str) -> bool:
-        return (await self._db.remove_entries(CacheMeta.url, url)) > 0
+    async def remove_entry(self, file_sha256: str) -> bool:
+        return (await self._db.remove_entries(CacheMeta.file_sha256, file_sha256)) > 0
 
-    async def rotate_cache(self, size: int) -> Union[List[str], None]:
+    async def rotate_cache(self, size: int) -> Optional[List[str]]:
         """Wrapper method for calling the database LRU cache rotating method.
 
         Args:
@@ -960,13 +972,15 @@ class OTACache:
         return remote_fd, headers_back_to_client
 
     async def _retrieve_file_by_cache(
-        self, raw_url: str, *, cache_policy: CacheControlPolicy
+        self, raw_url: str, *, cache_policy_from_client: CacheControlPolicy
     ) -> Optional[Tuple[AsyncIterator[bytes], Dict[str, str]]]:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
         """
-        meta_db_entry = await self._lru_helper.lookup_entry(raw_url, cache_policy)
+        meta_db_entry = await self._lru_helper.lookup_entry(
+            raw_url, cache_policy_from_client
+        )
         if not meta_db_entry:
             return
 
@@ -977,9 +991,9 @@ class OTACache:
 
         cache_file = self._base_dir / cache_file_identifier
         # otaclient indicates that this cache entry is invalid, cleanup and exit
-        if cache_policy.retry_caching:
+        if cache_policy_from_client.retry_caching:
             logger.debug(f"requested with retry_cache: {meta_db_entry=}..")
-            await self._lru_helper.remove_entry_by_file_sha256(cache_file_identifier)
+            await self._lru_helper.remove_entry(cache_file_identifier)
             cache_file.unlink(missing_ok=True)
             return
 
@@ -988,7 +1002,7 @@ class OTACache:
             logger.warning(
                 f"dangling cache entry found, remove db entry: {meta_db_entry}"
             )
-            await self._lru_helper.remove_entry_by_file_sha256(cache_file_identifier)
+            await self._lru_helper.remove_entry(cache_file_identifier)
             return
 
         # NOTE: ota-file-cache-control, content-type and content-encoding should be
