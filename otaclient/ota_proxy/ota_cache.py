@@ -144,13 +144,14 @@ class CacheTracker(Generic[_WEAKREF]):
 
     def __init__(
         self,
-        fn: str,
+        cache_identifier: str,
         ref_holder: _WEAKREF,
         *,
         base_dir: Union[str, Path],
         executor: Executor,
     ):
-        self.fpath = Path(base_dir) / fn
+        self.cache_identifier = cache_identifier
+        self.fpath = Path(base_dir) / f"{cfg.TMP_FILE_PREFIX}_{cache_identifier}"
         self.meta: CacheMeta = None  # type: ignore
         self._writer_ready = asyncio.Event()
         self._writer_finished = asyncio.Event()
@@ -433,7 +434,7 @@ class CachingRegister:
             _ref = _new_ref
 
         _tracker = CacheTracker(
-            f"{cfg.TMP_FILE_PREFIX}_{cache_identifier}",
+            cache_identifier,
             _ref,
             base_dir=self._base_dir,
             executor=executor,
@@ -1043,7 +1044,7 @@ class OTACache:
         # prepare cache_meta for this newly caching entry
         # NOTE: bucket and cache_size will be updated by RemoteotaFile after
         #       caching is finished.
-        cache_meta = CacheMeta(url=raw_url, last_access=int(time.time()))
+        cache_meta = CacheMeta(url=raw_url)
 
         # prepare cache_entry identifier(file_sha256) and file_compression_alg
         _cache_entry_identifier, _compression_alg = "", ""
@@ -1061,7 +1062,8 @@ class OTACache:
         elif cache_policy_from_client.file_sha256:
             _cache_entry_identifier = cache_policy_from_client.file_sha256
             _compression_alg = cache_policy_from_client.file_compression_alg
-        # final fallback, use URL based hash to generate cache_entry identifier
+        # final fallback, use URL based hash to generate cache_entry identifier,
+        #   as we must have a unique identifier for each cached entry.
         else:
             _cache_entry_identifier = url_based_hash(raw_url)
 
