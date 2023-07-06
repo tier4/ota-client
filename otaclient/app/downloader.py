@@ -394,6 +394,38 @@ class Downloader:
 
         return res
 
+    def _check_against_cache_policy_in_resp(
+        self,
+        url: str,
+        dst: PathLike,
+        digest: Optional[str],
+        compression_alg: Optional[str],
+        resp_headers: Mapping[str, str],
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Checking digest and compression_alg against cache_policy from resp headers.
+
+        Returns:
+            A tuple of file_sha256 and file_compression_alg for the requested resources.
+        """
+        cache_policy = OTAFileCacheControl.parse_header(
+            regulate_headers(resp_headers).get(OTAFileCacheControl.HEADER_LOWERCASE, "")
+        )
+        if cache_policy.file_sha256:
+            if digest and digest != cache_policy.file_sha256:
+                _msg = f"digest({cache_policy.file_sha256}) in cache_policy doesn't match value({digest}) from regulars.txt"
+                logger.warning(_msg)
+                raise HashVerificaitonError(url, dst, _msg)
+            if (
+                compression_alg
+                and cache_policy.file_compression_alg
+                and compression_alg != cache_policy.file_compression_alg
+            ):
+                logger.info(
+                    f"upper serves different cache file for this OTA file: {url=}, "
+                    f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
+                )
+            return cache_policy.file_sha256, cache_policy.file_compression_alg
+        return digest, compression_alg
     @_transfer_invalid_retrier(RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
         self,
@@ -434,9 +466,9 @@ class Downloader:
         ) as resp, open(dst, "wb") as _dst:
             resp.raise_for_status()
 
-            raw_resp: HTTPResponse = resp.raw
-            if raw_resp.retries:
-                err_count = len(raw_resp.retries.history)
+            digest, compression_alg = self._check_against_cache_policy_in_resp(
+                url, dst, digest, compression_alg, resp.headers
+            )
 
             # support for compresed file
             if decompressor := self._get_decompressor(compression_alg):
