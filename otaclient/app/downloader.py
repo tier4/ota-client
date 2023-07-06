@@ -57,11 +57,22 @@ logger = log_setting.get_logger(
 
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
+# helper functions
+
+
+def regulate_headers(headers: Mapping[str, str]) -> Dict[str, str]:
+    """Parse input headers and return a copy of it which all header names are lowercase."""
+    return {k.lower(): v for k, v in headers.items()}
+
+
 def get_retry_counts(resp: requests.Response) -> int:
     raw_resp: HTTPResponse = resp.raw
     if raw_resp.retries:
         return len(raw_resp.retries.history)
     return 0
+
+
+# errors definition
 
 
 class DownloadError(Exception):
@@ -176,6 +187,9 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
     return _decorator
 
 
+# decompression support
+
+
 class DecompressionAdapterProtocol(Protocol):
     """DecompressionAdapter protocol for Downloader."""
 
@@ -196,6 +210,9 @@ class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
 
     def iter_chunk(self, src_stream: Union[IO[bytes], ByteString]) -> Iterator[bytes]:
         yield from self._dctx.read_to_iter(src_stream)
+
+
+# downloader implementation
 
 
 class Downloader:
@@ -432,6 +449,13 @@ class Downloader:
                 )
             return cache_policy.file_sha256, cache_policy.file_compression_alg
         return digest, compression_alg
+
+    def _prepare_url(self, url: str, proxies: Optional[Dict[str, str]] = None) -> str:
+        """Change URL scheme to HTTP if required."""
+        if self.use_http_if_http_proxy_set and proxies and "http" in proxies:
+            return urlsplit(url)._replace(scheme="http").geturl()
+        return url
+
     @_transfer_invalid_retrier(RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
         self,
@@ -450,11 +474,10 @@ class Downloader:
         # NOTE: if proxy is set and use_http_if_proxy_set is true,
         #       unconditionally change scheme to HTTP
         proxies = proxies or self._proxies
-        if self.use_http_if_http_proxy_set and "http" in proxies:
-            url = urlsplit(url)._replace(scheme="http").geturl()
+        url = self._prepare_url(url, proxies)
 
         cookies = cookies or self._cookies
-        # NOTE: process headers after proxies setting is parsed
+        # NOTE: process headers AFTER proxies setting is parsed
         headers = self._prepare_header(
             headers, digest=digest, compression_alg=compression_alg, proxies=proxies
         )
