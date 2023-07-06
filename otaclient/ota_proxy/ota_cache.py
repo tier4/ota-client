@@ -65,6 +65,51 @@ logger = logging.getLogger(__name__)
 _WEAKREF = TypeVar("_WEAKREF")
 
 
+# helper functions
+
+
+def parse_raw_cookies(cookie_str: str) -> Dict[str, str]:
+    """Parses raw cookies bytes into dict.
+
+    Converts an input raw cookies string in bytes into a dict.
+
+    Args:
+        cookies_bytes bytes: raw cookies string in bytes
+            i.e.: b"cpk0=cpv0;cpk1=cpv1;cpk2=cpv2"
+
+    Returns:
+        Dict[str, str]: dict represented cookies
+    """
+    res = dict()
+    for p in cookie_str.split(";"):
+        k, v = p.strip().split("=", maxsplit=1)
+        res[k] = v
+
+    return res
+
+
+def parse_headers_from_client(headers: Dict[str, str]):
+    """
+    cookies and ota-file-cache-control headers will be extracted separately,
+    the authorization header will goes into extra_header.
+
+    NOTE: currently extra_header from client only contains authorization header.
+
+    Returns:
+        A tuple of cookies dict, cache_policy inst, and extra_headers dict.
+    """
+    cookies, extra_headers = {}, {}
+    cache_policy = CacheControlPolicy()
+    for hname, hvalue in headers.items():
+        if hname == "authorization" and hvalue:
+            extra_headers[hname] = hvalue
+        elif hname == "cookie" and hvalue:
+            cookies = parse_raw_cookies(hvalue)
+        elif hname == OTAFileCacheControl.HEADER_LOWERCASE and hvalue:
+            cache_policy = OTAFileCacheControl.parse_header(hvalue)
+    return cookies, cache_policy, extra_headers
+
+
 class CacheTracker(Generic[_WEAKREF]):
     """A tracker for an ongoing cache entry.
 
@@ -966,11 +1011,8 @@ class OTACache:
     async def retrieve_file(
         self,
         raw_url: str,
-        /,
-        cookies: Dict[str, str],
-        extra_headers: Dict[str, str],
-        cache_control_policies: Set[OTAFileCacheControl],
-    ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
+        headers_from_client: Dict[str, str],
+    ) -> Optional[Tuple[AsyncIterator[bytes], Dict[str, str]]]:
         """Retrieve a file descriptor for the requested <raw_url>.
 
         This method retrieves a file descriptor for incoming client request.
@@ -981,54 +1023,51 @@ class OTACache:
 
         Args:
             raw_url: unquoted raw url received from uvicorn
-            cookies: cookies in the incoming client request.
-            extra_headers: headers in the incoming client request.
-                Currently Cookies and Authorization headers are used.
-            cache_control_policies: OTA-FILE-CACHE-CONTROL headers that
-                controls how ota-proxy should handle the request.
+            headers_from_client: headers come from client's request, which will be
+                passthrough to upper otaproxy and/or remote OTA image server.
 
         Returns:
             A tuple contains an asyncio generator for upper server app to yield data chunks from
-            and an inst of CacheMeta representing the requested URL.
+            and headers dict that should be sent back to client in resp.
         """
         if self._closed:
             raise BaseOTACacheError("ota cache pool is closed")
 
-        # --- parsing cache control headers --- #
-        # default cache control policy:
-        retry_cache, use_cache = False, True
-        # parse input policies
-        if OTAFileCacheControl.retry_caching in cache_control_policies:
-            retry_cache = True
-            logger.warning(f"client indicates that cache for {raw_url=} is invalid")
-        if OTAFileCacheControl.no_cache in cache_control_policies:
-            logger.info(f"client indicates that do not cache for {raw_url=}")
-            use_cache = False
-        # if there is no upper_ota_proxy, trim the custom headers away
-        if self._enable_https:
-            extra_headers.pop(OTAFileCacheControl.header.value, None)
+        (
+            cookies_from_client,
+            cache_policy_from_client,
+            extra_headers_from_client,
+        ) = parse_headers_from_client(headers_from_client)
 
         # --- case 1: not using cache, directly download file --- #
         if (
             not self._cache_enabled  # ota_proxy is configured to not cache anything
-            or not use_cache  # ota_client send request with no_cache policy
+            or cache_policy_from_client.no_cache  # ota_client send request with no_cache policy
             or not self._storage_below_hard_limit_event.is_set()  # disable cache if space hardlimit is reached
         ):
             logger.debug(
-                f"not use cache({self._cache_enabled=}, {use_cache=}, "
+                f"not use cache({self._cache_enabled=}, {cache_policy_from_client=}, "
                 f"{self._storage_below_hard_limit_event.is_set()=}): {raw_url=}"
             )
             return await self._retrieve_file_by_downloading(
-                raw_url, cookies=cookies, extra_headers=extra_headers
+                raw_url,
+                cookies=cookies_from_client,
+                cache_policy=cache_policy_from_client,
+                extra_headers=extra_headers_from_client,
             )
 
         # --- case 2: try to use cache --- #
-        if _res := await self._retrieve_file_by_cache(raw_url, retry_cache=retry_cache):
+        if _res := await self._retrieve_file_by_cache(
+            raw_url, cache_policy=cache_policy_from_client
+        ):
             return _res
 
         # --- case 3: no cache available, streaming remote file and cache --- #
         if _res := await self._retrieve_file_by_cache_streaming(
-            raw_url, cookies=cookies, extra_headers=extra_headers
+            raw_url,
+            cookies=cookies_from_client,
+            cache_policy=cache_policy_from_client,
+            extra_headers=extra_headers_from_client,
         ):
             logger.debug(f"no cache entry for {raw_url=}, start caching")
             return _res
