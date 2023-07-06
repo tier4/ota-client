@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 import asyncio
+import json
 import aiofiles
 import aiohttp
 import bisect
@@ -34,16 +35,16 @@ from typing import (
     Dict,
     Generic,
     List,
+    Mapping,
     MutableMapping,
     Optional,
-    Set,
     Tuple,
     TypeVar,
     Union,
 )
 from urllib.parse import SplitResult, quote, urlsplit
 
-from .cache_control import OTAFileCacheControl
+from .cache_control import CacheControlPolicy, OTAFileCacheControl
 from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
     BaseOTACacheError,
@@ -53,11 +54,7 @@ from .errors import (
     StorageReachHardLimit,
 )
 from .config import config as cfg
-from .utils import (
-    wait_with_backoff,
-    AIOSHA256Hasher,
-    read_file,
-)
+from .utils import wait_with_backoff, read_file
 
 logger = logging.getLogger(__name__)
 
@@ -963,17 +960,26 @@ class OTACache:
         return remote_fd, headers_back_to_client
 
     async def _retrieve_file_by_cache(
-        self, raw_url: str, *, retry_cache: bool
-    ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
-        meta_db_entry = await self._lru_helper.lookup_entry_by_url(raw_url)
+        self, raw_url: str, *, cache_policy: CacheControlPolicy
+    ) -> Optional[Tuple[AsyncIterator[bytes], Dict[str, str]]]:
+        """
+        Returns:
+            A tuple of bytes iterator and headers dict for back to client.
+        """
+        meta_db_entry = await self._lru_helper.lookup_entry(raw_url, cache_policy)
         if not meta_db_entry:
             return
 
-        cache_file = self._base_dir / meta_db_entry.sha256hash
+        # NOTE: db_entry.file_sha256 can be either
+        #           1. valid sha256 value for corresponding plain uncompressed OTA file
+        #           2. URL based sha256 value for corresponding requested URL
+        cache_file_identifier = meta_db_entry.file_sha256
+
+        cache_file = self._base_dir / cache_file_identifier
         # otaclient indicates that this cache entry is invalid, cleanup and exit
-        if retry_cache:
+        if cache_policy.retry_caching:
             logger.debug(f"requested with retry_cache: {meta_db_entry=}..")
-            await self._lru_helper.remove_entry_by_url(raw_url)
+            await self._lru_helper.remove_entry_by_file_sha256(cache_file_identifier)
             cache_file.unlink(missing_ok=True)
             return
 
@@ -982,13 +988,25 @@ class OTACache:
             logger.warning(
                 f"dangling cache entry found, remove db entry: {meta_db_entry}"
             )
-            await self._lru_helper.remove_entry_by_url(raw_url)
+            await self._lru_helper.remove_entry_by_file_sha256(cache_file_identifier)
             return
+
+        # NOTE: ota-file-cache-control, content-type and content-encoding should be
+        #       sent back to client if available.
+        headers_back_to_client = {}
+        # parse cache_policy from cache_meta
+        if _cache_policy_from_db := meta_db_entry.export_cache_policy_header():
+            k, v = _cache_policy_from_db
+            headers_back_to_client[k] = v
+        # parse extra_headers
+        _extra_headers = json.dumps(meta_db_entry.extra_headers)
+        if isinstance(_extra_headers, dict):
+            headers_back_to_client.update(_extra_headers)
 
         # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
         #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
         #       directory to indicate invalid cache.
-        return read_file(cache_file, executor=self._executor), meta_db_entry
+        return read_file(cache_file, executor=self._executor), headers_back_to_client
 
     async def _retrieve_file_by_cache_streaming(
         self, raw_url: str, *, cookies, extra_headers
