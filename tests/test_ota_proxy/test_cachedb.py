@@ -23,6 +23,7 @@ from typing import Any, Dict, Tuple
 from otaclient.ota_proxy.ota_cache import CacheMeta, OTACacheDB
 from otaclient.ota_proxy.orm import NULL_TYPE
 from otaclient.ota_proxy import config as cfg
+from otaclient.ota_proxy.utils import url_based_hash
 
 logger = logging.getLogger(__name__)
 
@@ -180,11 +181,13 @@ class TestOTACacheDB:
         # prepare data
         for target_size, rotate_num in cfg.BUCKET_FILE_SIZE_DICT.items():
             for _i in range(rotate_num):
+                mocked_url = f"{target_size}#{_i}"
                 entries.append(
                     CacheMeta(
-                        url=f"{target_size}#{_i}",
+                        file_sha256=url_based_hash(mocked_url),
+                        url=mocked_url,
                         bucket_idx=target_size,
-                        size=target_size,
+                        cache_size=target_size,
                     )
                 )
         # insert entry into db

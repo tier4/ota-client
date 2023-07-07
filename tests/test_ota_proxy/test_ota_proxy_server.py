@@ -28,6 +28,7 @@ from typing import List
 
 from otaclient.app.proto.wrapper import RegularInf
 from otaclient.app.ota_metadata import parse_regulars_from_txt
+from otaclient.ota_proxy.utils import url_based_hash
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                         self._storage_below_soft_limit_event.clear()
                         self._storage_below_hard_limit_event.set()
 
-                time.sleep(2)
+                time.sleep(1)
                 _count += 1
 
         OTACache._background_check_free_space = _mocked_background_check_freespace
@@ -187,13 +188,15 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         await self.otaproxy_inst.shutdown()
 
         # --- assertions --- #
+        special_file_url_based_sha256 = url_based_hash(unquote(SPECIAL_FILE_URL))
         # Under different space availability, ota_proxy's behaviors are different
         # 1. below soft limit, cache is enabled and cache entry will be presented
         if self.space_availability == "below_soft_limit":
-            cache_entry = Path(self.ota_cache_dir / SPECIAL_FILE_SHA256HASH).read_text(
-                encoding="utf-8"
-            )
+            cache_entry = Path(
+                self.ota_cache_dir / special_file_url_based_sha256
+            ).read_text(encoding="utf-8")
             assert original == cache_entry == resp_text
+
             # assert the cache entry existed in the database
             with sqlite3.connect(self.ota_cachedb) as conn:
                 conn.row_factory = sqlite3.Row
@@ -203,8 +206,8 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                 assert (
                     row["url"] == unquote(SPECIAL_FILE_URL)
                     and row["last_access"] < time.time()
-                    and row["sha256hash"] == SPECIAL_FILE_SHA256HASH
-                    and row["size"] == len(SPECIAL_FILE_CONTENT.encode())
+                    and row["file_sha256"] == special_file_url_based_sha256
+                    and row["cache_size"] == len(SPECIAL_FILE_CONTENT.encode())
                 )
         # 2. exceed soft limit, below hard limit
         #    cache is enabled, cache rotate will be executed, but since we only have one
@@ -224,6 +227,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
                 )
+
                 _retry_count_for_exceed_hard_limit = 0
                 # NOTE: for space_availability==exceed_hard_limit,
                 #       it is normal that transition is interrupted when
@@ -253,7 +257,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         # --- execution --- #
         sync_event = asyncio.Event()
         tasks: List[asyncio.Task] = []
-        for _ in range(self.CLIENTS_NUM):
+        for _ in range(8):
             tasks.append(
                 asyncio.create_task(
                     self.ota_image_downloader(parse_regulars, sync_event)
