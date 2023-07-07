@@ -101,9 +101,10 @@ class CacheMeta(ORMBase):
         """
         res = {}
 
-        _extra_headers = json.loads(self.extra_headers)
-        if isinstance(_extra_headers, dict):
-            res = _extra_headers
+        if self.extra_headers:
+            _extra_headers = json.loads(self.extra_headers)
+            if isinstance(_extra_headers, dict):
+                res = _extra_headers
 
         if _cache_policy := self.export_cache_policy_header():
             res.update(_cache_policy)
