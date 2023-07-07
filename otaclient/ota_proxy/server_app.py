@@ -256,11 +256,9 @@ class App:
             )
 
         if retrieved_ota_cache is None:
-            await self._respond_with_error(
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                f"failed to retrieve fp for {url}",
-                send,
-            )
+            _msg = f"failed to retrieve fd for {url}"
+            logger.warning(_msg)
+            await self._respond_with_error(HTTPStatus.INTERNAL_SERVER_ERROR, _msg, send)
             return
         fp, headers_to_client = retrieved_ota_cache
 
