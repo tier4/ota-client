@@ -233,23 +233,27 @@ class App:
         yields chunks from file descriptor and streams chunks back to ota_client.
 
         Args:
-            url str: URL requested by ota_client
-            scope: ASGI scope for current request
-            send: ASGI send method
+            url str: URL requested by ota_client.
+            scope: ASGI scope for current request.
+            send: ASGI send method.
         """
         headers_from_client = decode_raw_headers(scope["headers"])
 
         # try to get a cache entry for this URL or for file_sha256 indicated by cache_policy
+        retrieved_ota_cache = None
         async with self._error_handling_for_cache_retrieving(url, send):
-            _bundle = await self._ota_cache.retrieve_file(url, headers_from_client)
-            if _bundle is None:
-                await self._respond_with_error(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    f"failed to retrieve fp for {url}",
-                    send,
-                )
-                return
-            fp, headers_to_client = _bundle
+            retrieved_ota_cache = await self._ota_cache.retrieve_file(
+                url, headers_from_client
+            )
+
+        if retrieved_ota_cache is None:
+            await self._respond_with_error(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                f"failed to retrieve fp for {url}",
+                send,
+            )
+            return
+        fp, headers_to_client = retrieved_ota_cache
 
         async with self._error_handling_during_transferring(url, send):
             await self._init_response(
