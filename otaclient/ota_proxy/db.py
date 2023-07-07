@@ -35,15 +35,15 @@ logger = logging.getLogger(__name__)
 class CacheMeta(ORMBase):
     """revision 4
 
-    url: unquoted URL from the request of this cache entry
-    bucket_id: the LRU bucket this cache entry in
-    last_access: the UNIX timestamp of last access
-    cache_size: the file size of cached file(not the size of corresponding OTA file!)
+    url: unquoted URL from the request of this cache entry.
+    bucket_id: the LRU bucket this cache entry in.
+    last_access: the UNIX timestamp of last access.
+    cache_size: the file size of cached file(not the size of corresponding OTA file!).
     file_sha256:
         a. string of the sha256 hash of original OTA file(uncompressed),
-        b. if a. is not available, then it is in form of "URL_<sha256_of_URL>",
+        b. if a. is not available, then it is in form of "URL_<sha256_of_URL>".
     file_compression_alg: the compression used for the cached OTA file entry,
-        if no compression is applied, then empty,
+        if no compression is applied, then empty.
     extra_headers: JSON dumped headers dict which will be sent to client along with the response,
         currently only contains content-type and content-encoding.
     """
@@ -72,6 +72,8 @@ class CacheMeta(ORMBase):
         """export <file_sha256> and <file_compression_alg> as CacheControlPolicy inst.
 
         NOTE: URL based file_sha256 will not be exported and used in resp to client.
+        If no real file_sha256 is available, otaproxy will just skip sending cache_policy header
+            back to client.
 
         Returns:
             An inst of CacheControlPolicy, or None if no valid file_sha256 presented.

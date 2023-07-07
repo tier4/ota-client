@@ -503,23 +503,19 @@ class LRUCacheHelper:
             A list of hashes that needed to be cleaned, or None if cache rotation
                 cannot be executed.
         """
-        # NOTE: currently file size >= 512MiB or file size < 1KiB
-        # will be saved without cache rotating.
+        # NOTE: currently item size smalle than 1st bucket and larger than latest bucket
+        #       will be saved without cache rotating.
         if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
             return []
 
         _cur_bucket_idx = bisect.bisect_right(self.BSIZE_LIST, size) - 1
         _cur_bucket_size = self.BSIZE_LIST[_cur_bucket_idx]
 
-        # first check the upper bucket
-        _next_idx = _cur_bucket_idx + 1
-        for _bucket_size in self.BSIZE_LIST[_next_idx:]:
-            if res := await self._db.rotate_cache(
-                _next_idx, self.BSIZE_DICT[_bucket_size]
-            ):
+        # first check the upper bucket, remove 1 item from any of the
+        # upper bucket is enoughe.
+        for _bucket_idx in range(_cur_bucket_idx + 1, len(self.BSIZE_LIST)):
+            if res := await self._db.rotate_cache(_bucket_idx, 1):
                 return res
-            _next_idx += 1
-
         # if cannot find one entry at any upper bucket, check current bucket
         return await self._db.rotate_cache(
             _cur_bucket_idx, self.BSIZE_DICT[_cur_bucket_size]
@@ -866,7 +862,7 @@ class OTACache:
             A bool indicates whether the space reserving is successful or not.
         """
         _hashes = await self._lru_helper.rotate_cache(size)
-        if _hashes:
+        if _hashes is not None:
             logger.debug(
                 f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
             )
