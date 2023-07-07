@@ -1066,6 +1066,13 @@ class OTACache:
         cache_meta.file_sha256 = _cache_entry_identifier
         cache_meta.file_compression_alg = _compression_alg
 
+        # dumps extra_headers to cache_meta
+        # NOTE: no need to include ota-file-cache-control header into extra_headers
+        extra_headers = headers_to_client.copy()
+        extra_headers.pop(OTAFileCacheControl.HEADER_LOWERCASE, None)
+        if extra_headers:
+            cache_meta.extra_headers = json.dumps(extra_headers)
+
         # init RemoteOTAFile and start the transfer
         fd = await RemoteOTAFile(
             fd=remote_fd,
