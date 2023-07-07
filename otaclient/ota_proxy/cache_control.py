@@ -23,6 +23,7 @@ from typing_extensions import Self
 class CacheControlPolicy:
     no_cache: bool = False
     retry_caching: bool = False
+    # added in revision 2:
     file_sha256: str = ""
     file_compression_alg: str = ""
 
@@ -70,12 +71,13 @@ class OTAFileCacheControl:
             if len(_parsed) == 1 and (
                 _directive := cls.DIRECTIVE.check_directive(_parsed[0])
             ):
-                setattr(res, _directive, True)
+                setattr(res, _directive.strip(), True)
             # kv field
             elif len(_parsed) == 2 and (
                 _directive := cls.DIRECTIVE.check_directive(_parsed[0])
             ):
-                setattr(res, _directive, _parsed[1])
+                _value = _parsed[1].strip()
+                setattr(res, _directive.strip(), _value)
         return res
 
     @classmethod
