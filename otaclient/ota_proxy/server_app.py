@@ -51,7 +51,10 @@ TYPE_RESP_START = "http.response.start"
 
 
 def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
-    """Decode raw headers from client's request."""
+    """Decode raw headers bytes from client's request.
+
+    Uvicorn sends headers from client's request to application as list of bytes tuple.
+    """
     headers: Dict[str, str] = {}
     for raw_header in raw_headers:
         if len(raw_header) != 2 or not raw_header[-1]:
@@ -62,6 +65,10 @@ def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]
 
 
 def encode_headers(headers: Dict[str, str]) -> List[Tuple[bytes, bytes]]:
+    """Encode headers dict to list of bytes tuples for sending back to client.
+
+    Uvicorn requests application to pre-process headers to bytes.
+    """
     raw_headers: List[Tuple[bytes, bytes]] = []
     for hname, hvalue in headers.items():
         if not (hvalue and isinstance(hvalue, str)):
@@ -86,16 +93,18 @@ class App:
         b. It seems that uvicorn will not interrupt the App running even the client closes connection.
 
     Attributes:
-        ota_cache: initialized but not yet launched ota_cache instance
+        ota_cache: initialized but not yet launched ota_cache instance.
 
     Example usage:
 
         # initialize an instance of the App:
-        _ota_cache = OTACache(cache_enabled=True, init_cache=False, enable_https=False)
+
+        _ota_cache = OTACache(...)
         app = App(_ota_cache)
 
         # load the app with uvicorn, and start uvicorn
         # NOTE: lifespan must be set to "on" for properly launching/closing ota_cache instance
+
         uvicorn.run(app, host="0.0.0.0", port=8082, log_level="debug", lifespan="on")
     """
 
@@ -120,7 +129,7 @@ class App:
 
     @staticmethod
     async def _respond_with_error(status: Union[HTTPStatus, int], msg: str, send):
-        """Helper method for sending errors back to client"""
+        """Helper method for sending errors back to client."""
         await send(
             {
                 "type": TYPE_RESP_START,
@@ -134,12 +143,12 @@ class App:
 
     @staticmethod
     async def _send_chunk(data: bytes, more: bool, send):
-        """Helper method for sending data chunks to client
+        """Helper method for sending data chunks to client.
 
         Args:
-            data bytes
-            more bool: whether there will be a next chunk or not
-            send: ASGI send method
+            data: bytes to send to client.
+            more bool: whether there will be a next chunk or not.
+            send: ASGI send method.
         """
         if more:
             await send({"type": TYPE_RESP_BODY, "body": data, "more_body": True})
@@ -150,12 +159,12 @@ class App:
     async def _init_response(
         status: Union[HTTPStatus, int], headers: List[Tuple[bytes, bytes]], send
     ):
-        """Helper method for constructing and sending HTTP response back to client
+        """Helper method for constructing and sending HTTP response back to client.
 
         Args:
-            status HTTPStatus
-            headers dict: headers in the response
-            send: ASGI send method
+            status: HTTP status code for this response.
+            headers dict: headers to be sent in this response.
+            send: ASGI send method.
         """
         await send(
             {

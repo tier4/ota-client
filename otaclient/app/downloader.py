@@ -65,7 +65,8 @@ def regulate_headers(headers: Mapping[str, str]) -> Dict[str, str]:
     return {k.lower(): v for k, v in headers.items()}
 
 
-def get_retry_counts(resp: requests.Response) -> int:
+def get_req_retry_counts(resp: requests.Response) -> int:
+    """Get the retry counts for connection from requests.Response inst."""
     raw_resp: HTTPResponse = resp.raw
     if raw_resp.retries:
         return len(raw_resp.retries.history)
@@ -430,6 +431,9 @@ class Downloader:
     ) -> Tuple[Optional[str], Optional[str]]:
         """Checking digest and compression_alg against cache_policy from resp headers.
 
+        If upper responds with file_sha256 and file_compression_alg by ota-file-cache-control header,
+            use these information, otherwise use the information provided by client.
+
         Returns:
             A tuple of file_sha256 and file_compression_alg for the requested resources.
         """
@@ -454,7 +458,11 @@ class Downloader:
         return digest, compression_alg
 
     def _prepare_url(self, url: str, proxies: Optional[Dict[str, str]] = None) -> str:
-        """Change URL scheme to HTTP if required."""
+        """Force changing URL scheme to HTTP if required.
+
+        When upper otaproxy is set and use_http_if_http_proxy_set is True,
+            Force changing the URL scheme to HTTP.
+        """
         if self.use_http_if_http_proxy_set and proxies and "http" in proxies:
             return urlsplit(url)._replace(scheme="http").geturl()
         return url
@@ -474,8 +482,6 @@ class Downloader:
     ) -> Tuple[int, int, int]:
         _thread_id = threading.get_ident()
 
-        # NOTE: if proxy is set and use_http_if_proxy_set is true,
-        #       unconditionally change scheme to HTTP
         proxies = proxies or self._proxies
         url = self._prepare_url(url, proxies)
 
@@ -488,16 +494,15 @@ class Downloader:
         _hash_inst = self._hash_func()
         # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
         #       the number will be of the decompressed file)
-        downloaded_file_size = 0
         # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
-        traffic_on_wire = 0
+        downloaded_file_size, traffic_on_wire = 0, 0
         err_count = 0
 
         with self._downloading_exception_mapping(url, dst), self._session.get(
             url, stream=True, proxies=proxies, cookies=cookies, headers=headers
         ) as resp, open(dst, "wb") as _dst:
             resp.raise_for_status()
-            err_count = get_retry_counts(resp)
+            err_count = get_req_retry_counts(resp)
 
             digest, compression_alg = self._check_against_cache_policy_in_resp(
                 url, dst, digest, compression_alg, resp.headers
@@ -511,7 +516,6 @@ class Downloader:
                     downloaded_file_size += len(_chunk)
 
                     _traffic_on_wire = resp.raw.tell()
-                    # addon downloaded bytes
                     self._workers_downloaded_bytes[_thread_id] += (
                         _traffic_on_wire - traffic_on_wire
                     )
@@ -526,10 +530,9 @@ class Downloader:
                     chunk_len = len(_chunk)
                     downloaded_file_size += chunk_len
                     traffic_on_wire += chunk_len
-                    # addon downloaded bytes
                     self._workers_downloaded_bytes[_thread_id] += chunk_len
 
-        # checking the download result
+        # post downloading validation
         if size and size != downloaded_file_size:
             _msg = f"partial download detected: {size=},{downloaded_file_size=}"
             logger.warning(_msg)
@@ -557,7 +560,7 @@ class Downloader:
         self,
         url,
         *args,
-        # NOTE: inactive_timeout is hinded from the caller
+        # NOTE: inactive_timeout is hidden from the caller
         inactive_timeout: int = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
         **kwargs,
     ) -> Tuple[int, int, int]:
