@@ -17,7 +17,6 @@ import asyncio
 import logging
 import pytest
 import random
-from hashlib import sha256
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Coroutine
 
@@ -137,9 +136,16 @@ class TestOngoingCachingRegister:
         # simulate multiple works subscribing the register
         await self.sync_event.wait()
         await asyncio.sleep(random.randrange(100, 200) // 100)
-        _tracker, _is_writer = await self.register.get_tracker(self.URL, executor=None)  # type: ignore
+
+        _tracker, _is_writer = self.register.get_tracker(
+            self.URL,
+            executor=None,  # type: ignore
+            callback=None,  # type: ignore
+            below_hard_limit_event=None,  # type: ignore
+        )
         await self.register_finish.acquire()
-        if _is_writer and _tracker is not None:
+
+        if _is_writer:
             logger.info(f"#{idx} is provider")
             # NOTE: use last_access field to store worker index
             # NOTE 2: bypass provider_start method, directly set tracker property
@@ -150,21 +156,16 @@ class TestOngoingCachingRegister:
             logger.info(f"writer #{idx} finished")
             # finished
             _tracker._writer_finished.set()
-            del _tracker._ref
-            return True, _tracker.meta  # type: ignore
-        elif _tracker is not None:  # subscriber
+            _tracker._ref = None
+            return True, _tracker.meta
+        else:
             logger.debug(f"#{idx} is subscriber")
             _tracker._subscriber_ref_holder.append(_tracker._ref)
             while not _tracker.writer_finished:  # simulating cache streaming
                 await asyncio.sleep(0.1)
             # NOTE: directly pop the ref
             _tracker._subscriber_ref_holder.pop()
-            return False, _tracker.meta  # type: ignore
-        else:
-            # edge condition when subscriber on multi cache streaming
-            # subscribes a just closed tracker.
-            logger.error(f"edge condition: {idx=}")
-            return False, None
+            return False, _tracker.meta
 
     async def test_OngoingCachingRegister(self):
         coros: List[Coroutine] = []

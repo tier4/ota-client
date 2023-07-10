@@ -409,6 +409,7 @@ class Downloader:
         _target_policy = OTAFileCacheControl.parse_header(
             res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
         )
+        # NOTE: only inject ota-file-cache-control-header if we have upper otaproxy
         if proxies:
             _target_policy.file_sha256 = digest
             _target_policy.file_compression_alg = (
@@ -440,14 +441,16 @@ class Downloader:
         )
         if cache_policy.file_sha256:
             if digest and digest != cache_policy.file_sha256:
-                _msg = f"digest({cache_policy.file_sha256}) in cache_policy doesn't match value({digest}) from regulars.txt"
+                _msg = (
+                    f"digest({cache_policy.file_sha256}) in cache_policy"
+                    f"doesn't match value({digest}) from regulars.txt"
+                )
                 logger.warning(_msg)
                 raise HashVerificaitonError(url, dst, _msg)
-            if (
-                compression_alg
-                and cache_policy.file_compression_alg
-                and compression_alg != cache_policy.file_compression_alg
-            ):
+
+            # compression_alg from regulars.txt is set, but resp_headers indicates different
+            # compression_alg.
+            if compression_alg and compression_alg != cache_policy.file_compression_alg:
                 logger.info(
                     f"upper serves different cache file for this OTA file: {url=}, "
                     f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
@@ -492,8 +495,9 @@ class Downloader:
         _hash_inst = self._hash_func()
         # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
         #       the number will be of the decompressed file)
+        downloaded_file_size = 0
         # NOTE: traffic_on_wire is the number of bytes we directly downloaded from remote
-        downloaded_file_size, traffic_on_wire = 0, 0
+        traffic_on_wire = 0
         err_count = 0
 
         with self._downloading_exception_mapping(url, dst), self._session.get(
@@ -530,7 +534,7 @@ class Downloader:
                     traffic_on_wire += chunk_len
                     self._workers_downloaded_bytes[_thread_id] += chunk_len
 
-        # post downloading validation
+        # checking the download result
         if size and size != downloaded_file_size:
             _msg = f"partial download detected: {size=},{downloaded_file_size=}"
             logger.warning(_msg)

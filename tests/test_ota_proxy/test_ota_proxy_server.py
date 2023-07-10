@@ -112,7 +112,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                         self._storage_below_soft_limit_event.clear()
                         self._storage_below_hard_limit_event.set()
 
-                time.sleep(1)
+                time.sleep(2)
                 _count += 1
 
         OTACache._background_check_free_space = _mocked_background_check_freespace
@@ -257,7 +257,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         # --- execution --- #
         sync_event = asyncio.Event()
         tasks: List[asyncio.Task] = []
-        for _ in range(8):
+        for _ in range(self.CLIENTS_NUM):
             tasks.append(
                 asyncio.create_task(
                     self.ota_image_downloader(parse_regulars, sync_event)

@@ -145,8 +145,8 @@ class CacheTracker(Generic[_WEAKREF]):
     def _tmp_file_naming(cls, cache_identifier: str) -> str:
         """Create fname for tmp caching entry.
 
-        naming scheme: tmp_<file_sha256>_<hex_of_4bytes_random>\
-        
+        naming scheme: tmp_<file_sha256>_<hex_of_4bytes_random>
+
         NOTE: append 4bytes hex to identify cache entry for the same OTA file between
               different trackers.
         """
