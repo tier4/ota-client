@@ -631,9 +631,9 @@ class OTAMetadata:
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
                 headers={
-                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.to_header_str(
-                        CacheControlPolicy(no_cache=True)
-                    )
+                    OTAFileCacheControl.HEADER_LOWERCASE: CacheControlPolicy(
+                        no_cache=True
+                    ).to_header_str()
                 },
             )
 
@@ -653,9 +653,9 @@ class OTAMetadata:
                 cert_file,
                 digest=cert_hash,
                 headers={
-                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.to_header_str(
-                        CacheControlPolicy(no_cache=True)
-                    )
+                    OTAFileCacheControl.HEADER_LOWERCASE: CacheControlPolicy(
+                        no_cache=True
+                    ).to_header_str()
                 },
             )
             _parser.verify_metadata(cert_file.read_bytes())
@@ -676,9 +676,9 @@ class OTAMetadata:
                     _metafile_fpath,
                     digest=_metafile.hash,
                     headers={
-                        OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.to_header_str(
-                            CacheControlPolicy(no_cache=True)
-                        )
+                        OTAFileCacheControl.HEADER_LOWERCASE: CacheControlPolicy(
+                            no_cache=True
+                        ).to_header_str()
                     },
                 )
                 # convert to internal used version and store as binary files

@@ -931,11 +931,9 @@ class OTACache:
         cache_policy_from_client: CacheControlPolicy,
         extra_headers_from_client: Dict[str, str],
     ) -> Tuple[AsyncIterator[bytes], Dict[str, str]]:
-        # passthrough cache_policy from client to upper
+        # passthrough cache_policy from client to upper if any
         _headers_to_upper = extra_headers_from_client.copy()
-        if _cache_policy_to_upper := OTAFileCacheControl.to_header_str(
-            cache_policy_from_client
-        ):
+        if _cache_policy_to_upper := cache_policy_from_client.to_header_str():
             _headers_to_upper[
                 OTAFileCacheControl.HEADER_LOWERCASE
             ] = _cache_policy_to_upper

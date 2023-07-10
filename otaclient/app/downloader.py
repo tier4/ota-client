@@ -174,7 +174,7 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
                     # re-inject the cache policy header
                     _parsed_header[
                         OTAFileCacheControl.HEADER_LOWERCASE
-                    ] = OTAFileCacheControl.to_header_str(_cache_policy)
+                    ] = _cache_policy.to_header_str()
 
                     # replace with updated header
                     kwargs["headers"] = _parsed_header
@@ -415,9 +415,7 @@ class Downloader:
                 compression_alg if compression_alg else ""
             )
 
-            res[
-                OTAFileCacheControl.HEADER_LOWERCASE
-            ] = OTAFileCacheControl.to_header_str(_target_policy)
+            res[OTAFileCacheControl.HEADER_LOWERCASE] = _target_policy.to_header_str()
 
         return res
 

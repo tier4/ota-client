@@ -27,6 +27,22 @@ class CacheControlPolicy:
     file_sha256: str = ""
     file_compression_alg: str = ""
 
+    def to_header_str(self) -> str:
+        """Export cache_control policy as ota-file-cache-control header.
+
+        Only set/True policy will be exported, empty or False policy will be skipped.
+        """
+        _directives: List[str] = []
+        for field in fields(self):
+            _key, _value = field.name, getattr(self, field.name)
+            # key only field
+            if field.type is bool and _value:
+                _directives.append(field.name)
+            # key_value pair field(ignore empty field)
+            elif _value:
+                _directives.append(f"{_key}={_value}")
+        return OTAFileCacheControl.SEPARATOR.join(_directives)
+
 
 class OTAFileCacheControl:
     """Custom header for ota file caching control policies.
@@ -79,16 +95,3 @@ class OTAFileCacheControl:
                 _value = _parsed[1].strip()
                 setattr(res, _directive.strip(), _value)
         return res
-
-    @classmethod
-    def to_header_str(cls, cache_control_policy: CacheControlPolicy) -> str:
-        _directives: List[str] = []
-        for field in fields(cache_control_policy):
-            _key, _value = field.name, getattr(cache_control_policy, field.name)
-            # key only field
-            if field.type is bool and _value:
-                _directives.append(field.name)
-            # key_value pair field(ignore empty field)
-            elif _value:
-                _directives.append(f"{_key}={_value}")
-        return cls.SEPARATOR.join(_directives)

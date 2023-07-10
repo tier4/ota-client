@@ -83,14 +83,12 @@ class CacheMeta(ORMBase):
         ):
             return
 
-        _cache_policy_str = OTAFileCacheControl.to_header_str(
-            CacheControlPolicy(
-                no_cache=False,
-                retry_caching=False,
-                file_sha256=self.file_sha256,
-                file_compression_alg=self.file_compression_alg,
-            )
-        )
+        _cache_policy_str = CacheControlPolicy(
+            no_cache=False,
+            retry_caching=False,
+            file_sha256=self.file_sha256,
+            file_compression_alg=self.file_compression_alg,
+        ).to_header_str()
         if _cache_policy_str:
             return {OTAFileCacheControl.HEADER_LOWERCASE: _cache_policy_str}
 
