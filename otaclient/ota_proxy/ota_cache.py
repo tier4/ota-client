@@ -151,6 +151,7 @@ class CacheTracker(Generic[_WEAKREF]):
         base_dir: Union[str, Path],
         executor: Executor,
         callback: _CACHE_ENTRY_REGISTER_CALLBACK,
+        below_hard_limit_event: threading.Event,
     ):
         self.cache_identifier = cache_identifier
         self.fpath = Path(base_dir) / f"{cfg.TMP_FILE_PREFIX}_{cache_identifier}"
@@ -163,6 +164,7 @@ class CacheTracker(Generic[_WEAKREF]):
         self._subscriber_ref_holder: List[_WEAKREF] = []
         self._executor = executor
         self._cache_commit_cb = callback
+        self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
         self._cache_write_gen: Optional[AsyncGenerator[int, bytes]] = None
@@ -232,6 +234,9 @@ class CacheTracker(Generic[_WEAKREF]):
 
                 _written = 0
                 while _data := (yield _written):
+                    if self._space_availability_event.is_set():
+                        raise StorageReachHardLimit
+
                     _written = await f.write(_data)
                     self._bytes_written += _written
 
@@ -268,7 +273,6 @@ class CacheTracker(Generic[_WEAKREF]):
                         raise CacheMultiStreamingFailed(
                             f"provider aborted for {self.meta}"
                         )
-
                     _bytes_read += len(_chunk := await f.read(cfg.CHUNK_SIZE))
                     if _chunk:
                         err_count = 0
@@ -415,6 +419,7 @@ class CachingRegister:
         *,
         executor: Executor,
         callback: _CACHE_ENTRY_REGISTER_CALLBACK,
+        below_hard_limit_event: threading.Event,
     ) -> Tuple[CacheTracker, bool]:
         """Get an inst of CacheTracker for the cache_identifier.
 
@@ -445,6 +450,7 @@ class CachingRegister:
             base_dir=self._base_dir,
             executor=executor,
             callback=callback,
+            below_hard_limit_event=below_hard_limit_event,
         )
         self._ref_tracker_dict[_ref] = _tracker
         return _tracker, True
@@ -1156,6 +1162,7 @@ class OTACache:
             cache_identifier,
             executor=self._executor,
             callback=self._commit_cache_callback,
+            below_hard_limit_event=self._storage_below_hard_limit_event,
         )
         if is_writer:
             return await self._retrieve_file_by_new_caching(
