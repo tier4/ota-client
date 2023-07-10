@@ -165,10 +165,10 @@ class CacheTracker(Generic[_WEAKREF]):
         callback: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
     ):
+        self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
+        self.meta: Optional[CacheMeta] = None
         self.cache_identifier = cache_identifier
         self.save_path = Path(base_dir) / cache_identifier
-        self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
-        self.meta: CacheMeta = None  # type: ignore
         self._writer_ready = asyncio.Event()
         self._writer_finished = asyncio.Event()
         self._writer_failed = asyncio.Event()
@@ -193,6 +193,9 @@ class CacheTracker(Generic[_WEAKREF]):
         to fialize the caching."""
         # if the file with the same sha256has is already presented, skip the hardlink
         # NOTE: no need to clean the tmp file, it will be done by the cache tracker.
+        if not self.meta:
+            return
+
         if not self.save_path.is_file():
             self.fpath.link_to(self.save_path)
         if not await self._cache_commit_cb(self.meta):
@@ -240,6 +243,9 @@ class CacheTracker(Generic[_WEAKREF]):
         """
         logger.debug(f"start to cache for {self.meta=}...")
         try:
+            if not self.meta:
+                raise ValueError("called before provider tracker is ready, abort")
+
             async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
                 # ensure the file is created on the filesystem.
                 await f.write(b"")
