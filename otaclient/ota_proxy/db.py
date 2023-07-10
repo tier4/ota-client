@@ -49,9 +49,9 @@ class CacheMeta(ORMBase):
     """
 
     file_sha256: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default=""
+        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY"
     )
-    url: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL", default="")
+    url: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL")
     bucket_idx: ColumnDescriptor[int] = ColumnDescriptor(
         int, "INTEGER", "NOT NULL", type_guard=True
     )
@@ -62,11 +62,9 @@ class CacheMeta(ORMBase):
         int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
     file_compression_alg: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "NOT NULL", default=""
+        str, "TEXT", "NOT NULL"
     )
-    extra_headers: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "NOT NULL", default=""
-    )
+    extra_headers: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL")
 
     def export_cache_policy_header(self) -> Optional[Dict[str, str]]:
         """export <file_sha256> and <file_compression_alg> as CacheControlPolicy inst.
