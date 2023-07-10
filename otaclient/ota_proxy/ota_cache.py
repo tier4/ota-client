@@ -535,92 +535,54 @@ class LRUCacheHelper:
         )
 
 
-class RemoteOTAFile:
-    """File descriptor that represents an ongoing cache entry.
+async def cache_streaming(
+    fd: AsyncIterator[bytes],
+    meta: CacheMeta,
+    tracker: CacheTracker,
+) -> AsyncIterator[bytes]:
+    """A cache streamer that get data chunk from <fd> and tees to multiple destination.
 
-    Instance of RemoteOTAFile wraps a CacheMeta and a CacheTracker for unique entry,
-    and a opened remote file descriptor that can be used to yield data chunks from.
+    Data chunk yielded from <fd> will be teed to:
+    1. upper uvicorn otaproxy APP to send back to client,
+    2. cache_tracker cache_write_gen for caching.
 
-    Each file will first be cached under <base_dir> with a tmp file name,
-    successfully cached entry will be rename with its sha256hash and comitted
-    to the cache_db for future use by executing the <commit_cache_callback> callable.
-
-    Attributes:
+    Args:
         fd: opened connection to a remote file.
         meta: meta data of the requested resource.
-        below_hard_limit_event: a Event instance that can be used to check whether
-            local storage space is enough for caching. If reaches hard limit, the
-            caching will be interrupted.
-        tracker: an inst of ongoing cache tracker bound to this remote ota file.
-        base_dir: the location for cached files and tmp cache files.
-        executor: an inst of ThreadPoolExecutor for dispatching cache entry commit.
-        commit_cache_callback: a callback to commit the cached file entry to the cache_db.
+        tracker: an inst of ongoing cache tracker bound to this request.
+
+    Returns:
+        A bytes async iterator to yield data chunk from, for upper otaproxy uvicorn APP.
+
+    Raises:
+        CacheStreamingFailed if any exception happens during teeing.
     """
 
-    def __init__(
-        self,
-        fd: AsyncIterator[bytes],
-        meta: CacheMeta,
-        *,
-        tracker: CacheTracker,
-        below_hard_limit_event: threading.Event,
-        base_dir: Union[str, Path],
-    ):
-        self._base_dir = Path(base_dir)
-        self._storage_below_hard_limit = below_hard_limit_event
-        self._fd = fd
-        # NOTE: the hash and size in the meta are not set yet
-        # NOTE 2: store unquoted URL in database
-        self.meta = meta
-        self._tracker = tracker  # bound tracker
-
-    async def _cache_streamer(self) -> AsyncIterator[bytes]:
-        """For caller(server App) to yield data chunks from.
-
-        This method yields data chunks from self._fd(opened remote connection),
-        and then streams data chunks to uvicorn app and cache writing generator,
-        similar to the linux command tee does.
-
-        Returns:
-            An AsyncIterator for upper caller to yield data chunks from.
-        """
-        _cache_write_gen = None
+    async def _inner():
+        _cache_write_gen = tracker.get_cache_write_gen()
         try:
-            _cache_write_gen = self._tracker.get_cache_write_gen()
-        except ValueError:
-            logger.error(f"{self._tracker} is not ready, ignored")
-
-        try:
-            async for chunk in self._fd:
+            # tee the incoming chunk to two destinations
+            async for chunk in fd:
+                # NOTE(): for aiohttp, when HTTP chunk encoding is enabled,
+                #         an empty chunk will be sent to indicate the EOF of stream,
+                #         we MUST handle this empty chunk.
                 if not chunk:  # skip if empty chunk is read from remote
                     continue
 
                 # to caching generator
-                if _cache_write_gen and not self._tracker.writer_finished:
-                    if self._storage_below_hard_limit.is_set():
-                        await _cache_write_gen.asend(chunk)
-                    else:
-                        _cache_write_gen.athrow(StorageReachHardLimit)
+                if _cache_write_gen and not tracker.writer_finished:
+                    await _cache_write_gen.asend(chunk)
 
                 # to uvicorn thread
                 yield chunk
-            await self._tracker.provider_on_finished()
+            await tracker.provider_on_finished()
         except Exception as e:
-            logger.exception(f"cache tee failed for {self._tracker.meta=}")
-            # if any exception happens, signal the tracker
-            await self._tracker.provider_on_failed()
+            logger.exception(f"cache tee failed for {meta=}")
+            await tracker.provider_on_failed()
             raise CacheStreamingFailed from e
 
-    # exposed API
-
-    async def start_cache_streaming(self) -> AsyncIterator[bytes]:
-        """A wrapper method that create and start the cache writing generator.
-
-        Returns:
-            An AsyncIterator for yielding data chunks from this RemoteOTAFile.
-        """
-        await self._tracker.provider_start(self.meta)
-        return self._cache_streamer()
+    await tracker.provider_start(meta)
+    return _inner()
 
 
 async def open_remote(
@@ -1079,14 +1041,11 @@ class OTACache:
             cache_meta.extra_headers = json.dumps(extra_headers)
 
         # init RemoteOTAFile and start the transfer
-        fd = await RemoteOTAFile(
+        fd = await cache_streaming(
             fd=remote_fd,
             meta=cache_meta,
             tracker=tracker,
-            below_hard_limit_event=self._storage_below_hard_limit_event,
-            base_dir=self._base_dir,
-        ).start_cache_streaming()
-
+        )
         return fd, headers_to_client
 
     async def _retrieve_file_by_subscribing_cache_tracker(
