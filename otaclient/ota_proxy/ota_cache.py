@@ -139,6 +139,21 @@ class CacheTracker(Generic[_WEAKREF]):
     """
 
     READER_SUBSCRIBE_WAIT_PROVIDER_TIMEOUT = 2
+    FNAME_PART_SEPARATOR = "_"
+
+    @classmethod
+    def _tmp_file_naming(cls, cache_identifier: str) -> str:
+        """Create fname for tmp caching entry.
+
+        naming scheme: tmp_<file_sha256>_<hex_of_4bytes_random>\
+        
+        NOTE: append 4bytes hex to identify cache entry for the same OTA file between
+              different trackers.
+        """
+        return (
+            f"{cfg.TMP_FILE_PREFIX}{cls.FNAME_PART_SEPARATOR}"
+            f"{cache_identifier}{cls.FNAME_PART_SEPARATOR}{(os.urandom(4)).hex()}"
+        )
 
     def __init__(
         self,
@@ -152,7 +167,7 @@ class CacheTracker(Generic[_WEAKREF]):
     ):
         self.cache_identifier = cache_identifier
         self.save_path = Path(base_dir) / cache_identifier
-        self.fpath = Path(base_dir) / f"{cfg.TMP_FILE_PREFIX}_{cache_identifier}"
+        self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
         self.meta: CacheMeta = None  # type: ignore
         self._writer_ready = asyncio.Event()
         self._writer_finished = asyncio.Event()
@@ -181,7 +196,10 @@ class CacheTracker(Generic[_WEAKREF]):
         if not self.save_path.is_file():
             self.fpath.link_to(self.save_path)
         if not await self._cache_commit_cb(self.meta):
-            logger.warning(f"{self.meta} is cached, but db entry commit failed")
+            logger.debug(
+                f"{self.meta} is cached, but db entry commit failed, "
+                "normally it is caused by space reservation failed for this cache."
+            )
 
     @staticmethod
     def finalizer(*, fpath: Union[str, Path]):
