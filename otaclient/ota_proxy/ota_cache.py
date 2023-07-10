@@ -208,7 +208,8 @@ class CacheTracker(Generic[_WEAKREF]):
         # NOTE: no need to clean the tmp file, it will be done by the cache tracker.
         if not self.save_path.is_file():
             self.fpath.link_to(self.save_path)
-        await self._cache_commit_cb(self.meta)
+        if not await self._cache_commit_cb(self.meta):
+            logger.warning(f"{self.meta} is cached, but db entry commit failed")
 
     async def _provider_write_cache(self) -> AsyncGenerator[int, bytes]:
         """Provider writes data chunks from upper caller send() to tmp cache file.
@@ -384,7 +385,7 @@ class CacheTracker(Generic[_WEAKREF]):
 
 # a callback that register the cache entry indicates by input
 # CacheMeta inst to the cache_db
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], Coroutine[None, None, None]]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], Coroutine[None, None, bool]]
 
 
 class _Weakref:
@@ -866,7 +867,7 @@ class OTACache:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
-    async def _commit_cache_callback(self, meta: CacheMeta):
+    async def _commit_cache_callback(self, meta: CacheMeta) -> bool:
         """The callback for committing CacheMeta to cache_db.
 
         If caching is successful, and the space usage is reaching soft limit,
@@ -882,16 +883,22 @@ class OTACache:
                 if await self._reserve_space(meta.cache_size):
                     if not await self._lru_helper.commit_entry(meta):
                         logger.debug(f"failed to commit cache for {meta.url=}")
+                        return False
                 else:
                     # case 2: cache successful, but reserving space failed,
                     # NOTE(20221018): let cache tracker remove the tmp file
                     logger.debug(f"failed to reserve space for {meta.url=}")
+                    return False
+                return True
             else:
                 # case 3: commit cache and finish up
                 if not await self._lru_helper.commit_entry(meta):
                     logger.debug(f"failed to commit cache entry for {meta.url=}")
+                    return False
+                return True
         except Exception as e:
             logger.exception(f"failed on callback for {meta=}: {e!r}")
+            return False
 
     def _process_raw_url(self, raw_url: str) -> str:
         """Process the raw URL received from upper uvicorn app.
