@@ -234,7 +234,7 @@ class CacheTracker(Generic[_WEAKREF]):
 
                 _written = 0
                 while _data := (yield _written):
-                    if self._space_availability_event.is_set():
+                    if not self._space_availability_event.is_set():
                         raise StorageReachHardLimit
 
                     _written = await f.write(_data)
