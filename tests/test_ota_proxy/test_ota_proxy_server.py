@@ -234,7 +234,11 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                 #       space_availability transfered from below_hard_limit to exceed_hard_limit.
                 #       Another try is allowed for this case.
                 while True:
-                    async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
+                    async with session.get(
+                        url,
+                        proxy=self.OTA_PROXY_URL,
+                        cookies={"acookie": "acookie", "bcookie": "bcookie"},
+                    ) as resp:
                         hash_f = sha256()
                         async for data, _ in resp.content.iter_chunks():
                             hash_f.update(data)
@@ -346,7 +350,11 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
                 )
-                async with session.get(url, proxy=self.OTA_PROXY_URL) as resp:
+                async with session.get(
+                    url,
+                    proxy=self.OTA_PROXY_URL,
+                    cookies={"acookie": "acookie", "bcookie": "bcookie"},
+                ) as resp:
                     hash_f = sha256()
                     async for data, _ in resp.content.iter_chunks():
                         hash_f.update(data)
