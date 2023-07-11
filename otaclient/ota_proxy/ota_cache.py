@@ -26,6 +26,7 @@ import time
 import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
+from http.cookies import Morsel, SimpleCookie
 from pathlib import Path
 from typing import (
     AsyncGenerator,
@@ -65,23 +66,6 @@ _WEAKREF = TypeVar("_WEAKREF")
 # helper functions
 
 
-def parse_cookies_str(cookie_str: str) -> Dict[str, str]:
-    """Parses cookies str into dict.
-
-    Args:
-        cookie_str: cookies string, i.e.: "cpk0=cpv0;cpk1=cpv1;cpk2=cpv2"
-
-    Returns:
-        Dict[str, str]: dict represented cookies
-    """
-    res = dict()
-    for p in cookie_str.split(";"):
-        k, v = p.strip().split("=", maxsplit=1)
-        res[k] = v
-
-    return res
-
-
 def parse_headers_from_client(headers: Dict[str, str]):
     """Parse headers from request and pick headers we need.
 
@@ -91,15 +75,15 @@ def parse_headers_from_client(headers: Dict[str, str]):
     NOTE: currently extra_header from client only contains authorization header.
 
     Returns:
-        A tuple of cookies dict, cache_policy inst, and extra_headers dict.
+        A tuple of SimpleCookie, cache_policy inst, and extra_headers dict.
     """
-    cookies, extra_headers = {}, {}
+    cookies, extra_headers = SimpleCookie(), {}
     cache_policy = CacheControlPolicy()
     for hname, hvalue in headers.items():
         if hname == "authorization" and hvalue:
             extra_headers[hname] = hvalue
         elif hname == "cookie" and hvalue:
-            cookies = parse_cookies_str(hvalue)
+            cookies.load(hvalue)
         elif hname == OTAFileCacheControl.HEADER_LOWERCASE and hvalue:
             cache_policy = OTAFileCacheControl.parse_header(hvalue)
     return cookies, cache_policy, extra_headers
@@ -608,8 +592,8 @@ async def cache_streaming(
 async def open_remote(
     url: str,
     *,
-    cookies: Dict[str, str],
-    headers: Dict[str, str],
+    cookies: Mapping[str, Union[str, Morsel]],
+    headers: Mapping[str, str],
     session: aiohttp.ClientSession,
     upper_proxy: str = "",
 ) -> Tuple[AsyncIterator[bytes], Dict[str, str]]:
@@ -922,12 +906,14 @@ class OTACache:
         self,
         raw_url: str,
         *,
-        cookies_from_client: Dict[str, str],
+        cookies_from_client: Mapping[str, Union[str, Morsel]],
         cache_policy_from_client: CacheControlPolicy,
-        extra_headers_from_client: Dict[str, str],
+        extra_headers_from_client: Mapping[str, str],
     ) -> Tuple[AsyncIterator[bytes], Dict[str, str]]:
         # passthrough cache_policy from client to upper if any
-        _headers_to_upper = extra_headers_from_client.copy()
+        _headers_to_upper: Dict[str, str] = {}
+        _headers_to_upper.update(extra_headers_from_client)
+
         if _cache_policy_to_upper := cache_policy_from_client.to_header_str():
             _headers_to_upper[
                 OTAFileCacheControl.HEADER_LOWERCASE
@@ -1011,9 +997,9 @@ class OTACache:
         raw_url: str,
         tracker: CacheTracker,
         *,
-        cookies_from_client: Dict[str, str],
+        cookies_from_client: Mapping[str, Union[str, Morsel]],
         cache_policy_from_client: CacheControlPolicy,
-        extra_headers_from_client: Dict[str, str],
+        extra_headers_from_client: Mapping[str, str],
     ) -> Optional[Tuple[AsyncIterator[bytes], Dict[str, str]]]:
         try:
             remote_fd, resp_headers = await self._retrieve_file_by_downloading(
