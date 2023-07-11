@@ -42,16 +42,19 @@ connection_err_logger.addFilter(
 __all__ = ("App",)
 
 
-# uvicorn HTTP resp type
-TYPE_RESP_BODY = "http.response.body"
-TYPE_RESP_START = "http.response.start"
+# some consts
+REQ_TYPE_LIFESPAN = "lifespan"
+REQ_TYPE_HTTP = "http"
+RESP_TYPE_BODY = "http.response.body"
+RESP_TYPE_START = "http.response.start"
+METHOD_GET = "GET"
 
 
 # helper methods
 
 
 def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
-    """Decode raw headers bytes from client's request.
+    """Decode raw headers bytes from uvicorn parsed client's resp.
 
     Uvicorn sends headers from client's request to application as list of bytes tuple.
     """
@@ -59,8 +62,10 @@ def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]
     for raw_header in raw_headers:
         if len(raw_header) != 2 or not raw_header[-1]:
             continue
-        hname, hvalue = raw_header
-        headers[hname.decode()] = hvalue.decode()
+        bname, bvalue = raw_header
+        name = bname.decode("utf-8", "surrogateescape").lower()
+        value = bvalue.strip().decode("utf-8", "surrogateescape")
+        headers[name] = value
     return headers
 
 
@@ -69,11 +74,20 @@ def encode_headers(headers: Dict[str, str]) -> List[Tuple[bytes, bytes]]:
 
     Uvicorn requests application to pre-process headers to bytes.
     """
+
+    def _safe_checker(_in: str):
+        if "\r" in _in or "\n" in _in:
+            raise ValueError(r"special chars '\r' and '\n'" f" is not allowed: {_in=}")
+        return _in
+
     raw_headers: List[Tuple[bytes, bytes]] = []
-    for hname, hvalue in headers.items():
-        if not (hvalue and isinstance(hvalue, str)):
+    for name, value in headers.items():
+        if not (value and isinstance(value, str)):
             continue
-        raw_headers.append((hname.lower().encode(), hvalue.encode()))
+        bname = _safe_checker(name).lower().encode("utf-8")
+        bvalue = _safe_checker(value).encode("utf-8")
+
+        raw_headers.append((bname, bvalue))
     return raw_headers
 
 
@@ -132,14 +146,14 @@ class App:
         """Helper method for sending errors back to client."""
         await send(
             {
-                "type": TYPE_RESP_START,
+                "type": RESP_TYPE_START,
                 "status": status,
                 "headers": [
                     [b"content-type", b"text/html;charset=UTF-8"],
                 ],
             }
         )
-        await send({"type": TYPE_RESP_BODY, "body": msg.encode("utf8")})
+        await send({"type": RESP_TYPE_BODY, "body": msg.encode("utf8")})
 
     @staticmethod
     async def _send_chunk(data: bytes, more: bool, send):
@@ -151,9 +165,9 @@ class App:
             send: ASGI send method.
         """
         if more:
-            await send({"type": TYPE_RESP_BODY, "body": data, "more_body": True})
+            await send({"type": RESP_TYPE_BODY, "body": data, "more_body": True})
         else:
-            await send({"type": TYPE_RESP_BODY, "body": b""})
+            await send({"type": RESP_TYPE_BODY, "body": b""})
 
     @staticmethod
     async def _init_response(
@@ -168,7 +182,7 @@ class App:
         """
         await send(
             {
-                "type": TYPE_RESP_START,
+                "type": RESP_TYPE_START,
                 "status": status,
                 "headers": headers,
             }
@@ -272,7 +286,7 @@ class App:
 
     async def http_handler(self, scope, send):
         """The real entry for the ota_proxy."""
-        if scope["method"] != "GET":
+        if scope["method"] != METHOD_GET:
             msg = "ONLY SUPPORT GET METHOD."
             await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
             return
@@ -295,7 +309,7 @@ class App:
         It filters requests, hands valid requests over to the app entry,
         and handles lifespan protocol to start/stop server properly.
         """
-        if scope["type"] == "lifespan":
+        if scope["type"] == REQ_TYPE_LIFESPAN:
             # handling lifespan protocol
             while True:
                 message = await receive()
@@ -306,6 +320,6 @@ class App:
                     await self.stop()
                     await send({"type": "lifespan.shutdown.complete"})
                     return
-        elif scope["type"] == "http":
+        elif scope["type"] == REQ_TYPE_HTTP:
             await self.http_handler(scope, send)
         # ignore unknown request type
