@@ -242,7 +242,11 @@ class CacheTracker(Generic[_WEAKREF]):
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
-                        raise StorageReachHardLimit
+                        logger.debug(
+                            f"abort writing cache for {self.meta=}: {StorageReachHardLimit!r}"
+                        )
+                        self._writer_failed.set()
+                        return
 
                     _written = await f.write(_data)
                     self._bytes_written += _written
