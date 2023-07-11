@@ -45,6 +45,8 @@ from typing import (
 )
 from urllib.parse import SplitResult, quote, urlsplit
 
+from otaclient._utils import stopasynciteration_handler
+
 from .cache_control import CacheControlPolicy, OTAFileCacheControl
 from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
@@ -350,10 +352,8 @@ class CacheTracker(Generic[_WEAKREF]):
 
     async def provider_on_finished(self):
         if not self.writer_finished and self._cache_write_gen:
-            try:
+            with stopasynciteration_handler():
                 await self._cache_write_gen.asend(b"")
-            except StopAsyncIteration:
-                pass
 
         self._writer_finished.set()
         self._ref = None
@@ -362,10 +362,8 @@ class CacheTracker(Generic[_WEAKREF]):
         """Manually fail and stop the caching."""
         if not self.writer_finished and self._cache_write_gen:
             logger.warning(f"interrupt writer coroutine for {self.meta=}")
-            try:
+            with stopasynciteration_handler():
                 await self._cache_write_gen.athrow(CacheStreamingInterrupt)
-            except StopAsyncIteration:
-                pass
 
         self._writer_failed.set()
         self._writer_finished.set()
@@ -575,7 +573,8 @@ async def cache_streaming(
 
                 # to caching generator
                 if _cache_write_gen and not tracker.writer_finished:
-                    await _cache_write_gen.asend(chunk)
+                    with stopasynciteration_handler(handled_all_exc=True):
+                        await _cache_write_gen.asend(chunk)
 
                 # to uvicorn thread
                 yield chunk
