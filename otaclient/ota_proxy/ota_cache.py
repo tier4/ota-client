@@ -47,6 +47,13 @@ from urllib.parse import SplitResult, quote, urlsplit
 
 from otaclient._utils import stopasynciteration_handler
 
+from ._consts import (
+    HEADER_AUTHORIZATION,
+    HEADER_COOKIE,
+    HEADER_OTA_FILE_CACHE_CONTROL,
+    HEADER_CONTENT_ENCODING,
+    HEADER_CONTENT_TYPE,
+)
 from .cache_control import CacheControlPolicy, OTAFileCacheControl
 from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
@@ -82,11 +89,11 @@ def parse_headers_from_client(headers: Dict[str, str]):
     cookies, extra_headers = SimpleCookie(), {}
     cache_policy = CacheControlPolicy()
     for hname, hvalue in headers.items():
-        if hname == "authorization" and hvalue:
+        if hname == HEADER_AUTHORIZATION and hvalue:
             extra_headers[hname] = hvalue
-        elif hname == "cookie" and hvalue:
+        elif hname == HEADER_COOKIE and hvalue:
             cookies.load(hvalue)
-        elif hname == OTAFileCacheControl.HEADER_LOWERCASE and hvalue:
+        elif hname == HEADER_OTA_FILE_CACHE_CONTROL and hvalue:
             cache_policy = OTAFileCacheControl.parse_header(hvalue)
     return cookies, cache_policy, extra_headers
 
@@ -918,9 +925,7 @@ class OTACache:
         _headers_to_upper.update(extra_headers_from_client)
 
         if _cache_policy_to_upper := cache_policy_from_client.to_header_str():
-            _headers_to_upper[
-                OTAFileCacheControl.HEADER_LOWERCASE
-            ] = _cache_policy_to_upper
+            _headers_to_upper[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy_to_upper
 
         remote_fd, resp_headers = await open_remote(
             url=self._process_raw_url(raw_url),
@@ -937,19 +942,15 @@ class OTACache:
         # process cache_policy
         #   if upper resp_headers contains cache_policy, passthrough it to client,
         #   otherwise not sending cache_policy back to client.
-        if _cache_policy_str := resp_headers.get(
-            OTAFileCacheControl.HEADER_LOWERCASE, None
-        ):
-            headers_back_to_client[
-                OTAFileCacheControl.HEADER_LOWERCASE
-            ] = _cache_policy_str
+        if _cache_policy_str := resp_headers.get(HEADER_OTA_FILE_CACHE_CONTROL, None):
+            headers_back_to_client[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy_str
 
         # process content-type and content-encoding if any
-        if _content_encoding := resp_headers.get("content-encoding", None):
-            headers_back_to_client["content-encoding"] = _content_encoding
+        if _content_encoding := resp_headers.get(HEADER_CONTENT_ENCODING, None):
+            headers_back_to_client[HEADER_CONTENT_ENCODING] = _content_encoding
         # default to use octet-stream for unspecified content-type
-        headers_back_to_client["content-type"] = resp_headers.get(
-            "content-type", "application/octet-stream"
+        headers_back_to_client[HEADER_CONTENT_TYPE] = resp_headers.get(
+            HEADER_CONTENT_TYPE, "application/octet-stream"
         )
 
         return remote_fd, headers_back_to_client
@@ -1023,7 +1024,7 @@ class OTACache:
         _cache_entry_identifier, _compression_alg = "", ""
         # first, use file_sha256 and file_compression_alg from upper if possible
         if _upper_cache_policy_str := resp_headers.get(
-            OTAFileCacheControl.HEADER_LOWERCASE, ""
+            HEADER_OTA_FILE_CACHE_CONTROL, ""
         ):
             _upper_cache_policy = OTAFileCacheControl.parse_header(
                 _upper_cache_policy_str
@@ -1046,7 +1047,7 @@ class OTACache:
         # dumps extra_headers to cache_meta from <resp_headers>
         # NOTE: no need to include ota-file-cache-control header into extra_headers
         extra_headers = resp_headers.copy()
-        extra_headers.pop(OTAFileCacheControl.HEADER_LOWERCASE, None)
+        extra_headers.pop(HEADER_OTA_FILE_CACHE_CONTROL, None)
         if extra_headers:
             cache_meta.extra_headers = json.dumps(extra_headers)
 

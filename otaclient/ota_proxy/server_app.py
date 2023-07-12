@@ -21,6 +21,13 @@ from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
 from otaclient._utils.logging import BurstSuppressFilter
+from ._consts import (
+    METHOD_GET,
+    REQ_TYPE_HTTP,
+    REQ_TYPE_LIFESPAN,
+    RESP_TYPE_BODY,
+    RESP_TYPE_START,
+)
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 
@@ -42,18 +49,10 @@ connection_err_logger.addFilter(
 __all__ = ("App",)
 
 
-# some consts
-REQ_TYPE_LIFESPAN = "lifespan"
-REQ_TYPE_HTTP = "http"
-RESP_TYPE_BODY = "http.response.body"
-RESP_TYPE_START = "http.response.start"
-METHOD_GET = "GET"
-
-
 # helper methods
 
 
-def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
+def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> CIMultiDictProxy[str]:
     """Decode raw headers bytes from uvicorn parsed client's resp.
 
     Uvicorn sends headers from client's request to application as list of bytes tuple.
