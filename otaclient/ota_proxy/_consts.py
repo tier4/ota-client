@@ -14,5 +14,4 @@ METHOD_GET = "GET"
 HEADER_OTA_FILE_CACHE_CONTROL = istr(OTAFileCacheControl.HEADER_LOWERCASE)
 HEADER_AUTHORIZATION = istr("authorization")
 HEADER_COOKIE = istr("cookie")
-HEADER_CONTENT_TYPE = istr("content-type")
 HEADER_CONTENT_ENCODING = istr("content-encoding")

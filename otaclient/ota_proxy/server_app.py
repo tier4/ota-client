@@ -260,7 +260,7 @@ class App:
         retrieved_ota_cache, retrieve_file_executed = None, False
         async with self._error_handling_for_cache_retrieving(url, send):
             retrieved_ota_cache = await self._ota_cache.retrieve_file(
-                url, headers_from_client
+                url, CIMultiDict(headers_from_client)
             )
             retrieve_file_executed = True
 

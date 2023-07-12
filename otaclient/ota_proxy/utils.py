@@ -40,5 +40,5 @@ async def read_file(fpath: PathLike, *, executor: Executor) -> AsyncIterator[byt
 
 def url_based_hash(raw_url: str) -> str:
     """Generate sha256hash with unquoted raw_url."""
-    _sha256_f = sha256(raw_url.encode())
-    return f"{cfg.URL_BASED_HASH_PREFIX}{_sha256_f.hexdigest()}"
+    _sha256_value = sha256(raw_url.encode()).hexdigest()
+    return f"{cfg.URL_BASED_HASH_PREFIX}{_sha256_value}"
