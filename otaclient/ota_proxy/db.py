@@ -76,14 +76,15 @@ class CacheMeta(ORMBase):
         res = CIMultiDict()
         if self.content_encoding:
             res[HEADER_CONTENT_ENCODING] = self.content_encoding
+
+        # export ota-file-cache-control headers if file_sha256 is valid file hash
         if self.file_sha256 and not self.file_sha256.startswith(
             cfg.URL_BASED_HASH_PREFIX
         ):
-            _cache_policy = CacheControlPolicy(
+            res[HEADER_OTA_FILE_CACHE_CONTROL] = OTAFileCacheControl.export_as_header(
                 file_sha256=self.file_sha256,
                 file_compression_alg=self.file_compression_alg,
             )
-            res[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy.to_header_str()
         return res
 
 

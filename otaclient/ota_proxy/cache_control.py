@@ -97,12 +97,14 @@ class OTAFileCacheControl:
         return CacheControlPolicy().update_from_header_str(_input)
 
     @classmethod
-    def export_as_header(cls, **kwargs: Mapping[DIRECTIVE, str]) -> str:
-        """
+    def export_as_header(cls, **directives: str) -> str:
+        """Directly export header str from a list of directive pairs.
+
+        Check DIRECTIVE for directives definition.
         Only set/True policy will be exported, empty or False policy will be skipped.
         """
         _directives: List[str] = []
-        for k, v in kwargs:
+        for k, v in directives:
             try:
                 k = DIRECTIVE[k]
             except KeyError:
