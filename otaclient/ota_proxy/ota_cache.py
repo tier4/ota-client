@@ -502,9 +502,7 @@ class LRUCacheHelper:
         return True
 
     async def lookup_entry(self, file_sha256: str) -> Optional[CacheMeta]:
-        return await self._db.lookup_entry(
-            CacheMeta.file_sha256, url_based_hash(file_sha256)
-        )
+        return await self._db.lookup_entry(CacheMeta.file_sha256, file_sha256)
 
     async def remove_entry(self, file_sha256: str) -> bool:
         return (await self._db.remove_entries(CacheMeta.file_sha256, file_sha256)) > 0
