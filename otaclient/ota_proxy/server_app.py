@@ -266,16 +266,21 @@ class App:
         headers_from_client = decode_raw_headers(scope["headers"])
 
         # try to get a cache entry for this URL or for file_sha256 indicated by cache_policy
-        retrieved_ota_cache = None
+        retrieved_ota_cache, retrieve_file_executed = None, False
         async with self._error_handling_for_cache_retrieving(url, send):
             retrieved_ota_cache = await self._ota_cache.retrieve_file(
                 url, headers_from_client
             )
+            retrieve_file_executed = True
 
         if retrieved_ota_cache is None:
-            _msg = f"failed to retrieve fd for {url}"
-            logger.warning(_msg)
-            await self._respond_with_error(HTTPStatus.INTERNAL_SERVER_ERROR, _msg, send)
+            # retrieve_file executed successfully, but return nothing
+            if retrieve_file_executed:
+                _msg = f"failed to retrieve fd for {url} from otacache"
+                logger.warning(_msg)
+                await self._respond_with_error(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, _msg, send
+                )
             return
         fp, headers_to_client = retrieved_ota_cache
 
