@@ -779,40 +779,43 @@ class OTACache:
         while not self._closed:
             try:
                 disk_usage = shutil.disk_usage(self._base_dir)
-                current_used_p = disk_usage.used / disk_usage.total * 100
-                if current_used_p < cfg.DISK_USE_LIMIT_SOFT_P:
-                    logger.debug(
-                        f"storage usage below soft limit: {current_used_p:.2f}%"
-                    )
-                    # below soft limit, normal caching mode
-                    self._storage_below_soft_limit_event.set()
-                    self._storage_below_hard_limit_event.set()
-                elif (
-                    current_used_p >= cfg.DISK_USE_LIMIT_SOFT_P
-                    and current_used_p < cfg.DISK_USE_LIMIT_HARD_P
-                ):
-                    logger.debug(
-                        f"storage usage below hard limit: {current_used_p:.2f}%"
-                    )
-                    # reach soft limit but not reach hard limit
-                    # space reservation will be triggered after new file cached
-                    self._storage_below_soft_limit_event.clear()
-                    self._storage_below_hard_limit_event.set()
-                else:
-                    logger.debug(
-                        f"storage usage reach hard limit: {current_used_p:.2f}%"
-                    )
-                    # reach hard limit
-                    # totally disable caching
-                    self._storage_below_soft_limit_event.clear()
-                    self._storage_below_hard_limit_event.clear()
             except FileNotFoundError:
                 logger.error(
-                    "background free space check interrupted as cache folder disappeared"
+                    "background free space check interrupted as cache folder disappeared,"
+                    "this is treated the same as storage reached hard limit."
                 )
                 self._storage_below_soft_limit_event.clear()
                 self._storage_below_hard_limit_event.clear()
                 break
+
+            current_used_p = disk_usage.used / disk_usage.total * 100
+
+            _previous_below_hard = self._storage_below_hard_limit_event.is_set()
+            _current_below_hard = False
+            if current_used_p <= cfg.DISK_USE_LIMIT_SOFT_P:
+                self._storage_below_soft_limit_event.set()
+                self._storage_below_hard_limit_event.set()
+                _current_below_hard = True
+            elif current_used_p <= cfg.DISK_USE_LIMIT_HARD_P:
+                self._storage_below_soft_limit_event.clear()
+                self._storage_below_hard_limit_event.set()
+                _current_below_hard = True
+            else:
+                self._storage_below_soft_limit_event.clear()
+                self._storage_below_hard_limit_event.clear()
+
+            # logging space monitoring result
+            if _previous_below_hard and not _current_below_hard:
+                logger.warning(
+                    f"disk usage reached hard limit({current_used_p=:.1%},"
+                    f"{cfg.DISK_USE_LIMIT_HARD_P:.1%}), cache disabled"
+                )
+            elif not _previous_below_hard and _current_below_hard:
+                logger.info(
+                    f"disk usage is below hard limit({current_used_p=:.1%}),"
+                    f"{cfg.DISK_USE_LIMIT_SOFT_P:.1%}), cache enabled again"
+                )
+
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
     def _cache_entries_cleanup(self, entry_hashes: List[str]):
