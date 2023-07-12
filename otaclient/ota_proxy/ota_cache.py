@@ -807,13 +807,13 @@ class OTACache:
             # logging space monitoring result
             if _previous_below_hard and not _current_below_hard:
                 logger.warning(
-                    f"disk usage reached hard limit({current_used_p=:.1%},"
-                    f"{cfg.DISK_USE_LIMIT_HARD_P:.1%}), cache disabled"
+                    f"disk usage reached hard limit({current_used_p=:.1}%,"
+                    f"{cfg.DISK_USE_LIMIT_HARD_P:.1}%), cache disabled"
                 )
             elif not _previous_below_hard and _current_below_hard:
                 logger.info(
-                    f"disk usage is below hard limit({current_used_p=:.1%}),"
-                    f"{cfg.DISK_USE_LIMIT_SOFT_P:.1%}), cache enabled again"
+                    f"disk usage is below hard limit({current_used_p=:.1}%),"
+                    f"{cfg.DISK_USE_LIMIT_SOFT_P:.1}%), cache enabled again"
                 )
 
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
