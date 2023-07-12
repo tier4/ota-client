@@ -17,7 +17,8 @@ import asyncio
 import aiohttp
 from contextlib import asynccontextmanager
 from http import HTTPStatus
-from typing import Dict, List, Tuple, Union
+from multidict import CIMultiDict, CIMultiDictProxy
+from typing import List, Mapping, Tuple, Union
 from urllib.parse import urlparse
 
 from otaclient._utils.logging import BurstSuppressFilter
@@ -56,19 +57,22 @@ def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> CIMultiDictPro
     """Decode raw headers bytes from uvicorn parsed client's resp.
 
     Uvicorn sends headers from client's request to application as list of bytes tuple.
+
+    Returns:
+        An inst of case-insensitive dict proxy.
     """
-    headers: Dict[str, str] = {}
+    headers = CIMultiDict()
     for raw_header in raw_headers:
         if len(raw_header) != 2 or not raw_header[-1]:
             continue
         bname, bvalue = raw_header
-        name = bname.decode("utf-8", "surrogateescape").lower()
+        name = bname.decode("utf-8", "surrogateescape")
         value = bvalue.strip().decode("utf-8", "surrogateescape")
         headers[name] = value
-    return headers
+    return CIMultiDictProxy(headers)
 
 
-def encode_headers(headers: Dict[str, str]) -> List[Tuple[bytes, bytes]]:
+def encode_headers(headers: Mapping[str, str]) -> List[Tuple[bytes, bytes]]:
     """Encode headers dict to list of bytes tuples for sending back to client.
 
     Uvicorn requests application to pre-process headers to bytes.
@@ -83,7 +87,7 @@ def encode_headers(headers: Dict[str, str]) -> List[Tuple[bytes, bytes]]:
     for name, value in headers.items():
         if not (value and isinstance(value, str)):
             continue
-        bname = _safe_checker(name).lower().encode("utf-8")
+        bname = _safe_checker(name).encode("utf-8")
         bvalue = _safe_checker(value).encode("utf-8")
 
         raw_headers.append((bname, bvalue))

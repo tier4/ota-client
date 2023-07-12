@@ -26,17 +26,16 @@ import time
 import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
-from http.cookies import Morsel, SimpleCookie
+from http.cookies import SimpleCookie
+from multidict import CIMultiDict, CIMultiDictProxy
 from pathlib import Path
 from typing import (
     AsyncGenerator,
     AsyncIterator,
     Callable,
     Coroutine,
-    Dict,
     Generic,
     List,
-    Mapping,
     MutableMapping,
     Optional,
     Tuple,
@@ -75,7 +74,9 @@ _WEAKREF = TypeVar("_WEAKREF")
 # helper functions
 
 
-def parse_headers_from_client(headers: Dict[str, str]):
+def parse_headers_from_client(
+    headers: CIMultiDictProxy[str],
+) -> Tuple[SimpleCookie[str], CacheControlPolicy, CIMultiDict[str]]:
     """Parse headers from request and pick headers we need.
 
     cookies and ota-file-cache-control headers will be extracted separately,
@@ -84,9 +85,9 @@ def parse_headers_from_client(headers: Dict[str, str]):
     NOTE: currently extra_header from client only contains authorization header.
 
     Returns:
-        A tuple of SimpleCookie, cache_policy inst, and extra_headers dict.
+        A tuple of SimpleCookie, cache_policy inst, and extra_headers CIMultiDict.
     """
-    cookies, extra_headers = SimpleCookie(), {}
+    cookies, extra_headers = SimpleCookie(), CIMultiDict()
     cache_policy = CacheControlPolicy()
     for hname, hvalue in headers.items():
         if hname == HEADER_AUTHORIZATION and hvalue:
@@ -96,11 +97,6 @@ def parse_headers_from_client(headers: Dict[str, str]):
         elif hname == HEADER_OTA_FILE_CACHE_CONTROL and hvalue:
             cache_policy = OTAFileCacheControl.parse_header(hvalue)
     return cookies, cache_policy, extra_headers
-
-
-def regulate_headers(headers: Mapping[str, str]) -> Dict[str, str]:
-    """Parse input headers and return a copy of it which all header names are lowercase."""
-    return {k.lower(): v for k, v in headers.items()}
 
 
 # cache tracker
@@ -602,11 +598,11 @@ async def cache_streaming(
 async def open_remote(
     url: str,
     *,
-    cookies: Mapping[str, Union[str, Morsel]],
-    headers: Mapping[str, str],
+    cookies: SimpleCookie[str],
+    headers: CIMultiDict[str],
     session: aiohttp.ClientSession,
     upper_proxy: str = "",
-) -> Tuple[AsyncIterator[bytes], Dict[str, str]]:
+) -> Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
     """Open a file descriptor to remote resource.
 
     Args:
@@ -625,7 +621,6 @@ async def open_remote(
     Raises:
         Any exceptions during aiohttp connecting to the remote.
     """
-    resp_headers = {}
 
     async def _inner() -> AsyncIterator[bytes]:
         async with session.get(
@@ -634,15 +629,13 @@ async def open_remote(
             cookies=cookies,
             headers=headers,
         ) as response:
-            resp_headers.update(regulate_headers(response.headers))
-
-            yield b""
+            yield response.headers  # type: ignore
             async for data, _ in response.content.iter_chunks():
                 if data:  # only yield non-empty data chunk
                     yield data
 
     # open remote connection
-    await (_remote_fd := _inner()).__anext__()
+    resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _inner()).__anext__()  # type: ignore
     return _remote_fd, resp_headers
 
 
@@ -916,13 +909,12 @@ class OTACache:
         self,
         raw_url: str,
         *,
-        cookies_from_client: Mapping[str, Union[str, Morsel]],
+        cookies_from_client: SimpleCookie[str],
         cache_policy_from_client: CacheControlPolicy,
-        extra_headers_from_client: Mapping[str, str],
-    ) -> Tuple[AsyncIterator[bytes], Dict[str, str]]:
+        extra_headers_from_client: CIMultiDict[str],
+    ) -> Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
         # passthrough cache_policy from client to upper if any
-        _headers_to_upper: Dict[str, str] = {}
-        _headers_to_upper.update(extra_headers_from_client)
+        _headers_to_upper = extra_headers_from_client.copy()
 
         if _cache_policy_to_upper := cache_policy_from_client.to_header_str():
             _headers_to_upper[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy_to_upper
@@ -938,7 +930,7 @@ class OTACache:
         # pick headers from <resp_headers> back to client.
         #   currently ota-file-cache-control, content-type and content-encoding
         #   will be passed through back to client.
-        headers_back_to_client = {}
+        headers_back_to_client = CIMultiDict()
         # process cache_policy
         #   if upper resp_headers contains cache_policy, passthrough it to client,
         #   otherwise not sending cache_policy back to client.
@@ -953,11 +945,11 @@ class OTACache:
             HEADER_CONTENT_TYPE, "application/octet-stream"
         )
 
-        return remote_fd, headers_back_to_client
+        return remote_fd, CIMultiDictProxy(headers_back_to_client)
 
     async def _retrieve_file_by_cache(
         self, raw_url: str, *, cache_policy_from_client: CacheControlPolicy
-    ) -> Optional[Tuple[AsyncIterator[bytes], Dict[str, str]]]:
+    ) -> Optional[Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]]:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
@@ -993,7 +985,7 @@ class OTACache:
         #       directory to indicate invalid cache.
         return (
             read_file(cache_file, executor=self._executor),
-            meta_db_entry.export_headers_to_client(),
+            CIMultiDictProxy(meta_db_entry.export_headers_to_client()),
         )
 
     async def _retrieve_file_by_new_caching(
@@ -1001,10 +993,10 @@ class OTACache:
         raw_url: str,
         tracker: CacheTracker,
         *,
-        cookies_from_client: Mapping[str, Union[str, Morsel]],
+        cookies_from_client: SimpleCookie[str],
         cache_policy_from_client: CacheControlPolicy,
-        extra_headers_from_client: Mapping[str, str],
-    ) -> Optional[Tuple[AsyncIterator[bytes], Dict[str, str]]]:
+        extra_headers_from_client: CIMultiDict[str],
+    ) -> Optional[Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]]:
         try:
             remote_fd, resp_headers = await self._retrieve_file_by_downloading(
                 raw_url,
@@ -1049,13 +1041,15 @@ class OTACache:
         extra_headers = resp_headers.copy()
         extra_headers.pop(HEADER_OTA_FILE_CACHE_CONTROL, None)
         if extra_headers:
-            cache_meta.extra_headers = json.dumps(extra_headers)
+            cache_meta.extra_headers = json.dumps(dict(extra_headers))
 
         fd = await cache_streaming(
             fd=remote_fd,
             meta=cache_meta,
             tracker=tracker,
         )
+        # NOTE: still passthrough upper headers as it to client as we are serving
+        #       client with resp from upper server.
         return fd, resp_headers
 
     # exposed API
@@ -1063,8 +1057,8 @@ class OTACache:
     async def retrieve_file(
         self,
         raw_url: str,
-        headers_from_client: Dict[str, str],
-    ) -> Optional[Tuple[AsyncIterator[bytes], Dict[str, str]]]:
+        headers_from_client: CIMultiDictProxy[str],
+    ) -> Optional[Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]]:
         """Retrieve a file descriptor for the requested <raw_url>.
 
         This method retrieves a file descriptor for incoming client request.
@@ -1137,4 +1131,6 @@ class OTACache:
             stream_fd = await tracker.subscriber_subscribe_tracker()
             if stream_fd and tracker.meta:
                 logger.debug(f"reader subscribe for {tracker.meta=}")
-                return stream_fd, tracker.meta.export_headers_to_client()
+                return stream_fd, CIMultiDictProxy(
+                    tracker.meta.export_headers_to_client()
+                )

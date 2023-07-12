@@ -23,6 +23,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from multidict import CIMultiDict
+
 from .config import config as cfg
 from .orm import ColumnDescriptor, ORMBase
 from .cache_control import CacheControlPolicy, OTAFileCacheControl
@@ -90,17 +92,16 @@ class CacheMeta(ORMBase):
         if _cache_policy_str:
             return {OTAFileCacheControl.HEADER_LOWERCASE: _cache_policy_str}
 
-    def export_headers_to_client(self) -> Dict[str, str]:
+    def export_headers_to_client(self) -> CIMultiDict[str]:
         """Export required headers for client.
 
         Currently includes content-type, content-encoding and ota-file-cache-control headers.
         """
-        res = {}
-
+        res = CIMultiDict()
         if self.extra_headers:
             _extra_headers = json.loads(self.extra_headers)
             if isinstance(_extra_headers, dict):
-                res = _extra_headers
+                res.update(_extra_headers)
 
         if _cache_policy := self.export_cache_policy_header():
             res.update(_cache_policy)
