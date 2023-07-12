@@ -77,20 +77,11 @@ def encode_headers(headers: Mapping[str, str]) -> List[Tuple[bytes, bytes]]:
 
     Uvicorn requests application to pre-process headers to bytes.
     """
-
-    def _safe_checker(_in: str):
-        if "\r" in _in or "\n" in _in:
-            raise ValueError(r"special chars '\r' and '\n'" f" is not allowed: {_in=}")
-        return _in
-
     raw_headers: List[Tuple[bytes, bytes]] = []
     for name, value in headers.items():
         if not (value and isinstance(value, str)):
             continue
-        bname = _safe_checker(name).encode("utf-8")
-        bvalue = _safe_checker(value).encode("utf-8")
-
-        raw_headers.append((bname, bvalue))
+        raw_headers.append((name.encode("utf-8"), value.encode("utf-8")))
     return raw_headers
 
 
