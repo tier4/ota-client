@@ -51,7 +51,6 @@ from ._consts import (
     HEADER_COOKIE,
     HEADER_OTA_FILE_CACHE_CONTROL,
     HEADER_CONTENT_ENCODING,
-    HEADER_CONTENT_TYPE,
 )
 from .cache_control import CacheControlPolicy, OTAFileCacheControl
 from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
@@ -74,29 +73,34 @@ _WEAKREF = TypeVar("_WEAKREF")
 # helper functions
 
 
-def parse_headers_from_client(
+def process_headers_from_resp(headers: CIMultiDictProxy[str]) -> CIMultiDict[str]:
+    """Parse headers from upper response and pick headers we need.
+
+    We only need content-encoding and ota-file-cache-control headers from upper resp.
+    """
+    res = CIMultiDict()
+    if _content_encoding := headers.get(HEADER_CONTENT_ENCODING, None):
+        res[HEADER_CONTENT_ENCODING] = _content_encoding
+    if _cache_policy := headers.get(HEADER_OTA_FILE_CACHE_CONTROL, None):
+        res[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy
+    return res
+
+
+def parse_headers_from_req(
     headers: CIMultiDictProxy[str],
-) -> Tuple[SimpleCookie[str], CacheControlPolicy, CIMultiDict[str]]:
+) -> CIMultiDict[str]:
     """Parse headers from request and pick headers we need.
 
-    cookies and ota-file-cache-control headers will be extracted separately,
-    and the authorization header(if any) will go into extra_header.
-
-    NOTE: currently extra_header from client only contains authorization header.
-
-    Returns:
-        A tuple of SimpleCookie, cache_policy inst, and extra_headers CIMultiDict.
+    We only need authorization, cookie and ota-file-cache-control headers from client's req.
     """
-    cookies, extra_headers = SimpleCookie(), CIMultiDict()
-    cache_policy = CacheControlPolicy()
-    for hname, hvalue in headers.items():
-        if hname == HEADER_AUTHORIZATION and hvalue:
-            extra_headers[hname] = hvalue
-        elif hname == HEADER_COOKIE and hvalue:
-            cookies.load(hvalue)
-        elif hname == HEADER_OTA_FILE_CACHE_CONTROL and hvalue:
-            cache_policy = OTAFileCacheControl.parse_header(hvalue)
-    return cookies, cache_policy, extra_headers
+    res = CIMultiDict()
+    if _auth := headers.get(HEADER_AUTHORIZATION, None):
+        res[HEADER_AUTHORIZATION] = _auth
+    if _cookie := headers.get(HEADER_COOKIE, None):
+        res[HEADER_COOKIE] = _cookie
+    if _cache_policy := headers.get(HEADER_OTA_FILE_CACHE_CONTROL, None):
+        res[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy
+    return res
 
 
 # cache tracker
