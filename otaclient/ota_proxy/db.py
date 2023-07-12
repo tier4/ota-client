@@ -15,16 +15,16 @@
 
 from __future__ import annotations
 import asyncio
-import json
 import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from multidict import CIMultiDict
 
+from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .config import config as cfg
 from .orm import ColumnDescriptor, ORMBase
 from .cache_control import CacheControlPolicy, OTAFileCacheControl
@@ -66,31 +66,7 @@ class CacheMeta(ORMBase):
     file_compression_alg: ColumnDescriptor[str] = ColumnDescriptor(
         str, "TEXT", "NOT NULL"
     )
-    extra_headers: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL")
-
-    def export_cache_policy_header(self) -> Optional[Dict[str, str]]:
-        """export <file_sha256> and <file_compression_alg> as CacheControlPolicy inst.
-
-        NOTE: URL based file_sha256 will not be exported and used in resp to client.
-        If no real file_sha256 is available, otaproxy will just skip sending cache_policy header
-            back to client.
-
-        Returns:
-            An inst of CacheControlPolicy, or None if no valid file_sha256 presented.
-        """
-        if not self.file_sha256 or self.file_sha256.startswith(
-            cfg.URL_BASED_HASH_PREFIX
-        ):
-            return
-
-        _cache_policy_str = CacheControlPolicy(
-            no_cache=False,
-            retry_caching=False,
-            file_sha256=self.file_sha256,
-            file_compression_alg=self.file_compression_alg,
-        ).to_header_str()
-        if _cache_policy_str:
-            return {OTAFileCacheControl.HEADER_LOWERCASE: _cache_policy_str}
+    content_encoding: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL")
 
     def export_headers_to_client(self) -> CIMultiDict[str]:
         """Export required headers for client.
@@ -98,13 +74,16 @@ class CacheMeta(ORMBase):
         Currently includes content-type, content-encoding and ota-file-cache-control headers.
         """
         res = CIMultiDict()
-        if self.extra_headers:
-            _extra_headers = json.loads(self.extra_headers)
-            if isinstance(_extra_headers, dict):
-                res.update(_extra_headers)
-
-        if _cache_policy := self.export_cache_policy_header():
-            res.update(_cache_policy)
+        if self.content_encoding:
+            res[HEADER_CONTENT_ENCODING] = self.content_encoding
+        if self.file_sha256 and not self.file_sha256.startswith(
+            cfg.URL_BASED_HASH_PREFIX
+        ):
+            _cache_policy = CacheControlPolicy(
+                file_sha256=self.file_sha256,
+                file_compression_alg=self.file_compression_alg,
+            )
+            res[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy.to_header_str()
         return res
 
 
