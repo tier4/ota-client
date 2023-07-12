@@ -15,7 +15,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List
+from typing import Mapping, List
 from typing_extensions import Self
 
 
@@ -95,3 +95,21 @@ class OTAFileCacheControl:
     @classmethod
     def parse_header(cls, _input: str) -> CacheControlPolicy:
         return CacheControlPolicy().update_from_header_str(_input)
+
+    @classmethod
+    def export_as_header(cls, **kwargs: Mapping[DIRECTIVE, str]) -> str:
+        """
+        Only set/True policy will be exported, empty or False policy will be skipped.
+        """
+        _directives: List[str] = []
+        for k, v in kwargs:
+            try:
+                k = DIRECTIVE[k]
+            except KeyError:
+                continue
+
+            if isinstance(v, bool) and v:
+                _directives.append(k)
+            elif v:
+                _directives.append(f"{k}={v}")
+        return cls.SEPARATOR.join(_directives)
