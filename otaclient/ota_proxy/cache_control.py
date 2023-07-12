@@ -104,7 +104,7 @@ class OTAFileCacheControl:
         Only set/True policy will be exported, empty or False policy will be skipped.
         """
         _directives: List[str] = []
-        for k, v in directives:
+        for k, v in directives.items():
             try:
                 k = DIRECTIVE[k]
             except KeyError:
