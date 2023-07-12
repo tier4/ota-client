@@ -13,10 +13,17 @@
 # limitations under the License.
 
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import List
 from typing_extensions import Self
+
+
+class DIRECTIVE(str, Enum):
+    no_cache = "no_cache"
+    retry_caching = "retry_caching"
+    file_sha256 = "file_sha256"
+    file_compression_alg = "file_compression_alg"
 
 
 @dataclass
@@ -27,21 +34,41 @@ class CacheControlPolicy:
     file_sha256: str = ""
     file_compression_alg: str = ""
 
-    def to_header_str(self) -> str:
+    def export_header_str(self) -> str:
         """Export cache_control policy as ota-file-cache-control header.
 
         Only set/True policy will be exported, empty or False policy will be skipped.
         """
         _directives: List[str] = []
-        for field in fields(self):
-            _key, _value = field.name, getattr(self, field.name)
+        for key in DIRECTIVE:
+            value = getattr(self, key)
             # key only field
-            if field.type is bool and _value:
-                _directives.append(field.name)
+            if isinstance(value, bool) and value:
+                _directives.append(key)
             # key_value pair field(ignore empty field)
-            elif _value:
-                _directives.append(f"{_key}={_value}")
+            elif value:
+                _directives.append(f"{key}={value}")
         return OTAFileCacheControl.SEPARATOR.join(_directives)
+
+    def update_from_header_str(self, _input: str) -> Self:
+        if not _input:
+            return self
+
+        for _raw_directive in _input.split(OTAFileCacheControl.SEPARATOR):
+            _parsed = _raw_directive.strip().split("=", maxsplit=1)
+            if len(_parsed) < 1:
+                continue
+
+            try:
+                key = DIRECTIVE[_parsed[0]]
+            except KeyError:
+                continue
+
+            if len(_parsed) == 1:
+                setattr(self, key, True)
+            elif len(_parsed) == 2 and (_value := _parsed[1]):
+                setattr(self, key, _value.strip())
+        return self
 
 
 class OTAFileCacheControl:
@@ -59,19 +86,6 @@ class OTAFileCacheControl:
         file_compression_alg: the compression alg used for the OTA file
     """
 
-    class DIRECTIVE(str, Enum):
-        no_cache = "no_cache"
-        retry_caching = "retry_caching"
-        file_sha256 = "file_sha256"
-        file_compression_alg = "file_compression_alg"
-
-        @classmethod
-        def check_directive(cls, _input: str) -> Optional[Self]:
-            try:
-                return cls(_input)
-            except ValueError:
-                return
-
     # NOTE: according to RFC7230, the header name is case-insensitive,
     #       so for convenience during code implementation, we always use lower-case
     #       header name.
@@ -80,18 +94,4 @@ class OTAFileCacheControl:
 
     @classmethod
     def parse_header(cls, _input: str) -> CacheControlPolicy:
-        res = CacheControlPolicy()
-        for _raw_directive in _input.split(cls.SEPARATOR):
-            _parsed = _raw_directive.strip().split("=", maxsplit=1)
-            # key only field, set to True on presented
-            if len(_parsed) == 1 and (
-                _directive := cls.DIRECTIVE.check_directive(_parsed[0])
-            ):
-                setattr(res, _directive.strip(), True)
-            # kv field
-            elif len(_parsed) == 2 and (
-                _directive := cls.DIRECTIVE.check_directive(_parsed[0])
-            ):
-                _value = _parsed[1].strip()
-                setattr(res, _directive.strip(), _value)
-        return res
+        return CacheControlPolicy().update_from_header_str(_input)
