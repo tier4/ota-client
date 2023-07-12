@@ -501,19 +501,9 @@ class LRUCacheHelper:
             return False
         return True
 
-    async def lookup_entry(
-        self, raw_url: str, cache_policy: CacheControlPolicy
-    ) -> Optional[CacheMeta]:
-        """
-        If cache_policy provides valid file_sha256, use it to lookup,
-        otherwise fallback to use URL based hash from raw_url.
-        """
-        if cache_policy.file_sha256:
-            return await self._db.lookup_entry(
-                CacheMeta.file_sha256, cache_policy.file_sha256
-            )
+    async def lookup_entry(self, file_sha256: str) -> Optional[CacheMeta]:
         return await self._db.lookup_entry(
-            CacheMeta.file_sha256, url_based_hash(raw_url)
+            CacheMeta.file_sha256, url_based_hash(file_sha256)
         )
 
     async def remove_entry(self, file_sha256: str) -> bool:
@@ -925,36 +915,34 @@ class OTACache:
         return remote_fd, process_headers_from_resp(resp_headers)
 
     async def _retrieve_file_by_cache(
-        self, raw_url: str, *, cache_policy_from_client: CacheControlPolicy
-    ) -> Optional[Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]]:
+        self, cache_identifier: str, *, retry_cache: bool
+    ) -> Optional[Tuple[AsyncIterator[bytes], CIMultiDict[str]]]:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
         """
-        meta_db_entry = await self._lru_helper.lookup_entry(
-            raw_url, cache_policy_from_client
-        )
+        # first check if the cache file exists
+        cache_file = self._base_dir / cache_identifier
+        if not cache_file.is_file():
+            return
+
+        # cache file available, lookup the db for metadata
+        meta_db_entry = await self._lru_helper.lookup_entry(cache_identifier)
         if not meta_db_entry:
+            logger.warning(
+                f"corresponding db entry for {cache_file=} missing, remove file"
+            )
+            cache_file.unlink(missing_ok=True)
             return
 
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
         #           2. URL based sha256 value for corresponding requested URL
-        cache_file_identifier = meta_db_entry.file_sha256
-
-        cache_file = self._base_dir / cache_file_identifier
         # otaclient indicates that this cache entry is invalid, cleanup and exit
-        if cache_policy_from_client.retry_caching:
+        if retry_cache:
             logger.debug(f"requested with retry_cache: {meta_db_entry=}..")
-            await self._lru_helper.remove_entry(cache_file_identifier)
+            await self._lru_helper.remove_entry(cache_identifier)
             cache_file.unlink(missing_ok=True)
-            return
-
-        if not cache_file.is_file():
-            logger.warning(
-                f"dangling cache entry found, remove db entry: {meta_db_entry}"
-            )
-            await self._lru_helper.remove_entry(cache_file_identifier)
             return
 
         # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
@@ -962,7 +950,7 @@ class OTACache:
         #       directory to indicate invalid cache.
         return (
             read_file(cache_file, executor=self._executor),
-            CIMultiDictProxy(meta_db_entry.export_headers_to_client()),
+            meta_db_entry.export_headers_to_client(),
         )
 
     async def _retrieve_file_by_new_caching(
