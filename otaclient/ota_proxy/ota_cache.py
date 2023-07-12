@@ -86,7 +86,7 @@ def process_headers_from_resp(headers: CIMultiDictProxy[str]) -> CIMultiDict[str
     return res
 
 
-def parse_headers_from_req(
+def process_headers_from_req(
     headers: CIMultiDictProxy[str],
 ) -> CIMultiDict[str]:
     """Parse headers from request and pick headers we need.
@@ -602,7 +602,6 @@ async def cache_streaming(
 async def open_remote(
     url: str,
     *,
-    cookies: SimpleCookie[str],
     headers: CIMultiDict[str],
     session: aiohttp.ClientSession,
     upper_proxy: str = "",
@@ -630,7 +629,6 @@ async def open_remote(
         async with session.get(
             url,
             proxy=upper_proxy,
-            cookies=cookies,
             headers=headers,
         ) as response:
             yield response.headers  # type: ignore
@@ -916,43 +914,15 @@ class OTACache:
         self,
         raw_url: str,
         *,
-        cookies_from_client: SimpleCookie[str],
-        cache_policy_from_client: CacheControlPolicy,
-        extra_headers_from_client: CIMultiDict[str],
-    ) -> Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
-        # passthrough cache_policy from client to upper if any
-        _headers_to_upper = extra_headers_from_client.copy()
-
-        if _cache_policy_to_upper := cache_policy_from_client.to_header_str():
-            _headers_to_upper[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy_to_upper
-
+        headers: CIMultiDict[str],
+    ) -> Tuple[AsyncIterator[bytes], CIMultiDict[str]]:
         remote_fd, resp_headers = await open_remote(
             url=self._process_raw_url(raw_url),
-            cookies=cookies_from_client,
-            headers=_headers_to_upper,
+            headers=headers,
             session=self._session,
             upper_proxy=self._upper_proxy,
         )
-
-        # pick headers from <resp_headers> back to client.
-        #   currently ota-file-cache-control, content-type and content-encoding
-        #   will be passed through back to client.
-        headers_back_to_client = CIMultiDict()
-        # process cache_policy
-        #   if upper resp_headers contains cache_policy, passthrough it to client,
-        #   otherwise not sending cache_policy back to client.
-        if _cache_policy_str := resp_headers.get(HEADER_OTA_FILE_CACHE_CONTROL, None):
-            headers_back_to_client[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy_str
-
-        # process content-type and content-encoding if any
-        if _content_encoding := resp_headers.get(HEADER_CONTENT_ENCODING, None):
-            headers_back_to_client[HEADER_CONTENT_ENCODING] = _content_encoding
-        # default to use octet-stream for unspecified content-type
-        headers_back_to_client[HEADER_CONTENT_TYPE] = resp_headers.get(
-            HEADER_CONTENT_TYPE, "application/octet-stream"
-        )
-
-        return remote_fd, CIMultiDictProxy(headers_back_to_client)
+        return remote_fd, process_headers_from_resp(resp_headers)
 
     async def _retrieve_file_by_cache(
         self, raw_url: str, *, cache_policy_from_client: CacheControlPolicy
