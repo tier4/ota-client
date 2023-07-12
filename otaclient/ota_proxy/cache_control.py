@@ -15,7 +15,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping, List
+from typing import List, Union
 from typing_extensions import Self
 
 
@@ -97,7 +97,7 @@ class OTAFileCacheControl:
         return CacheControlPolicy().update_from_header_str(_input)
 
     @classmethod
-    def export_as_header(cls, **directives: str) -> str:
+    def export_as_header(cls, **directives: Union[str, bool]) -> str:
         """Directly export header str from a list of directive pairs.
 
         Check DIRECTIVE for directives definition.

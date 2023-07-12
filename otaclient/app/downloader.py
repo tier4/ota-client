@@ -27,6 +27,7 @@ from functools import wraps
 from hashlib import sha256
 from os import PathLike
 from requests.adapters import HTTPAdapter
+from requests.structures import CaseInsensitiveDict as CIDict
 from typing import (
     IO,
     Any,
@@ -58,11 +59,6 @@ logger = log_setting.get_logger(
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 # helper functions
-
-
-def regulate_headers(headers: Mapping[str, str]) -> Dict[str, str]:
-    """Parse input headers and return a copy of it which all header names are lowercase."""
-    return {k.lower(): v for k, v in headers.items()}
 
 
 def get_req_retry_counts(resp: requests.Response) -> int:
@@ -174,7 +170,7 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
                     # re-inject the cache policy header
                     _parsed_header[
                         OTAFileCacheControl.HEADER_LOWERCASE
-                    ] = _cache_policy.to_header_str()
+                    ] = _cache_policy.export_header_str()
 
                     # replace with updated header
                     kwargs["headers"] = _parsed_header
@@ -392,32 +388,28 @@ class Downloader:
         digest: Optional[str] = None,
         compression_alg: Optional[str] = None,
         proxies: Optional[Dict[str, str]] = None,
-    ) -> Optional[Dict[str, str]]:
+    ) -> Optional[Mapping[str, str]]:
         """Inject ota-file-cache-control header if digest is available.
 
         Currently this method preserves the input_header, while
             updating/injecting Ota-File-Cache-Control header.
         """
-        if not digest:
+        # NOTE: only inject ota-file-cache-control-header if we have upper otaproxy,
+        #       or we have information to inject
+        if not digest or not proxies:
             return input_header
 
-        res: Dict[str, str] = {}
+        res = CIDict()
         if isinstance(input_header, Mapping):
             res.update(input_header)
 
         # inject digest and compression_alg into ota-file-cache-control-header
-        _target_policy = OTAFileCacheControl.parse_header(
-            res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
-        )
-        # NOTE: only inject ota-file-cache-control-header if we have upper otaproxy
-        if proxies:
-            _target_policy.file_sha256 = digest
-            _target_policy.file_compression_alg = (
-                compression_alg if compression_alg else ""
-            )
+        _input_policy_str = res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
+        _target_policy = OTAFileCacheControl.parse_header(_input_policy_str)
+        _target_policy.file_sha256 = digest
+        _target_policy.file_compression_alg = compression_alg if compression_alg else ""
 
-            res[OTAFileCacheControl.HEADER_LOWERCASE] = _target_policy.to_header_str()
-
+        res[OTAFileCacheControl.HEADER_LOWERCASE] = _target_policy.export_header_str()
         return res
 
     def _check_against_cache_policy_in_resp(
@@ -426,7 +418,7 @@ class Downloader:
         dst: PathLike,
         digest: Optional[str],
         compression_alg: Optional[str],
-        resp_headers: Mapping[str, str],
+        resp_headers: CIDict,
     ) -> Tuple[Optional[str], Optional[str]]:
         """Checking digest and compression_alg against cache_policy from resp headers.
 
@@ -436,9 +428,14 @@ class Downloader:
         Returns:
             A tuple of file_sha256 and file_compression_alg for the requested resources.
         """
-        cache_policy = OTAFileCacheControl.parse_header(
-            regulate_headers(resp_headers).get(OTAFileCacheControl.HEADER_LOWERCASE, "")
-        )
+        if not (
+            cache_policy_str := resp_headers.get(
+                OTAFileCacheControl.HEADER_LOWERCASE, None
+            )
+        ):
+            return digest, compression_alg
+
+        cache_policy = OTAFileCacheControl.parse_header(cache_policy_str)
         if cache_policy.file_sha256:
             if digest and digest != cache_policy.file_sha256:
                 _msg = (
@@ -484,11 +481,11 @@ class Downloader:
         _thread_id = threading.get_ident()
 
         proxies = proxies or self._proxies
-        url = self._prepare_url(url, proxies)
+        prepared_url = self._prepare_url(url, proxies)
 
         cookies = cookies or self._cookies
         # NOTE: process headers AFTER proxies setting is parsed
-        headers = self._prepare_header(
+        prepared_headers = self._prepare_header(
             headers, digest=digest, compression_alg=compression_alg, proxies=proxies
         )
 
@@ -501,7 +498,11 @@ class Downloader:
         err_count = 0
 
         with self._downloading_exception_mapping(url, dst), self._session.get(
-            url, stream=True, proxies=proxies, cookies=cookies, headers=headers
+            prepared_url,
+            stream=True,
+            proxies=proxies,
+            cookies=cookies,
+            headers=prepared_headers,
         ) as resp, open(dst, "wb") as _dst:
             resp.raise_for_status()
             err_count = get_req_retry_counts(resp)
