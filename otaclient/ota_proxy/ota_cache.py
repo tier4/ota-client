@@ -105,6 +105,7 @@ def process_headers_from_req(
 
 def create_new_meta(
     raw_url: str,
+    default_cache_identifier: str,
     cache_policy_from_client: CacheControlPolicy,
     resp_headers_from_upper: CIMultiDict[str],
 ) -> CacheMeta:
@@ -124,7 +125,8 @@ def create_new_meta(
         cache_meta.file_sha256 = cache_policy_from_client.file_sha256
         cache_meta.file_compression_alg = cache_policy_from_client.file_compression_alg
     else:
-        cache_meta.file_sha256 = url_based_hash(raw_url)
+        # NOTE: default_cache_identifider is URL based hash
+        cache_meta.file_sha256 = default_cache_identifier
         cache_meta.file_compression_alg = ""
     return cache_meta
 
@@ -945,11 +947,6 @@ class OTACache:
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
         """
-        # first check if the cache file exists
-        cache_file = self._base_dir / cache_identifier
-        if not cache_file.is_file():
-            return
-
         # cache file available, lookup the db for metadata
         meta_db_entry = await self._lru_helper.lookup_entry(cache_identifier)
         if not meta_db_entry:
@@ -959,10 +956,19 @@ class OTACache:
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
         #           2. URL based sha256 value for corresponding requested URL
         # otaclient indicates that this cache entry is invalid, cleanup and exit
+        cache_file = self._base_dir / cache_identifier
         if retry_cache:
             logger.debug(f"requested with retry_cache: {meta_db_entry=}..")
             await self._lru_helper.remove_entry(cache_identifier)
             cache_file.unlink(missing_ok=True)
+            return
+
+        # check if cache file exists
+        if not cache_file.is_file():
+            logger.warning(
+                f"dangling cache entry found, remove db entry: {meta_db_entry}"
+            )
+            await self._lru_helper.remove_entry(cache_identifier)
             return
 
         # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
@@ -1047,7 +1053,9 @@ class OTACache:
                 await tracker.provider_on_failed()
                 raise
 
-            cache_meta = create_new_meta(raw_url, cache_policy, resp_headers)
+            cache_meta = create_new_meta(
+                raw_url, cache_identifier, cache_policy, resp_headers
+            )
 
             # start caching
             wrapped_fd = await cache_streaming(
