@@ -32,6 +32,7 @@ from typing import (
     AsyncIterator,
     Callable,
     Coroutine,
+    Dict,
     Generic,
     List,
     Mapping,
@@ -69,7 +70,7 @@ def create_new_meta(
     raw_url: str,
     default_cache_identifier: str,
     cache_policy_from_client: CacheControlPolicy,
-    resp_headers_from_upper: CIMultiDict[str],
+    resp_headers_from_upper: CIMultiDictProxy[str],
 ) -> CacheMeta:
     cache_meta = CacheMeta(
         url=raw_url,
@@ -87,7 +88,8 @@ def create_new_meta(
         cache_meta.file_sha256 = cache_policy_from_client.file_sha256
         cache_meta.file_compression_alg = cache_policy_from_client.file_compression_alg
     else:
-        # NOTE: default_cache_identifider is URL based hash
+        # NOTE: default_cache_identifider is URL based hash if cache_policy doesn't
+        #       have real file sha256 hase.
         cache_meta.file_sha256 = default_cache_identifier
         cache_meta.file_compression_alg = ""
     return cache_meta
@@ -834,8 +836,8 @@ class OTACache:
         self,
         raw_url: str,
         *,
-        headers: CIMultiDict[str],
-    ) -> Tuple[AsyncIterator[bytes], Mapping[str, str]]:
+        headers: Mapping[str, str],
+    ) -> Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
         async def _do_request() -> AsyncIterator[bytes]:
             async with self._session.get(
                 self._process_raw_url(raw_url),
@@ -895,7 +897,7 @@ class OTACache:
     async def retrieve_file(
         self,
         raw_url: str,
-        headers_from_client: CIMultiDict[str],
+        headers_from_client: Dict[str, str],
     ) -> Optional[Tuple[AsyncIterator[bytes], Mapping[str, str]]]:
         """Retrieve a file descriptor for the requested <raw_url>.
 
@@ -934,8 +936,7 @@ class OTACache:
                 f"{self._storage_below_hard_limit_event.is_set()=}): {raw_url=}"
             )
             return await self._retrieve_file_by_downloading(
-                raw_url,
-                headers=headers_from_client,
+                raw_url, headers=headers_from_client
             )
 
         cache_identifier = cache_policy.file_sha256
@@ -967,7 +968,6 @@ class OTACache:
             cache_meta = create_new_meta(
                 raw_url, cache_identifier, cache_policy, resp_headers
             )
-
             # start caching
             wrapped_fd = await cache_streaming(
                 fd=remote_fd,
