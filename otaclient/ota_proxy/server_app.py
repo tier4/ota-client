@@ -17,8 +17,7 @@ import asyncio
 import aiohttp
 from contextlib import asynccontextmanager
 from http import HTTPStatus
-from multidict import CIMultiDict, CIMultiDictProxy
-from typing import List, Mapping, Tuple, Union
+from typing import Dict, List, Mapping, Tuple, Union
 from urllib.parse import urlparse
 
 from otaclient._utils.logging import BurstSuppressFilter
@@ -28,6 +27,14 @@ from ._consts import (
     REQ_TYPE_LIFESPAN,
     RESP_TYPE_BODY,
     RESP_TYPE_START,
+    BHEADER_AUTHORIZATION,
+    BHEADER_COOKIE,
+    BHEADER_OTA_FILE_CACHE_CONTROL,
+    BHEADER_CONTENT_ENCODING,
+    HEADER_AUTHORIZATION,
+    HEADER_COOKIE,
+    HEADER_OTA_FILE_CACHE_CONTROL,
+    HEADER_CONTENT_ENCODING,
 )
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
@@ -53,36 +60,49 @@ __all__ = ("App",)
 # helper methods
 
 
-def decode_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> CIMultiDictProxy[str]:
+def parse_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
     """Decode raw headers bytes from uvicorn parsed client's resp.
 
     Uvicorn sends headers from client's request to application as list of bytes tuple.
+    Currently we only need authorization, cookie and ota-file-cache-control header.
+
 
     Returns:
         An inst of case-insensitive dict proxy.
     """
-    headers = CIMultiDict()
-    for raw_header in raw_headers:
-        if len(raw_header) != 2 or not raw_header[-1]:
+    headers = {}
+    for bheader_pair in raw_headers:
+        if len(bheader_pair) != 2:
             continue
-        bname, bvalue = raw_header
-        name = bname.decode("utf-8", "surrogateescape")
-        value = bvalue.strip().decode("utf-8", "surrogateescape")
-        headers[name] = value
-    return CIMultiDictProxy(headers)
+        bname, bvalue = bheader_pair
+        if bname == BHEADER_AUTHORIZATION:
+            headers[HEADER_AUTHORIZATION] = bvalue.strip().decode(
+                "utf-8", "surrogateescape"
+            )
+        elif bname == BHEADER_COOKIE:
+            headers[HEADER_COOKIE] = bvalue.strip().decode("utf-8", "surrogateescape")
+        elif bname == BHEADER_OTA_FILE_CACHE_CONTROL:
+            headers[HEADER_OTA_FILE_CACHE_CONTROL] = bvalue.decode(
+                "utf-8", "surrogateescape"
+            )
+    return headers
 
 
 def encode_headers(headers: Mapping[str, str]) -> List[Tuple[bytes, bytes]]:
     """Encode headers dict to list of bytes tuples for sending back to client.
 
     Uvicorn requests application to pre-process headers to bytes.
+    Currently we only need content-encoding and ota-file-cache-control header.
     """
-    raw_headers: List[Tuple[bytes, bytes]] = []
+    bytes_headers: List[Tuple[bytes, bytes]] = []
     for name, value in headers.items():
-        if not (value and isinstance(value, str)):
-            continue
-        raw_headers.append((name.encode("utf-8"), value.encode("utf-8")))
-    return raw_headers
+        if name == HEADER_CONTENT_ENCODING and value:
+            bytes_headers.append((BHEADER_CONTENT_ENCODING, value.encode("utf-8")))
+        elif name == HEADER_OTA_FILE_CACHE_CONTROL and value:
+            bytes_headers.append(
+                (BHEADER_OTA_FILE_CACHE_CONTROL, value.encode("utf-8"))
+            )
+    return bytes_headers
 
 
 # uvicorn APP
