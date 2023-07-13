@@ -274,13 +274,13 @@ class App:
             scope: ASGI scope for current request.
             send: ASGI send method.
         """
-        headers_from_client = decode_raw_headers(scope["headers"])
+        headers_from_client = parse_raw_headers(scope["headers"])
 
         # try to get a cache entry for this URL or for file_sha256 indicated by cache_policy
         retrieved_ota_cache, retrieve_file_executed = None, False
         async with self._error_handling_for_cache_retrieving(url, send):
             retrieved_ota_cache = await self._ota_cache.retrieve_file(
-                url, CIMultiDict(headers_from_client)
+                url, headers_from_client
             )
             retrieve_file_executed = True
 
