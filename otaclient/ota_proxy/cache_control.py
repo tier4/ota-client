@@ -15,7 +15,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Union
+from typing import List, Optional, Union
 from typing_extensions import Self
 
 
@@ -24,6 +24,13 @@ class DIRECTIVE(str, Enum):
     retry_caching = "retry_caching"
     file_sha256 = "file_sha256"
     file_compression_alg = "file_compression_alg"
+
+    @classmethod
+    def check_key(cls, _input: str) -> Optional[Self]:
+        try:
+            return cls[_input]
+        except KeyError:
+            pass
 
 
 @dataclass
@@ -34,40 +41,30 @@ class CacheControlPolicy:
     file_sha256: str = ""
     file_compression_alg: str = ""
 
-    def export_header_str(self) -> str:
-        """Export cache_control policy as ota-file-cache-control header.
-
-        Only set/True policy will be exported, empty or False policy will be skipped.
-        """
-        _directives: List[str] = []
-        for key in DIRECTIVE:
-            value = getattr(self, key)
-            # key only field
-            if isinstance(value, bool) and value:
-                _directives.append(key)
-            # key_value pair field(ignore empty field)
-            elif value:
-                _directives.append(f"{key}={value}")
-        return OTAFileCacheControl.SEPARATOR.join(_directives)
-
     def update_from_header_str(self, _input: str) -> Self:
+        """Update itself from raw ota-file-cache-control header string."""
         if not _input:
             return self
 
         for _raw_directive in _input.split(OTAFileCacheControl.SEPARATOR):
-            _parsed = _raw_directive.strip().split("=", maxsplit=1)
-            if len(_parsed) < 1:
+            if not (_parsed := _raw_directive.split("=", maxsplit=1)):
                 continue
 
-            try:
-                key = DIRECTIVE[_parsed[0]]
-            except KeyError:
+            key = _parsed[0].strip()
+            if not DIRECTIVE.check_key(key):
                 continue
 
             if len(_parsed) == 1:
                 setattr(self, key, True)
-            elif len(_parsed) == 2 and (_value := _parsed[1]):
-                setattr(self, key, _value.strip())
+            elif len(_parsed) == 2 and (value := _parsed[1]):
+                setattr(self, key, value.strip())
+        return self
+
+    def update_from_directives(self, **kwargs: Union[str, bool]) -> Self:
+        """Update itself from a list of directives pairs."""
+        for key, value in kwargs.items():
+            if DIRECTIVE.check_key(key):
+                setattr(self, key, value)
         return self
 
 
@@ -97,21 +94,44 @@ class OTAFileCacheControl:
         return CacheControlPolicy().update_from_header_str(_input)
 
     @classmethod
-    def export_as_header(cls, **directives: Union[str, bool]) -> str:
+    def export_as_header(cls, **kwargs) -> str:
         """Directly export header str from a list of directive pairs.
 
         Check DIRECTIVE for directives definition.
         Only set/True policy will be exported, empty or False policy will be skipped.
         """
         _directives: List[str] = []
-        for k, v in directives.items():
-            try:
-                k = DIRECTIVE[k]
-            except KeyError:
+        for key, value in kwargs.items():
+            if not DIRECTIVE.check_key(key):
                 continue
 
-            if isinstance(v, bool) and v:
-                _directives.append(k)
-            elif v:
-                _directives.append(f"{k}={v}")
+            if isinstance(value, bool) and value:
+                _directives.append(key)
+            elif value:
+                _directives.append(f"{key}={value}")
         return cls.SEPARATOR.join(_directives)
+
+    @classmethod
+    def update_header_str(cls, _input: str, **kwargs) -> str:
+        """Update input header string with input directive pairs."""
+        _parsed_directives = {}
+        for _raw_directive in _input.split(OTAFileCacheControl.SEPARATOR):
+            if not (_parsed := _raw_directive.split("=", maxsplit=1)):
+                continue
+
+            key = _parsed[0].strip()
+            if not DIRECTIVE.check_key(key):
+                continue
+            _parsed_directives[key] = _raw_directive
+
+        for _key, value in kwargs.items():
+            if not DIRECTIVE.check_key(_key):
+                continue
+
+            if isinstance(value, str):
+                _parsed_directives[_key] = f"{_key}={value}"
+            elif value:
+                _parsed_directives[_key] = _key
+            else:  # remove False or empty directives
+                _parsed_directives.pop(_key, None)
+        return cls.SEPARATOR.join(_parsed_directives.values())
