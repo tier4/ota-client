@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from contextlib import contextmanager
 from typing import Any, Callable
 from typing_extensions import ParamSpec
 
@@ -31,15 +30,3 @@ def copy_callable_typehint(_source: Callable[P, Any]):
         return target
 
     return _decorator
-
-
-@contextmanager
-def stopasynciteration_handler(*, handled_all_exc=False):
-    _handled_exc = StopAsyncIteration
-    if handled_all_exc:
-        _handled_exc = Exception
-
-    try:
-        yield
-    except _handled_exc:
-        pass
