@@ -615,48 +615,6 @@ async def cache_streaming(
     return _inner()
 
 
-async def open_remote(
-    url: str,
-    *,
-    headers: CIMultiDict[str],
-    session: aiohttp.ClientSession,
-    upper_proxy: str = "",
-) -> Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
-    """Open a file descriptor to remote resource.
-
-    Args:
-        url: quoted url.
-        cookies: cookies that client passes in the request.
-        headers: other headers we need to pass to the remote
-            from the original request.
-        session: an inst of aiohttp.ClientSession used for opening
-            remote connection.
-        upper_proxy: if chained proxy is used.
-
-    Returns:
-        An AsyncIterator that can yield data chunks from, and headers dict
-            from the response.
-
-    Raises:
-        Any exceptions during aiohttp connecting to the remote.
-    """
-
-    async def _inner() -> AsyncIterator[bytes]:
-        async with session.get(
-            url,
-            proxy=upper_proxy,
-            headers=headers,
-        ) as response:
-            yield response.headers  # type: ignore
-            async for data, _ in response.content.iter_chunks():
-                if data:  # only yield non-empty data chunk
-                    yield data
-
-    # open remote connection
-    resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _inner()).__anext__()  # type: ignore
-    return _remote_fd, resp_headers
-
-
 class OTACache:
     """Maintain caches for requested remote OTA files.
 
@@ -931,14 +889,21 @@ class OTACache:
         raw_url: str,
         *,
         headers: CIMultiDict[str],
-    ) -> Tuple[AsyncIterator[bytes], CIMultiDict[str]]:
-        remote_fd, resp_headers = await open_remote(
-            url=self._process_raw_url(raw_url),
-            headers=headers,
-            session=self._session,
-            upper_proxy=self._upper_proxy,
-        )
-        return remote_fd, process_headers_from_resp(resp_headers)
+    ) -> Tuple[AsyncIterator[bytes], Mapping[str, str]]:
+        async def _do_request() -> AsyncIterator[bytes]:
+            async with self._session.get(
+                self._process_raw_url(raw_url),
+                proxy=self._upper_proxy,
+                headers=headers,
+            ) as response:
+                yield response.headers  # type: ignore
+                async for data, _ in response.content.iter_chunks():
+                    if data:  # only yield non-empty data chunk
+                        yield data
+
+        # open remote connection
+        resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _do_request()).__anext__()  # type: ignore
+        return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache(
         self, cache_identifier: str, *, retry_cache: bool
