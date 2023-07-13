@@ -232,10 +232,6 @@ class CacheTracker(Generic[_WEAKREF]):
         return self._writer_finished.is_set()
 
     @property
-    def writer_ready(self) -> bool:
-        return self._writer_ready.is_set()
-
-    @property
     def is_cache_valid(self) -> bool:
         """Indicates whether the temp cache entry for this tracker is valid."""
         return (
@@ -267,7 +263,7 @@ class CacheTracker(Generic[_WEAKREF]):
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
-                        logger.debug(
+                        logger.warning(
                             f"abort writing cache for {self.meta=}: {StorageReachHardLimit!r}"
                         )
                         self._writer_failed.set()
@@ -381,9 +377,10 @@ class CacheTracker(Generic[_WEAKREF]):
 
     async def provider_on_finished(self):
         if not self.writer_finished and self._cache_write_gen:
-            with stopasynciteration_handler():
+            try:
                 await self._cache_write_gen.asend(b"")
-
+            except StopAsyncIteration:
+                pass
         self._writer_finished.set()
         self._ref = None
 
@@ -391,8 +388,10 @@ class CacheTracker(Generic[_WEAKREF]):
         """Manually fail and stop the caching."""
         if not self.writer_finished and self._cache_write_gen:
             logger.warning(f"interrupt writer coroutine for {self.meta=}")
-            with stopasynciteration_handler():
+            try:
                 await self._cache_write_gen.athrow(CacheStreamingInterrupt)
+            except (StopAsyncIteration, CacheStreamingInterrupt):
+                logger.warning(f"interrupt writer coroutine for {self.meta=}")
 
         self._writer_failed.set()
         self._writer_finished.set()
@@ -401,7 +400,7 @@ class CacheTracker(Generic[_WEAKREF]):
     async def subscriber_subscribe_tracker(self) -> Optional[AsyncIterator[bytes]]:
         """Reader subscribe this tracker and get a file descriptor to get data chunks."""
         _wait_count = 0
-        while not self.writer_ready:
+        while not self._writer_ready.is_set():
             _wait_count += 1
             if self.writer_failed or not await wait_with_backoff(
                 _wait_count,
