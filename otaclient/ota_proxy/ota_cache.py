@@ -25,7 +25,7 @@ import time
 import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
-from multidict import CIMultiDict, CIMultiDictProxy
+from multidict import CIMultiDictProxy
 from pathlib import Path
 from typing import (
     AsyncGenerator,
@@ -228,7 +228,7 @@ class CacheTracker(Generic[_WEAKREF]):
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
                         logger.warning(
-                            f"abort writing cache for {self.meta=}: {StorageReachHardLimit!r}"
+                            f"abort writing cache for {self.meta=}: {StorageReachHardLimit.__name__}"
                         )
                         self._writer_failed.set()
                         return

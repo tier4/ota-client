@@ -113,7 +113,14 @@ class OTAFileCacheControl:
 
     @classmethod
     def update_header_str(cls, _input: str, **kwargs) -> str:
-        """Update input header string with input directive pairs."""
+        """Update input header string with input directive pairs.
+
+        Current used directives:
+        1. no_cache
+        2. retry_caching
+        3. file_sha256
+        4. file_compression_alg
+        """
         _parsed_directives = {}
         for _raw_directive in _input.split(OTAFileCacheControl.SEPARATOR):
             if not (_parsed := _raw_directive.split("=", maxsplit=1)):

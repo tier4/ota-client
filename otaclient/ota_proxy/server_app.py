@@ -66,7 +66,6 @@ def parse_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
     Uvicorn sends headers from client's request to application as list of bytes tuple.
     Currently we only need authorization, cookie and ota-file-cache-control header.
 
-
     Returns:
         An inst of case-insensitive dict proxy.
     """
