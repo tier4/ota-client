@@ -163,14 +163,13 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
                         _parsed_header.update(_popped_headers)
 
                     # preserve the already set policies, while add retry_caching policy
-                    _cache_policy = OTAFileCacheControl.parse_header(
-                        _parsed_header.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
+                    _cache_policy = _parsed_header.pop(
+                        OTAFileCacheControl.HEADER_LOWERCASE, ""
                     )
-                    _cache_policy.retry_caching = True
-                    # re-inject the cache policy header
-                    _parsed_header[
-                        OTAFileCacheControl.HEADER_LOWERCASE
-                    ] = _cache_policy.export_header_str()
+                    _cache_policy = OTAFileCacheControl.update_header_str(
+                        _cache_policy, retry_caching=True
+                    )
+                    _parsed_header[OTAFileCacheControl.HEADER_LOWERCASE] = _cache_policy
 
                     # replace with updated header
                     kwargs["headers"] = _parsed_header
@@ -404,12 +403,11 @@ class Downloader:
             res.update(input_header)
 
         # inject digest and compression_alg into ota-file-cache-control-header
-        _input_policy_str = res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
-        _target_policy = OTAFileCacheControl.parse_header(_input_policy_str)
-        _target_policy.file_sha256 = digest
-        _target_policy.file_compression_alg = compression_alg if compression_alg else ""
-
-        res[OTAFileCacheControl.HEADER_LOWERCASE] = _target_policy.export_header_str()
+        _cache_policy = res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
+        _cache_policy = OTAFileCacheControl.update_header_str(
+            _cache_policy, file_sha256=digest, file_compression_alg=compression_alg
+        )
+        res[OTAFileCacheControl.HEADER_LOWERCASE] = _cache_policy
         return res
 
     def _check_against_cache_policy_in_resp(
