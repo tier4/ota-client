@@ -20,14 +20,12 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, List, Optional, Union
-
-from multidict import CIMultiDict
+from typing import Any, Dict, List, Optional, Union
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .config import config as cfg
 from .orm import ColumnDescriptor, ORMBase
-from .cache_control import CacheControlPolicy, OTAFileCacheControl
+from .cache_control import OTAFileCacheControl
 
 import logging
 
@@ -68,12 +66,12 @@ class CacheMeta(ORMBase):
     )
     content_encoding: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL")
 
-    def export_headers_to_client(self) -> CIMultiDict[str]:
+    def export_headers_to_client(self) -> Dict[str, str]:
         """Export required headers for client.
 
         Currently includes content-type, content-encoding and ota-file-cache-control headers.
         """
-        res = CIMultiDict()
+        res = {}
         if self.content_encoding:
             res[HEADER_CONTENT_ENCODING] = self.content_encoding
 
