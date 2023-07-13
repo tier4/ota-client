@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 import asyncio
-import json
 import os
 import aiofiles
 import aiohttp
@@ -26,7 +25,6 @@ import time
 import threading
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
-from http.cookies import SimpleCookie
 from multidict import CIMultiDict, CIMultiDictProxy
 from pathlib import Path
 from typing import (
@@ -36,6 +34,7 @@ from typing import (
     Coroutine,
     Generic,
     List,
+    Mapping,
     MutableMapping,
     Optional,
     Tuple,
@@ -44,14 +43,7 @@ from typing import (
 )
 from urllib.parse import SplitResult, quote, urlsplit
 
-from otaclient._utils import stopasynciteration_handler
-
-from ._consts import (
-    HEADER_AUTHORIZATION,
-    HEADER_COOKIE,
-    HEADER_OTA_FILE_CACHE_CONTROL,
-    HEADER_CONTENT_ENCODING,
-)
+from ._consts import HEADER_OTA_FILE_CACHE_CONTROL, HEADER_CONTENT_ENCODING
 from .cache_control import CacheControlPolicy, OTAFileCacheControl
 from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
@@ -71,36 +63,6 @@ _WEAKREF = TypeVar("_WEAKREF")
 
 
 # helper functions
-
-
-def process_headers_from_resp(headers: CIMultiDictProxy[str]) -> CIMultiDict[str]:
-    """Parse headers from upper response and pick headers we need.
-
-    We only need content-encoding and ota-file-cache-control headers from upper resp.
-    """
-    res = CIMultiDict()
-    if _content_encoding := headers.get(HEADER_CONTENT_ENCODING, None):
-        res[HEADER_CONTENT_ENCODING] = _content_encoding
-    if _cache_policy := headers.get(HEADER_OTA_FILE_CACHE_CONTROL, None):
-        res[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy
-    return res
-
-
-def process_headers_from_req(
-    headers: CIMultiDictProxy[str],
-) -> CIMultiDict[str]:
-    """Parse headers from request and pick headers we need.
-
-    We only need authorization, cookie and ota-file-cache-control headers from client's req.
-    """
-    res = CIMultiDict()
-    if _auth := headers.get(HEADER_AUTHORIZATION, None):
-        res[HEADER_AUTHORIZATION] = _auth
-    if _cookie := headers.get(HEADER_COOKIE, None):
-        res[HEADER_COOKIE] = _cookie
-    if _cache_policy := headers.get(HEADER_OTA_FILE_CACHE_CONTROL, None):
-        res[HEADER_OTA_FILE_CACHE_CONTROL] = _cache_policy
-    return res
 
 
 def create_new_meta(
@@ -391,7 +353,7 @@ class CacheTracker(Generic[_WEAKREF]):
             try:
                 await self._cache_write_gen.athrow(CacheStreamingInterrupt)
             except (StopAsyncIteration, CacheStreamingInterrupt):
-                logger.warning(f"interrupt writer coroutine for {self.meta=}")
+                pass
 
         self._writer_failed.set()
         self._writer_finished.set()
@@ -570,7 +532,7 @@ async def cache_streaming(
         A bytes async iterator to yield data chunk from, for upper otaproxy uvicorn APP.
 
     Raises:
-        CacheStreamingFailed if any exception happens during teeing.
+        CacheStreamingFailed if any exception happens during retrieving.
     """
 
     async def _inner():
@@ -578,17 +540,20 @@ async def cache_streaming(
         try:
             # tee the incoming chunk to two destinations
             async for chunk in fd:
-                # NOTE(): for aiohttp, when HTTP chunk encoding is enabled,
-                #         an empty chunk will be sent to indicate the EOF of stream,
-                #         we MUST handle this empty chunk.
+                # NOTE: for aiohttp, when HTTP chunk encoding is enabled,
+                #       an empty chunk will be sent to indicate the EOF of stream,
+                #       we MUST handle this empty chunk.
                 if not chunk:  # skip if empty chunk is read from remote
                     continue
-
                 # to caching generator
                 if _cache_write_gen and not tracker.writer_finished:
-                    with stopasynciteration_handler(handled_all_exc=True):
+                    try:
                         await _cache_write_gen.asend(chunk)
-
+                    except Exception as e:
+                        await tracker.provider_on_failed()  # signal tracker
+                        logger.error(
+                            f"cache write coroutine failed for {meta=}, abort caching: {e!r}"
+                        )
                 # to uvicorn thread
                 yield chunk
             await tracker.provider_on_finished()
@@ -753,18 +718,17 @@ class OTACache:
             current_used_p = disk_usage.used / disk_usage.total * 100
 
             _previous_below_hard = self._storage_below_hard_limit_event.is_set()
-            _current_below_hard = False
+            _current_below_hard = True
             if current_used_p <= cfg.DISK_USE_LIMIT_SOFT_P:
                 self._storage_below_soft_limit_event.set()
                 self._storage_below_hard_limit_event.set()
-                _current_below_hard = True
             elif current_used_p <= cfg.DISK_USE_LIMIT_HARD_P:
                 self._storage_below_soft_limit_event.clear()
                 self._storage_below_hard_limit_event.set()
-                _current_below_hard = True
             else:
                 self._storage_below_soft_limit_event.clear()
                 self._storage_below_hard_limit_event.clear()
+                _current_below_hard = False
 
             # logging space monitoring result
             if _previous_below_hard and not _current_below_hard:
@@ -777,7 +741,6 @@ class OTACache:
                     f"disk usage is below hard limit({current_used_p=:.1}%),"
                     f"{cfg.DISK_USE_LIMIT_SOFT_P:.1}%), cache enabled again"
                 )
-
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
     def _cache_entries_cleanup(self, entry_hashes: List[str]):
@@ -797,6 +760,9 @@ class OTACache:
             A bool indicates whether the space reserving is successful or not.
         """
         _hashes = await self._lru_helper.rotate_cache(size)
+        # NOTE: distinguish between [] and None! The fore one means we don't need
+        #       cache rotation for saving the cache file, the latter one means
+        #       cache rotation failed.
         if _hashes is not None:
             logger.debug(
                 f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
@@ -887,7 +853,7 @@ class OTACache:
 
     async def _retrieve_file_by_cache(
         self, cache_identifier: str, *, retry_cache: bool
-    ) -> Optional[Tuple[AsyncIterator[bytes], CIMultiDict[str]]]:
+    ) -> Optional[Tuple[AsyncIterator[bytes], Mapping[str, str]]]:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
@@ -930,7 +896,7 @@ class OTACache:
         self,
         raw_url: str,
         headers_from_client: CIMultiDict[str],
-    ) -> Optional[Tuple[AsyncIterator[bytes], CIMultiDict[str]]]:
+    ) -> Optional[Tuple[AsyncIterator[bytes], Mapping[str, str]]]:
         """Retrieve a file descriptor for the requested <raw_url>.
 
         This method retrieves a file descriptor for incoming client request.
