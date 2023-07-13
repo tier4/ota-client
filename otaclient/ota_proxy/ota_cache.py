@@ -268,10 +268,7 @@ class CacheTracker(Generic[_WEAKREF]):
                 raise ValueError("called before provider tracker is ready, abort")
 
             async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
-                # ensure the file is created on the filesystem.
-                await f.write(b"")
-                await f.flush()
-                os.fsync(f.fileno())
+                # let writer become ready when file is open successfully
                 self._writer_ready.set()
 
                 _written = 0
@@ -454,7 +451,7 @@ class CachingRegister:
             _Weakref, CacheTracker
         ] = weakref.WeakKeyDictionary()
 
-    def get_tracker(
+    async def get_tracker(
         self,
         cache_identifier: str,
         *,
@@ -476,9 +473,6 @@ class CachingRegister:
             _tracker := self._ref_tracker_dict.get(_ref)
         ) and not _tracker.writer_failed:
             return _tracker, False
-
-        if _tracker and _tracker.writer_failed:
-            logger.error(f"tracker failed: {_tracker=}")
 
         # provider, or override a failed provider
         if _ref is not _new_ref:  # override a failed tracker
@@ -1003,7 +997,7 @@ class OTACache:
             return _res
 
         # --- case 3: no cache available, streaming remote file and cache --- #
-        tracker, is_writer = self._on_going_caching.get_tracker(
+        tracker, is_writer = await self._on_going_caching.get_tracker(
             cache_identifier,
             executor=self._executor,
             callback=self._commit_cache_callback,
