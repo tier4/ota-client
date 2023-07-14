@@ -20,8 +20,6 @@ from functools import partial
 from multiprocessing.context import SpawnProcess
 from typing import Callable, Optional
 
-from otaclient._utils import copy_callable_typehint
-
 from .cache_control import OTAFileCacheControl
 from .server_app import App
 from .ota_cache import OTACache
@@ -53,9 +51,11 @@ def _subprocess_main(
     asyncio.run(run_otaproxy(*args, **kwargs))
 
 
-@copy_callable_typehint
 def subprocess_start_otaproxy(*args, **kwargs) -> SpawnProcess:
-    """Helper method to launch otaproxy in subprocess."""
+    """Helper method to launch otaproxy in subprocess.
+
+    Check _subprocess_main and run_otaproxy for params hint.
+    """
 
     # run otaproxy in async loop in new subprocess
     mp_ctx = multiprocessing.get_context("spawn")

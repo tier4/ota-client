@@ -21,11 +21,12 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Iterable, Optional, Set, Dict, TypeVar
+from typing import Iterable, Optional, Set, Dict, TypeVar, Union
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
 from .common import ensure_otaproxy_start
+from .boot_control._common import CMDHelperFuncs
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientWrapper
 from .ota_client_call import ECUNoResponse, OtaClientCall
@@ -39,6 +40,27 @@ from otaclient.ota_proxy import subprocess_start_otaproxy
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
+
+
+def external_cache_src_helper(
+    fslabel: str, mount_point: Union[str, Path]
+) -> Optional[str]:
+    """Load and prepare external cache source if possible.
+
+    Returns:
+        The dev of enabled external cache source.
+    """
+    _cache_dev = CMDHelperFuncs._findfs("LABEL", fslabel)
+    if not _cache_dev:
+        return
+
+    try:
+        CMDHelperFuncs.mount_ro(target=_cache_dev, mount_point=mount_point)
+        return _cache_dev
+    except Exception as e:
+        logger.warning(
+            f"failed to mount external cache dev({_cache_dev}) to {mount_point=}: {e!r}"
+        )
 
 
 class OTAProxyLauncher:
@@ -86,7 +108,7 @@ class OTAProxyLauncher:
 
         # wait for upper otaproxy if any
         if upper_proxy:
-            logger.info(f"wait for {upper_proxy=} online...")
+            otaproxy_logger.info(f"wait for {upper_proxy=} online...")
             ensure_otaproxy_start(upper_proxy)
 
     # API
@@ -104,6 +126,21 @@ class OTAProxyLauncher:
         """Start the otaproxy in a subprocess."""
         if not self.enabled or self._lock.locked() or self.is_running:
             return
+
+        # try to mount external cache src
+        _mount_point = Path(cfg.EXTERNAL_CACHE_SRC_MOUNTPOINT)
+        _mount_point.mkdir(parents=True, exist_ok=True)
+        _cache_data_dir = None
+
+        _cache_dev = external_cache_src_helper(
+            cfg.EXTERNAL_CACHE_SRC_FSLABEL, _mount_point
+        )
+        if _cache_dev:
+            logger.info(
+                f"external_cache_source@{_cache_dev} is enabled at {_mount_point}"
+            )
+            _cache_data_dir = _mount_point / cfg.EXTERNAL_CACHE_SRC_DATA_DIR
+
         async with self._lock:
             # launch otaproxy server process
             otaproxy_subprocess = await self._run_in_executor(
@@ -117,6 +154,7 @@ class OTAProxyLauncher:
                     upper_proxy=self.upper_otaproxy,
                     enable_cache=self._proxy_info.enable_local_ota_proxy_cache,
                     enable_https=self._proxy_info.gateway,
+                    external_cache=_cache_data_dir,
                     subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
                 )
             )
