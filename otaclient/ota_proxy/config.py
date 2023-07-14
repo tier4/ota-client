@@ -54,5 +54,8 @@ class Config:
     TMP_FILE_PREFIX = "tmp"
     URL_BASED_HASH_PREFIX = "URL_"
 
+    # the file extension for compressed files in external cache storage
+    EXTERNAL_CACHE_STORAGE_COMPRESS_ALG = "zst"
+
 
 config = Config()

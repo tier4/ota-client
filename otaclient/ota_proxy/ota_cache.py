@@ -68,7 +68,9 @@ _WEAKREF = TypeVar("_WEAKREF")
 
 def create_new_meta(
     raw_url: str,
-    default_cache_identifier: str,
+    cache_identifier: str,
+    url_based_id: bool,
+    /,
     cache_policy_from_client: CacheControlPolicy,
     resp_headers_from_upper: CIMultiDictProxy[str],
 ) -> CacheMeta:
@@ -77,20 +79,17 @@ def create_new_meta(
         content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING, ""),
     )
 
-    # prepare file_sha256 and file_compression_alg
     _upper_cache_policy = OTAFileCacheControl.parse_header(
         resp_headers_from_upper.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
     )
     if _upper_cache_policy.file_sha256:
         cache_meta.file_sha256 = _upper_cache_policy.file_sha256
         cache_meta.file_compression_alg = _upper_cache_policy.file_compression_alg
-    elif cache_policy_from_client.file_sha256:
+    elif not url_based_id:
         cache_meta.file_sha256 = cache_policy_from_client.file_sha256
         cache_meta.file_compression_alg = cache_policy_from_client.file_compression_alg
-    else:
-        # NOTE: default_cache_identifider is URL based hash if cache_policy doesn't
-        #       have real file sha256 hase.
-        cache_meta.file_sha256 = default_cache_identifier
+    else:  # fallback to use URL based id unique identify a cache entry
+        cache_meta.file_sha256 = cache_identifier
         cache_meta.file_compression_alg = ""
     return cache_meta
 
@@ -595,6 +594,7 @@ class OTACache:
         db_file: Optional[Union[str, Path]] = None,
         upper_proxy: str = "",
         enable_https: bool = False,
+        external_cache: Optional[str] = None,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -609,6 +609,10 @@ class OTACache:
         self._init_cache = init_cache
         self._enable_https = enable_https
         self._executor = ThreadPoolExecutor(thread_name_prefix="ota_cache_executor")
+
+        if external_cache and cache_enabled:
+            logger.info(f"external cache source is enabled at: {external_cache}")
+        self._external_cache = Path(external_cache) if external_cache else None
 
         self._storage_below_hard_limit_event = threading.Event()
         self._storage_below_soft_limit_event = threading.Event()
@@ -892,6 +896,31 @@ class OTACache:
             meta_db_entry.export_headers_to_client(),
         )
 
+    async def _retrieve_file_by_external_cache(
+        self, cache_identifier: str, url_based_id: bool
+    ) -> Optional[Tuple[AsyncIterator[bytes], Mapping[str, str]]]:
+        if not self._external_cache or url_based_id:
+            return
+
+        cache_file = self._external_cache / cache_identifier
+        cache_file_zst = cache_file.with_suffix(
+            f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}"
+        )
+
+        if cache_file_zst.is_file():
+            return read_file(cache_file_zst, executor=self._executor), {
+                HEADER_OTA_FILE_CACHE_CONTROL: OTAFileCacheControl.export_as_header(
+                    file_sha256=cache_identifier,
+                    file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
+                )
+            }
+        elif cache_file.is_file():
+            return read_file(cache_file, executor=self._executor), {
+                HEADER_OTA_FILE_CACHE_CONTROL: OTAFileCacheControl.export_as_header(
+                    file_sha256=cache_identifier
+                )
+            }
+
     # exposed API
 
     async def retrieve_file(
@@ -942,17 +971,23 @@ class OTACache:
                 raw_url, headers=headers_from_client
             )
 
-        cache_identifier = cache_policy.file_sha256
+        cache_identifier, url_based_id = cache_policy.file_sha256, False
         if not cache_identifier:  # fallback to use URL based hash
-            cache_identifier = url_based_hash(raw_url)
+            cache_identifier, url_based_id = url_based_hash(raw_url), True
 
-        # --- case 2: try to use cache --- #
+        # --- case 2: if externel cache source available, try to use it --- #
+        if _res := await self._retrieve_file_by_external_cache(
+            cache_identifier, url_based_id
+        ):
+            return _res
+
+        # --- case 3: try to use local cache --- #
         if _res := await self._retrieve_file_by_cache(
             cache_identifier, retry_cache=cache_policy.retry_caching
         ):
             return _res
 
-        # --- case 3: no cache available, streaming remote file and cache --- #
+        # --- case 4: no cache available, streaming remote file and cache --- #
         tracker, is_writer = await self._on_going_caching.get_tracker(
             cache_identifier,
             executor=self._executor,
@@ -969,8 +1004,13 @@ class OTACache:
                 raise
 
             cache_meta = create_new_meta(
-                raw_url, cache_identifier, cache_policy, resp_headers
+                raw_url,
+                cache_identifier,
+                url_based_id,
+                cache_policy_from_client=cache_policy,
+                resp_headers_from_upper=resp_headers,
             )
+
             # start caching
             wrapped_fd = await cache_streaming(
                 fd=remote_fd,
