@@ -922,6 +922,9 @@ class OTACache:
         cache_policy = OTAFileCacheControl.parse_header(
             headers_from_client.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
         )
+        if cache_policy.no_cache:
+            logger.info(f"client indicates that do not cache for {raw_url=}")
+
         if not self._upper_proxy:
             headers_from_client.pop(HEADER_OTA_FILE_CACHE_CONTROL, None)
 
