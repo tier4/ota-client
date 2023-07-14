@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .config import config as cfg
-from .orm import ColumnDescriptor, ORMBase
+from .orm import FV, ColumnDescriptor, ORMBase
 from .cache_control import OTAFileCacheControl
 
 import logging
@@ -59,7 +59,7 @@ class CacheMeta(ORMBase):
         int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
     cache_size: ColumnDescriptor[int] = ColumnDescriptor(
-        int, "INTEGER", "NOT NULL", type_guard=(int, float)
+        int, "INTEGER", "NOT NULL", type_guard=True
     )
     file_compression_alg: ColumnDescriptor[str] = ColumnDescriptor(
         str, "TEXT", "NOT NULL"
@@ -184,7 +184,7 @@ class OTACacheDB:
     def close(self):
         self._con.close()
 
-    def remove_entries(self, fd: ColumnDescriptor, *_inputs: Any) -> int:
+    def remove_entries(self, fd: ColumnDescriptor[FV], *_inputs: FV) -> int:
         """Remove entri(es) indicated by field(s).
 
         Args:
@@ -196,7 +196,7 @@ class OTACacheDB:
         """
         if not _inputs:
             return 0
-        if CacheMeta.contains_field(fd) and all(map(fd.check_type, _inputs)):
+        if CacheMeta.contains_field(fd):
             with self._con as con:
                 _regulated_input = [(i,) for i in _inputs]
                 return con.executemany(
@@ -207,33 +207,40 @@ class OTACacheDB:
             logger.debug(f"invalid inputs detected: {_inputs=}")
             return 0
 
-    def lookup_entry(self, fd: ColumnDescriptor, _input: Any) -> Optional[CacheMeta]:
+    def lookup_entry(
+        self,
+        fd: ColumnDescriptor[FV],
+        value: FV,
+    ) -> Optional[CacheMeta]:
         """Lookup entry by field value.
 
-        NOTE: lookup via this method will trigger update to <last_access> field
+        NOTE: lookup via this method will trigger update to <last_access> field,
+        NOTE 2: <last_access> field is updated by searching <fd> key.
 
         Args:
-            fd: field descriptor of the column
-            _input: field value
+            fd: field descriptor of the column.
+            value: field value to lookup.
 
         Returns:
             An instance of CacheMeta representing the cache entry, or None if lookup failed.
         """
-        if not CacheMeta.contains_field(fd) or not fd.check_type(_input):
+        if not CacheMeta.contains_field(fd):
             return
+
+        fd_name = fd.name
         with self._con as con:  # put the lookup and update into one session
             if row := con.execute(
-                f"SELECT * FROM {self.TABLE_NAME} WHERE {fd.name}=?",
-                (_input,),
+                f"SELECT * FROM {self.TABLE_NAME} WHERE {fd_name}=?",
+                (value,),
             ).fetchone():
                 # warm up the cache(update last_access timestamp) here
                 res = CacheMeta.row_to_meta(row)
                 con.execute(
                     (
                         f"UPDATE {self.TABLE_NAME} SET {CacheMeta.last_access.name}=? "
-                        f"WHERE {CacheMeta.url.name}=?"
+                        f"WHERE {fd_name}=?"
                     ),
-                    (int(time.time()), res.url),
+                    (int(time.time()), value),
                 )
                 return res
 
