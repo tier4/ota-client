@@ -37,27 +37,53 @@ __all__ = (
 )
 
 
-def subprocess_start_otaproxy(
-    *args, subprocess_init: Callable, **kwargs
-) -> SpawnProcess:
+def _subprocess_main(
+    host: str,
+    port: int,
+    *,
+    init_cache: bool,
+    cache_dir: str,
+    cache_db_f: str,
+    upper_proxy: str,
+    enable_cache: bool,
+    enable_https: bool,
+    subprocess_init: Callable,
+    external_cache: Optional[str] = None,
+):
+    """Main entry for launching otaproxy server at subprocess."""
+    import uvloop
+
+    subprocess_init()
+
+    uvloop.install()
+    asyncio.run(
+        run_otaproxy(
+            host=host,
+            port=port,
+            cache_dir=cache_dir,
+            cache_db_f=cache_db_f,
+            enable_cache=enable_cache,
+            upper_proxy=upper_proxy,
+            enable_https=enable_https,
+            init_cache=init_cache,
+            external_cache=external_cache,
+        )
+    )
+
+
+def subprocess_start_otaproxy(*args, **kwargs) -> SpawnProcess:
     """Helper method to launch otaproxy in subprocess.
 
-    Check run_otaproxy for params hint.
+    This method works like a wrapper and passthrough all args and kwargs
+    to the _subprocess_main function, and then execute the function in
+    a subprocess.
+    check _subprocess_main function for more details.
     """
-
-    def _subprocess_main():
-        """Main entry for launching otaproxy server at subprocess."""
-        import uvloop
-
-        subprocess_init()
-
-        uvloop.install()
-        asyncio.run(run_otaproxy(*args, **kwargs))
 
     # run otaproxy in async loop in new subprocess
     mp_ctx = multiprocessing.get_context("spawn")
     otaproxy_subprocess = mp_ctx.Process(
-        target=_subprocess_main,
+        target=partial(_subprocess_main, *args, **kwargs),
         daemon=True,  # kill otaproxy if the parent process exists
     )
     otaproxy_subprocess.start()

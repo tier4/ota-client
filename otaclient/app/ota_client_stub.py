@@ -61,9 +61,9 @@ class _ExternalCacheSourceHelper:
         self.started = False
 
     @property
-    def data_dir(self) -> Optional[Path]:
+    def data_dir(self) -> Optional[str]:
         if self.started:
-            return self._data_dir
+            return str(self._data_dir)
 
     def start(self) -> bool:
         if self.started:
