@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Iterable, Optional, Set, Dict, TypeVar, Union
+from typing import Iterable, Optional, Set, Dict, TypeVar
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
@@ -42,25 +42,67 @@ logger = log_setting.get_logger(
 )
 
 
-def external_cache_src_helper(
-    fslabel: str, mount_point: Union[str, Path]
-) -> Optional[str]:
-    """Load and prepare external cache source if possible.
-
-    Returns:
-        The dev of enabled external cache source.
+class _ExternalCacheSourceHelper:
     """
-    _cache_dev = CMDHelperFuncs._findfs("LABEL", fslabel)
-    if not _cache_dev:
-        return
+    Non-threadsafe, only controlled by OTAProxyLauncher.
+    """
 
-    try:
-        CMDHelperFuncs.mount_ro(target=_cache_dev, mount_point=mount_point)
-        return _cache_dev
-    except Exception as e:
-        logger.warning(
-            f"failed to mount external cache dev({_cache_dev}) to {mount_point=}: {e!r}"
-        )
+    def __init__(
+        self,
+        fslable: str = cfg.EXTERNAL_CACHE_SRC_FSLABEL,
+        mount_point: str = cfg.EXTERNAL_CACHE_SRC_MOUNTPOINT,
+        data_dir: str = cfg.EXTERNAL_CACHE_SRC_DATA_DIR,
+    ) -> None:
+        self.fslabel = fslable
+        self.cache_dev = ""
+        self.mount_point = Path(mount_point)
+        self._data_dir = self.mount_point / data_dir
+
+        self.started = False
+
+    @property
+    def data_dir(self) -> Optional[Path]:
+        if self.started:
+            return self._data_dir
+
+    def start(self) -> bool:
+        if self.started:
+            return False
+
+        # detect cache_dev on every startup
+        _cache_dev = CMDHelperFuncs._findfs("LABEL", self.fslabel)
+        if not _cache_dev:
+            return False
+        logger.info(f"external cache dev detected at {_cache_dev}")
+        self.cache_dev = _cache_dev
+
+        # try to unmount the mount_point and cache_dev unconditionally
+        CMDHelperFuncs.umount(_cache_dev, ignore_error=True)
+        CMDHelperFuncs.umount(self.mount_point, ignore_error=True)
+
+        # try to mount cache_dev ro
+        try:
+            CMDHelperFuncs.mount_ro(target=_cache_dev, mount_point=self.mount_point)
+            self.started = True
+            return True
+        except Exception as e:
+            logger.warning(
+                f"failed to mount external cache dev({_cache_dev}) to {self.mount_point=}: {e!r}"
+            )
+            return False
+
+    def stop(self):
+        if not self.started:
+            return
+
+        try:
+            CMDHelperFuncs.umount(self.cache_dev)
+        except Exception as e:
+            logger.warning(
+                f"failed to unmount external cache_dev {self.cache_dev}: {e!r}"
+            )
+        finally:
+            self.started = False
 
 
 class OTAProxyLauncher:
@@ -84,6 +126,7 @@ class OTAProxyLauncher:
             asyncio.get_event_loop().run_in_executor, executor
         )
         self._otaproxy_subprocess = None
+        self._external_cache_helper = _ExternalCacheSourceHelper()
 
     @property
     def is_running(self) -> bool:
@@ -127,21 +170,14 @@ class OTAProxyLauncher:
         if not self.enabled or self._lock.locked() or self.is_running:
             return
 
-        # try to mount external cache src
-        _mount_point = Path(cfg.EXTERNAL_CACHE_SRC_MOUNTPOINT)
-        _mount_point.mkdir(parents=True, exist_ok=True)
-        _cache_data_dir = None
-
-        _cache_dev = external_cache_src_helper(
-            cfg.EXTERNAL_CACHE_SRC_FSLABEL, _mount_point
-        )
-        if _cache_dev:
-            logger.info(
-                f"external_cache_source@{_cache_dev} is enabled at {_mount_point}"
-            )
-            _cache_data_dir = _mount_point / cfg.EXTERNAL_CACHE_SRC_DATA_DIR
-
         async with self._lock:
+            await self._run_in_executor(self._external_cache_helper.start)
+            if external_cache_dir := self._external_cache_helper.data_dir:
+                logger.info(
+                    f"enable external cache source from {self._external_cache_helper.cache_dev=}"
+                    f"@{self._external_cache_helper.data_dir=}"
+                )
+
             # launch otaproxy server process
             otaproxy_subprocess = await self._run_in_executor(
                 partial(
@@ -154,7 +190,7 @@ class OTAProxyLauncher:
                     upper_proxy=self.upper_otaproxy,
                     enable_cache=self._proxy_info.enable_local_ota_proxy_cache,
                     enable_https=self._proxy_info.gateway,
-                    external_cache=_cache_data_dir,
+                    external_cache=external_cache_dir,
                     subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
                 )
             )
@@ -177,9 +213,16 @@ class OTAProxyLauncher:
 
         def _shutdown():
             if self._otaproxy_subprocess and self._otaproxy_subprocess.is_alive():
+                logger.info("shutting down otaproxy server process...")
                 self._otaproxy_subprocess.terminate()
                 self._otaproxy_subprocess.join()
             self._otaproxy_subprocess = None
+
+            if self._external_cache_helper.started:
+                logger.info(
+                    f"unmounting external cache dev {self._external_cache_helper.cache_dev}..."
+                )
+                self._external_cache_helper.stop()
 
         async with self._lock:
             await self._run_in_executor(_shutdown)

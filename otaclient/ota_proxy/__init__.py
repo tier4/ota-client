@@ -37,30 +37,27 @@ __all__ = (
 )
 
 
-def _subprocess_main(
-    *args,
-    subprocess_init: Callable,
-    **kwargs,
-):
-    """Main entry for launching otaproxy server at subprocess."""
-    import uvloop
-
-    subprocess_init()
-
-    uvloop.install()
-    asyncio.run(run_otaproxy(*args, **kwargs))
-
-
-def subprocess_start_otaproxy(*args, **kwargs) -> SpawnProcess:
+def subprocess_start_otaproxy(
+    *args, subprocess_init: Callable, **kwargs
+) -> SpawnProcess:
     """Helper method to launch otaproxy in subprocess.
 
-    Check _subprocess_main and run_otaproxy for params hint.
+    Check run_otaproxy for params hint.
     """
+
+    def _subprocess_main():
+        """Main entry for launching otaproxy server at subprocess."""
+        import uvloop
+
+        subprocess_init()
+
+        uvloop.install()
+        asyncio.run(run_otaproxy(*args, **kwargs))
 
     # run otaproxy in async loop in new subprocess
     mp_ctx = multiprocessing.get_context("spawn")
     otaproxy_subprocess = mp_ctx.Process(
-        target=partial(_subprocess_main, *args, **kwargs),
+        target=_subprocess_main,
         daemon=True,  # kill otaproxy if the parent process exists
     )
     otaproxy_subprocess.start()
