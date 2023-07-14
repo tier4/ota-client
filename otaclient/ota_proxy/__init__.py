@@ -18,7 +18,9 @@ import logging
 import multiprocessing
 from functools import partial
 from multiprocessing.context import SpawnProcess
-from typing import Callable
+from typing import Callable, Optional
+
+from otaclient._utils import copy_callable_typehint
 
 from .cache_control import OTAFileCacheControl
 from .server_app import App
@@ -38,16 +40,9 @@ __all__ = (
 
 
 def _subprocess_main(
-    host: str,
-    port: int,
-    *,
-    init_cache: bool,
-    cache_dir: str,
-    cache_db_f: str,
-    upper_proxy: str,
-    enable_cache: bool,
-    enable_https: bool,
+    *args,
     subprocess_init: Callable,
+    **kwargs,
 ):
     """Main entry for launching otaproxy server at subprocess."""
     import uvloop
@@ -55,28 +50,12 @@ def _subprocess_main(
     subprocess_init()
 
     uvloop.install()
-    asyncio.run(
-        run_otaproxy(
-            host=host,
-            port=port,
-            cache_dir=cache_dir,
-            cache_db_f=cache_db_f,
-            enable_cache=enable_cache,
-            upper_proxy=upper_proxy,
-            enable_https=enable_https,
-            init_cache=init_cache,
-        )
-    )
+    asyncio.run(run_otaproxy(*args, **kwargs))
 
 
+@copy_callable_typehint
 def subprocess_start_otaproxy(*args, **kwargs) -> SpawnProcess:
-    """Helper method to launch otaproxy in subprocess.
-
-    This method works like a wrapper and passthrough all args and kwargs
-    to the _subprocess_main function, and then execute the function in
-    a subprocess.
-    check _subprocess_main function for more details.
-    """
+    """Helper method to launch otaproxy in subprocess."""
 
     # run otaproxy in async loop in new subprocess
     mp_ctx = multiprocessing.get_context("spawn")
@@ -98,6 +77,7 @@ async def run_otaproxy(
     upper_proxy: str,
     enable_cache: bool,
     enable_https: bool,
+    external_cache: Optional[str] = None,
 ):
     import uvicorn
     from . import App, OTACache
@@ -109,6 +89,7 @@ async def run_otaproxy(
         upper_proxy=upper_proxy,
         enable_https=enable_https,
         init_cache=init_cache,
+        external_cache=external_cache,
     )
     _config = uvicorn.Config(
         App(_ota_cache),
