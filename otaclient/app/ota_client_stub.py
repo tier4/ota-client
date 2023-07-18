@@ -112,8 +112,12 @@ class _OTAProxyContext(OTAProxyContextProto):
         self._external_cache_dev = _cache_dev
 
         # try to unmount the mount_point and cache_dev unconditionally
+        _mp = Path(self._external_cache_mp)
         CMDHelperFuncs.umount(_cache_dev, ignore_error=True)
-        CMDHelperFuncs.umount(self._external_cache_mp, ignore_error=True)
+        if _mp.is_dir():
+            CMDHelperFuncs.umount(self._external_cache_mp, ignore_error=True)
+        else:
+            _mp.mkdir(parents=True, exist_ok=True)
 
         # try to mount cache_dev ro
         try:
@@ -218,7 +222,7 @@ class OTAProxyLauncher:
                     upper_proxy=self.upper_otaproxy,
                     # NOTE: default enable detecting external cache storage
                     external_cache_enabled=True,
-                )  # type: ignore
+                )
             )
 
             otaproxy_subprocess = await self._run_in_executor(
