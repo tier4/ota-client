@@ -21,6 +21,7 @@ from typing import Dict, List, Mapping, Tuple, Union
 from urllib.parse import urlparse
 
 from otaclient._utils.logging import BurstSuppressFilter
+from .cache_control import OTAFileCacheControl
 from ._consts import (
     METHOD_GET,
     REQ_TYPE_HTTP,
