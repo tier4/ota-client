@@ -68,7 +68,7 @@ from typing import (
 )
 from typing_extensions import Self
 
-from otaclient.ota_proxy.cache_control import OTAFileCacheControl
+from otaclient.ota_proxy import OTAFileCacheControl
 
 from .configs import config as cfg
 from .common import (
