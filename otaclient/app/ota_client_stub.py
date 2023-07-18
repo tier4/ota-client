@@ -56,18 +56,18 @@ class _OTAProxyContext(OTAProxyContextProto):
         *,
         upper_proxy: Optional[str],
         external_cache_enabled: bool,
-        external_cache_fslable: str = cfg.EXTERNAL_CACHE_SRC_FSLABEL,
-        external_cache_mp: str = cfg.EXTERNAL_CACHE_SRC_MOUNTPOINT,
-        external_cache_data_dir: str = cfg.EXTERNAL_CACHE_SRC_DATA_DIR,
+        external_cache_dev_fslable: str = cfg.EXTERNAL_CACHE_DEV_FSLABEL,
+        external_cache_dev_mp: str = cfg.EXTERNAL_CACHE_DEV_MOUNTPOINT,
+        external_cache_path: str = cfg.EXTERNAL_CACHE_SRC_PATH,
     ) -> None:
         self.upper_proxy = upper_proxy
         self.external_cache_enabled = external_cache_enabled
 
         self._external_cache_activated = False
-        self._external_cache_fslabel = external_cache_fslable
+        self._external_cache_dev_fslabel = external_cache_dev_fslable
         self._external_cache_dev = None  # type: ignore[assignment]
-        self._external_cache_mp = external_cache_mp
-        self._external_cache_data_dir = external_cache_data_dir
+        self._external_cache_dev_mp = external_cache_dev_mp
+        self._external_cache_data_dir = external_cache_path
 
         self.logger = logging.getLogger("otaclient.ota_proxy")
 
@@ -104,7 +104,7 @@ class _OTAProxyContext(OTAProxyContextProto):
 
     def _mount_external_cache_storage(self):
         # detect cache_dev on every startup
-        _cache_dev = CMDHelperFuncs._findfs("LABEL", self._external_cache_fslabel)
+        _cache_dev = CMDHelperFuncs._findfs("LABEL", self._external_cache_dev_fslabel)
         if not _cache_dev:
             return
 
@@ -112,22 +112,22 @@ class _OTAProxyContext(OTAProxyContextProto):
         self._external_cache_dev = _cache_dev
 
         # try to unmount the mount_point and cache_dev unconditionally
-        _mp = Path(self._external_cache_mp)
+        _mp = Path(self._external_cache_dev_mp)
         CMDHelperFuncs.umount(_cache_dev, ignore_error=True)
         if _mp.is_dir():
-            CMDHelperFuncs.umount(self._external_cache_mp, ignore_error=True)
+            CMDHelperFuncs.umount(self._external_cache_dev_mp, ignore_error=True)
         else:
             _mp.mkdir(parents=True, exist_ok=True)
 
         # try to mount cache_dev ro
         try:
             CMDHelperFuncs.mount_ro(
-                target=_cache_dev, mount_point=self._external_cache_mp
+                target=_cache_dev, mount_point=self._external_cache_dev_mp
             )
             self._external_cache_activated = True
         except Exception as e:
             logger.warning(
-                f"failed to mount external cache dev({_cache_dev}) to {self._external_cache_mp=}: {e!r}"
+                f"failed to mount external cache dev({_cache_dev}) to {self._external_cache_dev_mp=}: {e!r}"
             )
 
     def _umount_external_cache_storage(self):

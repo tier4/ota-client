@@ -177,9 +177,9 @@ class BaseConfig(_InternalSettings):
     IDLE_INTERVAL = 10  # seconds
 
     # --- External cache source support for otaproxy --- #
-    EXTERNAL_CACHE_SRC_FSLABEL = "ota_cache_src"
-    EXTERNAL_CACHE_SRC_MOUNTPOINT = "/mnt/external_cache_src"
-    EXTERNAL_CACHE_SRC_DATA_DIR = "data"
+    EXTERNAL_CACHE_DEV_FSLABEL = "ota_cache_src"
+    EXTERNAL_CACHE_DEV_MOUNTPOINT = "/mnt/external_cache_src"
+    EXTERNAL_CACHE_SRC_PATH = "/mnt/external_cache_src/data"
 
 
 # init cfgs
