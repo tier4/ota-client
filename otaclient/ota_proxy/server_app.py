@@ -19,7 +19,7 @@ from http import HTTPStatus
 from typing import Any, Dict, List, Union
 
 from otaclient._utils.logging import BurstSuppressFilter
-from .cache_control import OTAFileCacheControl
+from .cache_control import CacheControlPolicy, OTAFileCacheControl
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 
@@ -167,28 +167,18 @@ class App:
         extra_headers: Dict[str, str] = dict()
         # currently we only need cookie and/or authorization header
         # also parse OTA-File-Cache-Control header
-        ota_cache_control_policies = set()
+        ota_cache_control_policies = CacheControlPolicy()
         for header in scope["headers"]:
             if header[0] == b"cookie":
                 cookies_dict = self.parse_raw_cookies(header[1])
             elif header[0] == b"authorization":
                 extra_headers["Authorization"] = header[1].decode()
             # custome header for ota_file, see retrieve_file and OTACache for details
-            elif header[0] == OTAFileCacheControl.header_lower.value.encode():
-                try:
-                    # NOTE: this statement can check over the received directives
-                    ota_cache_control_policies = OTAFileCacheControl.parse_to_enum_set(
-                        header[1].decode()
-                    )
-                    # also preserved the raw headers value string
-                    extra_headers[OTAFileCacheControl.header.value] = header[1].decode()
-                except KeyError:
-                    await self._respond_with_error(
-                        HTTPStatus.BAD_REQUEST,
-                        f"bad OTA-File-Cache-Control headers: {header[1]}",
-                        send,
-                    )
-                    return
+            elif (
+                header[0] == OTAFileCacheControl.HEADER_LOWERCASE.encode()
+                and len(header) == 2
+            ):
+                ota_cache_control_policies.update_from_header_str(header[1])
 
         respond_started = False
         try:
