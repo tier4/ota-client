@@ -68,9 +68,10 @@ from typing import (
 )
 from typing_extensions import Self
 
+from otaclient.ota_proxy.cache_control import OTAFileCacheControl
+
 from .configs import config as cfg
 from .common import (
-    OTAFileCacheControl,
     RetryTaskMap,
     get_backoff,
     urljoin_ensure_base,
@@ -630,7 +631,9 @@ class OTAMetadata:
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
                 headers={
-                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
+                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_as_header(
+                        no_cache=True
+                    )
                 },
             )
 
@@ -650,7 +653,9 @@ class OTAMetadata:
                 cert_file,
                 digest=cert_hash,
                 headers={
-                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
+                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_as_header(
+                        no_cache=True
+                    )
                 },
             )
             _parser.verify_metadata(cert_file.read_bytes())
@@ -671,7 +676,9 @@ class OTAMetadata:
                     _metafile_fpath,
                     digest=_metafile.hash,
                     headers={
-                        OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                        OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_as_header(
+                            no_cache=True
+                        )
                     },
                 )
                 # convert to internal used version and store as binary files
