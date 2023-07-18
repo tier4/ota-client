@@ -176,6 +176,11 @@ class BaseConfig(_InternalSettings):
     # Idle status polling interval, when ther is no active OTA updaste in the cluster.
     IDLE_INTERVAL = 10  # seconds
 
+    # --- External cache source support for otaproxy --- #
+    EXTERNAL_CACHE_DEV_FSLABEL = "ota_cache_src"
+    EXTERNAL_CACHE_DEV_MOUNTPOINT = "/mnt/external_cache_src"
+    EXTERNAL_CACHE_SRC_PATH = "/mnt/external_cache_src/data"
+
 
 # init cfgs
 server_cfg = OtaClientServerConfig()
