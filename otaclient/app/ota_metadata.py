@@ -482,7 +482,7 @@ _dir_pa = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<path>.*)")
 _symlink_pa = re.compile(
     r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
 )
-_persist_pa = re.compile(r"'(?P<path>)'")
+_persist_pa = re.compile(r"'(?P<path>.*)'")
 # NOTE(20221013): support previous regular_inf cvs version
 #                 that doesn't contain size, inode and compressed_alg fields.
 _reginf_pa = re.compile(
