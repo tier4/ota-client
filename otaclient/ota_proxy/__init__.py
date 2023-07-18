@@ -16,10 +16,12 @@
 import asyncio
 import logging
 import multiprocessing
+from abc import abstractmethod
+from contextlib import AbstractContextManager
 from functools import partial
 from multiprocessing.context import SpawnProcess
-from typing import Any, Callable, Coroutine, Optional, ContextManager
-from typing_extensions import ParamSpec
+from typing import Any, Callable, Coroutine, Dict, Optional, Protocol, Type
+from typing_extensions import ParamSpec, Self
 
 from .cache_control import OTAFileCacheControl
 from .server_app import App
@@ -34,6 +36,7 @@ __all__ = (
     "OTACache",
     "OTAFileCacheControl",
     "config",
+    "OTAProxyContextProto",
     "subprocess_otaproxy_launcher",
 )
 
@@ -77,8 +80,18 @@ async def run_otaproxy(
     await _server.serve()
 
 
+class OTAProxyContextProto(AbstractContextManager, Protocol):
+    @property
+    def extra_kwargs(self) -> Dict[str, Any]:
+        return {}
+
+    @abstractmethod
+    def __enter__(self) -> Self:
+        ...
+
+
 def _subprocess_main(
-    subprocess_ctx: Callable[..., ContextManager],
+    subprocess_ctx: Type[OTAProxyContextProto],
     otaproxy_entry: Callable[..., Coroutine],
 ):
     """Main entry for launching otaproxy server at subprocess."""
@@ -90,7 +103,7 @@ def _subprocess_main(
 
 
 def subprocess_otaproxy_launcher(
-    subprocess_ctx: Callable[..., ContextManager],
+    subprocess_ctx: Type[OTAProxyContextProto],
     otaproxy_entry: Callable[_P, Any] = run_otaproxy,
 ):
     """
