@@ -921,6 +921,22 @@ class OTACache:
                 )
             }
 
+    def _get_cache_identifier(
+        self, raw_url: str, cache_policy: CacheControlPolicy
+    ) -> Tuple[str, bool]:
+        """Get a unique cache_identifier from input.
+
+        If file_sha256 is available, use it as cache identifier, otherwise fallback
+            to URL based sha256.
+
+        Returns:
+            A tuple of cache_identifier str and a bool indicate whether the cache_identifier
+                is file sha256 based.
+        """
+        if not cache_policy.file_sha256:
+            return url_based_hash(raw_url), False
+        return cache_policy.file_sha256, True
+
     # exposed API
 
     async def retrieve_file(
@@ -971,9 +987,10 @@ class OTACache:
                 raw_url, headers=headers_from_client
             )
 
-        cache_identifier, url_based_id = cache_policy.file_sha256, False
-        if not cache_identifier:  # fallback to use URL based hash
-            cache_identifier, url_based_id = url_based_hash(raw_url), True
+        cache_identifier, file_sha256_based_id = self._get_cache_identifier(
+            raw_url, cache_policy
+        )
+        url_based_id = not file_sha256_based_id
 
         # --- case 2: if externel cache source available, try to use it --- #
         # NOTE: if client requsts with retry_caching directive, it may indicate cache corrupted
