@@ -976,8 +976,12 @@ class OTACache:
             cache_identifier, url_based_id = url_based_hash(raw_url), True
 
         # --- case 2: if externel cache source available, try to use it --- #
-        if _res := await self._retrieve_file_by_external_cache(
-            cache_identifier, url_based_id
+        # NOTE: if client requsts with retry_caching directive, it may indicate cache corrupted
+        #       in external cache storage, in such case we should skip the use of external cache.
+        if not cache_policy.retry_caching and (
+            _res := await self._retrieve_file_by_external_cache(
+                cache_identifier, url_based_id
+            )
         ):
             return _res
 
