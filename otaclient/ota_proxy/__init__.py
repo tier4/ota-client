@@ -20,7 +20,7 @@ from abc import abstractmethod
 from contextlib import AbstractContextManager
 from functools import partial
 from multiprocessing.context import SpawnProcess
-from typing import Any, Callable, Coroutine, Dict, Optional, Protocol, Type
+from typing import Any, Callable, Coroutine, Dict, Optional, Protocol
 from typing_extensions import ParamSpec, Self
 
 from .cache_control import OTAFileCacheControl
