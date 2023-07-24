@@ -14,7 +14,7 @@
 
 
 from dataclasses import dataclass
-from typing import ClassVar, List
+from typing import List
 from typing_extensions import Self
 
 from otaclient._utils import copy_callable_typehint_to_method
@@ -28,6 +28,14 @@ class _DirectivesDef:
     # added in revision 2:
     file_sha256: str = ""
     file_compression_alg: str = ""
+
+
+# ------ Header definition ------ #
+# NOTE: according to RFC7230, the header name is case-insensitive,
+#       so for convenience during code implementation, we always use lower-case
+#       header name.
+HEADER_LOWERCASE = "ota-file-cache-control"
+HEADER_DIR_SEPARATOR = ","
 
 
 @dataclass
@@ -48,13 +56,6 @@ class OTAFileCacheControl(_DirectivesDef):
     TODO: value validation check?
     """
 
-    # ------ Header definition ------ #
-    # NOTE: according to RFC7230, the header name is case-insensitive,
-    #       so for convenience during code implementation, we always use lower-case
-    #       header name.
-    HEADER_LOWERCASE: ClassVar[str] = "ota-file-cache-control"
-    SEPARATOR: ClassVar[str] = ","
-
     @classmethod
     def check_key(cls, key: str) -> bool:
         return key in cls.__dataclass_fields__
@@ -62,7 +63,7 @@ class OTAFileCacheControl(_DirectivesDef):
     @classmethod
     def parse_header(cls, _input: str) -> Self:
         _parsed_directives = {}
-        for _raw_directive in _input.split(cls.SEPARATOR):
+        for _raw_directive in _input.split(HEADER_DIR_SEPARATOR):
             if not (_parsed := _raw_directive.strip().split("=", maxsplit=1)):
                 continue
             key = _parsed[0].strip()
@@ -88,7 +89,7 @@ class OTAFileCacheControl(_DirectivesDef):
                 _directives.append(key)
             elif value:
                 _directives.append(f"{key}={value}")
-        return cls.SEPARATOR.join(_directives)
+        return HEADER_DIR_SEPARATOR.join(_directives)
 
     @classmethod
     def update_header_str(cls, _input: str, **kwargs) -> str:
@@ -101,7 +102,7 @@ class OTAFileCacheControl(_DirectivesDef):
         4. file_compression_alg
         """
         _parsed_directives = {}
-        for _raw_directive in _input.split(cls.SEPARATOR):
+        for _raw_directive in _input.split(HEADER_DIR_SEPARATOR):
             if not (_parsed := _raw_directive.strip().split("=", maxsplit=1)):
                 continue
             key = _parsed[0].strip()
@@ -119,7 +120,7 @@ class OTAFileCacheControl(_DirectivesDef):
                 _parsed_directives[_key] = _key
             else:  # remove False or empty directives
                 _parsed_directives.pop(_key, None)
-        return cls.SEPARATOR.join(_parsed_directives.values())
+        return HEADER_DIR_SEPARATOR.join(_parsed_directives.values())
 
     def export_as_header(self) -> str:
         return self.export_kwargs_as_header(
