@@ -19,7 +19,7 @@ from http import HTTPStatus
 from typing import Any, Dict, List, Union
 
 from otaclient._utils.logging import BurstSuppressFilter
-from .cache_control import OTAFileCacheControl
+from .cache_control import OTAFileCacheControl, HEADER_LOWERCASE
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 
@@ -174,10 +174,7 @@ class App:
             elif header[0] == b"authorization":
                 extra_headers["Authorization"] = header[1].decode()
             # custome header for ota_file, see retrieve_file and OTACache for details
-            elif (
-                header[0] == OTAFileCacheControl.HEADER_LOWERCASE.encode()
-                and len(header) == 2
-            ):
+            elif header[0] == HEADER_LOWERCASE.encode() and len(header) == 2:
                 ota_cache_control_policies = OTAFileCacheControl.parse_header(
                     header[1].decode()
                 )

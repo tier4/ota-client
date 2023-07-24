@@ -42,7 +42,7 @@ from typing import (
 )
 from urllib.parse import SplitResult, quote, urlsplit
 
-from .cache_control import OTAFileCacheControl
+from .cache_control import OTAFileCacheControl, HEADER_LOWERCASE
 from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
     BaseOTACacheError,
@@ -1005,7 +1005,7 @@ class OTACache:
             use_cache = False
         # if there is no upper_ota_proxy, trim the custom headers away
         if self._enable_https:
-            extra_headers.pop(OTAFileCacheControl.HEADER_LOWERCASE, None)
+            extra_headers.pop(HEADER_LOWERCASE, None)
 
         # --- case 1: not using cache, directly download file --- #
         if (

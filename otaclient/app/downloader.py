@@ -47,7 +47,7 @@ from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
 
 from otaclient._utils import copy_callable_typehint
-from otaclient.ota_proxy import OTAFileCacheControl
+from otaclient.ota_proxy import OTAFileCacheControl, HEADER_LOWERCASE
 from .configs import config as cfg
 from .common import wait_with_backoff
 from . import log_setting
@@ -163,13 +163,11 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
                         _parsed_header.update(_popped_headers)
 
                     # preserve the already set policies, while add retry_caching policy
-                    _cache_policy = _parsed_header.pop(
-                        OTAFileCacheControl.HEADER_LOWERCASE, ""
-                    )
+                    _cache_policy = _parsed_header.pop(HEADER_LOWERCASE, "")
                     _cache_policy = OTAFileCacheControl.update_header_str(
                         _cache_policy, retry_caching=True
                     )
-                    _parsed_header[OTAFileCacheControl.HEADER_LOWERCASE] = _cache_policy
+                    _parsed_header[HEADER_LOWERCASE] = _cache_policy
 
                     # replace with updated header
                     kwargs["headers"] = _parsed_header
@@ -403,11 +401,11 @@ class Downloader:
             res.update(input_header)
 
         # inject digest and compression_alg into ota-file-cache-control-header
-        _cache_policy = res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
+        _cache_policy = res.pop(HEADER_LOWERCASE, "")
         _cache_policy = OTAFileCacheControl.update_header_str(
             _cache_policy, file_sha256=digest, file_compression_alg=compression_alg
         )
-        res[OTAFileCacheControl.HEADER_LOWERCASE] = _cache_policy
+        res[HEADER_LOWERCASE] = _cache_policy
         return res
 
     def _check_against_cache_policy_in_resp(
@@ -426,11 +424,7 @@ class Downloader:
         Returns:
             A tuple of file_sha256 and file_compression_alg for the requested resources.
         """
-        if not (
-            cache_policy_str := resp_headers.get(
-                OTAFileCacheControl.HEADER_LOWERCASE, None
-            )
-        ):
+        if not (cache_policy_str := resp_headers.get(HEADER_LOWERCASE, None)):
             return digest, compression_alg
 
         cache_policy = OTAFileCacheControl.parse_header(cache_policy_str)
