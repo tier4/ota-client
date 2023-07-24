@@ -14,61 +14,24 @@
 
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import List, Optional, Union
+from typing import ClassVar, List
 from typing_extensions import Self
 
-
-class DIRECTIVE(str, Enum):
-    no_cache = "no_cache"
-    retry_caching = "retry_caching"
-    file_sha256 = "file_sha256"
-    file_compression_alg = "file_compression_alg"
-
-    @classmethod
-    def check_key(cls, _input: str) -> Optional[Self]:
-        try:
-            return cls[_input]
-        except KeyError:
-            pass
+from otaclient._utils import copy_callable_typehint_to_method
 
 
 @dataclass
-class CacheControlPolicy:
+class _DirectivesDef:
+    # ------ Directives definition ------ #
     no_cache: bool = False
     retry_caching: bool = False
     # added in revision 2:
     file_sha256: str = ""
     file_compression_alg: str = ""
 
-    def update_from_header_str(self, _input: str) -> Self:
-        """Update itself from raw ota-file-cache-control header string."""
-        if not _input:
-            return self
 
-        for _raw_directive in _input.split(OTAFileCacheControl.SEPARATOR):
-            if not (_parsed := _raw_directive.split("=", maxsplit=1)):
-                continue
-
-            key = _parsed[0].strip()
-            if not DIRECTIVE.check_key(key):
-                continue
-
-            if len(_parsed) == 1:
-                setattr(self, key, True)
-            elif len(_parsed) == 2 and (value := _parsed[1]):
-                setattr(self, key, value.strip())
-        return self
-
-    def update_from_directives(self, **kwargs: Union[str, bool]) -> Self:
-        """Update itself from a list of directives pairs."""
-        for key, value in kwargs.items():
-            if DIRECTIVE.check_key(key):
-                setattr(self, key, value)
-        return self
-
-
-class OTAFileCacheControl:
+@dataclass
+class OTAFileCacheControl(_DirectivesDef):
     """Custom header for ota file caching control policies.
 
     format:
@@ -81,28 +44,44 @@ class OTAFileCacheControl:
             and retry caching
         file_sha256: the hash value of the original requested OTA file
         file_compression_alg: the compression alg used for the OTA file
+
+    TODO: value validation check?
     """
 
+    # ------ Header definition ------ #
     # NOTE: according to RFC7230, the header name is case-insensitive,
     #       so for convenience during code implementation, we always use lower-case
     #       header name.
-    HEADER_LOWERCASE = "ota-file-cache-control"
-    SEPARATOR = ","
+    HEADER_LOWERCASE: ClassVar[str] = "ota-file-cache-control"
+    SEPARATOR: ClassVar[str] = ","
 
     @classmethod
-    def parse_header(cls, _input: str) -> CacheControlPolicy:
-        return CacheControlPolicy().update_from_header_str(_input)
+    def check_key(cls, key: str) -> bool:
+        return key in cls.__dataclass_fields__
 
     @classmethod
-    def export_as_header(cls, **kwargs) -> str:
-        """Directly export header str from a list of directive pairs.
+    def parse_header(cls, _input: str) -> Self:
+        _parsed_directives = {}
+        for _raw_directive in _input.split(cls.SEPARATOR):
+            if not (_parsed := _raw_directive.strip().split("=", maxsplit=1)):
+                continue
+            key = _parsed[0].strip()
+            if not cls.check_key(key):
+                continue
 
-        Check DIRECTIVE for directives definition.
-        Only set/True policy will be exported, empty or False policy will be skipped.
-        """
+            if len(_parsed) == 1:
+                _parsed_directives[key] = True
+            elif len(_parsed) == 2 and (value := _parsed[1].strip()):
+                _parsed_directives[key] = value
+        return cls(**_parsed_directives)
+
+    @classmethod
+    @copy_callable_typehint_to_method(_DirectivesDef)
+    def export_kwargs_as_header(cls, **kwargs) -> str:
+        """Directly export header str from a list of directive pairs."""
         _directives: List[str] = []
         for key, value in kwargs.items():
-            if not DIRECTIVE.check_key(key):
+            if not cls.check_key(key):
                 continue
 
             if isinstance(value, bool) and value:
@@ -122,17 +101,16 @@ class OTAFileCacheControl:
         4. file_compression_alg
         """
         _parsed_directives = {}
-        for _raw_directive in _input.split(OTAFileCacheControl.SEPARATOR):
-            if not (_parsed := _raw_directive.split("=", maxsplit=1)):
+        for _raw_directive in _input.split(cls.SEPARATOR):
+            if not (_parsed := _raw_directive.strip().split("=", maxsplit=1)):
                 continue
-
             key = _parsed[0].strip()
-            if not DIRECTIVE.check_key(key):
+            if not cls.check_key(key):
                 continue
             _parsed_directives[key] = _raw_directive
 
         for _key, value in kwargs.items():
-            if not DIRECTIVE.check_key(_key):
+            if not cls.check_key(_key):
                 continue
 
             if isinstance(value, str):
@@ -142,3 +120,16 @@ class OTAFileCacheControl:
             else:  # remove False or empty directives
                 _parsed_directives.pop(_key, None)
         return cls.SEPARATOR.join(_parsed_directives.values())
+
+    def export_as_header(self) -> str:
+        return self.export_kwargs_as_header(
+            **{k: getattr(self, k) for k in self.__dataclass_fields__}
+        )
+
+    @copy_callable_typehint_to_method(_DirectivesDef)
+    def update_from_directives(self, **kwargs) -> Self:
+        """Update itself from a list of directives pairs."""
+        for key, value in kwargs.items():
+            if self.check_key(key):
+                setattr(self, key, value)
+        return self
