@@ -42,7 +42,7 @@ from typing import (
 )
 from urllib.parse import SplitResult, quote, urlsplit
 
-from .cache_control import CacheControlPolicy, OTAFileCacheControl
+from .cache_control import OTAFileCacheControl
 from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
 from .errors import (
     BaseOTACacheError,
@@ -968,7 +968,7 @@ class OTACache:
         /,
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
-        cache_control_policies: CacheControlPolicy,
+        cache_control_policies: OTAFileCacheControl,
     ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
         """Retrieve a file descriptor for the requested <raw_url>.
 
