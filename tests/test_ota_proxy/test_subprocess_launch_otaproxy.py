@@ -48,11 +48,8 @@ def test_subprocess_start_otaproxy(tmp_path: Path):
 
     # --- execution --- #
     _subprocess_entry = subprocess_otaproxy_launcher(
-        subprocess_ctx=partial(
-            _DummyOTAProxyContext, sentinel=str(subprocess_init_sentinel)
-        )
+        subprocess_ctx=_DummyOTAProxyContext(sentinel=str(subprocess_init_sentinel))
     )
-
     otaproxy_subprocess = _subprocess_entry(
         host="127.0.0.1",
         port=8082,
@@ -63,7 +60,7 @@ def test_subprocess_start_otaproxy(tmp_path: Path):
         enable_cache=True,
         enable_https=False,
     )
-    time.sleep(1)  # wait for subprocess to finish up initializing
+    time.sleep(3)  # wait for subprocess to finish up initializing
 
     # --- assertion --- #
     try:

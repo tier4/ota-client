@@ -172,6 +172,7 @@ class OTAProxyLauncher:
         self,
         *,
         executor: ThreadPoolExecutor,
+        subprocess_ctx: OTAProxyContextProto,
         _proxy_info=proxy_cfg,
         _proxy_server_cfg=local_otaproxy_cfg,
     ) -> None:
@@ -179,6 +180,7 @@ class OTAProxyLauncher:
         self._proxy_server_cfg = _proxy_server_cfg
         self.enabled = _proxy_info.enable_local_ota_proxy
         self.upper_otaproxy = _proxy_info.upper_ota_proxy
+        self.subprocess_ctx = subprocess_ctx
 
         self._lock = asyncio.Lock()
         # process start/shutdown will be dispatched to thread pool
@@ -214,16 +216,8 @@ class OTAProxyLauncher:
         async with self._lock:
             # launch otaproxy server process
             _subprocess_entry = subprocess_otaproxy_launcher(
-                # NOTE: don't actual init the ctx here, but init it in the subprocess,
-                #       that's why subprocess_otaproxy_launcher takes type of OTAProxyContext
-                subprocess_ctx=partial(
-                    _OTAProxyContext,
-                    upper_proxy=self.upper_otaproxy,
-                    # NOTE: default enable detecting external cache storage
-                    external_cache_enabled=True,
-                )
+                subprocess_ctx=self.subprocess_ctx
             )
-
             otaproxy_subprocess = await self._run_in_executor(
                 partial(
                     _subprocess_entry,
@@ -722,7 +716,14 @@ class OTAClientServiceStub:
         #       In normal running this event will never be set.
         self._debug_status_checking_shutdown_event = asyncio.Event()
         if _proxy_cfg.enable_local_ota_proxy:
-            self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
+            self._otaproxy_launcher = OTAProxyLauncher(
+                executor=self._executor,
+                subprocess_ctx=_OTAProxyContext(
+                    upper_proxy=_proxy_cfg.upper_ota_proxy,
+                    # NOTE: default enable detecting external cache storage
+                    external_cache_enabled=True,
+                ),
+            )
             asyncio.create_task(self._otaproxy_lifecycle_managing())
             asyncio.create_task(self._otaclient_control_flags_managing())
         else:
