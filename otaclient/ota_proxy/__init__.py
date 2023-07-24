@@ -81,6 +81,10 @@ async def run_otaproxy(
 
 
 class OTAProxyContextProto(AbstractContextManager, Protocol):
+    @abstractmethod
+    def __init__(self, *args, **kwargs) -> None:
+        ...
+
     @property
     def extra_kwargs(self) -> Dict[str, Any]:
         return {}
@@ -91,19 +95,19 @@ class OTAProxyContextProto(AbstractContextManager, Protocol):
 
 
 def _subprocess_main(
-    subprocess_ctx: Callable[..., OTAProxyContextProto],
+    subprocess_ctx: OTAProxyContextProto,
     otaproxy_entry: Callable[..., Coroutine],
 ):
     """Main entry for launching otaproxy server at subprocess."""
     import uvloop  # NOTE: only import uvloop at subprocess
 
     uvloop.install()
-    with subprocess_ctx() as ctx:
+    with subprocess_ctx as ctx:
         asyncio.run(otaproxy_entry(**ctx.extra_kwargs))
 
 
 def subprocess_otaproxy_launcher(
-    subprocess_ctx: Callable[..., OTAProxyContextProto],
+    subprocess_ctx: OTAProxyContextProto,
     otaproxy_entry: Callable[_P, Any] = run_otaproxy,
 ):
     """
