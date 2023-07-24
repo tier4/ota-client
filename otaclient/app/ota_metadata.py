@@ -631,7 +631,7 @@ class OTAMetadata:
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
                 headers={
-                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_as_header(
+                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
                         no_cache=True
                     )
                 },
@@ -653,7 +653,7 @@ class OTAMetadata:
                 cert_file,
                 digest=cert_hash,
                 headers={
-                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_as_header(
+                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
                         no_cache=True
                     )
                 },
@@ -676,7 +676,7 @@ class OTAMetadata:
                     _metafile_fpath,
                     digest=_metafile.hash,
                     headers={
-                        OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_as_header(
+                        OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
                             no_cache=True
                         )
                     },
