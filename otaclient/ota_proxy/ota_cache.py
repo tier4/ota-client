@@ -909,20 +909,20 @@ class OTACache:
 
         if cache_file_zst.is_file():
             return read_file(cache_file_zst, executor=self._executor), {
-                HEADER_OTA_FILE_CACHE_CONTROL: OTAFileCacheControl.export_as_header(
+                HEADER_OTA_FILE_CACHE_CONTROL: OTAFileCacheControl.export_kwargs_as_header(
                     file_sha256=cache_identifier,
                     file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
                 )
             }
         elif cache_file.is_file():
             return read_file(cache_file, executor=self._executor), {
-                HEADER_OTA_FILE_CACHE_CONTROL: OTAFileCacheControl.export_as_header(
+                HEADER_OTA_FILE_CACHE_CONTROL: OTAFileCacheControl.export_kwargs_as_header(
                     file_sha256=cache_identifier
                 )
             }
 
     def _get_cache_identifier(
-        self, raw_url: str, cache_policy: CacheControlPolicy
+        self, raw_url: str, cache_policy: OTAFileCacheControl
     ) -> Tuple[str, bool]:
         """Get a unique cache_identifier from input.
 
