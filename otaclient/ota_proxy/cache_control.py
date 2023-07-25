@@ -87,10 +87,10 @@ class OTAFileCacheControl(_HeaderDef):
         _fields: Dict[str, type] = getattr(cls, _FIELDS)
         _directives: List[str] = []
         for key, value in kwargs.items():
-            if not (_field_type := _fields.get(key)):
+            if key not in _fields:
                 continue
 
-            if _field_type is bool and value:
+            if isinstance(value, bool) and value:
                 _directives.append(key)
             elif value:  # str field
                 _directives.append(f"{key}={value}")
