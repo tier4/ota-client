@@ -204,9 +204,11 @@ class App:
 
     @asynccontextmanager
     async def _error_handling_for_cache_retrieving(self, url: str, send):
+        _is_succeeded = asyncio.Event()
         _common_err_msg = f"request for {url=} failed"
         try:
-            yield
+            yield _is_succeeded
+            _is_succeeded.set()
         except aiohttp.ClientResponseError as e:
             logger.error(f"{_common_err_msg} due to HTTP error: {e!r}")
             # passthrough 4xx(currently 403 and 404) to otaclient
@@ -277,16 +279,17 @@ class App:
         headers_from_client = parse_raw_headers(scope["headers"])
 
         # try to get a cache entry for this URL or for file_sha256 indicated by cache_policy
-        retrieved_ota_cache, retrieve_file_executed = None, False
-        async with self._error_handling_for_cache_retrieving(url, send):
+        retrieved_ota_cache = None
+        async with self._error_handling_for_cache_retrieving(
+            url, send
+        ) as _is_succeeded:
             retrieved_ota_cache = await self._ota_cache.retrieve_file(
                 url, headers_from_client
             )
-            retrieve_file_executed = True
 
         if retrieved_ota_cache is None:
             # retrieve_file executed successfully, but return nothing
-            if retrieve_file_executed:
+            if _is_succeeded.is_set():
                 _msg = f"failed to retrieve fd for {url} from otacache"
                 logger.warning(_msg)
                 await self._respond_with_error(
