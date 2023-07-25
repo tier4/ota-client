@@ -13,15 +13,25 @@
 # limitations under the License.
 
 
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, fields
+from typing import Dict, List, ClassVar
 from typing_extensions import Self
 
 from otaclient._utils import copy_callable_typehint_to_method
 
 
+_FIELDS = "_fields"
+
+
 @dataclass
-class _DirectivesDef:
+class _HeaderDef:
+    # ------ Header definition ------ #
+    # NOTE: according to RFC7230, the header name is case-insensitive,
+    #       so for convenience during code implementation, we always use lower-case
+    #       header name.
+    HEADER_LOWERCASE: ClassVar[str] = "ota-file-cache-control"
+    HEADER_DIR_SEPARATOR: ClassVar[str] = ","
+
     # ------ Directives definition ------ #
     no_cache: bool = False
     retry_caching: bool = False
@@ -29,17 +39,19 @@ class _DirectivesDef:
     file_sha256: str = ""
     file_compression_alg: str = ""
 
+    def __init_subclass__(cls) -> None:
+        _fields = {}
+        for f in fields(cls):
+            _fields[f.name] = f.type
+        setattr(cls, _FIELDS, _fields)
 
-# ------ Header definition ------ #
-# NOTE: according to RFC7230, the header name is case-insensitive,
-#       so for convenience during code implementation, we always use lower-case
-#       header name.
-HEADER_LOWERCASE = "ota-file-cache-control"
-HEADER_DIR_SEPARATOR = ","
+    @classmethod
+    def check_key(cls, key: str) -> bool:
+        return key in getattr(cls, _FIELDS)
 
 
 @dataclass
-class OTAFileCacheControl(_DirectivesDef):
+class OTAFileCacheControl(_HeaderDef):
     """Custom header for ota file caching control policies.
 
     format:
@@ -49,47 +61,44 @@ class OTAFileCacheControl(_DirectivesDef):
         no_cache: indicates that ota_proxy should not use cache for <URL>,
             this will void all other directives when presented,
         retry_caching: indicates that ota_proxy should clear cache entry for <URL>
-            and retry caching
+            and retry caching when presented,
         file_sha256: the hash value of the original requested OTA file
         file_compression_alg: the compression alg used for the OTA file
-
-    TODO: value validation check?
     """
 
     @classmethod
-    def check_key(cls, key: str) -> bool:
-        return key in cls.__dataclass_fields__
-
-    @classmethod
     def parse_header(cls, _input: str) -> Self:
+        _fields: Dict[str, type] = getattr(cls, _FIELDS)
         _parsed_directives = {}
-        for _raw_directive in _input.split(HEADER_DIR_SEPARATOR):
+        for _raw_directive in _input.split(cls.HEADER_DIR_SEPARATOR):
             if not (_parsed := _raw_directive.strip().split("=", maxsplit=1)):
                 continue
+
             key = _parsed[0].strip()
-            if not cls.check_key(key):
+            if not (_field_type := _fields.get(key)):
                 continue
 
-            if len(_parsed) == 1:
+            if _field_type is bool:
                 _parsed_directives[key] = True
             elif len(_parsed) == 2 and (value := _parsed[1].strip()):
                 _parsed_directives[key] = value
         return cls(**_parsed_directives)
 
     @classmethod
-    @copy_callable_typehint_to_method(_DirectivesDef)
+    @copy_callable_typehint_to_method(_HeaderDef)
     def export_kwargs_as_header(cls, **kwargs) -> str:
         """Directly export header str from a list of directive pairs."""
+        _fields: Dict[str, type] = getattr(cls, _FIELDS)
         _directives: List[str] = []
         for key, value in kwargs.items():
-            if not cls.check_key(key):
+            if not (_field_type := _fields.get(key)):
                 continue
 
-            if isinstance(value, bool) and value:
+            if _field_type is bool and value:
                 _directives.append(key)
-            elif value:
+            elif value:  # str field
                 _directives.append(f"{key}={value}")
-        return HEADER_DIR_SEPARATOR.join(_directives)
+        return cls.HEADER_DIR_SEPARATOR.join(_directives)
 
     @classmethod
     def update_header_str(cls, _input: str, **kwargs) -> str:
@@ -101,36 +110,40 @@ class OTAFileCacheControl(_DirectivesDef):
         3. file_sha256
         4. file_compression_alg
         """
+        _fields: Dict[str, type] = getattr(cls, _FIELDS)
         _parsed_directives = {}
-        for _raw_directive in _input.split(HEADER_DIR_SEPARATOR):
+        for _raw_directive in _input.split(cls.HEADER_DIR_SEPARATOR):
             if not (_parsed := _raw_directive.strip().split("=", maxsplit=1)):
                 continue
             key = _parsed[0].strip()
-            if not cls.check_key(key):
+            if key not in _fields:
                 continue
             _parsed_directives[key] = _raw_directive
 
         for _key, value in kwargs.items():
-            if not cls.check_key(_key):
+            if not (_field_type := _fields.get(_key)):
                 continue
 
-            if isinstance(value, str):
+            if _field_type is str and isinstance(value, str):
                 _parsed_directives[_key] = f"{_key}={value}"
-            elif value:
+            elif value:  # treated as bool field
                 _parsed_directives[_key] = _key
             else:  # remove False or empty directives
                 _parsed_directives.pop(_key, None)
-        return HEADER_DIR_SEPARATOR.join(_parsed_directives.values())
+        return cls.HEADER_DIR_SEPARATOR.join(_parsed_directives.values())
 
-    def export_as_header(self) -> str:
-        return self.export_kwargs_as_header(
-            **{k: getattr(self, k) for k in self.__dataclass_fields__}
-        )
-
-    @copy_callable_typehint_to_method(_DirectivesDef)
+    @copy_callable_typehint_to_method(_HeaderDef)
     def update_from_directives(self, **kwargs) -> Self:
         """Update itself from a list of directives pairs."""
+        _fields: Dict[str, type] = getattr(self, _FIELDS)
         for key, value in kwargs.items():
-            if self.check_key(key):
+            if not (_field_type := _fields.get(key)):
+                continue
+
+            if not value:  # unset the field
+                setattr(self, key, _field_type())
+            elif _field_type is bool:
+                setattr(self, key, True)
+            elif isinstance(value, str):  # fast path
                 setattr(self, key, value)
         return self

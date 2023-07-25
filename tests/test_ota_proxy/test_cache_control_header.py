@@ -38,21 +38,6 @@ def test__parse_header(raw_str, expected):
 
 
 @pytest.mark.parametrize(
-    "key, expected",
-    (
-        ("no_cache", True),
-        ("retry_caching", True),
-        ("file_sha256", True),
-        ("file_compression_alg", True),
-        ("wrong_key1", False),
-        ("2wrong_key", False),
-    ),
-)
-def test__check_key(key: str, expected: bool):
-    assert OTAFileCacheControl.check_key(key) == expected
-
-
-@pytest.mark.parametrize(
     "kwargs, expected",
     (
         ({"no_cache": True, "retry_caching": False}, "no_cache"),
@@ -96,30 +81,6 @@ def test__export_kwargs_as_header(kwargs: Dict[str, Any], expected: str):
 )
 def test__update_header_str(_input: str, kwargs: Dict[str, Any], expected: str):
     assert OTAFileCacheControl.update_header_str(_input, **kwargs) == expected
-
-
-@pytest.mark.parametrize(
-    "policy, expected",
-    (
-        (
-            OTAFileCacheControl(
-                file_sha256="sha256", file_compression_alg="zst", no_cache=True
-            ),
-            "no_cache,file_sha256=sha256,file_compression_alg=zst",
-        ),
-        (
-            OTAFileCacheControl(
-                file_sha256="sha256",
-                file_compression_alg="zst",
-                no_cache=False,
-                retry_caching=True,
-            ),
-            "retry_caching,file_sha256=sha256,file_compression_alg=zst",
-        ),
-    ),
-)
-def test__export_as_header(policy: OTAFileCacheControl, expected: str):
-    assert policy.export_as_header() == expected
 
 
 @pytest.mark.parametrize(

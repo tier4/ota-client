@@ -20,7 +20,7 @@ from functools import partial
 from multiprocessing.context import SpawnProcess
 from typing import Callable
 
-from .cache_control import OTAFileCacheControl, HEADER_LOWERCASE
+from .cache_control import OTAFileCacheControl
 from .server_app import App
 from .ota_cache import OTACache
 from .config import config
@@ -32,7 +32,6 @@ __all__ = (
     "App",
     "OTACache",
     "OTAFileCacheControl",
-    "HEADER_LOWERCASE",
     "config",
     "subprocess_start_otaproxy",
 )
