@@ -1,7 +1,7 @@
 import asyncio
 import threading
 from queue import Queue
-from typing import Dict, Optional
+from typing import Dict, List, Mapping, Optional
 from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 from otaclient.app.proto import wrapper as proto_wrapper
 
@@ -29,7 +29,7 @@ async def status_polling_thread(
             await asyncio.sleep(poll_interval)
 
 
-class TrackerThread:
+class Tracker:
     _END_SENTINEL = object()
 
     def __init__(self, ecu_id: str = "autoware") -> None:
@@ -38,9 +38,16 @@ class TrackerThread:
         self._update_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._que = Queue()
+        self._lock = threading.Lock()
 
         # display boxes for this ECU and its child ECUs
-        self.ecu_status_display: Dict[str, ECUStatusDisplayBox] = {}
+        self._ecu_status_display: Dict[str, ECUStatusDisplayBox] = {}
+
+    def get_display_boxes(self) -> List[ECUStatusDisplayBox]:
+        """NOTE: as the ecu_status_display dict might changed, always
+        return a snapshot by items()."""
+        with self._lock:
+            return list(self._ecu_status_display.values())
 
     def start(self, host: str, port: int):
         def _polling_thread():
@@ -62,15 +69,16 @@ class TrackerThread:
 
                 # get one status response, if display box for this ecu is not yet created,
                 # create one for it.
-                for ecu_id in _ecu_status.available_ecu_ids:
-                    if ecu_id not in self.ecu_status_display:
-                        self.ecu_status_display[ecu_id] = ECUStatusDisplayBox(
-                            ecu_id, len(self.ecu_status_display)
-                        )
+                with self._lock:
+                    for ecu_id in _ecu_status.available_ecu_ids:
+                        if ecu_id not in self._ecu_status_display:
+                            self._ecu_status_display[ecu_id] = ECUStatusDisplayBox(
+                                ecu_id, len(self._ecu_status_display)
+                            )
 
-                for _ecu in _ecu_status.iter_ecu_v2():
-                    _ecu_display = self.ecu_status_display[_ecu.ecu_id]
-                    _ecu_display.update_ecu_status(_ecu)
+                for idx, _ecu in enumerate(_ecu_status.iter_ecu_v2()):
+                    _ecu_display = self._ecu_status_display[_ecu.ecu_id]
+                    _ecu_display.update_ecu_status(_ecu, index=idx)
 
         # start an asyncio event loop in another thread
         self._polling_thread = threading.Thread(target=_polling_thread, daemon=True)

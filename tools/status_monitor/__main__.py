@@ -2,16 +2,15 @@ import argparse
 import curses
 import sys
 
-from .ecu_status_tracker import TrackerThread
+from .ecu_status_tracker import Tracker
 from .main_win import MainScreen
 
 
 def main(title: str, host: str, port: int):
-    tracker = TrackerThread()
+    tracker = Tracker()
     tracker.start(host, port)
 
-    main_scrn = MainScreen(title)
-    main_scrn.add_ecu_display(*tracker.ecu_status_display.values())
+    main_scrn = MainScreen(title, display_boxes_getter=tracker.get_display_boxes)
     try:
         curses.wrapper(main_scrn.main)
     except KeyboardInterrupt:

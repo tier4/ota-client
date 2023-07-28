@@ -1,7 +1,8 @@
 import curses
 import time
-from typing import NamedTuple, Tuple
+from typing import Callable, List, Mapping, NamedTuple, Tuple
 
+from .configs import config
 from .ecu_status_box import ECUStatusDisplayBox
 
 
@@ -15,18 +16,26 @@ class WindowTuple(NamedTuple):
 
 
 class MainScreen:
-    PAD_INIT_HLINES = 600
-    TITLE_HLINES = 1
-    MANUAL_HLINES = 2
-    LEFT_RIGHT_GAP = 1
+    PAD_INIT_HLINES = config.PAD_ILNIT_HLINES
+    TITLE_HLINES = config.MAINWIN_TITLE_HLINES
+    MANUAL_HLINES = config.MAINWIN_MANUAL_HLINES
+    LEFT_RIGHT_GAP = config.MAINWIN_LEFT_RIGHT_GAP
 
-    MIN_WIN_SIZE = (10, 30)
+    MIN_WIN_SIZE = config.MIN_TERMINAL_SIZE
 
-    DISPLAY_BOX_PER_ROW = 2
+    DISPLAY_BOX_PER_ROW = config.MAINWIN_BOXES_PER_ROW
+    DISPLAY_BOX_ROWS_MAX = 30
 
-    def __init__(self, title: str) -> None:
+    RENDER_INTERVAL = config.RENDER_INTERVAL
+
+    def __init__(
+        self,
+        title: str,
+        *,
+        display_boxes_getter: Callable[..., List[ECUStatusDisplayBox]],
+    ) -> None:
         self.title = title
-        self._ecu_display: list[ECUStatusDisplayBox] = []
+        self._display_getter = display_boxes_getter
 
     def _init_mainwin(self, stdscr: curses.window) -> WindowTuple:
         stdscr.erase()
@@ -57,7 +66,7 @@ class MainScreen:
         main_win.border()
         main_win.refresh()
 
-        # reserve space for boarder
+        # NOTE: reserve space for boarder
         return WindowTuple(main_win, begin_y + 1, begin_x + 1, hlines - 1, hcols - 1)
 
     def _init_pad(self, hlines: int, hcols: int) -> curses.window:
@@ -74,9 +83,9 @@ class MainScreen:
         """Draw contents onto the pad."""
         updated = False
         old_cursor_y, old_cursor_x = pad.getyx()
-        for count, ecu_status_display in enumerate(self._ecu_display):
+        for count, ecu_status_display in enumerate(self._display_getter()):
             row, col = divmod(count, 2)
-            updated |= ecu_status_display.update_display(
+            updated |= ecu_status_display.update_status_box_pad(
                 pad,
                 begin_y=row * ECUStatusDisplayBox.DISPLAY_BOX_HLINES,
                 begin_x=col * ECUStatusDisplayBox.DISPLAY_BOX_HCOLS,
@@ -100,14 +109,7 @@ class MainScreen:
         This method is called when window scroll detected or pad is updated.
         """
         pad.move(cursor_y, 0)
-        pad.refresh(
-            cursor_y,
-            cursor_x,
-            begin_y,
-            begin_x,
-            hlines,
-            hcols,
-        )
+        pad.refresh(cursor_y, cursor_x, begin_y, begin_x, hlines, hcols)
         return True
 
     _PAGE_SCROLL_KEYS = (
@@ -121,6 +123,7 @@ class MainScreen:
         curses.KEY_NPAGE,
     )
 
+    # NOTE: currently we only supports up to 10 ECUs in total!
     _ASCII_NUM_MAPPING = {ord(f"{i}"): i for i in range(9)}
 
     def _page_scroll_key_handler(
@@ -139,9 +142,9 @@ class MainScreen:
         elif key_pressed == curses.KEY_UP or key_pressed == curses.KEY_SF:
             new_cursor_y = max(0, new_cursor_y - 1)
         if key_pressed == curses.KEY_PPAGE:
-            new_cursor_y = max(0, new_cursor_y - 3)
+            new_cursor_y = max(0, new_cursor_y - 8)
         elif key_pressed == curses.KEY_NPAGE:
-            new_cursor_y = min(new_cursor_y + 3, pad_hlines - hlines)
+            new_cursor_y = min(new_cursor_y + 8, pad_hlines - hlines)
 
         return new_cursor_y, new_cursor_x
 
@@ -149,12 +152,16 @@ class MainScreen:
         _stdscrn_h, _stdscrn_w = stdscr.getmaxyx()
         _, begin_y, begin_x, hlines, hcols = self._init_mainwin(stdscr)
         pad = self._init_pad(
-            ECUStatusDisplayBox.DISPLAY_BOX_HLINES * 30,
-            ECUStatusDisplayBox.DISPLAY_BOX_HCOLS * 2,
+            ECUStatusDisplayBox.DISPLAY_BOX_HLINES * self.DISPLAY_BOX_ROWS_MAX,
+            ECUStatusDisplayBox.DISPLAY_BOX_HCOLS * self.DISPLAY_BOX_PER_ROW,
         )
 
         last_cursor_y, last_cursor_x = pad.getyx()
+
+        previously_pressed_key, key = None, None
         while True:
+            previously_pressed_key = key
+
             # try to update the contents at current location first
             if self._draw_ecu_status_to_pad(pad):
                 current_cursor_y, current_cursor_x = pad.getyx()
@@ -186,19 +193,18 @@ class MainScreen:
                         hcols,
                     )
             elif key in self._ASCII_NUM_MAPPING:
-                # pop up a window to show the traceback
+                _ecu_status_display_boxes = self._display_getter()
                 _ecu_idx = self._ASCII_NUM_MAPPING[key]
-                if _ecu_idx >= len(self._ecu_display):
+                if _ecu_idx >= len(_ecu_status_display_boxes):
                     continue
-
-                _ecu_status_display = self._ecu_display[_ecu_idx]
-                # this function will open a new screen and take over the control of
-                # the whole terminal
-                _ecu_status_display.draw_popup_for_failure_info(stdscr)
+                # open a new subwindow and hand over the control to this windows' handler
+                _ecu_status_display_boxes[_ecu_idx].failure_info_subwin_handler(stdscr)
                 return
+
             elif key == curses.KEY_RESIZE:
                 stdscr.clear()
                 return
+
             elif key == ord("p"):
                 stdscr.addstr(_stdscrn_h - 1, 0, "Paused, press any key to resume.")
                 stdscr.refresh()
@@ -206,7 +212,7 @@ class MainScreen:
                 stdscr.addstr(_stdscrn_h - 1, 0, " " * (_stdscrn_w - 1))
                 stdscr.refresh()
 
-            time.sleep(0.1)
+            time.sleep(self.RENDER_INTERVAL)
 
     def main(self, stdscr: curses.window):
         """Main entry for the screen."""
@@ -223,6 +229,3 @@ class MainScreen:
                 continue
 
             self._window_session(stdscr)
-
-    def add_ecu_display(self, *ecu_display: ECUStatusDisplayBox):
-        self._ecu_display.extend(ecu_display)

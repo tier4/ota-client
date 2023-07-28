@@ -23,7 +23,7 @@ class ECUStatusDisplayBox:
         self.ecu_id = ecu_id
         self.index = index
 
-        # contents for the main windows
+        # initial contents for the main windows
         self.contents = [
             f"({self.index})ECU_ID: {self.ecu_id} ota_status:{self.UNKNOWN_OTACLIENT_VERSION}",
             f"version: {self.UNKNOWN_FIRMWARE_VERSION}",
@@ -35,6 +35,7 @@ class ECUStatusDisplayBox:
         self.raw_contents = []
 
         self._last_status = proto_wrapper.StatusResponseEcuV2()
+        # prevent conflicts between status update and pad update
         self._lock = threading.Lock()
         self._last_updated = 0
 
@@ -92,8 +93,11 @@ class ECUStatusDisplayBox:
                 pad.move(new_cursor_y, 0)
                 pad.refresh(new_cursor_y, 0, 2, 1, stdscrn_h - 3, stdscrn_w - 1)
 
-    def update_ecu_status(self, ecu_status: proto_wrapper.StatusResponseEcuV2):
+    def update_ecu_status(
+        self, ecu_status: proto_wrapper.StatusResponseEcuV2, index: int
+    ):
         """Update internal contents storage with input <ecu_status>."""
+        self.index = index  # the order of ECU might be changed
         if ecu_status == self._last_status:
             return
 
