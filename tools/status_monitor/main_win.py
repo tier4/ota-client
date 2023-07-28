@@ -24,7 +24,7 @@ class MainScreen:
     MIN_WIN_SIZE = config.MIN_TERMINAL_SIZE
 
     DISPLAY_BOX_PER_ROW = config.MAINWIN_BOXES_PER_ROW
-    DISPLAY_BOX_ROWS_MAX = 30
+    DISPLAY_BOX_ROWS_MAX = config.MAINWIN_BOXES_ROW_MAX
 
     RENDER_INTERVAL = config.RENDER_INTERVAL
 
@@ -46,8 +46,11 @@ class MainScreen:
             stdscr.addstr(0, 0, self.title[:stdscrn_w])
         else:
             stdscr.addstr(0, (stdscrn_w - len(self.title)) // 2, self.title)
+
+        # write manual
+        manual = "press <num> for ECU status, <ALT_num> for failure info, 'p' for pause"
+        stdscr.addstr(stdscrn_h - 2, self.LEFT_RIGHT_GAP, manual[:stdscrn_w])
         stdscr.refresh()
-        # TODO: setup manual
 
         # create new window as main container
         begin_y, begin_x, hlines, hcols = (

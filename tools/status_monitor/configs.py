@@ -5,7 +5,10 @@ class BasicConfig:
     MAINWIN_MANUAL_HLINES = 2
     MAINWIN_LEFT_RIGHT_GAP = 1
     MIN_TERMINAL_SIZE = (10, 30)
+    # NOTE: due to number keys' limitation, only 10 ECUs are allowed in total
+    MAX_ECU_ALLOWED = 10
     MAINWIN_BOXES_PER_ROW = 2
+    MAINWIN_BOXES_ROW_MAX = MAX_ECU_ALLOWED // MAINWIN_BOXES_PER_ROW
 
     # how many lines to go up/down when scroll
     SCROLL_LINES = 6
@@ -16,7 +19,7 @@ class BasicConfig:
 
     # ------ ECU status box configs ------ #
     ECU_DISPLAY_BOX_HLINES = 12
-    ECU_DISPLAY_BOX_HCOLS = 70
+    ECU_DISPLAY_BOX_HCOLS = 60
 
 
 class KeyMapping:

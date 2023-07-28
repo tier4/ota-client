@@ -1,11 +1,9 @@
 import datetime
-from functools import partial
 import time
 import curses
 import threading
 from itertools import zip_longest
-from typing import Callable, Optional, Sequence, Tuple
-from operator import attrgetter
+from typing import Callable, Sequence, Tuple
 from otaclient.app.proto import wrapper as proto_wrapper
 
 from .utils import FormatValue, splitline_break_long_string
@@ -59,7 +57,8 @@ class ECUStatusDisplayBox:
         with self._lock:
             self.contents = [
                 f"({self.index})ECU_ID: {self.ecu_id} ota_status:{ecu_status.ota_status.name}",
-                f"version: {ecu_status.firmware_version} oaclient_ver: {ecu_status.otaclient_version}",
+                f"current_firmware_version: {ecu_status.firmware_version}",
+                f"oaclient_ver: {ecu_status.otaclient_version}",
                 "-" * (self.DISPLAY_BOX_HCOLS - 2),
             ]
 
@@ -90,7 +89,7 @@ class ECUStatusDisplayBox:
                         f"downloaded_bytes: {FormatValue.bytes_count(update_status.downloaded_bytes)}",
                     ]
                 )
-                self.failure_contents.clear()
+                self.failure_contents = [f"ota_status: {ecu_status.ota_status.name}"]
 
             elif ecu_status.ota_status is proto_wrapper.StatusOta.FAILURE:
                 self.contents.extend(
@@ -112,9 +111,9 @@ class ECUStatusDisplayBox:
                     ]
                 )
             else:
-                self.failure_contents.clear()
+                self.failure_contents = [f"ota_status: {ecu_status.ota_status.name}"]
 
-            self.raw_contents = str(ecu_status).splitlines()
+            self.raw_contents = str(ecu_status).splitlines()[1:-1]
 
             self._last_status = ecu_status
             self.last_updated = int(time.time())
