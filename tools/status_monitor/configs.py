@@ -21,6 +21,8 @@ class BasicConfig:
 
 class KeyMapping:
     EXIT_ECU_STATUS_BOX_SUBWIN = ord("x")
+    PAUSE = ord("p")
+    ALT_OR_ESC = 27
 
 
 config = BasicConfig()

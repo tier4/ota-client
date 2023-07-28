@@ -1,8 +1,8 @@
 import curses
 import time
-from typing import Callable, List, Mapping, NamedTuple, Tuple
+from typing import Callable, List, NamedTuple, Tuple
 
-from .configs import config
+from .configs import config, key_mapping
 from .ecu_status_box import ECUStatusDisplayBox
 
 
@@ -158,10 +158,8 @@ class MainScreen:
 
         last_cursor_y, last_cursor_x = pad.getyx()
 
-        previously_pressed_key, key = None, None
+        alt_key_pressed = False
         while True:
-            previously_pressed_key = key
-
             # try to update the contents at current location first
             if self._draw_ecu_status_to_pad(pad):
                 current_cursor_y, current_cursor_x = pad.getyx()
@@ -177,7 +175,20 @@ class MainScreen:
 
             # wait for key_press event unblockingly
             key = pad.getch()
-            if key in self._PAGE_SCROLL_KEYS:
+            if alt_key_pressed:
+                alt_key_pressed = False
+                if key in self._ASCII_NUM_MAPPING:
+                    _ecu_status_display_boxes = self._display_getter()
+                    _ecu_idx = self._ASCII_NUM_MAPPING[key]
+                    if _ecu_idx >= len(_ecu_status_display_boxes):
+                        continue
+
+                    # open a new subwindow and hand over the control to this windows' handler
+                    _display = _ecu_status_display_boxes[_ecu_idx]
+                    _display.failure_info_subwin_handler(stdscr)
+                    return
+
+            elif key in self._PAGE_SCROLL_KEYS:
                 new_cursor_y, new_cursor_x = self._page_scroll_key_handler(
                     pad, key, hlines=hlines
                 )
@@ -197,20 +208,26 @@ class MainScreen:
                 _ecu_idx = self._ASCII_NUM_MAPPING[key]
                 if _ecu_idx >= len(_ecu_status_display_boxes):
                     continue
+
                 # open a new subwindow and hand over the control to this windows' handler
-                _ecu_status_display_boxes[_ecu_idx].failure_info_subwin_handler(stdscr)
+                _display = _ecu_status_display_boxes[_ecu_idx]
+                _display.raw_ecu_status_subwin_handler(stdscr)
                 return
 
             elif key == curses.KEY_RESIZE:
                 stdscr.clear()
                 return
 
-            elif key == ord("p"):
+            elif key == key_mapping.PAUSE:
                 stdscr.addstr(_stdscrn_h - 1, 0, "Paused, press any key to resume.")
                 stdscr.refresh()
                 stdscr.getch()
                 stdscr.addstr(_stdscrn_h - 1, 0, " " * (_stdscrn_w - 1))
                 stdscr.refresh()
+
+            elif key == key_mapping.ALT_OR_ESC:
+                alt_key_pressed = True
+                continue
 
             time.sleep(self.RENDER_INTERVAL)
 

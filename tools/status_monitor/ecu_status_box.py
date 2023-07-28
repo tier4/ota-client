@@ -1,20 +1,23 @@
 import datetime
+from functools import partial
 import time
 import curses
 import threading
 from itertools import zip_longest
-from typing import Sequence
+from typing import Callable, Optional, Sequence, Tuple
+from operator import attrgetter
 from otaclient.app.proto import wrapper as proto_wrapper
 
 from .utils import FormatValue, splitline_break_long_string
 from .configs import config, key_mapping
 
 
+ContentsGetterFunc = Callable[[], Tuple[Sequence[str], int]]
+
+
 class ECUStatusDisplayBox:
     DISPLAY_BOX_HLINES = config.ECU_DISPLAY_BOX_HLINES
     DISPLAY_BOX_HCOLS = config.ECU_DISPLAY_BOX_HCOLS
-    SCROLL_LINES = config.SCROLL_LINES
-    UPDATE_INTERVAL = config.RENDER_INTERVAL
 
     UNKNOWN_OTACLIENT_VERSION = "UNKNOWN"
     UNKNOWN_FIRMWARE_VERSION = "unknown_version"
@@ -39,59 +42,11 @@ class ECUStatusDisplayBox:
         self._lock = threading.Lock()
         self._last_updated = 0
 
-    def _subwin_handler(self, stdscr: curses.window, contents: Sequence[str]):
-        """Popup a sub window and render it with <contents>."""
-        stdscr.clear()
-        stdscrn_h, stdscrn_w = stdscr.getmaxyx()
-        stdscr.addstr(0, 1, f"Failure info for {self.ecu_id}(#{self.index}) ECU")
-        stdscr.hline(1, 1, curses.ACS_HLINE, stdscrn_w // 2)
+    def get_failure_contents(self) -> Tuple[Sequence[str], int]:
+        return self.failure_contents, self.last_updated
 
-        pad = curses.newpad(600, stdscrn_w)
-        pad.keypad(True)
-        pad.scrollok(True)
-        pad.idlok(True)
-
-        # add simple manual at the bottom
-        stdscr.addstr(
-            stdscrn_h - 2, 1, "press x key to go back, press arrow_up/down to scroll."
-        )
-        stdscr.refresh()
-
-        # pre_process the failure info, breakup long line into multiple lines if any
-        _processed = []
-        for line in contents:
-            _processed.extend(splitline_break_long_string(line, length=stdscrn_w - 1))
-
-        # draw line onto the pad
-        line_idx = 0
-        for line_idx, line_content in enumerate(_processed):
-            pad.addstr(line_idx, 0, line_content)
-
-        pad.move(0, 0)  # move cursor back to pad's init pos
-        pad.refresh(0, 0, 2, 1, stdscrn_h - 3, stdscrn_w - 1)
-
-        last_cursor_y, _ = pad.getyx()
-        while True:
-            key = pad.getch()
-
-            new_cursor_y = last_cursor_y
-            if key == curses.KEY_DOWN:
-                new_cursor_y = min(line_idx, new_cursor_y + self.SCROLL_LINES)
-            elif key == curses.KEY_UP:
-                new_cursor_y = max(0, new_cursor_y - self.SCROLL_LINES)
-            elif key == curses.KEY_HOME:
-                new_cursor_y = 0
-            elif key == key_mapping.EXIT_ECU_STATUS_BOX_SUBWIN or curses.KEY_RESIZE:
-                return
-            else:
-                time.sleep(self.UPDATE_INTERVAL)
-                continue
-
-            # re-render the pad
-            if new_cursor_y != last_cursor_y:
-                last_cursor_y = new_cursor_y
-                pad.move(new_cursor_y, 0)
-                pad.refresh(new_cursor_y, 0, 2, 1, stdscrn_h - 3, stdscrn_w - 1)
+    def get_raw_info_contents(self) -> Tuple[Sequence[str], int]:
+        return self.raw_contents, self.last_updated
 
     def update_ecu_status(
         self, ecu_status: proto_wrapper.StatusResponseEcuV2, index: int
@@ -140,6 +95,7 @@ class ECUStatusDisplayBox:
             elif ecu_status.ota_status is proto_wrapper.StatusOta.FAILURE:
                 self.contents.extend(
                     [
+                        f"ota_status: {ecu_status.ota_status.name}",
                         f"failure_type: {ecu_status.failure_type.name}",
                         f"failure_reason: {ecu_status.failure_reason}",
                         "-" * (self.DISPLAY_BOX_HCOLS - 2),
@@ -148,6 +104,7 @@ class ECUStatusDisplayBox:
                 )
                 self.failure_contents.extend(
                     [
+                        f"ota_status: {ecu_status.ota_status.name}",
                         f"failure_type: {ecu_status.failure_type.name}",
                         f"failure_reason: {ecu_status.failure_reason}",
                         "failure_traceback: ",
@@ -219,8 +176,118 @@ class ECUStatusDisplayBox:
 
     def failure_info_subwin_handler(self, stdscr: curses.window):
         """The handler for failure info subwin."""
-        self._subwin_handler(stdscr, self.failure_contents)
+        _SubWinHelper(
+            stdscr,
+            title=f"Failure info for {self.ecu_id}(#{self.index}) ECU",
+            contents_getter=self.get_failure_contents,
+        ).subwin_handler()
 
     def raw_ecu_status_subwin_handler(self, stdscr: curses.window):
         """The handler for raw_ecu_status subwin."""
-        self._subwin_handler(stdscr, self.raw_contents)
+        _SubWinHelper(
+            stdscr,
+            title=f"Raw ECU status info for {self.ecu_id}(#{self.index}) ECU",
+            contents_getter=self.get_raw_info_contents,
+        ).subwin_handler()
+
+
+class _SubWinHelper:
+    MIN_WIN_SIZE = config.MIN_TERMINAL_SIZE
+    SCROLL_LINES = config.SCROLL_LINES
+    UPDATE_INTERVAL = config.RENDER_INTERVAL
+
+    def __init__(
+        self,
+        stdscr: curses.window,
+        title: str,
+        contents_getter: ContentsGetterFunc,
+    ) -> None:
+        self.stdscr = stdscr
+        self.title = title
+        self.contents_getter = contents_getter
+
+    def subwin_reset(self):
+        """Reset the subwindow and re-render the ECU status to a new pad."""
+        self.stdscr.clear()
+        stdscrn_h, stdscrn_w = self.stdscr.getmaxyx()
+        self.stdscr.addstr(0, 1, self.title)
+        self.stdscr.hline(1, 1, curses.ACS_HLINE, stdscrn_w // 2)
+
+        pad = curses.newpad(600, stdscrn_w)
+        pad.keypad(True)
+        pad.scrollok(True)
+        pad.idlok(True)
+        pad.nodelay(True)
+
+        # add simple manual at the bottom
+        self.stdscr.addstr(
+            stdscrn_h - 2, 1, "press x key to go back, press arrow_up/down to scroll."
+        )
+        self.stdscr.refresh()
+        return pad, stdscrn_h, stdscrn_w
+
+    def subwin_draw_pad(
+        self,
+        pad: curses.window,
+        stdscrn_h: int,
+        stdscrn_w: int,
+        contents: Sequence[str],
+    ) -> int:
+        # pre_process the failure info, breakup long line into multiple lines if any
+        _processed = []
+        for line in contents:
+            _processed.extend(splitline_break_long_string(line, length=stdscrn_w - 1))
+
+        # draw line onto the pad
+        line_idx = 0
+        for line_idx, line_content in enumerate(_processed):
+            pad.addstr(line_idx, 0, line_content)
+
+        pad.move(0, 0)  # move cursor back to pad's init pos
+        pad.refresh(0, 0, 2, 1, stdscrn_h - 3, stdscrn_w - 1)
+        return line_idx
+
+    def subwin_handler(self):
+        """Popup a sub window and render it with <contents>."""
+        # init subwindow
+        pad, stdscrn_h, stdscrn_w = self.subwin_reset()
+        last_updated, line_idx = 0, 0
+
+        last_cursor_y, _ = pad.getyx()
+        while True:
+            # redraw the pad if contents updated or if resized
+            contents, _last_updated = self.contents_getter()
+            if _last_updated > last_updated:
+                line_idx = self.subwin_draw_pad(pad, stdscrn_h, stdscrn_w, contents)
+                last_updated = _last_updated
+
+            key = pad.getch()
+            if key == key_mapping.EXIT_ECU_STATUS_BOX_SUBWIN:
+                return
+            if key == curses.KEY_RESIZE:
+                # if terminal window becomes too small, clear and break out to main window
+                if self.stdscr.getmaxyx() < self.MIN_WIN_SIZE:
+                    self.stdscr.clear()
+                    return
+
+                # fully reset the whole window and re-render everything
+                pad, stdscrn_h, stdscrn_w = self.subwin_reset()
+                last_updated = 0  # force update contents
+                continue
+
+            new_cursor_y = last_cursor_y
+            if key == curses.KEY_DOWN:
+                new_cursor_y = min(line_idx, new_cursor_y + self.SCROLL_LINES)
+            elif key == curses.KEY_UP:
+                new_cursor_y = max(0, new_cursor_y - self.SCROLL_LINES)
+            elif key == curses.KEY_HOME:
+                new_cursor_y = 0
+            else:
+                time.sleep(self.UPDATE_INTERVAL)
+                continue
+
+            # re-render the pad
+            if key == curses.KEY_RESIZE or new_cursor_y != last_cursor_y:
+                last_cursor_y = new_cursor_y
+                pad.move(new_cursor_y, 0)
+                pad.refresh(new_cursor_y, 0, 2, 1, stdscrn_h - 3, stdscrn_w - 1)
