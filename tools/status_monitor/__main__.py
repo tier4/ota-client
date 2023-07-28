@@ -3,7 +3,7 @@ import curses
 import sys
 
 from .ecu_status_tracker import TrackerThread
-from .window import MainScreen
+from .main_win import MainScreen
 
 
 def main(title: str, host: str, port: int):

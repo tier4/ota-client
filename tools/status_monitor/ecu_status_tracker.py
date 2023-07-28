@@ -1,14 +1,14 @@
 import asyncio
 import threading
 from queue import Queue
-from typing import Dict, Iterator, Optional
+from typing import Dict, Optional
 from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 from otaclient.app.proto import wrapper as proto_wrapper
 
 from .ecu_status_box import ECUStatusDisplayBox
 
 
-async def status_polling_main(
+async def status_polling_thread(
     ecu_id: str,
     host: str,
     port: int,
@@ -32,19 +32,20 @@ async def status_polling_main(
 class TrackerThread:
     _END_SENTINEL = object()
 
-    def __init__(self) -> None:
-        self.ecu_id = "autoware"
+    def __init__(self, ecu_id: str = "autoware") -> None:
+        self.ecu_id = ecu_id
         self._polling_thread: Optional[threading.Thread] = None
         self._update_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._que = Queue()
 
+        # display boxes for this ECU and its child ECUs
         self.ecu_status_display: Dict[str, ECUStatusDisplayBox] = {}
 
     def start(self, host: str, port: int):
         def _polling_thread():
             asyncio.run(
-                status_polling_main(
+                status_polling_thread(
                     self.ecu_id,
                     host,
                     port,
@@ -58,17 +59,24 @@ class TrackerThread:
                 _ecu_status: proto_wrapper.StatusResponse = self._que.get()
                 if _ecu_status is self._END_SENTINEL:
                     return
+
+                # get one status response, if display box for this ecu is not yet created,
+                # create one for it.
+                for ecu_id in _ecu_status.available_ecu_ids:
+                    if ecu_id not in self.ecu_status_display:
+                        self.ecu_status_display[ecu_id] = ECUStatusDisplayBox(
+                            ecu_id, len(self.ecu_status_display)
+                        )
+
                 for _ecu in _ecu_status.iter_ecu_v2():
                     _ecu_display = self.ecu_status_display[_ecu.ecu_id]
                     _ecu_display.update_ecu_status(_ecu)
 
+        # start an asyncio event loop in another thread
         self._polling_thread = threading.Thread(target=_polling_thread, daemon=True)
         self._polling_thread.start()
 
-        # get one status response to init the display box for each ecu
-        _ecu_status: proto_wrapper.StatusResponse = self._que.get()
-        for index, ecu_id in enumerate(_ecu_status.available_ecu_ids):
-            self.ecu_status_display[ecu_id] = ECUStatusDisplayBox(ecu_id, index)
+        # start thread for updating each displaybox
         self._update_thread = threading.Thread(target=_update_thread, daemon=True)
         self._update_thread.start()
 
