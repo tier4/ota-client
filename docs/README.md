@@ -146,9 +146,10 @@ ecu_info.yaml is the setting file for ECU configuration.
 
   This field specifies a list of all ECU ids to be updated.  
   Only the main ECU should have this information.  
-  For compatibility, if this `available_ecu_ids` filed does not exist, the ecu_id of the main ecu is considered the entry for available_ecu_ids.
 
-  NOTE: The OTA client user (e.g. Agent) has responsibility for filtering out update requests by using this ecu list.
+  NOTE: For backward-compatibility, if this `available_ecu_ids` filed does not exist, the ecu_id of the main ecu is considered the entry for available_ecu_ids.
+
+  NOTE: for web.auto user, web.auto agent will use `available_ecu_ids` to generate update request, only ECUs listed in `available_ecu_ids` will be included in the update request list.
 
   NOTE: The difference between secondaries and available_ecu_ids:
 
