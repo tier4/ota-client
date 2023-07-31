@@ -213,7 +213,18 @@ class ECUStatusStorage:
         self._writer_lock = asyncio.Lock()
         # ECU status storage
         self.storage_last_updated_timestamp = 0
-        self._all_available_ecus_id: _OrderedSet[str] = _OrderedSet(
+        # NOTE(20230731): ECUStatusStorage MUST only update available_ecu_ids field
+        #                 by ecu_info.yaml and by merging from subECUs' available_ecu_ids field.
+        # NOTE(20230731): available_ecu_ids yield indicates agent to generate update requests for
+        #                 listed ECUs, be-careful when handling it. Check doc/README.md and doc/SERVICES.md
+        #                 for more details.
+        self.available_ecu_ids: _OrderedSet[str] = _OrderedSet(
+            ecu_info.available_ecu_ids.copy()
+        )
+
+        # internal used tracking list
+        # init with information from ecu_info.yaml
+        self._tracking_ecus: _OrderedSet[str] = _OrderedSet(
             ecu_info.get_available_ecu_ids()
         )
         self._all_ecus_status_v2: Dict[str, wrapper.StatusResponseEcuV2] = {}
@@ -262,7 +273,7 @@ class ECUStatusStorage:
         self.lost_ecus_id = lost_ecus = set(
             (
                 ecu_id
-                for ecu_id in self._all_available_ecus_id
+                for ecu_id in self._tracking_ecus
                 if self._is_ecu_lost(ecu_id, cur_timestamp)
             )
         )
@@ -334,7 +345,7 @@ class ECUStatusStorage:
             )
         )
         # NOTE: all_success doesn't count the lost ECUs
-        self.all_success = len(self.success_ecus_id) == len(self._all_available_ecus_id)
+        self.all_success = len(self.success_ecus_id) == len(self._tracking_ecus)
         if _new_success_ecu := self.success_ecus_id.difference(_old_success_ecus_id):
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
             if not _old_all_success and self.all_success:
@@ -378,10 +389,10 @@ class ECUStatusStorage:
         """Update the ECU status storage with child ECU's status report(StatusResponse)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
-            # discover further child ECUs from directly connected sub ECUs.
-            self._all_available_ecus_id.update(
-                _OrderedSet(status_resp.available_ecu_ids)
-            )
+            # discover further/deeper child ECUs from directly connected sub ECUs.
+            self._tracking_ecus.update(_OrderedSet(status_resp.available_ecu_ids))
+            # merge subECU's available_ecu_ids into ours
+            self.available_ecu_ids.update(_OrderedSet(status_resp.available_ecu_ids))
 
             # NOTE: use v2 if v2 is available, but explicitly support v1 format
             #       for backward-compatible with old otaclient
@@ -408,7 +419,7 @@ class ECUStatusStorage:
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
-            self._all_available_ecus_id.add(ecu_status.ecu_id)
+            self._tracking_ecus.add(ecu_status.ecu_id)
 
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status_v2[ecu_id] = ecu_status
@@ -491,16 +502,18 @@ class ECUStatusStorage:
               disconnected ECU's status report entry.
         """
         res = wrapper.StatusResponse()
-        res.available_ecu_ids.extend(self._all_available_ecus_id)
+        res.available_ecu_ids.extend(self.available_ecu_ids)
 
-        for ecu_id in self._all_available_ecus_id:
+        for ecu_id in self._tracking_ecus:
             if ecu_id in self.lost_ecus_id:
                 continue
             _timout = (
                 self._all_ecus_last_contact_timestamp.get(ecu_id, 0)
                 + self.DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
             )
-            # if this ECU doesn't respond recently enough
+            # NOTE: if this ECU doesn't respond recently enough,
+            #       remove the entry for this ECU to make agent aware
+            #       of the disconnection for this ECU.
             if self.storage_last_updated_timestamp > _timout:
                 continue
 
