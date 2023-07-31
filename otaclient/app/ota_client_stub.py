@@ -399,9 +399,13 @@ class ECUStatusStorage:
             # NOTE: edge condition of ECU doing OTA downgrade to old image with old otaclient,
             #       this ECU will report status in v1 when downgrade is finished! So if we use
             #       v1 status report, we should remove the entry in v2, vice versa.
+            # NOTE(20230731): do not store ECUs' status that we are not tracking,
             _processed_ecus_id = set()
             for ecu_status_v2 in status_resp.iter_ecu_v2():
                 ecu_id = ecu_status_v2.ecu_id
+                if ecu_id not in self._tracking_ecus:
+                    continue
+
                 self._all_ecus_status_v2[ecu_id] = ecu_status_v2
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
                 self._all_ecus_status_v1.pop(ecu_id, None)
@@ -409,8 +413,8 @@ class ECUStatusStorage:
 
             for ecu_status_v1 in status_resp.iter_ecu():
                 ecu_id = ecu_status_v1.ecu_id
-                if ecu_id in _processed_ecus_id:
-                    continue  # use v2 in prior
+                if ecu_id in _processed_ecus_id or ecu_id not in self._tracking_ecus:
+                    continue  # use v2 in prior; skip untracked ECUs
                 self._all_ecus_status_v1[ecu_id] = ecu_status_v1
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
                 self._all_ecus_status_v2.pop(ecu_id, None)
@@ -544,7 +548,11 @@ class _ECUTracker:
         #       allow us to stop background task without changing codes.
         #       In normal running this event will never be set.
         self._debug_ecu_status_polling_shutdown_event = asyncio.Event()
-        asyncio.create_task(self._polling_local_ecu_status())
+        # NOTE(20230731): if self ECU is not going to receive update(not included in
+        #                 available_ecu_ids field), exclude it from tracking and skip
+        #                 status updating.
+        if ecu_info.ecu_id in ecu_info.available_ecu_ids:
+            asyncio.create_task(self._polling_local_ecu_status())
         for ecu_contact in ecu_info.iter_direct_subecu_contact():
             asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
