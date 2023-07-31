@@ -68,9 +68,10 @@ from typing import (
 )
 from typing_extensions import Self
 
+from otaclient.ota_proxy import OTAFileCacheControl
+
 from .configs import config as cfg
 from .common import (
-    OTAFileCacheControl,
     RetryTaskMap,
     get_backoff,
     urljoin_ensure_base,
@@ -481,7 +482,7 @@ _dir_pa = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<path>.*)")
 _symlink_pa = re.compile(
     r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
 )
-_persist_pa = re.compile(r"'(?P<path>)'")
+_persist_pa = re.compile(r"'(?P<path>.*)'")
 # NOTE(20221013): support previous regular_inf cvs version
 #                 that doesn't contain size, inode and compressed_alg fields.
 _reginf_pa = re.compile(
@@ -630,7 +631,9 @@ class OTAMetadata:
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
                 headers={
-                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
+                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
+                        no_cache=True
+                    )
                 },
             )
 
@@ -650,7 +653,9 @@ class OTAMetadata:
                 cert_file,
                 digest=cert_hash,
                 headers={
-                    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value,
+                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
+                        no_cache=True
+                    )
                 },
             )
             _parser.verify_metadata(cert_file.read_bytes())
@@ -671,7 +676,9 @@ class OTAMetadata:
                     _metafile_fpath,
                     digest=_metafile.hash,
                     headers={
-                        OTAFileCacheControl.header_lower.value: OTAFileCacheControl.no_cache.value
+                        OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
+                            no_cache=True
+                        )
                     },
                 )
                 # convert to internal used version and store as binary files

@@ -27,6 +27,7 @@ from functools import wraps
 from hashlib import sha256
 from os import PathLike
 from requests.adapters import HTTPAdapter
+from requests.structures import CaseInsensitiveDict as CIDict
 from typing import (
     IO,
     Any,
@@ -34,6 +35,7 @@ from typing import (
     Callable,
     Dict,
     Iterator,
+    Mapping,
     Optional,
     Protocol,
     Tuple,
@@ -45,8 +47,9 @@ from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
 
 from otaclient._utils import copy_callable_typehint
+from otaclient.ota_proxy import OTAFileCacheControl
 from .configs import config as cfg
-from .common import OTAFileCacheControl, wait_with_backoff
+from .common import wait_with_backoff
 from . import log_setting
 
 logger = log_setting.get_logger(
@@ -54,6 +57,19 @@ logger = log_setting.get_logger(
 )
 
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+# helper functions
+
+
+def get_req_retry_counts(resp: requests.Response) -> int:
+    """Get the retry counts for connection from requests.Response inst."""
+    raw_resp: HTTPResponse = resp.raw
+    if raw_resp.retries:
+        return len(raw_resp.retries.history)
+    return 0
+
+
+# errors definition
 
 
 class DownloadError(Exception):
@@ -102,10 +118,6 @@ class UnhandledRequestException(DownloadError):
     """
 
 
-REQUEST_RECACHE_HEADER: Dict[str, str] = {
-    OTAFileCacheControl.header_lower.value: OTAFileCacheControl.retry_caching.value
-}
-
 T, P = TypeVar("T"), ParamSpec("P")
 
 
@@ -144,10 +156,23 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
                     # inject a OTA-File-Cache-Control header to indicate ota_proxy
                     # to re-cache the possible corrupted file.
                     # modify header if needed and inject it into kwargs
-                    if "headers" in kwargs and isinstance(kwargs["headers"], dict):
-                        kwargs["headers"].update(REQUEST_RECACHE_HEADER.copy())
-                    else:
-                        kwargs["headers"] = REQUEST_RECACHE_HEADER.copy()
+                    _parsed_header: Dict[str, str] = {}
+
+                    _popped_headers = kwargs.pop("headers", {})
+                    if isinstance(_popped_headers, Mapping):
+                        _parsed_header.update(_popped_headers)
+
+                    # preserve the already set policies, while add retry_caching policy
+                    _cache_policy = _parsed_header.pop(
+                        OTAFileCacheControl.HEADER_LOWERCASE, ""
+                    )
+                    _cache_policy = OTAFileCacheControl.update_header_str(
+                        _cache_policy, retry_caching=True
+                    )
+                    _parsed_header[OTAFileCacheControl.HEADER_LOWERCASE] = _cache_policy
+
+                    # replace with updated header
+                    kwargs["headers"] = _parsed_header
 
                     if _retry_count > retries:
                         raise
@@ -156,6 +181,9 @@ def _transfer_invalid_retrier(retries: int, backoff_factor: float, backoff_max: 
         return _wrapper
 
     return _decorator
+
+
+# decompression support
 
 
 class DecompressionAdapterProtocol(Protocol):
@@ -178,6 +206,9 @@ class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
 
     def iter_chunk(self, src_stream: Union[IO[bytes], ByteString]) -> Iterator[bytes]:
         yield from self._dctx.read_to_iter(src_stream)
+
+
+# downloader implementation
 
 
 class Downloader:
@@ -350,6 +381,88 @@ class Downloader:
                 logger.error(_msg)
                 raise DownloadFailedSpaceNotEnough(url, dst, _msg) from e
 
+    @staticmethod
+    def _prepare_header(
+        input_header: Optional[Mapping[str, str]] = None,
+        digest: Optional[str] = None,
+        compression_alg: Optional[str] = None,
+        proxies: Optional[Mapping[str, str]] = None,
+    ) -> Optional[Mapping[str, str]]:
+        """Inject ota-file-cache-control header if digest is available.
+
+        Currently this method preserves the input_header, while
+            updating/injecting Ota-File-Cache-Control header.
+        """
+        # NOTE: only inject ota-file-cache-control-header if we have upper otaproxy,
+        #       or we have information to inject
+        if not digest or not proxies:
+            return input_header
+
+        res = CIDict()
+        if isinstance(input_header, Mapping):
+            res.update(input_header)
+
+        # inject digest and compression_alg into ota-file-cache-control-header
+        _cache_policy = res.pop(OTAFileCacheControl.HEADER_LOWERCASE, "")
+        _cache_policy = OTAFileCacheControl.update_header_str(
+            _cache_policy, file_sha256=digest, file_compression_alg=compression_alg
+        )
+        res[OTAFileCacheControl.HEADER_LOWERCASE] = _cache_policy
+        return res
+
+    def _check_against_cache_policy_in_resp(
+        self,
+        url: str,
+        dst: PathLike,
+        digest: Optional[str],
+        compression_alg: Optional[str],
+        resp_headers: CIDict,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Checking digest and compression_alg against cache_policy from resp headers.
+
+        If upper responds with file_sha256 and file_compression_alg by ota-file-cache-control header,
+            use these information, otherwise use the information provided by client.
+
+        Returns:
+            A tuple of file_sha256 and file_compression_alg for the requested resources.
+        """
+        if not (
+            cache_policy_str := resp_headers.get(
+                OTAFileCacheControl.HEADER_LOWERCASE, None
+            )
+        ):
+            return digest, compression_alg
+
+        cache_policy = OTAFileCacheControl.parse_header(cache_policy_str)
+        if cache_policy.file_sha256:
+            if digest and digest != cache_policy.file_sha256:
+                _msg = (
+                    f"digest({cache_policy.file_sha256}) in cache_policy"
+                    f"doesn't match value({digest}) from regulars.txt: {url=}"
+                )
+                logger.warning(_msg)
+                raise HashVerificaitonError(url, dst, _msg)
+
+            # compression_alg from regulars.txt is set, but resp_headers indicates different
+            # compression_alg.
+            if compression_alg and compression_alg != cache_policy.file_compression_alg:
+                logger.info(
+                    f"upper serves different cache file for this OTA file: {url=}, "
+                    f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
+                )
+            return cache_policy.file_sha256, cache_policy.file_compression_alg
+        return digest, compression_alg
+
+    def _prepare_url(self, url: str, proxies: Optional[Dict[str, str]] = None) -> str:
+        """Force changing URL scheme to HTTP if required.
+
+        When upper otaproxy is set and use_http_if_http_proxy_set is True,
+            Force changing the URL scheme to HTTP.
+        """
+        if self.use_http_if_http_proxy_set and proxies and "http" in proxies:
+            return urlsplit(url)._replace(scheme="http").geturl()
+        return url
+
     @_transfer_invalid_retrier(RETRY_COUNT, OUTER_BACKOFF_FACTOR, BACKOFF_MAX)
     def _download_task(
         self,
@@ -365,13 +478,14 @@ class Downloader:
     ) -> Tuple[int, int, int]:
         _thread_id = threading.get_ident()
 
-        # NOTE: if proxy is set and use_http_if_proxy_set is true,
-        #       unconditionally change scheme to HTTP
         proxies = proxies or self._proxies
-        if self.use_http_if_http_proxy_set and "http" in proxies:
-            url = urlsplit(url)._replace(scheme="http").geturl()
+        prepared_url = self._prepare_url(url, proxies)
 
         cookies = cookies or self._cookies
+        # NOTE: process headers AFTER proxies setting is parsed
+        prepared_headers = self._prepare_header(
+            headers, digest=digest, compression_alg=compression_alg, proxies=proxies
+        )
 
         _hash_inst = self._hash_func()
         # NOTE: downloaded_file_size is the number of bytes we return to the caller(if compressed,
@@ -382,13 +496,18 @@ class Downloader:
         err_count = 0
 
         with self._downloading_exception_mapping(url, dst), self._session.get(
-            url, stream=True, proxies=proxies, cookies=cookies, headers=headers
+            prepared_url,
+            stream=True,
+            proxies=proxies,
+            cookies=cookies,
+            headers=prepared_headers,
         ) as resp, open(dst, "wb") as _dst:
             resp.raise_for_status()
+            err_count = get_req_retry_counts(resp)
 
-            raw_resp: HTTPResponse = resp.raw
-            if raw_resp.retries:
-                err_count = len(raw_resp.retries.history)
+            digest, compression_alg = self._check_against_cache_policy_in_resp(
+                url, dst, digest, compression_alg, resp.headers
+            )
 
             # support for compresed file
             if decompressor := self._get_decompressor(compression_alg):
@@ -397,8 +516,7 @@ class Downloader:
                     _dst.write(_chunk)
                     downloaded_file_size += len(_chunk)
 
-                    _traffic_on_wire = raw_resp.tell()
-                    # addon downloaded bytes
+                    _traffic_on_wire = resp.raw.tell()
                     self._workers_downloaded_bytes[_thread_id] += (
                         _traffic_on_wire - traffic_on_wire
                     )
@@ -413,7 +531,6 @@ class Downloader:
                     chunk_len = len(_chunk)
                     downloaded_file_size += chunk_len
                     traffic_on_wire += chunk_len
-                    # addon downloaded bytes
                     self._workers_downloaded_bytes[_thread_id] += chunk_len
 
         # checking the download result
@@ -444,7 +561,7 @@ class Downloader:
         self,
         url,
         *args,
-        # NOTE: inactive_timeout is hinded from the caller
+        # NOTE: inactive_timeout is hidden from the caller
         inactive_timeout: int = cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
         **kwargs,
     ) -> Tuple[int, int, int]:

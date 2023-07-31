@@ -11,8 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Callable
-from typing_extensions import ParamSpec
+from typing import Any, Callable, TypeVar
+from typing_extensions import ParamSpec, Concatenate
 
 P = ParamSpec("P")
 
@@ -28,5 +28,17 @@ def copy_callable_typehint(_source: Callable[P, Any]):
 
     def _decorator(target) -> Callable[P, Any]:
         return target
+
+    return _decorator
+
+
+RT = TypeVar("RT")
+
+
+def copy_callable_typehint_to_method(_source: Callable[P, Any]):
+    """Works the same as copy_callable_typehint, but omit the first arg."""
+
+    def _decorator(target: Callable[..., RT]) -> Callable[Concatenate[Any, P], RT]:
+        return target  # type: ignore
 
     return _decorator

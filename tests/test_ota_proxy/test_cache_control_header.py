@@ -13,20 +13,97 @@
 # limitations under the License.
 
 
+from typing import Any, Dict
 import pytest
-from otaclient.ota_proxy.cache_control import OTAFileCacheControl
+from otaclient.ota_proxy import OTAFileCacheControl
 
 
 @pytest.mark.parametrize(
     "raw_str, expected",
     (
-        ("use_cache", {OTAFileCacheControl.use_cache}),
+        ("no_cache", OTAFileCacheControl(no_cache=True)),
+        ("retry_caching", OTAFileCacheControl(retry_caching=True)),
         (
-            "use_cache,retry_caching",
-            {OTAFileCacheControl.use_cache, OTAFileCacheControl.retry_caching},
+            "no_cache, file_sha256=sha256value, file_compression_alg=zst",
+            OTAFileCacheControl(
+                no_cache=True,
+                file_sha256="sha256value",
+                file_compression_alg="zst",
+            ),
         ),
-        ("no_cache", {OTAFileCacheControl.no_cache}),
     ),
 )
-def test_cache_control_header(raw_str, expected):
-    assert OTAFileCacheControl.parse_to_enum_set(raw_str) == expected
+def test__parse_header(raw_str, expected):
+    assert OTAFileCacheControl.parse_header(raw_str) == expected
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    (
+        ({"no_cache": True, "retry_caching": False}, "no_cache"),
+        (
+            {"no_cache": True, "file_sha256": "sha256_value"},
+            "no_cache,file_sha256=sha256_value",
+        ),
+        (
+            {
+                "retry_caching": True,
+                "file_sha256": "sha256_value",
+                "file_compression_alg": "zst",
+            },
+            "retry_caching,file_sha256=sha256_value,file_compression_alg=zst",
+        ),
+    ),
+)
+def test__export_kwargs_as_header(kwargs: Dict[str, Any], expected: str):
+    assert OTAFileCacheControl.export_kwargs_as_header(**kwargs) == expected
+
+
+@pytest.mark.parametrize(
+    "_input, kwargs, expected",
+    (
+        (
+            "file_sha256=sha256_value,file_compression_alg=zst",
+            {"no_cache": True, "retry_caching": True},
+            "file_sha256=sha256_value,file_compression_alg=zst,no_cache,retry_caching",
+        ),
+        (
+            "file_sha256=sha256_value,file_compression_alg=zst",
+            {"file_sha256": "new_sha256_value", "retry_caching": True},
+            "file_sha256=new_sha256_value,file_compression_alg=zst,retry_caching",
+        ),
+        (
+            "retry_caching,file_sha256=sha256_value,file_compression_alg=zst",
+            {"retry_caching": False},
+            "file_sha256=sha256_value,file_compression_alg=zst",
+        ),
+    ),
+)
+def test__update_header_str(_input: str, kwargs: Dict[str, Any], expected: str):
+    assert OTAFileCacheControl.update_header_str(_input, **kwargs) == expected
+
+
+@pytest.mark.parametrize(
+    "origin, kwargs, updated",
+    (
+        (
+            OTAFileCacheControl(retry_caching=True),
+            {"no_cache": True},
+            OTAFileCacheControl(retry_caching=True, no_cache=True),
+        ),
+        (
+            OTAFileCacheControl(file_sha256="sha256"),
+            {"retry_caching": True},
+            OTAFileCacheControl(retry_caching=True, file_sha256="sha256"),
+        ),
+        (
+            OTAFileCacheControl(retry_caching=True, file_sha256="sha256"),
+            {"retry_caching": False},
+            OTAFileCacheControl(file_sha256="sha256"),
+        ),
+    ),
+)
+def test__update_from_directives(
+    origin: OTAFileCacheControl, kwargs: Dict[str, Any], updated: OTAFileCacheControl
+):
+    assert origin.update_from_directives(**kwargs) == updated
