@@ -124,8 +124,8 @@ class ECUInfo:
         return BootloaderType.parse_str(self.bootloader)
 
     def get_available_ecu_ids(self) -> List[str]:
-        # onetime fix, if no availabe_ecu_id is specified,
-        # add my_ecu_id into the list
+        # onetime fix, if no availabe_ecu_id is specified, add my_ecu_id into the list
+        # NOTE(20230731): confirm this behavior is expected
         if len(self.available_ecu_ids) == 0:
             self.available_ecu_ids.append(self.ecu_id)
         return self.available_ecu_ids.copy()
