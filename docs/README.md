@@ -144,13 +144,16 @@ ecu_info.yaml is the setting file for ECU configuration.
 
 - available_ecu_ids (optional)
 
-  This field specifies a list of all ECU ids, including directly connected, indirectly connected and itself.
+  This field specifies a list of all ECU ids to be updated.  
   Only the main ECU should have this information.  
-  If this field is not specified, value of `ecu_id` is used as this value.  
+
+  NOTE: For backward-compatibility, if this `available_ecu_ids` filed does not exist, the ecu_id of the main ecu is considered the entry for available_ecu_ids.
+
+  NOTE: for web.auto user, web.auto agent will use `available_ecu_ids` to generate update request, only ECUs listed in `available_ecu_ids` will be included in the update request list.
 
   NOTE: The difference between secondaries and available_ecu_ids:
 
-  `secondaries` lists the directly connected children ECUs, available_ecu_ids consists of all children ECU ids(including directly connected, indirectly connected and itself).
+  `secondaries` lists the directly connected children ECUs, available_ecu_ids consists of all children ECU ids(including directly connected, indirectly connected and itself) to be updated.
 
 #### The default setting
 
