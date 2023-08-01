@@ -36,7 +36,6 @@ from typing import (
     List,
     MutableMapping,
     Optional,
-    Set,
     Tuple,
     TypeVar,
     Union,
@@ -969,7 +968,7 @@ class OTACache:
         /,
         cookies: Dict[str, str],
         extra_headers: Dict[str, str],
-        cache_control_policies: Set[OTAFileCacheControl],
+        cache_control_policies: OTAFileCacheControl,
     ) -> Optional[Tuple[AsyncIterator[bytes], CacheMeta]]:
         """Retrieve a file descriptor for the requested <raw_url>.
 
@@ -998,15 +997,15 @@ class OTACache:
         # default cache control policy:
         retry_cache, use_cache = False, True
         # parse input policies
-        if OTAFileCacheControl.retry_caching in cache_control_policies:
+        if cache_control_policies.retry_caching:
             retry_cache = True
             logger.warning(f"client indicates that cache for {raw_url=} is invalid")
-        if OTAFileCacheControl.no_cache in cache_control_policies:
+        if cache_control_policies.no_cache:
             logger.info(f"client indicates that do not cache for {raw_url=}")
             use_cache = False
         # if there is no upper_ota_proxy, trim the custom headers away
         if self._enable_https:
-            extra_headers.pop(OTAFileCacheControl.header.value, None)
+            extra_headers.pop(OTAFileCacheControl.HEADER_LOWERCASE, None)
 
         # --- case 1: not using cache, directly download file --- #
         if (
