@@ -213,16 +213,16 @@ class ECUStatusStorage:
         self._writer_lock = asyncio.Lock()
         # ECU status storage
         self.storage_last_updated_timestamp = 0
-        # NOTE(20230731): ECUStatusStorage MUST only update available_ecu_ids field
-        #                 by ecu_info.yaml and by merging from subECUs' available_ecu_ids field.
-        # NOTE(20230731): available_ecu_ids yield indicates agent to generate update requests for
+        # NOTE(20230731): ECUStatusStorage MUST only update available_ecu_ids field in export API
+        #                 by querying ecu_info.yaml and merging from subECUs' available_ecu_ids field.
+        # NOTE(20230731): For web.auto user, available_ecu_ids field indicates agent to generate update requests for
         #                 listed ECUs, be-careful when handling it. Check doc/README.md and doc/SERVICES.md
         #                 for more details.
-        self.available_ecu_ids: _OrderedSet[str] = _OrderedSet(
+        self._available_ecu_ids: _OrderedSet[str] = _OrderedSet(
             ecu_info.available_ecu_ids.copy()
         )
 
-        # internal used tracking list
+        # internal used tracking ECUs list
         # init with information from ecu_info.yaml
         self._tracking_ecus: _OrderedSet[str] = _OrderedSet(
             ecu_info.get_available_ecu_ids()
@@ -392,7 +392,7 @@ class ECUStatusStorage:
             # discover further/deeper child ECUs from directly connected sub ECUs.
             self._tracking_ecus.update(_OrderedSet(status_resp.available_ecu_ids))
             # merge subECU's available_ecu_ids into ours
-            self.available_ecu_ids.update(_OrderedSet(status_resp.available_ecu_ids))
+            self._available_ecu_ids.update(_OrderedSet(status_resp.available_ecu_ids))
 
             # NOTE: use v2 if v2 is available, but explicitly support v1 format
             #       for backward-compatible with old otaclient
@@ -506,18 +506,20 @@ class ECUStatusStorage:
               disconnected ECU's status report entry.
         """
         res = wrapper.StatusResponse()
-        res.available_ecu_ids.extend(self.available_ecu_ids)
+        res.available_ecu_ids.extend(self._available_ecu_ids)
 
         for ecu_id in self._tracking_ecus:
+            # NOTE: if ecu is lost, also remove its entry from resp.
             if ecu_id in self.lost_ecus_id:
                 continue
+
+            # NOTE: if this ECU doesn't respond recently enough,
+            #       remove the entry for this ECU to make agent aware
+            #       of the disconnection for this ECU.
             _timout = (
                 self._all_ecus_last_contact_timestamp.get(ecu_id, 0)
                 + self.DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
             )
-            # NOTE: if this ECU doesn't respond recently enough,
-            #       remove the entry for this ECU to make agent aware
-            #       of the disconnection for this ECU.
             if self.storage_last_updated_timestamp > _timout:
                 continue
 
@@ -551,10 +553,12 @@ class _ECUTracker:
         # NOTE(20230731): if self ECU is not going to receive update(not included in
         #                 available_ecu_ids field), exclude it from tracking and skip
         #                 status updating.
-        if ecu_info.ecu_id in ecu_info.available_ecu_ids:
+        available_ecu_ids = ecu_info.get_available_ecu_ids()
+        if ecu_info.ecu_id in available_ecu_ids:
             asyncio.create_task(self._polling_local_ecu_status())
         for ecu_contact in ecu_info.iter_direct_subecu_contact():
-            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
+            if ecu_contact.ecu_id in available_ecu_ids:
+                asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
