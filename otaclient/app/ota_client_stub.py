@@ -221,6 +221,9 @@ class ECUStatusStorage:
         #   listed in the update request, and be extended by merging
         #   available_ecu_ids in sub ECUs' status report.
         # Internally referenced when generating overall ECU status report.
+        # TODO: in the future if otaclient can preserve OTA session info,
+        #       ECUStatusStorage should restore the tracked_active_ecus info
+        #       in the saved session info.
         self._tracked_active_ecus: _OrderedSet[str] = _OrderedSet(
             ecu_info.get_available_ecu_ids()
         )
