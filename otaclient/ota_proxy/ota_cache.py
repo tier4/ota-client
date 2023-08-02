@@ -68,12 +68,17 @@ _WEAKREF = TypeVar("_WEAKREF")
 
 def create_cachemeta_for_request(
     raw_url: str,
-    cache_identifier: str,
-    url_based_id: bool,
     /,
     cache_policy_from_client: OTAFileCacheControl,
     resp_headers_from_upper: CIMultiDictProxy[str],
 ) -> CacheMeta:
+    """Create CacheMeta inst for new incoming request.
+
+    Cache identifier pickup priority:
+    1. if upper response provides file_sha256, use it,
+    2. if client request provides file_sha256, use it,
+    3. fallback to use URL based hash.
+    """
     cache_meta = CacheMeta(
         url=raw_url,
         content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING, ""),
@@ -85,11 +90,11 @@ def create_cachemeta_for_request(
     if _upper_cache_policy.file_sha256:
         cache_meta.file_sha256 = _upper_cache_policy.file_sha256
         cache_meta.file_compression_alg = _upper_cache_policy.file_compression_alg
-    elif not url_based_id:
+    elif cache_meta.file_sha256:
         cache_meta.file_sha256 = cache_policy_from_client.file_sha256
         cache_meta.file_compression_alg = cache_policy_from_client.file_compression_alg
-    else:  # fallback to use URL based id unique identify a cache entry
-        cache_meta.file_sha256 = cache_identifier
+    else:  # fallback to use URL based id if no real file_sha256 available
+        cache_meta.file_sha256 = url_based_hash(raw_url)
         cache_meta.file_compression_alg = ""
     return cache_meta
 
@@ -941,9 +946,9 @@ class OTACache:
                 raw_url, headers=headers_from_client
             )
 
-        cache_identifier, url_based_id = cache_policy.file_sha256, False
+        cache_identifier = cache_policy.file_sha256
         if not cache_identifier:  # fallback to use URL based hash
-            cache_identifier, url_based_id = url_based_hash(raw_url), True
+            cache_identifier = url_based_hash(raw_url)
 
         # --- case 2: try to use local cache --- #
         if _res := await self._retrieve_file_by_cache(
@@ -969,8 +974,6 @@ class OTACache:
 
             cache_meta = create_cachemeta_for_request(
                 raw_url,
-                cache_identifier,
-                url_based_id,
                 cache_policy_from_client=cache_policy,
                 resp_headers_from_upper=resp_headers,
             )
