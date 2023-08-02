@@ -17,13 +17,13 @@ import asyncio
 import logging
 import pytest
 import random
-from hashlib import sha256
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Coroutine
 
 from otaclient.ota_proxy import config as cfg
 from otaclient.ota_proxy.db import CacheMeta, OTACacheDB
 from otaclient.ota_proxy.ota_cache import LRUCacheHelper, CachingRegister
+from otaclient.ota_proxy.utils import url_based_hash
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +34,12 @@ class TestLRUCacheHelper:
         entries: Dict[str, CacheMeta] = {}
         for target_size, rotate_num in cfg.BUCKET_FILE_SIZE_DICT.items():
             for _i in range(rotate_num):
-                url = f"{target_size}#{_i}"
-                entries[url] = CacheMeta(
-                    url=url,
+                mocked_url = f"{target_size}#{_i}"
+                entries[mocked_url] = CacheMeta(
+                    url=mocked_url,
                     bucket_idx=target_size,
-                    size=target_size,
-                    sha256hash=sha256(str(target_size).encode()).hexdigest(),
+                    cache_size=target_size,
+                    file_sha256=url_based_hash(mocked_url),
                 )
 
         return entries
@@ -51,8 +51,8 @@ class TestLRUCacheHelper:
         self._db_f = ota_cache_folder / "db_f"
         OTACacheDB.init_db_file(self._db_f)
 
+        lru_cache_helper = LRUCacheHelper(self._db_f)
         try:
-            lru_cache_helper = LRUCacheHelper(self._db_f)
             yield lru_cache_helper
         finally:
             lru_cache_helper.close()
@@ -69,32 +69,32 @@ class TestLRUCacheHelper:
     async def test_lookup_entry(self):
         target_size, idx = 8 * (1024**2), 6
         target_url = f"{target_size}#{idx}"
+        file_sha256 = url_based_hash(target_url)
+
         assert (
-            await self.cache_helper.lookup_entry_by_url(target_url)
+            await self.cache_helper.lookup_entry(file_sha256)
             == self.entries[target_url]
         )
 
     async def test_remove_entry(self):
         target_size, idx = 8 * (1024**2), 6
-        target_url = f"{target_size}#{idx}"
-        assert await self.cache_helper.remove_entry_by_url(target_url)
+        target_file_sha256 = url_based_hash(f"{target_size}#{idx}")
+        assert await self.cache_helper.remove_entry(target_file_sha256)
 
     async def test_rotate_cache(self):
         """Ensure the LRUHelper properly rotates the cache entries."""
-        # test 1: reserve space for 256 * (1024**2) bucket
-        # the later bucket is empty, so we expect this bucket to be cleaned up
-        target_bucket = 256 * (1024**2)
-        assert (
-            entries_to_be_removed := await self.cache_helper.rotate_cache(target_bucket)
-        ) and len(entries_to_be_removed) == 2
+        # test 1: reserve space for 32 * (1024**2) bucket
+        #   the 32MB bucket is the last bucket and will not be rotated.
+        target_bucket = 32 * (1024**2)
+        entries_to_be_removed = await self.cache_helper.rotate_cache(target_bucket)
+        assert entries_to_be_removed is not None and len(entries_to_be_removed) == 0
 
-        # test 2: reserve space for 16 * 1024 bucket
+        # test 2: reserve space for 8 * 1024 bucket
         # the next bucket is not empty, so we expecte to remove one entry from the next bucket
-        target_bucket, next_bucket = 16 * 1024, 32 * 1024
-        expected_hash = sha256(str(next_bucket).encode()).hexdigest()
+        target_bucket = 8 * 1024
         assert (
             entries_to_be_removed := await self.cache_helper.rotate_cache(target_bucket)
-        ) and entries_to_be_removed[0] == expected_hash
+        ) and len(entries_to_be_removed) == 1
 
 
 class TestOngoingCachingRegister:
@@ -135,9 +135,16 @@ class TestOngoingCachingRegister:
         # simulate multiple works subscribing the register
         await self.sync_event.wait()
         await asyncio.sleep(random.randrange(100, 200) // 100)
-        _tracker, _is_writer = await self.register.get_tracker(self.URL, executor=None)  # type: ignore
+
+        _tracker, _is_writer = await self.register.get_tracker(
+            self.URL,
+            executor=None,  # type: ignore
+            callback=None,  # type: ignore
+            below_hard_limit_event=None,  # type: ignore
+        )
         await self.register_finish.acquire()
-        if _is_writer and _tracker is not None:
+
+        if _is_writer:
             logger.info(f"#{idx} is provider")
             # NOTE: use last_access field to store worker index
             # NOTE 2: bypass provider_start method, directly set tracker property
@@ -148,21 +155,16 @@ class TestOngoingCachingRegister:
             logger.info(f"writer #{idx} finished")
             # finished
             _tracker._writer_finished.set()
-            del _tracker._ref
-            return True, _tracker.meta  # type: ignore
-        elif _tracker is not None:  # subscriber
+            _tracker._ref = None
+            return True, _tracker.meta
+        else:
             logger.debug(f"#{idx} is subscriber")
             _tracker._subscriber_ref_holder.append(_tracker._ref)
             while not _tracker.writer_finished:  # simulating cache streaming
                 await asyncio.sleep(0.1)
             # NOTE: directly pop the ref
             _tracker._subscriber_ref_holder.pop()
-            return False, _tracker.meta  # type: ignore
-        else:
-            # edge condition when subscriber on multi cache streaming
-            # subscribes a just closed tracker.
-            logger.error(f"edge condition: {idx=}")
-            return False, None
+            return False, _tracker.meta
 
     async def test_OngoingCachingRegister(self):
         coros: List[Coroutine] = []
@@ -197,7 +199,5 @@ class TestOngoingCachingRegister:
 
         # ensure that the entry in the register is garbage collected
         assert (
-            len(self.register._url_ref_dict)
-            == len(self.register._ref_tracker_dict)
-            == 0
+            len(self.register._id_ref_dict) == len(self.register._ref_tracker_dict) == 0
         )

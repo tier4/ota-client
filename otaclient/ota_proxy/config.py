@@ -22,27 +22,27 @@ class Config:
     # value is the largest numbers of files that
     # might need to be deleted for the bucket to hold a new entry
     # if we have to reserve space for this file.
+    # bucket definition: revision 2
     BUCKET_FILE_SIZE_DICT = {
-        0: 0,  # not filtered
-        2 * 1024: 1,  # 2KiB
-        3 * 1024: 1,
-        4 * 1024: 1,
-        5 * 1024: 1,
+        0: 0,  # [0, 1KiB), will not be rotated
+        1 * 1024: 1,  # [1KiB, 2KiB)
+        2 * 1024: 1,
+        4 * 1024: 2,
         8 * 1024: 2,
         16 * 1024: 2,  # 16KiB
-        32 * 1024: 8,
-        256 * 1024: 16,  # 256KiB
-        4 * (1024**2): 2,  # 4MiB
-        8 * (1024**2): 32,  # 8MiB
-        256 * (1024**2): 2,
-        512 * (1024**2): 0,  # not filtered
+        32 * 1024: 2,
+        256 * 1024: 8,  # 256KiB
+        1 * (1024**2): 4,  # 1MiB
+        8 * (1024**2): 8,
+        16 * (1024**2): 2,
+        32 * (1024**2): 2,  # [32MiB, ~), will not be rotated
     }
     DB_FILE = f"{BASE_DIR}/cache_db"
 
     # DB configuration/setup
     # ota-cache table
     # NOTE: use table name to keep track of table scheme version
-    TABLE_DEFINITION_VERSION = "v3"
+    TABLE_DEFINITION_VERSION = "v4"
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
@@ -52,6 +52,10 @@ class Config:
     STREAMING_CACHED_TMP_TIMEOUT = 10  # second
 
     TMP_FILE_PREFIX = "tmp"
+    URL_BASED_HASH_PREFIX = "URL_"
+
+    # the file extension for compressed files in external cache storage
+    EXTERNAL_CACHE_STORAGE_COMPRESS_ALG = "zst"
 
 
 config = Config()
