@@ -20,10 +20,12 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
+from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .config import config as cfg
-from .orm import ColumnDescriptor, ORMBase
+from .orm import FV, ColumnDescriptor, ORMBase
+from .cache_control import OTAFileCacheControl
 
 import logging
 
@@ -31,23 +33,58 @@ logger = logging.getLogger(__name__)
 
 
 class CacheMeta(ORMBase):
-    url: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY", default="invalid_url"
+    """revision 4
+
+    url: unquoted URL from the request of this cache entry.
+    bucket_id: the LRU bucket this cache entry in.
+    last_access: the UNIX timestamp of last access.
+    cache_size: the file size of cached file(not the size of corresponding OTA file!).
+    file_sha256:
+        a. string of the sha256 hash of original OTA file(uncompressed),
+        b. if a. is not available, then it is in form of "URL_<sha256_of_URL>".
+    file_compression_alg: the compression used for the cached OTA file entry,
+        if no compression is applied, then empty.
+    content_encoding: the content_encoding header string comes with resp from remote server.
+    """
+
+    file_sha256: ColumnDescriptor[str] = ColumnDescriptor(
+        str, "TEXT", "UNIQUE", "NOT NULL", "PRIMARY KEY"
     )
+    url: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL")
     bucket_idx: ColumnDescriptor[int] = ColumnDescriptor(
         int, "INTEGER", "NOT NULL", type_guard=True
     )
     last_access: ColumnDescriptor[int] = ColumnDescriptor(
         int, "INTEGER", "NOT NULL", type_guard=(int, float)
     )
-    sha256hash: ColumnDescriptor[str] = ColumnDescriptor(
-        str, "TEXT", "NOT NULL", default="invalid_hash"
+    cache_size: ColumnDescriptor[int] = ColumnDescriptor(
+        int, "INTEGER", "NOT NULL", type_guard=True
     )
-    size: ColumnDescriptor[int] = ColumnDescriptor(
-        int, "INTEGER", "NOT NULL", type_guard=(int, float)
+    file_compression_alg: ColumnDescriptor[str] = ColumnDescriptor(
+        str, "TEXT", "NOT NULL"
     )
-    content_type: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
-    content_encoding: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT")
+    content_encoding: ColumnDescriptor[str] = ColumnDescriptor(str, "TEXT", "NOT NULL")
+
+    def export_headers_to_client(self) -> Dict[str, str]:
+        """Export required headers for client.
+
+        Currently includes content-type, content-encoding and ota-file-cache-control headers.
+        """
+        res = {}
+        if self.content_encoding:
+            res[HEADER_CONTENT_ENCODING] = self.content_encoding
+
+        # export ota-file-cache-control headers if file_sha256 is valid file hash
+        if self.file_sha256 and not self.file_sha256.startswith(
+            cfg.URL_BASED_HASH_PREFIX
+        ):
+            res[
+                HEADER_OTA_FILE_CACHE_CONTROL
+            ] = OTAFileCacheControl.export_kwargs_as_header(
+                file_sha256=self.file_sha256,
+                file_compression_alg=self.file_compression_alg,
+            )
+        return res
 
 
 class OTACacheDB:
@@ -148,7 +185,7 @@ class OTACacheDB:
     def close(self):
         self._con.close()
 
-    def remove_entries(self, fd: ColumnDescriptor, *_inputs: Any) -> int:
+    def remove_entries(self, fd: ColumnDescriptor[FV], *_inputs: FV) -> int:
         """Remove entri(es) indicated by field(s).
 
         Args:
@@ -160,7 +197,7 @@ class OTACacheDB:
         """
         if not _inputs:
             return 0
-        if CacheMeta.contains_field(fd) and all(map(fd.check_type, _inputs)):
+        if CacheMeta.contains_field(fd):
             with self._con as con:
                 _regulated_input = [(i,) for i in _inputs]
                 return con.executemany(
@@ -171,33 +208,40 @@ class OTACacheDB:
             logger.debug(f"invalid inputs detected: {_inputs=}")
             return 0
 
-    def lookup_entry(self, fd: ColumnDescriptor, _input: Any) -> Optional[CacheMeta]:
+    def lookup_entry(
+        self,
+        fd: ColumnDescriptor[FV],
+        value: FV,
+    ) -> Optional[CacheMeta]:
         """Lookup entry by field value.
 
-        NOTE: lookup via this method will trigger update to <last_access> field
+        NOTE: lookup via this method will trigger update to <last_access> field,
+        NOTE 2: <last_access> field is updated by searching <fd> key.
 
         Args:
-            fd: field descriptor of the column
-            _input: field value
+            fd: field descriptor of the column.
+            value: field value to lookup.
 
         Returns:
             An instance of CacheMeta representing the cache entry, or None if lookup failed.
         """
-        if not CacheMeta.contains_field(fd) or not fd.check_type(_input):
+        if not CacheMeta.contains_field(fd):
             return
+
+        fd_name = fd.name
         with self._con as con:  # put the lookup and update into one session
             if row := con.execute(
-                f"SELECT * FROM {self.TABLE_NAME} WHERE {fd.name}=?",
-                (_input,),
+                f"SELECT * FROM {self.TABLE_NAME} WHERE {fd_name}=?",
+                (value,),
             ).fetchone():
                 # warm up the cache(update last_access timestamp) here
                 res = CacheMeta.row_to_meta(row)
                 con.execute(
                     (
                         f"UPDATE {self.TABLE_NAME} SET {CacheMeta.last_access.name}=? "
-                        f"WHERE {CacheMeta.url.name}=?"
+                        f"WHERE {fd_name}=?"
                     ),
-                    (int(time.time()), res.url),
+                    (int(time.time()), value),
                 )
                 return res
 
@@ -236,7 +280,7 @@ class OTACacheDB:
             num: num of entries needed to be deleted in this bucket
 
         Return:
-            A list of hashes that needed to be deleted for space reserving,
+            A list of OTA file's hashes that needed to be deleted for space reserving,
                 or None if no enough entries for space reserving.
         """
         bucket_fn, last_access_fn = (
@@ -280,7 +324,7 @@ class OTACacheDB:
                     ),
                     (bucket_idx, num),
                 )
-                return [row[CacheMeta.sha256hash.name] for row in _rows]
+                return [row[CacheMeta.file_sha256.name] for row in _rows]
 
 
 class _ProxyBase:

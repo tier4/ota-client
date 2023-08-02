@@ -31,24 +31,14 @@ async def wait_with_backoff(
     return False
 
 
-class AIOSHA256Hasher:
-    def __init__(self, *, executor: Executor) -> None:
-        self._executor = executor
-        self._hashf = sha256()
-
-    async def update(self, data: bytes):
-        await asyncio.get_running_loop().run_in_executor(
-            self._executor, self._hashf.update, data
-        )
-
-    async def hexdigest(self) -> str:
-        return await asyncio.get_running_loop().run_in_executor(
-            self._executor, self._hashf.hexdigest
-        )
-
-
 async def read_file(fpath: PathLike, *, executor: Executor) -> AsyncIterator[bytes]:
     """Open and read a file asynchronously with aiofiles."""
     async with aiofiles.open(fpath, "rb", executor=executor) as f:
         while data := await f.read(cfg.CHUNK_SIZE):
             yield data
+
+
+def url_based_hash(raw_url: str) -> str:
+    """Generate sha256hash with unquoted raw_url."""
+    _sha256_value = sha256(raw_url.encode()).hexdigest()
+    return f"{cfg.URL_BASED_HASH_PREFIX}{_sha256_value}"
