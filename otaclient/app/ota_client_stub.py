@@ -301,7 +301,7 @@ class ECUStatusStorage:
                 f"lost ecu(s)(disconnected longer than{self.UNREACHABLE_ECU_TIMEOUT}s): {lost_ecus=}"
             )
 
-        # check ECUs that are updating
+        # check ECUs in tracked active ECUs set that are updating
         _old_in_update_ecus_id = self.in_update_ecus_id
         self.in_update_ecus_id = in_update_ecus_id = set(
             (
@@ -309,7 +309,9 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_in_update and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_in_update
+                and status.ecu_id not in lost_ecus
             )
         )
         self.in_update_child_ecus_id = in_update_ecus_id - {self.my_ecu_id}
@@ -323,7 +325,7 @@ class ECUStatusStorage:
         else:
             self.active_ota_update_present.clear()
 
-        # check if there is any failed child/self ECU
+        # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
         self.failed_ecus_id = set(
             (
@@ -331,7 +333,9 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_failed and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_failed
+                and status.ecu_id not in lost_ecus
             )
         )
         if _new_failed_ecu := self.failed_ecus_id.difference(_old_failed_ecus_id):
@@ -339,18 +343,19 @@ class ECUStatusStorage:
                 f"new failed ECU(s) detected: {_new_failed_ecu}, current {self.failed_ecus_id=}"
             )
 
-        # check if any ECUs require network
+        # check if any ECUs in the tracked tracked active ECUs set require network
         self.any_requires_network = any(
             (
                 status.requires_network
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.ecu_id not in lost_ecus
             )
         )
 
-        # check if all child ECUs and self ECU are in SUCCESS ota_status
+        # check if all tracked active_ota_ecus are in SUCCESS ota_status
         _old_all_success, _old_success_ecus_id = self.all_success, self.success_ecus_id
         self.success_ecus_id = set(
             (
@@ -358,7 +363,9 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_success and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_success
+                and status.ecu_id not in lost_ecus
             )
         )
         # NOTE: all_success doesn't count the lost ECUs
