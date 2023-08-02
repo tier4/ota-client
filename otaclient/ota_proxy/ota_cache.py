@@ -66,7 +66,7 @@ _WEAKREF = TypeVar("_WEAKREF")
 # helper functions
 
 
-def create_new_meta(
+def create_cachemeta_for_request(
     raw_url: str,
     cache_identifier: str,
     url_based_id: bool,
@@ -494,7 +494,7 @@ class LRUCacheHelper:
             A list of hashes that needed to be cleaned, or empty list if rotation
                 is not required, or None if cache rotation cannot be executed.
         """
-        # NOTE: currently item size smalle than 1st bucket and larger than latest bucket
+        # NOTE: currently item size smaller than 1st bucket and larger than latest bucket
         #       will be saved without cache rotating.
         if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
             return []
@@ -503,7 +503,7 @@ class LRUCacheHelper:
         _cur_bucket_size = self.BSIZE_LIST[_cur_bucket_idx]
 
         # first check the upper bucket, remove 1 item from any of the
-        # upper bucket is enoughe.
+        # upper bucket is enough.
         for _bucket_idx in range(_cur_bucket_idx + 1, len(self.BSIZE_LIST)):
             if res := await self._db.rotate_cache(_bucket_idx, 1):
                 return res
@@ -967,7 +967,7 @@ class OTACache:
                 await tracker.provider_on_failed()
                 raise
 
-            cache_meta = create_new_meta(
+            cache_meta = create_cachemeta_for_request(
                 raw_url,
                 cache_identifier,
                 url_based_id,
