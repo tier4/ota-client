@@ -66,14 +66,19 @@ _WEAKREF = TypeVar("_WEAKREF")
 # helper functions
 
 
-def create_new_meta(
+def create_cachemeta_for_request(
     raw_url: str,
-    cache_identifier: str,
-    url_based_id: bool,
     /,
     cache_policy_from_client: OTAFileCacheControl,
     resp_headers_from_upper: CIMultiDictProxy[str],
 ) -> CacheMeta:
+    """Create CacheMeta inst for new incoming request.
+
+    Cache identifier pickup priority:
+    1. if upper response provides file_sha256, use it,
+    2. if client request provides file_sha256, use it,
+    3. fallback to use URL based hash.
+    """
     cache_meta = CacheMeta(
         url=raw_url,
         content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING, ""),
@@ -85,11 +90,11 @@ def create_new_meta(
     if _upper_cache_policy.file_sha256:
         cache_meta.file_sha256 = _upper_cache_policy.file_sha256
         cache_meta.file_compression_alg = _upper_cache_policy.file_compression_alg
-    elif not url_based_id:
+    elif cache_meta.file_sha256:
         cache_meta.file_sha256 = cache_policy_from_client.file_sha256
         cache_meta.file_compression_alg = cache_policy_from_client.file_compression_alg
-    else:  # fallback to use URL based id unique identify a cache entry
-        cache_meta.file_sha256 = cache_identifier
+    else:  # fallback to use URL based id if no real file_sha256 available
+        cache_meta.file_sha256 = url_based_hash(raw_url)
         cache_meta.file_compression_alg = ""
     return cache_meta
 
@@ -494,7 +499,7 @@ class LRUCacheHelper:
             A list of hashes that needed to be cleaned, or empty list if rotation
                 is not required, or None if cache rotation cannot be executed.
         """
-        # NOTE: currently item size smalle than 1st bucket and larger than latest bucket
+        # NOTE: currently item size smaller than 1st bucket and larger than latest bucket
         #       will be saved without cache rotating.
         if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
             return []
@@ -503,7 +508,7 @@ class LRUCacheHelper:
         _cur_bucket_size = self.BSIZE_LIST[_cur_bucket_idx]
 
         # first check the upper bucket, remove 1 item from any of the
-        # upper bucket is enoughe.
+        # upper bucket is enough.
         for _bucket_idx in range(_cur_bucket_idx + 1, len(self.BSIZE_LIST)):
             if res := await self._db.rotate_cache(_bucket_idx, 1):
                 return res
@@ -897,11 +902,13 @@ class OTACache:
         )
 
     async def _retrieve_file_by_external_cache(
-        self, cache_identifier: str, url_based_id: bool
+        self, client_cache_policy: OTAFileCacheControl
     ) -> Optional[Tuple[AsyncIterator[bytes], Mapping[str, str]]]:
-        if not self._external_cache or url_based_id:
+        # skip if not external cache or otaclient doesn't sent valid file_sha256
+        if not self._external_cache or not client_cache_policy.file_sha256:
             return
 
+        cache_identifier = client_cache_policy.file_sha256
         cache_file = self._external_cache / cache_identifier
         cache_file_zst = cache_file.with_suffix(
             f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}"
@@ -920,22 +927,6 @@ class OTACache:
                     file_sha256=cache_identifier
                 )
             }
-
-    def _get_cache_identifier(
-        self, raw_url: str, cache_policy: OTAFileCacheControl
-    ) -> Tuple[str, bool]:
-        """Get a unique cache_identifier from input.
-
-        If file_sha256 is available, use it as cache identifier, otherwise fallback
-            to URL based sha256.
-
-        Returns:
-            A tuple of cache_identifier str and a bool indicate whether the cache_identifier
-                is file sha256 based.
-        """
-        if not cache_policy.file_sha256:
-            return url_based_hash(raw_url), False
-        return cache_policy.file_sha256, True
 
     # exposed API
 
@@ -987,20 +978,17 @@ class OTACache:
                 raw_url, headers=headers_from_client
             )
 
-        cache_identifier, file_sha256_based_id = self._get_cache_identifier(
-            raw_url, cache_policy
-        )
-        url_based_id = not file_sha256_based_id
-
         # --- case 2: if externel cache source available, try to use it --- #
         # NOTE: if client requsts with retry_caching directive, it may indicate cache corrupted
         #       in external cache storage, in such case we should skip the use of external cache.
         if not cache_policy.retry_caching and (
-            _res := await self._retrieve_file_by_external_cache(
-                cache_identifier, url_based_id
-            )
+            _res := await self._retrieve_file_by_external_cache(cache_policy)
         ):
             return _res
+
+        cache_identifier = cache_policy.file_sha256
+        if not cache_identifier:  # fallback to use URL based hash
+            cache_identifier = url_based_hash(raw_url)
 
         # --- case 3: try to use local cache --- #
         if _res := await self._retrieve_file_by_cache(
@@ -1024,10 +1012,8 @@ class OTACache:
                 await tracker.provider_on_failed()
                 raise
 
-            cache_meta = create_new_meta(
+            cache_meta = create_cachemeta_for_request(
                 raw_url,
-                cache_identifier,
-                url_based_id,
                 cache_policy_from_client=cache_policy,
                 resp_headers_from_upper=resp_headers,
             )

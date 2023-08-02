@@ -3,6 +3,12 @@
 
 ## Table of Contents
 
+- [ota_metafiles.proto](#ota_metafiles-proto)
+    - [DirectoryInf](#otaclient-DirectoryInf)
+    - [PersistentInf](#otaclient-PersistentInf)
+    - [RegularInf](#otaclient-RegularInf)
+    - [SymbolicLinkInf](#otaclient-SymbolicLinkInf)
+  
 - [otaclient_v2.proto](#otaclient_v2-proto)
     - [RollbackRequest](#OtaClientV2-RollbackRequest)
     - [RollbackRequestEcu](#OtaClientV2-RollbackRequestEcu)
@@ -13,18 +19,112 @@
     - [StatusRequest](#OtaClientV2-StatusRequest)
     - [StatusResponse](#OtaClientV2-StatusResponse)
     - [StatusResponseEcu](#OtaClientV2-StatusResponseEcu)
+    - [StatusResponseEcuV2](#OtaClientV2-StatusResponseEcuV2)
     - [UpdateRequest](#OtaClientV2-UpdateRequest)
     - [UpdateRequestEcu](#OtaClientV2-UpdateRequestEcu)
     - [UpdateResponse](#OtaClientV2-UpdateResponse)
     - [UpdateResponseEcu](#OtaClientV2-UpdateResponseEcu)
+    - [UpdateStatus](#OtaClientV2-UpdateStatus)
   
     - [FailureType](#OtaClientV2-FailureType)
     - [StatusOta](#OtaClientV2-StatusOta)
     - [StatusProgressPhase](#OtaClientV2-StatusProgressPhase)
+    - [UpdatePhase](#OtaClientV2-UpdatePhase)
   
     - [OtaClientService](#OtaClientV2-OtaClientService)
   
 - [Scalar Value Types](#scalar-value-types)
+
+
+
+<a name="ota_metafiles-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## ota_metafiles.proto
+
+
+
+<a name="otaclient-DirectoryInf"></a>
+
+### DirectoryInf
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| mode | [int32](#int32) |  |  |
+| uid | [int32](#int32) |  |  |
+| gid | [int32](#int32) |  |  |
+| path | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="otaclient-PersistentInf"></a>
+
+### PersistentInf
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| path | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="otaclient-RegularInf"></a>
+
+### RegularInf
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| mode | [int32](#int32) |  |  |
+| uid | [int32](#int32) |  |  |
+| gid | [int32](#int32) |  |  |
+| nlink | [int32](#int32) |  |  |
+| sha256hash | [bytes](#bytes) |  |  |
+| path | [string](#string) |  |  |
+| size | [int64](#int64) |  |  |
+| inode | [int64](#int64) |  |  |
+| compressed_alg | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="otaclient-SymbolicLinkInf"></a>
+
+### SymbolicLinkInf
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| mode | [int32](#int32) |  |  |
+| uid | [int32](#int32) |  |  |
+| gid | [int32](#int32) |  |  |
+| slink | [string](#string) |  |  |
+| srcpath | [string](#string) |  |  |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
 
 
 
@@ -165,8 +265,9 @@ Request
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| ecu | [StatusResponseEcu](#OtaClientV2-StatusResponseEcu) | repeated |  |
-| available_ecu_ids | [string](#string) | repeated | list of available ECU (see ecu_info.yml) |
+| ecu | [StatusResponseEcu](#OtaClientV2-StatusResponseEcu) | repeated | **Deprecated.** list of status(v1) of all available ECUs, replaced by ecu_v2 |
+| available_ecu_ids | [string](#string) | repeated | list of all available ECUs in this vehicle (see ecu_info.yml) |
+| ecu_v2 | [StatusResponseEcuV2](#OtaClientV2-StatusResponseEcuV2) | repeated | list of status(v2) of all available ECUs |
 
 
 
@@ -184,6 +285,28 @@ Request
 | ecu_id | [string](#string) |  | ECU id respond |
 | result | [FailureType](#OtaClientV2-FailureType) |  |  |
 | status | [Status](#OtaClientV2-Status) |  |  |
+
+
+
+
+
+
+<a name="OtaClientV2-StatusResponseEcuV2"></a>
+
+### StatusResponseEcuV2
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| ecu_id | [string](#string) |  | --- static ECU info: 1~10 --- // |
+| firmware_version | [string](#string) |  |  |
+| otaclient_version | [string](#string) |  |  |
+| ota_status | [StatusOta](#OtaClientV2-StatusOta) |  | --- dynamic ECU status: 11~ --- // |
+| failure_type | [FailureType](#OtaClientV2-FailureType) | optional | when ota_status is FAILURE/ROLLBACK_FAILURE, failure_type, failure_reason should be set |
+| failure_reason | [string](#string) | optional |  |
+| failure_traceback | [string](#string) | optional |  |
+| update_status | [UpdateStatus](#OtaClientV2-UpdateStatus) | optional | update status, set if ota_status is UPDATING |
 
 
 
@@ -253,6 +376,47 @@ Response
 
 
 
+
+<a name="OtaClientV2-UpdateStatus"></a>
+
+### UpdateStatus
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| update_firmware_version | [string](#string) |  | --- update meta: 1~10 --- //
+
+update target image version |
+| total_files_size_uncompressed | [uint64](#uint64) |  | uncompressed size of all files in update_firmware image |
+| total_files_num | [uint64](#uint64) |  | total files num in the update_firmware image |
+| update_start_timestamp | [uint64](#uint64) |  | update start time in unix timestamp |
+| phase | [UpdatePhase](#OtaClientV2-UpdatePhase) |  | --- update progress: 11~30 --- // |
+| total_download_files_num | [uint64](#uint64) |  | - downloading phase - //
+
+num of files needed to be downloaded from remote |
+| total_download_files_size | [uint64](#uint64) |  | size(uncompressed) of all files needed to be downloaded |
+| downloaded_files_num | [uint64](#uint64) |  | downloaded files num during downloading |
+| downloaded_bytes | [uint64](#uint64) |  | network traffic during downloading |
+| downloaded_files_size | [uint64](#uint64) |  | size(uncompressed) of downloaded files during downloading |
+| downloading_errors | [uint64](#uint64) |  |  |
+| total_remove_files_num | [uint64](#uint64) |  | - applying update phase - //
+
+for in-place update mode, files to be removed |
+| removed_files_num | [uint64](#uint64) |  | for in-place update mode, removed files during standby slot updating |
+| processed_files_num | [uint64](#uint64) |  | NOTE: processed_files_num/size are corresponding to total_files_num/total_image_size
+
+num of files processed to the standby slot during applying update |
+| processed_files_size | [uint64](#uint64) |  | size(uncompressed) of processed files |
+| total_elapsed_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | --- timing --- // |
+| delta_generating_elapsed_time | [google.protobuf.Duration](#google-protobuf-Duration) |  |  |
+| downloading_elapsed_time | [google.protobuf.Duration](#google-protobuf-Duration) |  |  |
+| update_applying_elapsed_time | [google.protobuf.Duration](#google-protobuf-Duration) |  |  |
+
+
+
+
+
  
 
 
@@ -299,6 +463,23 @@ Response
 | REGULAR | 4 |  |
 | PERSISTENT | 5 |  |
 | POST_PROCESSING | 6 |  |
+
+
+
+<a name="OtaClientV2-UpdatePhase"></a>
+
+### UpdatePhase
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| INITIALIZING | 0 |  |
+| PROCESSING_METADATA | 1 |  |
+| CALCULATING_DELTA | 2 |  |
+| DOWNLOADING_OTA_FILES | 3 |  |
+| APPLYING_UPDATE | 4 |  |
+| PROCESSING_POSTUPDATE | 5 |  |
+| FINALIZING_UPDATE | 6 | set during first reboot boot switch finalizing |
 
 
  
