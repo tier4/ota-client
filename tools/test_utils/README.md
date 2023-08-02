@@ -41,12 +41,3 @@ For example, we have `autoware` ECU as main ECU, then
 # with venv, under the tools/ folder
 python3 -m test_utils.api_caller update -t autoware
 ```
-
-### 5. Check the update progresss
-
-Use `api_caller` status command to query the update progress as follow:
-
-```python
-# with venv, under the tools/ folder
-python3 -m test_utils.api_caller status -t autoware
-```
