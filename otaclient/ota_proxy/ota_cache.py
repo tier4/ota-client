@@ -855,6 +855,14 @@ class OTACache:
                 headers=headers,
             ) as response:
                 yield response.headers  # type: ignore
+                # NOTE(20230803): sometimes aiohttp will raises:
+                #                 "ClientPayloadError: Response payload is not completed" exception,
+                #                 according to some posts in related issues, add a asyncio.sleep(0)
+                #                 to make event loop switch to other task here seems mitigates the problem.
+                #                 check the following URLs for details:
+                #                 1. https://github.com/aio-libs/aiohttp/issues/4581
+                #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
+                await asyncio.sleep(0)
                 async for data, _ in response.content.iter_chunks():
                     if data:  # only yield non-empty data chunk
                         yield data
