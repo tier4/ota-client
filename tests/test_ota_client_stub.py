@@ -391,7 +391,7 @@ class TestECUStatusStorage:
             await self.ecu_storage.update_from_child_ecu(ecu_status_report)
 
         # --- execution --- #
-        exported = self.ecu_storage.export()
+        exported = await self.ecu_storage.export()
 
         # ---  assertion --- #
         compare_message(exported, expected)
