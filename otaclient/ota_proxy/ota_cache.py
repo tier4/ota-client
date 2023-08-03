@@ -68,16 +68,20 @@ _WEAKREF = TypeVar("_WEAKREF")
 
 def create_cachemeta_for_request(
     raw_url: str,
+    cache_identifier: str,
+    compression_alg: str,
     /,
-    cache_policy_from_client: OTAFileCacheControl,
     resp_headers_from_upper: CIMultiDictProxy[str],
 ) -> CacheMeta:
     """Create CacheMeta inst for new incoming request.
 
-    Cache identifier pickup priority:
-    1. if upper response provides file_sha256, use it,
-    2. if client request provides file_sha256, use it,
-    3. fallback to use URL based hash.
+    Use information from upper in prior, otherwise use pre-calculated information.
+
+    Params:
+        raw_url
+        cache_identifier: pre-collected information from caller
+        compression_alg: pre-collected information from caller
+        resp_headers_from_upper
     """
     cache_meta = CacheMeta(
         url=raw_url,
@@ -90,12 +94,9 @@ def create_cachemeta_for_request(
     if _upper_cache_policy.file_sha256:
         cache_meta.file_sha256 = _upper_cache_policy.file_sha256
         cache_meta.file_compression_alg = _upper_cache_policy.file_compression_alg
-    elif cache_meta.file_sha256:
-        cache_meta.file_sha256 = cache_policy_from_client.file_sha256
-        cache_meta.file_compression_alg = cache_policy_from_client.file_compression_alg
-    else:  # fallback to use URL based id if no real file_sha256 available
-        cache_meta.file_sha256 = url_based_hash(raw_url)
-        cache_meta.file_compression_alg = ""
+    else:
+        cache_meta.file_sha256 = cache_identifier
+        cache_meta.file_compression_alg = compression_alg
     return cache_meta
 
 
@@ -981,14 +982,21 @@ class OTACache:
         # --- case 2: if externel cache source available, try to use it --- #
         # NOTE: if client requsts with retry_caching directive, it may indicate cache corrupted
         #       in external cache storage, in such case we should skip the use of external cache.
-        if not cache_policy.retry_caching and (
-            _res := await self._retrieve_file_by_external_cache(cache_policy)
+        if (
+            self._external_cache
+            and not cache_policy.retry_caching
+            and (_res := await self._retrieve_file_by_external_cache(cache_policy))
         ):
             return _res
 
+        # pre-calculated cache_identifier and corresponding compression_alg
         cache_identifier = cache_policy.file_sha256
-        if not cache_identifier:  # fallback to use URL based hash
+        compression_alg = cache_policy.file_compression_alg
+        if (
+            not cache_identifier
+        ):  # fallback to use URL based hash, and clear compression_alg
             cache_identifier = url_based_hash(raw_url)
+            compression_alg = ""
 
         # --- case 3: try to use local cache --- #
         if _res := await self._retrieve_file_by_cache(
@@ -1014,7 +1022,8 @@ class OTACache:
 
             cache_meta = create_cachemeta_for_request(
                 raw_url,
-                cache_policy_from_client=cache_policy,
+                cache_identifier,
+                compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
 
