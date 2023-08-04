@@ -325,9 +325,31 @@ class ECUStatusStorage:
         self._writer_lock = asyncio.Lock()
         # ECU status storage
         self.storage_last_updated_timestamp = 0
-        self._all_available_ecus_id: _OrderedSet[str] = _OrderedSet(
+
+        # ECUs that are/will be active during an OTA session,
+        #   at init it will be the ECUs listed in available_ecu_ids defined
+        #   in ecu_info.yaml.
+        # When receives update request, the list will be set to include ECUs
+        #   listed in the update request, and be extended by merging
+        #   available_ecu_ids in sub ECUs' status report.
+        # Internally referenced when generating overall ECU status report.
+        # TODO: in the future if otaclient can preserve OTA session info,
+        #       ECUStatusStorage should restore the tracked_active_ecus info
+        #       in the saved session info.
+        self._tracked_active_ecus: _OrderedSet[str] = _OrderedSet(
             ecu_info.get_available_ecu_ids()
         )
+
+        # The attribute that will be exported in status API response,
+        # NOTE(20230801): available_ecu_ids only serves information purpose,
+        #                 it should only be updated with ecu_info.yaml or merging
+        #                 available_ecu_ids field in sub ECUs' status report.
+        # NOTE(20230801): for web.auto user, available_ecu_ids in status API response
+        #                 will be used to generate update request list, so be-careful!
+        self._available_ecu_ids: _OrderedSet[str] = _OrderedSet(
+            ecu_info.get_available_ecu_ids()
+        )
+
         self._all_ecus_status_v2: Dict[str, wrapper.StatusResponseEcuV2] = {}
         self._all_ecus_status_v1: Dict[str, wrapper.StatusResponseEcu] = {}
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
@@ -367,14 +389,20 @@ class ECUStatusStorage:
         )
 
     async def _generate_overall_status_report(self):
+        """Generate overall status report against tracked active OTA ECUs.
+
+        NOTE: as special case, lost_ecus set is calculated against all reachable ECUs.
+        """
         self.properties_last_update_timestamp = cur_timestamp = int(time.time())
 
         # check unreachable ECUs
+        # NOTE(20230801): this property is calculated against all reachable ECUs,
+        #                 including further child ECUs.
         _old_lost_ecus_id = self.lost_ecus_id
         self.lost_ecus_id = lost_ecus = set(
             (
                 ecu_id
-                for ecu_id in self._all_available_ecus_id
+                for ecu_id in self._all_ecus_last_contact_timestamp
                 if self._is_ecu_lost(ecu_id, cur_timestamp)
             )
         )
@@ -385,7 +413,7 @@ class ECUStatusStorage:
                 f"lost ecu(s)(disconnected longer than{self.UNREACHABLE_ECU_TIMEOUT}s): {lost_ecus=}"
             )
 
-        # check ECUs that are updating
+        # check ECUs in tracked active ECUs set that are updating
         _old_in_update_ecus_id = self.in_update_ecus_id
         self.in_update_ecus_id = in_update_ecus_id = set(
             (
@@ -393,7 +421,9 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_in_update and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_in_update
+                and status.ecu_id not in lost_ecus
             )
         )
         self.in_update_child_ecus_id = in_update_ecus_id - {self.my_ecu_id}
@@ -407,7 +437,7 @@ class ECUStatusStorage:
         else:
             self.active_ota_update_present.clear()
 
-        # check if there is any failed child/self ECU
+        # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
         self.failed_ecus_id = set(
             (
@@ -415,7 +445,9 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_failed and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_failed
+                and status.ecu_id not in lost_ecus
             )
         )
         if _new_failed_ecu := self.failed_ecus_id.difference(_old_failed_ecus_id):
@@ -423,18 +455,19 @@ class ECUStatusStorage:
                 f"new failed ECU(s) detected: {_new_failed_ecu}, current {self.failed_ecus_id=}"
             )
 
-        # check if any ECUs require network
+        # check if any ECUs in the tracked tracked active ECUs set require network
         self.any_requires_network = any(
             (
                 status.requires_network
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.ecu_id not in lost_ecus
             )
         )
 
-        # check if all child ECUs and self ECU are in SUCCESS ota_status
+        # check if all tracked active_ota_ecus are in SUCCESS ota_status
         _old_all_success, _old_success_ecus_id = self.all_success, self.success_ecus_id
         self.success_ecus_id = set(
             (
@@ -442,11 +475,13 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_success and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_success
+                and status.ecu_id not in lost_ecus
             )
         )
         # NOTE: all_success doesn't count the lost ECUs
-        self.all_success = len(self.success_ecus_id) == len(self._all_available_ecus_id)
+        self.all_success = len(self.success_ecus_id) == len(self._tracked_active_ecus)
         if _new_success_ecu := self.success_ecus_id.difference(_old_success_ecus_id):
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
             if not _old_all_success and self.all_success:
@@ -490,10 +525,11 @@ class ECUStatusStorage:
         """Update the ECU status storage with child ECU's status report(StatusResponse)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
+            _subecu_available_ecu_ids = _OrderedSet(status_resp.available_ecu_ids)
             # discover further child ECUs from directly connected sub ECUs.
-            self._all_available_ecus_id.update(
-                _OrderedSet(status_resp.available_ecu_ids)
-            )
+            self._tracked_active_ecus.update(_subecu_available_ecu_ids)
+            # merge available_ecu_ids from child ECUs resp to include further child ECUs
+            self._available_ecu_ids.update(_subecu_available_ecu_ids)
 
             # NOTE: use v2 if v2 is available, but explicitly support v1 format
             #       for backward-compatible with old otaclient
@@ -520,7 +556,6 @@ class ECUStatusStorage:
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
-            self._all_available_ecus_id.add(ecu_status.ecu_id)
 
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status_v2[ecu_id] = ecu_status
@@ -534,12 +569,15 @@ class ECUStatusStorage:
         2. remove these ECUs' id from failed_ecus_id and success_ecus_id set
         3. remove these ECUs' id from lost_ecus_id set
         3. re-calculate overall ECUs status
+        4. reset tracked_active_ecus list to <ecus_accept_update>
 
         To prevent pre-mature overall status change(for example, the child ECU doesn't change
         their ota_status to UPDATING on-time due to status polling interval mismatch),
         the above set value will be kept for <DELAY_OVERALL_STATUS_REPORT_UPDATE> seconds.
         """
         async with self._properties_update_lock:
+            self._tracked_active_ecus = _OrderedSet(ecus_accept_update)
+
             self.last_update_request_received_timestamp = int(time.time())
             self.lost_ecus_id -= ecus_accept_update
             self.failed_ecus_id -= ecus_accept_update
@@ -592,7 +630,7 @@ class ECUStatusStorage:
 
         return _waiter
 
-    def export(self) -> wrapper.StatusResponse:
+    async def export(self) -> wrapper.StatusResponse:
         """Export the contents of this storage to an instance of StatusResponse.
 
         NOTE: wrapper.StatusResponse's add_ecu method already takes care of
@@ -603,29 +641,34 @@ class ECUStatusStorage:
               disconnected ECU's status report entry.
         """
         res = wrapper.StatusResponse()
-        res.available_ecu_ids.extend(self._all_available_ecus_id)
 
-        for ecu_id in self._all_available_ecus_id:
-            if ecu_id in self.lost_ecus_id:
-                continue
-            _timout = (
-                self._all_ecus_last_contact_timestamp.get(ecu_id, 0)
-                + self.DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
-            )
-            # if this ECU doesn't respond recently enough
-            if self.storage_last_updated_timestamp > _timout:
-                continue
+        async with self._writer_lock:
+            res.available_ecu_ids.extend(self._available_ecu_ids)
 
-            _ecu_status_rep = self._all_ecus_status_v2.get(
-                ecu_id, self._all_ecus_status_v1.get(ecu_id, None)
-            )
-            if _ecu_status_rep:
-                res.add_ecu(_ecu_status_rep)
-        return res
+            # NOTE(20230802): export all reachable ECUs' status, no matter they are in
+            #                 active OTA or not.
+            # NOTE: ECU status for specific ECU will not appear at both v1 and v2 list,
+            #       this is guaranteed by the update_from_child_ecu API method.
+            for ecu_id in self._all_ecus_last_contact_timestamp:
+                # NOTE: skip this ECU if it doesn't respond recently enough,
+                #       to signal the agent that this ECU doesn't respond.
+                _timout = (
+                    self._all_ecus_last_contact_timestamp.get(ecu_id, 0)
+                    + self.DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
+                )
+                if self.storage_last_updated_timestamp > _timout:
+                    continue
+
+                _ecu_status_rep = self._all_ecus_status_v2.get(
+                    ecu_id, self._all_ecus_status_v1.get(ecu_id, None)
+                )
+                if _ecu_status_rep:
+                    res.add_ecu(_ecu_status_rep)
+            return res
 
 
 class _ECUTracker:
-    """Tracker that tracks and stores ECU status from all child ECUs and self ECU."""
+    """Tracker that queries and stores ECU status from all defined ECUs."""
 
     def __init__(
         self,
@@ -638,7 +681,7 @@ class _ECUTracker:
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
-        # launch ECU trackers
+        # launch ECU trackers for all defined ECUs
         # NOTE: _debug_ecu_status_polling_shutdown_event is for test only,
         #       allow us to stop background task without changing codes.
         #       In normal running this event will never be set.
@@ -910,4 +953,4 @@ class OTAClientServiceStub:
         return response
 
     async def status(self, _=None) -> wrapper.StatusResponse:
-        return self._ecu_status_storage.export()
+        return await self._ecu_status_storage.export()
