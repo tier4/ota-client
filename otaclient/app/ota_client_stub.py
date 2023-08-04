@@ -16,29 +16,153 @@
 import asyncio
 import logging
 import shutil
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Iterable, Optional, Set, Dict, TypeVar
+from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
+from typing_extensions import Self
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
 from .common import ensure_otaproxy_start
+from .boot_control._common import CMDHelperFuncs
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientWrapper
 from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
-from otaclient.ota_proxy.config import config as local_otaproxy_cfg
-from otaclient.ota_proxy import subprocess_start_otaproxy
+from otaclient.ota_proxy import (
+    OTAProxyContextProto,
+    subprocess_otaproxy_launcher,
+    config as local_otaproxy_cfg,
+)
 
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
+
+
+class _OTAProxyContext(OTAProxyContextProto):
+    EXTERNAL_CACHE_KEY = "external_cache"
+
+    def __init__(
+        self,
+        *,
+        upper_proxy: Optional[str],
+        external_cache_enabled: bool,
+        external_cache_dev_fslable: str = cfg.EXTERNAL_CACHE_DEV_FSLABEL,
+        external_cache_dev_mp: str = cfg.EXTERNAL_CACHE_DEV_MOUNTPOINT,
+        external_cache_path: str = cfg.EXTERNAL_CACHE_SRC_PATH,
+    ) -> None:
+        self.upper_proxy = upper_proxy
+        self.external_cache_enabled = external_cache_enabled
+
+        self._external_cache_activated = False
+        self._external_cache_dev_fslabel = external_cache_dev_fslable
+        self._external_cache_dev = None  # type: ignore[assignment]
+        self._external_cache_dev_mp = external_cache_dev_mp
+        self._external_cache_data_dir = external_cache_path
+
+        self.logger = logging.getLogger("otaclient.ota_proxy")
+
+    @property
+    def extra_kwargs(self) -> Dict[str, Any]:
+        """Inject kwargs to otaproxy startup entry.
+
+        Currently only inject <external_cache> if external cache storage is used.
+        """
+        _res = {}
+        if self.external_cache_enabled and self._external_cache_activated:
+            _res[self.EXTERNAL_CACHE_KEY] = self._external_cache_data_dir
+        else:
+            _res.pop(self.EXTERNAL_CACHE_KEY, None)
+        return _res
+
+    def _subprocess_init(self):
+        """Initializing the subprocess before launching it."""
+        # configure logging for otaproxy subprocess
+        # NOTE: on otaproxy subprocess, we first set log level of the root logger
+        #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
+        #       and then set the otaclient.ota_proxy logger to DEFAULT_LOG_LEVEL
+        log_setting.configure_logging(
+            loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
+        )
+        otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
+        otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
+        self.logger = otaproxy_logger
+
+        # wait for upper otaproxy if any
+        if self.upper_proxy:
+            otaproxy_logger.info(f"wait for {self.upper_proxy=} online...")
+            ensure_otaproxy_start(self.upper_proxy)
+
+    def _mount_external_cache_storage(self):
+        # detect cache_dev on every startup
+        _cache_dev = CMDHelperFuncs._findfs("LABEL", self._external_cache_dev_fslabel)
+        if not _cache_dev:
+            return
+
+        self.logger.info(f"external cache dev detected at {_cache_dev}")
+        self._external_cache_dev = _cache_dev
+
+        # try to unmount the mount_point and cache_dev unconditionally
+        _mp = Path(self._external_cache_dev_mp)
+        CMDHelperFuncs.umount(_cache_dev, ignore_error=True)
+        if _mp.is_dir():
+            CMDHelperFuncs.umount(self._external_cache_dev_mp, ignore_error=True)
+        else:
+            _mp.mkdir(parents=True, exist_ok=True)
+
+        # try to mount cache_dev ro
+        try:
+            CMDHelperFuncs.mount_ro(
+                target=_cache_dev, mount_point=self._external_cache_dev_mp
+            )
+            self._external_cache_activated = True
+        except Exception as e:
+            logger.warning(
+                f"failed to mount external cache dev({_cache_dev}) to {self._external_cache_dev_mp=}: {e!r}"
+            )
+
+    def _umount_external_cache_storage(self):
+        if not self._external_cache_activated or not self._external_cache_dev:
+            return
+        try:
+            CMDHelperFuncs.umount(self._external_cache_dev)
+        except Exception as e:
+            logger.warning(
+                f"failed to unmount external cache_dev {self._external_cache_dev}: {e!r}"
+            )
+        finally:
+            self.started = self._external_cache_activated = False
+
+    def __enter__(self) -> Self:
+        try:
+            self._subprocess_init()
+            self._mount_external_cache_storage()
+            return self
+        except Exception as e:
+            # if subprocess init failed, directly let the process exit
+            self.logger.error(f"otaproxy subprocess init failed, exit: {e!r}")
+            sys.exit(1)
+
+    def __exit__(
+        self,
+        __exc_type: Optional[Type[BaseException]],
+        __exc_value: Optional[BaseException],
+        __traceback,
+    ) -> Optional[bool]:
+        if __exc_type:
+            _exc = __exc_value if __exc_value else __exc_type()
+            self.logger.warning(f"exception during otaproxy shutdown: {_exc!r}")
+        # otaproxy post-shutdown cleanup:
+        #   1. umount external cache storage
+        self._umount_external_cache_storage()
 
 
 class OTAProxyLauncher:
@@ -48,6 +172,7 @@ class OTAProxyLauncher:
         self,
         *,
         executor: ThreadPoolExecutor,
+        subprocess_ctx: OTAProxyContextProto,
         _proxy_info=proxy_cfg,
         _proxy_server_cfg=local_otaproxy_cfg,
     ) -> None:
@@ -55,6 +180,7 @@ class OTAProxyLauncher:
         self._proxy_server_cfg = _proxy_server_cfg
         self.enabled = _proxy_info.enable_local_ota_proxy
         self.upper_otaproxy = _proxy_info.upper_ota_proxy
+        self.subprocess_ctx = subprocess_ctx
 
         self._lock = asyncio.Lock()
         # process start/shutdown will be dispatched to thread pool
@@ -71,24 +197,6 @@ class OTAProxyLauncher:
             and self._otaproxy_subprocess.is_alive()
         )
 
-    @staticmethod
-    def _subprocess_init(upper_proxy: Optional[str] = None):
-        """Initializing the subprocess before launching it."""
-        # configure logging for otaproxy subprocess
-        # NOTE: on otaproxy subprocess, we first set log level of the root logger
-        #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
-        #       and then set the otaclient.ota_proxy logger to DEFAULT_LOG_LEVEL
-        log_setting.configure_logging(
-            loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
-        )
-        otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
-        otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
-
-        # wait for upper otaproxy if any
-        if upper_proxy:
-            logger.info(f"wait for {upper_proxy=} online...")
-            ensure_otaproxy_start(upper_proxy)
-
     # API
 
     def cleanup_cache_dir(self):
@@ -104,11 +212,15 @@ class OTAProxyLauncher:
         """Start the otaproxy in a subprocess."""
         if not self.enabled or self._lock.locked() or self.is_running:
             return
+
         async with self._lock:
             # launch otaproxy server process
+            _subprocess_entry = subprocess_otaproxy_launcher(
+                subprocess_ctx=self.subprocess_ctx
+            )
             otaproxy_subprocess = await self._run_in_executor(
                 partial(
-                    subprocess_start_otaproxy,
+                    _subprocess_entry,
                     host=self._proxy_info.local_ota_proxy_listen_addr,
                     port=self._proxy_info.local_ota_proxy_listen_port,
                     init_cache=init_cache,
@@ -117,7 +229,6 @@ class OTAProxyLauncher:
                     upper_proxy=self.upper_otaproxy,
                     enable_cache=self._proxy_info.enable_local_ota_proxy_cache,
                     enable_https=self._proxy_info.gateway,
-                    subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
                 )
             )
             self._otaproxy_subprocess = otaproxy_subprocess
@@ -139,6 +250,7 @@ class OTAProxyLauncher:
 
         def _shutdown():
             if self._otaproxy_subprocess and self._otaproxy_subprocess.is_alive():
+                logger.info("shuting down otaproxy server process...")
                 self._otaproxy_subprocess.terminate()
                 self._otaproxy_subprocess.join()
             self._otaproxy_subprocess = None
@@ -647,7 +759,14 @@ class OTAClientServiceStub:
         #       In normal running this event will never be set.
         self._debug_status_checking_shutdown_event = asyncio.Event()
         if _proxy_cfg.enable_local_ota_proxy:
-            self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
+            self._otaproxy_launcher = OTAProxyLauncher(
+                executor=self._executor,
+                subprocess_ctx=_OTAProxyContext(
+                    upper_proxy=_proxy_cfg.upper_ota_proxy,
+                    # NOTE: default enable detecting external cache storage
+                    external_cache_enabled=True,
+                ),
+            )
             asyncio.create_task(self._otaproxy_lifecycle_managing())
             asyncio.create_task(self._otaclient_control_flags_managing())
         else:

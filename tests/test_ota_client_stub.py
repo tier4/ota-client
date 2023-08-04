@@ -32,6 +32,7 @@ from otaclient.app.ota_client_stub import (
 )
 from otaclient.app.proto import wrapper
 from otaclient.app.proxy_info import ProxyInfo
+from otaclient.ota_proxy import OTAProxyContextProto
 from otaclient.ota_proxy.config import Config as otaproxyConfig
 
 from tests.utils import compare_message
@@ -61,11 +62,24 @@ available_ecu_ids:
 """
 
 
-class TestOTAProxyLauncher:
-    @staticmethod
-    def _subprocess_init(_sentinel, *args, **kwargs):
-        Path(_sentinel).touch()
+class _DummyOTAProxyContext(OTAProxyContextProto):
+    def __init__(self, sentinel) -> None:
+        self.sentinel = sentinel
 
+    @property
+    def extra_kwargs(self) -> Dict[str, Any]:
+        return {}
+
+    def __enter__(self):
+        logger.info(f"touch {self.sentinel=}")
+        Path(self.sentinel).touch()
+        return self
+
+    def __exit__(self, __exc_type, __exc_value, __traceback):
+        return
+
+
+class TestOTAProxyLauncher:
     @pytest.fixture(autouse=True)
     async def mock_setup(self, tmp_path: Path):
         proxy_info = ProxyInfo(
@@ -86,11 +100,9 @@ class TestOTAProxyLauncher:
         threadpool = ThreadPoolExecutor()
         self.otaproxy_launcher = OTAProxyLauncher(
             executor=threadpool,
+            subprocess_ctx=_DummyOTAProxyContext(str(self.sentinel_file)),
             _proxy_info=proxy_info,
             _proxy_server_cfg=proxy_server_cfg,
-        )
-        self.otaproxy_launcher._subprocess_init = partial(
-            self._subprocess_init, str(self.sentinel_file)
         )
 
         try:
@@ -102,7 +114,7 @@ class TestOTAProxyLauncher:
         # startup
         # --- execution --- #
         _pid = await self.otaproxy_launcher.start(init_cache=True)
-        await asyncio.sleep(1)  # wait for subprocess_init finish execution
+        await asyncio.sleep(3)  # wait for subprocess_init finish execution
 
         # --- assertion --- #
         assert self.otaproxy_launcher.is_running

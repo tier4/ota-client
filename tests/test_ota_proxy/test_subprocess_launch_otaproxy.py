@@ -16,7 +16,24 @@
 import time
 from functools import partial
 from pathlib import Path
-from otaclient.ota_proxy import subprocess_start_otaproxy
+from typing import Any, Dict
+from otaclient.ota_proxy import subprocess_otaproxy_launcher, OTAProxyContextProto
+
+
+class _DummyOTAProxyContext(OTAProxyContextProto):
+    def __init__(self, sentinel) -> None:
+        self.sentinel = sentinel
+
+    @property
+    def extra_kwargs(self) -> Dict[str, Any]:
+        return {}
+
+    def __enter__(self):
+        _subprocess_init(self.sentinel)
+        return self
+
+    def __exit__(self, __exc_type, __exc_value, __traceback):
+        return
 
 
 def _subprocess_init(_sentinel_file):
@@ -30,7 +47,10 @@ def test_subprocess_start_otaproxy(tmp_path: Path):
     subprocess_init_sentinel = tmp_path / "otaproxy_started"
 
     # --- execution --- #
-    otaproxy_subprocess = subprocess_start_otaproxy(
+    _subprocess_entry = subprocess_otaproxy_launcher(
+        subprocess_ctx=_DummyOTAProxyContext(sentinel=str(subprocess_init_sentinel))
+    )
+    otaproxy_subprocess = _subprocess_entry(
         host="127.0.0.1",
         port=8082,
         init_cache=True,
@@ -39,9 +59,8 @@ def test_subprocess_start_otaproxy(tmp_path: Path):
         upper_proxy="",
         enable_cache=True,
         enable_https=False,
-        subprocess_init=partial(_subprocess_init, subprocess_init_sentinel),
     )
-    time.sleep(1)  # wait for subprocess to finish up initializing
+    time.sleep(3)  # wait for subprocess to finish up initializing
 
     # --- assertion --- #
     try:

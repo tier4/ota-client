@@ -81,29 +81,3 @@ def test__export_kwargs_as_header(kwargs: Dict[str, Any], expected: str):
 )
 def test__update_header_str(_input: str, kwargs: Dict[str, Any], expected: str):
     assert OTAFileCacheControl.update_header_str(_input, **kwargs) == expected
-
-
-@pytest.mark.parametrize(
-    "origin, kwargs, updated",
-    (
-        (
-            OTAFileCacheControl(retry_caching=True),
-            {"no_cache": True},
-            OTAFileCacheControl(retry_caching=True, no_cache=True),
-        ),
-        (
-            OTAFileCacheControl(file_sha256="sha256"),
-            {"retry_caching": True},
-            OTAFileCacheControl(retry_caching=True, file_sha256="sha256"),
-        ),
-        (
-            OTAFileCacheControl(retry_caching=True, file_sha256="sha256"),
-            {"retry_caching": False},
-            OTAFileCacheControl(file_sha256="sha256"),
-        ),
-    ),
-)
-def test__update_from_directives(
-    origin: OTAFileCacheControl, kwargs: Dict[str, Any], updated: OTAFileCacheControl
-):
-    assert origin.update_from_directives(**kwargs) == updated
