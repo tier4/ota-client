@@ -94,20 +94,20 @@ def _process_ota_image(
 
             if reg_inf.compressed_alg == cfg.OTA_IMAGE_COMPRESSION_ALG:
                 _zst_ota_fname = f"{ota_file_sha256}.{cfg.OTA_IMAGE_COMPRESSION_ALG}"
-                src = str(ota_image_data_zst_dir / _zst_ota_fname)
+                src = ota_image_data_zst_dir / _zst_ota_fname
                 dst = data_dir / _zst_ota_fname
                 # NOTE: multiple OTA files might have the same hash
                 if not dst.is_file():
                     saved_files += 1
-                    processed_size += dst.stat().st_size
-                    shutil.move(src, dst)
+                    processed_size += src.stat().st_size
+                    shutil.move(str(src), dst)
             else:
-                src = str(ota_image_data_dir / os.path.relpath(reg_inf.path, "/"))
+                src = ota_image_data_dir / os.path.relpath(reg_inf.path, "/")
                 dst = data_dir / ota_file_sha256
                 if not dst.is_file():
                     saved_files += 1
-                    processed_size += dst.stat().st_size
-                    shutil.move(src, dst)
+                    processed_size += src.stat().st_size
+                    shutil.move(str(src), dst)
 
     # copy OTA metafiles
     # NOTE: also add the metafiles' size to the processed_size
