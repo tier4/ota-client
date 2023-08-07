@@ -64,6 +64,14 @@ if __name__ == "__main__":
         help="the location of cache db sqlite file",
         default=cfg.DB_FILE,
     )
+    parser.add_argument(
+        "--external-cache-folder",
+        help=(
+            "if specified, otaproxy will use the files in "
+            "this folder as extra cache source"
+        ),
+        default=None,
+    )
     args = parser.parse_args()
 
     logger.info(f"launch ota_proxy at {args.host}:{args.port}")
@@ -78,5 +86,6 @@ if __name__ == "__main__":
             upper_proxy=args.upper_proxy,
             enable_https=args.enable_https,
             init_cache=args.init_cache,
+            external_cache=args.external_cache_folder,
         )
     )

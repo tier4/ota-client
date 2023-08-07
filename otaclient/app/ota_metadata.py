@@ -91,6 +91,8 @@ logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
 
+CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
+
 
 class MetadataJWTPayloadInvalid(Exception):
     """Raised when verification passed, but input metadata.jwt is invalid."""
@@ -631,7 +633,7 @@ class OTAMetadata:
                 _downloaded_meta_f,
                 # NOTE: do not use cache when fetching metadata.jwt
                 headers={
-                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
+                    CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
                         no_cache=True
                     )
                 },
@@ -653,7 +655,7 @@ class OTAMetadata:
                 cert_file,
                 digest=cert_hash,
                 headers={
-                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
+                    CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
                         no_cache=True
                     )
                 },
@@ -676,7 +678,7 @@ class OTAMetadata:
                     _metafile_fpath,
                     digest=_metafile.hash,
                     headers={
-                        OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
+                        CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
                             no_cache=True
                         )
                     },

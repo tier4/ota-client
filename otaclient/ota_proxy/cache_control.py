@@ -45,10 +45,6 @@ class _HeaderDef:
             _fields[f.name] = f.type
         setattr(cls, _FIELDS, _fields)
 
-    @classmethod
-    def check_key(cls, key: str) -> bool:
-        return key in getattr(cls, _FIELDS)
-
 
 @dataclass
 class OTAFileCacheControl(_HeaderDef):
@@ -91,10 +87,10 @@ class OTAFileCacheControl(_HeaderDef):
         _fields: Dict[str, type] = getattr(cls, _FIELDS)
         _directives: List[str] = []
         for key, value in kwargs.items():
-            if not (_field_type := _fields.get(key)):
+            if key not in _fields:
                 continue
 
-            if _field_type is bool and value:
+            if isinstance(value, bool) and value:
                 _directives.append(key)
             elif value:  # str field
                 _directives.append(f"{key}={value}")
@@ -124,26 +120,10 @@ class OTAFileCacheControl(_HeaderDef):
             if not (_field_type := _fields.get(_key)):
                 continue
 
-            if _field_type is str and isinstance(value, str):
-                _parsed_directives[_key] = f"{_key}={value}"
-            elif value:  # treated as bool field
+            if _field_type is bool and value:
                 _parsed_directives[_key] = _key
+            elif value:
+                _parsed_directives[_key] = f"{_key}={value}"
             else:  # remove False or empty directives
                 _parsed_directives.pop(_key, None)
         return cls.HEADER_DIR_SEPARATOR.join(_parsed_directives.values())
-
-    @copy_callable_typehint_to_method(_HeaderDef)
-    def update_from_directives(self, **kwargs) -> Self:
-        """Update itself from a list of directives pairs."""
-        _fields: Dict[str, type] = getattr(self, _FIELDS)
-        for key, value in kwargs.items():
-            if not (_field_type := _fields.get(key)):
-                continue
-
-            if not value:  # unset the field
-                setattr(self, key, _field_type())
-            elif _field_type is bool:
-                setattr(self, key, True)
-            elif isinstance(value, str):  # fast path
-                setattr(self, key, value)
-        return self
