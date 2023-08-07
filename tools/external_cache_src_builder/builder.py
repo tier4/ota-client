@@ -30,6 +30,7 @@ StrPath: TypeAlias = Union[str, PathLike]
 
 @contextmanager
 def _unarchive_image(ecu_id: str, image_fpath: StrPath, *, workdir: StrPath):
+    _start_time = time.time()
     logger.info(f"{ecu_id=}: unarchiving {image_fpath} ...")
     with tempfile.TemporaryDirectory(prefix=f"{ecu_id}_", dir=workdir) as unarchive_dir:
         cmd = f"tar xf {image_fpath} -C {unarchive_dir}"
@@ -40,12 +41,15 @@ def _unarchive_image(ecu_id: str, image_fpath: StrPath, *, workdir: StrPath):
             logger.error(_err_msg)
             raise InputImageProcessError(_err_msg) from e
 
-        logger.info(f"{ecu_id=}: finish unarchiving {image_fpath}")
+        logger.info(
+            f"{ecu_id=}: finish unarchiving {image_fpath}, takes {time.time() - _start_time:.2f}s"
+        )
         yield ecu_id, unarchive_dir
 
 
 @contextmanager
 def _create_output_image(output_workdir: StrPath, output_fpath: StrPath):
+    _start_time = time.time()
     data_dir = Path(output_workdir) / cfg.OUTPUT_DATA_DIR
     meta_dir = Path(output_workdir) / cfg.OUTPUT_META_DIR
     data_dir.mkdir(exist_ok=True, parents=True)
@@ -60,6 +64,9 @@ def _create_output_image(output_workdir: StrPath, output_fpath: StrPath):
     try:
         logger.info(f"exporting external cache source image to {output_fpath} ...")
         subprocess_call(cmd)
+        logger.info(
+            f"finish creating external cache source: takes {time.time() - _start_time:.2f}s"
+        )
     except Exception as e:
         _err_msg = f"failed to export generated image to {output_fpath=}: {e!r}"
         logger.error(_err_msg)
@@ -69,6 +76,7 @@ def _create_output_image(output_workdir: StrPath, output_fpath: StrPath):
 def _process_ota_image(
     ecu_id: str, ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath
 ):
+    _start_time = time.time()
     logger.info(f"{ecu_id=}: processing OTA image ...")
     ota_image_dir = Path(ota_image_dir)
 
@@ -102,12 +110,14 @@ def _process_ota_image(
                 if not dst.is_file():
                     shutil.move(src, dst)
 
-    logger.info(f"{ecu_id=}: finish processing OTA image")
+    logger.info(
+        f"{ecu_id=}: finish processing OTA image, takes {time.time() - _start_time:.2f}"
+    )
 
 
 def build(image_pairs: Mapping[str, StrPath], *, workdir: StrPath, output: StrPath):
-    build_time = int(time.time())
-    logger.info(f"build started at {build_time}")
+    _start_time = time.time()
+    logger.info(f"build started at {int(_start_time)}")
 
     output_workdir = Path(workdir) / cfg.OUTPUT_WORKDIR
     output_workdir.mkdir(parents=True, exist_ok=True)
@@ -131,3 +141,4 @@ def build(image_pairs: Mapping[str, StrPath], *, workdir: StrPath, output: StrPa
                     data_dir=output_data_dir,
                     meta_dir=output_meta_dir,
                 )
+    logger.info(f"build finished, takes {time.time() - _start_time:.2f}s")
