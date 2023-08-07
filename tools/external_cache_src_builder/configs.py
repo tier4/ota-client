@@ -1,7 +1,5 @@
 class BaseConfig:
-    LOGGING_FORMAT = (
-        "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
-    )
+    LOGGING_FORMAT = "[%(asctime)s][%(levelname)s]: %(message)s"
     OTA_METAFILES_LIST = [
         "certificate.pem",
         "metadata.jwt",
