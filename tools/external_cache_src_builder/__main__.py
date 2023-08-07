@@ -128,5 +128,5 @@ if __name__ == "__main__":
         logger.error("at least one valid image should be given, abort")
         sys.exit(-1)
 
-    with tempfile.TemporaryDirectory() as workdir:
+    with tempfile.TemporaryDirectory(prefix="offline_OTA_image_builder") as workdir:
         build(image_metas, image_files, workdir=workdir, output=output)

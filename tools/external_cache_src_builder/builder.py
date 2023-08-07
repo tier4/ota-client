@@ -79,24 +79,12 @@ def _process_ota_image(
 ):
     _start_time = time.time()
     logger.info(f"{ecu_id=}: processing OTA image ...")
-
+    data_dir = Path(data_dir)
     # statistics
     saved_files, processed_size = 0, 0
 
-    ota_image_dir = Path(ota_image_dir)
-
-    # copy OTA metafiles
-    # NOTE: also add the metafiles' size to the processed_size
-    ecu_metadir = Path(meta_dir) / ecu_id
-    ecu_metadir.mkdir(parents=True, exist_ok=True)
-    for _fname in cfg.OTA_METAFILES_LIST:
-        _fpath = ota_image_dir / _fname
-        processed_size += _fpath.stat().st_size
-        shutil.move(str(_fpath), ecu_metadir)
-
     # process OTA image files
-    data_dir = Path(data_dir)
-
+    ota_image_dir = Path(ota_image_dir)
     ota_image_data_dir = ota_image_dir / cfg.OTA_IMAGE_DATA_DIR
     ota_image_data_zst_dir = ota_image_dir / cfg.OTA_IMAGE_DATA_ZST_DIR
     with open(ota_image_dir / cfg.OTA_METAFILE_REGULAR, "r") as f:
@@ -120,6 +108,15 @@ def _process_ota_image(
                     saved_files += 1
                     processed_size += dst.stat().st_size
                     shutil.move(src, dst)
+
+    # copy OTA metafiles
+    # NOTE: also add the metafiles' size to the processed_size
+    ecu_metadir = Path(meta_dir) / ecu_id
+    ecu_metadir.mkdir(parents=True, exist_ok=True)
+    for _fname in cfg.OTA_METAFILES_LIST:
+        _fpath = ota_image_dir / _fname
+        processed_size += _fpath.stat().st_size
+        shutil.copy(_fpath, ecu_metadir)
 
     logger.info(
         f"{ecu_id=}: finish processing OTA image, takes {time.time() - _start_time:.2f}s"
