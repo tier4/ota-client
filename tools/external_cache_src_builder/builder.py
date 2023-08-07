@@ -13,6 +13,7 @@ from otaclient.app.common import subprocess_call
 from otaclient.app.ota_metadata import parse_regulars_from_txt
 
 from .configs import cfg
+from .metadata import ImageMetadata, Manifest
 
 logger = logging.getLogger(__name__)
 
@@ -78,14 +79,20 @@ def _process_ota_image(
 ):
     _start_time = time.time()
     logger.info(f"{ecu_id=}: processing OTA image ...")
+
+    # statistics
+    saved_files, processed_size = 0, 0
+
     ota_image_dir = Path(ota_image_dir)
 
     # copy OTA metafiles
+    # NOTE: also add the metafiles' size to the processed_size
     ecu_metadir = Path(meta_dir) / ecu_id
     ecu_metadir.mkdir(parents=True, exist_ok=True)
     for _fname in cfg.OTA_METAFILES_LIST:
         _fpath = ota_image_dir / _fname
-        shutil.copy(_fpath, ecu_metadir)
+        processed_size += _fpath.stat().st_size
+        shutil.move(str(_fpath), ecu_metadir)
 
     # process OTA image files
     data_dir = Path(data_dir)
@@ -103,19 +110,30 @@ def _process_ota_image(
                 dst = data_dir / _zst_ota_fname
                 # NOTE: multiple OTA files might have the same hash
                 if not dst.is_file():
+                    saved_files += 1
+                    processed_size += dst.stat().st_size
                     shutil.move(src, dst)
             else:
                 src = str(ota_image_data_dir / os.path.relpath(reg_inf.path, "/"))
                 dst = data_dir / ota_file_sha256
                 if not dst.is_file():
+                    saved_files += 1
+                    processed_size += dst.stat().st_size
                     shutil.move(src, dst)
 
     logger.info(
-        f"{ecu_id=}: finish processing OTA image, takes {time.time() - _start_time:.2f}"
+        f"{ecu_id=}: finish processing OTA image, takes {time.time() - _start_time:.2f}s"
     )
+    return saved_files, processed_size
 
 
-def build(image_pairs: Mapping[str, StrPath], *, workdir: StrPath, output: StrPath):
+def build(
+    image_metas: Mapping[str, ImageMetadata],
+    image_files: Mapping[str, StrPath],
+    *,
+    workdir: StrPath,
+    output: StrPath,
+):
     _start_time = time.time()
     logger.info(f"build started at {int(_start_time)}")
 
@@ -123,22 +141,33 @@ def build(image_pairs: Mapping[str, StrPath], *, workdir: StrPath, output: StrPa
     output_workdir.mkdir(parents=True, exist_ok=True)
     manifest_json = output_workdir / cfg.MANIFEST_JSON
 
-    # TODO: define manifest format
-    manifest_dic = {}
+    manifest = Manifest()
     with _create_output_image(output_workdir, output) as output_meta:
         output_data_dir, output_meta_dir = output_meta
 
+        # process all inpu OTA images
         images_unarchiving_work_dir = Path(workdir) / cfg.IMAGE_UNARCHIVE_WORKDIR
         images_unarchiving_work_dir.mkdir(parents=True, exist_ok=True)
-        for ecu_id, image_fpath in image_pairs.items():
+        for ecu_id, image_meta in image_metas.items():
+            manifest.ecu_ids.append(ecu_id)
+            manifest.image_metadata.append(image_meta)
+
             with _unarchive_image(
-                ecu_id, image_fpath, workdir=images_unarchiving_work_dir
+                ecu_id, image_files[ecu_id], workdir=images_unarchiving_work_dir
             ) as _image_unarchived_meta:
                 _, unarchived_image_dir = _image_unarchived_meta
-                _process_ota_image(
+                _saved_files_num, _processed_size = _process_ota_image(
                     ecu_id,
                     unarchived_image_dir,
                     data_dir=output_data_dir,
                     meta_dir=output_meta_dir,
                 )
+                # update manifest after this image is processed
+                manifest.image_size += _processed_size
+                manifest.total_files_num += _saved_files_num
+
+        # write offline OTA image manifest
+        manifest_json.write_text(manifest.export_to_json())
+
     logger.info(f"build finished, takes {time.time() - _start_time:.2f}s")
+    logger.info(f"build manifest: {manifest}")

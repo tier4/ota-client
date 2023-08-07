@@ -35,6 +35,7 @@ Example OTA image layout:
 
 The generated external cache source image will have the following layout:
 .
+├── manifest.json
 ├── data
 │   ├── <OTA_file_sha256hash> # uncompressed file
 │   ├── <OTA_file_sha256hash>.zst # zst compressed file
@@ -59,6 +60,7 @@ from pathlib import Path
 
 from .configs import cfg
 from .builder import build
+from .metadata import ImageMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--image",
         help=(
-            "--image=<ECU_NAME>:<IMAGE_PATH>, "
+            "--image=<ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>], "
             "expect input image to be a tar archive(compressed or uncompressed),"
             "this option can be used multiple times to include multiple image."
         ),
@@ -94,22 +96,37 @@ if __name__ == "__main__":
         required=True,
     )
     args = parser.parse_args()
-    ecu_image_pairs = {}
+    image_metas = {}
+    image_files = {}
 
     output = Path(args.output)
     if output.exists():
         logger.error(f"{output} exists, abort")
         sys.exit(-1)
 
+    metadata_dir = Path(cfg.OUTPUT_META_DIR)
     for raw_pair in args.image:
         _parsed = str(raw_pair).split(":")
-        if len(_parsed) != 2:
+        if len(_parsed) == 2:  # no image version is included
+            _ecu_id, _image_fpath = _parsed
+            image_metas[_ecu_id] = ImageMetadata(
+                image_name=Path(_image_fpath).name, meta_dir=str(metadata_dir / _ecu_id)
+            )
+            image_files[_ecu_id] = _image_fpath
+        elif len(_parsed) == 3:
+            _ecu_id, _image_fpath, _image_version = _parsed
+            image_metas[_ecu_id] = ImageMetadata(
+                image_name=Path(_image_fpath).name,
+                image_version=_image_version,
+                meta_dir=str(metadata_dir / _ecu_id),
+            )
+            image_files[_ecu_id] = _image_fpath
+        else:
             logger.warning(f"ignore illegal image pair: {raw_pair}")
-        _ecu_id, _image = _parsed
-        ecu_image_pairs[_ecu_id] = _image
-    if not ecu_image_pairs:
-        logger.error("at least one valid image pair is required, abort")
+
+    if not image_metas:
+        logger.error("at least one valid image should be given, abort")
         sys.exit(-1)
 
     with tempfile.TemporaryDirectory() as workdir:
-        build(ecu_image_pairs, workdir=workdir, output=output)
+        build(image_metas, image_files, workdir=workdir, output=output)
