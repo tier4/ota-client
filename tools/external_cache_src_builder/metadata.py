@@ -58,7 +58,7 @@ class ImageMetadata:
 
 @dataclass
 class Manifest:
-    version: int = 1
+    version: int = cfg.MANIFEST_VERSION
     image_size: int = 0
     total_files_num: int = 0
     data_dir: str = cfg.OUTPUT_DATA_DIR
