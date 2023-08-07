@@ -60,7 +60,7 @@ from pathlib import Path
 
 from .configs import cfg
 from .builder import build
-from .metadata import ImageMetadata
+from .manifest import ImageMetadata
 
 logger = logging.getLogger(__name__)
 

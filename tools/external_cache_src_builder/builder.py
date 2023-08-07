@@ -13,7 +13,7 @@ from otaclient.app.common import subprocess_call
 from otaclient.app.ota_metadata import parse_regulars_from_txt
 
 from .configs import cfg
-from .metadata import ImageMetadata, Manifest
+from .manifest import ImageMetadata, Manifest
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def _create_output_image(output_workdir: StrPath, output_fpath: StrPath):
         logger.info(f"exporting external cache source image to {output_fpath} ...")
         subprocess_call(cmd)
         logger.info(
-            f"finish creating external cache source: takes {time.time() - _start_time:.2f}s"
+            f"finish creating offline OTA image: takes {time.time() - _start_time:.2f}s"
         )
     except Exception as e:
         _err_msg = f"failed to export generated image to {output_fpath=}: {e!r}"
@@ -77,6 +77,7 @@ def _create_output_image(output_workdir: StrPath, output_fpath: StrPath):
 def _process_ota_image(
     ecu_id: str, ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath
 ):
+    # TODO: parse metadata.jwt to check metadata version
     _start_time = time.time()
     logger.info(f"{ecu_id=}: processing OTA image ...")
     data_dir = Path(data_dir)
@@ -147,7 +148,7 @@ def build(
         images_unarchiving_work_dir.mkdir(parents=True, exist_ok=True)
         for ecu_id, image_meta in image_metas.items():
             manifest.ecu_ids.append(ecu_id)
-            manifest.image_metadata.append(image_meta)
+            manifest.image_metadata[ecu_id] = image_meta
 
             with _unarchive_image(
                 ecu_id, image_files[ecu_id], workdir=images_unarchiving_work_dir

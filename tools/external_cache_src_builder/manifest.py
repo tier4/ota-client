@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Offline OTA image metadata
+"""Offline OTA image manifest
 
 Version 1 schema:
 {
@@ -43,7 +43,7 @@ Version 1 schema:
 
 import json
 from dataclasses import dataclass, field, asdict
-from typing import List
+from typing import Dict, List
 
 from .configs import cfg
 
@@ -64,7 +64,7 @@ class Manifest:
     data_dir: str = cfg.OUTPUT_DATA_DIR
     compression_alg: str = cfg.OTA_IMAGE_COMPRESSION_ALG
     ecu_ids: List[str] = field(default_factory=list)
-    image_metadata: List[ImageMetadata] = field(default_factory=list)
+    image_metadata: Dict[str, ImageMetadata] = field(default_factory=dict)
 
     def export_to_json(self) -> str:
         return json.dumps(asdict(self))
