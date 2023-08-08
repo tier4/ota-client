@@ -15,6 +15,15 @@
 
 class BaseConfig:
     LOGGING_FORMAT = "[%(asctime)s][%(levelname)s]: %(message)s"
+    IMAGE_LAYOUT_VERSION = 1
+
+    MANIFEST_JSON = "manifest.json"
+    MANIFEST_SCHEMA_VERSION = 1
+    OUTPUT_WORKDIR = "output"
+    OUTPUT_DATA_DIR = "data"
+    OUTPUT_META_DIR = "meta"
+    IMAGE_UNARCHIVE_WORKDIR = "images"
+
     DEFAULT_OTA_METADATA_VERSION = 1
     OTA_METAFILES_LIST = [
         "certificate.pem",
@@ -28,13 +37,6 @@ class BaseConfig:
     OTA_IMAGE_DATA_DIR = "data"
     OTA_IMAGE_DATA_ZST_DIR = "data.zst"
     OTA_IMAGE_COMPRESSION_ALG = "zst"
-
-    MANIFEST_JSON = "manifest.json"
-    MANIFEST_VERSION = 1
-    OUTPUT_WORKDIR = "output"
-    OUTPUT_DATA_DIR = "data"
-    OUTPUT_META_DIR = "meta"
-    IMAGE_UNARCHIVE_WORKDIR = "images"
 
 
 cfg = BaseConfig()

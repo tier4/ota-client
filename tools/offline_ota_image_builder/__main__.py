@@ -107,16 +107,10 @@ if __name__ == "__main__":
     metadata_dir = Path(cfg.OUTPUT_META_DIR)
     for raw_pair in args.image:
         _parsed = str(raw_pair).split(":")
-        if len(_parsed) == 2:  # no image version is included
-            _ecu_id, _image_fpath = _parsed
+        if len(_parsed) >= 2:
+            _ecu_id, _image_fpath, _image_version, *_ = *_parsed, ""
             image_metas[_ecu_id] = ImageMetadata(
-                image_name=Path(_image_fpath).name, meta_dir=str(metadata_dir / _ecu_id)
-            )
-            image_files[_ecu_id] = _image_fpath
-        elif len(_parsed) == 3:
-            _ecu_id, _image_fpath, _image_version = _parsed
-            image_metas[_ecu_id] = ImageMetadata(
-                image_name=Path(_image_fpath).name,
+                ecu_id=_ecu_id,
                 image_version=_image_version,
                 meta_dir=str(metadata_dir / _ecu_id),
             )
