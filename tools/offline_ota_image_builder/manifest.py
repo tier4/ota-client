@@ -11,32 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Offline OTA image manifest
+"""External cache source image manifest definition
 
-Version 1 schema:
+A JSON file manifest.json that contains the basic information of built
+external cache source image will be placed at the image rootfs.
+
+Version 1 schema definition:
 {
-  "version": 1,
-  # the original size of this offline OTA image bundle
-  "image_size": <size>,
-  # the number of files in this image bundle 
-  "unique_files_num": <size>,
-  # a list of ECUs that have images prepared in this offline OTA image
-  "ecu_ids": [...],
-  # metadata for included images
-  "image_metadata": {
-    <ecu_id>: {
-      "image_name": <image_name>,
-      "image_version": <image_version_str>,
-      # the directory under this image bundle to the image metadata
+  "schema_version": 1,
+  "image_layout_version": 1,
+  "build_timestamp": <UNIX_timestamp>,
+  "data_size": <size_of_data_folder>,
+  "data_files_num": <files_num_of_data_folder>,
+  "meta_size": <size_of_meta_folder>,
+  "image_meta": [
+    {
+      "ecu_id": <ecu_id>,
+      "image_version": "<image_version>",
       "meta_dir": "meta/<ecu_id>",
-      # the version of metadata.jwt
-      "metadata_jwt_version": 1,
+      "ota_metadata_version": 1,
     },
     ...
-  }
-  # the directory that contains all files of this image bundle
-  "data_dir": "data",
-  "compression_alg": "zst",
+  ],
 }
 """
 
@@ -50,21 +46,21 @@ from .configs import cfg
 
 @dataclass
 class ImageMetadata:
-    metadata_jwt_version: int = cfg.DEFAULT_OTA_METADATA_VERSION
-    image_name: str = ""
+    ecu_id: str = ""
     image_version: str = ""
     meta_dir: str = ""
+    ota_metadata_version: int = cfg.DEFAULT_OTA_METADATA_VERSION
 
 
 @dataclass
 class Manifest:
-    version: int = cfg.MANIFEST_VERSION
-    image_size: int = 0
-    total_files_num: int = 0
-    data_dir: str = cfg.OUTPUT_DATA_DIR
-    compression_alg: str = cfg.OTA_IMAGE_COMPRESSION_ALG
-    ecu_ids: List[str] = field(default_factory=list)
-    image_metadata: Dict[str, ImageMetadata] = field(default_factory=dict)
+    schema_version: int = cfg.MANIFEST_SCHEMA_VERSION
+    image_layout_version: int = cfg.IMAGE_LAYOUT_VERSION
+    build_timestamp: int = 0
+    data_size: int = 0
+    data_files_num: int = 0
+    meta_size: int = 0
+    image_meta: List[ImageMetadata] = field(default_factory=list)
 
     def export_to_json(self) -> str:
         return json.dumps(asdict(self))
