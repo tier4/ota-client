@@ -15,6 +15,7 @@
 
 import logging
 import os
+import pprint
 import shutil
 import tempfile
 import time
@@ -92,12 +93,11 @@ def _create_output_image(output_workdir: StrPath, output_fpath: StrPath):
 def _process_ota_image(
     ecu_id: str, ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath
 ):
-    # TODO: parse metadata.jwt to check metadata version
     _start_time = time.time()
     logger.info(f"{ecu_id=}: processing OTA image ...")
     data_dir = Path(data_dir)
     # statistics
-    saved_files, processed_size = 0, 0
+    saved_files, saved_files_size = 0, 0
 
     # process OTA image files
     ota_image_dir = Path(ota_image_dir)
@@ -115,29 +115,26 @@ def _process_ota_image(
                 # NOTE: multiple OTA files might have the same hash
                 if not dst.is_file():
                     saved_files += 1
-                    processed_size += src.stat().st_size
+                    saved_files_size += src.stat().st_size
                     shutil.move(str(src), dst)
             else:
                 src = ota_image_data_dir / os.path.relpath(reg_inf.path, "/")
                 dst = data_dir / ota_file_sha256
                 if not dst.is_file():
                     saved_files += 1
-                    processed_size += src.stat().st_size
+                    saved_files_size += src.stat().st_size
                     shutil.move(str(src), dst)
 
     # copy OTA metafiles
-    # NOTE: also add the metafiles' size to the processed_size
     ecu_metadir = Path(meta_dir) / ecu_id
     ecu_metadir.mkdir(parents=True, exist_ok=True)
     for _fname in cfg.OTA_METAFILES_LIST:
-        _fpath = ota_image_dir / _fname
-        processed_size += _fpath.stat().st_size
-        shutil.copy(_fpath, ecu_metadir)
+        shutil.move(str(ota_image_dir / _fname), ecu_metadir)
 
     logger.info(
         f"{ecu_id=}: finish processing OTA image, takes {time.time() - _start_time:.2f}s"
     )
-    return saved_files, processed_size
+    return saved_files, saved_files_size
 
 
 def build(
@@ -152,7 +149,6 @@ def build(
 
     output_workdir = Path(workdir) / cfg.OUTPUT_WORKDIR
     output_workdir.mkdir(parents=True, exist_ok=True)
-    manifest_json = output_workdir / cfg.MANIFEST_JSON
 
     manifest = Manifest()
     with _create_output_image(output_workdir, output) as output_meta:
@@ -162,25 +158,33 @@ def build(
         images_unarchiving_work_dir = Path(workdir) / cfg.IMAGE_UNARCHIVE_WORKDIR
         images_unarchiving_work_dir.mkdir(parents=True, exist_ok=True)
         for ecu_id, image_meta in image_metas.items():
-            manifest.ecu_ids.append(ecu_id)
-            manifest.image_metadata[ecu_id] = image_meta
+            manifest.image_meta.append(image_meta)
 
             with _unarchive_image(
                 ecu_id, image_files[ecu_id], workdir=images_unarchiving_work_dir
             ) as _image_unarchived_meta:
                 _, unarchived_image_dir = _image_unarchived_meta
-                _saved_files_num, _processed_size = _process_ota_image(
+                _saved_files_num, _saved_files_size = _process_ota_image(
                     ecu_id,
                     unarchived_image_dir,
                     data_dir=output_data_dir,
                     meta_dir=output_meta_dir,
                 )
                 # update manifest after this image is processed
-                manifest.image_size += _processed_size
-                manifest.total_files_num += _saved_files_num
+                manifest.data_size += _saved_files_size
+                manifest.data_files_num += _saved_files_num
+
+        # process metadata
+        for cur_path, _, fnames in os.walk(output_meta_dir):
+            _cur_path = Path(cur_path)
+            for _fname in fnames:
+                _fpath = _cur_path / _fname
+                if _fpath.is_file():
+                    manifest.meta_size += _fpath.stat().st_size
 
         # write offline OTA image manifest
-        manifest_json.write_text(manifest.export_to_json())
+        manifest.build_timestamp = int(time.time())
+        Path(output_workdir / cfg.MANIFEST_JSON).write_text(manifest.export_to_json())
 
     logger.info(f"build finished, takes {time.time() - _start_time:.2f}s")
-    logger.info(f"build manifest: {manifest}")
+    logger.info(f"build manifest: {pprint.pformat(manifest)}")
