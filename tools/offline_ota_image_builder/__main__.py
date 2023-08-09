@@ -150,8 +150,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # basic options check
-    output = Path(args.output)
-    if output.exists():
+    if args.output and (output := Path(args.output)).is_file():
         print(f"ERR: {output} exists, abort")
         sys.exit(-1)
 

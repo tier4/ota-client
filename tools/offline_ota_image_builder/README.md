@@ -92,6 +92,7 @@ This image builder requires latest ota-client to be installed/accessable. The re
 
     ```bash
     $ git clone https://github.com/tier4/ota-client.git
+    # image builder is located at ota-client/tools/offline_ota_image_builder
     ```
 
 2. prepare the virtual environment and activate it:
