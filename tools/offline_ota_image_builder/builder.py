@@ -56,7 +56,7 @@ def _process_ota_image(
     ecu_id: str, ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath
 ):
     _start_time = time.time()
-    logger.info(f"{ecu_id=}: processing OTA image ...")
+    logger.info(f"{ecu_id=}: processing OTA image for {ecu_id} ...")
     data_dir = Path(data_dir)
     # statistics
     saved_files, saved_files_size = 0, 0
@@ -75,17 +75,21 @@ def _process_ota_image(
                 src = ota_image_data_zst_dir / _zst_ota_fname
                 dst = data_dir / _zst_ota_fname
                 # NOTE: multiple OTA files might have the same hash
-                if not dst.is_file():
+                # NOTE: squash OTA file permission before moving
+                if not dst.is_file() and src.is_file():
+                    src.chmod(0o644)
                     saved_files += 1
-                    saved_files_size += src.stat().st_size
                     shutil.move(str(src), dst)
+                    saved_files_size += dst.stat().st_size
+
             else:
                 src = ota_image_data_dir / os.path.relpath(reg_inf.path, "/")
                 dst = data_dir / ota_file_sha256
-                if not dst.is_file():
+                if not dst.is_file() and src.is_file():
+                    src.chmod(0o644)
                     saved_files += 1
-                    saved_files_size += src.stat().st_size
                     shutil.move(str(src), dst)
+                    saved_files_size += dst.stat().st_size
 
     # copy OTA metafiles
     ecu_metadir = Path(meta_dir) / ecu_id
@@ -122,6 +126,7 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
     # prepare device
     try:
         logger.warning(f"formatting {dev} to ext4 ...")
+        # NOTE: label offline OTA image as external cache source
         subprocess_call(f"mkfs.ext4 -L {cfg.EXTERNAL_CACHE_DEV_FSLABEL} {dev}")
     except Exception as e:
         _err_msg = f"failed to formatting {dev} to ext4: {e!r}"
