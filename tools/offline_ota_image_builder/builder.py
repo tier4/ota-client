@@ -32,6 +32,15 @@ from .utils import StrPath, InputImageProcessError, ExportError
 
 logger = logging.getLogger(__name__)
 
+PROC_MOUNTS = "/proc/mounts"
+
+
+def _check_if_mounted(dev: StrPath):
+    for line in Path(PROC_MOUNTS).read_text().splitlines():
+        if line.find(str(dev)) != -1:
+            return True
+    return False
+
 
 @contextmanager
 def _unarchive_image(ecu_id: str, image_fpath: StrPath, *, workdir: StrPath):
@@ -121,6 +130,9 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
     dev = Path(dev)
     if not dev.is_block_device():
         logger.warning(f"{dev=} is not a block device, skip")
+        return
+    if _check_if_mounted(dev):
+        logger.warning(f"{dev=} is mounted, skip")
         return
 
     # prepare device
