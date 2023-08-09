@@ -16,10 +16,11 @@
 import asyncio
 import threading
 from queue import Queue
-from typing import Dict, List, Mapping, Optional
+from typing import Dict, List, Optional
 from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 from otaclient.app.proto import wrapper as proto_wrapper
 
+from .configs import config as cfg
 from .ecu_status_box import ECUStatusDisplayBox
 
 
@@ -51,7 +52,7 @@ class Tracker:
         self.ecu_id = ecu_id
         self._polling_thread: Optional[threading.Thread] = None
         self._update_thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
+        self._stop_event = threading.Event()  # for debug use
         self._que = Queue()
         self._lock = threading.Lock()
 
@@ -59,10 +60,13 @@ class Tracker:
         self._ecu_status_display: Dict[str, ECUStatusDisplayBox] = {}
 
     def get_display_boxes(self) -> List[ECUStatusDisplayBox]:
-        """NOTE: as the ecu_status_display dict might changed, always
-        return a snapshot by items()."""
+        """
+        NOTE: as the ecu_status_display dict might changed, always return
+              a snapshot by values().
+        NOTE: only return the first <MAX_ECU_ALLOWED> ECUs' display boxes.
+        """
         with self._lock:
-            return list(self._ecu_status_display.values())
+            return list(self._ecu_status_display.values())[: cfg.MAX_ECU_ALLOWED]
 
     def start(self, host: str, port: int):
         def _polling_thread():
@@ -82,8 +86,9 @@ class Tracker:
                 if _ecu_status is self._END_SENTINEL:
                     return
 
-                # get one status response, if display box for this ecu is not yet created,
-                # create one for it.
+                # get one status response and iter through the available_ecu_ids
+                # if display box for this ECU is not yet created,
+                # create a new display box for this new presented ECU.
                 with self._lock:
                     for ecu_id in _ecu_status.available_ecu_ids:
                         if ecu_id not in self._ecu_status_display:
@@ -91,6 +96,7 @@ class Tracker:
                                 ecu_id, len(self._ecu_status_display)
                             )
 
+                # NOTE: only support v2 ECU status report format
                 for idx, _ecu in enumerate(_ecu_status.iter_ecu_v2()):
                     _ecu_display = self._ecu_status_display[_ecu.ecu_id]
                     _ecu_display.update_ecu_status(_ecu, index=idx)
