@@ -89,7 +89,7 @@ def main(args):
         sys.exit(-1)
 
     # ------ parse export options ------ #
-    output_fpath, write_to_dev = args.o, args.w
+    output_fpath, write_to_dev = args.output, args.write_to
 
     if write_to_dev and not Path(write_to_dev).is_block_device():
         print(f"{write_to_dev} is not a block device, abort")
@@ -97,8 +97,8 @@ def main(args):
 
     if write_to_dev and not args.confirm_write_to:
         _confirm_write_to = input(
-            f"WARNING: generated image will be written to {write_to_dev}, "
-            f"all data in {write_to_dev} will be lost, type [Y](yes) or [N](no) to confirm"
+            f"WARNING: generated image will be written to {write_to_dev}, \n"
+            f"\t all data in {write_to_dev} will be lost, continue(type [Y] or [N]): "
         )
         if _confirm_write_to != "Y":
             print(f"decline writing to {write_to_dev}, abort")
@@ -170,7 +170,7 @@ if __name__ == "__main__":
         print(f"ERR: {output} exists, abort")
         sys.exit(-1)
 
-    if not (args.o or args.w):
+    if not (args.output or args.write_to):
         print("ERR: at least one export option should be specified")
         sys.exit(-1)
 
