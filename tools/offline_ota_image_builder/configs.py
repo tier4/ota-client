@@ -38,5 +38,7 @@ class BaseConfig:
     OTA_IMAGE_DATA_ZST_DIR = "data.zst"
     OTA_IMAGE_COMPRESSION_ALG = "zst"
 
+    EXTERNAL_CACHE_DEV_FSLABEL = "ota_cache_src"
+
 
 cfg = BaseConfig()

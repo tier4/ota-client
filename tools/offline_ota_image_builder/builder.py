@@ -20,29 +20,17 @@ import shutil
 import tempfile
 import time
 from contextlib import contextmanager
-from os import PathLike
 from pathlib import Path
-from typing import Mapping, Union
-from typing_extensions import TypeAlias
+from typing import Mapping, Optional
 
 from otaclient.app.common import subprocess_call
 from otaclient.app.ota_metadata import parse_regulars_from_txt
 
 from .configs import cfg
 from .manifest import ImageMetadata, Manifest
+from .utils import StrPath, InputImageProcessError, ExportError
 
 logger = logging.getLogger(__name__)
-
-
-class InputImageProcessError(Exception):
-    ...
-
-
-class ExportError(Exception):
-    ...
-
-
-StrPath: TypeAlias = Union[str, PathLike]
 
 
 @contextmanager
@@ -62,32 +50,6 @@ def _unarchive_image(ecu_id: str, image_fpath: StrPath, *, workdir: StrPath):
             f"{ecu_id=}: finish unarchiving {image_fpath}, takes {time.time() - _start_time:.2f}s"
         )
         yield ecu_id, unarchive_dir
-
-
-@contextmanager
-def _create_output_image(output_workdir: StrPath, output_fpath: StrPath):
-    _start_time = time.time()
-    data_dir = Path(output_workdir) / cfg.OUTPUT_DATA_DIR
-    meta_dir = Path(output_workdir) / cfg.OUTPUT_META_DIR
-    data_dir.mkdir(exist_ok=True, parents=True)
-    meta_dir.mkdir(exist_ok=True, parents=True)
-
-    # NOTE: passthrough any errors during image processing,
-    #       let the image processing task do the error handling.
-    yield data_dir, meta_dir
-
-    # export image_workdir as tar ball
-    cmd = f"tar cf {output_fpath} -C {output_workdir} ."
-    try:
-        logger.info(f"exporting external cache source image to {output_fpath} ...")
-        subprocess_call(cmd)
-        logger.info(
-            f"finish creating offline OTA image: takes {time.time() - _start_time:.2f}s"
-        )
-    except Exception as e:
-        _err_msg = f"failed to export generated image to {output_fpath=}: {e!r}"
-        logger.error(_err_msg)
-        raise ExportError(_err_msg) from e
 
 
 def _process_ota_image(
@@ -137,54 +99,107 @@ def _process_ota_image(
     return saved_files, saved_files_size
 
 
+def _create_image_tar(image_rootfs: StrPath, output_fpath: StrPath):
+    """Export generated image rootfs as tar ball."""
+    cmd = f"tar cf {output_fpath} -C {image_rootfs} ."
+    try:
+        logger.info(f"exporting external cache source image to {output_fpath} ...")
+        subprocess_call(cmd)
+    except Exception as e:
+        _err_msg = f"failed to tar generated image to {output_fpath=}: {e!r}"
+        logger.error(_err_msg)
+        raise ExportError(_err_msg) from e
+
+
+def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath):
+    """Prepare <WRITE_TO_DEV> and export generated image's rootfs to it."""
+    _start_time = time.time()
+    dev = Path(dev)
+    if not dev.is_block_device():
+        logger.warning(f"{dev=} is not a block device, skip")
+        return
+
+    # prepare device
+    try:
+        logger.warning(f"formatting {dev} to ext4 ...")
+        subprocess_call(f"mkfs.ext4 -L {cfg.EXTERNAL_CACHE_DEV_FSLABEL} {dev}")
+    except Exception as e:
+        _err_msg = f"failed to formatting {dev} to ext4: {e!r}"
+        logger.error(_err_msg)
+        raise ExportError(_err_msg) from e
+
+    # mount and copy
+    mount_point = Path(workdir) / "mnt"
+    mount_point.mkdir(exist_ok=True)
+    try:
+        logger.info(f"copying image rootfs to {dev=}@{mount_point=}...")
+        subprocess_call(f"mount --make-private --make-unbindable {dev} {mount_point}")
+        subprocess_call(f"cp -r {str(image_rootfs).rstrip('/')}/. -t {mount_point}")
+        logger.info(f"finish copying, takes {time.time()-_start_time:.2f}s")
+    except Exception as e:
+        _err_msg = f"failed to export to image rootfs to {dev=}@{mount_point=}: {e!r}"
+        logger.error(_err_msg)
+        raise ExportError(_err_msg) from e
+    finally:
+        subprocess_call(f"umount -l {dev}", raise_exception=False)
+
+
 def build(
     image_metas: Mapping[str, ImageMetadata],
     image_files: Mapping[str, StrPath],
     *,
     workdir: StrPath,
-    output: StrPath,
+    output: Optional[StrPath],
+    write_to_dev: Optional[StrPath],
 ):
     _start_time = time.time()
-    logger.info(f"build started at {int(_start_time)}")
+    logger.info(f"job started at {int(_start_time)}")
 
     output_workdir = Path(workdir) / cfg.OUTPUT_WORKDIR
     output_workdir.mkdir(parents=True, exist_ok=True)
+    output_data_dir = Path(output_workdir) / cfg.OUTPUT_DATA_DIR
+    output_meta_dir = Path(output_workdir) / cfg.OUTPUT_META_DIR
+    output_data_dir.mkdir(exist_ok=True, parents=True)
+    output_meta_dir.mkdir(exist_ok=True, parents=True)
 
+    # ------ generate image ------ #
     manifest = Manifest()
-    with _create_output_image(output_workdir, output) as output_meta:
-        output_data_dir, output_meta_dir = output_meta
+    # process all inpu OTA images
+    images_unarchiving_work_dir = Path(workdir) / cfg.IMAGE_UNARCHIVE_WORKDIR
+    images_unarchiving_work_dir.mkdir(parents=True, exist_ok=True)
+    for ecu_id, image_meta in image_metas.items():
+        manifest.image_meta.append(image_meta)
 
-        # process all inpu OTA images
-        images_unarchiving_work_dir = Path(workdir) / cfg.IMAGE_UNARCHIVE_WORKDIR
-        images_unarchiving_work_dir.mkdir(parents=True, exist_ok=True)
-        for ecu_id, image_meta in image_metas.items():
-            manifest.image_meta.append(image_meta)
+        with _unarchive_image(
+            ecu_id, image_files[ecu_id], workdir=images_unarchiving_work_dir
+        ) as _image_unarchived_meta:
+            _, unarchived_image_dir = _image_unarchived_meta
+            _saved_files_num, _saved_files_size = _process_ota_image(
+                ecu_id,
+                unarchived_image_dir,
+                data_dir=output_data_dir,
+                meta_dir=output_meta_dir,
+            )
+            # update manifest after this image is processed
+            manifest.data_size += _saved_files_size
+            manifest.data_files_num += _saved_files_num
 
-            with _unarchive_image(
-                ecu_id, image_files[ecu_id], workdir=images_unarchiving_work_dir
-            ) as _image_unarchived_meta:
-                _, unarchived_image_dir = _image_unarchived_meta
-                _saved_files_num, _saved_files_size = _process_ota_image(
-                    ecu_id,
-                    unarchived_image_dir,
-                    data_dir=output_data_dir,
-                    meta_dir=output_meta_dir,
-                )
-                # update manifest after this image is processed
-                manifest.data_size += _saved_files_size
-                manifest.data_files_num += _saved_files_num
+    # process metadata
+    for cur_path, _, fnames in os.walk(output_meta_dir):
+        _cur_path = Path(cur_path)
+        for _fname in fnames:
+            _fpath = _cur_path / _fname
+            if _fpath.is_file():
+                manifest.meta_size += _fpath.stat().st_size
 
-        # process metadata
-        for cur_path, _, fnames in os.walk(output_meta_dir):
-            _cur_path = Path(cur_path)
-            for _fname in fnames:
-                _fpath = _cur_path / _fname
-                if _fpath.is_file():
-                    manifest.meta_size += _fpath.stat().st_size
-
-        # write offline OTA image manifest
-        manifest.build_timestamp = int(time.time())
-        Path(output_workdir / cfg.MANIFEST_JSON).write_text(manifest.export_to_json())
-
-    logger.info(f"build finished, takes {time.time() - _start_time:.2f}s")
+    # write offline OTA image manifest
+    manifest.build_timestamp = int(time.time())
+    Path(output_workdir / cfg.MANIFEST_JSON).write_text(manifest.export_to_json())
     logger.info(f"build manifest: {pprint.pformat(manifest)}")
+
+    # ------ export image ------ #
+    if output:
+        _create_image_tar(output_workdir, output_fpath=output)
+    if write_to_dev:
+        _write_image_to_dev(output_workdir, dev=write_to_dev, workdir=workdir)
+    logger.info(f"job finished, takes {time.time() - _start_time:.2f}s")
