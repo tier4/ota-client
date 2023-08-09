@@ -68,9 +68,6 @@ def main(args):
     image_metas = []
     image_files = {}
 
-    metadata_dir = Path(cfg.OUTPUT_META_DIR)
-
-    index = 0
     for raw_pair in args.image:
         _parsed = str(raw_pair).split(":")
         if len(_parsed) >= 2:
@@ -79,11 +76,9 @@ def main(args):
                 ImageMetadata(
                     ecu_id=_ecu_id,
                     image_version=_image_version,
-                    meta_dir=str(metadata_dir / str(index)),
                 )
             )
             image_files[_ecu_id] = _image_fpath
-            index += 1
         else:
             logger.warning(f"ignore illegal image pair: {raw_pair}")
 
