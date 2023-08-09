@@ -21,7 +21,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
 
 from otaclient.app.common import subprocess_call
 from otaclient.app.ota_metadata import parse_regulars_from_txt
@@ -43,34 +43,30 @@ def _check_if_mounted(dev: StrPath):
 
 
 @contextmanager
-def _unarchive_image(ecu_id: str, image_fpath: StrPath, *, workdir: StrPath):
+def _unarchive_image(image_fpath: StrPath, *, workdir: StrPath):
     _start_time = time.time()
-    logger.info(f"{ecu_id=}: unarchiving {image_fpath} ...")
-    with tempfile.TemporaryDirectory(prefix=f"{ecu_id}_", dir=workdir) as unarchive_dir:
+    with tempfile.TemporaryDirectory(dir=workdir) as unarchive_dir:
         cmd = f"tar xf {image_fpath} -C {unarchive_dir}"
         try:
             subprocess_call(cmd)
         except Exception as e:
-            _err_msg = f"failed to process input image {image_fpath}: {e!r}"
+            _err_msg = f"failed to process input image {image_fpath}: {e!r}, {cmd=}"
             logger.error(_err_msg)
             raise InputImageProcessError(_err_msg) from e
 
         logger.info(
-            f"{ecu_id=}: finish unarchiving {image_fpath}, takes {time.time() - _start_time:.2f}s"
+            f"finish unarchiving {image_fpath}, takes {time.time() - _start_time:.2f}s"
         )
-        yield ecu_id, unarchive_dir
+        yield unarchive_dir
 
 
-def _process_ota_image(
-    ecu_id: str, ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath
-):
+def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath):
     _start_time = time.time()
-    logger.info(f"{ecu_id=}: processing OTA image for {ecu_id} ...")
     data_dir = Path(data_dir)
     # statistics
     saved_files, saved_files_size = 0, 0
 
-    # process OTA image files
+    # process OTA image files, save to shared data folder
     ota_image_dir = Path(ota_image_dir)
     ota_image_data_dir = ota_image_dir / cfg.OTA_IMAGE_DATA_DIR
     ota_image_data_zst_dir = ota_image_dir / cfg.OTA_IMAGE_DATA_ZST_DIR
@@ -100,15 +96,11 @@ def _process_ota_image(
                     shutil.move(str(src), dst)
                     saved_files_size += dst.stat().st_size
 
-    # copy OTA metafiles
-    ecu_metadir = Path(meta_dir) / ecu_id
-    ecu_metadir.mkdir(parents=True, exist_ok=True)
+    # copy OTA metafiles to image specific meta folder
     for _fname in cfg.OTA_METAFILES_LIST:
-        shutil.move(str(ota_image_dir / _fname), ecu_metadir)
+        shutil.move(str(ota_image_dir / _fname), meta_dir)
 
-    logger.info(
-        f"{ecu_id=}: finish processing OTA image, takes {time.time() - _start_time:.2f}s"
-    )
+    logger.info(f"finish processing OTA image, takes {time.time() - _start_time:.2f}s")
     return saved_files, saved_files_size
 
 
@@ -119,7 +111,7 @@ def _create_image_tar(image_rootfs: StrPath, output_fpath: StrPath):
         logger.info(f"exporting external cache source image to {output_fpath} ...")
         subprocess_call(cmd)
     except Exception as e:
-        _err_msg = f"failed to tar generated image to {output_fpath=}: {e!r}"
+        _err_msg = f"failed to tar generated image to {output_fpath=}: {e!r}, {cmd=}"
         logger.error(_err_msg)
         raise ExportError(_err_msg) from e
 
@@ -136,10 +128,11 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
         return
 
     # prepare device
+    format_device_cmd = f"mkfs.ext4 -L {cfg.EXTERNAL_CACHE_DEV_FSLABEL} {dev}"
     try:
-        logger.warning(f"formatting {dev} to ext4 ...")
+        logger.warning(f"formatting {dev} to ext4: {format_device_cmd}")
         # NOTE: label offline OTA image as external cache source
-        subprocess_call(f"mkfs.ext4 -L {cfg.EXTERNAL_CACHE_DEV_FSLABEL} {dev}")
+        subprocess_call(format_device_cmd)
     except Exception as e:
         _err_msg = f"failed to formatting {dev} to ext4: {e!r}"
         logger.error(_err_msg)
@@ -148,15 +141,16 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
     # mount and copy
     mount_point = Path(workdir) / "mnt"
     mount_point.mkdir(exist_ok=True)
+    cp_cmd = f"cp -r {str(image_rootfs).rstrip('/')}/. -t {mount_point}"
     try:
         logger.info(f"copying image rootfs to {dev=}@{mount_point=}...")
         subprocess_call(f"mount --make-private --make-unbindable {dev} {mount_point}")
-        subprocess_call(f"cp -r {str(image_rootfs).rstrip('/')}/. -t {mount_point}")
+        subprocess_call(cp_cmd)
 
         os.sync()
         logger.info(f"finish copying, takes {time.time()-_start_time:.2f}s")
     except Exception as e:
-        _err_msg = f"failed to export to image rootfs to {dev=}@{mount_point=}: {e!r}"
+        _err_msg = f"failed to export to image rootfs to {dev=}@{mount_point=}: {e!r}, {cp_cmd=}"
         logger.error(_err_msg)
         raise ExportError(_err_msg) from e
     finally:
@@ -164,7 +158,7 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
 
 
 def build(
-    image_metas: Mapping[str, ImageMetadata],
+    image_metas: Sequence[ImageMetadata],
     image_files: Mapping[str, StrPath],
     *,
     workdir: StrPath,
@@ -176,28 +170,32 @@ def build(
 
     output_workdir = Path(workdir) / cfg.OUTPUT_WORKDIR
     output_workdir.mkdir(parents=True, exist_ok=True)
-    output_data_dir = Path(output_workdir) / cfg.OUTPUT_DATA_DIR
-    output_meta_dir = Path(output_workdir) / cfg.OUTPUT_META_DIR
+    output_data_dir = output_workdir / cfg.OUTPUT_DATA_DIR
     output_data_dir.mkdir(exist_ok=True, parents=True)
+    output_meta_dir = output_workdir / cfg.OUTPUT_META_DIR
     output_meta_dir.mkdir(exist_ok=True, parents=True)
 
     # ------ generate image ------ #
-    manifest = Manifest()
+    manifest = Manifest(image_meta=list(image_metas))
     # process all inpu OTA images
     images_unarchiving_work_dir = Path(workdir) / cfg.IMAGE_UNARCHIVE_WORKDIR
     images_unarchiving_work_dir.mkdir(parents=True, exist_ok=True)
-    for ecu_id, image_meta in image_metas.items():
-        manifest.image_meta.append(image_meta)
+    for idx, image_meta in enumerate(manifest.image_meta):
+        ecu_id = image_meta.ecu_id
+        image_file = image_files[ecu_id]
+        # image specific metadata dir
+        _meta_dir = output_meta_dir / str(idx)
+        _meta_dir.mkdir(exist_ok=True, parents=True)
 
+        logger.info(f"{ecu_id=}: unarchive {image_file} ...")
         with _unarchive_image(
-            ecu_id, image_files[ecu_id], workdir=images_unarchiving_work_dir
-        ) as _image_unarchived_meta:
-            _, unarchived_image_dir = _image_unarchived_meta
+            image_file, workdir=images_unarchiving_work_dir
+        ) as unarchived_image_dir:
+            logger.info(f"{ecu_id=}: processing OTA image ...")
             _saved_files_num, _saved_files_size = _process_ota_image(
-                ecu_id,
                 unarchived_image_dir,
                 data_dir=output_data_dir,
-                meta_dir=output_meta_dir,
+                meta_dir=_meta_dir,
             )
             # update manifest after this image is processed
             manifest.data_size += _saved_files_size
