@@ -141,13 +141,11 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
     # mount and copy
     mount_point = Path(workdir) / "mnt"
     mount_point.mkdir(exist_ok=True)
-    cp_cmd = f"cp -r {str(image_rootfs).rstrip('/')}/. -t {mount_point}"
+    cp_cmd = f"cp -rT {image_rootfs} {mount_point}"
     try:
         logger.info(f"copying image rootfs to {dev=}@{mount_point=}...")
         subprocess_call(f"mount --make-private --make-unbindable {dev} {mount_point}")
         subprocess_call(cp_cmd)
-
-        os.sync()
         logger.info(f"finish copying, takes {time.time()-_start_time:.2f}s")
     except Exception as e:
         _err_msg = f"failed to export to image rootfs to {dev=}@{mount_point=}: {e!r}, {cp_cmd=}"
@@ -215,6 +213,7 @@ def build(
     logger.info(f"build manifest: {pprint.pformat(manifest)}")
 
     # ------ export image ------ #
+    os.sync()  # make sure all changes are saved to disk before export
     if output:
         _create_image_tar(output_workdir, output_fpath=output)
     if write_to_dev:
