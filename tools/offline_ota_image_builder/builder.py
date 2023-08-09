@@ -152,6 +152,8 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
         logger.info(f"copying image rootfs to {dev=}@{mount_point=}...")
         subprocess_call(f"mount --make-private --make-unbindable {dev} {mount_point}")
         subprocess_call(f"cp -r {str(image_rootfs).rstrip('/')}/. -t {mount_point}")
+
+        os.sync()
         logger.info(f"finish copying, takes {time.time()-_start_time:.2f}s")
     except Exception as e:
         _err_msg = f"failed to export to image rootfs to {dev=}@{mount_point=}: {e!r}"
