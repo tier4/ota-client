@@ -16,23 +16,7 @@
 A JSON file manifest.json that contains the basic information of built
 external cache source image will be placed at the image rootfs.
 
-Version 1 schema definition:
-{
-  "schema_version": 1,
-  "image_layout_version": 1,
-  "build_timestamp": <UNIX_timestamp>,
-  "data_size": <size_of_data_folder>,
-  "data_files_num": <files_num_of_data_folder>,
-  "meta_size": <size_of_meta_folder>,
-  "image_meta": [
-    {
-      "ecu_id": <ecu_id>,
-      "image_version": "<image_version>",
-      "ota_metadata_version": 1,
-    },
-    ...
-  ],
-}
+Check README.md for the spec.
 """
 
 

@@ -32,20 +32,7 @@ Example OTA image layout:
 ├── regulars.txt
 └── symlinks.txt
 
-
-The generated external cache source image will have the following layout:
-.
-├── manifest.json
-├── data
-│   ├── <OTA_file_sha256hash> # uncompressed file
-│   ├── <OTA_file_sha256hash>.zst # zst compressed file
-│   └── ...
-└── meta
-    ├── <idx>
-    │   └── <list of OTA metafiles...>
-    └── ...
-        └── <list of OTA metafiles...>
-
+Check README.md for the offline OTA image layout specification.
 Please refer to OTA cache design doc for more details.
 """
 
