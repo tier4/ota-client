@@ -65,44 +65,10 @@ from .manifest import ImageMetadata
 logger = logging.getLogger(__name__)
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format=cfg.LOGGING_FORMAT, force=True)
-    parser = argparse.ArgumentParser(
-        prog="external_cache_builder",
-        description=(
-            "Helper script that builds external cache source"
-            "image with given OTA images for offline OTA use."
-        ),
-    )
-    parser.add_argument(
-        "--image",
-        help=(
-            "--image=<ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>], "
-            "expect input image to be a tar archive(compressed or uncompressed),"
-            "this option can be used multiple times to include multiple image."
-        ),
-        required=True,
-        type=str,
-        action="append",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        help=(
-            "-o <OUTPUT_PATH> or --output=<OUTPUT_PATH>,"
-            "the path for generated external cache source tar archive."
-        ),
-        type=str,
-        required=True,
-    )
-    args = parser.parse_args()
+def main(args):
+    # ------ parse input image options ------ #
     image_metas = {}
     image_files = {}
-
-    output = Path(args.output)
-    if output.exists():
-        logger.error(f"{output} exists, abort")
-        sys.exit(-1)
 
     metadata_dir = Path(cfg.OUTPUT_META_DIR)
     for raw_pair in args.image:
@@ -119,8 +85,93 @@ if __name__ == "__main__":
             logger.warning(f"ignore illegal image pair: {raw_pair}")
 
     if not image_metas:
-        logger.error("at least one valid image should be given, abort")
+        print("ERR: at least one valid image should be given, abort")
         sys.exit(-1)
 
+    # ------ parse export options ------ #
+    output_fpath, write_to_dev = args.o, args.w
+
+    if write_to_dev and not Path(write_to_dev).is_block_device():
+        print(f"{write_to_dev} is not a block device, abort")
+        sys.exit(-1)
+
+    if write_to_dev and not args.confirm_write_to:
+        _confirm_write_to = input(
+            f"WARNING: generated image will be written to {write_to_dev}, "
+            f"all data in {write_to_dev} will be lost, type [Y](yes) or [N](no) to confirm"
+        )
+        if _confirm_write_to != "Y":
+            print(f"decline writing to {write_to_dev}, abort")
+            sys.exit(-1)
+    elif write_to_dev and args.confirm_write_to:
+        logger.warning(
+            f"generated image will be written to {write_to_dev},"
+            f"all data in {write_to_dev} will be lost"
+        )
+
+    # ------ build image ------ #
     with tempfile.TemporaryDirectory(prefix="offline_OTA_image_builder") as workdir:
-        build(image_metas, image_files, workdir=workdir, output=output)
+        build(
+            image_metas,
+            image_files,
+            workdir=workdir,
+            output=output_fpath,
+            write_to_dev=write_to_dev,
+        )
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format=cfg.LOGGING_FORMAT, force=True)
+    parser = argparse.ArgumentParser(
+        prog="external_cache_builder",
+        description=(
+            "Helper script that builds external cache source"
+            "image with given OTA images for offline OTA use."
+        ),
+    )
+    parser.add_argument(
+        "--image",
+        help=(
+            "expect input image to be a tar archive(compressed or uncompressed),"
+            "this option can be used multiple times to include multiple images."
+        ),
+        required=True,
+        metavar="<ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]",
+        action="append",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="save the generated image rootfs into tar archive to <OUTPUT_PATH>.",
+        metavar="<OUTPUT_PATH>",
+    )
+    parser.add_argument(
+        "-w",
+        "--write-to",
+        help=(
+            "write the image to <DEVICE> and prepare the device as"
+            "external cache source device."
+        ),
+        metavar="<DEVICE>",
+    )
+    parser.add_argument(
+        "--confirm-write-to",
+        help=(
+            "writing generated to <DEVICE> without inter-active confirmation,"
+            "only valid when used with -w option"
+        ),
+        action="store_true",
+    )
+    args = parser.parse_args()
+
+    # basic options check
+    output = Path(args.output)
+    if output.exists():
+        print(f"ERR: {output} exists, abort")
+        sys.exit(-1)
+
+    if not (args.o or args.w):
+        print("ERR: at least one export option should be specified")
+        sys.exit(-1)
+
+    main(args)
