@@ -41,11 +41,9 @@ The generated external cache source image will have the following layout:
 │   ├── <OTA_file_sha256hash>.zst # zst compressed file
 │   └── ...
 └── meta
-    ├── autoware
+    ├── <idx>
     │   └── <list of OTA metafiles...>
-    ├── perception1
-    │   └── <list of OTA metafiles...>
-    └── perception2
+    └── ...
         └── <list of OTA metafiles...>
 
 Please refer to OTA cache design doc for more details.
@@ -67,20 +65,25 @@ logger = logging.getLogger(__name__)
 
 def main(args):
     # ------ parse input image options ------ #
-    image_metas = {}
+    image_metas = []
     image_files = {}
 
     metadata_dir = Path(cfg.OUTPUT_META_DIR)
+
+    index = 0
     for raw_pair in args.image:
         _parsed = str(raw_pair).split(":")
         if len(_parsed) >= 2:
             _ecu_id, _image_fpath, _image_version, *_ = *_parsed, ""
-            image_metas[_ecu_id] = ImageMetadata(
-                ecu_id=_ecu_id,
-                image_version=_image_version,
-                meta_dir=str(metadata_dir / _ecu_id),
+            image_metas.append(
+                ImageMetadata(
+                    ecu_id=_ecu_id,
+                    image_version=_image_version,
+                    meta_dir=str(metadata_dir / str(index)),
+                )
             )
             image_files[_ecu_id] = _image_fpath
+            index += 1
         else:
             logger.warning(f"ignore illegal image pair: {raw_pair}")
 
@@ -123,16 +126,16 @@ def main(args):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format=cfg.LOGGING_FORMAT, force=True)
     parser = argparse.ArgumentParser(
-        prog="external_cache_builder",
+        prog="offline_ota_image_builder",
         description=(
-            "Helper script that builds external cache source"
-            "image with given OTA images for offline OTA use."
+            "Helper script that builds offline OTA image "
+            "with given OTA image(s) as external cache source or for offline OTA use."
         ),
     )
     parser.add_argument(
         "--image",
         help=(
-            "expect input image to be a tar archive(compressed or uncompressed),"
+            "OTA image for <ECU_ID> as tar archive(compressed or uncompressed), "
             "this option can be used multiple times to include multiple images."
         ),
         required=True,
@@ -149,7 +152,7 @@ if __name__ == "__main__":
         "-w",
         "--write-to",
         help=(
-            "write the image to <DEVICE> and prepare the device as"
+            "write the image to <DEVICE> and prepare the device as "
             "external cache source device."
         ),
         metavar="<DEVICE>",
@@ -157,8 +160,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--confirm-write-to",
         help=(
-            "writing generated to <DEVICE> without inter-active confirmation,"
-            "only valid when used with -w option"
+            "writing generated to <DEVICE> without inter-active confirmation, "
+            "only valid when used with -w option."
         ),
         action="store_true",
     )

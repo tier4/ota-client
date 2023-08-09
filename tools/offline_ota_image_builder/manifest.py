@@ -28,7 +28,6 @@ Version 1 schema definition:
     {
       "ecu_id": <ecu_id>,
       "image_version": "<image_version>",
-      "meta_dir": "meta/<ecu_id>",
       "ota_metadata_version": 1,
     },
     ...
@@ -48,7 +47,6 @@ from .configs import cfg
 class ImageMetadata:
     ecu_id: str = ""
     image_version: str = ""
-    meta_dir: str = ""
     ota_metadata_version: int = cfg.DEFAULT_OTA_METADATA_VERSION
 
 
