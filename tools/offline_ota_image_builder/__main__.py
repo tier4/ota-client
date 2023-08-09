@@ -174,4 +174,8 @@ if __name__ == "__main__":
         print("ERR: at least one export option should be specified")
         sys.exit(-1)
 
-    main(args)
+    try:
+        main(args)
+    except KeyboardInterrupt:
+        print("ERR: aborted by user")
+        sys.exit(-1)
