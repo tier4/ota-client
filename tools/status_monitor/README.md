@@ -41,6 +41,8 @@ options:
 
 ## UI presentation
 
+In each window, navigation is possible by using arrow_key, mouse scroll or page_up/page_down key.
+
 ### Main window
 
 ``` text

@@ -43,7 +43,7 @@ class MainScreen:
     ) -> None:
         self.title = title
         self.manual = (
-            "<NUM>: ECU#NUM's raw status, <ALT+NUM>: detailed failure info, <p>: pause"
+            "<Num>: ECU#Num's raw status, <Alt+Num>: detailed failure info, <p>: pause"
         )
         self._display_getter = display_boxes_getter
 
