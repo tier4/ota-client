@@ -30,7 +30,7 @@ class BasicConfig:
     # the interval to handle input and refresh the display,
     # should not be larger than 1, otherwise the window will be
     # very lag and broken on re-size.
-    RENDER_INTERVAL = 0.1
+    RENDER_INTERVAL = 0.01
 
     # ------ ECU status box configs ------ #
     ECU_DISPLAY_BOX_HLINES = 12
