@@ -68,16 +68,20 @@ _WEAKREF = TypeVar("_WEAKREF")
 
 def create_cachemeta_for_request(
     raw_url: str,
+    cache_identifier: str,
+    compression_alg: str,
     /,
-    cache_policy_from_client: OTAFileCacheControl,
     resp_headers_from_upper: CIMultiDictProxy[str],
 ) -> CacheMeta:
     """Create CacheMeta inst for new incoming request.
 
-    Cache identifier pickup priority:
-    1. if upper response provides file_sha256, use it,
-    2. if client request provides file_sha256, use it,
-    3. fallback to use URL based hash.
+    Use information from upper in prior, otherwise use pre-calculated information.
+
+    Params:
+        raw_url
+        cache_identifier: pre-collected information from caller
+        compression_alg: pre-collected information from caller
+        resp_headers_from_upper
     """
     cache_meta = CacheMeta(
         url=raw_url,
@@ -90,12 +94,9 @@ def create_cachemeta_for_request(
     if _upper_cache_policy.file_sha256:
         cache_meta.file_sha256 = _upper_cache_policy.file_sha256
         cache_meta.file_compression_alg = _upper_cache_policy.file_compression_alg
-    elif cache_meta.file_sha256:
-        cache_meta.file_sha256 = cache_policy_from_client.file_sha256
-        cache_meta.file_compression_alg = cache_policy_from_client.file_compression_alg
-    else:  # fallback to use URL based id if no real file_sha256 available
-        cache_meta.file_sha256 = url_based_hash(raw_url)
-        cache_meta.file_compression_alg = ""
+    else:
+        cache_meta.file_sha256 = cache_identifier
+        cache_meta.file_compression_alg = compression_alg
     return cache_meta
 
 
@@ -599,6 +600,7 @@ class OTACache:
         db_file: Optional[Union[str, Path]] = None,
         upper_proxy: str = "",
         enable_https: bool = False,
+        external_cache: Optional[str] = None,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -613,6 +615,10 @@ class OTACache:
         self._init_cache = init_cache
         self._enable_https = enable_https
         self._executor = ThreadPoolExecutor(thread_name_prefix="ota_cache_executor")
+
+        if external_cache and cache_enabled:
+            logger.info(f"external cache source is enabled at: {external_cache}")
+        self._external_cache = Path(external_cache) if external_cache else None
 
         self._storage_below_hard_limit_event = threading.Event()
         self._storage_below_soft_limit_event = threading.Event()
@@ -849,6 +855,14 @@ class OTACache:
                 headers=headers,
             ) as response:
                 yield response.headers  # type: ignore
+                # NOTE(20230803): sometimes aiohttp will raises:
+                #                 "ClientPayloadError: Response payload is not completed" exception,
+                #                 according to some posts in related issues, add a asyncio.sleep(0)
+                #                 to make event loop switch to other task here seems mitigates the problem.
+                #                 check the following URLs for details:
+                #                 1. https://github.com/aio-libs/aiohttp/issues/4581
+                #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
+                await asyncio.sleep(0)
                 async for data, _ in response.content.iter_chunks():
                     if data:  # only yield non-empty data chunk
                         yield data
@@ -895,6 +909,33 @@ class OTACache:
             read_file(cache_file, executor=self._executor),
             meta_db_entry.export_headers_to_client(),
         )
+
+    async def _retrieve_file_by_external_cache(
+        self, client_cache_policy: OTAFileCacheControl
+    ) -> Optional[Tuple[AsyncIterator[bytes], Mapping[str, str]]]:
+        # skip if not external cache or otaclient doesn't sent valid file_sha256
+        if not self._external_cache or not client_cache_policy.file_sha256:
+            return
+
+        cache_identifier = client_cache_policy.file_sha256
+        cache_file = self._external_cache / cache_identifier
+        cache_file_zst = cache_file.with_suffix(
+            f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}"
+        )
+
+        if cache_file_zst.is_file():
+            return read_file(cache_file_zst, executor=self._executor), {
+                HEADER_OTA_FILE_CACHE_CONTROL: OTAFileCacheControl.export_kwargs_as_header(
+                    file_sha256=cache_identifier,
+                    file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
+                )
+            }
+        elif cache_file.is_file():
+            return read_file(cache_file, executor=self._executor), {
+                HEADER_OTA_FILE_CACHE_CONTROL: OTAFileCacheControl.export_kwargs_as_header(
+                    file_sha256=cache_identifier
+                )
+            }
 
     # exposed API
 
@@ -946,17 +987,32 @@ class OTACache:
                 raw_url, headers=headers_from_client
             )
 
-        cache_identifier = cache_policy.file_sha256
-        if not cache_identifier:  # fallback to use URL based hash
-            cache_identifier = url_based_hash(raw_url)
+        # --- case 2: if externel cache source available, try to use it --- #
+        # NOTE: if client requsts with retry_caching directive, it may indicate cache corrupted
+        #       in external cache storage, in such case we should skip the use of external cache.
+        if (
+            self._external_cache
+            and not cache_policy.retry_caching
+            and (_res := await self._retrieve_file_by_external_cache(cache_policy))
+        ):
+            return _res
 
-        # --- case 2: try to use local cache --- #
+        # pre-calculated cache_identifier and corresponding compression_alg
+        cache_identifier = cache_policy.file_sha256
+        compression_alg = cache_policy.file_compression_alg
+        if (
+            not cache_identifier
+        ):  # fallback to use URL based hash, and clear compression_alg
+            cache_identifier = url_based_hash(raw_url)
+            compression_alg = ""
+
+        # --- case 3: try to use local cache --- #
         if _res := await self._retrieve_file_by_cache(
             cache_identifier, retry_cache=cache_policy.retry_caching
         ):
             return _res
 
-        # --- case 3: no cache available, streaming remote file and cache --- #
+        # --- case 4: no cache available, streaming remote file and cache --- #
         tracker, is_writer = await self._on_going_caching.get_tracker(
             cache_identifier,
             executor=self._executor,
@@ -974,7 +1030,8 @@ class OTACache:
 
             cache_meta = create_cachemeta_for_request(
                 raw_url,
-                cache_policy_from_client=cache_policy,
+                cache_identifier,
+                compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
 

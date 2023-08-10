@@ -16,29 +16,153 @@
 import asyncio
 import logging
 import shutil
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Iterable, Optional, Set, Dict, TypeVar
+from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
+from typing_extensions import Self
 
 from . import log_setting
 from .configs import config as cfg, server_cfg
 from .common import ensure_otaproxy_start
+from .boot_control._common import CMDHelperFuncs
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientWrapper
 from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
 
-from otaclient.ota_proxy.config import config as local_otaproxy_cfg
-from otaclient.ota_proxy import subprocess_start_otaproxy
+from otaclient.ota_proxy import (
+    OTAProxyContextProto,
+    subprocess_otaproxy_launcher,
+    config as local_otaproxy_cfg,
+)
 
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
+
+
+class _OTAProxyContext(OTAProxyContextProto):
+    EXTERNAL_CACHE_KEY = "external_cache"
+
+    def __init__(
+        self,
+        *,
+        upper_proxy: Optional[str],
+        external_cache_enabled: bool,
+        external_cache_dev_fslable: str = cfg.EXTERNAL_CACHE_DEV_FSLABEL,
+        external_cache_dev_mp: str = cfg.EXTERNAL_CACHE_DEV_MOUNTPOINT,
+        external_cache_path: str = cfg.EXTERNAL_CACHE_SRC_PATH,
+    ) -> None:
+        self.upper_proxy = upper_proxy
+        self.external_cache_enabled = external_cache_enabled
+
+        self._external_cache_activated = False
+        self._external_cache_dev_fslabel = external_cache_dev_fslable
+        self._external_cache_dev = None  # type: ignore[assignment]
+        self._external_cache_dev_mp = external_cache_dev_mp
+        self._external_cache_data_dir = external_cache_path
+
+        self.logger = logging.getLogger("otaclient.ota_proxy")
+
+    @property
+    def extra_kwargs(self) -> Dict[str, Any]:
+        """Inject kwargs to otaproxy startup entry.
+
+        Currently only inject <external_cache> if external cache storage is used.
+        """
+        _res = {}
+        if self.external_cache_enabled and self._external_cache_activated:
+            _res[self.EXTERNAL_CACHE_KEY] = self._external_cache_data_dir
+        else:
+            _res.pop(self.EXTERNAL_CACHE_KEY, None)
+        return _res
+
+    def _subprocess_init(self):
+        """Initializing the subprocess before launching it."""
+        # configure logging for otaproxy subprocess
+        # NOTE: on otaproxy subprocess, we first set log level of the root logger
+        #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
+        #       and then set the otaclient.ota_proxy logger to DEFAULT_LOG_LEVEL
+        log_setting.configure_logging(
+            loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
+        )
+        otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
+        otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
+        self.logger = otaproxy_logger
+
+        # wait for upper otaproxy if any
+        if self.upper_proxy:
+            otaproxy_logger.info(f"wait for {self.upper_proxy=} online...")
+            ensure_otaproxy_start(self.upper_proxy)
+
+    def _mount_external_cache_storage(self):
+        # detect cache_dev on every startup
+        _cache_dev = CMDHelperFuncs._findfs("LABEL", self._external_cache_dev_fslabel)
+        if not _cache_dev:
+            return
+
+        self.logger.info(f"external cache dev detected at {_cache_dev}")
+        self._external_cache_dev = _cache_dev
+
+        # try to unmount the mount_point and cache_dev unconditionally
+        _mp = Path(self._external_cache_dev_mp)
+        CMDHelperFuncs.umount(_cache_dev, ignore_error=True)
+        if _mp.is_dir():
+            CMDHelperFuncs.umount(self._external_cache_dev_mp, ignore_error=True)
+        else:
+            _mp.mkdir(parents=True, exist_ok=True)
+
+        # try to mount cache_dev ro
+        try:
+            CMDHelperFuncs.mount_ro(
+                target=_cache_dev, mount_point=self._external_cache_dev_mp
+            )
+            self._external_cache_activated = True
+        except Exception as e:
+            logger.warning(
+                f"failed to mount external cache dev({_cache_dev}) to {self._external_cache_dev_mp=}: {e!r}"
+            )
+
+    def _umount_external_cache_storage(self):
+        if not self._external_cache_activated or not self._external_cache_dev:
+            return
+        try:
+            CMDHelperFuncs.umount(self._external_cache_dev)
+        except Exception as e:
+            logger.warning(
+                f"failed to unmount external cache_dev {self._external_cache_dev}: {e!r}"
+            )
+        finally:
+            self.started = self._external_cache_activated = False
+
+    def __enter__(self) -> Self:
+        try:
+            self._subprocess_init()
+            self._mount_external_cache_storage()
+            return self
+        except Exception as e:
+            # if subprocess init failed, directly let the process exit
+            self.logger.error(f"otaproxy subprocess init failed, exit: {e!r}")
+            sys.exit(1)
+
+    def __exit__(
+        self,
+        __exc_type: Optional[Type[BaseException]],
+        __exc_value: Optional[BaseException],
+        __traceback,
+    ) -> Optional[bool]:
+        if __exc_type:
+            _exc = __exc_value if __exc_value else __exc_type()
+            self.logger.warning(f"exception during otaproxy shutdown: {_exc!r}")
+        # otaproxy post-shutdown cleanup:
+        #   1. umount external cache storage
+        self._umount_external_cache_storage()
 
 
 class OTAProxyLauncher:
@@ -48,6 +172,7 @@ class OTAProxyLauncher:
         self,
         *,
         executor: ThreadPoolExecutor,
+        subprocess_ctx: OTAProxyContextProto,
         _proxy_info=proxy_cfg,
         _proxy_server_cfg=local_otaproxy_cfg,
     ) -> None:
@@ -55,6 +180,7 @@ class OTAProxyLauncher:
         self._proxy_server_cfg = _proxy_server_cfg
         self.enabled = _proxy_info.enable_local_ota_proxy
         self.upper_otaproxy = _proxy_info.upper_ota_proxy
+        self.subprocess_ctx = subprocess_ctx
 
         self._lock = asyncio.Lock()
         # process start/shutdown will be dispatched to thread pool
@@ -71,24 +197,6 @@ class OTAProxyLauncher:
             and self._otaproxy_subprocess.is_alive()
         )
 
-    @staticmethod
-    def _subprocess_init(upper_proxy: Optional[str] = None):
-        """Initializing the subprocess before launching it."""
-        # configure logging for otaproxy subprocess
-        # NOTE: on otaproxy subprocess, we first set log level of the root logger
-        #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
-        #       and then set the otaclient.ota_proxy logger to DEFAULT_LOG_LEVEL
-        log_setting.configure_logging(
-            loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
-        )
-        otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
-        otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
-
-        # wait for upper otaproxy if any
-        if upper_proxy:
-            logger.info(f"wait for {upper_proxy=} online...")
-            ensure_otaproxy_start(upper_proxy)
-
     # API
 
     def cleanup_cache_dir(self):
@@ -104,11 +212,15 @@ class OTAProxyLauncher:
         """Start the otaproxy in a subprocess."""
         if not self.enabled or self._lock.locked() or self.is_running:
             return
+
         async with self._lock:
             # launch otaproxy server process
+            _subprocess_entry = subprocess_otaproxy_launcher(
+                subprocess_ctx=self.subprocess_ctx
+            )
             otaproxy_subprocess = await self._run_in_executor(
                 partial(
-                    subprocess_start_otaproxy,
+                    _subprocess_entry,
                     host=self._proxy_info.local_ota_proxy_listen_addr,
                     port=self._proxy_info.local_ota_proxy_listen_port,
                     init_cache=init_cache,
@@ -117,7 +229,6 @@ class OTAProxyLauncher:
                     upper_proxy=self.upper_otaproxy,
                     enable_cache=self._proxy_info.enable_local_ota_proxy_cache,
                     enable_https=self._proxy_info.gateway,
-                    subprocess_init=partial(self._subprocess_init, self.upper_otaproxy),
                 )
             )
             self._otaproxy_subprocess = otaproxy_subprocess
@@ -139,6 +250,7 @@ class OTAProxyLauncher:
 
         def _shutdown():
             if self._otaproxy_subprocess and self._otaproxy_subprocess.is_alive():
+                logger.info("shuting down otaproxy server process...")
                 self._otaproxy_subprocess.terminate()
                 self._otaproxy_subprocess.join()
             self._otaproxy_subprocess = None
@@ -213,9 +325,31 @@ class ECUStatusStorage:
         self._writer_lock = asyncio.Lock()
         # ECU status storage
         self.storage_last_updated_timestamp = 0
-        self._all_available_ecus_id: _OrderedSet[str] = _OrderedSet(
+
+        # ECUs that are/will be active during an OTA session,
+        #   at init it will be the ECUs listed in available_ecu_ids defined
+        #   in ecu_info.yaml.
+        # When receives update request, the list will be set to include ECUs
+        #   listed in the update request, and be extended by merging
+        #   available_ecu_ids in sub ECUs' status report.
+        # Internally referenced when generating overall ECU status report.
+        # TODO: in the future if otaclient can preserve OTA session info,
+        #       ECUStatusStorage should restore the tracked_active_ecus info
+        #       in the saved session info.
+        self._tracked_active_ecus: _OrderedSet[str] = _OrderedSet(
             ecu_info.get_available_ecu_ids()
         )
+
+        # The attribute that will be exported in status API response,
+        # NOTE(20230801): available_ecu_ids only serves information purpose,
+        #                 it should only be updated with ecu_info.yaml or merging
+        #                 available_ecu_ids field in sub ECUs' status report.
+        # NOTE(20230801): for web.auto user, available_ecu_ids in status API response
+        #                 will be used to generate update request list, so be-careful!
+        self._available_ecu_ids: _OrderedSet[str] = _OrderedSet(
+            ecu_info.get_available_ecu_ids()
+        )
+
         self._all_ecus_status_v2: Dict[str, wrapper.StatusResponseEcuV2] = {}
         self._all_ecus_status_v1: Dict[str, wrapper.StatusResponseEcu] = {}
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
@@ -255,14 +389,20 @@ class ECUStatusStorage:
         )
 
     async def _generate_overall_status_report(self):
+        """Generate overall status report against tracked active OTA ECUs.
+
+        NOTE: as special case, lost_ecus set is calculated against all reachable ECUs.
+        """
         self.properties_last_update_timestamp = cur_timestamp = int(time.time())
 
         # check unreachable ECUs
+        # NOTE(20230801): this property is calculated against all reachable ECUs,
+        #                 including further child ECUs.
         _old_lost_ecus_id = self.lost_ecus_id
         self.lost_ecus_id = lost_ecus = set(
             (
                 ecu_id
-                for ecu_id in self._all_available_ecus_id
+                for ecu_id in self._all_ecus_last_contact_timestamp
                 if self._is_ecu_lost(ecu_id, cur_timestamp)
             )
         )
@@ -273,7 +413,7 @@ class ECUStatusStorage:
                 f"lost ecu(s)(disconnected longer than{self.UNREACHABLE_ECU_TIMEOUT}s): {lost_ecus=}"
             )
 
-        # check ECUs that are updating
+        # check ECUs in tracked active ECUs set that are updating
         _old_in_update_ecus_id = self.in_update_ecus_id
         self.in_update_ecus_id = in_update_ecus_id = set(
             (
@@ -281,7 +421,9 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_in_update and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_in_update
+                and status.ecu_id not in lost_ecus
             )
         )
         self.in_update_child_ecus_id = in_update_ecus_id - {self.my_ecu_id}
@@ -295,7 +437,7 @@ class ECUStatusStorage:
         else:
             self.active_ota_update_present.clear()
 
-        # check if there is any failed child/self ECU
+        # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
         self.failed_ecus_id = set(
             (
@@ -303,7 +445,9 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_failed and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_failed
+                and status.ecu_id not in lost_ecus
             )
         )
         if _new_failed_ecu := self.failed_ecus_id.difference(_old_failed_ecus_id):
@@ -311,18 +455,19 @@ class ECUStatusStorage:
                 f"new failed ECU(s) detected: {_new_failed_ecu}, current {self.failed_ecus_id=}"
             )
 
-        # check if any ECUs require network
+        # check if any ECUs in the tracked tracked active ECUs set require network
         self.any_requires_network = any(
             (
                 status.requires_network
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.ecu_id not in lost_ecus
             )
         )
 
-        # check if all child ECUs and self ECU are in SUCCESS ota_status
+        # check if all tracked active_ota_ecus are in SUCCESS ota_status
         _old_all_success, _old_success_ecus_id = self.all_success, self.success_ecus_id
         self.success_ecus_id = set(
             (
@@ -330,11 +475,13 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.is_success and status.ecu_id not in lost_ecus
+                if status.ecu_id in self._tracked_active_ecus
+                and status.is_success
+                and status.ecu_id not in lost_ecus
             )
         )
         # NOTE: all_success doesn't count the lost ECUs
-        self.all_success = len(self.success_ecus_id) == len(self._all_available_ecus_id)
+        self.all_success = len(self.success_ecus_id) == len(self._tracked_active_ecus)
         if _new_success_ecu := self.success_ecus_id.difference(_old_success_ecus_id):
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
             if not _old_all_success and self.all_success:
@@ -378,10 +525,11 @@ class ECUStatusStorage:
         """Update the ECU status storage with child ECU's status report(StatusResponse)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
+            _subecu_available_ecu_ids = _OrderedSet(status_resp.available_ecu_ids)
             # discover further child ECUs from directly connected sub ECUs.
-            self._all_available_ecus_id.update(
-                _OrderedSet(status_resp.available_ecu_ids)
-            )
+            self._tracked_active_ecus.update(_subecu_available_ecu_ids)
+            # merge available_ecu_ids from child ECUs resp to include further child ECUs
+            self._available_ecu_ids.update(_subecu_available_ecu_ids)
 
             # NOTE: use v2 if v2 is available, but explicitly support v1 format
             #       for backward-compatible with old otaclient
@@ -408,7 +556,6 @@ class ECUStatusStorage:
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
-            self._all_available_ecus_id.add(ecu_status.ecu_id)
 
             ecu_id = ecu_status.ecu_id
             self._all_ecus_status_v2[ecu_id] = ecu_status
@@ -422,12 +569,15 @@ class ECUStatusStorage:
         2. remove these ECUs' id from failed_ecus_id and success_ecus_id set
         3. remove these ECUs' id from lost_ecus_id set
         3. re-calculate overall ECUs status
+        4. reset tracked_active_ecus list to <ecus_accept_update>
 
         To prevent pre-mature overall status change(for example, the child ECU doesn't change
         their ota_status to UPDATING on-time due to status polling interval mismatch),
         the above set value will be kept for <DELAY_OVERALL_STATUS_REPORT_UPDATE> seconds.
         """
         async with self._properties_update_lock:
+            self._tracked_active_ecus = _OrderedSet(ecus_accept_update)
+
             self.last_update_request_received_timestamp = int(time.time())
             self.lost_ecus_id -= ecus_accept_update
             self.failed_ecus_id -= ecus_accept_update
@@ -480,7 +630,7 @@ class ECUStatusStorage:
 
         return _waiter
 
-    def export(self) -> wrapper.StatusResponse:
+    async def export(self) -> wrapper.StatusResponse:
         """Export the contents of this storage to an instance of StatusResponse.
 
         NOTE: wrapper.StatusResponse's add_ecu method already takes care of
@@ -491,29 +641,34 @@ class ECUStatusStorage:
               disconnected ECU's status report entry.
         """
         res = wrapper.StatusResponse()
-        res.available_ecu_ids.extend(self._all_available_ecus_id)
 
-        for ecu_id in self._all_available_ecus_id:
-            if ecu_id in self.lost_ecus_id:
-                continue
-            _timout = (
-                self._all_ecus_last_contact_timestamp.get(ecu_id, 0)
-                + self.DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
-            )
-            # if this ECU doesn't respond recently enough
-            if self.storage_last_updated_timestamp > _timout:
-                continue
+        async with self._writer_lock:
+            res.available_ecu_ids.extend(self._available_ecu_ids)
 
-            _ecu_status_rep = self._all_ecus_status_v2.get(
-                ecu_id, self._all_ecus_status_v1.get(ecu_id, None)
-            )
-            if _ecu_status_rep:
-                res.add_ecu(_ecu_status_rep)
-        return res
+            # NOTE(20230802): export all reachable ECUs' status, no matter they are in
+            #                 active OTA or not.
+            # NOTE: ECU status for specific ECU will not appear at both v1 and v2 list,
+            #       this is guaranteed by the update_from_child_ecu API method.
+            for ecu_id in self._all_ecus_last_contact_timestamp:
+                # NOTE: skip this ECU if it doesn't respond recently enough,
+                #       to signal the agent that this ECU doesn't respond.
+                _timout = (
+                    self._all_ecus_last_contact_timestamp.get(ecu_id, 0)
+                    + self.DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
+                )
+                if self.storage_last_updated_timestamp > _timout:
+                    continue
+
+                _ecu_status_rep = self._all_ecus_status_v2.get(
+                    ecu_id, self._all_ecus_status_v1.get(ecu_id, None)
+                )
+                if _ecu_status_rep:
+                    res.add_ecu(_ecu_status_rep)
+            return res
 
 
 class _ECUTracker:
-    """Tracker that tracks and stores ECU status from all child ECUs and self ECU."""
+    """Tracker that queries and stores ECU status from all defined ECUs."""
 
     def __init__(
         self,
@@ -526,7 +681,7 @@ class _ECUTracker:
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
-        # launch ECU trackers
+        # launch ECU trackers for all defined ECUs
         # NOTE: _debug_ecu_status_polling_shutdown_event is for test only,
         #       allow us to stop background task without changing codes.
         #       In normal running this event will never be set.
@@ -604,7 +759,14 @@ class OTAClientServiceStub:
         #       In normal running this event will never be set.
         self._debug_status_checking_shutdown_event = asyncio.Event()
         if _proxy_cfg.enable_local_ota_proxy:
-            self._otaproxy_launcher = OTAProxyLauncher(executor=self._executor)
+            self._otaproxy_launcher = OTAProxyLauncher(
+                executor=self._executor,
+                subprocess_ctx=_OTAProxyContext(
+                    upper_proxy=_proxy_cfg.upper_ota_proxy,
+                    # NOTE: default enable detecting external cache storage
+                    external_cache_enabled=True,
+                ),
+            )
             asyncio.create_task(self._otaproxy_lifecycle_managing())
             asyncio.create_task(self._otaclient_control_flags_managing())
         else:
@@ -791,4 +953,4 @@ class OTAClientServiceStub:
         return response
 
     async def status(self, _=None) -> wrapper.StatusResponse:
-        return self._ecu_status_storage.export()
+        return await self._ecu_status_storage.export()
