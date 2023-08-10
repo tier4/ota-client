@@ -1,6 +1,6 @@
 # Local OTA status monitor util
 
-A helper util for querying specific otaclient's status API and showing the OTA status in real time in the terminal window.
+A helper util for querying specific otaclient's status API and showing the OTA status in real time in the terminal window. If multiple ECUs' status are included, all of these ECUs' status(up to 10) will be displayed.
 
 ## Usage
 
@@ -41,9 +41,11 @@ options:
 
 ## UI presentation
 
-In each window, navigation is possible by using arrow_key, mouse scroll or page_up/page_down key.
+In each window, navigation is possible by using arrow_key, mouse scroll or page_up/page_down key. Pause is possible by pressing `p` in any window.
 
 ### Main window
+
+The main window of the CLI, it will display all ECUs listed in the ECU status API response from the queried otaclient.
 
 ``` text
                                         OTA status monitor
@@ -98,6 +100,8 @@ Paused, press any key to resume.
 
 ### SubWindow 1: raw ECU status
 
+By pressing `<Num>` key on main window, the corresponding ECU's raw status report will be shown in a sub window.
+
 ```text
                              Raw ECU status info for autoware(#0) ECU
  ┌───────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -149,6 +153,8 @@ Paused, press any key to resume.
 ```
 
 ### SubWindow 2: detailed failure info
+
+If any of the ECU failed, by pressing `<Alt+num>` key combination on main window, pretty formatted detailed failure information(including failure_reason, failure_traceback) for the corresponding ECU will be shown in a sub window.
 
 ```text
                                 Failure info for autoware(#0) ECU
