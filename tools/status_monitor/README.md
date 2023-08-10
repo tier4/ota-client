@@ -2,7 +2,7 @@
 
 A helper util for querying specific otaclient's status API and showing the OTA status in real time in the terminal window.
 
-## Usage 
+## Usage
 
 This helper util requires otaclient installed. Prepare a virtual environment with otaclient installed, and then execute the package as follow:
 
