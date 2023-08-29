@@ -38,6 +38,7 @@ Please refer to OTA cache design doc for more details.
 
 
 import argparse
+import errno
 import logging
 import sys
 import tempfile
@@ -71,14 +72,14 @@ def main(args):
 
     if not image_metas:
         print("ERR: at least one valid image should be given, abort")
-        sys.exit(-1)
+        sys.exit(errno.EINVAL)
 
     # ------ parse export options ------ #
     output_fpath, write_to_dev = args.output, args.write_to
 
     if write_to_dev and not Path(write_to_dev).is_block_device():
         print(f"{write_to_dev} is not a block device, abort")
-        sys.exit(-1)
+        sys.exit(errno.EINVAL)
 
     if write_to_dev and not args.confirm_write_to:
         _confirm_write_to = input(
@@ -87,7 +88,7 @@ def main(args):
         )
         if _confirm_write_to != "Y":
             print(f"decline writing to {write_to_dev}, abort")
-            sys.exit(-1)
+            sys.exit(errno.EINVAL)
     elif write_to_dev and args.confirm_write_to:
         logger.warning(
             f"generated image will be written to {write_to_dev},"
@@ -152,14 +153,14 @@ if __name__ == "__main__":
     # basic options check
     if args.output and (output := Path(args.output)).is_file():
         print(f"ERR: {output} exists, abort")
-        sys.exit(-1)
+        sys.exit(errno.EINVAL)
 
     if not (args.output or args.write_to):
         print("ERR: at least one export option should be specified")
-        sys.exit(-1)
+        sys.exit(errno.EINVAL)
 
     try:
         main(args)
     except KeyboardInterrupt:
         print("ERR: aborted by user")
-        sys.exit(-1)
+        raise
