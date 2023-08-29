@@ -29,7 +29,6 @@ def main(title: str, host: str, port: int):
     try:
         curses.wrapper(main_scrn.main)
     except KeyboardInterrupt:
-        tracker.stop()
         print("stop OTA status monitor")
         sys.exit(0)
 
