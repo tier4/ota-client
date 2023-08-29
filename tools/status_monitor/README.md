@@ -16,7 +16,8 @@ $ python3 -m venv venv
 $ . venv/bin/activate
 (venv) $
 
-# install otaclient
+# update pip and install otaclient
+(venv) $ pip install -U pip
 (venv) $ pip install -e ota-client
 ...
 
