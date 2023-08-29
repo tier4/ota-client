@@ -23,7 +23,7 @@ try:
     import otaclient  # noqa: F401
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from . import _logutil, _status_call, _update_call
+from . import _logutil, _update_call
 
 logger = _logutil.get_logger(__name__)
 
@@ -69,14 +69,6 @@ async def main(args: argparse.Namespace):
             ecu_port,
             request_file=args.request,
         )
-    elif cmd == "status":
-        await _status_call.call_status(
-            ecu_id,
-            ecu_ip,
-            ecu_port,
-            interval=args.interval,
-            count=args.count,
-        )
 
 
 if __name__ == "__main__":
@@ -91,26 +83,12 @@ if __name__ == "__main__":
         default="test_utils/ecu_info.yaml",
         help="ecu_info file to configure the caller",
     )
-    parser.add_argument("command", help="API to call, available API: update, status")
+    parser.add_argument("command", help="API to call, available API: update")
     parser.add_argument(
         "-t",
         "--target",
         default="autoware",
         help="indicate the target for the API request",
-    )
-    parser.add_argument(
-        "-i",
-        "--interval",
-        type=float,
-        default=1,
-        help="(status) polling interval in second for status API call",
-    )
-    parser.add_argument(
-        "-C",
-        "--count",
-        type=int,
-        default=0,
-        help="(status) polling <count> time and then exits, value<=0 means inf",
     )
     parser.add_argument(
         "-r",
@@ -120,8 +98,8 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    if args.command not in {"update", "status"}:
-        parser.error(f"unknown API: {args.command} (available: update, status)")
+    if args.command != "update":
+        parser.error(f"unknown API: {args.command} (available: update)")
     if not Path(args.ecu_info).is_file():
         parser.error(f"ecu_info file {args.ecu_info} not found!")
     if args.command == "update" and not Path(args.request).is_file():
