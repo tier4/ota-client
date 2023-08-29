@@ -81,7 +81,7 @@ def main(args):
         print(f"{write_to_dev} is not a block device, abort")
         sys.exit(errno.EINVAL)
 
-    if write_to_dev and not args.confirm_write_to:
+    if write_to_dev and not args.force_write_to:
         _confirm_write_to = input(
             f"WARNING: generated image will be written to {write_to_dev}, \n"
             f"\t all data in {write_to_dev} will be lost, continue(type [Y] or [N]): "
@@ -89,7 +89,7 @@ def main(args):
         if _confirm_write_to != "Y":
             print(f"decline writing to {write_to_dev}, abort")
             sys.exit(errno.EINVAL)
-    elif write_to_dev and args.confirm_write_to:
+    elif write_to_dev and args.force_write_to:
         logger.warning(
             f"generated image will be written to {write_to_dev},"
             f"all data in {write_to_dev} will be lost"
@@ -141,9 +141,9 @@ if __name__ == "__main__":
         metavar="<DEVICE>",
     )
     parser.add_argument(
-        "--confirm-write-to",
+        "--force-write-to",
         help=(
-            "writing generated to <DEVICE> without inter-active confirmation, "
+            "prepare <DEVICE> as external cache source device without inter-active confirmation, "
             "only valid when used with -w option."
         ),
         action="store_true",

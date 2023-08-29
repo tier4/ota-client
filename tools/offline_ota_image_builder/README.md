@@ -132,15 +132,15 @@ options:
   -w <DEVICE>, --write-to <DEVICE>
                         write the image to <DEVICE> and prepare the device as external cache source
                         device.
-  --confirm-write-to    writing generated to <DEVICE> without inter-active confirmation, only valid
-                        when used with -w option.
+  --force-write-to    prepare <DEVICE> as external cache source device without inter-active confirmation,
+                      only valid when used with -w option.
 ```
 
 Execute the image builder by directly calling it from the source code. This package requires `root` permission to run(required by extracting OTA image and preparing external cache source device).
 
 Option `--image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]` is used to specify OTA image to be included. This option can be used multiple times to specify multiple OTA images.
 
-Option `--write-to <DEVICE>` is used to prepare external cache source device used by otaproxy. The specified device will be formatted as `ext4`, fslabel with `ota_cache_src`, and be exported with the built offline OTA image's rootfs.
+Option `--write-to <DEVICE>` is used to prepare external cache source device used by otaproxy. The specified device will be formatted as `ext4`, fslabel with `ota_cache_src`, and be exported with the built offline OTA image's rootfs. If this package is used in a non-interactive script, option `--force-write-to` can be used to bypass interactive confirmation.
 
 Option `--output <OUTPUT>` specify where to save the exported tar archive of built image.
 
