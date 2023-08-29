@@ -24,8 +24,7 @@ from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from otaclient.app.common import subprocess_call
-from otaclient.app.ota_metadata import parse_regulars_from_txt
-
+from otaclient.app import ota_metadata
 from .configs import cfg
 from .manifest import ImageMetadata, Manifest
 from .utils import StrPath, InputImageProcessError, ExportError
@@ -61,23 +60,33 @@ def _unarchive_image(image_fpath: StrPath, *, workdir: StrPath):
 
 
 def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath):
+    """Processing OTA image under <ota_image_dir> and update <data_dir> and <meta_dir>."""
     _start_time = time.time()
     data_dir = Path(data_dir)
     # statistics
     saved_files, saved_files_size = 0, 0
 
-    # process OTA image files, save to shared data folder
     ota_image_dir = Path(ota_image_dir)
-    ota_image_data_dir = ota_image_dir / cfg.OTA_IMAGE_DATA_DIR
-    ota_image_data_zst_dir = ota_image_dir / cfg.OTA_IMAGE_DATA_ZST_DIR
-    with open(ota_image_dir / cfg.OTA_METAFILE_REGULAR, "r") as f:
+
+    # ------ process OTA image metadata ------ #
+    metadata_jwt_fpath = ota_image_dir / ota_metadata.OTAMetadata.METADATA_JWT
+    # NOTE: we don't need to do certificate verification here, so set certs_dir to empty
+    metadata_jwt = ota_metadata._MetadataJWTParser(
+        metadata_jwt_fpath.read_text(), certs_dir=""
+    ).get_otametadata()
+
+    rootfs_dir = ota_image_dir / metadata_jwt.rootfs_directory
+    compressed_rootfs_dir = ota_image_dir / metadata_jwt.compressed_rootfs_directory
+
+    # ------ update data_dir with the contents of this OTA image ------ #
+    with open(ota_image_dir / metadata_jwt.regular.file, "r") as f:
         for line in f:
-            reg_inf = parse_regulars_from_txt(line)
+            reg_inf = ota_metadata.parse_regulars_from_txt(line)
             ota_file_sha256 = reg_inf.sha256hash.hex()
 
             if reg_inf.compressed_alg == cfg.OTA_IMAGE_COMPRESSION_ALG:
                 _zst_ota_fname = f"{ota_file_sha256}.{cfg.OTA_IMAGE_COMPRESSION_ALG}"
-                src = ota_image_data_zst_dir / _zst_ota_fname
+                src = compressed_rootfs_dir / _zst_ota_fname
                 dst = data_dir / _zst_ota_fname
                 # NOTE: multiple OTA files might have the same hash
                 # NOTE: squash OTA file permission before moving
@@ -88,7 +97,7 @@ def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: S
                     saved_files_size += dst.stat().st_size
 
             else:
-                src = ota_image_data_dir / os.path.relpath(reg_inf.path, "/")
+                src = rootfs_dir / os.path.relpath(reg_inf.path, "/")
                 dst = data_dir / ota_file_sha256
                 if not dst.is_file() and src.is_file():
                     src.chmod(0o644)
@@ -96,9 +105,13 @@ def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: S
                     shutil.move(str(src), dst)
                     saved_files_size += dst.stat().st_size
 
+    # ------ update meta_dir with the OTA meta files in this image ------ #
     # copy OTA metafiles to image specific meta folder
-    for _fname in cfg.OTA_METAFILES_LIST:
-        shutil.move(str(ota_image_dir / _fname), meta_dir)
+    for _metaf in ota_metadata.MetafilesV1:
+        shutil.move(str(ota_image_dir / _metaf.value), meta_dir)
+    # copy certificate and metadata.jwt
+    shutil.move(str(ota_image_dir / metadata_jwt.certificate.file), meta_dir)
+    shutil.move(str(metadata_jwt_fpath), meta_dir)
 
     logger.info(f"finish processing OTA image, takes {time.time() - _start_time:.2f}s")
     return saved_files, saved_files_size

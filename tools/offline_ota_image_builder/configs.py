@@ -25,17 +25,6 @@ class BaseConfig:
     IMAGE_UNARCHIVE_WORKDIR = "images"
 
     DEFAULT_OTA_METADATA_VERSION = 1
-    OTA_METAFILES_LIST = [
-        "certificate.pem",
-        "metadata.jwt",
-        "dirs.txt",
-        "regulars.txt",
-        "symlinks.txt",
-        "persistents.txt",
-    ]
-    OTA_METAFILE_REGULAR = "regulars.txt"
-    OTA_IMAGE_DATA_DIR = "data"
-    OTA_IMAGE_DATA_ZST_DIR = "data.zst"
     OTA_IMAGE_COMPRESSION_ALG = "zst"
 
     EXTERNAL_CACHE_DEV_FSLABEL = "ota_cache_src"
