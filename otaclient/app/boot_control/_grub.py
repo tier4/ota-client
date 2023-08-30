@@ -214,7 +214,7 @@ class GrubHelper:
         and the latest specified value will be used.
         """
         default_kvp = cls.grub_default_options.copy()
-        if default_entry_idx:
+        if default_entry_idx is not None:
             default_kvp["GRUB_DEFAULT"] = f"{default_entry_idx}"
 
         res_kvp: Dict[str, str] = {}
@@ -241,6 +241,7 @@ class GrubHelper:
             )
         ]
         res.extend(f"{k}={v}" for k, v in res_kvp.items())
+        res.append("")  # add a new line at the end of the file
         return "\n".join(res)
 
     @staticmethod
