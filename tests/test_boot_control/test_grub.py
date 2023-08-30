@@ -368,12 +368,15 @@ class TestGrubControl:
             #   5. GRUB_TIMEOUT_STYLE which specified multiple times should be merged into one,
             #      and take the latest specified value,
             #   6. GRUB_DEFAULT is updated as <default_entry>,
-            #   7. allow '=' sign within option value.
+            #   7. allow '=' sign within option value,
+            #   8. empty lines and comments are removed.
             """\
 GRUB_DEFAULT=6
 X_DUPLICATED_OPTIONS=100
 GRUB_TIMEOUT_STYLE=hidden
-GRUB_TIMEOUT=0
+GRUB_TIMEOUT=99
+
+# some comments here
 GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
 GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
 X_DUPLICATED_OPTIONS=200
