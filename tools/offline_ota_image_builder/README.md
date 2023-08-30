@@ -7,7 +7,7 @@ Built image can be used as external cache source for otaproxy, or used by full o
 
 It provides the following features:
 
-1. build offline OTA image from several OTA images,
+1. build offline OTA image from the OTA images built by ota-metadata(or images compatible with OTA image specification),
 2. export built offline OTA image as tar archive,
 3. prepare and export built image onto specific block device as external cache source device for otaproxy.
 
