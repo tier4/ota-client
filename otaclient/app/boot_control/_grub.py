@@ -338,24 +338,12 @@ class GrubABPartitionDetecter:
         slot_name = dev_path.lstrip("/dev/")
         return slot_name, dev_path
 
-    ###### public methods ######
-    def get_standby_slot(self) -> str:
-        return self.standby_slot
 
-    def get_standby_slot_dev(self) -> str:
-        return self.standby_dev
+def detect_previous_active_slot_by_symlink() -> str:
+    """Detect the previous active partition by symlink.
 
-    def get_active_slot(self) -> str:
-        return self.active_slot
-
-    def get_active_slot_dev(self) -> str:
-        return self.active_dev
-
-
-class _SymlinkABPartitionDetecter:
-    """Implementation of legacy way to detect active/standby slot.
-
-    NOTE: this is re-introduced for backward compatibility reason.
+    NOTE: deprecated by slot_in_use file, but still use it in prior due to
+          backward compatibility reason.
 
     Get the active slot by reading the symlink target of /boot/ota-partition.
     if ota-partition -> ota-partition.sda3, then active slot is sda3.
@@ -363,38 +351,13 @@ class _SymlinkABPartitionDetecter:
     If there are ota-partition.sda2 and ota-partition.sda3 exist under /boot, and
     ota-partition -> ota-partition.sda3, then sda2 is the standby slot.
     """
+    try:
+        ota_partition_symlink = Path(cfg.BOOT_DIR) / cfg.BOOT_OTA_PARTITION_FILE
+        active_ota_partition_file = os.readlink(ota_partition_symlink)
 
-    @classmethod
-    def _get_active_slot_by_symlink(cls) -> str:
-        try:
-            ota_partition_symlink = Path(cfg.BOOT_DIR) / cfg.BOOT_OTA_PARTITION_FILE
-            active_ota_partition_file = os.readlink(ota_partition_symlink)
-
-            return Path(active_ota_partition_file).suffix.strip(".")
-        except FileNotFoundError:
-            raise _errors.ABPartitionError("ota-partition files are broken")
-
-    @classmethod
-    def _get_standby_slot_by_symlink(cls) -> str:
-        """
-        NOTE: expecting to have only 2 ota-partition files for A/B partition each.
-        """
-        boot_dir = Path(cfg.BOOT_DIR)
-        try:
-            ota_partition_fs = list(boot_dir.glob(f"{cfg.BOOT_OTA_PARTITION_FILE}.*"))
-
-            active_slot = cls._get_active_slot_by_symlink()
-            active_slot_ota_partition_file = (
-                boot_dir / f"{cfg.BOOT_OTA_PARTITION_FILE}.{active_slot}"
-            )
-            ota_partition_fs.remove(active_slot_ota_partition_file)
-
-            assert len(ota_partition_fs) == 1
-        except (ValueError, AssertionError):
-            raise _errors.ABPartitionError("ota-partition files are broken")
-
-        (standby_ota_partition_file,) = ota_partition_fs
-        return standby_ota_partition_file.suffix.strip(".")
+        return Path(active_ota_partition_file).suffix.strip(".")
+    except FileNotFoundError:
+        raise _errors.ABPartitionError("ota-partition symlink is broken")
 
 
 class _GrubControl:
@@ -403,10 +366,10 @@ class _GrubControl:
     def __init__(self) -> None:
         """NOTE: init only, no changes will be made in the __init__."""
         ab_detecter = GrubABPartitionDetecter()
-        self.active_root_dev = ab_detecter.get_active_slot_dev()
-        self.standby_root_dev = ab_detecter.get_standby_slot_dev()
-        self.active_slot = ab_detecter.get_active_slot()
-        self.standby_slot = ab_detecter.get_standby_slot()
+        self.active_root_dev = ab_detecter.active_dev
+        self.standby_root_dev = ab_detecter.standby_dev
+        self.active_slot = ab_detecter.active_slot
+        self.standby_slot = ab_detecter.standby_slot
         logger.info(f"{self.active_slot=}, {self.standby_slot=}")
 
         self.boot_dir = Path(cfg.BOOT_DIR)
@@ -747,11 +710,12 @@ class GrubController(
         # NOTE(20220714): maintain backward compatibility, not using slot_in_use
         # file here to detect switching boot. Maybe enable it in the future.
 
-        # evidence 2(legacy): ota-partition.standby should be the
-        # current booted slot, because ota-partition symlink is not yet switched
-        # at the first reboot.
-        _target_slot = _SymlinkABPartitionDetecter._get_standby_slot_by_symlink()
-        _check_slot_in_use = _target_slot == self._boot_control.active_slot
+        # evidence 2(legacy): ota-partition symlink should not point to current
+        #                     booted slot, because ota-partition symlink is not yet switched
+        #                     at the first reboot.
+        _check_slot_in_use = (
+            self._boot_control.active_slot != detect_previous_active_slot_by_symlink()
+        )
 
         # evidence 2: slot_in_use file should have the same slot as current slot
         # _target_slot = self._load_current_slot_in_use()
