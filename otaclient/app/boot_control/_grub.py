@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
+from functools import partial
 from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 from pathlib import Path
@@ -42,10 +43,8 @@ from ..proto import wrapper
 from . import _errors
 from ._common import (
     CMDHelperFuncs,
-    OTAStatusMixin,
-    PrepareMountMixin,
-    SlotInUseMixin,
-    VersionControlMixin,
+    OTAStatusFilesControl,
+    SlotMountHelper,
     cat_proc_cmdline,
 )
 from .configs import grub_cfg as cfg
@@ -553,6 +552,21 @@ class _GrubControl:
         )
 
     ###### public methods ######
+
+    def prepare_standby_dev(self, *, erase_standby: bool):
+        try:
+            # try to unmount the standby root dev unconditionally
+            if CMDHelperFuncs.is_target_mounted(self.standby_root_dev):
+                CMDHelperFuncs.umount(self.standby_root_dev)
+
+            if erase_standby:
+                CMDHelperFuncs.mkfs_ext4(self.standby_root_dev)
+            # TODO: check the standby file system status
+            #       if not erase the standby slot
+        except Exception as e:
+            _err_msg = f"failed to prepare standby dev: {e!r}"
+            raise BootControlPreUpdateFailed(_err_msg) from e
+
     def reprepare_active_ota_partition_file(self, *, abort_on_standby_missed: bool):
         self._prepare_kernel_initrd_links_for_ota(self.active_ota_partition_folder)
         # switch ota-partition symlink to current active slot
@@ -560,6 +574,7 @@ class _GrubControl:
         self._grub_update_for_active_slot(
             abort_on_standby_missed=abort_on_standby_missed
         )
+        return True
 
     def reprepare_standby_ota_partition_file(self):
         """NOTE: this method still updates active grub file under active ota-partition folder."""
@@ -615,127 +630,32 @@ class _GrubControl:
     finalize_update_switch_boot = reprepare_active_ota_partition_file
 
 
-class GrubController(
-    VersionControlMixin,
-    OTAStatusMixin,
-    PrepareMountMixin,
-    SlotInUseMixin,
-    BootControllerProtocol,
-):
+class GrubController(BootControllerProtocol):
     def __init__(self) -> None:
         try:
             self._boot_control = _GrubControl()
-
-            # try to unmount standby dev if possible
-            CMDHelperFuncs.umount(self._boot_control.standby_root_dev)
-            self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
-            self.standby_slot_mount_point.mkdir(exist_ok=True)
-
-            ## ota-status dir
-            self.current_ota_status_dir = self._boot_control.active_ota_partition_folder
-            self.standby_ota_status_dir = (
-                self._boot_control.standby_ota_partition_folder
+            # mount point prepare
+            self._mp_control = SlotMountHelper(
+                standby_slot_dev=self._boot_control.standby_root_dev,
+                standby_slot_mount_point=cfg.MOUNT_POINT,
+                active_slot_dev=self._boot_control.active_root_dev,
+                active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
 
-            # refroot mount point
-            self.ref_slot_mount_point = Path(cfg.ACTIVE_ROOT_MOUNT_POINT)
-            # try to umount refroot mount point
-            CMDHelperFuncs.umount(self.ref_slot_mount_point)
-            if not os.path.isdir(self.ref_slot_mount_point):
-                os.mkdir(self.ref_slot_mount_point)
-
-            # init boot control
-            #   1. load/process ota_status
-            #   2. finalize update/rollback or init boot files
-            self._init_boot_control()
+            # load ota-status files
+            self._ota_status_control = OTAStatusFilesControl(
+                active_slot=self._boot_control.active_slot,
+                standby_slot=self._boot_control.standby_slot,
+                current_ota_status_dir=self._boot_control.active_ota_partition_folder,
+                standby_ota_status_dir=self._boot_control.standby_ota_partition_folder,
+                finalize_switching_boot=partial(
+                    self._boot_control.finalize_update_switch_boot,
+                    abort_on_standby_missed=True,
+                ),
+            )
         except Exception as e:
             logger.error(f"failed on init boot controller: {e!r}")
             raise BootControlInitError from e
-
-    def _init_boot_control(self):
-        # load ota_status str and slot_in_use
-        _ota_status = self._load_current_ota_status()
-        _slot_in_use = self._load_current_slot_in_use()
-
-        # NOTE: for backward compatibility, only check otastatus file
-        if not _ota_status:
-            logger.info("initializing boot control files...")
-            _ota_status = wrapper.StatusOta.INITIALIZED
-            self._boot_control.init_active_ota_partition_file()
-            self._store_current_slot_in_use(self._boot_control.active_slot)
-            self._store_current_ota_status(wrapper.StatusOta.INITIALIZED)
-
-        # populate slot_in_use file if it doesn't exist
-        if not _slot_in_use:
-            self._store_current_slot_in_use(self._boot_control.active_slot)
-
-        if _ota_status in [wrapper.StatusOta.UPDATING, wrapper.StatusOta.ROLLBACKING]:
-            if self._is_switching_boot():
-                self._boot_control.finalize_update_switch_boot(
-                    abort_on_standby_missed=True
-                )
-                # switch ota_status
-                _ota_status = wrapper.StatusOta.SUCCESS
-            else:
-                if _ota_status == wrapper.StatusOta.ROLLBACKING:
-                    _ota_status = wrapper.StatusOta.ROLLBACK_FAILURE
-                else:
-                    _ota_status = wrapper.StatusOta.FAILURE
-        # other ota_status will remain the same
-
-        # detect failed reboot, but only print error logging
-        if (
-            _ota_status != wrapper.StatusOta.INITIALIZED
-            and _slot_in_use
-            and _slot_in_use != self._boot_control.active_slot
-        ):
-            logger.error(
-                f"boot into old slot {self._boot_control.active_slot}, "
-                f"but slot_in_use indicates it should boot into {_slot_in_use}, "
-                "this might indicate a failed finalization at first reboot after update/rollback"
-            )
-
-        # apply ota_status to otaclient
-        self.ota_status = _ota_status
-        self._store_current_ota_status(_ota_status)
-        logger.info(f"boot control init finished, ota_status is {_ota_status}")
-
-    def _is_switching_boot(self):
-        # evidence 1: ota_status should be updating/rollbacking at the first reboot
-        _check_ota_status = self._load_current_ota_status() in [
-            wrapper.StatusOta.UPDATING,
-            wrapper.StatusOta.ROLLBACKING,
-        ]
-
-        # NOTE(20220714): maintain backward compatibility, not using slot_in_use
-        # file here to detect switching boot. Maybe enable it in the future.
-
-        # evidence 2(legacy): ota-partition symlink should not point to current
-        #                     booted slot, because ota-partition symlink is not yet switched
-        #                     at the first reboot.
-        _check_slot_in_use = (
-            self._boot_control.active_slot != detect_previous_active_slot_by_symlink()
-        )
-
-        # evidence 2: slot_in_use file should have the same slot as current slot
-        # _target_slot = self._load_current_slot_in_use()
-        # _check_slot_in_use = _target_slot == self._boot_control.active_slot
-
-        res = _check_ota_status and _check_slot_in_use
-        logger.info(
-            f"_is_switching_boot: {res} "
-            f"({_check_ota_status=}, {_check_slot_in_use=})"
-        )
-        return res
-
-    def _finalize_update(self) -> wrapper.StatusOta:
-        if self._is_switching_boot():
-            self._boot_control.finalize_update_switch_boot(abort_on_standby_missed=True)
-            return wrapper.StatusOta.SUCCESS
-        else:
-            return wrapper.StatusOta.FAILURE
-
-    _finalize_rollback = _finalize_update
 
     def _update_fstab(self, *, active_slot_fstab: Path, standby_slot_fstab: Path):
         """Update standby fstab based on active slot's fstab and just installed new stanby fstab.
@@ -799,7 +719,7 @@ class GrubController(
         )
         removes = (
             f
-            for f in self.standby_ota_status_dir.glob("*")
+            for f in self._ota_status_control.standby_ota_status_dir.glob("*")
             if f.name not in files_keept
         )
         for f in removes:
@@ -809,48 +729,39 @@ class GrubController(
                 f.unlink(missing_ok=True)
 
     ###### public methods ######
-    # also includes methods from OTAStatusMixin, VersionControlMixin
-    # load_version, get_ota_status
-    def on_operation_failure(self):
-        """Failure registering and cleanup at failure."""
-        self._store_standby_ota_status(wrapper.StatusOta.FAILURE)
-        self._store_current_ota_status(wrapper.StatusOta.FAILURE)
-        logger.warning("on failure try to unmounting standby slot...")
-        self._umount_all(ignore_error=True)
 
     def get_standby_slot_path(self) -> Path:
-        return self.standby_slot_mount_point
+        return self._mp_control.standby_slot_mount_point
 
     def get_standby_boot_dir(self) -> Path:
-        """
-        NOTE: in grub_controller, kernel and initrd images are stored under
-        the ota_status_dir(ota_partition_dir)
-        """
-        return self.standby_ota_status_dir
+        return self._mp_control.standby_boot_dir
+
+    def load_version(self) -> str:
+        return self._ota_status_control.load_active_slot_version()
+
+    def get_ota_status(self) -> wrapper.StatusOta:
+        return self._ota_status_control.ota_status
+
+    def on_operation_failure(self):
+        """Failure registering and cleanup at failure."""
+        logger.warning("on failure try to unmounting standby slot...")
+        self._ota_status_control.on_failure()
+        self._mp_control.umount_all(ignore_error=True)
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
         try:
-            # update ota_status files
-            self._store_current_ota_status(wrapper.StatusOta.FAILURE)
-            self._store_standby_ota_status(wrapper.StatusOta.UPDATING)
-            # update version file
-            self._store_standby_version(version)
-            # update slot_in_use file
-            # set slot_in_use to <standby_slot> to both slots
-            _target_slot = self._boot_control.standby_slot
-            self._store_current_slot_in_use(_target_slot)
-            self._store_standby_slot_in_use(_target_slot)
+            logger.info("grub_boot: pre-update setup...")
+            ### udpate active slot's ota_status ###
+            self._ota_status_control.pre_update_current()
 
-            # enter pre-update
-            self._prepare_and_mount_standby(
-                self._boot_control.standby_root_dev,
-                erase=erase_standby,
-            )
-            self._mount_refroot(
-                standby_dev=self._boot_control.standby_root_dev,
-                active_dev=self._boot_control.active_root_dev,
-                standby_as_ref=standby_as_ref,
-            )
+            ### mount slots ###
+            self._boot_control.prepare_standby_dev(erase_standby=erase_standby)
+            self._mp_control.mount_standby()
+            self._mp_control.mount_active()
+
+            ### update standby slot's ota_status files ###
+            self._ota_status_control.pre_update_standby(version=version)
+
             # remove old files under standby ota_partition folder
             self.cleanup_standby_ota_partition_folder()
         except Exception as e:
@@ -859,11 +770,12 @@ class GrubController(
 
     def post_update(self) -> Generator[None, None, None]:
         try:
+            logger.info("grub_boot: post-update setup...")
             # update fstab
-            active_fstab = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
+            active_fstab = self._mp_control.active_slot_mount_point / Path(
                 cfg.FSTAB_FILE_PATH
             ).relative_to("/")
-            standby_fstab = self.standby_slot_mount_point / Path(
+            standby_fstab = self._mp_control.standby_slot_mount_point / Path(
                 cfg.FSTAB_FILE_PATH
             ).relative_to("/")
             self._update_fstab(
@@ -871,9 +783,9 @@ class GrubController(
                 active_slot_fstab=active_fstab,
             )
             # umount all mount points after local update finished
-            self._umount_all(ignore_error=True)
-
+            self._mp_control.umount_all(ignore_error=True)
             self._boot_control.grub_reboot_to_standby()
+
             yield  # hand over control to otaclient
             CMDHelperFuncs.reboot()
         except Exception as e:
@@ -882,15 +794,19 @@ class GrubController(
 
     def pre_rollback(self):
         try:
-            self._store_current_ota_status(wrapper.StatusOta.FAILURE)
-            self._store_standby_ota_status(wrapper.StatusOta.ROLLBACKING)
+            logger.info("grub_boot: pre-rollback setup...")
+            self._ota_status_control.pre_rollback_current()
+            self._mp_control.mount_standby()
+            self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             logger.error(f"failed on pre_rollback: {e!r}")
             raise BootControlPreRollbackFailed from e
 
     def post_rollback(self):
         try:
+            logger.info("grub_boot: post-rollback setup...")
             self._boot_control.grub_reboot_to_standby()
+            self._mp_control.umount_all(ignore_error=True)
             CMDHelperFuncs.reboot()
         except Exception as e:
             logger.error(f"failed on pre_rollback: {e!r}")
