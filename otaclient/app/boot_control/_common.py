@@ -450,45 +450,23 @@ class OTAStatusFilesControl:
         self.standby_ota_status_dir = Path(standby_ota_status_dir)
         self.finalize_switching_boot = finalize_switching_boot
 
-        # NOTE: pre-assign live ota_status with the loaded ota_status,
-        #       and then update live ota_status in below.
-        #       The reason is for some platform, like raspberry pi 4B,
-        #       the finalize_switching_boot might be slow, so we first provide
-        #       live ota_status the same as loaded ota_status(or INITIALIZED),
-        #       then update it after the init_ota_status_files finished.
-        _loaded_ota_status = self._load_current_status()
-        self._ota_status = (
-            _loaded_ota_status if _loaded_ota_status else wrapper.StatusOta.INITIALIZED
-        )
-
-        _loaded_slot_in_use = self._load_current_slot_in_use()
-        if _loaded_slot_in_use and _loaded_slot_in_use != self.active_slot:
-            logger.warning(
-                f"boot into old slot {self.active_slot}, "
-                f"but slot_in_use indicates it should boot into {_loaded_slot_in_use}, "
-                "this might indicate a failed finalization at first reboot after update/rollback"
-            )
-
-        self._load_ota_status_files()
-        logger.info(
-            f"ota_status files parsing completed, ota_status is {self._ota_status}"
-        )
-
-    def _load_ota_status_files(self):
-        """Check and/or init ota_status files for current slot."""
         self.current_ota_status_dir.mkdir(exist_ok=True, parents=True)
+        self._load_slot_in_use_file()
+        self._load_status_file()
+        logger.info(
+            f"ota_status files parsing completed, ota_status is {self._ota_status.name}"
+        )
 
-        # load ota_status and slot_in_use file
+    def _load_status_file(self):
+        """Check and/or init ota_status files for current slot."""
         _loaded_ota_status = self._load_current_status()
-        _loaded_slot_in_use = self._load_current_slot_in_use()
 
         # initialize ota_status files if not presented/incompleted/invalid
-        if not (_loaded_ota_status and _loaded_slot_in_use):
+        if not _loaded_ota_status:
             logger.info(
                 "ota_status files incompleted/not presented, "
-                "initializing and set/store status to INITIALIZED..."
+                f"initializing and set/store status to {wrapper.StatusOta.INITIALIZED.name}..."
             )
-            self._store_current_slot_in_use(self.active_slot)
             self._store_current_status(wrapper.StatusOta.INITIALIZED)
             self._ota_status = wrapper.StatusOta.INITIALIZED
             return
@@ -503,8 +481,11 @@ class OTAStatusFilesControl:
             return
 
         # updating or rollbacking,
+        # NOTE: pre-assign live ota_status with the loaded ota_status before entering finalizing_switch_boot,
+        #       as some of the platform might have slow finalizing process(like raspberry).
+        self._ota_status = _loaded_ota_status
         # if is_switching_boot, execute the injected finalize_switching_boot function from
-        #   boot controller, transit the ota_status according to the execution result.
+        # boot controller, transit the ota_status according to the execution result.
         # NOTE(20230614): for boot controller during multi-stage reboot(like rpi_boot),
         #                 calling finalize_switching_boot might result in direct reboot,
         #                 in such case, otaclient will terminate and ota_status will not be updated.
@@ -526,7 +507,7 @@ class OTAStatusFilesControl:
         else:
             logger.error(
                 f"we are in {_loaded_ota_status.name} ota_status, "
-                f"but {_loaded_slot_in_use=} doesn't match {self.active_slot=}, "
+                "but ota_status files indicate that we are not in switching boot mode, "
                 "this indicates a failed first reboot"
             )
             self._ota_status = (
@@ -535,6 +516,23 @@ class OTAStatusFilesControl:
                 else wrapper.StatusOta.FAILURE
             )
             self._store_current_status(self._ota_status)
+
+    def _load_slot_in_use_file(self):
+        _loaded_slot_in_use = self._load_current_slot_in_use()
+        if not _loaded_slot_in_use:
+            # NOTE(20230831): this can also resolve the backward compatibility issue
+            #                 in is_switching_boot method when old otaclient doesn't create
+            #                 slot_in_use file.
+            self._store_current_slot_in_use(self.active_slot)
+            return
+
+        # check potential failed switching boot
+        if _loaded_slot_in_use and _loaded_slot_in_use != self.active_slot:
+            logger.warning(
+                f"boot into old slot {self.active_slot}, "
+                f"but slot_in_use indicates it should boot into {_loaded_slot_in_use}, "
+                "this might indicate a failed finalization at first reboot after update/rollback"
+            )
 
     # slot_in_use control
 

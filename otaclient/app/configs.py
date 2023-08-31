@@ -182,7 +182,7 @@ class BaseConfig(_InternalSettings):
     EXTERNAL_CACHE_SRC_PATH = "/mnt/external_cache_src/data"
 
     # default version string to be reported in status API response
-    DEFAULT_VERSION_STR = "unknown_version"
+    DEFAULT_VERSION_STR = ""
 
 
 # init cfgs
