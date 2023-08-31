@@ -424,8 +424,7 @@ FinalizeSwitchBootFunc = Callable[[], bool]
 
 
 class OTAStatusFilesControl:
-    """Logics for controlling otaclient's behavior using ota_status files,
-    including status, slot_in_use and version.
+    """Logics for controlling otaclient's OTA status with corresponding files.
 
     OTAStatus files:
         status: current slot's OTA status
@@ -470,13 +469,12 @@ class OTAStatusFilesControl:
                 "this might indicate a failed finalization at first reboot after update/rollback"
             )
 
-        # initializing ota_status control
-        self._init_ota_status_files()
+        self._load_ota_status_files()
         logger.info(
             f"ota_status files parsing completed, ota_status is {self._ota_status}"
         )
 
-    def _init_ota_status_files(self):
+    def _load_ota_status_files(self):
         """Check and/or init ota_status files for current slot."""
         self.current_ota_status_dir.mkdir(exist_ok=True, parents=True)
 
@@ -637,15 +635,11 @@ class OTAStatusFilesControl:
         self._store_standby_status(wrapper.StatusOta.ROLLBACKING)
 
     def load_active_slot_version(self) -> str:
-        _version = read_str_from_file(
+        return read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
             missing_ok=True,
-            default="",
+            default=cfg.DEFAULT_VERSION_STR,
         )
-        if not _version:
-            logger.warning("version file not found, return empty version string")
-
-        return _version
 
     def on_failure(self):
         """Store FAILURE to status file on failure."""
