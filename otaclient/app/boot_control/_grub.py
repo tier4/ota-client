@@ -377,20 +377,62 @@ class _GrubControl:
             cfg.DEFAULT_GRUB_PATH
         ).relative_to("/")
 
-        self.ota_partition_folder = self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
+        self.ota_partition_symlink = self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
+
         self.active_ota_partition_folder = (
             self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
         ).with_suffix(f".{self.active_slot}")
-        self.active_grub_file = self.active_ota_partition_folder / "grub.cfg"
+        self.active_ota_partition_folder.mkdir(exist_ok=True)
+        self.active_grub_file = self.active_ota_partition_folder / cfg.GRUB_CFG_FNAME
 
         self.standby_ota_partition_folder = (
             self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
         ).with_suffix(f".{self.standby_slot}")
-        self.standby_grub_file = self.standby_ota_partition_folder / "grub.cfg"
-
-        # create ota-partition folders for each
-        self.active_ota_partition_folder.mkdir(exist_ok=True)
         self.standby_ota_partition_folder.mkdir(exist_ok=True)
+        self.standby_grub_file = self.standby_ota_partition_folder / cfg.GRUB_CFG_FNAME
+
+        self._load_active_ota_partition_file()
+
+    def _load_active_ota_partition_file(self):
+        """Check active ota-partition folder and ensure the existence of required symlinks.
+
+        GrubController supports migrates system that doesn't boot via ota-partition
+        mechanism(possibly using different grub configuration, i.e., grub submenu enabled)
+        to use ota-partition.
+
+        NOTE:
+        1. this method only update the ota-partition.<active_slot>/grub.cfg!
+        2. standby slot is not considered here!
+        3. expected previously booted kernel/initrd to be located at /boot
+        """
+        cur_vmlinuz_ota = self.active_ota_partition_folder / GrubHelper.KERNEL_OTA
+        cur_initrd_ota = self.active_ota_partition_folder / GrubHelper.INITRD_OTA
+
+        if not cur_vmlinuz_ota.is_file() or not cur_initrd_ota.is_file():
+            logger.warning(
+                f"system on {self.active_slot=} doesn't use ota-partition mechanism to boot, "
+                "initializing ota-partition files for active slot..."
+            )
+            # copy the booted kernel and initrd.img into active ota-partition folder
+            cur_kernel, cur_initrd = self._get_current_booted_kernel_and_initrd()
+            # NOTE: just copy but not cleanup the booted kernel/initrd files
+            shutil.copy(
+                self.boot_dir / cur_kernel,
+                self.active_ota_partition_folder,
+                follow_symlinks=True,
+            )
+            shutil.copy(
+                self.boot_dir / cur_initrd,
+                self.active_ota_partition_folder,
+                follow_symlinks=True,
+            )
+
+            # recreate all ota-partition files for active slot
+            # NOTE: assume the system is not installed by usb installer,
+            #       skip the standby slot's ota partition file preparation.
+            self.reprepare_active_ota_partition_file(abort_on_standby_missed=False)
+
+        logger.info(f"ota-partition files for {self.active_slot} are ready")
 
     def _get_current_booted_kernel_and_initrd(self) -> Tuple[str, str]:
         """Return the name of booted kernel and initrd."""
@@ -582,42 +624,6 @@ class _GrubControl:
         self._ensure_ota_partition_symlinks()
         self._grub_update_for_active_slot(abort_on_standby_missed=True)
 
-    def init_active_ota_partition_file(self):
-        """Prepare active ota-partition folder and ensure the existence of
-        symlinks needed for ota update.
-
-        GrubController supports migrates system that doesn't boot via ota-partition
-        mechanism(possibly using different grub configuration, i.e., grub submenu enabled)
-        to use ota-partition.
-
-        NOTE:
-        1. only update the ota-partition.<active_slot>/grub.cfg!
-        2. standby slot is not considered here!
-        3. expected previously booted kernel/initrd to be located at /boot
-        """
-        # check the current booted kernel,
-        # if it is not vmlinuz-ota, copy that kernel to active ota_partition folder
-        cur_kernel, cur_initrd = self._get_current_booted_kernel_and_initrd()
-        if cur_kernel != GrubHelper.KERNEL_OTA or cur_initrd != GrubHelper.INITRD_OTA:
-            logger.info(
-                "system doesn't use ota-partition mechanism to boot, "
-                "initializing ota-partition file..."
-            )
-            # NOTE: just copy but not cleanup the existed kernel/initrd files
-            shutil.copy(
-                self.boot_dir / cur_kernel,
-                self.active_ota_partition_folder,
-                follow_symlinks=True,
-            )
-            shutil.copy(
-                self.boot_dir / cur_initrd,
-                self.active_ota_partition_folder,
-                follow_symlinks=True,
-            )
-            self.reprepare_active_ota_partition_file(abort_on_standby_missed=False)
-
-        logger.info("ota-partition file initialized")
-
     def grub_reboot_to_standby(self):
         self.reprepare_standby_ota_partition_file()
         idx, _ = GrubHelper.get_entry(
@@ -715,7 +721,7 @@ class GrubController(BootControllerProtocol):
             cfg.OTA_STATUS_FNAME,
             cfg.OTA_VERSION_FNAME,
             cfg.SLOT_IN_USE_FNAME,
-            Path(cfg.GRUB_CFG_PATH).name,
+            cfg.GRUB_CFG_FNAME,
         )
         removes = (
             f

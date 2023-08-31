@@ -55,6 +55,7 @@ class GrubControlConfig(BaseConfig):
     BOOTLOADER: BootloaderType = BootloaderType.GRUB
     FSTAB_FILE_PATH: str = "/etc/fstab"
     GRUB_DIR: str = "/boot/grub"
+    GRUB_CFG_FNAME: str = "grub.cfg"
     GRUB_CFG_PATH: str = "/boot/grub/grub.cfg"
     DEFAULT_GRUB_PATH: str = "/etc/default/grub"
     BOOT_OTA_PARTITION_FILE: str = "ota-partition"
