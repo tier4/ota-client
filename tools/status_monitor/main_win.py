@@ -67,7 +67,7 @@ class MainScreen:
             stdscr, header=self.title, footer=self.manual
         )
         pad_hlines, pad_hcols = (
-            ECUStatusDisplayBox.DISPLAY_BOX_HLINES * self.DISPLAY_BOX_ROWS_MAX,
+            config.PAD_ILNIT_HLINES,
             ECUStatusDisplayBox.DISPLAY_BOX_HCOLS * self.DISPLAY_BOX_PER_ROW,
         )
         pad = init_pad(pad_hlines, pad_hcols)
