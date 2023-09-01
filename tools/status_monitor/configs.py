@@ -33,7 +33,7 @@ class BasicConfig:
     RENDER_INTERVAL = 0.01
 
     # ------ ECU status box configs ------ #
-    ECU_DISPLAY_BOX_HLINES = 12
+    ECU_DISPLAY_BOX_HLINES = 14
     ECU_DISPLAY_BOX_HCOLS = 60
 
 

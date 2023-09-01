@@ -87,6 +87,7 @@ class ECUStatusDisplayBox:
                         (
                             f"update_starts_at: {datetime.datetime.fromtimestamp(update_status.update_start_timestamp)}"
                         ),
+                        f"update_firmware_version: {update_status.update_firmware_version}",
                         (
                             f"update_phase: {update_status.phase.name} "
                             f"(elapsed_time: {update_status.total_elapsed_time.seconds}s)"
