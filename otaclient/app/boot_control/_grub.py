@@ -494,7 +494,7 @@ class _GrubControl:
         2. this method ensures the default entry to be the current active slot.
         """
         # NOTE: If the path points to a symlink, exists() returns
-        # whether the symlink points to an existing file or directory.
+        #       whether the symlink points to an existing file or directory.
         active_vmlinuz = self.boot_dir / GrubHelper.KERNEL_OTA
         active_initrd = self.boot_dir / GrubHelper.INITRD_OTA
         if not (active_vmlinuz.exists() and active_initrd.exists()):
@@ -508,7 +508,7 @@ class _GrubControl:
         # step1: update grub_default file
         _in = self.grub_default_file.read_text()
         _out = GrubHelper.update_grub_default(_in)
-        self.grub_default_file.write_text(_out)
+        write_str_to_file_sync(self.grub_default_file, _out)
 
         # step2: generate grub_cfg by grub-mkconfig
         # parse the output and find the active slot boot entry idx
@@ -555,10 +555,9 @@ class _GrubControl:
             write_str_to_file_sync(self.active_grub_file, grub_cfg)
 
         # finally, symlink /boot/grub.cfg to ../ota-partition/grub.cfg
-        ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
         re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
             self.grub_file,
-            Path("../") / ota_partition_folder / "grub.cfg",
+            Path("../") / cfg.BOOT_OTA_PARTITION_FILE / "grub.cfg",
         )
         logger.info(f"update_grub for {self.active_slot} finished.")
 
@@ -610,6 +609,7 @@ class _GrubControl:
             raise BootControlPreUpdateFailed(_err_msg) from e
 
     def reprepare_active_ota_partition_file(self, *, abort_on_standby_missed: bool):
+        """Prepare all needed files for active slot, and point ota_partition symlink to active slot."""
         self._prepare_kernel_initrd_links_for_ota(self.active_ota_partition_folder)
         # switch ota-partition symlink to current active slot
         self._ensure_ota_partition_symlinks()
