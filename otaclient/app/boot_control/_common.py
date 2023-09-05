@@ -777,6 +777,7 @@ class SlotMountHelper:
         standby_slot_mount_point: Union[str, Path],
         active_slot_dev: Union[str, Path],
         active_slot_mount_point: Union[str, Path],
+        standby_boot_dir: Union[str, Path],
     ) -> None:
         # dev
         self.standby_slot_dev = str(standby_slot_dev)
@@ -787,7 +788,7 @@ class SlotMountHelper:
         self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
         self.active_slot_mount_point.mkdir(exist_ok=True, parents=True)
         # standby slot /boot dir
-        self.standby_boot_dir = self.standby_slot_mount_point / "boot"
+        self.standby_boot_dir = Path(standby_boot_dir)
 
     def mount_standby(self, *, raise_exc: bool = True) -> bool:
         """Mount standby slot dev to <standby_slot_mount_point>.

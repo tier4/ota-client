@@ -33,7 +33,11 @@ class BootControllerProtocol(Protocol):
 
     @abstractmethod
     def get_standby_boot_dir(self) -> Path:
-        """Get the Path points to the standby boot folder."""
+        """Get the Path points to the standby boot folder.
+
+        NOTE: this folder is meant to be the place to store kernel and initrd.img,
+              it is not neccessary to always be /boot folder.
+        """
 
     @abstractmethod
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
