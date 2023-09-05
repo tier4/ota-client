@@ -435,8 +435,11 @@ class _GrubControl:
 
         logger.info(f"ota-partition files for {self.active_slot} are ready")
 
-    def _get_current_booted_kernel_and_initrd(self) -> Tuple[str, str]:
-        """Return the name of booted kernel and initrd."""
+    def _get_current_booted_files(self) -> Tuple[str, str]:
+        """Return the name of booted kernel and initrd.
+
+        Expected booted kernel and initrd are located under /boot.
+        """
         boot_cmdline = cat_proc_cmdline()
         if kernel_ma := re.search(
             r"BOOT_IMAGE=.*(?P<kernel>vmlinuz-(?P<ver>[\w\.\-]*))",
@@ -447,11 +450,11 @@ class _GrubControl:
             raise ValueError("failed to detect booted linux kernel")
 
         # lookup the grub file and find the booted entry
-        _, entry = GrubHelper.get_entry(
-            read_str_from_file(self.grub_file), kernel_ver=kernel_ver
-        )
-        logger.info(f"detected booted param: {entry.linux=}, {entry.initrd=}")
-        return entry.linux, entry.initrd
+        # NOTE(20230905): use standard way to find initrd img
+        initrd_img = f"{GrubHelper.INITRD}-{kernel_ver}"
+        if not (Path(cfg.BOOT_DIR) / initrd_img).is_file():
+            raise ValueError(f"failed to find booted initrd image({initrd_img})")
+        return kernel_ma.group("kernel"), initrd_img
 
     @staticmethod
     def _prepare_kernel_initrd_links_for_ota(target_folder: Path):
