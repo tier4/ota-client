@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -386,9 +385,9 @@ class _GrubControl:
     def _check_active_slot_ota_partition_file(self):
         """Check and ensure active ota-partition files, init if needed.
 
-        Unconditionally prepare ota-partition files and symlink.
         GrubControl supports migrates system that doesn't boot via ota-partition
-        mechanism to using ota-partition mechanism.
+            mechanism to using ota-partition mechanism. It also supports fixing ota-partition
+            symlink missing or corrupted.
 
         NOTE:
         1. this method only update the ota-partition.<active_slot>/grub.cfg!
@@ -398,36 +397,43 @@ class _GrubControl:
         # ------ check boot files ------ #
         vmlinuz_active_slot = self.active_ota_partition_folder / GrubHelper.KERNEL_OTA
         initrd_active_slot = self.active_ota_partition_folder / GrubHelper.INITRD_OTA
-        kernel_booted, initrd_booted = self._get_current_booted_kernel_and_initrd()
-
-        _active_slot_ota_boot_files_missing = (
+        active_slot_ota_boot_files_missing = (
             not vmlinuz_active_slot.is_file() or not initrd_active_slot.is_file()
         )
-        _not_booted_with_ota_mechanism = (
-            kernel_booted != vmlinuz_active_slot.name
-            or initrd_booted != initrd_active_slot.name
-        )
 
-        if _not_booted_with_ota_mechanism or _active_slot_ota_boot_files_missing:
+        try:
+            kernel_booted, initrd_booted = self._get_current_booted_files()
+            not_booted_with_ota_mechanism = (
+                kernel_booted != vmlinuz_active_slot.name
+                or initrd_booted != initrd_active_slot.name
+            )
+        except ValueError as e:
+            logger.error(
+                f"failed to get current booted kernel and initrd.image: {e!r}, "
+                "try to use active slot ota-partition files"
+            )
+            kernel_booted, initrd_booted = vmlinuz_active_slot, initrd_active_slot
+            not_booted_with_ota_mechanism = True
+
+        if not_booted_with_ota_mechanism or active_slot_ota_boot_files_missing:
             logger.warning(
                 "system is not booted with ota mechanism("
-                f"{_not_booted_with_ota_mechanism=}, {_active_slot_ota_boot_files_missing=}), "
+                f"{not_booted_with_ota_mechanism=}, {active_slot_ota_boot_files_missing=}), "
                 f"migrating and initializing ota-partition files for {self.active_slot}@{self.active_root_dev}..."
             )
 
-            # copy the booted kernel and initrd.img into active ota-partition folder
-            kernel_booted, initrd_booted = self._get_current_booted_kernel_and_initrd()
             # NOTE: just copy but not cleanup the booted kernel/initrd files
-            shutil.copy(
-                self.boot_dir / kernel_booted,
-                self.active_ota_partition_folder,
-                follow_symlinks=True,
-            )
-            shutil.copy(
-                self.boot_dir / initrd_booted,
-                self.active_ota_partition_folder,
-                follow_symlinks=True,
-            )
+            if active_slot_ota_boot_files_missing:
+                shutil.copy(
+                    self.boot_dir / kernel_booted,
+                    self.active_ota_partition_folder,
+                    follow_symlinks=True,
+                )
+                shutil.copy(
+                    self.boot_dir / initrd_booted,
+                    self.active_ota_partition_folder,
+                    follow_symlinks=True,
+                )
 
             # recreate all ota-partition files for active slot
             self.reprepare_active_ota_partition_file(abort_on_standby_missed=False)
