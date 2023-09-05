@@ -656,6 +656,7 @@ class GrubController(BootControllerProtocol):
                 standby_slot_mount_point=cfg.MOUNT_POINT,
                 active_slot_dev=self._boot_control.active_root_dev,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+                standby_boot_dir=self._boot_control.standby_ota_partition_folder,
             )
 
             # load ota-status files
