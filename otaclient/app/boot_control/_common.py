@@ -443,6 +443,7 @@ class OTAStatusFilesControl:
         current_ota_status_dir: Union[str, Path],
         standby_ota_status_dir: Union[str, Path],
         finalize_switching_boot: FinalizeSwitchBootFunc,
+        force_initialize: bool = False,
     ) -> None:
         self.active_slot = active_slot
         self.standby_slot = standby_slot
@@ -450,6 +451,7 @@ class OTAStatusFilesControl:
         self.standby_ota_status_dir = Path(standby_ota_status_dir)
         self.finalize_switching_boot = finalize_switching_boot
 
+        self._force_initialize = force_initialize
         self.current_ota_status_dir.mkdir(exist_ok=True, parents=True)
         self._load_slot_in_use_file()
         self._load_status_file()
@@ -460,6 +462,8 @@ class OTAStatusFilesControl:
     def _load_status_file(self):
         """Check and/or init ota_status files for current slot."""
         _loaded_ota_status = self._load_current_status()
+        if self._force_initialize:
+            _loaded_ota_status = None
 
         # initialize ota_status files if not presented/incompleted/invalid
         if not _loaded_ota_status:
@@ -519,6 +523,9 @@ class OTAStatusFilesControl:
 
     def _load_slot_in_use_file(self):
         _loaded_slot_in_use = self._load_current_slot_in_use()
+        if self._force_initialize:
+            _loaded_slot_in_use = None
+
         if not _loaded_slot_in_use:
             # NOTE(20230831): this can also resolve the backward compatibility issue
             #                 in is_switching_boot method when old otaclient doesn't create

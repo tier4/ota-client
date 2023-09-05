@@ -680,6 +680,9 @@ class GrubController(BootControllerProtocol):
                     self._boot_control.finalize_update_switch_boot,
                     abort_on_standby_missed=True,
                 ),
+                # NOTE(20230904): if boot control is initialized(i.e., migrate from non-ota booted system),
+                #                 force initialize the ota_status files.
+                force_initialize=self._boot_control.initialized,
             )
         except Exception as e:
             logger.error(f"failed on init boot controller: {e!r}")
