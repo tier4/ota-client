@@ -338,27 +338,6 @@ class GrubABPartitionDetecter:
         return slot_name, dev_path
 
 
-def detect_previous_active_slot_by_symlink() -> str:
-    """Detect the previous active partition by symlink.
-
-    NOTE: deprecated by slot_in_use file, but still use it in prior due to
-          backward compatibility reason.
-
-    Get the active slot by reading the symlink target of /boot/ota-partition.
-    if ota-partition -> ota-partition.sda3, then active slot is sda3.
-
-    If there are ota-partition.sda2 and ota-partition.sda3 exist under /boot, and
-    ota-partition -> ota-partition.sda3, then sda2 is the standby slot.
-    """
-    try:
-        ota_partition_symlink = Path(cfg.BOOT_DIR) / cfg.BOOT_OTA_PARTITION_FILE
-        active_ota_partition_file = os.readlink(ota_partition_symlink)
-
-        return Path(active_ota_partition_file).suffix.strip(".")
-    except FileNotFoundError:
-        raise _errors.ABPartitionError("ota-partition symlink is broken")
-
-
 class _GrubControl:
     """Implementation of ota-partition switch boot mechanism."""
 
