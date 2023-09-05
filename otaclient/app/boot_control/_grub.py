@@ -363,7 +363,6 @@ class _GrubControl:
     """Implementation of ota-partition switch boot mechanism."""
 
     def __init__(self) -> None:
-        """NOTE: init only, no changes will be made in the __init__."""
         ab_detecter = GrubABPartitionDetecter()
         self.active_root_dev = ab_detecter.active_dev
         self.standby_root_dev = ab_detecter.standby_dev
@@ -378,7 +377,6 @@ class _GrubControl:
         ).relative_to("/")
 
         self.ota_partition_symlink = self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
-
         self.active_ota_partition_folder = (
             self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
         ).with_suffix(f".{self.active_slot}")
@@ -514,7 +512,7 @@ class _GrubControl:
         """Generate current active grub_file from the view of current active slot.
 
         NOTE:
-        1. this method only ensures the entry existence for ota(current active slot).
+        1. this method only ensures the entry existence for current active slot.
         2. this method ensures the default entry to be the current active slot.
         """
         # NOTE: If the path points to a symlink, exists() returns
