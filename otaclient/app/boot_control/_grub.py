@@ -554,11 +554,6 @@ class _GrubControl:
             logger.info(f"generated grub_cfg: {pformat(grub_cfg)}")
             write_str_to_file_sync(self.active_grub_file, grub_cfg)
 
-        # finally, symlink /boot/grub.cfg to ../ota-partition/grub.cfg
-        re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
-            self.grub_file,
-            Path("../") / cfg.BOOT_OTA_PARTITION_FILE / "grub.cfg",
-        )
         logger.info(f"update_grub for {self.active_slot} finished.")
 
     def _ensure_ota_partition_symlinks(self):
@@ -590,6 +585,10 @@ class _GrubControl:
             self.boot_dir / GrubHelper.INITRD_OTA_STANDBY,
             ota_partition_folder.with_suffix(f".{self.standby_slot}")
             / GrubHelper.INITRD_OTA,
+        )
+        re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
+            self.grub_file,
+            Path("../") / cfg.BOOT_OTA_PARTITION_FILE / "grub.cfg",
         )
 
     ###### public methods ######
