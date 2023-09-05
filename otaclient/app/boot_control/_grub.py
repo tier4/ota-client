@@ -705,10 +705,10 @@ class GrubController(BootControllerProtocol):
         # standby partition fstab (to be merged)
         fstab_standby = read_str_from_file(standby_slot_fstab, missing_ok=False)
         fstab_standby_dict: Dict[str, re.Match] = {}
+
         for line in fstab_standby.splitlines():
-            if ma := fstab_entry_pa.match(line):
-                if ma.group("mount_point") == "/":
-                    continue
+            ma = fstab_entry_pa.match(line)
+            if ma and ma.group("mount_point") != "/":
                 fstab_standby_dict[ma.group("mount_point")] = ma
 
         # merge entries
@@ -726,13 +726,13 @@ class GrubController(BootControllerProtocol):
                     del fstab_standby_dict[mp]
                 else:
                     merged.append("\t".join(ma.groups()))
-            else:
-                # re-add comments to merged
-                merged.append(line)
+            elif line.strip().startswith("#"):
+                merged.append(line)  # re-add comments to merged
 
         # merge standby_fstab's left-over lines
         for _, ma in fstab_standby_dict.items():
             merged.append("\t".join(ma.groups()))
+        merged.append("")  # add a new line at the end of file
 
         # write to standby fstab
         write_str_to_file_sync(standby_slot_fstab, "\n".join(merged))
