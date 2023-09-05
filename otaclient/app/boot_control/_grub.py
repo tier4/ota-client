@@ -555,6 +555,11 @@ class _GrubControl:
             logger.info(f"generated grub_cfg: {pformat(grub_cfg)}")
             write_str_to_file_sync(self.active_grub_file, grub_cfg)
 
+        # finally, point grub.cfg to active slot's grub.cfg
+        re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
+            self.grub_file,
+            Path("../") / cfg.BOOT_OTA_PARTITION_FILE / "grub.cfg",
+        )
         logger.info(f"update_grub for {self.active_slot} finished.")
 
     def _ensure_ota_partition_symlinks(self):
@@ -587,10 +592,6 @@ class _GrubControl:
             ota_partition_folder.with_suffix(f".{self.standby_slot}")
             / GrubHelper.INITRD_OTA,
         )
-        re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
-            self.grub_file,
-            Path("../") / cfg.BOOT_OTA_PARTITION_FILE / "grub.cfg",
-        )
 
     ###### public methods ######
 
@@ -611,19 +612,18 @@ class _GrubControl:
     def reprepare_active_ota_partition_file(self, *, abort_on_standby_missed: bool):
         """Prepare all needed files for active slot, and point ota_partition symlink to active slot."""
         self._prepare_kernel_initrd_links_for_ota(self.active_ota_partition_folder)
+        self._ensure_ota_partition_symlinks()
         self._grub_update_for_active_slot(
             abort_on_standby_missed=abort_on_standby_missed
         )
-        # switch ota-partition symlink to current active slot
-        self._ensure_ota_partition_symlinks()
         return True
 
     def reprepare_standby_ota_partition_file(self):
         """NOTE: this method still updates active grub file under active ota-partition folder,
         but ensure the entry for standby slot present in grub menu."""
         self._prepare_kernel_initrd_links_for_ota(self.standby_ota_partition_folder)
-        self._grub_update_for_active_slot(abort_on_standby_missed=True)
         self._ensure_ota_partition_symlinks()
+        self._grub_update_for_active_slot(abort_on_standby_missed=True)
 
     def grub_reboot_to_standby(self):
         self.reprepare_standby_ota_partition_file()
