@@ -171,9 +171,7 @@ class TestGrubControl:
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
         self.boot_dir = tmp_path / Path(cfg.BOOT_DIR).relative_to("/")
-        self.slot_a_boot_dir = self.slot_a / "boot"
         self.slot_b_boot_dir = self.slot_b / "boot"
-        self.slot_a_boot_dir.mkdir(parents=True, exist_ok=True)
         self.slot_b_boot_dir.mkdir(parents=True, exist_ok=True)
 
         self.slot_a_ota_partition_dir = (
@@ -189,6 +187,7 @@ class TestGrubControl:
             self.boot_dir,
             dirs_exist_ok=True,
         )
+
         # NOTE: dummy ota-image doesn't have grub installed,
         #       so we need to prepare /etc/default/grub by ourself
         default_grub = self.slot_a / Path(cfg.DEFAULT_GRUB_FILE).relative_to("/")
