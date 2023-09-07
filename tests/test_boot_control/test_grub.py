@@ -35,6 +35,8 @@ class GrubFSM:
         self._standby_slot = cfg.SLOT_B_ID_GRUB
         self._current_slot_mp = Path(slot_a_mp)
         self._standby_slot_mp = Path(slot_b_mp)
+        self._current_slot_dev_uuid = f"UUID={cfg.SLOT_A_UUID}"
+        self._standby_slot_dev_uuid = f"UUID={cfg.SLOT_B_UUID}"
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
 
@@ -59,19 +61,23 @@ class GrubFSM:
         return self._standby_slot_mp
 
     def get_standby_boot_dir(self) -> Path:
-        return Path(os.path.join(self._standby_slot_mp, "boot"))
+        return self._standby_slot_mp / "boot"
 
     def get_uuid_str_by_dev(self, dev: str):
         if dev == self.get_standby_slot_dev():
-            return f"UUID={cfg.SLOT_B_UUID}"
+            return self._standby_slot_dev_uuid
         else:
-            return f"UUID={cfg.SLOT_A_UUID}"
+            return self._current_slot_dev_uuid
 
     def switch_boot(self):
         self._current_slot, self._standby_slot = self._standby_slot, self._current_slot
         self._current_slot_mp, self._standby_slot_mp = (
             self._standby_slot_mp,
             self._current_slot_mp,
+        )
+        self._current_slot_dev_uuid, self._standby_slot_dev_uuid = (
+            self._standby_slot_dev_uuid,
+            self._current_slot_dev_uuid,
         )
         self.is_boot_switched = True
 
