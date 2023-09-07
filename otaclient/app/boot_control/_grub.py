@@ -402,10 +402,19 @@ class _GrubControl:
         )
 
         try:
-            kernel_booted, initrd_booted = self._get_current_booted_files()
-            not_booted_with_ota_mechanism = (
-                kernel_booted != vmlinuz_active_slot.name
-                or initrd_booted != initrd_active_slot.name
+            kernel_booted_fpath, initrd_booted_fpath = self._get_current_booted_files()
+            kernel_booted, initrd_booted = (
+                Path(kernel_booted_fpath).name,
+                Path(initrd_booted_fpath).name,
+            )
+
+            # NOTE: current slot might be booted with ota(normal), or ota.standby(during update)
+            not_booted_with_ota_mechanism = kernel_booted not in (
+                GrubHelper.KERNEL_OTA,
+                GrubHelper.KERNEL_OTA_STANDBY,
+            ) or initrd_booted not in (
+                GrubHelper.INITRD_OTA,
+                GrubHelper.INITRD_OTA_STANDBY,
             )
         except ValueError as e:
             logger.error(
