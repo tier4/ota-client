@@ -650,15 +650,12 @@ class GrubController(BootControllerProtocol):
     def __init__(self) -> None:
         try:
             self._boot_control = _GrubControl()
-            # mount point prepare
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._boot_control.standby_root_dev,
                 standby_slot_mount_point=cfg.MOUNT_POINT,
                 active_slot_dev=self._boot_control.active_root_dev,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
-
-            # load ota-status files
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=self._boot_control.active_slot,
                 standby_slot=self._boot_control.standby_slot,
@@ -752,7 +749,7 @@ class GrubController(BootControllerProtocol):
         standby_ota_partition_dir = self._ota_status_control.standby_ota_status_dir
         for f in self._mp_control.standby_boot_dir.iterdir():
             if f.is_file() and not f.is_symlink():
-                shutil.copyfile(f, standby_ota_partition_dir)
+                shutil.copy(f, standby_ota_partition_dir)
 
     ###### public methods ######
 
