@@ -424,10 +424,16 @@ class _GrubControl:
             kernel_booted, initrd_booted = vmlinuz_active_slot, initrd_active_slot
             not_booted_with_ota_mechanism = True
 
-        if not_booted_with_ota_mechanism or active_slot_ota_boot_files_missing:
+        ota_partition_symlink_missing = not self.ota_partition_symlink.is_symlink()
+
+        if (
+            not_booted_with_ota_mechanism
+            or active_slot_ota_boot_files_missing
+            or ota_partition_symlink_missing
+        ):
             logger.warning(
                 "system is not booted with ota mechanism("
-                f"{not_booted_with_ota_mechanism=}, {active_slot_ota_boot_files_missing=}), "
+                f"{not_booted_with_ota_mechanism=}, {active_slot_ota_boot_files_missing=}, {ota_partition_symlink_missing=}), "
                 f"migrating and initializing ota-partition files for {self.active_slot}@{self.active_root_dev}..."
             )
 
