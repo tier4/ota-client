@@ -728,9 +728,9 @@ class GrubController(BootControllerProtocol):
         # write to standby fstab
         write_str_to_file_sync(standby_slot_fstab, "\n".join(merged))
 
-    def cleanup_standby_ota_partition_folder(self):
+    def _cleanup_standby_ota_partition_folder(self):
         """Cleanup old files under the standby ota-partition folder."""
-        files_keept = (
+        files_kept = (
             cfg.OTA_STATUS_FNAME,
             cfg.OTA_VERSION_FNAME,
             cfg.SLOT_IN_USE_FNAME,
@@ -739,13 +739,20 @@ class GrubController(BootControllerProtocol):
         removes = (
             f
             for f in self._ota_status_control.standby_ota_status_dir.glob("*")
-            if f.name not in files_keept
+            if f.name not in files_kept
         )
         for f in removes:
             if f.is_dir():
                 shutil.rmtree(f, ignore_errors=True)
             else:
                 f.unlink(missing_ok=True)
+
+    def _copy_boot_files_from_standby_slot(self):
+        """Copy boot files under <standby_slot_mp>/boot to standby ota-partition folder."""
+        standby_ota_partition_dir = self._ota_status_control.standby_ota_status_dir
+        for f in self._mp_control.standby_boot_dir.iterdir():
+            if f.is_file() and not f.is_symlink():
+                shutil.copyfile(f, standby_ota_partition_dir)
 
     ###### public methods ######
 
@@ -782,7 +789,7 @@ class GrubController(BootControllerProtocol):
             self._ota_status_control.pre_update_standby(version=version)
 
             # remove old files under standby ota_partition folder
-            self.cleanup_standby_ota_partition_folder()
+            self._cleanup_standby_ota_partition_folder()
         except Exception as e:
             logger.error(f"failed on pre_update: {e!r}")
             raise BootControlPreUpdateFailed from e
@@ -790,7 +797,7 @@ class GrubController(BootControllerProtocol):
     def post_update(self) -> Generator[None, None, None]:
         try:
             logger.info("grub_boot: post-update setup...")
-            # update fstab
+            # ------ update fstab ------ #
             active_fstab = self._mp_control.active_slot_mount_point / Path(
                 cfg.FSTAB_FILE_PATH
             ).relative_to("/")
@@ -801,7 +808,11 @@ class GrubController(BootControllerProtocol):
                 standby_slot_fstab=standby_fstab,
                 active_slot_fstab=active_fstab,
             )
-            # umount all mount points after local update finished
+
+            # ------ prepare boot files ------ #
+            self._copy_boot_files_from_standby_slot()
+
+            # ------ pre-reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
             self._boot_control.grub_reboot_to_standby()
 
