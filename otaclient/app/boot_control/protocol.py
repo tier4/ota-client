@@ -33,10 +33,15 @@ class BootControllerProtocol(Protocol):
 
     @abstractmethod
     def get_standby_boot_dir(self) -> Path:
-        """Get the Path points to the standby boot folder.
+        """Get the Path points to the standby slot's boot folder.
 
-        NOTE: this folder is meant to be the place to store kernel and initrd.img,
-              it is not neccessary to always be /boot folder.
+        NOTE(20230907): this will always return the path to
+                        <standby_slots_mount_point>/boot.
+        DEPRECATED(20230907): standby slot creator doesn't need to
+                        treat the files under /boot specially, it is
+                        boot controller's responsibility to get the
+                        kernel/initrd.img from standby slot and prepare
+                        them to actual boot dir.
         """
 
     @abstractmethod
