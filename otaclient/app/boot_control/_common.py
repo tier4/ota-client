@@ -474,6 +474,7 @@ class OTAStatusFilesControl:
             self._store_current_status(wrapper.StatusOta.INITIALIZED)
             self._ota_status = wrapper.StatusOta.INITIALIZED
             return
+        logger.info(f"status loaded from file: {_loaded_ota_status.name}")
 
         # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
         # are remained as it
@@ -532,6 +533,7 @@ class OTAStatusFilesControl:
             #                 slot_in_use file.
             self._store_current_slot_in_use(self.active_slot)
             return
+        logger.info(f"slot_in_use loaded from file: {_loaded_slot_in_use}")
 
         # check potential failed switching boot
         if _loaded_slot_in_use and _loaded_slot_in_use != self.active_slot:
