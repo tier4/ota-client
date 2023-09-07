@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import logging
 import os
 import shutil
 import typing
@@ -20,7 +21,7 @@ import pytest
 import pytest_mock
 from pathlib import Path
 
-import logging
+from otaclient.app.proto import wrapper
 
 from tests.utils import SlotMeta
 from tests.conftest import TestConfiguration as cfg
@@ -29,38 +30,53 @@ logger = logging.getLogger(__name__)
 
 
 class GrubFSM:
-    def __init__(self) -> None:
-        self.current_slot = cfg.SLOT_A_ID_GRUB
-        self.standby_slot = cfg.SLOT_B_ID_GRUB
+    def __init__(self, slot_a_mp, slot_b_mp) -> None:
+        self._current_slot = cfg.SLOT_A_ID_GRUB
+        self._standby_slot = cfg.SLOT_B_ID_GRUB
+        self._current_slot_mp = Path(slot_a_mp)
+        self._standby_slot_mp = Path(slot_b_mp)
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
 
         self.is_boot_switched = False
 
-    def get_current_rootfs_dev(self):
-        return f"/dev/{self.current_slot}"
+    def get_active_slot(self) -> str:
+        return self._current_slot
 
-    def get_standby_rootfs_dev(self):
-        return f"/dev/{self.standby_slot}"
+    def get_standby_slot(self) -> str:
+        return self._standby_slot
 
-    def get_current_slot(self):
-        return self.current_slot
+    def get_active_slot_dev(self) -> str:
+        return f"/dev/{self._current_slot}"
 
-    def get_standby_slot(self):
-        return self.standby_slot
+    def get_standby_slot_dev(self) -> str:
+        return f"/dev/{self._standby_slot}"
+
+    def get_active_slot_mp(self) -> Path:
+        return self._current_slot_mp
+
+    def get_standby_slot_mp(self) -> Path:
+        return self._standby_slot_mp
+
+    def get_standby_boot_dir(self) -> Path:
+        return Path(os.path.join(self._standby_slot_mp, "boot"))
 
     def get_uuid_str_by_dev(self, dev: str):
-        if dev == self.get_standby_rootfs_dev():
+        if dev == self.get_standby_slot_dev():
             return f"UUID={cfg.SLOT_B_UUID}"
         else:
             return f"UUID={cfg.SLOT_A_UUID}"
 
     def switch_boot(self):
-        self.current_slot, self.standby_slot = self.standby_slot, self.current_slot
+        self._current_slot, self._standby_slot = self._standby_slot, self._current_slot
+        self._current_slot_mp, self._standby_slot_mp = (
+            self._standby_slot_mp,
+            self._current_slot_mp,
+        )
         self.is_boot_switched = True
 
     def cat_proc_cmdline(self):
-        if self.current_slot == cfg.SLOT_A_ID_GRUB:
+        if self._current_slot == cfg.SLOT_A_ID_GRUB:
             return cfg.CMDLINE_SLOT_A
         else:
             return cfg.CMDLINE_SLOT_B
@@ -155,6 +171,11 @@ class TestGrubControl:
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
         self.boot_dir = tmp_path / Path(cfg.BOOT_DIR).relative_to("/")
+        self.slot_a_boot_dir = self.slot_a / "boot"
+        self.slot_b_boot_dir = self.slot_b / "boot"
+        self.slot_a_boot_dir.mkdir(parents=True, exist_ok=True)
+        self.slot_b_boot_dir.mkdir(parents=True, exist_ok=True)
+
         self.slot_a_ota_partition_dir = (
             self.boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
         )
@@ -194,26 +215,42 @@ class TestGrubControl:
         grub_ab_slot,
     ):
         from otaclient.app.boot_control._grub import GrubABPartitionDetecter
-        from otaclient.app.boot_control._common import CMDHelperFuncs
+        from otaclient.app.boot_control._common import CMDHelperFuncs, SlotMountHelper
 
-        ###### start fsm ######
-        self._fsm = GrubFSM()
+        # ------ start fsm ------ #
+        self._fsm = GrubFSM(slot_a_mp=self.slot_a, slot_b_mp=self.slot_b)
 
-        ###### mocking GrubABPartitionDetecter ######
-        _GrubABPartitionDetecter_mock = typing.cast(
-            GrubABPartitionDetecter, mocker.MagicMock(spec=GrubABPartitionDetecter)
+        # ------ mock SlotMountHelper ------ #
+        _mocked_slot_mount_helper = mocker.MagicMock(spec=SlotMountHelper)
+        type(_mocked_slot_mount_helper).standby_slot_dev = mocker.PropertyMock(
+            wraps=self._fsm.get_standby_slot_dev
         )
-        _GrubABPartitionDetecter_mock.get_standby_slot = mocker.MagicMock(
+        type(_mocked_slot_mount_helper).active_slot_dev = mocker.PropertyMock(
+            wraps=self._fsm.get_active_slot_dev
+        )
+        type(_mocked_slot_mount_helper).standby_slot_mount_point = mocker.PropertyMock(
+            wraps=self._fsm.get_standby_slot_mp
+        )
+        type(_mocked_slot_mount_helper).active_slot_mount_point = mocker.PropertyMock(
+            wraps=self._fsm.get_active_slot_mp
+        )
+        type(_mocked_slot_mount_helper).standby_boot_dir = mocker.PropertyMock(
+            wraps=self._fsm.get_standby_boot_dir
+        )
+
+        # ------ mock GrubABPartitionDetector ------ #
+        _mocked_ab_partition_detector = mocker.MagicMock(spec=GrubABPartitionDetecter)
+        type(_mocked_ab_partition_detector).active_slot = mocker.PropertyMock(
+            wraps=self._fsm.get_active_slot
+        )
+        type(_mocked_ab_partition_detector).active_dev = mocker.PropertyMock(
+            wraps=self._fsm.get_active_slot_dev
+        )
+        type(_mocked_ab_partition_detector).standby_slot = mocker.PropertyMock(
             wraps=self._fsm.get_standby_slot
         )
-        _GrubABPartitionDetecter_mock.get_active_slot = mocker.MagicMock(
-            wraps=self._fsm.get_current_slot
-        )
-        _GrubABPartitionDetecter_mock.get_active_slot_dev = mocker.MagicMock(
-            wraps=self._fsm.get_current_rootfs_dev
-        )
-        _GrubABPartitionDetecter_mock.get_standby_slot_dev = mocker.MagicMock(
-            wraps=self._fsm.get_standby_rootfs_dev
+        type(_mocked_ab_partition_detector).standby_dev = mocker.PropertyMock(
+            wraps=self._fsm.get_standby_slot_dev
         )
 
         ###### mocking GrubHelper ######
@@ -256,8 +293,11 @@ class TestGrubControl:
             f"{cfg.GRUB_MODULE_PATH}.GrubABPartitionDetecter"
         )
         mocker.patch(
-            _GrubABPartitionDetecter_path, return_value=_GrubABPartitionDetecter_mock
+            _GrubABPartitionDetecter_path, return_value=_mocked_ab_partition_detector
         )
+        # patch SlotMountHelper
+        _SlotMountHelper_path = f"{cfg.GRUB_MODULE_PATH}.SlotMountHelper"
+        mocker.patch(_SlotMountHelper_path, return_value=_mocked_slot_mount_helper)
         # patch reading from /proc/cmdline
         mocker.patch(
             f"{cfg.GRUB_MODULE_PATH}.cat_proc_cmdline",
@@ -276,7 +316,9 @@ class TestGrubControl:
         mocker.patch(_cfg_patch_path, self.cfg_for_slot_a_as_current())
 
         grub_controller = GrubController()
-        assert (self.slot_a_ota_partition_dir / "status").read_text() == "INITIALIZED"
+        assert (
+            self.slot_a_ota_partition_dir / "status"
+        ).read_text() == wrapper.StatusOta.INITIALIZED.name
         # assert ota-partition file points to slot_a ota-partition folder
         assert (
             os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
@@ -293,18 +335,18 @@ class TestGrubControl:
             erase_standby=False,  # NOTE: not used
         )
         # update slot_b, slot_a_ota_status->FAILURE, slot_b_ota_status->UPDATING
-        assert (self.slot_a_ota_partition_dir / "status").read_text() == "FAILURE"
-        assert (self.slot_b_ota_partition_dir / "status").read_text() == "UPDATING"
+        assert (
+            self.slot_a_ota_partition_dir / "status"
+        ).read_text() == wrapper.StatusOta.FAILURE.name
+        assert (
+            self.slot_b_ota_partition_dir / "status"
+        ).read_text() == wrapper.StatusOta.UPDATING.name
         # NOTE: we have to copy the new kernel files to the slot_b's boot dir
         #       this is done by the create_standby module
         _kernel = f"{cfg.KERNEL_PREFIX}-{cfg.KERNEL_VERSION}"
         _initrd = f"{cfg.INITRD_PREFIX}-{cfg.KERNEL_VERSION}"
-        shutil.copy(
-            self.slot_a_ota_partition_dir / _kernel, self.slot_b_ota_partition_dir
-        )
-        shutil.copy(
-            self.slot_a_ota_partition_dir / _initrd, self.slot_b_ota_partition_dir
-        )
+        shutil.copy(self.slot_a_ota_partition_dir / _kernel, self.slot_b_boot_dir)
+        shutil.copy(self.slot_a_ota_partition_dir / _initrd, self.slot_b_boot_dir)
 
         logger.info("pre-update completed, entering post-update...")
         # test post-update
@@ -313,10 +355,10 @@ class TestGrubControl:
         next(_post_updater, None)
         assert (
             self.slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
-        ).read_text() == self.FSTAB_UPDATED.strip()
+        ).read_text().strip() == self.FSTAB_UPDATED.strip()
         assert (
             self.boot_dir / "grub/grub.cfg"
-        ).read_text() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED
+        ).read_text().strip() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED.strip()
         # NOTE: check grub.cfg_slot_a_post_update, the target entry is 0
         self._grub_reboot_mock.assert_called_once_with(0)
         self._CMDHelper_mock.reboot.assert_called_once()
@@ -336,7 +378,9 @@ class TestGrubControl:
 
         ### test pre-init ###
         assert self._fsm.is_boot_switched
-        assert (self.slot_b_ota_partition_dir / "status").read_text() == "UPDATING"
+        assert (
+            self.slot_b_ota_partition_dir / "status"
+        ).read_text() == wrapper.StatusOta.UPDATING.name
         # assert ota-partition file is not yet switched before first reboot init
         assert (
             os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
@@ -344,13 +388,15 @@ class TestGrubControl:
         )
 
         ### test first reboot init ###
-        grub_controller = GrubController()
+        _ = GrubController()
         # assert ota-partition file switch to slot_b ota-partition folder after first reboot init
         assert (
             os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
             == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
         )
-        assert (self.slot_b_ota_partition_dir / "status").read_text() == "SUCCESS"
+        assert (
+            self.slot_b_ota_partition_dir / "status"
+        ).read_text() == wrapper.StatusOta.SUCCESS.name
         assert (
             self.slot_b_ota_partition_dir / "version"
         ).read_text() == cfg.UPDATE_VERSION
