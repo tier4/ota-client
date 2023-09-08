@@ -777,8 +777,8 @@ class GrubController(BootControllerProtocol):
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
 
-    def get_ota_status(self) -> wrapper.StatusOta:
-        return self._ota_status_control.ota_status
+    def get_booted_ota_status(self) -> wrapper.StatusOta:
+        return self._ota_status_control.booted_ota_status
 
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""
