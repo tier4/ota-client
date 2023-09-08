@@ -712,7 +712,7 @@ class OTAStatusMixin:
             except KeyError:
                 pass  # invalid status string
 
-    def get_ota_status(self) -> wrapper.StatusOta:
+    def get_booted_ota_status(self) -> wrapper.StatusOta:
         return self.ota_status
 
 
