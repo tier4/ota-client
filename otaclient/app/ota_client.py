@@ -493,7 +493,9 @@ class OTAClient(OTAClientProtocol):
 
         self.boot_controller = boot_control_cls()
         self.create_standby_cls = create_standby_cls
-        self.live_ota_status = LiveOTAStatus(self.boot_controller.get_ota_status())
+        self.live_ota_status = LiveOTAStatus(
+            self.boot_controller.get_booted_ota_status()
+        )
 
         self.current_version = (
             self.boot_controller.load_version() or self.DEFAULT_FIRMWARE_VERSION
