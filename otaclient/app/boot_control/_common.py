@@ -656,8 +656,14 @@ class OTAStatusFilesControl:
             self._store_standby_status(wrapper.StatusOta.FAILURE)
 
     @property
-    def ota_status(self) -> wrapper.StatusOta:
-        """Read only ota_status property."""
+    def booted_ota_status(self) -> wrapper.StatusOta:
+        """Loaded current slot's ota_status during boot control starts.
+
+        NOTE: distinguish between the live ota_status maintained by otaclient.
+
+        This property is only meant to be used once when otaclient starts up,
+        switch to use live_ota_status by otaclient after otaclient is running.
+        """
         return self._ota_status
 
 
