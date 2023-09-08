@@ -319,7 +319,9 @@ class TestRPIBootControl:
         # 1. make sure ota_status is SUCCESS
         # 2. make sure the flag file is cleared
         # 3. make sure the config.txt is still for slot_b
-        assert rpi_boot_controller4_2.get_ota_status() == wrapper.StatusOta.SUCCESS
+        assert (
+            rpi_boot_controller4_2.get_booted_ota_status() == wrapper.StatusOta.SUCCESS
+        )
         assert (
             self.slot_b_ota_status_dir / rpi_boot_cfg.OTA_STATUS_FNAME
         ).read_text() == wrapper.StatusOta.SUCCESS.name
