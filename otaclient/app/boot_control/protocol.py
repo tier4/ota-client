@@ -24,8 +24,12 @@ class BootControllerProtocol(Protocol):
     """Boot controller protocol for otaclient."""
 
     @abstractmethod
-    def get_ota_status(self) -> wrapper.StatusOta:
-        """Get the stored ota_status of current active slot."""
+    def get_booted_ota_status(self) -> wrapper.StatusOta:
+        """Get the ota_status loaded from status file during otaclient starts up.
+
+        This value is meant to be used only once during otaclient starts up,
+            to init the live_ota_status maintained by otaclient.
+        """
 
     @abstractmethod
     def get_standby_slot_path(self) -> Path:
