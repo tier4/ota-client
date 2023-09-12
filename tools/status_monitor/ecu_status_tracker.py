@@ -58,6 +58,7 @@ class Tracker:
 
         # display boxes for this ECU and its child ECUs
         self._ecu_status_display: Dict[str, ECUStatusDisplayBox] = {}
+        self._ecu_id_idx: Dict[str, int] = {}
 
     def get_display_boxes(self) -> List[ECUStatusDisplayBox]:
         """
@@ -92,14 +93,19 @@ class Tracker:
                 with self._lock:
                     for ecu_id in _ecu_status.available_ecu_ids:
                         if ecu_id not in self._ecu_status_display:
+                            _new_idx = len(self._ecu_status_display)
                             self._ecu_status_display[ecu_id] = ECUStatusDisplayBox(
-                                ecu_id, len(self._ecu_status_display)
+                                ecu_id, _new_idx
                             )
+                            self._ecu_id_idx[ecu_id] = _new_idx
 
                 # NOTE: only support v2 ECU status report format
-                for idx, _ecu in enumerate(_ecu_status.iter_ecu_v2()):
-                    _ecu_display = self._ecu_status_display[_ecu.ecu_id]
-                    _ecu_display.update_ecu_status(_ecu, index=idx)
+                for _ecu in _ecu_status.iter_ecu_v2():
+                    _ecu_id = _ecu.ecu_id
+                    _ecu_display = self._ecu_status_display[_ecu_id]
+                    _ecu_display.update_ecu_status(
+                        _ecu, index=self._ecu_id_idx[_ecu_id]
+                    )
 
         # start an asyncio event loop in another thread
         self._polling_thread = threading.Thread(target=_polling_thread, daemon=True)

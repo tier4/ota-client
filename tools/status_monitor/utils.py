@@ -175,7 +175,6 @@ def page_scroll_key_handler(
     Returns:
         A tuple of new cursor's position in (y, x).
     """
-    contents_area_max_y = contents_area_max_y // 4 * 3
 
     new_cursor_y, new_cursor_x = last_cursor_y, last_cursor_x
     if key_pressed == curses.KEY_DOWN or key_pressed == curses.KEY_SR:
