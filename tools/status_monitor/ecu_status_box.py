@@ -49,7 +49,7 @@ class ECUStatusDisplayBox:
         self._last_status = proto_wrapper.StatusResponseEcuV2()
         # prevent conflicts between status update and pad update
         self._lock = threading.Lock()
-        self._last_updated = 0
+        self.last_updated = 0
 
     def get_failure_contents(self) -> Tuple[Sequence[str], int]:
         """Getter for failure_contents."""
@@ -87,6 +87,7 @@ class ECUStatusDisplayBox:
                         (
                             f"update_starts_at: {datetime.datetime.fromtimestamp(update_status.update_start_timestamp)}"
                         ),
+                        f"update_firmware_version: {update_status.update_firmware_version}",
                         (
                             f"update_phase: {update_status.phase.name} "
                             f"(elapsed_time: {update_status.total_elapsed_time.seconds}s)"
@@ -144,7 +145,7 @@ class ECUStatusDisplayBox:
         self, pad: curses.window, begin_y: int, begin_x: int
     ) -> bool:
         """Render contents onto the status_box pad."""
-        if int(time.time()) <= self._last_updated:
+        if int(time.time()) <= self.last_updated:
             return False
 
         with self._lock:

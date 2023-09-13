@@ -67,7 +67,7 @@ class MainScreen:
             stdscr, header=self.title, footer=self.manual
         )
         pad_hlines, pad_hcols = (
-            ECUStatusDisplayBox.DISPLAY_BOX_HLINES * self.DISPLAY_BOX_ROWS_MAX,
+            config.PAD_ILNIT_HLINES,
             ECUStatusDisplayBox.DISPLAY_BOX_HCOLS * self.DISPLAY_BOX_PER_ROW,
         )
         pad = init_pad(pad_hlines, pad_hcols)
@@ -77,8 +77,10 @@ class MainScreen:
         while True:
             # try to update the contents at current location first
             if self._draw_ecu_status_to_pad(pad):
-                pad_hlines = ECUStatusDisplayBox.DISPLAY_BOX_HLINES * len(
-                    self._display_getter()
+                pad_hlines = (
+                    ECUStatusDisplayBox.DISPLAY_BOX_HLINES
+                    * len(self._display_getter())
+                    // config.MAINWIN_BOXES_PER_ROW
                 )
                 cursor_moved = True
 
@@ -93,6 +95,10 @@ class MainScreen:
                     hcols,
                 )
 
+            # TODO: remove the magic number 8
+            # NOTE: 7 is the value combining the headers and border
+            max_y = pad_hlines - hlines + 8
+
             # wait for key_press event unblockingly
             key = pad.getch()
             if key in PAGE_SCROLL_KEYS:
@@ -102,7 +108,7 @@ class MainScreen:
                     last_cursor_y,
                     last_cursor_x,
                     scroll_len=config.SCROLL_LINES,
-                    contents_area_max_y=pad_hlines,
+                    contents_area_max_y=max_y,
                 )
                 cursor_moved = (
                     last_cursor_y != new_cursor_y or last_cursor_x != new_cursor_x
