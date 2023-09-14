@@ -352,22 +352,17 @@ class _GrubControl:
 
         self.boot_dir = Path(cfg.BOOT_DIR)
         self.grub_file = Path(cfg.GRUB_CFG_PATH)
-        self.grub_default_file = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
-            cfg.DEFAULT_GRUB_PATH
-        ).relative_to("/")
 
         self.ota_partition_symlink = self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
         self.active_ota_partition_folder = (
             self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
         ).with_suffix(f".{self.active_slot}")
         self.active_ota_partition_folder.mkdir(exist_ok=True)
-        self.active_grub_file = self.active_ota_partition_folder / cfg.GRUB_CFG_FNAME
 
         self.standby_ota_partition_folder = (
             self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
         ).with_suffix(f".{self.standby_slot}")
         self.standby_ota_partition_folder.mkdir(exist_ok=True)
-        self.standby_grub_file = self.standby_ota_partition_folder / cfg.GRUB_CFG_FNAME
 
         # NOTE: standby slot will be prepared in an OTA, GrubControl init will not check
         #       standby slot's ota-partition files.
@@ -511,13 +506,17 @@ class _GrubControl:
         re_symlink_atomic(initrd_ota, initrd)
         logger.info(f"finished generate ota symlinks under {target_folder}")
 
-    def _grub_update_for_active_slot(self, *, abort_on_standby_missed=True):
-        """Generate current active grub_file from the view of current active slot.
+    def _grub_update(self, *, abort_on_standby_missed=True):
+        """Generate and update grub.cfg for current booted slot.
 
         NOTE:
         1. this method only ensures the entry existence for current active slot.
         2. this method ensures the default entry to be the current active slot.
         """
+        grub_default_file = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
+            cfg.DEFAULT_GRUB_PATH
+        ).relative_to("/")
+
         # NOTE: If the path points to a symlink, exists() returns
         #       whether the symlink points to an existing file or directory.
         active_vmlinuz = self.boot_dir / GrubHelper.KERNEL_OTA
@@ -531,14 +530,16 @@ class _GrubControl:
             raise ValueError(msg)
 
         # step1: update grub_default file
-        _in = self.grub_default_file.read_text()
+        _in = grub_default_file.read_text()
         _out = GrubHelper.update_grub_default(_in)
-        write_str_to_file_sync(self.grub_default_file, _out)
+        write_str_to_file_sync(grub_default_file, _out)
 
         # step2: generate grub_cfg by grub-mkconfig
         # parse the output and find the active slot boot entry idx
-        grub_cfg = GrubHelper.grub_mkconfig()
-        if res := GrubHelper.get_entry(grub_cfg, kernel_ver=GrubHelper.SUFFIX_OTA):
+        grub_cfg_content = GrubHelper.grub_mkconfig()
+        if res := GrubHelper.get_entry(
+            grub_cfg_content, kernel_ver=GrubHelper.SUFFIX_OTA
+        ):
             active_slot_entry_idx, _ = res
         else:
             raise ValueError("boot entry for ACTIVE slot not found, abort")
@@ -549,22 +550,24 @@ class _GrubControl:
             f"boot entry for vmlinuz-ota(slot={self.active_slot}): {active_slot_entry_idx}"
         )
         _out = GrubHelper.update_grub_default(
-            self.grub_default_file.read_text(),
+            grub_default_file.read_text(),
             default_entry_idx=active_slot_entry_idx,
         )
         logger.debug(f"generated grub_default: {pformat(_out)}")
-        write_str_to_file_sync(self.grub_default_file, _out)
+        write_str_to_file_sync(grub_default_file, _out)
 
         # step4: populate new active grub_file
         # update the ota.standby entry's rootfs uuid to standby slot's uuid
-        grub_cfg = GrubHelper.grub_mkconfig()
+        active_slot_grub_file = self.active_ota_partition_folder / cfg.GRUB_CFG_FNAME
+
+        grub_cfg_content = GrubHelper.grub_mkconfig()
         standby_uuid_str = CMDHelperFuncs.get_uuid_str_by_dev(self.standby_root_dev)
         if grub_cfg_updated := GrubHelper.update_entry_rootfs(
-            grub_cfg,
+            grub_cfg_content,
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
             rootfs_str=f"root={standby_uuid_str}",
         ):
-            write_str_to_file_sync(self.active_grub_file, grub_cfg_updated)
+            write_str_to_file_sync(active_slot_grub_file, grub_cfg_updated)
             logger.info(f"standby rootfs: {standby_uuid_str}")
             logger.debug(f"generated grub_cfg: {pformat(grub_cfg_updated)}")
         else:
@@ -576,8 +579,8 @@ class _GrubControl:
                 raise ValueError(msg)
 
             logger.warning(msg)
-            logger.info(f"generated grub_cfg: {pformat(grub_cfg)}")
-            write_str_to_file_sync(self.active_grub_file, grub_cfg)
+            logger.info(f"generated grub_cfg: {pformat(grub_cfg_content)}")
+            write_str_to_file_sync(active_slot_grub_file, grub_cfg_content)
 
         # finally, point grub.cfg to active slot's grub.cfg
         re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
