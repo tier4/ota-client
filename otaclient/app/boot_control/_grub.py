@@ -480,7 +480,7 @@ class _GrubControl:
         return kernel_ma.group("kernel"), initrd_img
 
     @staticmethod
-    def _prepare_kernel_initrd_links_for_ota(target_folder: Path):
+    def _prepare_kernel_initrd_links(target_folder: Path):
         """
         prepare links for kernel/initrd
         vmlinuz-ota -> vmlinuz-*
@@ -612,17 +612,7 @@ class _GrubControl:
         )
 
     def _ensure_standby_slot_boot_files_symlinks(self, standby_slot: str):
-        """Ensure boot files symlinks for specified <standby_slot>.
-
-        NOTE(20230913): we only need to ensure the symlinks are (finally)pointed to
-                        existed regular files, so that grub_mkconfig can create entry
-                        with the name of boot files symlink.
-        NOTE(20230913): The behavior of grub_mkconfig creating boot entry is as follow:
-                        1. boot files are regular files(but grub_mkconfig will not check whether
-                            these files are actually valid kernel/initrd.img files),
-                        2. boot files are symlinks and points to existed regular files(same as #1),
-                            if symlinks are broken, entry will not be created for these boot files.
-        """
+        """Ensure boot files symlinks for specified <standby_slot>."""
         ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
         re_symlink_atomic(  # /boot/vmlinuz-ota.standby -> ota-partition.<standby_slot>/vmlinuz-ota
             self.boot_dir / GrubHelper.KERNEL_OTA_STANDBY,
@@ -651,32 +641,34 @@ class _GrubControl:
             _err_msg = f"failed to prepare standby dev: {e!r}"
             raise BootControlPreUpdateFailed(_err_msg) from e
 
-    def reprepare_active_ota_partition_file(self, *, abort_on_standby_missed: bool):
-        """Prepare all needed files for active slot, and point ota_partition symlink to active slot."""
-        self._prepare_kernel_initrd_links_for_ota(self.active_ota_partition_folder)
-        self._ensure_ota_partition_symlinks()
-        self._grub_update_for_active_slot(
-            abort_on_standby_missed=abort_on_standby_missed
-        )
+    def finalize_update_switch_boot(self):
+        # NOTE: since we have not yet switched boot, the active/standby relationship is
+        #       reversed here corresponding to booted slot.
+        self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
+        self._ensure_ota_partition_symlinks(active_slot=self.standby_slot)
+        self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.active_slot)
+
+        self._grub_update_on_booted_slot(abort_on_standby_missed=True)
+
+        # switch ota-partition symlink to current booted slot
+        self._ensure_ota_partition_symlinks(active_slot=self.active_slot)
+        self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.standby_slot)
         return True
 
-    def reprepare_standby_ota_partition_file(self):
-        """NOTE: this method still updates active grub file under active ota-partition folder,
-        but ensure the entry for standby slot present in grub menu."""
-        self._prepare_kernel_initrd_links_for_ota(self.standby_ota_partition_folder)
-        self._ensure_ota_partition_symlinks()
-        self._grub_update_for_active_slot(abort_on_standby_missed=True)
-
     def grub_reboot_to_standby(self):
-        self.reprepare_standby_ota_partition_file()
+        self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
+        self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.standby_slot)
+
+        self._prepare_kernel_initrd_links(self.active_ota_partition_folder)
+        self._ensure_ota_partition_symlinks(active_slot=self.active_slot)
+        self._grub_update_on_booted_slot(abort_on_standby_missed=True)
+
         idx, _ = GrubHelper.get_entry(
             read_str_from_file(self.grub_file),
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
         )
         GrubHelper.grub_reboot(idx)
         logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
-
-    finalize_update_switch_boot = reprepare_active_ota_partition_file
 
 
 class GrubController(BootControllerProtocol):
