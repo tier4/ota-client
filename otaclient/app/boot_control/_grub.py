@@ -589,17 +589,13 @@ class _GrubControl:
         )
         logger.info(f"update_grub for {self.active_slot} finished.")
 
-    def _ensure_ota_partition_symlinks(self):
-        """
-        NOTE: this method prepare symlinks from active slot's point of view.
-        NOTE 2: grub_cfg symlink will not be generated here, it will be linked
-                in grub_update method
-        """
-        # prepare ota-partition symlinks
+    def _ensure_ota_partition_symlinks(self, active_slot: str):
+        """Ensure /boot/{ota_partition,vmlinuz-ota,initrd.img-ota} symlinks from
+        specified <active_slot> point's of view."""
         ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
         re_symlink_atomic(  # /boot/ota-partition -> ota-partition.<active_slot>
             self.boot_dir / ota_partition_folder,
-            ota_partition_folder.with_suffix(f".{self.active_slot}"),
+            ota_partition_folder.with_suffix(f".{active_slot}"),
         )
         re_symlink_atomic(  # /boot/vmlinuz-ota -> ota-partition/vmlinuz-ota
             self.boot_dir / GrubHelper.KERNEL_OTA,
@@ -609,14 +605,28 @@ class _GrubControl:
             self.boot_dir / GrubHelper.INITRD_OTA,
             ota_partition_folder / GrubHelper.INITRD_OTA,
         )
-        re_symlink_atomic(  # /boot/vmlinuz-ota.standby -> ota-partition.<standby_slot>/vmlinuz
+
+    def _ensure_standby_slot_boot_files_symlinks(self, standby_slot: str):
+        """Ensure boot files symlinks for specified <standby_slot>.
+
+        NOTE(20230913): we only need to ensure the symlinks are (finally)pointed to
+                        existed regular files, so that grub_mkconfig can create entry
+                        with the name of boot files symlink.
+        NOTE(20230913): The behavior of grub_mkconfig creating boot entry is as follow:
+                        1. boot files are regular files(but grub_mkconfig will not check whether
+                            these files are actually valid kernel/initrd.img files),
+                        2. boot files are symlinks and points to existed regular files(same as #1),
+                            if symlinks are broken, entry will not be created for these boot files.
+        """
+        ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
+        re_symlink_atomic(  # /boot/vmlinuz-ota.standby -> ota-partition.<standby_slot>/vmlinuz-ota
             self.boot_dir / GrubHelper.KERNEL_OTA_STANDBY,
-            ota_partition_folder.with_suffix(f".{self.standby_slot}")
+            ota_partition_folder.with_suffix(f".{standby_slot}")
             / GrubHelper.KERNEL_OTA,
         )
         re_symlink_atomic(  # /boot/initrd.img-ota.standby -> ota-partition.<standby_slot>/initrd.img-ota
             self.boot_dir / GrubHelper.INITRD_OTA_STANDBY,
-            ota_partition_folder.with_suffix(f".{self.standby_slot}")
+            ota_partition_folder.with_suffix(f".{standby_slot}")
             / GrubHelper.INITRD_OTA,
         )
 
