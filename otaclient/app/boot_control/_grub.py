@@ -506,12 +506,12 @@ class _GrubControl:
         re_symlink_atomic(initrd_ota, initrd)
         logger.info(f"finished generate ota symlinks under {target_folder}")
 
-    def _grub_update(self, *, abort_on_standby_missed=True):
-        """Generate and update grub.cfg for current booted slot.
+    def _grub_update_on_booted_slot(self, *, abort_on_standby_missed=True):
+        """Update grub_default and generate grub.cfg for current booted slot.
 
         NOTE:
-        1. this method only ensures the entry existence for current active slot.
-        2. this method ensures the default entry to be the current active slot.
+        1. this method only ensures the entry existence for current booted slot.
+        2. this method ensures the default entry to be the current booted slot.
         """
         grub_default_file = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
             cfg.DEFAULT_GRUB_PATH
@@ -521,10 +521,10 @@ class _GrubControl:
         #       whether the symlink points to an existing file or directory.
         active_vmlinuz = self.boot_dir / GrubHelper.KERNEL_OTA
         active_initrd = self.boot_dir / GrubHelper.INITRD_OTA
-        if not (active_vmlinuz.exists() and active_initrd.exists()):
+        if not (active_vmlinuz.is_file() and active_initrd.is_file()):
             msg = (
-                "vmlinuz and/or initrd for active slot is not available, "
-                "refuse to update_grub"
+                "/boot/vmlinuz-ota and/or /boot/initrd.img-ota are broken, "
+                "refuse to do grub-update"
             )
             logger.error(msg)
             raise ValueError(msg)
@@ -572,7 +572,7 @@ class _GrubControl:
             logger.debug(f"generated grub_cfg: {pformat(grub_cfg_updated)}")
         else:
             msg = (
-                "boot entry for standby slot not found, "
+                "/boot/vmlinuz-ota.standby and/or /boot/initrd.img-ota.standby not found, "
                 "only current active slot's entry is populated."
             )
             if abort_on_standby_missed:
