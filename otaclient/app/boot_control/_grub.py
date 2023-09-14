@@ -16,7 +16,6 @@
 import re
 import shutil
 from dataclasses import dataclass
-from functools import partial
 from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 from pathlib import Path
@@ -686,10 +685,7 @@ class GrubController(BootControllerProtocol):
                 standby_slot=self._boot_control.standby_slot,
                 current_ota_status_dir=self._boot_control.active_ota_partition_folder,
                 standby_ota_status_dir=self._boot_control.standby_ota_partition_folder,
-                finalize_switching_boot=partial(
-                    self._boot_control.finalize_update_switch_boot,
-                    abort_on_standby_missed=True,
-                ),
+                finalize_switching_boot=self._boot_control.finalize_update_switch_boot,
                 # NOTE(20230904): if boot control is initialized(i.e., migrate from non-ota booted system),
                 #                 force initialize the ota_status files.
                 force_initialize=self._boot_control.initialized,
