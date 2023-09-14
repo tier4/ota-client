@@ -365,7 +365,7 @@ class _GrubControl:
         self.standby_ota_partition_folder.mkdir(exist_ok=True)
 
         # NOTE: standby slot will be prepared in an OTA, GrubControl init will not check
-        #       standby slot's ota-partition files.
+        #       standby slot's ota-partition folder.
         self._grub_control_initialized = False
         self._check_active_slot_ota_partition_file()
 
@@ -448,7 +448,12 @@ class _GrubControl:
                 )
 
             # recreate all ota-partition files for active slot
-            self.reprepare_active_ota_partition_file(abort_on_standby_missed=False)
+            self._prepare_kernel_initrd_links(self.active_ota_partition_folder)
+            self._ensure_ota_partition_symlinks(active_slot=self.active_slot)
+            self._ensure_standby_slot_boot_files_symlinks(
+                standby_slot=self.standby_slot
+            )
+            self._grub_update_on_booted_slot()
             self._grub_control_initialized = True
 
         logger.info(f"ota-partition files for {self.active_slot} are ready")
