@@ -110,15 +110,17 @@ class GrubHelper:
     initrd_pa: ClassVar[re.Pattern] = re.compile(
         r"^\s+initrd.*(?P<initrd>initrd.img-(?P<ver>[\.\w-]*))", re.MULTILINE
     )
+    kernel_fname_pa: ClassVar[re.Pattern] = re.compile(r"^vmlinuz-(?P<ver>[\.\w-]*)$")
 
     VMLINUZ = "vmlinuz"
     INITRD = "initrd.img"
+    FNAME_VER_SPLITTER = "-"
     SUFFIX_OTA = "ota"
     SUFFIX_OTA_STANDBY = "ota.standby"
-    KERNEL_OTA = f"{VMLINUZ}-{SUFFIX_OTA}"
-    KERNEL_OTA_STANDBY = f"{VMLINUZ}-{SUFFIX_OTA_STANDBY}"
-    INITRD_OTA = f"{INITRD}-{SUFFIX_OTA}"
-    INITRD_OTA_STANDBY = f"{INITRD}-{SUFFIX_OTA_STANDBY}"
+    KERNEL_OTA = f"{VMLINUZ}{FNAME_VER_SPLITTER}{SUFFIX_OTA}"
+    KERNEL_OTA_STANDBY = f"{VMLINUZ}{FNAME_VER_SPLITTER}{SUFFIX_OTA_STANDBY}"
+    INITRD_OTA = f"{INITRD}{FNAME_VER_SPLITTER}{SUFFIX_OTA}"
+    INITRD_OTA_STANDBY = f"{INITRD}{FNAME_VER_SPLITTER}{SUFFIX_OTA_STANDBY}"
 
     grub_default_options: ClassVar[Dict[str, str]] = {
         "GRUB_TIMEOUT_STYLE": "menu",
@@ -485,23 +487,21 @@ class _GrubControl:
         initrd-ota -> initrd-*
         """
         kernel, initrd = None, None
+        # NOTE(20230914): if multiple kernels presented, the first found
+        #                 kernel(along with corresponding initrd.img) will be used.
         for f in target_folder.glob("*"):
             if (
-                f.name.find(GrubHelper.VMLINUZ) == 0
-                and not f.is_symlink()
-                and kernel is None
+                not f.is_symlink()
+                and (_kernel_fname := f.name) != GrubHelper.KERNEL_OTA
+                and (kernel_ma := GrubHelper.kernel_fname_pa.match(f.name))
             ):
-                kernel = f.name
-            elif (
-                f.name.find(GrubHelper.INITRD) == 0
-                and not f.is_symlink()
-                and initrd is None
-            ):
-                initrd = f.name
-
-            if kernel and initrd:
-                break
-
+                kernel_ver = kernel_ma.group("ver")
+                _initrd_fname = (
+                    f"{GrubHelper.INITRD}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
+                )
+                if (target_folder / _initrd_fname).is_file():
+                    kernel, initrd = _kernel_fname, _initrd_fname
+                    break
         if not (kernel and initrd):
             raise ValueError(f"vmlinuz and/or initrd.img not found at {target_folder}")
 
