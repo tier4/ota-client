@@ -55,7 +55,7 @@ logger = log_setting.get_logger(
 
 
 @dataclass
-class GrubMenuEntry:
+class _GrubMenuEntry:
     """
     NOTE: should only be called by the get_entry method
 
@@ -138,7 +138,7 @@ class GrubHelper:
         rootfs_str: str,
         start: int = 0,
     ) -> Optional[str]:
-        """Read in grub_cfg, update all entries' rootfs with <rootfs_str>,
+        """Read in grub_cfg, update matched kernel entries' rootfs with <rootfs_str>,
             and then return the updated one.
 
         Params:
@@ -187,16 +187,18 @@ class GrubHelper:
             return grub_cfg
 
     @classmethod
-    def get_entry(cls, grub_cfg: str, *, kernel_ver: str) -> Tuple[int, GrubMenuEntry]:
+    def get_entry(cls, grub_cfg: str, *, kernel_ver: str) -> Tuple[int, _GrubMenuEntry]:
         """Find the FIRST entry that matches the <kernel_ver>.
+
         NOTE: assume that the FIRST matching entry is the normal entry,
               which is correct in most cases(recovery entry will always
-              be after the normal boot entry.)
+              be after the normal boot entry, and we by defautl disable
+              recovery entry).
         """
         for index, entry_ma in enumerate(cls.menuentry_pa.finditer(grub_cfg)):
             if _linux := cls.linux_pa.search(entry_ma.group()):
                 if kernel_ver == _linux.group("ver"):
-                    return index, GrubMenuEntry(entry_ma)
+                    return index, _GrubMenuEntry(entry_ma)
 
         raise ValueError(f"requested entry for {kernel_ver} not found")
 
@@ -263,7 +265,8 @@ class GrubHelper:
 
 
 class GrubABPartitionDetecter:
-    """
+    """A/B partition detecter for ota-partition on grub booted system.
+
     Expected layout:
     (system boots with legacy BIOS)
         /dev/sdx
@@ -473,15 +476,14 @@ class _GrubControl:
 
         # lookup the grub file and find the booted entry
         # NOTE(20230905): use standard way to find initrd img
-        initrd_img = f"{GrubHelper.INITRD}-{kernel_ver}"
+        initrd_img = f"{GrubHelper.INITRD}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
         if not (Path(cfg.BOOT_DIR) / initrd_img).is_file():
             raise ValueError(f"failed to find booted initrd image({initrd_img})")
         return kernel_ma.group("kernel"), initrd_img
 
     @staticmethod
     def _prepare_kernel_initrd_links(target_folder: Path):
-        """
-        prepare links for kernel/initrd
+        """Prepare OTA symlinks for kernel/initrd under specific ota-partition folder.
         vmlinuz-ota -> vmlinuz-*
         initrd-ota -> initrd-*
         """
@@ -504,10 +506,8 @@ class _GrubControl:
         if not (kernel and initrd):
             raise ValueError(f"vmlinuz and/or initrd.img not found at {target_folder}")
 
-        kernel_ota = target_folder / GrubHelper.KERNEL_OTA
-        initrd_ota = target_folder / GrubHelper.INITRD_OTA
-        re_symlink_atomic(kernel_ota, kernel)
-        re_symlink_atomic(initrd_ota, initrd)
+        re_symlink_atomic(target_folder / GrubHelper.KERNEL_OTA, kernel)
+        re_symlink_atomic(target_folder / GrubHelper.INITRD_OTA, initrd)
         logger.info(f"finished generate ota symlinks under {target_folder}")
 
     def _grub_update_on_booted_slot(self, *, abort_on_standby_missed=True):
@@ -624,9 +624,15 @@ class _GrubControl:
             / GrubHelper.INITRD_OTA,
         )
 
-    ###### public methods ######
+    # API
 
     def prepare_standby_dev(self, *, erase_standby: bool):
+        """
+        Args:
+            erase_standby: indicate boot_controller whether to format the
+                standby slot's file system or not. This value is indicated and
+                passed to boot controller by the standby slot creator.
+        """
         try:
             # try to unmount the standby root dev unconditionally
             if CMDHelperFuncs.is_target_mounted(self.standby_root_dev):
@@ -641,6 +647,7 @@ class _GrubControl:
             raise BootControlPreUpdateFailed(_err_msg) from e
 
     def finalize_update_switch_boot(self):
+        """Finalize switch boot and use boot files from current booted slot."""
         # NOTE: since we have not yet switched boot, the active/standby relationship is
         #       reversed here corresponding to booted slot.
         self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
@@ -655,6 +662,7 @@ class _GrubControl:
         return True
 
     def grub_reboot_to_standby(self):
+        """Temporarily boot to standby slot after OTA applied to standby slot."""
         self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
         self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.standby_slot)
 
@@ -772,7 +780,7 @@ class GrubController(BootControllerProtocol):
             if f.is_file() and not f.is_symlink():
                 shutil.copy(f, standby_ota_partition_dir)
 
-    ###### public methods ######
+    # API
 
     def get_standby_slot_path(self) -> Path:
         return self._mp_control.standby_slot_mount_point
