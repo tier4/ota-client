@@ -663,9 +663,13 @@ class _GrubControl:
 
     def grub_reboot_to_standby(self):
         """Temporarily boot to standby slot after OTA applied to standby slot."""
+        # ensure all required symlinks for standby slot are presented and valid
         self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
         self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.standby_slot)
 
+        # ensure all required symlinks for active slot are presented and valid
+        # NOTE: reboot after post-update is still using the current active slot's
+        #       ota-partition symlinks(not yet switch boot).
         self._prepare_kernel_initrd_links(self.active_ota_partition_folder)
         self._ensure_ota_partition_symlinks(active_slot=self.active_slot)
         self._grub_update_on_booted_slot(abort_on_standby_missed=True)
