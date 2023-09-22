@@ -219,7 +219,7 @@ class TestGrubControl:
         mocker: pytest_mock.MockerFixture,
         grub_ab_slot,
     ):
-        from otaclient.app.boot_control._grub import GrubABPartitionDetecter
+        from otaclient.app.boot_control._grub import GrubABPartitionDetector
         from otaclient.app.boot_control._common import CMDHelperFuncs, SlotMountHelper
 
         # ------ start fsm ------ #
@@ -244,7 +244,7 @@ class TestGrubControl:
         )
 
         # ------ mock GrubABPartitionDetector ------ #
-        _mocked_ab_partition_detector = mocker.MagicMock(spec=GrubABPartitionDetecter)
+        _mocked_ab_partition_detector = mocker.MagicMock(spec=GrubABPartitionDetector)
         type(_mocked_ab_partition_detector).active_slot = mocker.PropertyMock(
             wraps=self._fsm.get_active_slot
         )
@@ -293,12 +293,12 @@ class TestGrubControl:
         _CMDHelper_at_grub_path = f"{cfg.GRUB_MODULE_PATH}.CMDHelperFuncs"
         mocker.patch(_CMDHelper_at_common_path, _CMDHelper_mock)
         mocker.patch(_CMDHelper_at_grub_path, _CMDHelper_mock)
-        # patch _GrubABPartitionDetecter
-        _GrubABPartitionDetecter_path = (
-            f"{cfg.GRUB_MODULE_PATH}.GrubABPartitionDetecter"
+        # patch _GrubABPartitionDetector
+        _GrubABPartitionDetector_path = (
+            f"{cfg.GRUB_MODULE_PATH}.GrubABPartitionDetector"
         )
         mocker.patch(
-            _GrubABPartitionDetecter_path, return_value=_mocked_ab_partition_detector
+            _GrubABPartitionDetector_path, return_value=_mocked_ab_partition_detector
         )
         # patch SlotMountHelper
         _SlotMountHelper_path = f"{cfg.GRUB_MODULE_PATH}.SlotMountHelper"
