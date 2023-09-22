@@ -231,7 +231,9 @@ class Test_OTAClient:
         )
         # patch boot_controller for otaclient initializing
         self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
-        self.boot_controller.get_ota_status.return_value = wrapper.StatusOta.SUCCESS
+        self.boot_controller.get_booted_ota_status.return_value = (
+            wrapper.StatusOta.SUCCESS
+        )
 
         self.ota_client = OTAClient(
             boot_control_cls=mocker.MagicMock(return_value=self.boot_controller),

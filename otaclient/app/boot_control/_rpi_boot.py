@@ -397,7 +397,7 @@ class RPIBootController(BootControllerProtocol):
         )
 
         # 20230613: remove any leftover flag file if ota_status is not UPDATING/ROLLBACKING
-        if self._ota_status_control.ota_status not in (
+        if self._ota_status_control.booted_ota_status not in (
             wrapper.StatusOta.UPDATING,
             wrapper.StatusOta.ROLLBACKING,
         ):
@@ -556,5 +556,5 @@ class RPIBootController(BootControllerProtocol):
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
 
-    def get_ota_status(self) -> wrapper.StatusOta:
-        return self._ota_status_control.ota_status
+    def get_booted_ota_status(self) -> wrapper.StatusOta:
+        return self._ota_status_control.booted_ota_status

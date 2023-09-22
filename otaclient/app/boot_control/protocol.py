@@ -24,8 +24,12 @@ class BootControllerProtocol(Protocol):
     """Boot controller protocol for otaclient."""
 
     @abstractmethod
-    def get_ota_status(self) -> wrapper.StatusOta:
-        """Get the stored ota_status of current active slot."""
+    def get_booted_ota_status(self) -> wrapper.StatusOta:
+        """Get the ota_status loaded from status file during otaclient starts up.
+
+        This value is meant to be used only once during otaclient starts up,
+            to init the live_ota_status maintained by otaclient.
+        """
 
     @abstractmethod
     def get_standby_slot_path(self) -> Path:
@@ -33,7 +37,16 @@ class BootControllerProtocol(Protocol):
 
     @abstractmethod
     def get_standby_boot_dir(self) -> Path:
-        """Get the Path points to the standby boot folder."""
+        """Get the Path points to the standby slot's boot folder.
+
+        NOTE(20230907): this will always return the path to
+                        <standby_slots_mount_point>/boot.
+        DEPRECATED(20230907): standby slot creator doesn't need to
+                        treat the files under /boot specially, it is
+                        boot controller's responsibility to get the
+                        kernel/initrd.img from standby slot and prepare
+                        them to actual boot dir.
+        """
 
     @abstractmethod
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
