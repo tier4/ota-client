@@ -264,8 +264,8 @@ class GrubHelper:
             raise
 
 
-class GrubABPartitionDetecter:
-    """A/B partition detecter for ota-partition on grub booted system.
+class GrubABPartitionDetector:
+    """A/B partition detector for ota-partition on grub booted system.
 
     Expected layout:
     (system boots with legacy BIOS)
@@ -345,11 +345,11 @@ class _GrubControl:
     """Implementation of ota-partition switch boot mechanism."""
 
     def __init__(self) -> None:
-        ab_detecter = GrubABPartitionDetecter()
-        self.active_root_dev = ab_detecter.active_dev
-        self.standby_root_dev = ab_detecter.standby_dev
-        self.active_slot = ab_detecter.active_slot
-        self.standby_slot = ab_detecter.standby_slot
+        ab_detector = GrubABPartitionDetector()
+        self.active_root_dev = ab_detector.active_dev
+        self.standby_root_dev = ab_detector.standby_dev
+        self.active_slot = ab_detector.active_slot
+        self.standby_slot = ab_detector.standby_slot
         logger.info(f"{self.active_slot=}, {self.standby_slot=}")
 
         self.boot_dir = Path(cfg.BOOT_DIR)
