@@ -13,12 +13,21 @@
 # limitations under the License.
 
 
-from enum import Enum, auto
-from logging import INFO
+from __future__ import annotations
+import logging
+import os.path
+from enum import Enum
+from functools import cached_property
+from os.path import isabs, isdir
 from pathlib import Path
-from typing import Dict, Tuple
+from pydantic import AfterValidator, Field, computed_field, IPvAnyAddress
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Optional
+from typing_extensions import Annotated
 
 from otaclient import __file__ as _otaclient__init__
+from otaclient._utils.path import replace_root
+from otaclient._utils.logging import is_logging_level
 
 _OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
 
@@ -26,141 +35,286 @@ _OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
 EXTRA_VERSION_FILE = str(_OTACLIENT_PACKAGE_ROOT / "version.txt")
 
 
-class CreateStandbyMechanism(Enum):
-    LEGACY = 0  # deprecated and removed
-    REBUILD = auto()  # default
-    IN_PLACE = auto()  # not yet implemented
+class CreateStandbyMechanism(str, Enum):
+    LEGACY = "legacy"  # deprecated and removed
+    REBUILD = "rebuild"  # current default
+    IN_PLACE = "in_place"  # not yet implemented
 
 
-class OtaClientServerConfig:
-    SERVER_PORT = 50051
-    WAITING_SUBECU_ACK_REQ_TIMEOUT = 6
-    QUERYING_SUBECU_STATUS_TIMEOUT = 30
-    LOOP_QUERYING_SUBECU_STATUS_INTERVAL = 10
-    STATUS_UPDATE_INTERVAL = 1
-
-    # proxy server
-    OTA_PROXY_LISTEN_ADDRESS = "0.0.0.0"
-    OTA_PROXY_LISTEN_PORT = 8082
+def _cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
+    return computed_field(cached_property(_f))
 
 
-class _InternalSettings:
-    """Common internal settings for otaclient.
+class _InternalSettings(BaseSettings):
+    """Internal settings for otaclient.
 
-    WARNING: typically the common settings SHOULD NOT be changed!
+    WARNING: generally the internal settings SHOULD NOT be changed!
              otherwise the backward compatibility will be impact.
     Change the fields in BaseConfig if you want to tune the otaclient.
     """
 
-    # ------ common paths ------ #
-    RUN_DIR = "/run/otaclient"
-    OTACLIENT_PID_FILE = "/run/otaclient.pid"
-    # NOTE: certs dir is located at the otaclient package root
-    CERTS_DIR = str(_OTACLIENT_PACKAGE_ROOT / "certs")
-    ACTIVE_ROOTFS_PATH = "/"
-    BOOT_DIR = "/boot"
-    OTA_DIR = "/boot/ota"
-    ECU_INFO_FILE = "/boot/ota/ecu_info.yaml"
-    PROXY_INFO_FILE = "/boot/ota/proxy_info.yaml"
-    PASSWD_FILE = "/etc/passwd"
-    GROUP_FILE = "/etc/group"
-    FSTAB_FPATH = "/etc/fstab"
-    # where the OTA image meta store for this slot
-    META_FOLDER = "/opt/ota/image-meta"
+    model_config = SettingsConfigDict(
+        env_file="_OTA_",
+        validate_assignment=True,
+        validate_default=True,
+    )
 
-    # ------ device configuration files ------ #
-    # this files should be placed under /boot/ota folder
-    ECU_INFO_FNAME = "ecu_info.yaml"
-    PROXY_INFO_FNAME = "proxy_info.yaml"
+    #
+    # --- runtime config ---
+    #
+    RUN_DPATH: str = "/run/otaclient"
+    OTACLIENT_PID_FPATH: str = "/run/otaclient.pid"
 
-    # ------ ota-status files ------ #
-    # this files should be placed under /boot/ota-status folder
-    OTA_STATUS_FNAME = "status"
-    OTA_VERSION_FNAME = "version"
-    SLOT_IN_USE_FNAME = "slot_in_use"
+    #
+    # --- mount point placement ---
+    #
+    DEFAULT_OTACLIENT_MOUNT_SPACE: ClassVar[str] = "/mnt/otaclient"
 
-    # ------ otaclient internal used path ------ #
-    # standby/refroot mount points
-    MOUNT_POINT = "/mnt/standby"
-    # where active(old) image partition will be bind mounted to
-    ACTIVE_ROOT_MOUNT_POINT = "/mnt/refroot"
-    # tmp store for local copy
-    OTA_TMP_STORE = "/.ota-tmp"
-    # tmp store for standby slot OTA image meta
-    OTA_TMP_META_STORE = "/.ota-meta"
-    # compressed OTA image support
-    SUPPORTED_COMPRESS_ALG: Tuple[str, ...] = ("zst", "zstd")
+    OTACLIENT_MOUNT_SPACE_DPATH: Annotated[
+        str, AfterValidator(isabs), AfterValidator(isdir)
+    ] = DEFAULT_OTACLIENT_MOUNT_SPACE
+
+    @_cached_computed_field
+    def STANDBY_SLOT_MP(self) -> str:
+        return os.path.join(self.DEFAULT_OTACLIENT_MOUNT_SPACE, "standby_slot")
+
+    @_cached_computed_field
+    def ACTIVE_SLOT_MP(self) -> str:
+        return os.path.join(self.DEFAULT_OTACLIENT_MOUNT_SPACE, "active_slot")
+
+    @_cached_computed_field
+    def REBUILD_MODE_TMP_DPATH(self) -> str:
+        return os.path.join(self.DEFAULT_OTACLIENT_MOUNT_SPACE, "standby_slot/ota-tmp")
+
+    #
+    # --- active_rootfs & containerized ---
+    #
+    DEFAULT_ACTIVE_ROOTFS: ClassVar[str] = "/"
+    ACTIVE_ROOTFS: Annotated[
+        str, AfterValidator(isabs), AfterValidator(isdir)
+    ] = DEFAULT_ACTIVE_ROOTFS
+
+    @_cached_computed_field
+    def IS_CONTAINER(self) -> bool:
+        return self.ACTIVE_ROOTFS != self.DEFAULT_ACTIVE_ROOTFS
+
+    @_cached_computed_field
+    def BOOT_DPATH(self) -> str:
+        return os.path.join(self.ACTIVE_ROOTFS, "boot")
+
+    # /boot/ota and its files
+
+    @_cached_computed_field
+    def BOOT_OTA_DPATH(self) -> str:
+        return os.path.join(self.ACTIVE_ROOTFS, "boot/ota")
+
+    @_cached_computed_field
+    def ECU_INFO_FPATH(self) -> str:
+        return os.path.join(self.BOOT_OTA_DPATH, "ecu_info.yaml")
+
+    @_cached_computed_field
+    def PROXY_INFO_FPATH(self) -> str:
+        return os.path.join(self.BOOT_OTA_DPATH, "proxy_info.yaml")
+
+    # /boot/ota-status and its files
+
+    @_cached_computed_field
+    def BOOT_OTA_STATUS_DPATH(self) -> str:
+        return os.path.join(self.ACTIVE_ROOTFS, "boot/ota-status")
+
+    @_cached_computed_field
+    def OTA_STATUS_FPATH(self) -> str:
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, "status")
+
+    @_cached_computed_field
+    def OTA_VERSION_FPATH(self) -> str:
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, "version")
+
+    @_cached_computed_field
+    def SLOT_IN_USE_FNAME(self) -> str:
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, "slot_in_use")
+
+    # some files under /etc
+
+    @_cached_computed_field
+    def PASSWD_FPATH(self) -> str:
+        return os.path.join(self.ACTIVE_ROOTFS, "etc/passwd")
+
+    @_cached_computed_field
+    def GROUP_FPATH(self) -> str:
+        return os.path.join(self.ACTIVE_ROOTFS, "etc/group")
+
+    @_cached_computed_field
+    def FSTAB_FPATH(self) -> str:
+        return os.path.join(self.ACTIVE_ROOTFS, "etc/fstab")
+
+    #
+    # ------ /opt/ota paths ------
+    #
+
+    DEFAULT_OTA_CERTS_DPATHS: ClassVar[List[str]] = [
+        "/opt/ota/client/certs",
+        "/opt/ota/certs",
+    ]
+    DEFAULT_OTA_INSTALLATION_PATH: ClassVar[str] = "/opt/ota"
+
+    OTA_CERTS_EXTRA_PATH: Optional[str] = None
+    OTA_INSTALLATION_PATH: str = DEFAULT_OTA_INSTALLATION_PATH
+
+    @_cached_computed_field
+    def OTAC_CERTS_DPATHS(self) -> tuple[str, ...]:
+        res = []
+        for _d in self.DEFAULT_OTA_CERTS_DPATHS:
+            _updated = replace_root(
+                _d, self.DEFAULT_OTA_INSTALLATION_PATH, self.OTA_INSTALLATION_PATH
+            )
+            res.append(_updated)
+        # also add extra path unchanged if set
+        if self.OTA_CERTS_EXTRA_PATH:
+            res.append(self.OTA_CERTS_EXTRA_PATH)
+        return tuple(res)
+
+    @_cached_computed_field
+    def OTACLIENT_INSTALLATION_PATH(self) -> str:
+        return os.path.join(self.OTA_INSTALLATION_PATH, "client")
+
+    @_cached_computed_field
+    def IMAGE_META_DPATH(self) -> str:
+        return os.path.join(self.OTA_INSTALLATION_PATH, "image-meta")
+
+    #
+    # --- OTA image compression support ---
+    #
+    SUPPORTED_COMPRESS_ALG: tuple[str, ...] = ("zst", "zstd")
+
+    #
+    # --- external cache source ---
+    #
+    EXTERNAL_CACHE_DEV_FSLABEL: str = Field(default="ota_cache_src", max_length=16)
+
+    @_cached_computed_field
+    def EXTERNAL_CACHE_DEV_MOUNTPOINT(self) -> str:
+        return os.path.join(self.OTACLIENT_MOUNT_SPACE_DPATH, "external_cache_src")
+
+    @_cached_computed_field
+    def EXTERNAL_CACHE_SRC_PATH(self) -> str:
+        return os.path.join(self.EXTERNAL_CACHE_DEV_MOUNTPOINT, "data")
 
 
-class BaseConfig(_InternalSettings):
+class _NormalConfig(BaseSettings):
     """User configurable otaclient settings."""
 
+    model_config = SettingsConfigDict(
+        env_file="OTA_",
+        validate_assignment=True,
+        validate_default=True,
+    )
+
+    #
+    # ------ otaclient grpc server config ------
+    #
+    SERVER_ADDRESS: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
+    SERVER_PORT: int = Field(default=50051, ge=0, le=65535)
+
+    #
+    # ------ otaproxy server config ------
+    #
+    OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
+    OTA_PROXY_LISTEN_PORT: int = Field(default=8082, ge=0, le=65535)
+
+    #
     # ------ otaclient logging setting ------ #
-    DEFAULT_LOG_LEVEL = INFO
-    LOG_LEVEL_TABLE: Dict[str, int] = {
-        "otaclient.app.boot_control.cboot": INFO,
-        "otaclient.app.boot_control.grub": INFO,
-        "otaclient.app.ota_client": INFO,
-        "otaclient.app.ota_client_service": INFO,
-        "otaclient.app.ota_client_stub": INFO,
-        "otaclient.app.ota_metadata": INFO,
-        "otaclient.app.downloader": INFO,
-        "otaclient.app.main": INFO,
+    #
+    LOGGING_LEVEL: Annotated[int, AfterValidator(is_logging_level)] = logging.INFO
+    LOG_LEVEL_TABLE: Dict[str, Annotated[int, AfterValidator(is_logging_level)]] = {
+        "otaclient.app.boot_control.cboot": LOGGING_LEVEL,
+        "otaclient.app.boot_control.grub": LOGGING_LEVEL,
+        "otaclient.app.ota_client": LOGGING_LEVEL,
+        "otaclient.app.ota_client_service": LOGGING_LEVEL,
+        "otaclient.app.ota_client_stub": LOGGING_LEVEL,
+        "otaclient.app.ota_metadata": LOGGING_LEVEL,
+        "otaclient.app.downloader": LOGGING_LEVEL,
+        "otaclient.app.main": LOGGING_LEVEL,
     }
-    LOG_FORMAT = (
+    LOG_FORMAT: str = (
         "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
     )
 
-    # ------ otaclient behavior setting ------ #
+    #
+    # ------ otaclient runtime behavior setting ------ #
+    #
     # the following settings can be safely changed according to the
     # actual environment otaclient running at.
-    # --- file read/write settings --- #
-    CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
-    LOCAL_CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
 
+    #
+    # --- request dispatch settings ---
+    #
+    WAITING_SUBECU_ACK_REQ_TIMEOUT: int = 6
+    QUERYING_SUBECU_STATUS_TIMEOUT: int = 30
+    LOOP_QUERYING_SUBECU_STATUS_INTERVAL: int = 10
+
+    #
+    # --- file I/O settings --- #
+    #
+    CHUNK_SIZE: int = 1 * 1024 * 1024  # 1MB
+    LOCAL_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MB
+
+    #
     # --- download settings for single download task --- #
-    DOWNLOAD_RETRY = 3
-    DOWNLOAD_BACKOFF_MAX = 3  # seconds
-    DOWNLOAD_BACKOFF_FACTOR = 0.1  # seconds
-    # downloader settings
-    MAX_DOWNLOAD_THREAD = 7
-    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD = 20
+    #
+    DOWNLOAD_RETRY: int = 3
+    DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
+    DOWNLOAD_BACKOFF_FACTOR: float = 0.1  # seconds
 
+    #
+    # --- downloader settings --- #
+    #
+    MAX_DOWNLOAD_THREAD: int = Field(default=7, le=32)
+    DOWNLOADER_CONNPOOL_SIZE_PER_THREAD: int = Field(default=20, le=64)
+
+    #
     # --- download settings for the whole download tasks group --- #
+    #
     # if retry keeps failing without any success in
     # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
     # download task group and raise NETWORK OTA error.
-    MAX_CONCURRENT_DOWNLOAD_TASKS = 128
-    DOWNLOAD_GROUP_INACTIVE_TIMEOUT = 5 * 60  # seconds
-    DOWNLOAD_GROUP_BACKOFF_MAX = 12  # seconds
-    DOWNLOAD_GROUP_BACKOFF_FACTOR = 1  # seconds
+    MAX_CONCURRENT_DOWNLOAD_TASKS: int = Field(default=128, le=1024)
+    DOWNLOAD_GROUP_INACTIVE_TIMEOUT: int = 5 * 60  # seconds
+    DOWNLOAD_GROUP_BACKOFF_MAX: int = 12  # seconds
+    DOWNLOAD_GROUP_BACKOFF_FACTOR: int = 1  # seconds
 
+    #
     # --- stats collector setting --- #
-    STATS_COLLECT_INTERVAL = 1  # second
+    #
+    STATS_COLLECT_INTERVAL: int = 1  # second
 
+    #
     # --- create standby setting --- #
+    #
     # now only REBUILD mode is available
-    STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
-    MAX_CONCURRENT_PROCESS_FILE_TASKS = 256
-    CREATE_STANDBY_RETRY_MAX = 3
-    CREATE_STANDBY_BACKOFF_FACTOR = 1
-    CREATE_STANDBY_BACKOFF_MAX = 6
+    STANDBY_CREATION_MODE: CreateStandbyMechanism = CreateStandbyMechanism.REBUILD
+    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = Field(default=256, le=2048)
+    CREATE_STANDBY_RETRY_MAX: int = 3
+    CREATE_STANDBY_BACKOFF_FACTOR: int = 1
+    CREATE_STANDBY_BACKOFF_MAX: int = 6
 
+    #
     # --- ECU status polling setting, otaproxy dependency managing --- #
+    #
     # The ECU status storage will summarize the stored ECUs' status report
     # and generate overall status report for all ECUs every <INTERVAL> seconds.
-    OVERALL_ECUS_STATUS_UPDATE_INTERVAL = 6  # seconds
+    OVERALL_ECUS_STATUS_UPDATE_INTERVAL: int = 6  # seconds
 
     # If ECU has been disconnected longer than <TIMEOUT> seconds, it will be
     # treated as UNREACHABLE, and will not be counted when generating overall
     # ECUs status report.
     # NOTE: unreachable_timeout should be larger than
     #       downloading_group timeout
-    ECU_UNREACHABLE_TIMEOUT = 20 * 60  # seconds
+    ECU_UNREACHABLE_TIMEOUT: int = 20 * 60  # seconds
 
     # Otaproxy should not be shutdowned with less than <INTERVAL> seconds
     # after it just starts to prevent repeatedly start/stop cycle.
-    OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL = 1 * 60  # seconds
+    OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL: int = 1 * 60  # seconds
 
     # When any ECU acks update request, this ECU will directly set the overall ECU status
     # to any_in_update=True, any_requires_network=True, all_success=False, to prevent
@@ -168,23 +322,44 @@ class BaseConfig(_InternalSettings):
     #
     # This pre-set overall ECU status will be kept for <KEEP_TIME> seconds.
     # This value is expected to be larger than the time cost for subECU acks the OTA request.
-    KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED = 60  # seconds
+    KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED: int = 60  # seconds
 
     # Active status polling interval, when there is active OTA update in the cluster.
-    ACTIVE_INTERVAL = 1  # second
+    ACTIVE_INTERVAL: int = 1  # second
 
     # Idle status polling interval, when ther is no active OTA updaste in the cluster.
-    IDLE_INTERVAL = 10  # seconds
+    IDLE_INTERVAL: int = 10  # seconds
 
-    # --- External cache source support for otaproxy --- #
-    EXTERNAL_CACHE_DEV_FSLABEL = "ota_cache_src"
-    EXTERNAL_CACHE_DEV_MOUNTPOINT = "/mnt/external_cache_src"
-    EXTERNAL_CACHE_SRC_PATH = "/mnt/external_cache_src/data"
-
-    # default version string to be reported in status API response
-    DEFAULT_VERSION_STR = ""
+    # --- default version str ---
+    DEFAULT_VERSION_STR: str = ""
 
 
-# init cfgs
-server_cfg = OtaClientServerConfig()
-config = BaseConfig()
+# We need to apply different policy to internal_settings and normal_config
+
+if TYPE_CHECKING:
+
+    class Config(_InternalSettings, _NormalConfig):
+        ...
+
+else:
+
+    class Config:
+        def __init__(
+            self,
+            _internal_cfg: Optional[_InternalSettings] = None,
+            _normal_cfg: Optional[_NormalConfig] = None,
+        ) -> None:
+            self._internal_config = _internal_cfg or _InternalSettings()
+            self._normal_config = _normal_cfg or _NormalConfig()
+
+        def __getattr__(self, _attrn: str):
+            # _internal config has higher priority
+            try:
+                getattr(self._internal_config, _attrn)
+            except AttributeError:
+                getattr(self._normal_config, _attrn)
+
+
+# init cfgs via environment variables
+
+config = Config()
