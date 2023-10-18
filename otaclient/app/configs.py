@@ -174,7 +174,7 @@ class _InternalSettings(BaseSettings):
     OTA_INSTALLATION_PATH: str = DEFAULT_OTA_INSTALLATION_PATH
 
     @_cached_computed_field
-    def OTAC_CERTS_DPATH(self) -> str:
+    def OTA_CERTS_DPATH(self) -> str:
         return replace_root(
             self.DEFAULT_OTA_CERTS_DPATHS,
             self.DEFAULT_OTA_INSTALLATION_PATH,
