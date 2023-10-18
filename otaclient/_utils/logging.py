@@ -16,7 +16,7 @@
 import logging
 import itertools
 import time
-from typing import Optional
+from typing import Any, Optional
 
 
 class BurstSuppressFilter(logging.Filter):
@@ -61,3 +61,7 @@ class BurstSuppressFilter(logging.Filter):
             )
             self._round_warned = True
         return False
+
+
+def is_logging_level(_in: Any) -> bool:
+    return _in in logging._levelToName
