@@ -63,6 +63,7 @@ from .update_stats import (
     RegProcessOperation,
 )
 from . import log_setting
+from .._utils.path import replace_root
 
 try:
     from otaclient import __version__  # type: ignore
@@ -135,12 +136,20 @@ class _OTAUpdater:
         self._update_stats_collector = OTAUpdateStatsCollector()
 
         # paths
-        self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_STORE
-        ).relative_to("/")
-        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_META_STORE
-        ).relative_to("/")
+        self._ota_tmp_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_DPATH,
+                cfg.DEFAULT_ACTIVE_ROOTFS,
+                cfg.STANDBY_SLOT_MP,
+            )
+        )
+        self._ota_tmp_image_meta_dir_on_standby = Path(
+            replace_root(
+                cfg.IMAGE_META_DPATH,
+                cfg.DEFAULT_ACTIVE_ROOTFS,
+                cfg.STANDBY_SLOT_MP,
+            )
+        )
 
     # helper methods
 
@@ -244,8 +253,8 @@ class _OTAUpdater:
         self._standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
-            standby_slot_mount_point=cfg.MOUNT_POINT,
-            active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+            standby_slot_mount_point=cfg.STANDBY_SLOT_MP,
+            active_slot_mount_point=cfg.ACTIVE_SLOT_MP,
             stats_collector=self._update_stats_collector,
         )
         try:
@@ -522,7 +531,7 @@ class OTAClient(OTAClientProtocol):
 
     # API
 
-    def update(self, version: str, url_base: str, cookies_json: str):
+    def update(self, version: str, url_base: str, cookies_json: str) -> None:
         if self._lock.acquire(blocking=False):
             try:
                 logger.info("[update] entering...")
