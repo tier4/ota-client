@@ -168,27 +168,18 @@ class _InternalSettings(BaseSettings):
     # ------ /opt/ota paths ------
     #
 
-    DEFAULT_OTA_CERTS_DPATHS: ClassVar[List[str]] = [
-        "/opt/ota/client/certs",
-        "/opt/ota/certs",
-    ]
+    DEFAULT_OTA_CERTS_DPATHS: ClassVar[str] = "/opt/ota/client/certs"
     DEFAULT_OTA_INSTALLATION_PATH: ClassVar[str] = "/opt/ota"
 
-    OTA_CERTS_EXTRA_PATH: Optional[str] = None
     OTA_INSTALLATION_PATH: str = DEFAULT_OTA_INSTALLATION_PATH
 
     @_cached_computed_field
-    def OTAC_CERTS_DPATHS(self) -> tuple[str, ...]:
-        res = []
-        for _d in self.DEFAULT_OTA_CERTS_DPATHS:
-            _updated = replace_root(
-                _d, self.DEFAULT_OTA_INSTALLATION_PATH, self.OTA_INSTALLATION_PATH
-            )
-            res.append(_updated)
-        # also add extra path unchanged if set
-        if self.OTA_CERTS_EXTRA_PATH:
-            res.append(self.OTA_CERTS_EXTRA_PATH)
-        return tuple(res)
+    def OTAC_CERTS_DPATH(self) -> str:
+        return replace_root(
+            self.DEFAULT_OTA_CERTS_DPATHS,
+            self.DEFAULT_OTA_INSTALLATION_PATH,
+            self.OTA_INSTALLATION_PATH,
+        )
 
     @_cached_computed_field
     def OTACLIENT_INSTALLATION_PATH(self) -> str:
