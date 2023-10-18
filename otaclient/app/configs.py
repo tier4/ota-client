@@ -58,9 +58,8 @@ class _InternalSettings(BaseSettings):
     Configurable settings:
         ACTIVE_ROOTFS & container mode:
             When otaclient is running as container, the host rootfs should be mounted
-                into the container, and specified via ACTIVE_ROOTFS environment vars.
-        OTA_INSTALLATION_PATH:
-            Where the OTA related files are installed, default is /opt/ota.
+                into the container, and MUST specified via ACTIVE_ROOTFS environment vars.
+            When ACTIVE_ROOTFS is specified and not "/", IS_CONTAINER will be True.
         OTA_CERTS_EXTRA_PATH:
             Extra certs seraching path when doing certification verification.
 
@@ -79,6 +78,7 @@ class _InternalSettings(BaseSettings):
     #
     RUN_DPATH: str = "/run/otaclient"
     OTACLIENT_PID_FPATH: str = "/run/otaclient.pid"
+    OTA_TMP_DPATH: str = "/ota-tmp"
 
     #
     # --- mount point placement ---
@@ -96,10 +96,6 @@ class _InternalSettings(BaseSettings):
     @_cached_computed_field
     def ACTIVE_SLOT_MP(self) -> str:
         return os.path.join(self.DEFAULT_OTACLIENT_MOUNT_SPACE, "active_slot")
-
-    @_cached_computed_field
-    def REBUILD_MODE_TMP_DPATH(self) -> str:
-        return os.path.join(self.STANDBY_SLOT_MP, "ota-tmp")
 
     #
     # --- active_rootfs & containerized ---
@@ -200,6 +196,7 @@ class _InternalSettings(BaseSettings):
 
     @_cached_computed_field
     def IMAGE_META_DPATH(self) -> str:
+        """OTA image meta location of current slot."""
         return os.path.join(self.OTA_INSTALLATION_PATH, "image-meta")
 
     #
