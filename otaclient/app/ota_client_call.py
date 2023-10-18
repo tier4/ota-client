@@ -16,7 +16,7 @@
 import grpc.aio
 
 from .proto import wrapper, v2_grpc
-from .configs import server_cfg
+from .configs import config as cfg
 
 
 class ECUNoResponse(Exception):
@@ -28,7 +28,7 @@ class OtaClientCall:
     async def status_call(
         ecu_id: str,
         ecu_ipaddr: str,
-        ecu_port: int = server_cfg.SERVER_PORT,
+        ecu_port: int = cfg.SERVER_PORT,
         *,
         request: wrapper.StatusRequest,
         timeout=None,
@@ -47,7 +47,7 @@ class OtaClientCall:
     async def update_call(
         ecu_id: str,
         ecu_ipaddr: str,
-        ecu_port: int = server_cfg.SERVER_PORT,
+        ecu_port: int = cfg.SERVER_PORT,
         *,
         request: wrapper.UpdateRequest,
         timeout=None,
@@ -66,7 +66,7 @@ class OtaClientCall:
     async def rollback_call(
         ecu_id: str,
         ecu_ipaddr: str,
-        ecu_port: int = server_cfg.SERVER_PORT,
+        ecu_port: int = cfg.SERVER_PORT,
         *,
         request: wrapper.RollbackRequest,
         timeout=None,
