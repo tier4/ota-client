@@ -44,7 +44,7 @@ from urllib.parse import urljoin
 from .log_setting import get_logger
 from .configs import config as cfg
 
-logger = get_logger(__name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = get_logger(__name__)
 
 
 def get_backoff(n: int, factor: float, _max: float) -> float:

@@ -27,9 +27,7 @@ from . import log_setting
 from .configs import config as cfg
 from .configs import server_cfg
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 PRE_DEFINED_PROXY_INFO_YAML = """

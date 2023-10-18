@@ -69,9 +69,7 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 class OTAClientControlFlags:

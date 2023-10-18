@@ -41,9 +41,7 @@ from ._common import (
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 _FSTAB_TEMPLATE_STR = (
     "LABEL=${rootfs_fslabel}\t/\text4\tdiscard,x-systemd.growfs\t0\t1\n"
