@@ -19,7 +19,6 @@ import shutil
 from pathlib import Path
 
 from . import log_setting
-from .configs import config as cfg
 
 logger = log_setting.get_logger(__name__)
 
