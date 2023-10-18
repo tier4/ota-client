@@ -14,6 +14,7 @@
 
 
 from __future__ import annotations
+import json
 import logging
 import os.path
 from enum import Enum
@@ -22,7 +23,7 @@ from os.path import isabs, isdir
 from pathlib import Path
 from pydantic import AfterValidator, Field, computed_field, IPvAnyAddress
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Optional, Tuple
 from typing_extensions import Annotated
 
 from otaclient import __file__ as _otaclient__init__
@@ -48,9 +49,23 @@ def _cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
 class _InternalSettings(BaseSettings):
     """Internal settings for otaclient.
 
-    WARNING: generally the internal settings SHOULD NOT be changed!
-             otherwise the backward compatibility will be impact.
-    Change the fields in BaseConfig if you want to tune the otaclient.
+    Internal settings can be configured via environment variables.
+    For example, to configure ACTIVE_ROOTFS, set env _OTA_ACTIVE_ROOTFS=/host_root.
+
+    WARNING: be careful to set the settings in InternalSettings as it might break
+        the backward compatibility or prevent otaclient from running properly.
+
+    Configurable settings:
+        ACTIVE_ROOTFS & container mode:
+            When otaclient is running as container, the host rootfs should be mounted
+                into the container, and specified via ACTIVE_ROOTFS environment vars.
+        OTA_INSTALLATION_PATH:
+            Where the OTA related files are installed, default is /opt/ota.
+        OTA_CERTS_EXTRA_PATH:
+            Extra certs seraching path when doing certification verification.
+
+    Some of other settings are also configurable, but it is high NOT recommended to
+        change these settings.
     """
 
     model_config = SettingsConfigDict(
@@ -84,7 +99,7 @@ class _InternalSettings(BaseSettings):
 
     @_cached_computed_field
     def REBUILD_MODE_TMP_DPATH(self) -> str:
-        return os.path.join(self.DEFAULT_OTACLIENT_MOUNT_SPACE, "standby_slot/ota-tmp")
+        return os.path.join(self.STANDBY_SLOT_MP, "ota-tmp")
 
     #
     # --- active_rootfs & containerized ---
@@ -96,6 +111,11 @@ class _InternalSettings(BaseSettings):
 
     @_cached_computed_field
     def IS_CONTAINER(self) -> bool:
+        """Whether otaclient is running as container.
+
+        If active rootfs is specified and not /, otaclient will
+        activate the container running mode.
+        """
         return self.ACTIVE_ROOTFS != self.DEFAULT_ACTIVE_ROOTFS
 
     @_cached_computed_field
@@ -106,7 +126,7 @@ class _InternalSettings(BaseSettings):
 
     @_cached_computed_field
     def BOOT_OTA_DPATH(self) -> str:
-        return os.path.join(self.ACTIVE_ROOTFS, "boot/ota")
+        return os.path.join(self.BOOT_DPATH, "ota")
 
     @_cached_computed_field
     def ECU_INFO_FPATH(self) -> str:
@@ -120,7 +140,7 @@ class _InternalSettings(BaseSettings):
 
     @_cached_computed_field
     def BOOT_OTA_STATUS_DPATH(self) -> str:
-        return os.path.join(self.ACTIVE_ROOTFS, "boot/ota-status")
+        return os.path.join(self.BOOT_DPATH, "ota-status")
 
     @_cached_computed_field
     def OTA_STATUS_FPATH(self) -> str:
@@ -185,7 +205,7 @@ class _InternalSettings(BaseSettings):
     #
     # --- OTA image compression support ---
     #
-    SUPPORTED_COMPRESS_ALG: tuple[str, ...] = ("zst", "zstd")
+    SUPPORTED_COMPRESS_ALG: ClassVar[Tuple[str, ...]] = ("zst", "zstd")
 
     #
     # --- external cache source ---
@@ -202,7 +222,12 @@ class _InternalSettings(BaseSettings):
 
 
 class _NormalConfig(BaseSettings):
-    """User configurable otaclient settings."""
+    """User configurable otaclient settings.
+
+    These settings can tune the runtime performance and behavior of otaclient,
+        configurable via environment variables. For example, to set SERVER_ADDRESS,
+        set env OTA_SERVER_ADDRESS=10.0.1.1 .
+    """
 
     model_config = SettingsConfigDict(
         env_file="OTA_",
@@ -358,6 +383,16 @@ else:
                 getattr(self._internal_config, _attrn)
             except AttributeError:
                 getattr(self._normal_config, _attrn)
+
+        def model_dump(self) -> dict[str, Any]:
+            res = self._internal_config.model_dump()
+            res.update(self._normal_config.model_dump())
+            return res
+
+        def model_dump_json(self) -> str:
+            # NOTE: we don't have fields that contains model inst,
+            #       so we can directly dump.
+            return json.dumps(self.model_dump())
 
 
 # init cfgs via environment variables
