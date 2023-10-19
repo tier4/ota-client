@@ -62,8 +62,6 @@ class _DynamicRootedPathsConfig(BaseModel):
     ACTIVE_ROOTFS.
     """
 
-    model_config = ConfigDict(validate_assignment=True, validate_default=True)
-
     #
     # --- active_rootfs & container mode ---
     #
@@ -72,7 +70,7 @@ class _DynamicRootedPathsConfig(BaseModel):
         str, AfterValidator(isabs), AfterValidator(isdir)
     ] = DEFAULT_ACTIVE_ROOTFS
 
-    @_cached_computed_field
+    @cached_computed_field
     def IS_CONTAINER(self) -> bool:
         """Whether otaclient is running as container.
 
@@ -86,7 +84,7 @@ class _DynamicRootedPathsConfig(BaseModel):
     #
     DEFAULT_OTACLIENT_MOUNT_SPACE: ClassVar[str] = "/mnt/otaclient"
 
-    @_cached_computed_field
+    @cached_computed_field
     def OTACLIENT_MOUNT_SPACE_DPATH(self) -> str:
         return replace_root(
             self.DEFAULT_OTACLIENT_MOUNT_SPACE,
@@ -94,68 +92,72 @@ class _DynamicRootedPathsConfig(BaseModel):
             self.ACTIVE_ROOTFS,
         )
 
-    @_cached_computed_field
+    @cached_computed_field
     def STANDBY_SLOT_MP(self) -> str:
         return os.path.join(self.OTACLIENT_MOUNT_SPACE_DPATH, "standby_slot")
 
-    @_cached_computed_field
+    @cached_computed_field
     def ACTIVE_SLOT_MP(self) -> str:
         return os.path.join(self.OTACLIENT_MOUNT_SPACE_DPATH, "active_slot")
 
     #
     # --- /boot related ---
     #
-    @_cached_computed_field
+    @cached_computed_field
     def BOOT_DPATH(self) -> str:
         return os.path.join(self.ACTIVE_ROOTFS, "boot")
 
     # /boot/ota and its files
 
-    @_cached_computed_field
+    @cached_computed_field
     def BOOT_OTA_DPATH(self) -> str:
         return os.path.join(self.BOOT_DPATH, "ota")
 
-    @_cached_computed_field
+    @cached_computed_field
     def ECU_INFO_FPATH(self) -> str:
         return os.path.join(self.BOOT_OTA_DPATH, "ecu_info.yaml")
 
-    @_cached_computed_field
+    @cached_computed_field
     def PROXY_INFO_FPATH(self) -> str:
         return os.path.join(self.BOOT_OTA_DPATH, "proxy_info.yaml")
 
     # /boot/ota-status and its files
 
-    @_cached_computed_field
+    OTA_STATUS_FNAME: ClassVar[str] = "status"
+    OTA_VERSION_FNAME: ClassVar[str] = "version"
+    SLOT_IN_USE_FNAME: ClassVar[str] = "slot_in_use"
+
+    @cached_computed_field
     def BOOT_OTA_STATUS_DPATH(self) -> str:
         return os.path.join(self.BOOT_DPATH, "ota-status")
 
-    @_cached_computed_field
+    @cached_computed_field
     def OTA_STATUS_FPATH(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, "status")
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, self.OTA_STATUS_FNAME)
 
-    @_cached_computed_field
+    @cached_computed_field
     def OTA_VERSION_FPATH(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, "version")
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, self.OTA_VERSION_FNAME)
 
-    @_cached_computed_field
-    def SLOT_IN_USE_FNAME(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, "slot_in_use")
+    @cached_computed_field
+    def SLOT_IN_USE_FPATH(self) -> str:
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, self.SLOT_IN_USE_FNAME)
 
     # some files under /etc
 
-    @_cached_computed_field
+    @cached_computed_field
     def ETC_DPATH(self) -> str:
         return os.path.join(self.ACTIVE_ROOTFS, "etc")
 
-    @_cached_computed_field
+    @cached_computed_field
     def PASSWD_FPATH(self) -> str:
         return os.path.join(self.ETC_DPATH, "passwd")
 
-    @_cached_computed_field
+    @cached_computed_field
     def GROUP_FPATH(self) -> str:
         return os.path.join(self.ETC_DPATH, "group")
 
-    @_cached_computed_field
+    @cached_computed_field
     def FSTAB_FPATH(self) -> str:
         return os.path.join(self.ETC_DPATH, "fstab")
 
@@ -165,7 +167,7 @@ class _DynamicRootedPathsConfig(BaseModel):
     DEFAULT_OTA_CERTS_DPATHS: ClassVar[str] = "/opt/ota/client/certs"
     DEFAULT_OTA_INSTALLATION_PATH: ClassVar[str] = "/opt/ota"
 
-    @_cached_computed_field
+    @cached_computed_field
     def OTA_INSTALLATION_PATH(self) -> str:
         return replace_root(
             self.DEFAULT_OTA_INSTALLATION_PATH,
@@ -173,7 +175,7 @@ class _DynamicRootedPathsConfig(BaseModel):
             self.ACTIVE_ROOTFS,
         )
 
-    @_cached_computed_field
+    @cached_computed_field
     def OTA_CERTS_DPATH(self) -> str:
         return replace_root(
             self.DEFAULT_OTA_CERTS_DPATHS,
@@ -181,11 +183,11 @@ class _DynamicRootedPathsConfig(BaseModel):
             self.ACTIVE_ROOTFS,
         )
 
-    @_cached_computed_field
+    @cached_computed_field
     def OTACLIENT_INSTALLATION_PATH(self) -> str:
         return os.path.join(self.OTA_INSTALLATION_PATH, "client")
 
-    @_cached_computed_field
+    @cached_computed_field
     def IMAGE_META_DPATH(self) -> str:
         return os.path.join(self.OTA_INSTALLATION_PATH, "image-meta")
 
