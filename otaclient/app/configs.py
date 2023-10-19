@@ -35,10 +35,10 @@ from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
 from otaclient._utils.logging import is_logging_level
 
-_OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
+OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
 
 # NOTE: VERSION file is installed under otaclient package root
-EXTRA_VERSION_FILE = str(_OTACLIENT_PACKAGE_ROOT / "version.txt")
+EXTRA_VERSION_FILE = str(OTACLIENT_PACKAGE_ROOT / "version.txt")
 
 
 class CreateStandbyMechanism(str, Enum):
@@ -375,15 +375,12 @@ def _init_config() -> Config:
 
         model_config = SettingsConfigDict(env_prefix=ENV_PREFIX)
 
-    _user_configs = _ConfigurableNormalConfigs()
-    _internal_configs = _InternalConfigs(
+    return Config(
         ACTIVE_ROOTFS=os.getenv(
             HOST_ROOTFS_ENV, _DynamicRootedPathsConfig.DEFAULT_ACTIVE_ROOTFS
-        )
+        ),
+        **_ConfigurableNormalConfigs().model_dump(),
     )
-
-    # construct the final config object
-    return Config(**_user_configs.model_dump(), **_internal_configs.model_dump())
 
 
 config = _init_config()
