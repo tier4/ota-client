@@ -54,6 +54,8 @@ class _FixedInternalConfigs(BaseModel):
     OTACLIENT_PID_FPATH: str = "/run/otaclient.pid"
     SUPPORTED_COMPRESS_ALG: ClassVar[Tuple[str, ...]] = ("zst", "zstd")
 
+    EXTERNAL_CACHE_DEV_FSLABEL: ClassVar[str] = "ota_cache_src"
+
 
 class _DynamicRootedPathsConfig(BaseModel):
     """Dynamic generated internal paths config.
@@ -196,6 +198,17 @@ class _DynamicRootedPathsConfig(BaseModel):
         return replace_root(
             self.ACTIVE_IMAGE_META_DPATH, self.ACTIVE_ROOTFS, self.STANDBY_SLOT_MP
         )
+
+    #
+    # ------ external OTA cache source support ------
+    #
+    @cached_computed_field
+    def EXTERNAL_CACHE_DEV_MOUNTPOINT(self) -> str:
+        return os.path.join(self.OTACLIENT_MOUNT_SPACE_DPATH, "external_cache_src")
+
+    @cached_computed_field
+    def EXTERNAL_CACHE_SRC_PATH(self) -> str:
+        return os.path.join(self.EXTERNAL_CACHE_DEV_MOUNTPOINT, "data")
 
 
 class _InternalConfigs(_FixedInternalConfigs, _DynamicRootedPathsConfig):
