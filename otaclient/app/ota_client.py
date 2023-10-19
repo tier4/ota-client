@@ -63,7 +63,6 @@ from .update_stats import (
     RegProcessOperation,
 )
 from . import log_setting
-from .._utils.path import replace_root
 
 try:
     from otaclient import __version__  # type: ignore

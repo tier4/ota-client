@@ -17,7 +17,6 @@ import yaml
 import zstandard
 from pathlib import Path
 from typing import Dict, Callable
-from ..configs import config as cfg
 from .. import log_setting
 
 logger = log_setting.get_logger(__name__)

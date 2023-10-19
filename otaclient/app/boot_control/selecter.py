@@ -21,7 +21,6 @@ from .configs import BootloaderType, cboot_cfg, rpi_boot_cfg
 from ._errors import BootControlError
 from .protocol import BootControllerProtocol
 
-from ..configs import config as cfg
 from ..common import read_str_from_file
 from .. import log_setting
 

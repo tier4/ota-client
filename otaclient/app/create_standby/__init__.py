@@ -15,9 +15,9 @@
 
 from typing import Type
 
-from .interface import StandbySlotCreatorProtocol
-from ..configs import CreateStandbyMechanism, config as cfg
 from .. import log_setting
+from ..configs import CreateStandbyMechanism
+from .interface import StandbySlotCreatorProtocol
 
 logger = log_setting.get_logger(__name__)
 
