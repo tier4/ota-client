@@ -21,8 +21,6 @@ from subprocess import CalledProcessError
 from typing import Generator, Optional
 
 from otaclient._utils.path import replace_root
-
-
 from .. import log_setting
 from ..configs import config as cfg
 from ..common import (

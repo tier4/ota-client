@@ -57,13 +57,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
-        self._ota_tmp = Path(
-            replace_root(
-                cfg.OTA_TMP_DPATH,
-                cfg.DEFAULT_ACTIVE_ROOTFS,
-                standby_slot_mount_point,
-            )
-        )
+        self._ota_tmp = Path(cfg.STANDBY_OTA_TMP_DPATH)
         self._ota_tmp.mkdir(exist_ok=True)
 
     def _cal_and_prepare_delta(self):
@@ -90,18 +84,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
             src_passwd_file=Path(cfg.PASSWD_FPATH),
             src_group_file=Path(cfg.GROUP_FPATH),
             dst_passwd_file=Path(
-                replace_root(
-                    cfg.PASSWD_FPATH,
-                    cfg.ACTIVE_ROOTFS,
-                    cfg.STANDBY_SLOT_MP,
-                )
+                replace_root(cfg.PASSWD_FPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP)
             ),
             dst_group_file=Path(
-                replace_root(
-                    cfg.GROUP_FPATH,
-                    cfg.ACTIVE_ROOTFS,
-                    cfg.STANDBY_SLOT_MP,
-                )
+                replace_root(cfg.GROUP_FPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP)
             ),
         )
 
@@ -201,13 +187,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
-        _dst = Path(
-            replace_root(
-                cfg.IMAGE_META_DPATH,
-                cfg.DEFAULT_ACTIVE_ROOTFS,
-                cfg.STANDBY_SLOT_MP,
-            )
-        )
+        _dst = Path(cfg.STANDBY_IMAGE_META_DPATH)
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")

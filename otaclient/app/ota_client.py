@@ -136,20 +136,8 @@ class _OTAUpdater:
         self._update_stats_collector = OTAUpdateStatsCollector()
 
         # paths
-        self._ota_tmp_on_standby = Path(
-            replace_root(
-                cfg.OTA_TMP_DPATH,
-                cfg.DEFAULT_ACTIVE_ROOTFS,
-                cfg.STANDBY_SLOT_MP,
-            )
-        )
-        self._ota_tmp_image_meta_dir_on_standby = Path(
-            replace_root(
-                cfg.IMAGE_META_DPATH,
-                cfg.DEFAULT_ACTIVE_ROOTFS,
-                cfg.STANDBY_SLOT_MP,
-            )
-        )
+        self._ota_tmp_on_standby = Path(cfg.STANDBY_OTA_TMP_DPATH)
+        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.STANDBY_IMAGE_META_DPATH)
 
     # helper methods
 

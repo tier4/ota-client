@@ -47,10 +47,10 @@ def detect_bootloader(raise_on_unknown=True) -> BootloaderType:
     if machine == "aarch64" or arch == "aarch64":
         # evidence: jetson xvaier device has a special file which reveals the
         #           tegra chip id
-        if Path(cboot_cfg.TEGRA_CHIP_ID_PATH).is_file():
+        if Path(cboot_cfg.TEGRA_CHIP_ID_FPATH).is_file():
             return BootloaderType.CBOOT
         # evidence: rpi device has a special file which reveals the rpi model
-        rpi_model_file = Path(rpi_boot_cfg.RPI_MODEL_FILE)
+        rpi_model_file = Path(rpi_boot_cfg.RPI_MODEL_FPATH)
         if rpi_model_file.is_file():
             if (_model_str := read_str_from_file(rpi_model_file)).find(
                 rpi_boot_cfg.RPI_MODEL_HINT

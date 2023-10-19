@@ -188,8 +188,14 @@ class _DynamicRootedPathsConfig(BaseModel):
         return os.path.join(self.OTA_INSTALLATION_PATH, "client")
 
     @cached_computed_field
-    def IMAGE_META_DPATH(self) -> str:
+    def ACTIVE_IMAGE_META_DPATH(self) -> str:
         return os.path.join(self.OTA_INSTALLATION_PATH, "image-meta")
+
+    @cached_computed_field
+    def STANDBY_IMAGE_META_DPATH(self) -> str:
+        return replace_root(
+            self.ACTIVE_IMAGE_META_DPATH, self.ACTIVE_ROOTFS, self.STANDBY_SLOT_MP
+        )
 
 
 class _InternalConfigs(_FixedInternalConfigs, _DynamicRootedPathsConfig):
@@ -336,6 +342,12 @@ class _NormalConfigs(BaseModel):
 
 class Config(_InternalConfigs, _NormalConfigs):
     model_config = ConfigDict(frozen=True, validate_default=True)
+
+    @cached_computed_field
+    def STANDBY_OTA_TMP_DPATH(self) -> str:
+        return replace_root(
+            self.OTA_TMP_DPATH, self.DEFAULT_ACTIVE_ROOTFS, self.STANDBY_SLOT_MP
+        )
 
 
 # init config
