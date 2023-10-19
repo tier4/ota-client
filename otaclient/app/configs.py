@@ -31,9 +31,9 @@ from typing import ClassVar, Dict, Tuple
 from typing_extensions import Annotated
 
 from otaclient import __file__ as _otaclient__init__
-from otaclient._utils import cached_computed_field
+from otaclient._utils import cached_computed_field, validator_wrapper
 from otaclient._utils.path import replace_root
-from otaclient._utils.logging import is_logging_level
+from otaclient._utils.logging import check_loglevel
 
 OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
 
@@ -69,7 +69,9 @@ class _DynamicRootedPathsConfig(BaseModel):
     #
     DEFAULT_ACTIVE_ROOTFS: ClassVar[str] = "/"
     ACTIVE_ROOTFS: Annotated[
-        str, AfterValidator(isabs), AfterValidator(isdir)
+        str,
+        AfterValidator(validator_wrapper(isabs)),
+        AfterValidator(validator_wrapper(isdir)),
     ] = DEFAULT_ACTIVE_ROOTFS
 
     @cached_computed_field
@@ -246,8 +248,8 @@ class _NormalConfigs(BaseModel):
     #
     # ------ otaclient logging setting ------ #
     #
-    LOGGING_LEVEL: Annotated[int, AfterValidator(is_logging_level)] = logging.INFO
-    LOG_LEVEL_TABLE: Dict[str, Annotated[int, AfterValidator(is_logging_level)]] = {
+    LOGGING_LEVEL: Annotated[int, AfterValidator(check_loglevel)] = logging.INFO
+    LOG_LEVEL_TABLE: Dict[str, Annotated[int, AfterValidator(check_loglevel)]] = {
         "otaclient.app.boot_control.cboot": LOGGING_LEVEL,
         "otaclient.app.boot_control.grub": LOGGING_LEVEL,
         "otaclient.app.ota_client": LOGGING_LEVEL,

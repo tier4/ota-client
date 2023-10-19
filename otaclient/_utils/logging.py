@@ -16,7 +16,7 @@
 import logging
 import itertools
 import time
-from typing import Any, Optional
+from typing import Optional
 
 
 class BurstSuppressFilter(logging.Filter):
@@ -63,5 +63,7 @@ class BurstSuppressFilter(logging.Filter):
         return False
 
 
-def is_logging_level(_in: Any) -> bool:
-    return _in in logging._levelToName
+def check_loglevel(_in: int) -> int:
+    """Pydantic validator for logging level number."""
+    assert _in in logging._levelToName
+    return _in

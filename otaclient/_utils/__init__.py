@@ -17,7 +17,9 @@ from __future__ import annotations
 import os.path
 from functools import cached_property
 from pydantic import computed_field
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
+
+T = TypeVar("T")
 
 _CONTAINER_INDICATOR_FILES = [
     "/.dockerenv",
@@ -35,3 +37,13 @@ def if_run_as_container() -> bool:
 
 def cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
     return computed_field(cached_property(_f))
+
+
+def validator_wrapper(_validate_f: Callable[[T], bool]) -> Callable[[T], T]:
+    """Turns a validate function that returns bool into a pydantic validator."""
+
+    def _validator(_value: T) -> T:
+        assert _validate_f(_value)
+        return _value
+
+    return _validator
