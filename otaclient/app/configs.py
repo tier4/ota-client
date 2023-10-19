@@ -14,16 +14,22 @@
 
 
 from __future__ import annotations
-import json
 import logging
 import os.path
 from enum import Enum
 from functools import cached_property
 from os.path import isabs, isdir
 from pathlib import Path
-from pydantic import AfterValidator, Field, computed_field, IPvAnyAddress
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    IPvAnyAddress,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, Callable, ClassVar, Dict, Tuple
 from typing_extensions import Annotated
 
 from otaclient import __file__ as _otaclient__init__
@@ -46,59 +52,25 @@ def _cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
     return computed_field(cached_property(_f))
 
 
-class _InternalSettings(BaseSettings):
-    """Internal settings for otaclient.
+class _FixedInternalConfigs(BaseModel):
+    """Fixed internal configs."""
 
-    Internal settings can be configured via environment variables.
-    For example, to configure ACTIVE_ROOTFS, set env _OTA_ACTIVE_ROOTFS=/host_root.
-
-    WARNING: be careful to set the settings in InternalSettings as it might break
-        the backward compatibility or prevent otaclient from running properly.
-
-    Configurable settings:
-        ACTIVE_ROOTFS & container mode:
-            When otaclient is running as container, the host rootfs should be mounted
-                into the container, and MUST specified via ACTIVE_ROOTFS environment vars.
-            When ACTIVE_ROOTFS is specified and not "/", IS_CONTAINER will be True.
-        OTA_CERTS_EXTRA_PATH:
-            Extra certs seraching path when doing certification verification.
-
-    Some of other settings are also configurable, but it is high NOT recommended to
-        change these settings.
-    """
-
-    model_config = SettingsConfigDict(
-        env_file="_OTA_",
-        validate_assignment=True,
-        validate_default=True,
-    )
-
-    #
-    # --- runtime config ---
-    #
     RUN_DPATH: str = "/run/otaclient"
     OTACLIENT_PID_FPATH: str = "/run/otaclient.pid"
-    OTA_TMP_DPATH: str = "/ota-tmp"
+    SUPPORTED_COMPRESS_ALG: ClassVar[Tuple[str, ...]] = ("zst", "zstd")
+
+
+class _DynamicRootedPathsConfig(BaseModel):
+    """Dynamic generated internal paths config.
+
+    Paths configured in this class are dynamically adjusted with specified
+    ACTIVE_ROOTFS.
+    """
+
+    model_config = ConfigDict(validate_assignment=True, validate_default=True)
 
     #
-    # --- mount point placement ---
-    #
-    DEFAULT_OTACLIENT_MOUNT_SPACE: ClassVar[str] = "/mnt/otaclient"
-
-    OTACLIENT_MOUNT_SPACE_DPATH: Annotated[
-        str, AfterValidator(isabs), AfterValidator(isdir)
-    ] = DEFAULT_OTACLIENT_MOUNT_SPACE
-
-    @_cached_computed_field
-    def STANDBY_SLOT_MP(self) -> str:
-        return os.path.join(self.DEFAULT_OTACLIENT_MOUNT_SPACE, "standby_slot")
-
-    @_cached_computed_field
-    def ACTIVE_SLOT_MP(self) -> str:
-        return os.path.join(self.DEFAULT_OTACLIENT_MOUNT_SPACE, "active_slot")
-
-    #
-    # --- active_rootfs & containerized ---
+    # --- active_rootfs & container mode ---
     #
     DEFAULT_ACTIVE_ROOTFS: ClassVar[str] = "/"
     ACTIVE_ROOTFS: Annotated[
@@ -114,6 +86,30 @@ class _InternalSettings(BaseSettings):
         """
         return self.ACTIVE_ROOTFS != self.DEFAULT_ACTIVE_ROOTFS
 
+    #
+    # --- mount point placement ---
+    #
+    DEFAULT_OTACLIENT_MOUNT_SPACE: ClassVar[str] = "/mnt/otaclient"
+
+    @_cached_computed_field
+    def OTACLIENT_MOUNT_SPACE_DPATH(self) -> str:
+        return replace_root(
+            self.DEFAULT_OTACLIENT_MOUNT_SPACE,
+            self.DEFAULT_ACTIVE_ROOTFS,
+            self.ACTIVE_ROOTFS,
+        )
+
+    @_cached_computed_field
+    def STANDBY_SLOT_MP(self) -> str:
+        return os.path.join(self.OTACLIENT_MOUNT_SPACE_DPATH, "standby_slot")
+
+    @_cached_computed_field
+    def ACTIVE_SLOT_MP(self) -> str:
+        return os.path.join(self.OTACLIENT_MOUNT_SPACE_DPATH, "active_slot")
+
+    #
+    # --- /boot related ---
+    #
     @_cached_computed_field
     def BOOT_DPATH(self) -> str:
         return os.path.join(self.ACTIVE_ROOTFS, "boot")
@@ -153,32 +149,41 @@ class _InternalSettings(BaseSettings):
     # some files under /etc
 
     @_cached_computed_field
+    def ETC_DPATH(self) -> str:
+        return os.path.join(self.ACTIVE_ROOTFS, "etc")
+
+    @_cached_computed_field
     def PASSWD_FPATH(self) -> str:
-        return os.path.join(self.ACTIVE_ROOTFS, "etc/passwd")
+        return os.path.join(self.ETC_DPATH, "passwd")
 
     @_cached_computed_field
     def GROUP_FPATH(self) -> str:
-        return os.path.join(self.ACTIVE_ROOTFS, "etc/group")
+        return os.path.join(self.ETC_DPATH, "group")
 
     @_cached_computed_field
     def FSTAB_FPATH(self) -> str:
-        return os.path.join(self.ACTIVE_ROOTFS, "etc/fstab")
+        return os.path.join(self.ETC_DPATH, "fstab")
 
     #
     # ------ /opt/ota paths ------
     #
-
     DEFAULT_OTA_CERTS_DPATHS: ClassVar[str] = "/opt/ota/client/certs"
     DEFAULT_OTA_INSTALLATION_PATH: ClassVar[str] = "/opt/ota"
 
-    OTA_INSTALLATION_PATH: str = DEFAULT_OTA_INSTALLATION_PATH
+    @_cached_computed_field
+    def OTA_INSTALLATION_PATH(self) -> str:
+        return replace_root(
+            self.DEFAULT_OTA_INSTALLATION_PATH,
+            self.DEFAULT_ACTIVE_ROOTFS,
+            self.ACTIVE_ROOTFS,
+        )
 
     @_cached_computed_field
     def OTA_CERTS_DPATH(self) -> str:
         return replace_root(
             self.DEFAULT_OTA_CERTS_DPATHS,
-            self.DEFAULT_OTA_INSTALLATION_PATH,
-            self.OTA_INSTALLATION_PATH,
+            self.DEFAULT_ACTIVE_ROOTFS,
+            self.ACTIVE_ROOTFS,
         )
 
     @_cached_computed_field
@@ -187,41 +192,28 @@ class _InternalSettings(BaseSettings):
 
     @_cached_computed_field
     def IMAGE_META_DPATH(self) -> str:
-        """OTA image meta location of current slot."""
         return os.path.join(self.OTA_INSTALLATION_PATH, "image-meta")
 
-    #
-    # --- OTA image compression support ---
-    #
-    SUPPORTED_COMPRESS_ALG: ClassVar[Tuple[str, ...]] = ("zst", "zstd")
 
-    #
-    # --- external cache source ---
-    #
-    EXTERNAL_CACHE_DEV_FSLABEL: str = Field(default="ota_cache_src", max_length=16)
+class _InternalConfigs(_FixedInternalConfigs, _DynamicRootedPathsConfig):
+    """Internal configs for otaclient.
 
-    @_cached_computed_field
-    def EXTERNAL_CACHE_DEV_MOUNTPOINT(self) -> str:
-        return os.path.join(self.OTACLIENT_MOUNT_SPACE_DPATH, "external_cache_src")
-
-    @_cached_computed_field
-    def EXTERNAL_CACHE_SRC_PATH(self) -> str:
-        return os.path.join(self.EXTERNAL_CACHE_DEV_MOUNTPOINT, "data")
+    User should not change these settings, except ACTIVE_ROOTFS if running as container,
+        otherwise otaclient might not work properly or backward-compatibility breaks.
+    """
 
 
-class _NormalConfig(BaseSettings):
+class _NormalConfigs(BaseModel):
     """User configurable otaclient settings.
 
     These settings can tune the runtime performance and behavior of otaclient,
-        configurable via environment variables. For example, to set SERVER_ADDRESS,
-        set env OTA_SERVER_ADDRESS=10.0.1.1 .
+        configurable via environment variables.
+
+    For example, to set SERVER_ADDRESS, set env OTA_SERVER_ADDRESS=10.0.1.1 .
     """
 
-    model_config = SettingsConfigDict(
-        env_file="OTA_",
-        validate_assignment=True,
-        validate_default=True,
-    )
+    # OTA used tmp folder on standby slot
+    OTA_TMP_DPATH: str = "/ota-tmp"
 
     #
     # ------ otaclient grpc server config ------
@@ -256,8 +248,6 @@ class _NormalConfig(BaseSettings):
     #
     # ------ otaclient runtime behavior setting ------ #
     #
-    # the following settings can be safely changed according to the
-    # actual environment otaclient running at.
 
     #
     # --- request dispatch settings ---
@@ -347,42 +337,32 @@ class _NormalConfig(BaseSettings):
     DEFAULT_VERSION_STR: str = ""
 
 
-# We need to apply different policy to internal_settings and normal_config
-
-if TYPE_CHECKING:
-
-    class Config(_InternalSettings, _NormalConfig):
-        ...
-
-else:
-
-    class Config:
-        def __init__(
-            self,
-            _internal_cfg: Optional[_InternalSettings] = None,
-            _normal_cfg: Optional[_NormalConfig] = None,
-        ) -> None:
-            self._internal_config = _internal_cfg or _InternalSettings()
-            self._normal_config = _normal_cfg or _NormalConfig()
-
-        def __getattr__(self, _attrn: str):
-            # _internal config has higher priority
-            try:
-                getattr(self._internal_config, _attrn)
-            except AttributeError:
-                getattr(self._normal_config, _attrn)
-
-        def model_dump(self) -> dict[str, Any]:
-            res = self._internal_config.model_dump()
-            res.update(self._normal_config.model_dump())
-            return res
-
-        def model_dump_json(self) -> str:
-            # NOTE: we don't have fields that contains model inst,
-            #       so we can directly dump.
-            return json.dumps(self.model_dump())
+class Config(_InternalConfigs, _NormalConfigs):
+    model_config = ConfigDict(frozen=True, validate_default=True)
 
 
-# init cfgs via environment variables
+# init config
 
-config = Config()
+ENV_PREFIX = "OTA_"
+HOST_ROOTFS_ENV = f"{ENV_PREFIX}HOST_ROOTFS"
+
+
+def _init_config() -> Config:
+    class _ConfigurableNormalConfigs(BaseSettings, _NormalConfigs):
+        """one-time class that parse configs from environment vars."""
+
+        model_config = SettingsConfigDict(env_prefix=ENV_PREFIX)
+
+    _user_configs = _ConfigurableNormalConfigs()
+    _internal_configs = _InternalConfigs(
+        ACTIVE_ROOTFS=os.getenv(
+            HOST_ROOTFS_ENV, _DynamicRootedPathsConfig.DEFAULT_ACTIVE_ROOTFS
+        )
+    )
+
+    # construct the final config object
+    return Config(**_user_configs.model_dump(), **_internal_configs.model_dump())
+
+
+config = _init_config()
+del _init_config
