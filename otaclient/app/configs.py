@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import os.path
 from enum import Enum
-from functools import cached_property
 from os.path import isabs, isdir
 from pathlib import Path
 from pydantic import (
@@ -25,14 +24,14 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    computed_field,
     IPvAnyAddress,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Any, Callable, ClassVar, Dict, Tuple
+from typing import ClassVar, Dict, Tuple
 from typing_extensions import Annotated
 
 from otaclient import __file__ as _otaclient__init__
+from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
 from otaclient._utils.logging import is_logging_level
 
@@ -46,10 +45,6 @@ class CreateStandbyMechanism(str, Enum):
     LEGACY = "legacy"  # deprecated and removed
     REBUILD = "rebuild"  # current default
     IN_PLACE = "in_place"  # not yet implemented
-
-
-def _cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
-    return computed_field(cached_property(_f))
 
 
 class _FixedInternalConfigs(BaseModel):

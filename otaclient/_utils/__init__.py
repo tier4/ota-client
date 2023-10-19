@@ -13,7 +13,11 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import os.path
+from functools import cached_property
+from pydantic import computed_field
+from typing import Any, Callable
 
 _CONTAINER_INDICATOR_FILES = [
     "/.dockerenv",
@@ -27,3 +31,7 @@ def if_run_as_container() -> bool:
         if os.path.isfile(indicator):
             return True
     return False
+
+
+def cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
+    return computed_field(cached_property(_f))
