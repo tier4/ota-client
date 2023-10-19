@@ -52,20 +52,29 @@ class BootloaderType(str, Enum):
         return res
 
 
-class _BaseConfig(BaseModel):
+class _CommonConfig(BaseModel):
     model_config = ConfigDict(frozen=True, validate_default=True)
+    DEFAULT_FSTAB_FPATH: ClassVar[str] = "/etc/fstab"
+
+    @cached_computed_field
+    def STANDBY_FSTAB_FPATH(self) -> str:
+        return replace_root(
+            self.DEFAULT_FSTAB_FPATH, cfg.DEFAULT_ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP
+        )
+
+    @cached_computed_field
+    def ACTIVE_FSTAB_FPATH(self) -> str:
+        return replace_root(
+            self.DEFAULT_FSTAB_FPATH, cfg.DEFAULT_ACTIVE_ROOTFS, cfg.ACTIVE_ROOTFS
+        )
 
 
-class GrubControlConfig(_BaseConfig):
+class GrubControlConfig(_CommonConfig):
     """x86-64 platform, with grub as bootloader."""
 
     BOOTLOADER: ClassVar[BootloaderType] = BootloaderType.GRUB
     GRUB_CFG_FNAME: ClassVar[str] = "grub.cfg"
     BOOT_OTA_PARTITION_FILE: ClassVar[str] = "ota-partition"
-
-    @cached_computed_field
-    def STANDBY_FSTAB_FPATH(self) -> str:
-        return os.path.join(cfg.STANDBY_SLOT_MP, "etc/fstab")
 
     @cached_computed_field
     def BOOT_GRUB_DPATH(self) -> str:
@@ -80,7 +89,7 @@ class GrubControlConfig(_BaseConfig):
         return os.path.join(cfg.ETC_DPATH, "default/grub")
 
 
-class CBootControlConfig(_BaseConfig):
+class CBootControlConfig(_CommonConfig):
     """arm platform, with cboot as bootloader.
 
     NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
@@ -129,7 +138,7 @@ class CBootControlConfig(_BaseConfig):
         )
 
 
-class RPIBootControlConfig(_BaseConfig):
+class RPIBootControlConfig(_CommonConfig):
     BBOOTLOADER: ClassVar[BootloaderType] = BootloaderType.RPI_BOOT
     DEFAULT_RPI_MODEL_FPATH: ClassVar[str] = "/proc/device-tree/model"
     RPI_MODEL_HINT: ClassVar[str] = "Raspberry Pi 4 Model B"
@@ -149,10 +158,6 @@ class RPIBootControlConfig(_BaseConfig):
     @cached_computed_field
     def SYSTEM_BOOT_MOUNT_POINT(self) -> str:
         return os.path.join(cfg.BOOT_DPATH, "firmware")
-
-    @cached_computed_field
-    def STANDBY_FSTAB_FPATH(self) -> str:
-        return os.path.join(cfg.STANDBY_SLOT_MP, "etc/fstab")
 
     @cached_computed_field
     def SWITCH_BOOT_FLAG_FPATH(self) -> str:
