@@ -123,22 +123,33 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
 
     Structure:
         tmp_path_factory:
+            slot_a_boot/ (boot dev for active slot)
+                boot/ (symlink -> slot_a/boot)
+            slot_b_boot/ (boot dev for standby slot, if needed)
             slot_a/ (partuuid(cboot)/uuid(grub)=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa) (active, populated with ota-image)
             slot_b/ (partuuid(cboot)/uuid(grub)=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb) (standby)
 
     Return:
         A tuple includes the path to A/B slots respectly.
     """
-    # prepare slot_a
+    #
+    # create the slot_a
+    #
     slot_a = tmp_path_factory.mktemp("slot_a")
+
+    #
+    # prepare slot_a(active_slot)
+    #
     shutil.copytree(
-        Path(cfg.OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
+        Path(cfg.OTA_IMAGE_DIR) / "data",
+        slot_a,
+        dirs_exist_ok=True,
+        symlinks=True,
     )
     # simulate the diff between versions
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
     shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
-    # boot dir is a separated folder, so delete the boot folder under slot_a
-    # shutil.rmtree(slot_a / "boot", ignore_errors=True)
+
     # manually create symlink to kernel and initrd.img
     vmlinuz_symlink = slot_a / "boot" / TestConfiguration.KERNEL_PREFIX
     vmlinuz_symlink.symlink_to(
@@ -149,19 +160,23 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
         f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
     )
 
-    # prepare slot_b
-    slot_b = tmp_path_factory.mktemp("slot_b")
-
     # boot dev
     slot_a_boot_dev = tmp_path_factory.mktemp("slot_a_boot")
-    slot_a_boot_dir = slot_a_boot_dev / "boot"
-    slot_a_boot_dir.mkdir()
+    (slot_a_boot_dir := slot_a_boot_dev / "boot").mkdir()
     shutil.copytree(
-        Path(cfg.OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
+        slot_a / "boot",
+        slot_a_boot_dir,
+        dirs_exist_ok=True,
     )
+
+    #
+    # prepare slot_b
+    #
+    slot_b = tmp_path_factory.mktemp("slot_b")
+
     slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
-    slot_b_boot_dir = slot_b_boot_dev / "boot"
-    slot_b_boot_dir.mkdir()
+    (slot_b_boot_dev / "boot").mkdir()
+
     return SlotMeta(
         slot_a=str(slot_a),
         slot_b=str(slot_b),

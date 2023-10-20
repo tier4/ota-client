@@ -84,7 +84,7 @@ def run_http_server(addr: str, port: int, *, directory: str):
 def compare_dir(left: Path, right: Path):
     _a_glob = set(map(lambda x: x.relative_to(left), left.glob("**/*")))
     _b_glob = set(map(lambda x: x.relative_to(right), right.glob("**/*")))
-    if not _a_glob == _b_glob:  # first check paths are identical
+    if _a_glob != _b_glob:  # first check paths are identical
         raise ValueError(
             f"left and right mismatch, diff: {_a_glob.symmetric_difference(_b_glob)}\n"
             f"{_a_glob=}\n"

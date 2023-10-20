@@ -113,16 +113,16 @@ class CBootControlConfig(_CommonConfig):
         )
 
     @cached_computed_field
-    def BOOT_EXTLINUX_DPATH(self) -> str:
+    def STANDBY_BOOT_EXTLINUX_DPATH(self) -> str:
         return replace_root(
             self.DEFAULT_EXTLINUX_DPATH,
             cfg.DEFAULT_ACTIVE_ROOTFS,
-            cfg.ACTIVE_ROOTFS,
+            cfg.STANDBY_SLOT_MP,
         )
 
     @cached_computed_field
-    def EXTLINUX_FPATH(self) -> str:
-        return os.path.join(self.BOOT_EXTLINUX_DPATH, self.EXTLINUX_CFG_FNAME)
+    def STANDBY_EXTLINUX_FPATH(self) -> str:
+        return os.path.join(self.STANDBY_BOOT_EXTLINUX_DPATH, self.EXTLINUX_CFG_FNAME)
 
     @cached_computed_field
     def SEPARATE_BOOT_MOUNT_POINT(self) -> str:

@@ -516,16 +516,11 @@ class CBootController(
     def post_update(self) -> Generator[None, None, None]:
         try:
             # firmware update
-            firmware = Firmware(
-                self.standby_slot_mount_point
-                / Path(boot_cfg.FIRMWARE_CFG_STANDBY_FPATH).relative_to("/")
-            )
+            firmware = Firmware(boot_cfg.FIRMWARE_CFG_STANDBY_FPATH)
             firmware.update(int(self._cboot_control.get_standby_slot()))
 
             # update extlinux_cfg file
-            _extlinux_cfg = self.standby_slot_mount_point / Path(
-                boot_cfg.EXTLINUX_FPATH
-            ).relative_to("/")
+            _extlinux_cfg = Path(boot_cfg.STANDBY_EXTLINUX_FPATH)
             self._cboot_control.update_extlinux_cfg(
                 dst=_extlinux_cfg,
                 ref=_extlinux_cfg,
