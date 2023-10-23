@@ -131,22 +131,6 @@ class _DynamicRootedPathsConfig(BaseModel):
     OTA_VERSION_FNAME: ClassVar[str] = "version"
     SLOT_IN_USE_FNAME: ClassVar[str] = "slot_in_use"
 
-    @cached_computed_field
-    def BOOT_OTA_STATUS_DPATH(self) -> str:
-        return os.path.join(self.BOOT_DPATH, "ota-status")
-
-    @cached_computed_field
-    def OTA_STATUS_FPATH(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, self.OTA_STATUS_FNAME)
-
-    @cached_computed_field
-    def OTA_VERSION_FPATH(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, self.OTA_VERSION_FNAME)
-
-    @cached_computed_field
-    def SLOT_IN_USE_FPATH(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, self.SLOT_IN_USE_FNAME)
-
     # some files under /etc
 
     @cached_computed_field
