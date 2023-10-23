@@ -270,13 +270,14 @@ class TestCBootControl:
         from otaclient.app.boot_control.configs import CBootControlConfig, cboot_cfg
 
         ###### stage 1 ######
+        active_ota_status_dpath = Path(cboot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH)
+        standby_ota_status_dpath = Path(cboot_cfg.STANDBY_BOOT_OTA_STATUS_DPATH)
 
         logger.info("[TESTING] init cboot controller...")
         cboot_controller = CBootController()
         assert (
-            Path(self.mocked_cfg_slot_a.OTA_STATUS_FPATH).read_text()
-            == wrapper.StatusOta.SUCCESS.name
-        )
+            active_ota_status_dpath / otaclient_Config.OTA_STATUS_FNAME
+        ).read_text() == wrapper.StatusOta.SUCCESS.name
 
         # test cboot pre-update
         cboot_controller.pre_update(
@@ -286,40 +287,25 @@ class TestCBootControl:
         )
         # assert current slot ota-status
         assert (
-            Path(self.mocked_cfg_slot_a.OTA_STATUS_FPATH)
+            active_ota_status_dpath / otaclient_Config.OTA_STATUS_FNAME
         ).read_text() == wrapper.StatusOta.FAILURE.name
+
         assert (
-            Path(self.mocked_cfg_slot_a.SLOT_IN_USE_FPATH)
+            active_ota_status_dpath / otaclient_Config.OTA_STATUS_FNAME
         ).read_text() == self._fsm.get_standby_slot()
 
         # assert standby slot ota-status
         # NOTE: after pre_update phase, standby slot should be "mounted"
         assert (
-            Path(
-                replace_root(
-                    self.mocked_cfg_slot_a.OTA_STATUS_FPATH,
-                    self.mocked_cfg_slot_a.ACTIVE_ROOTFS,
-                    self.mocked_cfg_slot_a.STANDBY_SLOT_MP,
-                )
-            )
+            standby_ota_status_dpath / otaclient_Config.OTA_STATUS_FNAME
         ).read_text() == wrapper.StatusOta.UPDATING.name
+
         assert (
-            Path(
-                replace_root(
-                    self.mocked_cfg_slot_a.OTA_VERSION_FPATH,
-                    self.mocked_cfg_slot_a.ACTIVE_ROOTFS,
-                    self.mocked_cfg_slot_a.STANDBY_SLOT_MP,
-                )
-            )
+            standby_ota_status_dpath / otaclient_Config.OTA_VERSION_FNAME
         ).read_text() == cfg.UPDATE_VERSION
+
         assert (
-            Path(
-                replace_root(
-                    self.mocked_cfg_slot_a.SLOT_IN_USE_FPATH,
-                    self.mocked_cfg_slot_a.ACTIVE_ROOTFS,
-                    self.mocked_cfg_slot_a.STANDBY_SLOT_MP,
-                )
-            )
+            standby_ota_status_dpath / otaclient_Config.SLOT_IN_USE_FNAME
         ).read_text() == self._fsm.get_standby_slot()
 
         logger.info("[TESTING] pre-update completed, entering post-update...")
@@ -376,7 +362,11 @@ class TestCBootControl:
         # init cboot control again
         CBootController()
         assert (
-            Path(self.mocked_cfg_slot_b.OTA_STATUS_FPATH).read_text()
+            Path(
+                _recreated_cboot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH
+                / otaclient_Config.OTA_STATUS_FNAME
+            ).read_text()
             == wrapper.StatusOta.SUCCESS.name
         )
+
         assert self._fsm.is_boot_switched
