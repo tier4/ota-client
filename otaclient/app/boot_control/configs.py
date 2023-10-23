@@ -61,20 +61,38 @@ class _SeparatedBootParOTAStatusConfig(BaseModel):
     """
 
     @cached_computed_field
-    def BOOT_OTA_STATUS_DPATH(self) -> str:
+    def ACTIVE_BOOT_OTA_STATUS_DPATH(self) -> str:
         return os.path.join(cfg.BOOT_DPATH, "ota-status")
 
     @cached_computed_field
-    def OTA_STATUS_FPATH(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, cfg.OTA_STATUS_FNAME)
+    def STANDBY_BOOT_OTA_STATUS_DPATH(self) -> str:
+        return replace_root(
+            self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP
+        )
 
     @cached_computed_field
-    def OTA_VERSION_FPATH(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, cfg.OTA_VERSION_FNAME)
+    def ACTIVE_OTA_STATUS_FPATH(self) -> str:
+        return os.path.join(self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.OTA_STATUS_FNAME)
 
     @cached_computed_field
-    def SLOT_IN_USE_FPATH(self) -> str:
-        return os.path.join(self.BOOT_OTA_STATUS_DPATH, cfg.SLOT_IN_USE_FNAME)
+    def ACTIVE_OTA_VERSION_FPATH(self) -> str:
+        return os.path.join(self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.OTA_VERSION_FNAME)
+
+    @cached_computed_field
+    def ACTIVE_SLOT_IN_USE_FPATH(self) -> str:
+        return os.path.join(self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.SLOT_IN_USE_FNAME)
+
+    @cached_computed_field
+    def STANDBY_OTA_STATUS_FPATH(self) -> str:
+        return os.path.join(self.STANDBY_BOOT_OTA_STATUS_DPATH, cfg.OTA_STATUS_FNAME)
+
+    @cached_computed_field
+    def STANDBY_OTA_VERSION_FPATH(self) -> str:
+        return os.path.join(self.STANDBY_BOOT_OTA_STATUS_DPATH, cfg.OTA_VERSION_FNAME)
+
+    @cached_computed_field
+    def STANDBY_SLOT_IN_USE_FPATH(self) -> str:
+        return os.path.join(self.STANDBY_BOOT_OTA_STATUS_DPATH, cfg.SLOT_IN_USE_FNAME)
 
 
 class _CommonConfig(BaseModel):
