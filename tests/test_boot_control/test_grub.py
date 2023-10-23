@@ -20,7 +20,9 @@ import typing
 import pytest
 import pytest_mock
 from pathlib import Path
+from otaclient._utils.path import replace_root
 
+from otaclient.app.configs import Config as otaclient_Config
 from otaclient.app.proto import wrapper
 
 from tests.utils import SlotMeta
@@ -132,36 +134,8 @@ class TestGrubControl:
     FSTAB_UPDATED = (Path(__file__).parent / "fstab_updated").read_text()
     DEFAULT_GRUB = (Path(__file__).parent / "default_grub").read_text()
 
-    def cfg_for_slot_a_as_current(self):
-        from otaclient.app.boot_control.configs import GrubControlConfig
-
-        _mocked_grub_cfg = GrubControlConfig()
-        _mocked_grub_cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
-        _mocked_grub_cfg.ACTIVE_ROOTFS_PATH = str(self.slot_a)  # type: ignore
-        _mocked_grub_cfg.BOOT_DIR = str(  # type: ignore
-            self.boot_dir
-        )  # unified boot dir
-        _mocked_grub_cfg.GRUB_DIR = str(self.boot_dir / "grub")
-        _mocked_grub_cfg.GRUB_CFG_PATH = str(self.boot_dir / "grub/grub.cfg")
-
-        return _mocked_grub_cfg
-
-    def cfg_for_slot_b_as_current(self):
-        from otaclient.app.boot_control.configs import GrubControlConfig
-
-        _mocked_grub_cfg = GrubControlConfig()
-        _mocked_grub_cfg.MOUNT_POINT = str(self.slot_a)  # type: ignore
-        _mocked_grub_cfg.ACTIVE_ROOTFS_PATH = str(self.slot_b)  # type: ignore
-        _mocked_grub_cfg.BOOT_DIR = str(  # type: ignore
-            self.boot_dir
-        )  # unified boot dir
-        _mocked_grub_cfg.GRUB_DIR = str(self.boot_dir / "grub")
-        _mocked_grub_cfg.GRUB_CFG_PATH = str(self.boot_dir / "grub/grub.cfg")
-
-        return _mocked_grub_cfg
-
     @pytest.fixture
-    def grub_ab_slot(self, tmp_path: Path, ab_slots: SlotMeta):
+    def grub_ab_slot(self, ab_slots: SlotMeta):
         """
         NOTE: this test simulating init and updating from a non-ota-partition enabled system
         NOTE: boot dirs for grub are located under boot folder
@@ -176,21 +150,20 @@ class TestGrubControl:
 
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
-        self.boot_dir = tmp_path / Path(cfg.BOOT_DIR).relative_to("/")
-        self.slot_b_boot_dir = self.slot_b / "boot"
-        self.slot_b_boot_dir.mkdir(parents=True, exist_ok=True)
+        # NOTE: grub uses share boot device, here we use slot_a_boot as shared boot
+        self.shared_boot_dir = Path(ab_slots.slot_a_boot_dev)
 
         self.slot_a_ota_partition_dir = (
-            self.boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
+            self.shared_boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
         )
         self.slot_b_ota_partition_dir = (
-            self.boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
+            self.shared_boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
         )
         # copy the contents from pre-populated boot_dir to test /boot folder
         # NOTE: check kernel version from the ota-test_base image Dockerfile
         shutil.copytree(
             Path(ab_slots.slot_a_boot_dev) / Path(cfg.BOOT_DIR).relative_to("/"),
-            self.boot_dir,
+            self.shared_boot_dir,
             dirs_exist_ok=True,
         )
 
@@ -207,7 +180,7 @@ class TestGrubControl:
         slot_b_fstab_file.write_text(self.FSTAB_ORIGIN)
 
         # prepare grub file for slot_a
-        init_grub_file = self.boot_dir / Path(cfg.GRUB_FILE).relative_to("/boot")
+        init_grub_file = self.shared_boot_dir / Path(cfg.GRUB_FILE).relative_to("/boot")
         init_grub_file.parent.mkdir(parents=True, exist_ok=True)
         init_grub_file.write_text(
             self._grub_mkconfig_fsm.GRUB_CFG_SLOT_A_NON_OTAPARTITION
@@ -224,6 +197,20 @@ class TestGrubControl:
 
         # ------ start fsm ------ #
         self._fsm = GrubFSM(slot_a_mp=self.slot_a, slot_b_mp=self.slot_b)
+
+        # ------ configs init ------ #
+
+        # config for slot_a as active slot
+
+        self.mocked_cfg_slot_a = otaclient_Config(ACTIVE_ROOTFS=str(self.slot_a))
+        mocker.patch(
+            f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_a
+        )
+        mocker.patch(f"{cfg.GRUB_MODULE_PATH}.cfg", self.mocked_cfg_slot_a)
+
+        # config for slot_b as active slot
+
+        self.mocked_cfg_slot_b = otaclient_Config(ACTIVE_ROOTFS=str(self.slot_b))
 
         # ------ mock SlotMountHelper ------ #
         _mocked_slot_mount_helper = mocker.MagicMock(spec=SlotMountHelper)
@@ -267,15 +254,15 @@ class TestGrubControl:
         self._grub_reboot_mock = _grub_reboot_mock
 
         ###### mocking CMDHelperFuncs ######
-        _CMDHelper_mock = typing.cast(
+        _cmdhelper_mock = typing.cast(
             CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
         )
-        _CMDHelper_mock.reboot.side_effect = self._fsm.switch_boot
-        _CMDHelper_mock.get_uuid_str_by_dev = mocker.MagicMock(
+        _cmdhelper_mock.reboot.side_effect = self._fsm.switch_boot
+        _cmdhelper_mock.get_uuid_str_by_dev = mocker.MagicMock(
             wraps=self._fsm.get_uuid_str_by_dev
         )
         # bind the mocker to the test instance
-        self._CMDHelper_mock = _CMDHelper_mock
+        self._cmdhelper_mock = _cmdhelper_mock
 
         ###### mock GrubHelper ######
         _grub_mkconfig_path = f"{cfg.GRUB_MODULE_PATH}.GrubHelper.grub_mkconfig"
@@ -287,86 +274,122 @@ class TestGrubControl:
         ###### patching ######
         # patch CMDHelper
         # NOTE: also remember to patch CMDHelperFuncs in common
-        _CMDHelper_at_common_path = (
-            f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs"
-        )
-        _CMDHelper_at_grub_path = f"{cfg.GRUB_MODULE_PATH}.CMDHelperFuncs"
-        mocker.patch(_CMDHelper_at_common_path, _CMDHelper_mock)
-        mocker.patch(_CMDHelper_at_grub_path, _CMDHelper_mock)
-        # patch _GrubABPartitionDetector
-        _GrubABPartitionDetector_path = (
-            f"{cfg.GRUB_MODULE_PATH}.GrubABPartitionDetector"
-        )
         mocker.patch(
-            _GrubABPartitionDetector_path, return_value=_mocked_ab_partition_detector
+            f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs", _cmdhelper_mock
+        )
+        mocker.patch(f"{cfg.GRUB_MODULE_PATH}.CMDHelperFuncs", _cmdhelper_mock)
+        # patch _GrubABPartitionDetector
+        mocker.patch(
+            f"{cfg.GRUB_MODULE_PATH}.GrubABPartitionDetector",
+            return_value=_mocked_ab_partition_detector,
         )
         # patch SlotMountHelper
-        _SlotMountHelper_path = f"{cfg.GRUB_MODULE_PATH}.SlotMountHelper"
-        mocker.patch(_SlotMountHelper_path, return_value=_mocked_slot_mount_helper)
+        mocker.patch(
+            f"{cfg.GRUB_MODULE_PATH}.SlotMountHelper",
+            return_value=_mocked_slot_mount_helper,
+        )
         # patch reading from /proc/cmdline
         mocker.patch(
             f"{cfg.GRUB_MODULE_PATH}.cat_proc_cmdline",
             mocker.MagicMock(wraps=self._fsm.cat_proc_cmdline),
         )
 
-    def test_grub_normal_update(self, mocker: pytest_mock.MockerFixture):
-        from otaclient.app.boot_control._grub import GrubController
+        # patch GrubControl
 
-        _cfg_patch_path = f"{cfg.GRUB_MODULE_PATH}.cfg"
+        def _mount_standby_slot():
+            # simulate mount slot_b into otaclient mount space on slot_a
+            Path(self.mocked_cfg_slot_a.STANDBY_SLOT_MP).symlink_to(self.slot_b)
+
+        def _mount_active_slot():
+            Path(self.mocked_cfg_slot_a.ACTIVE_SLOT_MP).symlink_to(self.slot_a)
+
+        mocker.patch(
+            f"{cfg.GRUB_MODULE_PATH}.GrubController",
+            "_prepare_and_mount_standby",
+            mocker.MagicMock(side_effect=_mount_standby_slot),
+        )
+        mocker.patch(
+            f"{cfg.GRUB_MODULE_PATH}.CBootController",
+            "_mount_refroot",
+            mocker.MagicMock(side_effect=_mount_active_slot),
+        )
+
+    def test_grub_normal_update(self, mocker: pytest_mock.MockerFixture):
+        from otaclient.app.boot_control.configs import GrubControlConfig
+        from otaclient.app.boot_control._grub import GrubController
+        from otaclient.app.boot_control.configs import grub_cfg
 
         ###### stage 1 ######
         # test init from non-ota-partition enabled system
 
-        # mock cfg
-        mocker.patch(_cfg_patch_path, self.cfg_for_slot_a_as_current())
-
         grub_controller = GrubController()
         assert (
-            self.slot_a_ota_partition_dir / "status"
+            self.slot_a_ota_partition_dir / otaclient_Config.OTA_STATUS_FNAME
         ).read_text() == wrapper.StatusOta.INITIALIZED.name
         # assert ota-partition file points to slot_a ota-partition folder
         assert (
-            os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
+            os.readlink(self.shared_boot_dir / cfg.OTA_PARTITION_DIRNAME)
             == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
         )
         assert (
-            self.boot_dir / "grub/grub.cfg"
-        ).read_text() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED
+            Path(
+                replace_root(
+                    grub_cfg.GRUB_CFG_FPATH,
+                    self.mocked_cfg_slot_a.ACTIVE_ROOTFS,
+                    self.shared_boot_dir,
+                )
+            ).read_text()
+            == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED
+        )
 
         # test pre-update
+        logger.info("[TESTING] execute pre_update ...")
         grub_controller.pre_update(
             version=cfg.UPDATE_VERSION,
             standby_as_ref=False,  # NOTE: not used
             erase_standby=False,  # NOTE: not used
         )
+
         # update slot_b, slot_a_ota_status->FAILURE, slot_b_ota_status->UPDATING
         assert (
-            self.slot_a_ota_partition_dir / "status"
+            self.slot_a_ota_partition_dir / otaclient_Config.OTA_STATUS_FNAME
         ).read_text() == wrapper.StatusOta.FAILURE.name
         assert (
-            self.slot_b_ota_partition_dir / "status"
+            self.slot_b_ota_partition_dir / otaclient_Config.OTA_STATUS_FNAME
         ).read_text() == wrapper.StatusOta.UPDATING.name
+
         # NOTE: we have to copy the new kernel files to the slot_b's boot dir
         #       this is done by the create_standby module
         _kernel = f"{cfg.KERNEL_PREFIX}-{cfg.KERNEL_VERSION}"
         _initrd = f"{cfg.INITRD_PREFIX}-{cfg.KERNEL_VERSION}"
-        shutil.copy(self.slot_a_ota_partition_dir / _kernel, self.slot_b_boot_dir)
-        shutil.copy(self.slot_a_ota_partition_dir / _initrd, self.slot_b_boot_dir)
+        shutil.copy(self.slot_a_ota_partition_dir / _kernel, self.slot_b / "boot")
+        shutil.copy(self.slot_a_ota_partition_dir / _initrd, self.slot_b / "boot")
 
-        logger.info("pre-update completed, entering post-update...")
+        logger.info("[TESTING] pre-update completed, entering post-update...")
         # test post-update
         _post_updater = grub_controller.post_update()
         next(_post_updater)
         next(_post_updater, None)
+
         assert (
-            self.slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
-        ).read_text().strip() == self.FSTAB_UPDATED.strip()
+            Path(self.mocked_cfg_slot_b.FSTAB_FPATH).read_text().strip()
+            == self.FSTAB_UPDATED.strip()
+        )
         assert (
-            self.boot_dir / "grub/grub.cfg"
-        ).read_text().strip() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED.strip()
+            Path(
+                replace_root(
+                    grub_cfg.GRUB_CFG_FPATH,
+                    self.mocked_cfg_slot_a.ACTIVE_ROOTFS,
+                    self.shared_boot_dir,
+                )
+            )
+            .read_text()
+            .strip()
+            == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED.strip()
+        )
         # NOTE: check grub.cfg_slot_a_post_update, the target entry is 0
         self._grub_reboot_mock.assert_called_once_with(0)
-        self._CMDHelper_mock.reboot.assert_called_once()
+        self._cmdhelper_mock.reboot.assert_called_once()
 
         ###### stage 2 ######
         # test init after first reboot
@@ -377,18 +400,26 @@ class TestGrubControl:
         default_grub.parent.mkdir(parents=True, exist_ok=True)
         default_grub.write_text(self.DEFAULT_GRUB)
 
-        logger.info("post-update completed, test init after first reboot...")
+        logger.info("[TESTING] post-update completed, test init after first reboot...")
+
         # mock cfg
-        mocker.patch(_cfg_patch_path, self.cfg_for_slot_b_as_current())
+        mocker.patch(
+            f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_b
+        )
+        mocker.patch(f"{cfg.GRUB_MODULE_PATH}.cfg", self.mocked_cfg_slot_b)
+
+        # NOTE: old cboot_cfg's properties are cached, so create a new one
+        _recreated_grub_ctrl_cfg = GrubControlConfig()
+        mocker.patch(f"{cfg.GRUB_MODULE_PATH}.boot_cfg", _recreated_grub_ctrl_cfg)
 
         ### test pre-init ###
         assert self._fsm.is_boot_switched
         assert (
-            self.slot_b_ota_partition_dir / "status"
+            self.slot_b_ota_partition_dir / otaclient_Config.OTA_STATUS_FNAME
         ).read_text() == wrapper.StatusOta.UPDATING.name
         # assert ota-partition file is not yet switched before first reboot init
         assert (
-            os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
+            os.readlink(self.shared_boot_dir / cfg.OTA_PARTITION_DIRNAME)
             == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
         )
 
@@ -396,14 +427,14 @@ class TestGrubControl:
         _ = GrubController()
         # assert ota-partition file switch to slot_b ota-partition folder after first reboot init
         assert (
-            os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
+            os.readlink(self.shared_boot_dir / cfg.OTA_PARTITION_DIRNAME)
             == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
         )
         assert (
-            self.slot_b_ota_partition_dir / "status"
+            self.slot_b_ota_partition_dir / otaclient_Config.OTA_STATUS_FNAME
         ).read_text() == wrapper.StatusOta.SUCCESS.name
         assert (
-            self.slot_b_ota_partition_dir / "version"
+            self.slot_b_ota_partition_dir / otaclient_Config.OTA_VERSION_FNAME
         ).read_text() == cfg.UPDATE_VERSION
 
 
