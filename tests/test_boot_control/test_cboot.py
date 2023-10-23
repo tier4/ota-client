@@ -251,12 +251,12 @@ class TestCBootControl:
             Path(self.mocked_cfg_slot_a.ACTIVE_SLOT_MP).symlink_to(self.slot_a)
 
         mocker.patch(
-            f"{cfg.CBOOT_MODULE_PATH}.CBootControl",
+            f"{cfg.CBOOT_MODULE_PATH}.CBootController",
             "_prepare_and_mount_standby",
             mocker.MagicMock(side_effect=_mount_standby_slot),
         )
         mocker.patch(
-            f"{cfg.CBOOT_MODULE_PATH}.CBootControl",
+            f"{cfg.CBOOT_MODULE_PATH}.CBootController",
             "_mount_refroot",
             mocker.MagicMock(side_effect=_mount_active_slot),
         )
