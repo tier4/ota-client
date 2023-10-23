@@ -330,15 +330,11 @@ class CBootController(
 
         ## ota-status dir
         ### current slot
-        self.current_ota_status_dir = Path(cfg.BOOT_OTA_STATUS_DPATH)
+        self.current_ota_status_dir = Path(boot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH)
         self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
         ### standby slot
         # NOTE: might not yet be populated before OTA update applied!
-        self.standby_ota_status_dir = Path(
-            replace_root(
-                cfg.BOOT_OTA_STATUS_DPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP
-            )
-        )
+        self.standby_ota_status_dir = Path(boot_cfg.STANDBY_BOOT_OTA_STATUS_DPATH)
 
         # init ota-status
         self._init_boot_control()
