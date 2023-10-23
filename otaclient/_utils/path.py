@@ -14,9 +14,10 @@
 
 
 import os.path
+from otaclient._utils.typing import StrOrPath
 
 
-def replace_root(path: str, old_root: str, new_root: str) -> str:
+def replace_root(path: StrOrPath, old_root: StrOrPath, new_root: StrOrPath) -> str:
     """Replace a <path> relative to <old_root> to <new_root>.
 
     For example, if path="/abc", old_root="/", new_root="/new_root",
