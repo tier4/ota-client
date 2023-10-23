@@ -14,7 +14,7 @@
 
 
 from __future__ import annotations
-import os
+import os.path
 from enum import Enum
 from pydantic import BaseModel, ConfigDict
 from typing import ClassVar, Dict
@@ -50,6 +50,31 @@ class BootloaderType(str, Enum):
         except ValueError:
             pass
         return res
+
+
+class _SeparatedBootParOTAStatusConfig(BaseModel):
+    """Configs for platforms that have separated boot partition.
+
+    Currently cboot and rpi_boot are included in this catagory.
+
+    grub is special as it uses shared /boot, so it doesn't use this config.
+    """
+
+    @cached_computed_field
+    def BOOT_OTA_STATUS_DPATH(self) -> str:
+        return os.path.join(cfg.BOOT_DPATH, "ota-status")
+
+    @cached_computed_field
+    def OTA_STATUS_FPATH(self) -> str:
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, cfg.OTA_STATUS_FNAME)
+
+    @cached_computed_field
+    def OTA_VERSION_FPATH(self) -> str:
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, cfg.OTA_VERSION_FNAME)
+
+    @cached_computed_field
+    def SLOT_IN_USE_FPATH(self) -> str:
+        return os.path.join(self.BOOT_OTA_STATUS_DPATH, cfg.SLOT_IN_USE_FNAME)
 
 
 class _CommonConfig(BaseModel):
@@ -89,7 +114,7 @@ class GrubControlConfig(_CommonConfig):
         return os.path.join(cfg.ETC_DPATH, "default/grub")
 
 
-class CBootControlConfig(_CommonConfig):
+class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
     """arm platform, with cboot as bootloader.
 
     NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
@@ -138,7 +163,7 @@ class CBootControlConfig(_CommonConfig):
         )
 
 
-class RPIBootControlConfig(_CommonConfig):
+class RPIBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
     BBOOTLOADER: ClassVar[BootloaderType] = BootloaderType.RPI_BOOT
     DEFAULT_RPI_MODEL_FPATH: ClassVar[str] = "/proc/device-tree/model"
     RPI_MODEL_HINT: ClassVar[str] = "Raspberry Pi 4 Model B"
