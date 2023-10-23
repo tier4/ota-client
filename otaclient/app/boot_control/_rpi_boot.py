@@ -401,15 +401,9 @@ class RPIBootController(BootControllerProtocol):
         self._ota_status_control = OTAStatusFilesControl(
             active_slot=self._rpiboot_control.active_slot,
             standby_slot=self._rpiboot_control.standby_slot,
-            current_ota_status_dir=Path(cfg.BOOT_OTA_STATUS_DPATH),
+            current_ota_status_dir=Path(boot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH),
             # NOTE: might not yet be populated before OTA update applied!
-            standby_ota_status_dir=Path(
-                replace_root(
-                    cfg.BOOT_OTA_STATUS_DPATH,
-                    cfg.ACTIVE_ROOTFS,
-                    cfg.STANDBY_SLOT_MP,
-                )
-            ),
+            standby_ota_status_dir=Path(boot_cfg.STANDBY_BOOT_OTA_STATUS_DPATH),
             finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
         )
 
