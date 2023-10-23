@@ -70,30 +70,6 @@ class _SeparatedBootParOTAStatusConfig(BaseModel):
             self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP
         )
 
-    @cached_computed_field
-    def ACTIVE_OTA_STATUS_FPATH(self) -> str:
-        return os.path.join(self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.OTA_STATUS_FNAME)
-
-    @cached_computed_field
-    def ACTIVE_OTA_VERSION_FPATH(self) -> str:
-        return os.path.join(self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.OTA_VERSION_FNAME)
-
-    @cached_computed_field
-    def ACTIVE_SLOT_IN_USE_FPATH(self) -> str:
-        return os.path.join(self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.SLOT_IN_USE_FNAME)
-
-    @cached_computed_field
-    def STANDBY_OTA_STATUS_FPATH(self) -> str:
-        return os.path.join(self.STANDBY_BOOT_OTA_STATUS_DPATH, cfg.OTA_STATUS_FNAME)
-
-    @cached_computed_field
-    def STANDBY_OTA_VERSION_FPATH(self) -> str:
-        return os.path.join(self.STANDBY_BOOT_OTA_STATUS_DPATH, cfg.OTA_VERSION_FNAME)
-
-    @cached_computed_field
-    def STANDBY_SLOT_IN_USE_FPATH(self) -> str:
-        return os.path.join(self.STANDBY_BOOT_OTA_STATUS_DPATH, cfg.SLOT_IN_USE_FNAME)
-
 
 class _CommonConfig(BaseModel):
     model_config = ConfigDict(frozen=True, validate_default=True)
