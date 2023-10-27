@@ -17,8 +17,10 @@ DEPRECATION WARNING(2023.10.26):
     Current mechanism of defining and detecting slots is proved to be not robust.
     The design expects that rootfs device will always be sda, which might not be guaranteed
         as the sdx naming scheme is based on the order of kernel recognizing block devices.
-    If rootfs somehow is not named as sda, the grub boot controller will fail to identifiy the
-        slots and failing the OTA.
+        If rootfs somehow is not named as sda, the grub boot controller will fail to identifiy
+        the slots and/or finding corresponding ota-partition files, finally failing the OTA.
+    Also slots are detected by assuming the partition layout, which is less robust comparing to
+        cboot and rpi_boot implementation of boot controller.
 
 TODO(2023.10.26): New mechanism to define and manage slot is needed.
 
@@ -298,10 +300,23 @@ class GrubABPartitionDetector:
             - sdx3: A partition
             - sdx4: B partition
 
-    slot_name is the dev name of the A/B partition.
+    slot_name is sda<partition_id>. For example, if current slot's device is
+        nvme0n1p3, then the slot_name is sda3.
+
     We assume that last 2 partitions are A/B partitions, error will be raised
     if the current rootfs is not one of the last 2 partitions.
+
+    WARNING(2023.10.27): as workaround to resolving the wrong assumption that rootfs
+        device is always sda, we decouple the slot naming and device name here,
+        always searching and naming slot with "sda" as prefix.
+    NOTE(2023.10.26): expecting new mechanism to define slot with higher robustness.
     """
+
+    # assuming that the suffix digit are the partiton id, for example,
+    # sda3's pid is 3, nvme0n1p3's pid is also 3.
+    DEV_PATH_PA: ClassVar[re.Pattern] = re.compile(
+        r"^/dev/(?P<dev_name>\w*[a-z])(?P<partition_id>\d+)$"
+    )
 
     def __init__(self) -> None:
         self.active_slot, self.active_dev = self._detect_active_slot()
@@ -337,23 +352,41 @@ class GrubABPartitionDetector:
         )
 
     def _detect_active_slot(self) -> Tuple[str, str]:
-        """
+        """Get active slot's slot_id.
+
+        NOTE(2023.10.27): always naming the slot with schema sda<partition_id>,
+            regardless of whether rootfs device is sda or not.
+
         Returns:
             A tuple contains the slot_name and the full dev path
             of the active slot.
         """
         dev_path = CMDHelperFuncs.get_current_rootfs_dev()
-        slot_name = dev_path.lstrip("/dev/")
+        _dev_path_ma = self.DEV_PATH_PA.match(dev_path)
+        assert _dev_path_ma and (
+            _pid := _dev_path_ma.group("partition_id")
+        ), f"failed to parse active device path: {dev_path=}"
+
+        slot_name = f"sda{_pid}"
         return slot_name, dev_path
 
     def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
-        """
+        """Get standby slot's slot_id.
+
+        NOTE(2023.10.27): always naming the slot with schema sda<partition_id>,
+            regardless of whether rootfs device is sda or not.
+
         Returns:
             A tuple contains the slot_name and the full dev path
             of the standby slot.
         """
         dev_path = self._get_sibling_dev(active_dev)
-        slot_name = dev_path.lstrip("/dev/")
+        _dev_path_ma = self.DEV_PATH_PA.match(dev_path)
+        assert _dev_path_ma and (
+            _pid := _dev_path_ma.group("partition_id")
+        ), f"failed to parse standby device path: {dev_path=}"
+
+        slot_name = f"sda{_pid}"
         return slot_name, dev_path
 
 
