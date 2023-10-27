@@ -11,6 +11,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Implementation of grub boot control.
+
+DEPRECATION WARNING(2023.10.26): 
+    Current mechanism of defining and detecting slots is proved to be not robust.
+    The design expects that rootfs device will always be sda, which might not be guaranteed
+        as the sdx naming scheme is based on the order of kernel recognizing block devices.
+    If rootfs somehow is not named as sda, the grub boot controller will fail to identifiy the
+        slots and failing the OTA.
+
+TODO(2023.10.26): New mechanism to define and manage slot is needed.
+
+NOTE(2023.10.27) A fix is applied to workaround the edge case of rootfs not named as sda,
+    by regardless of which device name is assigned to rootfs dev, always manage ota-partition file
+    with sda<partiton_id>. This workaround only means to avoid OTA failed on edge condition, still
+    expecting new mechanism to be introduced.
+"""
 
 
 import re
