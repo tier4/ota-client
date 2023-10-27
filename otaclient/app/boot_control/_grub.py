@@ -399,7 +399,9 @@ class _GrubControl:
         self.standby_root_dev = ab_detector.standby_dev
         self.active_slot = ab_detector.active_slot
         self.standby_slot = ab_detector.standby_slot
-        logger.info(f"{self.active_slot=}, {self.standby_slot=}")
+        logger.info(
+            f"{self.active_slot=}@{self.active_root_dev}, {self.standby_slot=}@{self.standby_root_dev}"
+        )
 
         self.boot_dir = Path(cfg.BOOT_DIR)
         self.grub_file = Path(cfg.GRUB_CFG_PATH)
