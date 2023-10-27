@@ -13,7 +13,7 @@
 # limitations under the License.
 """Implementation of grub boot control.
 
-DEPRECATION WARNING(2023.10.26): 
+DEPRECATION WARNING(2023.10.26):
     Current mechanism of defining and detecting slots is proved to be not robust.
     The design expects that rootfs device will always be sda, which might not be guaranteed
         as the sdx naming scheme is based on the order of kernel recognizing block devices.
@@ -317,6 +317,7 @@ class GrubABPartitionDetector:
     DEV_PATH_PA: ClassVar[re.Pattern] = re.compile(
         r"^/dev/(?P<dev_name>\w*[a-z])(?P<partition_id>\d+)$"
     )
+    SLOT_NAME_PREFIX: ClassVar[str] = "sda"
 
     def __init__(self) -> None:
         self.active_slot, self.active_dev = self._detect_active_slot()
@@ -367,7 +368,7 @@ class GrubABPartitionDetector:
             _pid := _dev_path_ma.group("partition_id")
         ), f"failed to parse active device path: {dev_path=}"
 
-        slot_name = f"sda{_pid}"
+        slot_name = f"{self.SLOT_NAME_PREFIX}{_pid}"
         return slot_name, dev_path
 
     def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
@@ -386,7 +387,7 @@ class GrubABPartitionDetector:
             _pid := _dev_path_ma.group("partition_id")
         ), f"failed to parse standby device path: {dev_path=}"
 
-        slot_name = f"sda{_pid}"
+        slot_name = f"{self.SLOT_NAME_PREFIX}{_pid}"
         return slot_name, dev_path
 
 
