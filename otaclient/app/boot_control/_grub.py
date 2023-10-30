@@ -26,7 +26,7 @@ TODO(20231026): design new mechanism to define and manage slot.
 
 NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not named as sda,
     Check GrubABPartitionDetector class for more details.
-    This workaround only means to avoid OTA failed on edge condition and maintain backward compatibility, 
+    This workaround only means to avoid OTA failed on edge condition and maintain backward compatibility,
     still expecting new mechanism to fundamentally resolve this issue.
 """
 
