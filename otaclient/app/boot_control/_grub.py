@@ -13,7 +13,7 @@
 # limitations under the License.
 """Implementation of grub boot control.
 
-DEPRECATION WARNING(2023.10.26):
+DEPRECATION WARNING(20231026):
     Current mechanism of defining and detecting slots is proved to be not robust.
     The design expects that rootfs device will always be sda, which might not be guaranteed
         as the sdx naming scheme is based on the order of kernel recognizing block devices.
@@ -22,12 +22,12 @@ DEPRECATION WARNING(2023.10.26):
     Also slots are detected by assuming the partition layout, which is less robust comparing to
         cboot and rpi_boot implementation of boot controller.
 
-TODO(2023.10.26): New mechanism to define and manage slot is needed.
+TODO(20231026): design new mechanism to define and manage slot.
 
-NOTE(2023.10.27) A fix is applied to workaround the edge case of rootfs not named as sda,
-    by regardless of which device name is assigned to rootfs dev, always manage ota-partition file
-    with sda<partiton_id>. This workaround only means to avoid OTA failed on edge condition, still
-    expecting new mechanism to be introduced.
+NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not named as sda,
+    Check GrubABPartitionDetector class for more details.
+    This workaround only means to avoid OTA failed on edge condition and maintain backward compatibility, 
+    still expecting new mechanism to fundamentally resolve this issue.
 """
 
 
@@ -300,16 +300,12 @@ class GrubABPartitionDetector:
             - sdx3: A partition
             - sdx4: B partition
 
-    slot_name is sda<partition_id>. For example, if current slot's device is
-        nvme0n1p3, then the slot_name is sda3.
-
     We assume that last 2 partitions are A/B partitions, error will be raised
     if the current rootfs is not one of the last 2 partitions.
 
-    WARNING(2023.10.27): as workaround to resolving the wrong assumption that rootfs
-        device is always sda, we decouple the slot naming and device name here,
-        always searching and naming slot with "sda" as prefix.
-    NOTE(2023.10.26): expecting new mechanism to define slot with higher robustness.
+    NOTE(20231027): as workaround to rootfs not sda breaking OTA, slot naming schema
+        is fixed to "sda<partition_id>", and ota-partition folder is searched with this name.
+        For example, if current slot's device is nvme0n1p3, the slot_name is sda3.
     """
 
     # assuming that the suffix digit are the partiton id, for example,
@@ -355,9 +351,6 @@ class GrubABPartitionDetector:
     def _detect_active_slot(self) -> Tuple[str, str]:
         """Get active slot's slot_id.
 
-        NOTE(2023.10.27): always naming the slot with schema sda<partition_id>,
-            regardless of whether rootfs device is sda or not.
-
         Returns:
             A tuple contains the slot_name and the full dev path
             of the active slot.
@@ -373,9 +366,6 @@ class GrubABPartitionDetector:
 
     def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
         """Get standby slot's slot_id.
-
-        NOTE(2023.10.27): always naming the slot with schema sda<partition_id>,
-            regardless of whether rootfs device is sda or not.
 
         Returns:
             A tuple contains the slot_name and the full dev path
