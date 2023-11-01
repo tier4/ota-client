@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Boot control support for Raspberry pi 4 Model B."""
 
 
-r"""Boot control support for Raspberry pi 4 Model B."""
 import os
 import re
 from string import Template
@@ -22,12 +22,11 @@ from typing import Generator
 
 from .. import log_setting
 from ..errors import (
-    BootControlInitError,
+    BootControlStartupFailed,
     BootControlPostRollbackFailed,
     BootControlPostUpdateFailed,
     BootControlPreRollbackFailed,
     BootControlPreUpdateFailed,
-    OTAError,
 )
 from ..proto import wrapper
 from ..common import replace_atomic, subprocess_call
@@ -49,6 +48,10 @@ _FSTAB_TEMPLATE_STR = (
     "LABEL=${rootfs_fslabel}\t/\text4\tdiscard,x-systemd.growfs\t0\t1\n"
     "LABEL=system-boot\t/boot/firmware\tvfat\tdefaults\t0\t1\n"
 )
+
+
+class _RPIBootControllerError(Exception):
+    """rpi_boot module internal used exception."""
 
 
 class _RPIBootControl:
@@ -88,7 +91,7 @@ class _RPIBootControl:
         ):
             _err_msg = "system-boot is not presented or not mounted!"
             logger.error(_err_msg)
-            raise BootControlInitError(_err_msg)
+            raise ValueError(_err_msg)
         self._init_slots_info()
         self._init_boot_files()
 
@@ -137,7 +140,7 @@ class _RPIBootControl:
             except Exception:
                 raise ValueError(
                     f"unexpected partition layout: {_raw_child_partitions}"
-                )
+                ) from None
             # it is OK if standby_slot dev doesn't have fslabel or fslabel != standby_slot_id
             # we will always set the fslabel
             self._standby_slot = self.AB_FLIPS[self._active_slot]
@@ -149,7 +152,7 @@ class _RPIBootControl:
         except Exception as e:
             _err_msg = f"failed to detect AB partition: {e!r}"
             logger.error(_err_msg)
-            raise BootControlInitError(_err_msg) from None
+            raise _RPIBootControllerError(_err_msg) from e
 
     def _init_boot_files(self):
         """Check the availability of boot files.
@@ -175,7 +178,7 @@ class _RPIBootControl:
         if not self.config_txt_active_slot.is_file():
             _err_msg = f"missing {self.config_txt_active_slot=}"
             logger.error(_err_msg)
-            raise BootControlInitError(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
         self.cmdline_txt_active_slot = (
             self.system_boot_path
             / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.active_slot}"
@@ -183,7 +186,7 @@ class _RPIBootControl:
         if not self.cmdline_txt_active_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_active_slot=}"
             logger.error(_err_msg)
-            raise BootControlInitError(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
         self.vmlinuz_active_slot = (
             self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.active_slot}"
         )
@@ -198,7 +201,7 @@ class _RPIBootControl:
         if not self.config_txt_standby_slot.is_file():
             _err_msg = f"missing {self.config_txt_standby_slot=}"
             logger.error(_err_msg)
-            raise BootControlInitError(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
         self.cmdline_txt_standby_slot = (
             self.system_boot_path
             / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.standby_slot}"
@@ -206,7 +209,7 @@ class _RPIBootControl:
         if not self.cmdline_txt_standby_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_standby_slot=}"
             logger.error(_err_msg)
-            raise BootControlInitError(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
         self.vmlinuz_standby_slot = (
             self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.standby_slot}"
         )
@@ -224,8 +227,9 @@ class _RPIBootControl:
             subprocess_call("flash-kernel", raise_exception=True)
             os.sync()
         except Exception as e:
-            logger.error(f"flash-kernel failed: {e!r}")
-            raise
+            _err_msg = f"flash-kernel failed: {e!r}"
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
 
         try:
             # check if the vmlinuz and initrd.img presented in /boot/firmware(system-boot),
@@ -238,9 +242,10 @@ class _RPIBootControl:
             ).is_file():
                 os.replace(_initrd_img, self.initrd_img_active_slot)
             os.sync()
-        except Exception:
-            logger.error(f"apply new kernel,initrd.img for {self.active_slot} failed")
-            raise
+        except Exception as e:
+            _err_msg = f"apply new kernel,initrd.img for {self.active_slot} failed"
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
 
     # exposed API methods/properties
     @property
@@ -345,7 +350,8 @@ class _RPIBootControl:
                 CMDHelperFuncs.set_dev_fslabel(self.active_slot_dev, self.standby_slot)
         except Exception as e:
             _err_msg = f"failed to prepare standby dev: {e!r}"
-            raise BootControlPreUpdateFailed(_err_msg) from e
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg) from e
 
     def prepare_tryboot_txt(self):
         """Copy the standby slot's config.txt as tryboot.txt."""
@@ -358,7 +364,7 @@ class _RPIBootControl:
         except Exception as e:
             _err_msg = f"failed to prepare tryboot.txt for {self._standby_slot}"
             logger.error(_err_msg)
-            raise BootControlPostUpdateFailed(_err_msg) from e
+            raise _RPIBootControllerError(_err_msg) from e
 
     def reboot_tryboot(self):
         """Reboot with tryboot flag."""
@@ -369,44 +375,49 @@ class _RPIBootControl:
         except Exception as e:
             _err_msg = "failed to reboot"
             logger.exception(_err_msg)
-            raise BootControlPostUpdateFailed(_err_msg) from e
+            raise _RPIBootControllerError(_err_msg) from e
 
 
 class RPIBootController(BootControllerProtocol):
     """BootControllerProtocol implementation for rpi4 support."""
 
     def __init__(self) -> None:
-        self._rpiboot_control = _RPIBootControl()
-        # mount point prepare
-        self._mp_control = SlotMountHelper(
-            standby_slot_dev=self._rpiboot_control.standby_slot_dev,
-            standby_slot_mount_point=cfg.MOUNT_POINT,
-            active_slot_dev=self._rpiboot_control.active_slot_dev,
-            active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
-        )
-        # init ota-status files
-        self._ota_status_control = OTAStatusFilesControl(
-            active_slot=self._rpiboot_control.active_slot,
-            standby_slot=self._rpiboot_control.standby_slot,
-            current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
-            / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
-            # NOTE: might not yet be populated before OTA update applied!
-            standby_ota_status_dir=Path(cfg.MOUNT_POINT)
-            / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
-            finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
-        )
-
-        # 20230613: remove any leftover flag file if ota_status is not UPDATING/ROLLBACKING
-        if self._ota_status_control.booted_ota_status not in (
-            wrapper.StatusOta.UPDATING,
-            wrapper.StatusOta.ROLLBACKING,
-        ):
-            _flag_file = (
-                self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
+        try:
+            self._rpiboot_control = _RPIBootControl()
+            # mount point prepare
+            self._mp_control = SlotMountHelper(
+                standby_slot_dev=self._rpiboot_control.standby_slot_dev,
+                standby_slot_mount_point=cfg.MOUNT_POINT,
+                active_slot_dev=self._rpiboot_control.active_slot_dev,
+                active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
-            _flag_file.unlink(missing_ok=True)
+            # init ota-status files
+            self._ota_status_control = OTAStatusFilesControl(
+                active_slot=self._rpiboot_control.active_slot,
+                standby_slot=self._rpiboot_control.standby_slot,
+                current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
+                / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
+                # NOTE: might not yet be populated before OTA update applied!
+                standby_ota_status_dir=Path(cfg.MOUNT_POINT)
+                / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
+                finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
+            )
 
-        logger.debug("rpi_boot initialization finished")
+            # 20230613: remove any leftover flag file if ota_status is not UPDATING/ROLLBACKING
+            if self._ota_status_control.booted_ota_status not in (
+                wrapper.StatusOta.UPDATING,
+                wrapper.StatusOta.ROLLBACKING,
+            ):
+                _flag_file = (
+                    self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
+                )
+                _flag_file.unlink(missing_ok=True)
+
+            logger.debug("rpi_boot initialization finished")
+        except Exception as e:
+            _err_msg = f"failed to start rpi boot controller: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _copy_kernel_for_standby_slot(self):
         """Copy the kernel and initrd_img files from current slot /boot
@@ -452,7 +463,7 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             _err_msg = "failed to copy kernel/initrd_img for standby slot"
             logger.error(_err_msg)
-            raise BootControlPostUpdateFailed(f"{e!r}")
+            raise _RPIBootControllerError(f"{e!r}")
 
     def _write_standby_fstab(self):
         """Override the standby's fstab file.
@@ -474,7 +485,7 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed to update fstab file for standby slot: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPostUpdateFailed(_err_msg) from e
+            raise _RPIBootControllerError(_err_msg) from e
 
     # APIs
 
@@ -503,12 +514,10 @@ class RPIBootController(BootControllerProtocol):
                 self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
             )
             _flag_file.unlink(missing_ok=True)
-        except OTAError:
-            raise
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPreUpdateFailed(_err_msg) from e
+            raise BootControlPreUpdateFailed(_err_msg, module=__name__) from e
 
     def pre_rollback(self):
         try:
@@ -519,7 +528,7 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPreRollbackFailed(_err_msg) from e
+            raise BootControlPreRollbackFailed(_err_msg, module=__name__) from e
 
     def post_rollback(self):
         try:
@@ -527,10 +536,10 @@ class RPIBootController(BootControllerProtocol):
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
             self._rpiboot_control.reboot_tryboot()
-        except OTAError:
-            raise
         except Exception as e:
-            raise BootControlPostRollbackFailed from e
+            _err_msg = f"failed on post_rollback: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlPostRollbackFailed(_err_msg, module=__name__) from e
 
     def post_update(self) -> Generator[None, None, None]:
         try:
@@ -542,10 +551,10 @@ class RPIBootController(BootControllerProtocol):
             self._mp_control.umount_all(ignore_error=True)
             yield  # hand over control back to otaclient
             self._rpiboot_control.reboot_tryboot()
-        except OTAError:
-            raise
         except Exception as e:
-            raise BootControlPostUpdateFailed from e
+            _err_msg = f"failed on post_update: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlPostUpdateFailed(_err_msg, module=__name__) from e
 
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""
