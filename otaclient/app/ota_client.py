@@ -475,15 +475,14 @@ class OTAClient(OTAClientProtocol):
         create_standby_cls: type of create standby slot mechanism to use
     """
 
-    DEFAULT_FIRMWARE_VERSION = "unknown"
     OTACLIENT_VERSION = __version__
 
     def __init__(
         self,
         *,
-        boot_control_cls: Type[BootControllerProtocol],
+        boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
-        my_ecu_id: str = "",
+        my_ecu_id: str,
         control_flags: OTAClientControlFlags,
         proxy: Optional[str] = None,
     ):
@@ -491,15 +490,13 @@ class OTAClient(OTAClientProtocol):
         # ensure only one update/rollback session is running
         self._lock = threading.Lock()
 
-        self.boot_controller = boot_control_cls()
+        self.boot_controller = boot_controller
         self.create_standby_cls = create_standby_cls
         self.live_ota_status = LiveOTAStatus(
             self.boot_controller.get_booted_ota_status()
         )
 
-        self.current_version = (
-            self.boot_controller.load_version() or self.DEFAULT_FIRMWARE_VERSION
-        )
+        self.current_version = self.boot_controller.load_version()
         self.proxy = proxy
         self.control_flags = control_flags
 
@@ -589,115 +586,167 @@ class OTAClient(OTAClientProtocol):
         return status_report
 
 
-class OTAClientBusy(Exception):
-    """Raised when otaclient receive another request when doing update/rollback."""
-
-
-class OTAClientWrapper:
-    """OTAClient stub implementation that wraps OTAClient, manage update/rollback session,
-    and exposes async API for OTAClientServiceStub.
-
-    All actual API request handlings are wrapped and dispatched into threadpool for execution.
-    Only one ongoing update/rollback is allowed, with the help of exclusive update_rollback lock.
-
-    If this ECU enables otaproxy and has child ECUs depend on it, control_flags is used to prevent
-    this ECU's reboot before the otaproxy dependency is resolved.
-
-    OTAClient itself is self-contained, its error handling is done internally, no exception will be raised
-    from calling API methods of OTAClient.
-    """
-
+class OTAServicer:
     def __init__(
         self,
         *,
-        ecu_info: ECUInfo,
-        executor: ThreadPoolExecutor,
         control_flags: OTAClientControlFlags,
+        ecu_info: ECUInfo,
+        executor: Optional[ThreadPoolExecutor] = None,
+        otaclient_version: str = __version__,
         proxy: Optional[str] = None,
     ) -> None:
-        # only one update/rollback is allowed at a time
-        self.update_rollback_lock = asyncio.Lock()
-        self.my_ecu_id = ecu_info.ecu_id
+        self.ecu_id = ecu_info.ecu_id
+        self.otaclient_version = otaclient_version
+
+        # default boot startup failure if boot controller crashed without
+        # raising specific error
+        self._otaclient_startup_failed_status = wrapper.StatusResponseEcuV2(
+            ecu_id=ecu_info.ecu_id,
+            otaclient_version=otaclient_version,
+            ota_status=wrapper.StatusOta.FAILURE,
+        )
+        self._update_rollback_lock = asyncio.Lock()
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, executor
         )
+        self._last_operation: Optional[wrapper.StatusOta] = None
 
-        # create otaclient instance and control flags
-        self._otaclient = OTAClient(
-            boot_control_cls=get_boot_controller(ecu_info.get_bootloader()),
-            create_standby_cls=get_standby_slot_creator(cfg.STANDBY_CREATION_MODE),
-            my_ecu_id=self.my_ecu_id,
-            control_flags=control_flags,
-            proxy=proxy,
-        )
+        #
+        # ------ compose otaclient ------
+        #
+        self._otaclient_inst: Optional[OTAClient] = None
 
-        # proxy used by local otaclient
-        # NOTE: it can be an upper otaproxy, local otaproxy, or no proxy
-        self.local_used_proxy_url = proxy
-        self.last_operation = None  # update/rollback/None
+        # select boot_controller and standby_slot implementations
+        _bootctrl_cls = get_boot_controller(ecu_info.get_bootloader())
+        _standby_slot_creator = get_standby_slot_creator(cfg.STANDBY_CREATION_MODE)
 
-    # property
+        # boot controller starts up
+        try:
+            _bootctrl_inst = _bootctrl_cls()
+        except Exception as e:
+            self._otaclient_startup_failed_status = wrapper.StatusResponseEcuV2(
+                ecu_id=ecu_info.ecu_id,
+                otaclient_version=otaclient_version,
+                ota_status=wrapper.StatusOta.FAILURE,
+                failure_type=wrapper.FailureType.UNRECOVERABLE,
+                failure_reason=f"{e!r}",
+                failure_traceback=f"{e!r}",
+            )
+            return
+
+        # compose otaclient
+        try:
+            self._otaclient_inst = OTAClient(
+                boot_controller=_bootctrl_inst,
+                create_standby_cls=_standby_slot_creator,
+                my_ecu_id=ecu_info.ecu_id,
+                control_flags=control_flags,
+                proxy=proxy,
+            )
+        except Exception as e:
+            return
 
     @property
     def is_busy(self) -> bool:
-        return self.update_rollback_lock.locked()
+        return self._update_rollback_lock.locked()
 
-    # API
+    async def dispatch_update(
+        self, request: wrapper.UpdateRequestEcu
+    ) -> wrapper.UpdateResponseEcu:
+        # prevent update operation if otaclient is not started
+        if self._otaclient_inst is None:
+            return wrapper.UpdateResponseEcu(
+                ecu_id=self.ecu_id,
+                result=wrapper.FailureType.UNRECOVERABLE,
+            )
 
-    async def dispatch_update(self, request: wrapper.UpdateRequestEcu):
-        """Dispatch OTA update execution to background thread.
+        # check and acquire lock
+        if self._update_rollback_lock.locked():
+            logger.warning(
+                f"ongoing operation: {self.last_operation=}, ignore incoming {request=}"
+            )
+            return wrapper.UpdateResponseEcu(
+                ecu_id=self.ecu_id,
+                result=wrapper.FailureType.RECOVERABLE,
+            )
 
-        Raises:
-            OTAClientBusy if otaclient is already executing update/rollback.
-        """
-        if self.update_rollback_lock.locked():
-            raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
-        else:  # immediately take the lock if not locked
-            await self.update_rollback_lock.acquire()
-            self.last_operation = wrapper.StatusOta.UPDATING
+        # immediately take the lock if not locked
+        await self._update_rollback_lock.acquire()
+        self.last_operation = wrapper.StatusOta.UPDATING
 
-        async def _update():
-            """Background waiting for update to be finished and
-            release update_rollback lock."""
+        async def _update_task():
+            if self._otaclient_inst is None:
+                return
+
             try:
                 await self._run_in_executor(
                     partial(
-                        self._otaclient.update,
+                        self._otaclient_inst.update,
                         request.version,
                         request.url,
                         request.cookies,
                     )
                 )
+            except Exception:
+                pass  # error should be collected by otaclient, not us
             finally:
                 self.last_operation = None
-                self.update_rollback_lock.release()
+                self._update_rollback_lock.release()
 
         # dispatch update to background
-        asyncio.create_task(_update())
+        asyncio.create_task(_update_task())
 
-    async def dispatch_rollback(self, _: wrapper.RollbackRequestEcu):
-        """Dispatch OTA rollback execution to background thread.
+        return wrapper.UpdateResponseEcu(
+            ecu_id=self.ecu_id, result=wrapper.FailureType.NO_FAILURE
+        )
 
-        Raises:
-            OTAClientBusy if otaclient is already executing update/rollback.
-        """
-        if self.update_rollback_lock.locked():
-            raise OTAClientBusy(f"ongoing operation: {self.last_operation=}")
-        else:  # immediately take the lock if not locked
-            await self.update_rollback_lock.acquire()
-            self.last_operation = wrapper.StatusOta.ROLLBACKING
+    async def dispatch_rollback(
+        self, request: wrapper.RollbackRequestEcu
+    ) -> wrapper.RollbackResponseEcu:
+        # prevent rollback operation if otaclient is not started
+        if self._otaclient_inst is None:
+            return wrapper.RollbackResponseEcu(
+                ecu_id=self.ecu_id,
+                result=wrapper.FailureType.UNRECOVERABLE,
+            )
 
-        async def _rollback():
-            """Background waiting for rollback to be finished and
-            release update_rollback lock."""
+        # check and acquire lock
+        if self._update_rollback_lock.locked():
+            logger.warning(
+                f"ongoing operation: {self.last_operation=}, ignore incoming {request=}"
+            )
+            return wrapper.RollbackResponseEcu(
+                ecu_id=self.ecu_id,
+                result=wrapper.FailureType.RECOVERABLE,
+            )
+
+        # immediately take the lock if not locked
+        await self._update_rollback_lock.acquire()
+        self.last_operation = wrapper.StatusOta.ROLLBACKING
+
+        async def _rollback_task():
+            if self._otaclient_inst is None:
+                return
+
             try:
-                await self._run_in_executor(self._otaclient.rollback)
+                await self._run_in_executor(self._otaclient_inst.rollback)
+            except Exception:
+                pass  # error should be collected by otaclient, not us
             finally:
                 self.last_operation = None
-                self.update_rollback_lock.release()
+                self._update_rollback_lock.release()
 
         # dispatch to background
-        asyncio.create_task(_rollback())
+        asyncio.create_task(_rollback_task())
+
+        return wrapper.RollbackResponseEcu(
+            ecu_id=self.ecu_id, result=wrapper.FailureType.NO_FAILURE
+        )
 
     async def get_status(self) -> wrapper.StatusResponseEcuV2:
-        return await self._run_in_executor(self._otaclient.status)
+        # otaclient is not started due to boot control startup failed
+        if self._otaclient_inst is None:
+            return self._otaclient_startup_failed_status
+        # otaclient core started, query status from it
+        return await self._run_in_executor(self._otaclient_inst.status)
