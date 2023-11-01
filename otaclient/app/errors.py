@@ -11,74 +11,53 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
 """OTA error code definition"""
+
+
 import traceback
 from enum import Enum, unique
+from typing import ClassVar
 
 from .proto import wrapper
 
 
 @unique
-class OTAErrorCode(Enum):
+class OTAErrorCode(int, Enum):
     E_UNSPECIFIC = 0
 
+    #
+    # ------ network related errors ------
+    #
     E_NETWORK = 100
     E_OTAMETA_DOWNLOAD_FAILED = 101
 
+    #
+    # ------ recoverable errors ------
+    #
     E_OTA_ERR_RECOVERABLE = 200
-    E_OTAUPDATE_BUSY = 201
-    E_INVALID_STATUS_FOR_OTAUPDATE = 202
-    E_INVALID_OTAUPDATE_REQUEST = 203
-    E_INVALID_STATUS_FOR_OTAROLLBACK = 204
-    E_OTAMETA_VERIFICATION_FAILED = 205
-    E_UPDATEDELTA_GENERATION_FAILED = 206
-    E_APPLY_OTAUPDATE_FAILED = 207
-    E_METADATA_JWT_VERIFICATION_FAILED = 208
-    E_OTAPROXY_FAILED_TO_START = 209
-    E_INVALID_METADATAJWT = 210
+    E_OTA_BUSY = 201
+    E_INVALID_STATUS_FOR_OTAROLLBACK = 202
 
+    #
+    # ------ unrecoverable errors ------
+    #
     E_OTA_ERR_UNRECOVERABLE = 300
     E_BOOTCONTROL_PLATFORM_UNSUPPORTED = 301
-    E_BOOTCONTROL_INIT_ERR = 302
+    E_BOOTCONTROL_STARTUP_ERR = 302
     E_BOOTCONTROL_PREUPDATE_FAILED = 303
     E_BOOTCONTROL_POSTUPDATE_FAILED = 304
-    E_BOOTCONTROL_POSTROLLBACK_FAILED = 305
-    E_STANDBY_SLOT_SPACE_NOT_ENOUGH_ERROR = 306
-    E_BOOTCONTROL_PREROLLBACK_FAILED = 307
+    E_BOOTCONTROL_PREROLLBACK_FAILED = 305
+    E_BOOTCONTROL_POSTROLLBACK_FAILED = 306
+    E_STANDBY_SLOT_INSUFFICIENT_SPACE = 307
+    E_INVALID_OTAUPDATE_REQUEST = 308
+    E_METADATAJWT_CERT_VERIFICATION_FAILED = 309
+    E_METADATAJWT_INVALID = 310
+    E_OTAPROXY_FAILED_TO_START = 311
+    E_UPDATEDELTA_GENERATION_FAILED = 312
+    E_APPLY_OTAUPDATE_FAILED = 313
 
-    def to_str(self) -> str:
+    def to_errcode_str(self) -> str:
         return f"{self.value:0>3}"
-
-    def get_errcode(self) -> int:
-        return self.value
-
-    def get_errname(self) -> str:
-        return self.name
-
-
-@unique
-class OTAModules(Enum):
-    General = 0
-    BootController = 1
-    StandbySlotCreater = 2
-    Downloader = 3
-    API = 4
-    OTASERVICE = 5
-
-    def to_str(self) -> str:
-        return f"{self.value:0>2}"
-
-
-@unique
-class OTAAPI(Enum):
-    Unspecific = 0
-    Update = 1
-    Rollback = 2
-
-    def to_str(self) -> str:
-        return f"{self.value:0>2}"
 
 
 class OTAError(Exception):
@@ -88,240 +67,175 @@ class OTAError(Exception):
     It should always be captured by the OTAError at otaclient.py.
     """
 
+    ERROR_PREFIX: ClassVar[str] = "E"
+
     failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
-    module: OTAModules = OTAModules.General
-    errcode: OTAErrorCode = OTAErrorCode.E_UNSPECIFIC
-    desc: str = "no description available for this error"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_UNSPECIFIC
+    failure_description: str = "no description available for this error"
 
-
-class OTA_APIError(Exception):
-    """Errors that happen during processing API request.
-
-    This exception class should be the top level exception for each API entry.
-    This exception must be created by wrapping an OTAClientError.
-    """
-
-    api: OTAAPI = OTAAPI.Unspecific
-    _err_prefix = "E"
-
-    def __init__(self, ota_err: OTAError, *args: object) -> None:
+    def __init__(self, *args: object, module: str) -> None:
+        self.module = module
         super().__init__(*args)
-        self.otaclient_err = ota_err
-        self.errcode = ota_err.errcode
-        self.module = ota_err.module
-        self.failure_type = ota_err.failure_type
-        self.errdesc = ota_err.desc
 
-    def get_errcode(self) -> "OTAErrorCode":
-        return self.errcode
+    @property
+    def failure_errcode_str(self) -> str:
+        return f"{self.ERROR_PREFIX}{self.failure_errcode.to_errcode_str()}"
 
-    def get_errcode_str(self) -> str:
-        return f"{self._err_prefix}{self.errcode.to_str()}"
-
-    def get_err_type(self) -> wrapper.FailureType:
-        return self.failure_type
-
-    def get_err_reason(self, *, append_desc=True, append_detail=False) -> str:
-        r"""Return a failure_reason str.
-
-        Format: Ec-aabb-dee[: <err_description>[\n<detail_exception_info>]]
-            c: FAILURE_TYPE_1digit
-            aa: API_2digits
-            bb: MODULE_2digits
-            dee: ERRCODE_3digits
-        """
-        _errdesc = ""
-        if append_desc:
-            _errdesc = f": {self.errdesc}."
-
-        _detail = ""
-        if append_detail:
-            _detail = f"\n{self.otaclient_err.__cause__!r}"
-
-        return (
-            f"{self._err_prefix}"
-            f"{self.failure_type.to_str()}"
-            "-"
-            f"{self.api.to_str()}{self.module.to_str()}"
-            "-"
-            f"{self.errcode.to_str()}"
-            f"{_errdesc}{_detail}"
-        )
-
-    def get_traceback(self, *, splitter="") -> str:
-        """Format the traceback into a str with splitter as <splitter>."""
+    def get_failure_traceback(self, *, splitter="") -> str:
         return splitter.join(
             traceback.format_exception(type(self), self, self.__traceback__)
         )
 
+    def failure_reason(self, *, append_traceback=False) -> str:
+        """Return failure_reason str."""
+        _failure_info = {
+            "module": self.module,
+            "exec_args": self.args,
+        }
+        if append_traceback:
+            _failure_info["failure_traceback"] = self.get_failure_traceback()
 
-class OTAUpdateError(OTA_APIError):
-    api = OTAAPI.Update
+        return (
+            f"{self.failure_errcode_str}: {self.failure_description}"
+            f"\n{_failure_info}"
+        )
 
 
-class OTARollbackError(OTA_APIError):
-    api = OTAAPI.Rollback
+#
+# ------ Network related error ------
+#
 
-
-###### error exception classes ######
 _NETWORK_ERR_DEFAULT_DESC = (
-    "error related to network connection detected, "
-    "please check the Internet connection and try again"
+    "network connection unstable, please check the connection and try again"
 )
 
 
-### network error ###
 class NetworkError(OTAError):
     """Generic network error"""
 
     failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
-    module: OTAModules = OTAModules.Downloader
-    errcode: OTAErrorCode = OTAErrorCode.E_NETWORK
-    desc: str = _NETWORK_ERR_DEFAULT_DESC
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_NETWORK
+    failure_description: str = _NETWORK_ERR_DEFAULT_DESC
 
 
 class OTAMetaDownloadFailed(NetworkError):
-    errcode: OTAErrorCode = OTAErrorCode.E_OTAMETA_DOWNLOAD_FAILED
-    desc: str = f"{_NETWORK_ERR_DEFAULT_DESC}: failed to download ota image meta"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTAMETA_DOWNLOAD_FAILED
+    failure_description: str = (
+        f"failed to download OTA meta due to {_NETWORK_ERR_DEFAULT_DESC}"
+    )
 
 
-### recoverable error ###
+#
+# ------ recoverable error ------
+#
+
 _RECOVERABLE_DEFAULT_DESC = (
-    "recoverable ota error(unrelated to network) detected, "
-    "please resend the request or retry after a restart of ota-client/ECU"
+    "recoverable OTA error(unrelated to network) detected, "
+    "please retry after reboot device or restart otaclient"
 )
 
 
 class OTAErrorRecoverable(OTAError):
     failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
-    # followings are default values
-    module: OTAModules = OTAModules.General
-    errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_RECOVERABLE
-    desc: str = _RECOVERABLE_DEFAULT_DESC
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_RECOVERABLE
+    failure_description: str = _RECOVERABLE_DEFAULT_DESC
 
 
-class OTAUpdateBusy(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.API
-    errcode: OTAErrorCode = OTAErrorCode.E_OTAUPDATE_BUSY
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: on-going ota update detected, this request has been ignored"
-
-
-class OTARollBusy(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.API
-    errcode: OTAErrorCode = OTAErrorCode.E_OTAUPDATE_BUSY
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: on-going ota update detected, this request has been ignored"
-
-
-class InvalidStatusForOTAUpdate(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.API
-    errcode: OTAErrorCode = OTAErrorCode.E_INVALID_STATUS_FOR_OTAUPDATE
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: current ota-status indicates it should not accept ota update"
-
-
-class InvalidUpdateRequest(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.API
-    errcode: OTAErrorCode = OTAErrorCode.E_INVALID_OTAUPDATE_REQUEST
-    desc: str = (
-        f"{_RECOVERABLE_DEFAULT_DESC}: incoming ota update request's content is invalid"
-    )
+class OTABusy(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_BUSY
+    failure_description: str = "on-going OTA operation(update or rollback) detected, this request has been ignored"
 
 
 class InvalidStatusForOTARollback(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.API
-    errcode: OTAErrorCode = OTAErrorCode.E_INVALID_STATUS_FOR_OTAROLLBACK
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: current ota-status indicates it should not accept ota rollback"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_INVALID_STATUS_FOR_OTAROLLBACK
+    failure_description: str = "previous OTA is not succeeded, reject OTA rollback"
 
 
-class OTAMetaVerificationFailed(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.StandbySlotCreater
-    errcode: OTAErrorCode = OTAErrorCode.E_OTAMETA_VERIFICATION_FAILED
-    desc: str = (
-        f"{_RECOVERABLE_DEFAULT_DESC}: hash verification failed for ota meta files"
-    )
+#
+# ------ recoverable error ------
+#
 
-
-class UpdateDeltaGenerationFailed(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.StandbySlotCreater
-    errcode: OTAErrorCode = OTAErrorCode.E_UPDATEDELTA_GENERATION_FAILED
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: (rebuild_mode) failed to calculate and/or prepare update delta"
-
-
-class ApplyOTAUpdateFailed(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.StandbySlotCreater
-    errcode: OTAErrorCode = OTAErrorCode.E_APPLY_OTAUPDATE_FAILED
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: failed to apply ota update"
-
-
-class MetadataJWTVerficationFailed(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.API
-    errcode: OTAErrorCode = OTAErrorCode.E_METADATA_JWT_VERIFICATION_FAILED
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: verification failed for metadata.jwt"
-
-
-class MetadataJWTInvalid(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.API
-    errcode: OTAErrorCode = OTAErrorCode.E_INVALID_METADATAJWT
-    desc: str = f"{_RECOVERABLE_DEFAULT_DESC}: invalid metadata.jwt"
-
-
-class OTAProxyFailedToStart(OTAErrorRecoverable):
-    module: OTAModules = OTAModules.OTASERVICE
-    errcode: OTAErrorCode = OTAErrorCode.E_OTAPROXY_FAILED_TO_START
-    desc: str = (
-        f"{_RECOVERABLE_DEFAULT_DESC}: ota_proxy is required but failed to start"
-    )
-
-
-### unrecoverable error ###
 _UNRECOVERABLE_DEFAULT_DESC = (
-    "unrecoverable ota error detected, please contact technical support"
+    "unrecoverable OTA error detected, please contact technical support"
 )
 
 
 class OTAErrorUnRecoverable(OTAError):
     failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
-    module: OTAModules = OTAModules.General
-    errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
-    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: unspecific unrecoverable ota error, please contact technical support"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
+    failure_description: str = _UNRECOVERABLE_DEFAULT_DESC
 
 
 class BootControlPlatformUnsupported(OTAErrorUnRecoverable):
-    module: OTAModules = OTAModules.BootController
-    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PLATFORM_UNSUPPORTED
-    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: current ECU platform is not supported by the boot controller module"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PLATFORM_UNSUPPORTED
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: current ECU platform is not supported by the boot controller module"
 
 
-class BootControlInitError(OTAErrorUnRecoverable):
-    module: OTAModules = OTAModules.BootController
-    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_INIT_ERR
-    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to init boot controller module"
+class BootControlStartupFailed(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_STARTUP_ERR
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to start boot controller module for this device"
 
 
 class BootControlPreUpdateFailed(OTAErrorUnRecoverable):
-    module: OTAModules = OTAModules.BootController
-    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREUPDATE_FAILED
-    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: pre_update process failed"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREUPDATE_FAILED
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot control pre_update process failed"
+    )
 
 
 class BootControlPostUpdateFailed(OTAErrorUnRecoverable):
-    module: OTAModules = OTAModules.BootController
-    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTUPDATE_FAILED
-    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: post_update process failed, switch boot is not finished"
-
-
-class BootControlPostRollbackFailed(OTAErrorUnRecoverable):
-    module: OTAModules = OTAModules.BootController
-    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTUPDATE_FAILED
-    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: post_rollback process failed, switch boot is not finished"
-
-
-class StandbySlotSpaceNotEnoughError(OTAErrorUnRecoverable):
-    module: OTAModules = OTAModules.StandbySlotCreater
-    errcode: OTAErrorCode = OTAErrorCode.E_STANDBY_SLOT_SPACE_NOT_ENOUGH_ERROR
-    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: standby slot has insufficient space to apply update, abort"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTUPDATE_FAILED
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot control post_update process failed"
+    )
 
 
 class BootControlPreRollbackFailed(OTAErrorUnRecoverable):
-    module: OTAModules = OTAModules.BootController
-    errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREROLLBACK_FAILED
-    desc: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: pre_rollback process failed"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREROLLBACK_FAILED
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: pre_rollback process failed"
+    )
+
+
+class BootControlPostRollbackFailed(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTROLLBACK_FAILED
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: post_rollback process failed"
+    )
+
+
+class StandbySlotInsufficientSpace(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_STANDBY_SLOT_INSUFFICIENT_SPACE
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: standby slot has insufficient space to apply update"
+
+
+class InvalidUpdateRequest(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_INVALID_OTAUPDATE_REQUEST
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: incoming OTA update request's content is invalid"
+
+
+class MetadataJWTInvalid(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_INVALID
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: verfication for metadata.jwt is OK but metadata.jwt's content is invalid"
+
+
+class MetadataJWTVerficationFailed(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_CERT_VERIFICATION_FAILED
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: certificate verification failed for OTA metadata.jwt"
+
+
+class OTAProxyFailedToStart(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTAPROXY_FAILED_TO_START
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: otaproxy is required for multiple ECU update but otaproxy failed to start"
+
+
+class UpdateDeltaGenerationFailed(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATEDELTA_GENERATION_FAILED
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to calculate and/or prepare update delta"
+
+
+class ApplyOTAUpdateFailed(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_APPLY_OTAUPDATE_FAILED
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to apply OTA update to standby slot"
+    )
