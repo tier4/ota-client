@@ -56,7 +56,6 @@ from ..errors import (
 )
 from ..proto import wrapper
 
-from . import _errors
 from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
@@ -70,6 +69,10 @@ from .protocol import BootControllerProtocol
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
 )
+
+
+class _GrubBootControllerError(Exception):
+    """Grub boot controller internal used exception."""
 
 
 @dataclass
@@ -327,7 +330,9 @@ class GrubABPartitionDetector:
         parent = CMDHelperFuncs.get_parent_dev(active_dev)
         boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
         if not boot_dev:
-            raise _errors.ABPartitionError("/boot is not mounted")
+            _err_msg = "/boot is not mounted"
+            logger.error(_err_msg)
+            raise ValueError(_err_msg)
 
         # list children device file from parent device
         cmd = f"-Pp -o NAME,FSTYPE {parent}"
@@ -344,9 +349,9 @@ class GrubABPartitionDetector:
                 ):
                     return m.group(1)
 
-        raise _errors.ABPartitionError(
-            f"{parent=} has unexpected partition layout: {output=}"
-        )
+        _err_msg = f"{parent=} has unexpected partition layout: {output=}"
+        logger.error(_err_msg)
+        raise ValueError(_err_msg)
 
     def _detect_active_slot(self) -> Tuple[str, str]:
         """Get active slot's slot_id.
@@ -455,7 +460,7 @@ class _GrubControl:
                 GrubHelper.INITRD_OTA,
                 GrubHelper.INITRD_OTA_STANDBY,
             )
-        except ValueError as e:
+        except Exception as e:
             logger.error(
                 f"failed to get current booted kernel and initrd.image: {e!r}, "
                 "try to use active slot ota-partition files"
@@ -500,7 +505,8 @@ class _GrubControl:
 
         logger.info(f"ota-partition files for {self.active_slot} are ready")
 
-    def _get_current_booted_files(self) -> Tuple[str, str]:
+    @staticmethod
+    def _get_current_booted_files() -> Tuple[str, str]:
         """Return the name of booted kernel and initrd.
 
         Expected booted kernel and initrd are located under /boot.
@@ -571,7 +577,7 @@ class _GrubControl:
                 "refuse to do grub-update"
             )
             logger.error(msg)
-            raise ValueError(msg)
+            raise _GrubBootControllerError(msg)
 
         # step1: update grub_default file
         _in = grub_default_file.read_text()
@@ -586,7 +592,9 @@ class _GrubControl:
         ):
             active_slot_entry_idx, _ = res
         else:
-            raise ValueError("boot entry for ACTIVE slot not found, abort")
+            _err_msg = "boot entry for ACTIVE slot not found, abort"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg)
 
         # step3: update grub_default again, setting default to <idx>
         # ensure the active slot to be the default
@@ -620,7 +628,8 @@ class _GrubControl:
                 "only current active slot's entry is populated."
             )
             if abort_on_standby_missed:
-                raise ValueError(msg)
+                logger.error(msg)
+                raise _GrubBootControllerError(msg)
 
             logger.warning(msg)
             logger.info(f"generated grub_cfg: {pformat(grub_cfg_content)}")
@@ -683,43 +692,59 @@ class _GrubControl:
             # TODO: check the standby file system status
             #       if not erase the standby slot
         except Exception as e:
-            logger.error(f"failed to prepare standby dev: {e!r}")
-            raise
+            _err_msg = f"failed to prepare standby dev: {e!r}"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
 
     def finalize_update_switch_boot(self):
         """Finalize switch boot and use boot files from current booted slot."""
         # NOTE: since we have not yet switched boot, the active/standby relationship is
         #       reversed here corresponding to booted slot.
-        self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
-        self._ensure_ota_partition_symlinks(active_slot=self.standby_slot)
-        self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.active_slot)
+        try:
+            self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
+            self._ensure_ota_partition_symlinks(active_slot=self.standby_slot)
+            self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.active_slot)
 
-        self._grub_update_on_booted_slot(abort_on_standby_missed=True)
+            self._grub_update_on_booted_slot(abort_on_standby_missed=True)
 
-        # switch ota-partition symlink to current booted slot
-        self._ensure_ota_partition_symlinks(active_slot=self.active_slot)
-        self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.standby_slot)
-        return True
+            # switch ota-partition symlink to current booted slot
+            self._ensure_ota_partition_symlinks(active_slot=self.active_slot)
+            self._ensure_standby_slot_boot_files_symlinks(
+                standby_slot=self.standby_slot
+            )
+            return True
+        except Exception as e:
+            _err_msg = f"grub: failed to finalize switch boot: {e!r}"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
 
     def grub_reboot_to_standby(self):
         """Temporarily boot to standby slot after OTA applied to standby slot."""
         # ensure all required symlinks for standby slot are presented and valid
-        self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
-        self._ensure_standby_slot_boot_files_symlinks(standby_slot=self.standby_slot)
+        try:
+            self._prepare_kernel_initrd_links(self.standby_ota_partition_folder)
+            self._ensure_standby_slot_boot_files_symlinks(
+                standby_slot=self.standby_slot
+            )
 
-        # ensure all required symlinks for active slot are presented and valid
-        # NOTE: reboot after post-update is still using the current active slot's
-        #       ota-partition symlinks(not yet switch boot).
-        self._prepare_kernel_initrd_links(self.active_ota_partition_folder)
-        self._ensure_ota_partition_symlinks(active_slot=self.active_slot)
-        self._grub_update_on_booted_slot(abort_on_standby_missed=True)
+            # ensure all required symlinks for active slot are presented and valid
+            # NOTE: reboot after post-update is still using the current active slot's
+            #       ota-partition symlinks(not yet switch boot).
+            self._prepare_kernel_initrd_links(self.active_ota_partition_folder)
+            self._ensure_ota_partition_symlinks(active_slot=self.active_slot)
+            self._grub_update_on_booted_slot(abort_on_standby_missed=True)
 
-        idx, _ = GrubHelper.get_entry(
-            read_str_from_file(self.grub_file),
-            kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
-        )
-        GrubHelper.grub_reboot(idx)
-        logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
+            idx, _ = GrubHelper.get_entry(
+                read_str_from_file(self.grub_file),
+                kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
+            )
+            GrubHelper.grub_reboot(idx)
+            logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
+
+        except Exception as e:
+            _err_msg = f"grub: failed to grub_reboot to standby: {e!r}"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
 
 
 class GrubController(BootControllerProtocol):
