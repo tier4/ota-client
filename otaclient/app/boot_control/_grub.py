@@ -48,7 +48,7 @@ from ..common import (
     write_str_to_file_sync,
 )
 from ..errors import (
-    BootControlInitError,
+    BootControlStartupFailed,
     BootControlPostRollbackFailed,
     BootControlPostUpdateFailed,
     BootControlPreRollbackFailed,
@@ -683,8 +683,8 @@ class _GrubControl:
             # TODO: check the standby file system status
             #       if not erase the standby slot
         except Exception as e:
-            _err_msg = f"failed to prepare standby dev: {e!r}"
-            raise BootControlPreUpdateFailed(_err_msg) from e
+            logger.error(f"failed to prepare standby dev: {e!r}")
+            raise
 
     def finalize_update_switch_boot(self):
         """Finalize switch boot and use boot files from current booted slot."""
@@ -743,8 +743,9 @@ class GrubController(BootControllerProtocol):
                 force_initialize=self._boot_control.initialized,
             )
         except Exception as e:
-            logger.error(f"failed on init boot controller: {e!r}")
-            raise BootControlInitError from e
+            _err_msg = f"failed on start grub boot controller: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _update_fstab(self, *, active_slot_fstab: Path, standby_slot_fstab: Path):
         """Update standby fstab based on active slot's fstab and just installed new stanby fstab.
@@ -861,8 +862,9 @@ class GrubController(BootControllerProtocol):
             # remove old files under standby ota_partition folder
             self._cleanup_standby_ota_partition_folder()
         except Exception as e:
-            logger.error(f"failed on pre_update: {e!r}")
-            raise BootControlPreUpdateFailed from e
+            _err_msg = f"failed on pre_update: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlPreUpdateFailed(_err_msg, module=__name__) from e
 
     def post_update(self) -> Generator[None, None, None]:
         try:
@@ -889,8 +891,9 @@ class GrubController(BootControllerProtocol):
             yield  # hand over control to otaclient
             CMDHelperFuncs.reboot()
         except Exception as e:
-            logger.error(f"failed on post_update: {e!r}")
-            raise BootControlPostUpdateFailed from e
+            _err_msg = f"failed on post_update: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlPostUpdateFailed(_err_msg, module=__name__) from e
 
     def pre_rollback(self):
         try:
@@ -899,8 +902,9 @@ class GrubController(BootControllerProtocol):
             self._mp_control.mount_standby()
             self._ota_status_control.pre_rollback_standby()
         except Exception as e:
-            logger.error(f"failed on pre_rollback: {e!r}")
-            raise BootControlPreRollbackFailed from e
+            _err_msg = f"failed on pre_rollback: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlPreRollbackFailed(_err_msg, module=__name__) from e
 
     def post_rollback(self):
         try:
@@ -909,5 +913,6 @@ class GrubController(BootControllerProtocol):
             self._mp_control.umount_all(ignore_error=True)
             CMDHelperFuncs.reboot()
         except Exception as e:
-            logger.error(f"failed on pre_rollback: {e!r}")
-            raise BootControlPostRollbackFailed from e
+            _err_msg = f"failed on pre_rollback: {e!r}"
+            logger.error(_err_msg)
+            raise BootControlPostRollbackFailed(_err_msg, module=__name__) from e
