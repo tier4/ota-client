@@ -40,7 +40,6 @@ from ..errors import (
 )
 from ..proto import wrapper
 
-from . import _errors
 from ._common import (
     OTAStatusMixin,
     PrepareMountMixin,
@@ -58,7 +57,7 @@ logger = log_setting.get_logger(
 )
 
 
-class NvbootctrlError(_errors.BootControlError):
+class NvbootctrlError(Exception):
     """Specific internal errors related to nvbootctrl cmd."""
 
 
@@ -216,12 +215,12 @@ class _CBootControl:
         # ensure rootfs is as expected
         if not Nvbootctrl.check_rootdev(self.current_rootfs_dev):
             msg = f"rootfs mismatch, expect {self.current_rootfs_dev} as rootfs"
-            raise ValueError(msg)
+            raise NvbootctrlError(msg)
         elif Nvbootctrl.check_rootdev(self.standby_rootfs_dev):
             msg = (
                 f"rootfs mismatch, expect {self.standby_rootfs_dev} as standby slot dev"
             )
-            raise ValueError(msg)
+            raise NvbootctrlError(msg)
 
         logger.info("dev info initializing completed")
         logger.info(
@@ -435,10 +434,10 @@ class CBootController(
                 self._cboot_control.get_standby_boot_dev(),
                 _boot_dir_mount_point,
             )
-        except _errors.MountError as e:
+        except Exception as e:
             _msg = f"failed to mount standby boot dev: {e!r}"
             logger.error(_msg)
-            raise
+            raise NvbootctrlError(_msg) from e
 
         try:
             dst = _boot_dir_mount_point / "boot"
@@ -450,14 +449,14 @@ class CBootController(
         except Exception as e:
             _msg = f"failed to populate boot folder to separate bootdev: {e!r}"
             logger.error(_msg)
-            raise _errors.BootControlError(_msg) from e
+            raise NvbootctrlError(_msg) from e
         finally:
             # unmount standby emmc boot dev on finish/failure
             try:
                 CMDHelperFuncs.umount(_boot_dir_mount_point)
-            except _errors.MountError as e:
+            except Exception as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
-                logger.error(_failure_msg)
+                logger.warning(_failure_msg)
                 # no need to raise to the caller
 
     ###### public methods ######
