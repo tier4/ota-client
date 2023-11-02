@@ -520,7 +520,7 @@ class OTAClient(OTAClientProtocol):
             self.last_failure_type = exc.failure_type
             self.last_failure_reason = exc.get_failure_reason()
             self.last_failure_traceback = exc.get_failure_traceback()
-            logger.error(f"on {ota_status=}: {self.last_failure_traceback=}")
+            logger.error(f"{ota_status.name}, traceback: {self.last_failure_traceback}")
         finally:
             exc = None  # type: ignore , prevent ref cycle
 
@@ -633,13 +633,16 @@ class OTAServicer:
         try:
             _bootctrl_inst = _bootctrl_cls()
         except ota_errors.OTAError as e:
+            logger.error(
+                e.get_error_report(title=f"boot controller startup failed: {e!r}")
+            )
             self._otaclient_startup_failed_status = wrapper.StatusResponseEcuV2(
                 ecu_id=ecu_info.ecu_id,
                 otaclient_version=otaclient_version,
                 ota_status=wrapper.StatusOta.FAILURE,
                 failure_type=wrapper.FailureType.UNRECOVERABLE,
                 failure_reason=e.get_failure_reason(),
-                failure_traceback=e.get_failure_traceback(),
+                failure_traceback=e.get_failure_traceback(splitter="\n"),
             )
             return
 
@@ -653,13 +656,16 @@ class OTAServicer:
                 proxy=proxy,
             )
         except ota_errors.OTAError as e:
+            logger.error(
+                e.get_error_report(title=f"otaclient core startup failed: {e!r}")
+            )
             self._otaclient_startup_failed_status = wrapper.StatusResponseEcuV2(
                 ecu_id=ecu_info.ecu_id,
                 otaclient_version=otaclient_version,
                 ota_status=wrapper.StatusOta.FAILURE,
                 failure_type=wrapper.FailureType.UNRECOVERABLE,
                 failure_reason=e.get_failure_reason(),
-                failure_traceback=e.get_failure_traceback(),
+                failure_traceback=e.get_failure_traceback(splitter="\n"),
             )
             return
 
