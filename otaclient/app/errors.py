@@ -101,6 +101,18 @@ class OTAError(Exception):
             f"\n{_failure_info}"
         )
 
+    def get_error_report(self, title: str) -> str:
+        _traceback = self.get_failure_traceback(splitter="\n")
+        return (
+            f"\n{title}\n"
+            "\n------ failure_reason ------\n"
+            f"{self.get_failure_reason()}"
+            "\n------ end of failure_reason ------\n"
+            "\n------ failure traceback ------\n"
+            f"failure_traceback: {_traceback}"
+            "\n------ end of failure traceback ------\n"
+        )
+
 
 #
 # ------ Network related error ------
