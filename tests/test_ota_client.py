@@ -30,13 +30,12 @@ from otaclient.app.create_standby import StandbySlotCreatorProtocol
 from otaclient.app.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.ecu_info import ECUInfo
-from otaclient.app.errors import OTAErrorRecoverable, OTAUpdateError
+from otaclient.app.errors import OTAError, OTAErrorRecoverable
 from otaclient.app.ota_client import (
     OTAClient,
     _OTAUpdater,
-    OTAClientBusy,
     OTAClientControlFlags,
-    OTAClientWrapper,
+    OTAServicer,
 )
 from otaclient.app.ota_metadata import parse_regulars_from_txt, parse_dirs_from_txt
 from otaclient.app.proto.wrapper import RegularInf, DirectoryInf
@@ -236,7 +235,7 @@ class Test_OTAClient:
         )
 
         self.ota_client = OTAClient(
-            boot_control_cls=mocker.MagicMock(return_value=self.boot_controller),
+            boot_controller=self.boot_controller,
             create_standby_cls=mocker.MagicMock(),
             my_ecu_id=self.MY_ECU_ID,
             control_flags=self.control_flags,
@@ -274,7 +273,7 @@ class Test_OTAClient:
 
     def test_update_interrupted(self):
         # inject exception
-        _error = OTAUpdateError(OTAErrorRecoverable("network disconnected"))
+        _error = OTAErrorRecoverable("network disconnected", module=__name__)
         self.ota_updater.execute.side_effect = _error
 
         # --- execution --- #
@@ -356,7 +355,7 @@ class Test_OTAClient:
         )
 
 
-class TestOTAClientWrapper:
+class TestOTAServicer:
     BOOTLOADER_TYPE = BootloaderType.GRUB
     ECU_INFO = ECUInfo(
         format_version=1,
@@ -372,23 +371,27 @@ class TestOTAClientWrapper:
         self.otaclient = mocker.MagicMock(spec=OTAClient)
         self.otaclient_cls = mocker.MagicMock(return_value=self.otaclient)
         self.standby_slot_creator_cls = mocker.MagicMock()
-        self.boot_control_cls = mocker.MagicMock()
+        self.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
         self.control_flags = mocker.MagicMock(spec=OTAClientControlFlags)
 
-        # patch OTAClient
+        #
+        # ------ patching ------
+        #
         mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.OTAClient", self.otaclient_cls)
         mocker.patch(
             f"{cfg.OTACLIENT_MODULE_PATH}.get_boot_controller",
-            return_value=self.boot_control_cls,
+            return_value=mocker.MagicMock(return_value=self.boot_controller),
         )
         mocker.patch(
             f"{cfg.OTACLIENT_MODULE_PATH}.get_standby_slot_creator",
             return_value=self.standby_slot_creator_cls,
         )
 
-        # start the stub
+        #
+        # ------ start OTAServicer instance ------
+        #
         self.local_use_proxy = ""
-        self.otaclient_stub = OTAClientWrapper(
+        self.otaclient_stub = OTAServicer(
             ecu_info=self.ECU_INFO,
             executor=self._executor,
             control_flags=self.control_flags,
@@ -401,13 +404,19 @@ class TestOTAClientWrapper:
             self._executor.shutdown(wait=False)
 
     def test_stub_initializing(self):
+        #
+        # ------ assertion ------
+        #
+
+        # ensure the OTAServicer properly compose otaclient core
         self.otaclient_cls.assert_called_once_with(
-            boot_control_cls=self.boot_control_cls,
+            boot_controller=self.boot_controller,
             create_standby_cls=self.standby_slot_creator_cls,
             my_ecu_id=self.ECU_INFO.ecu_id,
             control_flags=self.control_flags,
             proxy=self.local_use_proxy,
         )
+
         assert self.otaclient_stub.last_operation is None
         assert self.otaclient_stub.local_used_proxy_url is self.local_use_proxy
 
@@ -434,9 +443,8 @@ class TestOTAClientWrapper:
         assert self.otaclient_stub.last_operation is wrapper.StatusOta.UPDATING
         assert self.otaclient_stub.is_busy
         # test ota update/rollback exclusive lock,
-        # OTAClientBusy error should be raised on another request
-        with pytest.raises(OTAClientBusy):
-            await self.otaclient_stub.dispatch_update(update_request_ecu)
+        resp = await self.otaclient_stub.dispatch_update(update_request_ecu)
+        assert resp.result == wrapper.FailureType.RECOVERABLE
 
         # finish up update
         _updating_event.set()
@@ -465,9 +473,8 @@ class TestOTAClientWrapper:
         assert self.otaclient_stub.last_operation is wrapper.StatusOta.ROLLBACKING
         assert self.otaclient_stub.is_busy
         # test ota update/rollback exclusive lock,
-        # OTAClientBusy error should be raised on another request
-        with pytest.raises(OTAClientBusy):
-            await self.otaclient_stub.dispatch_rollback(wrapper.RollbackRequestEcu())
+        resp = await self.otaclient_stub.dispatch_rollback(wrapper.RollbackRequestEcu())
+        assert resp.result == wrapper.FailureType.RECOVERABLE
 
         # finish up rollback
         _rollbacking_event.set()
