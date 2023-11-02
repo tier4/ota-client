@@ -55,6 +55,7 @@ class OTAErrorCode(int, Enum):
     E_OTAPROXY_FAILED_TO_START = 311
     E_UPDATEDELTA_GENERATION_FAILED = 312
     E_APPLY_OTAUPDATE_FAILED = 313
+    E_OTACLIENT_STARTUP_FAILED = 314
 
     def to_errcode_str(self) -> str:
         return f"{self.value:0>3}"
@@ -86,7 +87,7 @@ class OTAError(Exception):
             traceback.format_exception(type(self), self, self.__traceback__)
         )
 
-    def failure_reason(self, *, append_traceback=False) -> str:
+    def get_failure_reason(self, *, append_traceback=False) -> str:
         """Return failure_reason str."""
         _failure_info = {
             "module": self.module,
@@ -238,4 +239,11 @@ class ApplyOTAUpdateFailed(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_APPLY_OTAUPDATE_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to apply OTA update to standby slot"
+    )
+
+
+class OTAClientStartupFailed(OTAErrorUnRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTACLIENT_STARTUP_FAILED
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to start otaclient instance"
     )
