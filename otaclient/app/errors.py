@@ -87,19 +87,9 @@ class OTAError(Exception):
             traceback.format_exception(type(self), self, self.__traceback__)
         )
 
-    def get_failure_reason(self, *, append_traceback=False) -> str:
+    def get_failure_reason(self) -> str:
         """Return failure_reason str."""
-        _failure_info = {
-            "module": self.module,
-            "exec_args": self.args,
-        }
-        if append_traceback:
-            _failure_info["failure_traceback"] = self.get_failure_traceback()
-
-        return (
-            f"{self.failure_errcode_str}: {self.failure_description}"
-            f"\n{_failure_info}"
-        )
+        return f"{self.failure_errcode_str}: {self.failure_description}"
 
     def get_error_report(self, title: str) -> str:
         _traceback = self.get_failure_traceback(splitter="\n")
