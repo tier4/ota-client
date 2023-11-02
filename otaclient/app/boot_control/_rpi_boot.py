@@ -20,14 +20,7 @@ from string import Template
 from pathlib import Path
 from typing import Generator
 
-from .. import log_setting
-from ..errors import (
-    BootControlStartupFailed,
-    BootControlPostRollbackFailed,
-    BootControlPostUpdateFailed,
-    BootControlPreRollbackFailed,
-    BootControlPreUpdateFailed,
-)
+from .. import log_setting, errors as ota_errors
 from ..proto import wrapper
 from ..common import replace_atomic, subprocess_call
 
@@ -419,7 +412,7 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed to start rpi boot controller: {e!r}"
             logger.error(_err_msg)
-            raise BootControlStartupFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _copy_kernel_for_standby_slot(self):
         """Copy the kernel and initrd_img files from current slot /boot
@@ -519,7 +512,9 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPreUpdateFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPreUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def pre_rollback(self):
         try:
@@ -530,7 +525,9 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPreRollbackFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPreRollbackFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def post_rollback(self):
         try:
@@ -541,7 +538,9 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on post_rollback: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPostRollbackFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPostRollbackFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def post_update(self) -> Generator[None, None, None]:
         try:
@@ -556,7 +555,9 @@ class RPIBootController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPostUpdateFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPostUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""

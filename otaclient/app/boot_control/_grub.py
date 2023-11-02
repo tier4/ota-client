@@ -39,20 +39,13 @@ from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 from pathlib import Path
 from pprint import pformat
 
-from .. import log_setting
+from .. import log_setting, errors as ota_errors
 from ..common import (
     re_symlink_atomic,
     read_str_from_file,
     subprocess_call,
     subprocess_check_output,
     write_str_to_file_sync,
-)
-from ..errors import (
-    BootControlStartupFailed,
-    BootControlPostRollbackFailed,
-    BootControlPostUpdateFailed,
-    BootControlPreRollbackFailed,
-    BootControlPreUpdateFailed,
 )
 from ..proto import wrapper
 
@@ -770,7 +763,7 @@ class GrubController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on start grub boot controller: {e!r}"
             logger.error(_err_msg)
-            raise BootControlStartupFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _update_fstab(self, *, active_slot_fstab: Path, standby_slot_fstab: Path):
         """Update standby fstab based on active slot's fstab and just installed new stanby fstab.
@@ -889,7 +882,9 @@ class GrubController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPreUpdateFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPreUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def post_update(self) -> Generator[None, None, None]:
         try:
@@ -918,7 +913,9 @@ class GrubController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPostUpdateFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPostUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def pre_rollback(self):
         try:
@@ -929,7 +926,9 @@ class GrubController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPreRollbackFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPreRollbackFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def post_rollback(self):
         try:
@@ -940,4 +939,6 @@ class GrubController(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
-            raise BootControlPostRollbackFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPostRollbackFailed(
+                _err_msg, module=__name__
+            ) from e

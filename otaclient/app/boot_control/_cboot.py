@@ -21,7 +21,7 @@ from subprocess import CalledProcessError
 from typing import Generator, Optional
 
 
-from .. import log_setting
+from .. import log_setting, errors as ota_errors
 from ..common import (
     copytree_identical,
     read_str_from_file,
@@ -30,14 +30,6 @@ from ..common import (
     write_str_to_file_sync,
 )
 
-from ..errors import (
-    BootControlStartupFailed,
-    BootControlPlatformUnsupported,
-    BootControlPostRollbackFailed,
-    BootControlPostUpdateFailed,
-    BootControlPreRollbackFailed,
-    BootControlPreUpdateFailed,
-)
 from ..proto import wrapper
 
 from ._common import (
@@ -339,9 +331,9 @@ class CBootController(
             # init ota-status
             self._init_boot_control()
         except NotImplementedError as e:
-            raise BootControlPlatformUnsupported(module=__name__) from e
+            raise ota_errors.BootControlPlatformUnsupported(module=__name__) from e
         except Exception as e:
-            raise BootControlStartupFailed(
+            raise ota_errors.BootControlStartupFailed(
                 f"unspecific boot controller startup failure: {e!r}", module=__name__
             ) from e
 
@@ -514,7 +506,9 @@ class CBootController(
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.exception(_err_msg)
-            raise BootControlPreUpdateFailed(f"{e!r}", module=__name__) from e
+            raise ota_errors.BootControlPreUpdateFailed(
+                f"{e!r}", module=__name__
+            ) from e
 
     def post_update(self) -> Generator[None, None, None]:
         try:
@@ -554,7 +548,9 @@ class CBootController(
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.exception(_err_msg)
-            raise BootControlPostUpdateFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPostUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def pre_rollback(self):
         try:
@@ -568,7 +564,9 @@ class CBootController(
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.exception(_err_msg)
-            raise BootControlPreRollbackFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPreRollbackFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def post_rollback(self):
         try:
@@ -577,4 +575,6 @@ class CBootController(
         except Exception as e:
             _err_msg = f"failed on post_rollback: {e!r}"
             logger.exception(_err_msg)
-            raise BootControlPostRollbackFailed(_err_msg, module=__name__) from e
+            raise ota_errors.BootControlPostRollbackFailed(
+                _err_msg, module=__name__
+            ) from e
