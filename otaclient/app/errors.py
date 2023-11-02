@@ -111,9 +111,7 @@ class OTAError(Exception):
 # ------ Network related error ------
 #
 
-_NETWORK_ERR_DEFAULT_DESC = (
-    "network connection unstable, please check the connection and try again"
-)
+_NETWORK_ERR_DEFAULT_DESC = "network unstable, please check the network connection"
 
 
 class NetworkError(OTAError):
@@ -162,7 +160,7 @@ class InvalidStatusForOTARollback(OTAErrorRecoverable):
 #
 
 _UNRECOVERABLE_DEFAULT_DESC = (
-    "unrecoverable OTA error detected, please contact technical support"
+    "unrecoverable OTA error, please contact technical support"
 )
 
 
@@ -174,50 +172,58 @@ class OTAErrorUnRecoverable(OTAError):
 
 class BootControlPlatformUnsupported(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PLATFORM_UNSUPPORTED
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: current ECU platform is not supported by the boot controller module"
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: bootloader for this ECU is not supported"
+    )
 
 
 class BootControlStartupFailed(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_STARTUP_ERR
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to start boot controller module for this device"
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot controller startup failed"
+    )
 
 
 class BootControlPreUpdateFailed(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREUPDATE_FAILED
     failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot control pre_update process failed"
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control pre_update process failed"
     )
 
 
 class BootControlPostUpdateFailed(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTUPDATE_FAILED
     failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot control post_update process failed"
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control post_update process failed"
     )
 
 
 class BootControlPreRollbackFailed(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREROLLBACK_FAILED
     failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: pre_rollback process failed"
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control pre_rollback process failed"
     )
 
 
 class BootControlPostRollbackFailed(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTROLLBACK_FAILED
     failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: post_rollback process failed"
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control post_rollback process failed"
     )
 
 
 class StandbySlotInsufficientSpace(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_STANDBY_SLOT_INSUFFICIENT_SPACE
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: standby slot has insufficient space to apply update"
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: insufficient space at standby slot"
+    )
 
 
 class InvalidUpdateRequest(OTAErrorUnRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_INVALID_OTAUPDATE_REQUEST
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: incoming OTA update request's content is invalid"
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: incoming OTA update request is invalid"
+    )
 
 
 class MetadataJWTInvalid(OTAErrorUnRecoverable):
