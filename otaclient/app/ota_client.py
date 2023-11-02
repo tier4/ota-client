@@ -604,6 +604,7 @@ class OTAServicer:
         self.ecu_id = ecu_info.ecu_id
         self.otaclient_version = otaclient_version
         self.local_used_proxy_url = proxy
+        self.last_operation: Optional[wrapper.StatusOta] = None
 
         # default boot startup failure if boot_controller/otaclient_core crashed without
         # raising specific error
@@ -618,7 +619,6 @@ class OTAServicer:
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, executor
         )
-        self._last_operation: Optional[wrapper.StatusOta] = None
 
         #
         # ------ compose otaclient ------
