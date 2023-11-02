@@ -95,6 +95,7 @@ class OTAError(Exception):
         """The detailed failure report for debug use."""
         return (
             f"\n{title}\n"
+            f"@module: {self.module}"
             "\n------ failure_reason ------\n"
             f"{self.get_failure_reason()}"
             "\n------ end of failure_reason ------\n"
