@@ -16,14 +16,13 @@
 import asyncio
 import pytest
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
 import pytest_mock
 
 from otaclient.app.ecu_info import ECUInfo
-from otaclient.app.ota_client import OTAClientBusy, OTAClientWrapper
+from otaclient.app.ota_client import OTAServicer
 from otaclient.app.ota_client_call import OtaClientCall
 from otaclient.app.ota_client_stub import (
     ECUStatusStorage,
@@ -716,7 +715,7 @@ class TestOTAClientServiceStub:
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)  # ensure the task stopping
 
         # --- mocker --- #
-        self.otaclient_wrapper = mocker.MagicMock(spec=OTAClientWrapper)
+        self.otaclient_wrapper = mocker.MagicMock(spec=OTAServicer)
         self.ecu_status_tracker = mocker.MagicMock()
         self.otaproxy_launcher = mocker.MagicMock(spec=OTAProxyLauncher)
         # mock OTAClientCall, make update_call return success on any update dispatches to subECUs
@@ -736,7 +735,7 @@ class TestOTAClientServiceStub:
             mocker.MagicMock(return_value=self.ecu_storage),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAClientWrapper",
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAServicer",
             mocker.MagicMock(return_value=self.otaclient_wrapper),
         )
         mocker.patch(
@@ -886,6 +885,11 @@ class TestOTAClientServiceStub:
         update_target_ids: Set[str],
         expected: wrapper.UpdateResponse,
     ):
+        # --- setup --- #
+        self.otaclient_wrapper.dispatch_update.return_value = wrapper.UpdateResponseEcu(
+            ecu_id=self.ecu_info.ecu_id, result=wrapper.FailureType.NO_FAILURE
+        )
+
         # --- execution --- #
         resp = await self.otaclient_service_stub.update(update_request)
 
@@ -898,7 +902,9 @@ class TestOTAClientServiceStub:
 
     async def test_update_local_ecu_busy(self):
         # --- preparation --- #
-        self.otaclient_wrapper.dispatch_update.side_effect = OTAClientBusy()
+        self.otaclient_wrapper.dispatch_update.return_value = wrapper.UpdateResponseEcu(
+            ecu_id="autoware", result=wrapper.FailureType.RECOVERABLE
+        )
         update_request_ecu = wrapper.UpdateRequestEcu(
             ecu_id="autoware", version="version", url="url", cookies="cookies"
         )
