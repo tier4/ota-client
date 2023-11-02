@@ -531,7 +531,9 @@ class OTAClient(OTAClientProtocol):
         try:
             self.last_failure_type = exc.failure_type
             self.last_failure_reason = exc.get_failure_reason()
-            self.last_failure_traceback = exc.get_failure_traceback()
+            if cfg.DEBUG_MODE:
+                self.last_failure_traceback = exc.get_failure_traceback()
+
             logger.error(
                 exc.get_error_report(f"OTA failed with {ota_status.name}: {exc!r}")
             )
@@ -550,9 +552,13 @@ class OTAClient(OTAClientProtocol):
                     control_flags=self.control_flags,
                     proxy=self.proxy,
                 )
+
+                # reset failure information on handling new update request
                 self.last_failure_type = wrapper.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
+
+                # enter update
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
                 self._update_executor.execute(version, url_base, cookies_json)
             except ota_errors.OTAError as e:
@@ -573,9 +579,13 @@ class OTAClient(OTAClientProtocol):
                 self._rollback_executor = _OTARollbacker(
                     boot_controller=self.boot_controller
                 )
+
+                # clear failure information on handling new rollback request
                 self.last_failure_type = wrapper.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
+
+                # entering rollback
                 self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACKING)
                 self._rollback_executor.execute()
             # silently ignore overlapping request
@@ -656,8 +666,12 @@ class OTAServicer:
                 ota_status=wrapper.StatusOta.FAILURE,
                 failure_type=wrapper.FailureType.UNRECOVERABLE,
                 failure_reason=e.get_failure_reason(),
-                failure_traceback=e.get_failure_traceback(splitter="\n"),
             )
+
+            if cfg.DEBUG_MODE:
+                self._otaclient_startup_failed_status.failure_traceback = (
+                    e.get_failure_traceback()
+                )
             return
 
         # otaclient core starts up
@@ -679,8 +693,12 @@ class OTAServicer:
                 ota_status=wrapper.StatusOta.FAILURE,
                 failure_type=wrapper.FailureType.UNRECOVERABLE,
                 failure_reason=e.get_failure_reason(),
-                failure_traceback=e.get_failure_traceback(splitter="\n"),
             )
+
+            if cfg.DEBUG_MODE:
+                self._otaclient_startup_failed_status.failure_traceback = (
+                    e.get_failure_traceback()
+                )
             return
 
     @property
