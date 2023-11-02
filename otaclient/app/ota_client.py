@@ -27,7 +27,12 @@ from urllib.parse import urlparse
 
 from . import downloader, ota_metadata, errors as ota_errors
 from .boot_control import BootControllerProtocol, get_boot_controller
-from .common import RetryTaskMap, get_backoff, ensure_otaproxy_start
+from .common import (
+    get_backoff,
+    ensure_otaproxy_start,
+    RetryTaskMap,
+    RetryTaskMapInterrupted,
+)
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .ecu_info import ECUInfo
@@ -254,6 +259,13 @@ class _OTAUpdater:
             raise ota_errors.StandbySlotInsufficientSpace(
                 _err_msg, module=__name__
             ) from None
+        except RetryTaskMapInterrupted as e:
+            _err_msg = (
+                f"downloading group keeps failing for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT}s, "
+                f"last_error: {e!r}"
+            )
+            logger.error(_err_msg)
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
         except Exception as e:
             _err_msg = f"unspecific error, failed to finish downloading files: {e!r}"
             logger.error(_err_msg)
