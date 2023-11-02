@@ -603,6 +603,7 @@ class OTAServicer:
     ) -> None:
         self.ecu_id = ecu_info.ecu_id
         self.otaclient_version = otaclient_version
+        self.local_used_proxy_url = proxy
 
         # default boot startup failure if boot_controller/otaclient_core crashed without
         # raising specific error
@@ -661,6 +662,10 @@ class OTAServicer:
                 failure_traceback=e.get_failure_traceback(),
             )
             return
+
+    @property
+    def is_busy(self) -> bool:
+        return self._update_rollback_lock.locked()
 
     async def dispatch_update(
         self, request: wrapper.UpdateRequestEcu
