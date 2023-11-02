@@ -82,7 +82,7 @@ class OTAError(Exception):
     def failure_errcode_str(self) -> str:
         return f"{self.ERROR_PREFIX}{self.failure_errcode.to_errcode_str()}"
 
-    def get_failure_traceback(self, *, splitter="") -> str:
+    def get_failure_traceback(self, *, splitter="\n") -> str:
         return splitter.join(
             traceback.format_exception(type(self), self, self.__traceback__)
         )
@@ -91,16 +91,19 @@ class OTAError(Exception):
         """Return failure_reason str."""
         return f"{self.failure_errcode_str}: {self.failure_description}"
 
-    def get_error_report(self, title: str) -> str:
-        _traceback = self.get_failure_traceback(splitter="\n")
+    def get_error_report(self, title: str = "") -> str:
+        """The detailed failure report for debug use."""
         return (
             f"\n{title}\n"
             "\n------ failure_reason ------\n"
             f"{self.get_failure_reason()}"
             "\n------ end of failure_reason ------\n"
-            "\n------ failure traceback ------\n"
-            f"failure_traceback: {_traceback}"
-            "\n------ end of failure traceback ------\n"
+            "\n------ exception informaton ------\n"
+            f"{self!r}"
+            "\n------ end of exception informaton ------\n"
+            "\n------ exception traceback ------\n"
+            f"{self.get_failure_traceback()}"
+            "\n------ end of exception traceback ------\n"
         )
 
 
