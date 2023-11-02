@@ -243,7 +243,9 @@ class _RPIBootControl:
                 os.replace(_initrd_img, self.initrd_img_active_slot)
             os.sync()
         except Exception as e:
-            _err_msg = f"apply new kernel,initrd.img for {self.active_slot} failed"
+            _err_msg = (
+                f"apply new kernel,initrd.img for {self.active_slot} failed: {e!r}"
+            )
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
 
