@@ -372,10 +372,9 @@ class GrubABPartitionDetector:
         """
         dev_path = self._get_sibling_dev(active_dev)
         _dev_path_ma = self.DEV_PATH_PA.match(dev_path)
-        assert _dev_path_ma and (
-            _pid := _dev_path_ma.group("partition_id")
-        ), f"failed to parse standby device path: {dev_path=}"
+        assert _dev_path_ma, f"dev path is invalid for OTA: {dev_path}"
 
+        _pid = _dev_path_ma.group("partition_id")
         slot_name = f"{self.SLOT_NAME_PREFIX}{_pid}"
         return slot_name, dev_path
 
