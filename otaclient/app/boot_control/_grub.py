@@ -11,6 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Implementation of grub boot control.
+
+DEPRECATION WARNING(20231026):
+    Current mechanism of defining and detecting slots is proved to be not robust.
+    The design expects that rootfs device will always be sda, which might not be guaranteed
+        as the sdx naming scheme is based on the order of kernel recognizing block devices.
+        If rootfs somehow is not named as sda, the grub boot controller will fail to identifiy
+        the slots and/or finding corresponding ota-partition files, finally failing the OTA.
+    Also slots are detected by assuming the partition layout, which is less robust comparing to
+        cboot and rpi_boot implementation of boot controller.
+
+TODO(20231026): design new mechanism to define and manage slot.
+
+NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not named as sda,
+    Check GrubABPartitionDetector class for more details.
+    This workaround only means to avoid OTA failed on edge condition and maintain backward compatibility,
+    still expecting new mechanism to fundamentally resolve this issue.
+"""
 
 
 import re
@@ -282,10 +300,20 @@ class GrubABPartitionDetector:
             - sdx3: A partition
             - sdx4: B partition
 
-    slot_name is the dev name of the A/B partition.
     We assume that last 2 partitions are A/B partitions, error will be raised
     if the current rootfs is not one of the last 2 partitions.
+
+    NOTE(20231027): as workaround to rootfs not sda breaking OTA, slot naming schema
+        is fixed to "sda<partition_id>", and ota-partition folder is searched with this name.
+        For example, if current slot's device is nvme0n1p3, the slot_name is sda3.
     """
+
+    # assuming that the suffix digit are the partiton id, for example,
+    # sda3's pid is 3, nvme0n1p3's pid is also 3.
+    DEV_PATH_PA: ClassVar[re.Pattern] = re.compile(
+        r"^/dev/(?P<dev_name>\w*[a-z])(?P<partition_id>\d+)$"
+    )
+    SLOT_NAME_PREFIX: ClassVar[str] = "sda"
 
     def __init__(self) -> None:
         self.active_slot, self.active_dev = self._detect_active_slot()
@@ -321,23 +349,33 @@ class GrubABPartitionDetector:
         )
 
     def _detect_active_slot(self) -> Tuple[str, str]:
-        """
+        """Get active slot's slot_id.
+
         Returns:
             A tuple contains the slot_name and the full dev path
             of the active slot.
         """
         dev_path = CMDHelperFuncs.get_current_rootfs_dev()
-        slot_name = dev_path.lstrip("/dev/")
+        _dev_path_ma = self.DEV_PATH_PA.match(dev_path)
+        assert _dev_path_ma, f"dev path is invalid for OTA: {dev_path}"
+
+        _pid = _dev_path_ma.group("partition_id")
+        slot_name = f"{self.SLOT_NAME_PREFIX}{_pid}"
         return slot_name, dev_path
 
     def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
-        """
+        """Get standby slot's slot_id.
+
         Returns:
             A tuple contains the slot_name and the full dev path
             of the standby slot.
         """
         dev_path = self._get_sibling_dev(active_dev)
-        slot_name = dev_path.lstrip("/dev/")
+        _dev_path_ma = self.DEV_PATH_PA.match(dev_path)
+        assert _dev_path_ma, f"dev path is invalid for OTA: {dev_path}"
+
+        _pid = _dev_path_ma.group("partition_id")
+        slot_name = f"{self.SLOT_NAME_PREFIX}{_pid}"
         return slot_name, dev_path
 
 
@@ -350,7 +388,9 @@ class _GrubControl:
         self.standby_root_dev = ab_detector.standby_dev
         self.active_slot = ab_detector.active_slot
         self.standby_slot = ab_detector.standby_slot
-        logger.info(f"{self.active_slot=}, {self.standby_slot=}")
+        logger.info(
+            f"{self.active_slot=}@{self.active_root_dev}, {self.standby_slot=}@{self.standby_root_dev}"
+        )
 
         self.boot_dir = Path(cfg.BOOT_DIR)
         self.grub_file = Path(cfg.GRUB_CFG_PATH)
