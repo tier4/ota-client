@@ -363,7 +363,7 @@ class _OTAUpdater:
         except downloader.DestinationNotAvailableError as e:
             _err_msg = f"downloader: failed to save ota metafiles: {e!r}"
             logger.error(_err_msg)
-            raise ota_errors.OTAErrorUnRecoverable(_err_msg, module=__name__) from e
+            raise ota_errors.OTAErrorUnrecoverable(_err_msg, module=__name__) from e
         except ota_metadata.MetadataJWTVerificationFailed as e:
             _err_msg = f"failed to verify metadata.jwt: {e!r}"
             logger.error(_err_msg)

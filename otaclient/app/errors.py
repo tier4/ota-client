@@ -165,96 +165,96 @@ _UNRECOVERABLE_DEFAULT_DESC = (
 )
 
 
-class OTAErrorUnRecoverable(OTAError):
+class OTAErrorUnrecoverable(OTAError):
     failure_type: wrapper.FailureType = wrapper.FailureType.RECOVERABLE
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
     failure_description: str = _UNRECOVERABLE_DEFAULT_DESC
 
 
-class BootControlPlatformUnsupported(OTAErrorUnRecoverable):
+class BootControlPlatformUnsupported(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PLATFORM_UNSUPPORTED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: bootloader for this ECU is not supported"
     )
 
 
-class BootControlStartupFailed(OTAErrorUnRecoverable):
+class BootControlStartupFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_STARTUP_ERR
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: boot controller startup failed"
     )
 
 
-class BootControlPreUpdateFailed(OTAErrorUnRecoverable):
+class BootControlPreUpdateFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREUPDATE_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control pre_update process failed"
     )
 
 
-class BootControlPostUpdateFailed(OTAErrorUnRecoverable):
+class BootControlPostUpdateFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTUPDATE_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control post_update process failed"
     )
 
 
-class BootControlPreRollbackFailed(OTAErrorUnRecoverable):
+class BootControlPreRollbackFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_PREROLLBACK_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control pre_rollback process failed"
     )
 
 
-class BootControlPostRollbackFailed(OTAErrorUnRecoverable):
+class BootControlPostRollbackFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTROLLBACK_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control post_rollback process failed"
     )
 
 
-class StandbySlotInsufficientSpace(OTAErrorUnRecoverable):
+class StandbySlotInsufficientSpace(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_STANDBY_SLOT_INSUFFICIENT_SPACE
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: insufficient space at standby slot"
     )
 
 
-class InvalidUpdateRequest(OTAErrorUnRecoverable):
+class InvalidUpdateRequest(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_INVALID_OTAUPDATE_REQUEST
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: incoming OTA update request is invalid"
     )
 
 
-class MetadataJWTInvalid(OTAErrorUnRecoverable):
+class MetadataJWTInvalid(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_INVALID
     failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: verfication for metadata.jwt is OK but metadata.jwt's content is invalid"
 
 
-class MetadataJWTVerficationFailed(OTAErrorUnRecoverable):
+class MetadataJWTVerficationFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_CERT_VERIFICATION_FAILED
     failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: certificate verification failed for OTA metadata.jwt"
 
 
-class OTAProxyFailedToStart(OTAErrorUnRecoverable):
+class OTAProxyFailedToStart(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTAPROXY_FAILED_TO_START
     failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: otaproxy is required for multiple ECU update but otaproxy failed to start"
 
 
-class UpdateDeltaGenerationFailed(OTAErrorUnRecoverable):
+class UpdateDeltaGenerationFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATEDELTA_GENERATION_FAILED
     failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to calculate and/or prepare update delta"
 
 
-class ApplyOTAUpdateFailed(OTAErrorUnRecoverable):
+class ApplyOTAUpdateFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_APPLY_OTAUPDATE_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to apply OTA update to standby slot"
     )
 
 
-class OTAClientStartupFailed(OTAErrorUnRecoverable):
+class OTAClientStartupFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTACLIENT_STARTUP_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to start otaclient instance"
