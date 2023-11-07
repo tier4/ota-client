@@ -21,7 +21,7 @@ from subprocess import CalledProcessError
 from typing import Generator, Optional
 
 
-from .. import log_setting
+from .. import log_setting, errors as ota_errors
 from ..common import (
     copytree_identical,
     read_str_from_file,
@@ -30,17 +30,8 @@ from ..common import (
     write_str_to_file_sync,
 )
 
-from ..errors import (
-    BootControlInitError,
-    BootControlPlatformUnsupported,
-    BootControlPostRollbackFailed,
-    BootControlPostUpdateFailed,
-    BootControlPreRollbackFailed,
-    BootControlPreUpdateFailed,
-)
 from ..proto import wrapper
 
-from . import _errors
 from ._common import (
     OTAStatusMixin,
     PrepareMountMixin,
@@ -58,7 +49,7 @@ logger = log_setting.get_logger(
 )
 
 
-class NvbootctrlError(_errors.BootControlError):
+class NvbootctrlError(Exception):
     """Specific internal errors related to nvbootctrl cmd."""
 
 
@@ -167,26 +158,21 @@ class Nvbootctrl:
 
 class _CBootControl:
     def __init__(self):
-        try:
-            # NOTE: only support rqx-580, rqx-58g platform right now!
-            # detect the chip id
-            self.chip_id = read_str_from_file(cfg.TEGRA_CHIP_ID_PATH)
-            if not self.chip_id or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
-                raise NotImplementedError(
-                    f"unsupported platform found (chip_id: {self.chip_id}), abort"
-                )
+        # NOTE: only support rqx-580, rqx-58g platform right now!
+        # detect the chip id
+        self.chip_id = read_str_from_file(cfg.TEGRA_CHIP_ID_PATH)
+        if not self.chip_id or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
+            raise NotImplementedError(
+                f"unsupported platform found (chip_id: {self.chip_id}), abort"
+            )
 
-            self.chip_id = int(self.chip_id)
-            self.model = cfg.CHIP_ID_MODEL_MAP[self.chip_id]
-            logger.info(f"{self.model=}, (chip_id={hex(self.chip_id)})")
+        self.chip_id = int(self.chip_id)
+        self.model = cfg.CHIP_ID_MODEL_MAP[self.chip_id]
+        logger.info(f"{self.model=}, (chip_id={hex(self.chip_id)})")
 
-            # initializing dev info
-            self._init_dev_info()
-            logger.info(f"finished cboot control init: {Nvbootctrl.dump_slots_info()=}")
-        except NotImplementedError as e:
-            raise BootControlPlatformUnsupported from e
-        except Exception as e:
-            raise BootControlInitError from e
+        # initializing dev info
+        self._init_dev_info()
+        logger.info(f"finished cboot control init: {Nvbootctrl.dump_slots_info()=}")
 
     def _init_dev_info(self):
         self.current_slot: str = Nvbootctrl.get_current_slot()
@@ -221,12 +207,12 @@ class _CBootControl:
         # ensure rootfs is as expected
         if not Nvbootctrl.check_rootdev(self.current_rootfs_dev):
             msg = f"rootfs mismatch, expect {self.current_rootfs_dev} as rootfs"
-            raise ValueError(msg)
+            raise NvbootctrlError(msg)
         elif Nvbootctrl.check_rootdev(self.standby_rootfs_dev):
             msg = (
                 f"rootfs mismatch, expect {self.standby_rootfs_dev} as standby slot dev"
             )
-            raise ValueError(msg)
+            raise NvbootctrlError(msg)
 
         logger.info("dev info initializing completed")
         logger.info(
@@ -311,38 +297,45 @@ class CBootController(
     BootControllerProtocol,
 ):
     def __init__(self) -> None:
-        self._cboot_control: _CBootControl = _CBootControl()
+        try:
+            self._cboot_control: _CBootControl = _CBootControl()
 
-        # load paths
-        ## first try to unmount standby dev if possible
-        self.standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()
-        CMDHelperFuncs.umount(self.standby_slot_dev)
+            # load paths
+            ## first try to unmount standby dev if possible
+            self.standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()
+            CMDHelperFuncs.umount(self.standby_slot_dev)
 
-        self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
-        self.standby_slot_mount_point.mkdir(exist_ok=True)
+            self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
+            self.standby_slot_mount_point.mkdir(exist_ok=True)
 
-        ## refroot mount point
-        _refroot_mount_point = cfg.ACTIVE_ROOT_MOUNT_POINT
-        # first try to umount refroot mount point
-        CMDHelperFuncs.umount(_refroot_mount_point)
-        if not os.path.isdir(_refroot_mount_point):
-            os.mkdir(_refroot_mount_point)
-        self.ref_slot_mount_point = Path(_refroot_mount_point)
+            ## refroot mount point
+            _refroot_mount_point = cfg.ACTIVE_ROOT_MOUNT_POINT
+            # first try to umount refroot mount point
+            CMDHelperFuncs.umount(_refroot_mount_point)
+            if not os.path.isdir(_refroot_mount_point):
+                os.mkdir(_refroot_mount_point)
+            self.ref_slot_mount_point = Path(_refroot_mount_point)
 
-        ## ota-status dir
-        ### current slot
-        self.current_ota_status_dir = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
-            cfg.OTA_STATUS_DIR
-        ).relative_to("/")
-        self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
-        ### standby slot
-        # NOTE: might not yet be populated before OTA update applied!
-        self.standby_ota_status_dir = self.standby_slot_mount_point / Path(
-            cfg.OTA_STATUS_DIR
-        ).relative_to("/")
+            ## ota-status dir
+            ### current slot
+            self.current_ota_status_dir = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
+                cfg.OTA_STATUS_DIR
+            ).relative_to("/")
+            self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
+            ### standby slot
+            # NOTE: might not yet be populated before OTA update applied!
+            self.standby_ota_status_dir = self.standby_slot_mount_point / Path(
+                cfg.OTA_STATUS_DIR
+            ).relative_to("/")
 
-        # init ota-status
-        self._init_boot_control()
+            # init ota-status
+            self._init_boot_control()
+        except NotImplementedError as e:
+            raise ota_errors.BootControlPlatformUnsupported(module=__name__) from e
+        except Exception as e:
+            raise ota_errors.BootControlStartupFailed(
+                f"unspecific boot controller startup failure: {e!r}", module=__name__
+            ) from e
 
     ###### private methods ######
 
@@ -433,10 +426,10 @@ class CBootController(
                 self._cboot_control.get_standby_boot_dev(),
                 _boot_dir_mount_point,
             )
-        except _errors.MountError as e:
+        except Exception as e:
             _msg = f"failed to mount standby boot dev: {e!r}"
             logger.error(_msg)
-            raise _errors.BootControlError(_msg) from e
+            raise NvbootctrlError(_msg) from e
 
         try:
             dst = _boot_dir_mount_point / "boot"
@@ -448,14 +441,14 @@ class CBootController(
         except Exception as e:
             _msg = f"failed to populate boot folder to separate bootdev: {e!r}"
             logger.error(_msg)
-            raise _errors.BootControlError(_msg) from e
+            raise NvbootctrlError(_msg) from e
         finally:
             # unmount standby emmc boot dev on finish/failure
             try:
                 CMDHelperFuncs.umount(_boot_dir_mount_point)
-            except _errors.MountError as e:
+            except Exception as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
-                logger.error(_failure_msg)
+                logger.warning(_failure_msg)
                 # no need to raise to the caller
 
     ###### public methods ######
@@ -511,8 +504,11 @@ class CBootController(
 
             logger.info("pre-update setting finished")
         except Exception as e:
-            logger.exception(f"failed on pre_update: {e!r}")
-            raise BootControlPreUpdateFailed from e
+            _err_msg = f"failed on pre_update: {e!r}"
+            logger.exception(_err_msg)
+            raise ota_errors.BootControlPreUpdateFailed(
+                f"{e!r}", module=__name__
+            ) from e
 
     def post_update(self) -> Generator[None, None, None]:
         try:
@@ -550,8 +546,11 @@ class CBootController(
             yield  # hand over control back to otaclient
             CMDHelperFuncs.reboot()
         except Exception as e:
-            logger.exception(f"failed on post_update: {e!r}")
-            raise BootControlPostUpdateFailed from e
+            _err_msg = f"failed on post_update: {e!r}"
+            logger.exception(_err_msg)
+            raise ota_errors.BootControlPostUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def pre_rollback(self):
         try:
@@ -563,13 +562,19 @@ class CBootController(
             # store ROLLBACKING status to standby
             self._store_standby_ota_status(wrapper.StatusOta.ROLLBACKING)
         except Exception as e:
-            logger.exception(f"failed on pre_rollback: {e!r}")
-            raise BootControlPreRollbackFailed from e
+            _err_msg = f"failed on pre_rollback: {e!r}"
+            logger.exception(_err_msg)
+            raise ota_errors.BootControlPreRollbackFailed(
+                _err_msg, module=__name__
+            ) from e
 
     def post_rollback(self):
         try:
             self._cboot_control.switch_boot()
             CMDHelperFuncs.reboot()
         except Exception as e:
-            logger.exception(f"failed on post_rollback: {e!r}")
-            raise BootControlPostRollbackFailed from e
+            _err_msg = f"failed on post_rollback: {e!r}"
+            logger.exception(_err_msg)
+            raise ota_errors.BootControlPostRollbackFailed(
+                _err_msg, module=__name__
+            ) from e

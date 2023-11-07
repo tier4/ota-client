@@ -30,7 +30,7 @@ from .configs import config as cfg, server_cfg
 from .common import ensure_otaproxy_start
 from .boot_control._common import CMDHelperFuncs
 from .ecu_info import ECUContact, ECUInfo
-from .ota_client import OTAClientBusy, OTAClientControlFlags, OTAClientWrapper
+from .ota_client import OTAClientControlFlags, OTAServicer
 from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
 from .proxy_info import proxy_cfg
@@ -675,7 +675,7 @@ class _ECUTracker:
         ecu_status_storage: ECUStatusStorage,
         *,
         ecu_info: ECUInfo,
-        otaclient_wrapper: OTAClientWrapper,
+        otaclient_wrapper: OTAServicer,
     ) -> None:
         self._otaclient_wrapper = otaclient_wrapper  # for local ECU status polling
         self._ecu_status_storage = ecu_status_storage
@@ -736,7 +736,7 @@ class OTAClientServiceStub:
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
-        self._otaclient_wrapper = OTAClientWrapper(
+        self._otaclient_wrapper = OTAServicer(
             ecu_info=ecu_info,
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
@@ -878,13 +878,10 @@ class OTAClientServiceStub:
 
         # second: dispatch update request to local if required by incoming request
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
-            _resp_ecu = wrapper.UpdateResponseEcu(ecu_id=self.my_ecu_id)
-            try:
-                await self._otaclient_wrapper.dispatch_update(update_req_ecu)
+            _resp_ecu = await self._otaclient_wrapper.dispatch_update(update_req_ecu)
+            # local otaclient accepts the update request
+            if _resp_ecu.result == wrapper.FailureType.NO_FAILURE:
                 update_acked_ecus.add(self.my_ecu_id)
-            except OTAClientBusy as e:
-                logger.warning(f"self ECU is busy, ignore local update request: {e!r}")
-                _resp_ecu.result = wrapper.FailureType.RECOVERABLE
             response.add_ecu(_resp_ecu)
 
         # finally, trigger ecu_status_storage entering active mode if needed
@@ -895,6 +892,7 @@ class OTAClientServiceStub:
                     update_acked_ecus
                 )
             )
+
         return response
 
     async def rollback(
@@ -943,13 +941,10 @@ class OTAClientServiceStub:
 
         # second: dispatch rollback request to local if required
         if rollback_req := request.find_ecu(self.my_ecu_id):
-            _resp_ecu = wrapper.RollbackResponseEcu(ecu_id=self.my_ecu_id)
-            try:
+            response.add_ecu(
                 await self._otaclient_wrapper.dispatch_rollback(rollback_req)
-            except OTAClientBusy as e:
-                logger.warning(f"self ECU is busy, ignore local rollback: {e!r}")
-                _resp_ecu.result = wrapper.FailureType.RECOVERABLE
-            response.add_ecu(_resp_ecu)
+            )
+
         return response
 
     async def status(self, _=None) -> wrapper.StatusResponse:

@@ -184,6 +184,8 @@ class BaseConfig(_InternalSettings):
     # default version string to be reported in status API response
     DEFAULT_VERSION_STR = ""
 
+    DEBUG_MODE = False
+
 
 # init cfgs
 server_cfg = OtaClientServerConfig()
