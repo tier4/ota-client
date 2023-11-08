@@ -209,10 +209,14 @@ class _NormalConfigs(BaseModel):
     """User configurable otaclient settings.
 
     These settings can tune the runtime performance and behavior of otaclient,
-        configurable via environment variables.
-
+        configurable via environment variables, with prefix OTA.
     For example, to set SERVER_ADDRESS, set env OTA_SERVER_ADDRESS=10.0.1.1 .
     """
+
+    # enable internal debug feature
+    # currently available feature:
+    #   1. enable failure_traceback in status API response
+    DEBUG_MODE: bool = False
 
     # OTA used tmp folder on standby slot
     OTA_TMP_DPATH: str = "/ota-tmp"
