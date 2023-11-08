@@ -61,3 +61,9 @@ class BurstSuppressFilter(logging.Filter):
             )
             self._round_warned = True
         return False
+
+
+def check_loglevel(_in: int) -> int:
+    """Pydantic validator for logging level number."""
+    assert _in in logging._levelToName
+    return _in
