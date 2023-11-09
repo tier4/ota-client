@@ -18,11 +18,11 @@ import threading
 import pytest
 from functools import partial
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
+from otaclient.app.configs import config as cfg
 from otaclient.app.common import read_str_from_file, write_str_to_file
 from otaclient.app.proto import wrapper
-from otaclient.app.boot_control.configs import BaseConfig as cfg
 from otaclient.app.boot_control._common import OTAStatusFilesControl
 
 logger = logging.getLogger(__name__)
