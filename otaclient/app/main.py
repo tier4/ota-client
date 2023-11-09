@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from otaclient import __version__  # type: ignore
+from otaclient._utils import if_run_as_container
 from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg, EXTRA_VERSION_FILE
@@ -27,27 +28,27 @@ from .log_setting import configure_logging, get_ecu_id
 from .ota_client_service import launch_otaclient_grpc_server
 
 # configure logging before any code being executed
-configure_logging(loglevel=cfg.DEFAULT_LOG_LEVEL, http_logging_url=get_ecu_id())
+configure_logging(loglevel=cfg.LOGGING_LEVEL, http_logging_url=get_ecu_id())
 logger = logging.getLogger(__name__)
 
 
 def _check_other_otaclient():
     """Check if there is another otaclient instance running."""
     # create a lock file to prevent multiple ota-client instances start
-    if pid := read_str_from_file(cfg.OTACLIENT_PID_FILE):
+    if pid := read_str_from_file(cfg.OTACLIENT_PID_FPATH):
         # running process will have a folder under /proc
         if Path(f"/proc/{pid}").is_dir():
             logger.error(f"another instance of ota-client({pid=}) is running, abort")
             sys.exit()
         else:
             logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
-            Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
+            Path(cfg.OTACLIENT_PID_FPATH).unlink(missing_ok=True)
     # create run dir
-    _run_dir = Path(cfg.RUN_DIR)
+    _run_dir = Path(cfg.RUN_DPATH)
     _run_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(_run_dir, 0o550)
     # write our pid to the lock file
-    write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
+    write_str_to_file_sync(cfg.OTACLIENT_PID_FPATH, f"{os.getpid()}")
 
 
 def main():
@@ -55,6 +56,15 @@ def main():
     if Path(EXTRA_VERSION_FILE).is_file():
         logger.info(read_str_from_file(EXTRA_VERSION_FILE))
     logger.info(f"otaclient version: {__version__}")
+
+    # issue a warning if otaclient detects itself is running as container,
+    # but config.IS_CONTAINER is not True(ACTIVE_ROOTFS is not configured).
+    # TODO: do more things over this unexpected condition?
+    if if_run_as_container() and not cfg.IS_CONTAINER:
+        logger.warning(
+            "otaclient seems to run as container, but host rootfs is not mounted into the container "
+            "and/or ACTIVE_ROOTFS not specified"
+        )
 
     # start the otaclient grpc server
     _check_other_otaclient()
