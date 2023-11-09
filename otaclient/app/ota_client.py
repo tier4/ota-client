@@ -51,9 +51,7 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 class OTAClientControlFlags:
@@ -119,12 +117,8 @@ class _OTAUpdater:
         self._update_stats_collector = OTAUpdateStatsCollector()
 
         # paths
-        self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_STORE
-        ).relative_to("/")
-        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_META_STORE
-        ).relative_to("/")
+        self._ota_tmp_on_standby = Path(cfg.STANDBY_OTA_TMP_DPATH)
+        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.STANDBY_IMAGE_META_DPATH)
 
     # helper methods
 
@@ -228,8 +222,8 @@ class _OTAUpdater:
         self._standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
-            standby_slot_mount_point=cfg.MOUNT_POINT,
-            active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+            standby_slot_mount_point=cfg.STANDBY_SLOT_MP,
+            active_slot_mount_point=cfg.ACTIVE_SLOT_MP,
             stats_collector=self._update_stats_collector,
         )
         try:
