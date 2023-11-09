@@ -16,12 +16,10 @@
 from typing import Type
 
 from .interface import StandbySlotCreatorProtocol
-from ..configs import CreateStandbyMechanism, config as cfg
+from ..configs import CreateStandbyMechanism
 from .. import log_setting
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 def get_standby_slot_creator(

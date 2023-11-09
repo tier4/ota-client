@@ -20,6 +20,7 @@ from functools import partial
 from pathlib import Path
 from typing import List, Set, Tuple
 
+from otaclient._utils.path import replace_root
 from ..common import RetryTaskMap, get_backoff
 from ..configs import config as cfg
 from ..ota_metadata import MetafilesV1, OTAMetadata
@@ -34,9 +35,7 @@ from .. import log_setting
 from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
 from .interface import StandbySlotCreatorProtocol
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 class RebuildMode(StandbySlotCreatorProtocol):
@@ -59,7 +58,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
-        self._ota_tmp = self.standby_slot_mp / Path(cfg.OTA_TMP_STORE).relative_to("/")
+        self._ota_tmp = Path(cfg.STANDBY_OTA_TMP_DPATH)
         self._ota_tmp.mkdir(exist_ok=True)
 
     def _cal_and_prepare_delta(self):
@@ -82,13 +81,15 @@ class RebuildMode(StandbySlotCreatorProtocol):
         """NOTE: just copy from legacy mode"""
         from ..copy_tree import CopyTree
 
-        _passwd_file = Path(cfg.PASSWD_FILE)
-        _group_file = Path(cfg.GROUP_FILE)
         _copy_tree = CopyTree(
-            src_passwd_file=_passwd_file,
-            src_group_file=_group_file,
-            dst_passwd_file=self.standby_slot_mp / _passwd_file.relative_to("/"),
-            dst_group_file=self.standby_slot_mp / _group_file.relative_to("/"),
+            src_passwd_file=Path(cfg.PASSWD_FPATH),
+            src_group_file=Path(cfg.GROUP_FPATH),
+            dst_passwd_file=Path(
+                replace_root(cfg.PASSWD_FPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP)
+            ),
+            dst_group_file=Path(
+                replace_root(cfg.GROUP_FPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP)
+            ),
         )
 
         for _perinf in self._ota_metadata.iter_metafile(MetafilesV1.PERSISTENT_FNAME):
@@ -187,7 +188,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
-        _dst = self.standby_slot_mp / Path(cfg.META_FOLDER).relative_to("/")
+        _dst = Path(cfg.STANDBY_IMAGE_META_DPATH)
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")
