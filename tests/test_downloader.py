@@ -41,8 +41,13 @@ from tests.utils import zstd_compress_file
 
 logger = logging.getLogger(__name__)
 
+HTTP_ERROR_ECHO_SERVER_PORT = 9990
+HTTP_ERROR_ECHO_SERVER_ADDR = "127.0.0.1"
 
-class _SimpleDummyApp:
+
+class _HTTPErrorCodeEchoApp:
+    """A simple server that responses with HTTP error code specified via URL."""
+
     async def __call__(self, scope: dict[str, str], receive, send) -> None:
         if scope["type"] != "http" or scope["method"] != "GET":
             return
@@ -63,24 +68,29 @@ class _SimpleDummyApp:
 
 
 @pytest.fixture(scope="module")
-def launch_dummy_server(host: str = "127.0.0.1", port: int = 9999):
+def launch_dummy_server(
+    host: str = HTTP_ERROR_ECHO_SERVER_ADDR, port: int = HTTP_ERROR_ECHO_SERVER_PORT
+):
     _should_exit = threading.Event()
 
     async def _launcher():
         import uvicorn
 
         _config = uvicorn.Config(
-            _SimpleDummyApp(),
+            _HTTPErrorCodeEchoApp(),
             host=host,
             port=port,
         )
         server = uvicorn.Server(_config)
+
         config = server.config
         if not config.loaded:
             config.load()
+
         server.lifespan = config.lifespan_class(config)
         await server.startup()
         logger.info("dummy server started")
+
         while True:
             if _should_exit.is_set():
                 await server.shutdown()
@@ -98,12 +108,13 @@ def launch_dummy_server(host: str = "127.0.0.1", port: int = 9999):
 
 
 class TestDownloader:
+    # NOTE: here we download the metadata.jwt file to test the downloader.
     # NOTE: full URL is http://<ota_image_url>/metadata.jwt
     #       full path is <ota_image_dir>/metadata.jwt
-    TEST_FILE = "metadata.jwt"
-    TEST_FILE_PATH = Path(test_cfg.OTA_IMAGE_DIR) / TEST_FILE
-    TEST_FILE_SHA256 = file_sha256(TEST_FILE_PATH)
-    TEST_FILE_SIZE = len(TEST_FILE_PATH.read_bytes())
+    TEST_FILE_FNAME = test_cfg.METADATA_JWT_FNAME
+    TEST_FILE_FPATH = Path(test_cfg.OTA_IMAGE_DIR) / test_cfg.METADATA_JWT_FNAME
+    TEST_FILE_SHA256 = file_sha256(TEST_FILE_FPATH)
+    TEST_FILE_SIZE = len(TEST_FILE_FPATH.read_bytes())
 
     @pytest.fixture
     def prepare_zstd_compressed_files(self):
@@ -111,9 +122,10 @@ class TestDownloader:
         # and then remove it after test finished
         try:
             self.zstd_compressed = (
-                Path(test_cfg.OTA_IMAGE_DIR) / f"{self.TEST_FILE}.zst"
+                Path(test_cfg.OTA_IMAGE_DIR) / f"{self.TEST_FILE_FNAME}.zst"
             )
-            zstd_compress_file(self.TEST_FILE_PATH, self.zstd_compressed)
+            zstd_compress_file(self.TEST_FILE_FPATH, self.zstd_compressed)
+
             yield
         finally:
             self.zstd_compressed.unlink(missing_ok=True)
@@ -131,9 +143,10 @@ class TestDownloader:
             self.downloader.shutdown()
 
     def test_normal_download(self, tmp_path: Path):
-        _target_path = tmp_path / self.TEST_FILE
+        """Download the test file using downloader."""
+        _target_path = tmp_path / self.TEST_FILE_FNAME
 
-        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE)
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE_FNAME)
         _error, _read_download_size, _ = self.downloader.download(
             url,
             _target_path,
@@ -142,15 +155,15 @@ class TestDownloader:
         )
 
         assert _error == 0
-        assert _read_download_size == self.TEST_FILE_PATH.stat().st_size
+        assert _read_download_size == self.TEST_FILE_FPATH.stat().st_size
         assert file_sha256(_target_path) == self.TEST_FILE_SHA256
 
     def test_download_zstd_compressed_file(
         self, tmp_path: Path, prepare_zstd_compressed_files
     ):
-        _target_path = tmp_path / self.TEST_FILE
+        _target_path = tmp_path / self.TEST_FILE_FNAME
 
-        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, f"{self.TEST_FILE}.zst")
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, f"{self.TEST_FILE_FNAME}.zst")
         # first test directly download without decompression
         _error, _read_download_bytes_a, _ = self.downloader.download(url, _target_path)
         assert _error == 0
@@ -174,9 +187,9 @@ class TestDownloader:
         assert file_sha256(_target_path) == self.TEST_FILE_SHA256
 
     def test_download_mismatch_sha256(self, tmp_path: Path):
-        _target_path = tmp_path / self.TEST_FILE
+        _target_path = tmp_path / self.TEST_FILE_FNAME
 
-        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE)
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE_FNAME)
         with pytest.raises(HashVerificaitonError):
             self.downloader.download(
                 url,
@@ -212,8 +225,8 @@ class TestDownloader:
         # load the mocker adapter to the Downloader session
         self.session.mount(test_cfg.OTA_IMAGE_URL, _mock_adapter)
 
-        _target_path = tmp_path / self.TEST_FILE
-        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE)
+        _target_path = tmp_path / self.TEST_FILE_FNAME
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE_FNAME)
         with pytest.raises(expected_ota_download_err):
             self.downloader.download(
                 url,
@@ -245,7 +258,7 @@ class TestDownloader:
         launch_dummy_server,
     ):
         url = urljoin("http://127.0.0.1:9999/", str(status_code))
-        _target_path = tmp_path / self.TEST_FILE
+        _target_path = tmp_path / self.TEST_FILE_FNAME
         with pytest.raises(expected_ota_download_err):
             self.downloader.download(
                 url,
@@ -260,8 +273,8 @@ class TestDownloader:
         _mock_get = mocker.MagicMock(wraps=self.session.get)
         self.session.get = _mock_get
 
-        _target_path = tmp_path / self.TEST_FILE
-        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE)
+        _target_path = tmp_path / self.TEST_FILE_FNAME
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE_FNAME)
         with pytest.raises(HashVerificaitonError):
             self.downloader.download(url, _target_path, digest="wrong_digest")
 

@@ -47,6 +47,8 @@ class TestConfiguration:
 
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
+    OTA_IMAGE_DATA_DIR = "/ota-image/data"
+    METADATA_JWT_FNAME = "metadata.jwt"
     OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
     OTA_IMAGE_SERVER_PORT = 8080
     OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
