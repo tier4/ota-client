@@ -63,9 +63,6 @@ class Test_OTAUpdater:
         self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
         self.ota_image_dir = Path(test_cfg.OTA_IMAGE_DIR)
 
-        self.otaclient_run_dir = tmp_path / "otaclient_run_dir"
-        self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
-
         # ------ cleanup and prepare slot_b ------ #
         shutil.rmtree(self.slot_b, ignore_errors=True)
         self.slot_b.mkdir(exist_ok=True)
@@ -78,12 +75,18 @@ class Test_OTAUpdater:
         )
 
         # prepare dummy ab slots mount points
+        Path(_otaclient_cfg.OTACLIENT_MOUNT_SPACE_DPATH).mkdir(
+            parents=True, exist_ok=True
+        )
         Path(_otaclient_cfg.ACTIVE_SLOT_MP).symlink_to(self.slot_a)
         Path(_otaclient_cfg.STANDBY_SLOT_MP).symlink_to(self.slot_b)
 
         # some important paths
         self.ota_metafiles_tmp_dir = Path(self.otaclient_cfg.STANDBY_IMAGE_META_DPATH)
         self.ota_tmp_dir = Path(self.otaclient_cfg.STANDBY_OTA_TMP_DPATH)
+
+        self.otaclient_run_dir = Path(_otaclient_cfg.RUN_DPATH)
+        self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
 
         yield
         # cleanup slot_b after test
