@@ -205,6 +205,7 @@ class _OTAUpdater:
         """Apply OTA update to standby slot."""
         # ------ pre_update ------ #
         # --- prepare standby slot --- #
+
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
         logger.debug("boot controller prepares standby slot...")
         self._boot_controller.pre_update(
@@ -212,9 +213,10 @@ class _OTAUpdater:
             standby_as_ref=False,  # NOTE: this option is deprecated and not used by bootcontroller
             erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
+
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
-        self._ota_tmp_on_standby.mkdir(exist_ok=True)
-        self._ota_tmp_image_meta_dir_on_standby.mkdir(exist_ok=True)
+        self._ota_tmp_on_standby.mkdir(parents=True, exist_ok=True)
+        self._ota_tmp_image_meta_dir_on_standby.mkdir(parents=True, exist_ok=True)
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
