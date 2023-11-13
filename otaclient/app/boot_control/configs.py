@@ -159,12 +159,22 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
 
 class RPIBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
     BBOOTLOADER: ClassVar[BootloaderType] = BootloaderType.RPI_BOOT
+
     DEFAULT_RPI_MODEL_FPATH: ClassVar[str] = "/proc/device-tree/model"
     RPI_MODEL_HINT: ClassVar[str] = "Raspberry Pi 4 Model B"
+
     SLOT_A_FSLABEL: ClassVar[str] = "slot_a"
     SLOT_B_FSLABEL: ClassVar[str] = "slot_b"
+
     SYSTEM_BOOT_FSLABEL: ClassVar[str] = "system-boot"
     SWITCH_BOOT_FLAG_FNAME: ClassVar[str] = "._ota_switch_boot_finalized"
+
+    # boot files fname
+    CONFIG_TXT_FNAME: ClassVar[str] = "config.txt"  # primary boot cfg
+    TRYBOOT_TXT_FNAME: ClassVar[str] = "tryboot.txt"  # tryboot boot cfg
+    VMLINUZ_FNAME: ClassVar[str] = "vmlinuz"
+    INITRD_IMG_FNAME: ClassVar[str] = "initrd.img"
+    CMDLINE_TXT_FNAME: ClassVar[str] = "cmdline.txt"
 
     @cached_computed_field
     def RPI_MODEL_FPATH(self) -> str:

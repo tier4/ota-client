@@ -75,12 +75,6 @@ class _RPIBootControl:
     }
     SEP_CHAR = "_"
 
-    CONFIG_TXT_FNAME = "config.txt"  # primary boot cfg
-    TRYBOOT_TXT_FNAME = "tryboot.txt"  # tryboot boot cfg
-    VMLINUZ_FNAME = "vmlinuz"
-    INITRD_IMG_FNAME = "initrd.img"
-    CMDLINE_TXT_FNAME = "cmdline.txt"
-
     def __init__(self) -> None:
         self.system_boot_path = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
         if not (
@@ -166,13 +160,13 @@ class _RPIBootControl:
         """
         logger.debug("checking boot files...")
         # boot file
-        self.config_txt = self.system_boot_path / self.CONFIG_TXT_FNAME
-        self.tryboot_txt = self.system_boot_path / self.TRYBOOT_TXT_FNAME
+        self.config_txt = self.system_boot_path / boot_cfg.CONFIG_TXT_FNAME
+        self.tryboot_txt = self.system_boot_path / boot_cfg.TRYBOOT_TXT_FNAME
 
         # active slot
         self.config_txt_active_slot = (
             self.system_boot_path
-            / f"{self.CONFIG_TXT_FNAME}{self.SEP_CHAR}{self.active_slot}"
+            / f"{boot_cfg.CONFIG_TXT_FNAME}{self.SEP_CHAR}{self.active_slot}"
         )
         if not self.config_txt_active_slot.is_file():
             _err_msg = f"missing {self.config_txt_active_slot=}"
@@ -180,7 +174,7 @@ class _RPIBootControl:
             raise _RPIBootControllerError(_err_msg)
         self.cmdline_txt_active_slot = (
             self.system_boot_path
-            / f"{self.CMDLINE_TXT_FNAME}{self.SEP_CHAR}{self.active_slot}"
+            / f"{boot_cfg.CMDLINE_TXT_FNAME}{self.SEP_CHAR}{self.active_slot}"
         )
         if not self.cmdline_txt_active_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_active_slot=}"
@@ -188,16 +182,16 @@ class _RPIBootControl:
             raise _RPIBootControllerError(_err_msg)
         self.vmlinuz_active_slot = (
             self.system_boot_path
-            / f"{self.VMLINUZ_FNAME}{self.SEP_CHAR}{self.active_slot}"
+            / f"{boot_cfg.VMLINUZ_FNAME}{self.SEP_CHAR}{self.active_slot}"
         )
         self.initrd_img_active_slot = (
             self.system_boot_path
-            / f"{self.INITRD_IMG_FNAME}{self.SEP_CHAR}{self.active_slot}"
+            / f"{boot_cfg.INITRD_IMG_FNAME}{self.SEP_CHAR}{self.active_slot}"
         )
         # standby slot
         self.config_txt_standby_slot = (
             self.system_boot_path
-            / f"{self.CONFIG_TXT_FNAME}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{boot_cfg.CONFIG_TXT_FNAME}{self.SEP_CHAR}{self.standby_slot}"
         )
         if not self.config_txt_standby_slot.is_file():
             _err_msg = f"missing {self.config_txt_standby_slot=}"
@@ -205,7 +199,7 @@ class _RPIBootControl:
             raise _RPIBootControllerError(_err_msg)
         self.cmdline_txt_standby_slot = (
             self.system_boot_path
-            / f"{self.CMDLINE_TXT_FNAME}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{boot_cfg.CMDLINE_TXT_FNAME}{self.SEP_CHAR}{self.standby_slot}"
         )
         if not self.cmdline_txt_standby_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_standby_slot=}"
@@ -213,11 +207,11 @@ class _RPIBootControl:
             raise _RPIBootControllerError(_err_msg)
         self.vmlinuz_standby_slot = (
             self.system_boot_path
-            / f"{self.VMLINUZ_FNAME}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{boot_cfg.VMLINUZ_FNAME}{self.SEP_CHAR}{self.standby_slot}"
         )
         self.initrd_img_standby_slot = (
             self.system_boot_path
-            / f"{self.INITRD_IMG_FNAME}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{boot_cfg.INITRD_IMG_FNAME}{self.SEP_CHAR}{self.standby_slot}"
         )
 
     def _update_firmware(self):
@@ -238,12 +232,13 @@ class _RPIBootControl:
             # if so, it means that flash-kernel works and copies the kernel, inird.img from /boot,
             # then we rename vmlinuz and initrd.img to vmlinuz_<current_slot> and initrd.img_<current_slot>
             if (
-                _vmlinuz := Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT) / self.VMLINUZ_FNAME
+                _vmlinuz := Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
+                / boot_cfg.VMLINUZ_FNAME
             ).is_file():
                 os.replace(_vmlinuz, self.vmlinuz_active_slot)
             if (
                 _initrd_img := Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
-                / self.INITRD_IMG_FNAME
+                / boot_cfg.INITRD_IMG_FNAME
             ).is_file():
                 os.replace(_initrd_img, self.initrd_img_active_slot)
             os.sync()
@@ -436,8 +431,8 @@ class RPIBootController(BootControllerProtocol):
         logger.debug(
             "prepare standby slot's kernel/initrd.img to system-boot partition..."
         )
-        vmlinuz_fname = self._rpiboot_control.VMLINUZ_FNAME
-        initrd_fname = self._rpiboot_control.INITRD_IMG_FNAME
+        vmlinuz_fname = boot_cfg.VMLINUZ_FNAME
+        initrd_fname = boot_cfg.INITRD_IMG_FNAME
 
         try:
             # search for kernel
