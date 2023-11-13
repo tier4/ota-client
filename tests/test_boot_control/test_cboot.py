@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
 r"""
 CBOOT switch boot mechanism follow(normal successful case):
 * Assume we are at slot-0, and apply an OTA update
@@ -42,6 +40,8 @@ condition after OTA update:
     current slot: 1, ota_status=SUCCESS, slot_in_use=1
     standby slot: 0
 """
+
+
 from functools import partial
 from pathlib import Path
 import typing
@@ -55,15 +55,15 @@ from otaclient.app.configs import Config as otaclient_Config
 from otaclient.app.proto import wrapper
 
 from tests.utils import SlotMeta, compare_dir
-from tests.conftest import TestConfiguration as cfg
+from tests.conftest import TestConfiguration as test_cfg
 
 logger = logging.getLogger(__name__)
 
 
 class CbootFSM:
     def __init__(self) -> None:
-        self.current_slot = cfg.SLOT_A_ID_CBOOT
-        self.standby_slot = cfg.SLOT_B_ID_CBOOT
+        self.current_slot = test_cfg.SLOT_A_ID_CBOOT
+        self.standby_slot = test_cfg.SLOT_B_ID_CBOOT
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
 
@@ -76,10 +76,10 @@ class CbootFSM:
         return self.standby_slot
 
     def get_standby_partuuid_str(self):
-        if self.standby_slot == cfg.SLOT_B_ID_CBOOT:
-            return f"PARTUUID={cfg.SLOT_B_PARTUUID}"
+        if self.standby_slot == test_cfg.SLOT_B_ID_CBOOT:
+            return f"PARTUUID={test_cfg.SLOT_B_PARTUUID}"
         else:
-            return f"PARTUUID={cfg.SLOT_A_PARTUUID}"
+            return f"PARTUUID={test_cfg.SLOT_A_PARTUUID}"
 
     def is_current_slot_bootable(self):
         return self.current_slot_bootable
@@ -123,14 +123,14 @@ class TestCBootControl:
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dev = Path(ab_slots.slot_a_boot_dev)
         self.slot_b_boot_dev = Path(ab_slots.slot_b_boot_dev)
-        self.slot_a_uuid = cfg.SLOT_A_PARTUUID
-        self.slot_b_uuid = cfg.SLOT_B_PARTUUID
+        self.slot_a_uuid = test_cfg.SLOT_A_PARTUUID
+        self.slot_b_uuid = test_cfg.SLOT_B_PARTUUID
 
         #
         # prepare ota_status dir for slot_a
         #
         self.slot_a_ota_status_dir = Path(
-            replace_root(cfg.OTA_STATUS_DIR, "/", str(self.slot_a))
+            replace_root(test_cfg.OTA_STATUS_DIR, "/", str(self.slot_a))
         )
         self.slot_a_ota_status_dir.mkdir(parents=True)
 
@@ -138,10 +138,10 @@ class TestCBootControl:
         slot_a_ota_status.write_text(wrapper.StatusOta.SUCCESS.name)
 
         slot_a_version = self.slot_a_ota_status_dir / "version"
-        slot_a_version.write_text(cfg.CURRENT_VERSION)
+        slot_a_version.write_text(test_cfg.CURRENT_VERSION)
 
         slot_a_slot_in_use = self.slot_a_ota_status_dir / "slot_in_use"
-        slot_a_slot_in_use.write_text(cfg.SLOT_A_ID_CBOOT)
+        slot_a_slot_in_use.write_text(test_cfg.SLOT_A_ID_CBOOT)
 
         #
         # symlink boot_dev/boot to slot_a/boot
@@ -164,7 +164,7 @@ class TestCBootControl:
         # ota_status dir for slot_b(separate boot dev)
         #
         self.slot_b_ota_status_dir = Path(
-            replace_root(cfg.OTA_STATUS_DIR, "/", str(self.slot_b))
+            replace_root(test_cfg.OTA_STATUS_DIR, "/", str(self.slot_b))
         )
 
     @pytest.fixture
@@ -180,9 +180,9 @@ class TestCBootControl:
         # config for slot_a as active rootfs
         self.mocked_cfg_slot_a = otaclient_Config(ACTIVE_ROOTFS=str(self.slot_a))
         mocker.patch(
-            f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_a
+            f"{test_cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_a
         )
-        mocker.patch(f"{cfg.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_a)
+        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_a)
 
         # config for slot_b as active rootfs
         self.mocked_cfg_slot_b = otaclient_Config(ACTIVE_ROOTFS=str(self.slot_b))
@@ -229,17 +229,19 @@ class TestCBootControl:
         # patch _CBootControl
 
         mocker.patch(
-            f"{cfg.CBOOT_MODULE_PATH}._CBootControl", return_value=__cbootcontrol_mock
+            f"{test_cfg.CBOOT_MODULE_PATH}._CBootControl",
+            return_value=__cbootcontrol_mock,
         )
 
         # patch CMDHelperFuncs
 
         # NOTE: also remember to patch CMDHelperFuncs in common
-        mocker.patch(f"{cfg.CBOOT_MODULE_PATH}.CMDHelperFuncs", _cmdhelper_mock)
+        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.CMDHelperFuncs", _cmdhelper_mock)
         mocker.patch(
-            f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs", _cmdhelper_mock
+            f"{test_cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs",
+            _cmdhelper_mock,
         )
-        mocker.patch(f"{cfg.CBOOT_MODULE_PATH}.Nvbootctrl")
+        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.Nvbootctrl")
 
         # patch CBootControl mounting
 
@@ -251,12 +253,12 @@ class TestCBootControl:
             Path(self.mocked_cfg_slot_a.ACTIVE_SLOT_MP).symlink_to(self.slot_a)
 
         mocker.patch(
-            f"{cfg.CBOOT_MODULE_PATH}.CBootController",
+            f"{test_cfg.CBOOT_MODULE_PATH}.CBootController",
             "_prepare_and_mount_standby",
             mocker.MagicMock(side_effect=_mount_standby_slot),
         )
         mocker.patch(
-            f"{cfg.CBOOT_MODULE_PATH}.CBootController",
+            f"{test_cfg.CBOOT_MODULE_PATH}.CBootController",
             "_mount_refroot",
             mocker.MagicMock(side_effect=_mount_active_slot),
         )
@@ -281,7 +283,7 @@ class TestCBootControl:
 
         # test cboot pre-update
         cboot_controller.pre_update(
-            version=cfg.UPDATE_VERSION,
+            version=test_cfg.UPDATE_VERSION,
             standby_as_ref=False,  # NOTE: not used
             erase_standby=False,  # NOTE: not used
         )
@@ -302,7 +304,7 @@ class TestCBootControl:
 
         assert (
             standby_ota_status_dpath / otaclient_Config.OTA_VERSION_FNAME
-        ).read_text() == cfg.UPDATE_VERSION
+        ).read_text() == test_cfg.UPDATE_VERSION
 
         assert (
             standby_ota_status_dpath / otaclient_Config.SLOT_IN_USE_FNAME
@@ -351,13 +353,13 @@ class TestCBootControl:
 
         # slot_b as active slot
         mocker.patch(
-            f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_b
+            f"{test_cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_b
         )
-        mocker.patch(f"{cfg.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_b)
+        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_b)
 
         # NOTE: old cboot_cfg's properties are cached, so create a new one
         _recreated_cboot_cfg = CBootControlConfig()
-        mocker.patch(f"{cfg.CBOOT_MODULE_PATH}.boot_cfg", _recreated_cboot_cfg)
+        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.boot_cfg", _recreated_cboot_cfg)
 
         # init cboot control again
         CBootController()
