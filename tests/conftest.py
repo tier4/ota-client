@@ -92,21 +92,21 @@ class TestConfiguration:
     OTA_PROXY_SERVER_PORT = 18080
 
 
-cfg = TestConfiguration()
+test_cfg = TestConfiguration()
 
 
 @pytest.fixture(autouse=True, scope="session")
 def run_http_server_subprocess():
     _server_p = Process(
         target=run_http_server,
-        args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
-        kwargs={"directory": cfg.OTA_IMAGE_DIR},
+        args=[test_cfg.OTA_IMAGE_SERVER_ADDR, test_cfg.OTA_IMAGE_SERVER_PORT],
+        kwargs={"directory": test_cfg.OTA_IMAGE_DIR},
     )
     try:
         _server_p.start()
         # NOTE: wait for 2 seconds for the server to fully start
         time.sleep(2)
-        logger.info(f"start background ota-image server on {cfg.OTA_IMAGE_URL}")
+        logger.info(f"start background ota-image server on {test_cfg.OTA_IMAGE_URL}")
         yield
     finally:
         logger.info("shutdown background ota-image server")
@@ -132,7 +132,7 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     # prepare slot_a
     slot_a = tmp_path_factory.mktemp("slot_a")
     shutil.copytree(
-        Path(cfg.OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
+        Path(test_cfg.OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
     )
     # simulate the diff between versions
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
@@ -157,7 +157,7 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     slot_a_boot_dir = slot_a_boot_dev / "boot"
     slot_a_boot_dir.mkdir()
     shutil.copytree(
-        Path(cfg.OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
+        Path(test_cfg.OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
     )
     slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
     slot_b_boot_dir = slot_b_boot_dev / "boot"

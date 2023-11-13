@@ -35,7 +35,7 @@ from otaclient.ota_proxy import OTAProxyContextProto
 from otaclient.ota_proxy.config import Config as otaproxyConfig
 
 from tests.utils import compare_message
-from tests.conftest import cfg
+from tests.conftest import test_cfg
 
 import logging
 
@@ -731,23 +731,23 @@ class TestOTAClientServiceStub:
 
         # --- patching and mocking --- #
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.ECUStatusStorage",
+            f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.ECUStatusStorage",
             mocker.MagicMock(return_value=self.ecu_storage),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAServicer",
+            f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.OTAServicer",
             mocker.MagicMock(return_value=self.otaclient_wrapper),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}._ECUTracker",
+            f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}._ECUTracker",
             mocker.MagicMock(return_value=self.ecu_status_tracker),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAProxyLauncher",
+            f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.OTAProxyLauncher",
             mocker.MagicMock(return_value=self.otaproxy_launcher),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OtaClientCall", self.otaclient_call
+            f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.OtaClientCall", self.otaclient_call
         )
 
         # --- start the OTAClientServiceStub --- #

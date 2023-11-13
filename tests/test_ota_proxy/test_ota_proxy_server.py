@@ -29,7 +29,7 @@ from typing import List
 from otaclient.app.proto.wrapper import RegularInf
 from otaclient.app.ota_metadata import parse_regulars_from_txt
 from otaclient.ota_proxy.utils import url_based_hash
-from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
+from tests.conftest import ThreadpoolExecutorFixtureMixin, test_cfg
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 SPECIAL_FILE_NAME = r"path;adf.ae?qu.er\y=str#fragファイルement"
 SPECIAL_FILE_CONTENT = SPECIAL_FILE_NAME
 SPECIAL_FILE_PATH = f"/data/{SPECIAL_FILE_NAME}"
-SPECIAL_FILE_URL = f"{cfg.OTA_IMAGE_URL}{quote(SPECIAL_FILE_PATH)}"
-SPECIAL_FILE_FPATH = f"{cfg.OTA_IMAGE_DIR}/data/{SPECIAL_FILE_NAME}"
+SPECIAL_FILE_URL = f"{test_cfg.OTA_IMAGE_URL}{quote(SPECIAL_FILE_PATH)}"
+SPECIAL_FILE_FPATH = f"{test_cfg.OTA_IMAGE_DIR}/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_SHA256HASH = sha256(SPECIAL_FILE_CONTENT.encode()).hexdigest()
 
 
@@ -54,10 +54,14 @@ async def _start_uvicorn_server(server: uvicorn.Server):
 
 
 class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
-    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTAPROXY_MODULE_PATH}.otacache"
-    OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
-    OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
-    REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{test_cfg.OTAPROXY_MODULE_PATH}.otacache"
+    OTA_IMAGE_URL = (
+        f"http://{test_cfg.OTA_IMAGE_SERVER_ADDR}:{test_cfg.OTA_IMAGE_SERVER_PORT}"
+    )
+    OTA_PROXY_URL = (
+        f"http://{test_cfg.OTA_PROXY_SERVER_ADDR}:{test_cfg.OTA_PROXY_SERVER_PORT}"
+    )
+    REGULARS_TXT_PATH = f"{test_cfg.OTA_IMAGE_DIR}/regulars.txt"
     CLIENTS_NUM = 6
 
     @pytest.fixture(
@@ -128,8 +132,8 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         )
         _config = uvicorn.Config(
             App(_ota_cache),
-            host=cfg.OTA_PROXY_SERVER_ADDR,
-            port=cfg.OTA_PROXY_SERVER_PORT,
+            host=test_cfg.OTA_PROXY_SERVER_ADDR,
+            port=test_cfg.OTA_PROXY_SERVER_PORT,
             log_level="error",
             lifespan="on",
             loop="asyncio",
@@ -225,7 +229,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             await asyncio.sleep(random.randrange(100, 200) // 100)
             for entry in regular_entries:
                 url = urljoin(
-                    cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
+                    test_cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
                 )
 
                 _retry_count_for_exceed_hard_limit = 0
@@ -282,10 +286,14 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
 
 class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
-    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTAPROXY_MODULE_PATH}.otacache"
-    OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
-    OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
-    REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{test_cfg.OTAPROXY_MODULE_PATH}.otacache"
+    OTA_IMAGE_URL = (
+        f"http://{test_cfg.OTA_IMAGE_SERVER_ADDR}:{test_cfg.OTA_IMAGE_SERVER_PORT}"
+    )
+    OTA_PROXY_URL = (
+        f"http://{test_cfg.OTA_PROXY_SERVER_ADDR}:{test_cfg.OTA_PROXY_SERVER_PORT}"
+    )
+    REGULARS_TXT_PATH = f"{test_cfg.OTA_IMAGE_DIR}/regulars.txt"
     CLIENTS_NUM = 3
 
     @pytest.fixture(autouse=True)
@@ -310,8 +318,8 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
         )
         _config = uvicorn.Config(
             App(_ota_cache),
-            host=cfg.OTA_PROXY_SERVER_ADDR,
-            port=cfg.OTA_PROXY_SERVER_PORT,
+            host=test_cfg.OTA_PROXY_SERVER_ADDR,
+            port=test_cfg.OTA_PROXY_SERVER_PORT,
             log_level="error",
             lifespan="on",
             loop="asyncio",
@@ -348,7 +356,7 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
             await asyncio.sleep(random.randrange(100, 200) // 100)
             for entry in regular_entries:
                 url = urljoin(
-                    cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
+                    test_cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
                 )
                 async with session.get(
                     url,
