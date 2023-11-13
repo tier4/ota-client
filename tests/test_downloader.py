@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
 import logging
 import threading
@@ -22,7 +23,6 @@ import requests
 import requests_mock
 from pathlib import Path
 from urllib.parse import urlsplit, urljoin
-
 
 from otaclient.app.common import file_sha256, urljoin_ensure_base
 from otaclient.app.downloader import (
@@ -35,7 +35,7 @@ from otaclient.app.downloader import (
     UnhandledHTTPError,
 )
 
-from tests.conftest import TestConfiguration as cfg
+from tests.conftest import TestConfiguration as test_cfg
 from tests.utils import zstd_compress_file
 
 
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class _SimpleDummyApp:
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: dict[str, str], receive, send) -> None:
         if scope["type"] != "http" or scope["method"] != "GET":
             return
 
@@ -101,7 +101,7 @@ class TestDownloader:
     # NOTE: full URL is http://<ota_image_url>/metadata.jwt
     #       full path is <ota_image_dir>/metadata.jwt
     TEST_FILE = "metadata.jwt"
-    TEST_FILE_PATH = Path(cfg.OTA_IMAGE_DIR) / TEST_FILE
+    TEST_FILE_PATH = Path(test_cfg.OTA_IMAGE_DIR) / TEST_FILE
     TEST_FILE_SHA256 = file_sha256(TEST_FILE_PATH)
     TEST_FILE_SIZE = len(TEST_FILE_PATH.read_bytes())
 
@@ -110,7 +110,9 @@ class TestDownloader:
         # prepare a compressed file under OTA image dir,
         # and then remove it after test finished
         try:
-            self.zstd_compressed = Path(cfg.OTA_IMAGE_DIR) / f"{self.TEST_FILE}.zst"
+            self.zstd_compressed = (
+                Path(test_cfg.OTA_IMAGE_DIR) / f"{self.TEST_FILE}.zst"
+            )
             zstd_compress_file(self.TEST_FILE_PATH, self.zstd_compressed)
             yield
         finally:
@@ -131,7 +133,7 @@ class TestDownloader:
     def test_normal_download(self, tmp_path: Path):
         _target_path = tmp_path / self.TEST_FILE
 
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE)
         _error, _read_download_size, _ = self.downloader.download(
             url,
             _target_path,
@@ -148,7 +150,7 @@ class TestDownloader:
     ):
         _target_path = tmp_path / self.TEST_FILE
 
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, f"{self.TEST_FILE}.zst")
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, f"{self.TEST_FILE}.zst")
         # first test directly download without decompression
         _error, _read_download_bytes_a, _ = self.downloader.download(url, _target_path)
         assert _error == 0
@@ -174,7 +176,7 @@ class TestDownloader:
     def test_download_mismatch_sha256(self, tmp_path: Path):
         _target_path = tmp_path / self.TEST_FILE
 
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(HashVerificaitonError):
             self.downloader.download(
                 url,
@@ -208,10 +210,10 @@ class TestDownloader:
         )
 
         # load the mocker adapter to the Downloader session
-        self.session.mount(cfg.OTA_IMAGE_URL, _mock_adapter)
+        self.session.mount(test_cfg.OTA_IMAGE_URL, _mock_adapter)
 
         _target_path = tmp_path / self.TEST_FILE
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(expected_ota_download_err):
             self.downloader.download(
                 url,
@@ -259,7 +261,7 @@ class TestDownloader:
         self.session.get = _mock_get
 
         _target_path = tmp_path / self.TEST_FILE
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
+        url = urljoin_ensure_base(test_cfg.OTA_IMAGE_URL, self.TEST_FILE)
         with pytest.raises(HashVerificaitonError):
             self.downloader.download(url, _target_path, digest="wrong_digest")
 
