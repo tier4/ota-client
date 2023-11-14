@@ -293,11 +293,12 @@ class TestRPIBootControl:
         )
 
         #
-        # ------ patch rpi_boot module ------ #
+        # ------ patch rpi_boot module for slot_a ------ #
         #
         mocker.patch(
             _RPIBootTestCfg.rpiboot_control_module_path, self.mocked__rpi_boot_ctrl_type
         )
+        mocker.patch(f"{test_cfg.RPI_BOOT_MODULE_PATH}.boot_cfg", _rpi_boot_cfg)
 
     def test_rpi_boot_normal_update(self, mocker: pytest_mock.MockerFixture):
         from otaclient.app.boot_control._rpi_boot import RPIBootController
