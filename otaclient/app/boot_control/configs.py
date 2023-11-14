@@ -93,7 +93,7 @@ class GrubControlConfig(_CommonConfig):
 
     BOOTLOADER: ClassVar[BootloaderType] = BootloaderType.GRUB
     GRUB_CFG_FNAME: ClassVar[str] = "grub.cfg"
-    BOOT_OTA_PARTITION_FILE: ClassVar[str] = "ota-partition"
+    BOOT_OTA_PARTITION_FNAME: ClassVar[str] = "ota-partition"
 
     @cached_computed_field
     def BOOT_GRUB_DPATH(self) -> str:
