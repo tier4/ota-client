@@ -463,7 +463,9 @@ class RPIBootController(BootControllerProtocol):
                 replace_atomic(_kernel, _kernel_sysboot)
                 replace_atomic(_initrd_img, _initrd_img_sysboot)
             else:
-                raise ValueError("failed to kernel in /boot folder at standby slot")
+                raise ValueError(
+                    "failed to find kernel in /boot folder at standby slot"
+                )
         except Exception as e:
             _err_msg = "failed to copy kernel/initrd_img for standby slot"
             logger.error(_err_msg)
