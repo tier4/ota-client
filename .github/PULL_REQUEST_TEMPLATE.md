@@ -5,7 +5,7 @@ This is the main entry for selecting a template for your PR.
 - [Feature](?expand=1&template=feature.md)
 - [Fix](?expand=1&template=fix.md)
 - [Refinement](?expand=1&template=refinement.md)
-- [Tag](?expand=1&template=tag.md)
+- [Chore/tag](?expand=1&template=tag.md)
 
 If PR type is not in the above list, feel free to start from blank PR body.
 
