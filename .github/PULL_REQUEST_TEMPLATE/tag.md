@@ -12,17 +12,17 @@ For example:
 
 ### Bug fix
 
-<!-- List of bug fix PRs. -->
+<!-- List of bug fix PRs if any. -->
 
 
 ### Refinement
 
-<!-- List of refinement PRs. -->
+<!-- List of refinement PRs if any. -->
 
-### chore
+### Chore
 
-<!-- List of chore PRs. -->
+<!-- List of chore PRs if any. -->
 
-### deps
+### Deps
 
 <!-- List of deps PRs. -->
