@@ -509,7 +509,7 @@ class CBootController(
     def post_update(self) -> Generator[None, None, None]:
         try:
             # firmware update
-            firmware = Firmware(boot_cfg.FIRMWARE_CFG_STANDBY_FPATH)
+            firmware = Firmware(Path(boot_cfg.FIRMWARE_CFG_STANDBY_FPATH))
             firmware.update(int(self._cboot_control.get_standby_slot()))
 
             # update extlinux_cfg file
