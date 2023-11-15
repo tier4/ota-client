@@ -308,11 +308,13 @@ class CBootController(
 
             ## refroot mount point
             _refroot_mount_point = cfg.ACTIVE_SLOT_MP
-            # first try to umount refroot mount point
-            CMDHelperFuncs.umount(_refroot_mount_point)
-            if not os.path.isdir(_refroot_mount_point):
-                os.mkdir(_refroot_mount_point)
             self.ref_slot_mount_point = Path(_refroot_mount_point)
+
+            if os.path.isdir(_refroot_mount_point):
+                # first try to umount refroot mount point
+                CMDHelperFuncs.umount(_refroot_mount_point)
+            elif not os.path.exists(_refroot_mount_point):
+                self.ref_slot_mount_point.mkdir(exist_ok=True, parents=True)
 
             ## ota-status dir
             ### current slot
