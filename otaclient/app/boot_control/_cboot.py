@@ -304,7 +304,7 @@ class CBootController(
             CMDHelperFuncs.umount(self.standby_slot_dev)
 
             self.standby_slot_mount_point = Path(cfg.STANDBY_SLOT_MP)
-            self.standby_slot_mount_point.mkdir(exist_ok=True)
+            self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
 
             ## refroot mount point
             _refroot_mount_point = cfg.ACTIVE_SLOT_MP
