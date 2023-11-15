@@ -131,16 +131,17 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     Return:
         A tuple includes the path to A/B slots respectly.
     """
-    # prepare slot_a
+    #
+    # ------ prepare slot_a ------ #
+    #
     slot_a = tmp_path_factory.mktemp("slot_a")
     shutil.copytree(
         Path(test_cfg.OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
     )
-    # simulate the diff between versions
+    # simulate the diff between local running image and target OTA image
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
     shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
-    # boot dir is a separated folder, so delete the boot folder under slot_a
-    # shutil.rmtree(slot_a / "boot", ignore_errors=True)
+
     # manually create symlink to kernel and initrd.img
     vmlinuz_symlink = slot_a / "boot" / TestConfiguration.KERNEL_PREFIX
     vmlinuz_symlink.symlink_to(
@@ -151,19 +152,17 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
         f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
     )
 
-    # prepare slot_b
+    #
+    # ------ prepare slot_b ------ #
+    #
     slot_b = tmp_path_factory.mktemp("slot_b")
 
-    # boot dev
+    #
+    # ------ prepare separated boot dev ------ #
+    #
     slot_a_boot_dev = tmp_path_factory.mktemp("slot_a_boot")
-    slot_a_boot_dir = slot_a_boot_dev / "boot"
-    slot_a_boot_dir.mkdir()
-    shutil.copytree(
-        Path(test_cfg.OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
-    )
     slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
-    slot_b_boot_dir = slot_b_boot_dev / "boot"
-    slot_b_boot_dir.mkdir()
+
     return SlotMeta(
         slot_a=str(slot_a),
         slot_b=str(slot_b),
