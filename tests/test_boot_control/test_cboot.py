@@ -42,15 +42,15 @@ condition after OTA update:
 """
 
 
-from functools import partial
-from pathlib import Path
+import logging
+import shutil
 import typing
 import pytest
 import pytest_mock
+from functools import partial
+from pathlib import Path
 
-import logging
 from otaclient._utils.path import replace_root
-
 from otaclient.app.configs import Config as otaclient_Config
 from otaclient.app.proto import wrapper
 
@@ -110,13 +110,6 @@ class TestCBootControl:
     def cboot_ab_slot(self, ab_slots: SlotMeta):
         """
         TODO: not considering rootfs on internal storage now
-
-        boot folder structure for cboot:
-            boot_dir_{slot_a, slot_b}/
-                ota-status/
-                    status
-                    version
-                    slot_in_use
         """
 
         self.slot_a = Path(ab_slots.slot_a)
@@ -144,21 +137,15 @@ class TestCBootControl:
         slot_a_slot_in_use.write_text(test_cfg.SLOT_A_ID_CBOOT)
 
         #
-        # symlink boot_dev/boot to slot_a/boot
-        #
-        # NOTE: this is reserved comparing to real condition,
-        #       just for test convenience.
-        (self.slot_a_boot_dev / "boot").symlink_to(
-            self.slot_a / "boot", target_is_directory=True
-        )
-
-        #
         # prepare extlinux file for slot_a
         #
         extlinux_dir = self.slot_a / "boot/extlinux"
         extlinux_dir.mkdir(parents=True)
         extlinux_cfg = extlinux_dir / "extlinux.conf"
         extlinux_cfg.write_text(self.EXTLNUX_CFG_SLOT_A.read_text())
+
+        # copy the /boot folder from slot_a to slot_a_boot_dev
+        shutil.copytree(self.slot_a / "boot", self.slot_a_boot_dev, dirs_exist_ok=True)
 
         #
         # ota_status dir for slot_b(separate boot dev)
@@ -183,6 +170,10 @@ class TestCBootControl:
             f"{test_cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_a
         )
         mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_a)
+        # NOTE: remember to also patch boot.common module
+        mocker.patch(
+            f"{test_cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.cfg", self.mocked_cfg_slot_a
+        )
 
         # config for slot_b as active rootfs
         self.mocked_cfg_slot_b = otaclient_Config(ACTIVE_ROOTFS=str(self.slot_b))
@@ -245,21 +236,24 @@ class TestCBootControl:
 
         # patch CBootControl mounting
 
-        def _mount_standby_slot():
+        def _mount_standby_slot(*args, **kwargs):
+            # remove the old already exists folder
+            Path(self.mocked_cfg_slot_a.STANDBY_SLOT_MP).rmdir()
             # simulate mount slot_b into otaclient mount space on slot_a
             Path(self.mocked_cfg_slot_a.STANDBY_SLOT_MP).symlink_to(self.slot_b)
 
-        def _mount_active_slot():
+        def _mount_active_slot(*args, **kwargs):
+            # remove the old already exists folder
+            Path(self.mocked_cfg_slot_a.ACTIVE_SLOT_MP).rmdir()
+            # simlulate mount slot_b into otaclient mount space on slot_a
             Path(self.mocked_cfg_slot_a.ACTIVE_SLOT_MP).symlink_to(self.slot_a)
 
         mocker.patch(
-            f"{test_cfg.CBOOT_MODULE_PATH}.CBootController",
-            "_prepare_and_mount_standby",
+            f"{test_cfg.CBOOT_MODULE_PATH}.CBootController._prepare_and_mount_standby",
             mocker.MagicMock(side_effect=_mount_standby_slot),
         )
         mocker.patch(
-            f"{test_cfg.CBOOT_MODULE_PATH}.CBootController",
-            "_mount_refroot",
+            f"{test_cfg.CBOOT_MODULE_PATH}.CBootController._mount_refroot",
             mocker.MagicMock(side_effect=_mount_active_slot),
         )
 
@@ -293,7 +287,7 @@ class TestCBootControl:
         ).read_text() == wrapper.StatusOta.FAILURE.name
 
         assert (
-            active_ota_status_dpath / otaclient_Config.OTA_STATUS_FNAME
+            active_ota_status_dpath / otaclient_Config.SLOT_IN_USE_FNAME
         ).read_text() == self._fsm.get_standby_slot()
 
         # assert standby slot ota-status
@@ -314,9 +308,17 @@ class TestCBootControl:
         # NOTE: standby slot's extlinux file is not yet populated(done by create_standby)
         #       prepare it by ourself
         # NOTE 2: populate to standby rootfs' boot folder
+        standby_slot_extlinux_dir = Path(cboot_cfg.STANDBY_BOOT_EXTLINUX_DPATH)
+        standby_slot_extlinux_dir.mkdir(exist_ok=True, parents=True)
         Path(cboot_cfg.STANDBY_EXTLINUX_FPATH).write_text(
             self.EXTLNUX_CFG_SLOT_A.read_text()
         )
+
+        # Prepare the symlink from standby slot boot dev mountpoint to standby slot
+        #   boot dev to simulate mounting.
+        # This is for post_update copies boot folders from standby slot to standby boot dev.
+        shutil.rmtree(cboot_cfg.SEPARATE_BOOT_MOUNT_POINT, ignore_errors=True)
+        Path(cboot_cfg.SEPARATE_BOOT_MOUNT_POINT).symlink_to(self.slot_b_boot_dev)
 
         # test cboot post-update
         _post_updater = cboot_controller.post_update()
@@ -326,7 +328,14 @@ class TestCBootControl:
         #
         # assertion
         #
-        # confirm extlinux.cfg is properly prepared
+        # confirm the extlinux.conf is properly updated in standby slot
+        assert (
+            Path(cboot_cfg.STANDBY_EXTLINUX_FPATH).read_text()
+            == self.EXTLNUX_CFG_SLOT_B.read_text()
+        )
+
+        # confirm extlinux.cfg for standby slot is properly copied
+        # to standby slot's boot dev
         assert (
             Path(
                 replace_root(
@@ -364,11 +373,8 @@ class TestCBootControl:
         # init cboot control again
         CBootController()
         assert (
-            Path(
-                _recreated_cboot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH
-                / otaclient_Config.OTA_STATUS_FNAME
-            ).read_text()
-            == wrapper.StatusOta.SUCCESS.name
-        )
+            Path(_recreated_cboot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH)
+            / otaclient_Config.OTA_STATUS_FNAME
+        ).read_text() == wrapper.StatusOta.SUCCESS.name
 
         assert self._fsm.is_boot_switched
