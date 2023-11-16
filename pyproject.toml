@@ -41,10 +41,20 @@ extend-exclude = '''(
 
 [tool.coverage.run]
 branch = false
+omit = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
+source = ["otaclient.app", "otaclient.ota_proxy"]
 
 [tool.coverage.report]
-omit = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
+exclude_also = [
+    "def __repr__",
+    "if cfg.DEBUG_MODE",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+    ]
 show_missing = true
+skip_empty = true
 
 [tool.pyright]
 exclude = ["**/__pycache__"]
@@ -52,7 +62,6 @@ ignore = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
 pythonVersion = "3.8"
 
 [tool.pytest.ini_options]
-addopts = "--cov=otaclient.app --cov=otaclient.ota_proxy"
 asyncio_mode = "auto"
 log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
