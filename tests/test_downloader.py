@@ -41,7 +41,7 @@ from tests.utils import zstd_compress_file
 
 logger = logging.getLogger(__name__)
 
-HTTP_ERROR_ECHO_SERVER_PORT = 9990
+HTTP_ERROR_ECHO_SERVER_PORT = 9999
 HTTP_ERROR_ECHO_SERVER_ADDR = "127.0.0.1"
 
 
@@ -89,7 +89,7 @@ def launch_dummy_server(
 
         server.lifespan = config.lifespan_class(config)
         await server.startup()
-        logger.info("dummy server started")
+        logger.info(f"dummy server started at {host}:{port}")
 
         while True:
             if _should_exit.is_set():
@@ -257,7 +257,10 @@ class TestDownloader:
         expected_ota_download_err,
         launch_dummy_server,
     ):
-        url = urljoin("http://127.0.0.1:9999/", str(status_code))
+        url = urljoin(
+            f"http://{HTTP_ERROR_ECHO_SERVER_ADDR}:{HTTP_ERROR_ECHO_SERVER_PORT}",
+            str(status_code),
+        )
         _target_path = tmp_path / self.TEST_FILE_FNAME
         with pytest.raises(expected_ota_download_err):
             self.downloader.download(
