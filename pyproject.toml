@@ -54,7 +54,6 @@ exclude_also = [
     "@(abc\\.)?abstractmethod",
     ]
 show_missing = true
-skip_covered = true
 skip_empty = true
 
 [tool.pyright]
