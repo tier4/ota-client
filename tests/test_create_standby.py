@@ -20,10 +20,8 @@ import pytest
 from pathlib import Path
 from pytest_mock import MockerFixture
 
-from otaclient._utils.path import replace_root
 from otaclient.app.configs import Config as otaclient_Config
 from otaclient.app.boot_control import BootControllerProtocol
-from otaclient.app.proto import wrapper
 
 from tests.conftest import TestConfiguration as test_cfg
 from tests.utils import SlotMeta, compare_dir
@@ -36,7 +34,9 @@ logger = logging.getLogger(__name__)
 class Test_OTAupdate_with_create_standby_RebuildMode:
     """
     NOTE: the boot_control is mocked, only testing
-          create_standby and the logics directly implemented by OTAUpdater
+          create_standby and the logics directly implemented by OTAUpdater.
+
+    NOTE: testing the system using separated boot dev for each slots(like cboot).
     """
 
     @pytest.fixture
@@ -53,16 +53,24 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         self.otaclient_run_dir = tmp_path / "otaclient_run_dir"
         self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
 
+        self.slot_a_boot_dir.mkdir(exist_ok=True, parents=True)
+        self.slot_b_boot_dir.mkdir(exist_ok=True, parents=True)
+
         #
         # ------ prepare config ------ #
         #
         _otaclient_cfg = otaclient_Config(ACTIVE_ROOTFS=str(self.slot_a))
         self.otaclient_cfg = _otaclient_cfg
 
-        # ------ cleanup and prepare slot_b ------ #
-        shutil.rmtree(self.slot_b, ignore_errors=True)
-        self.slot_b.mkdir(exist_ok=True)
+        # ------ prepare otaclient run dir ------ #
+        Path(_otaclient_cfg.RUN_DPATH).mkdir(exist_ok=True, parents=True)
 
+        #
+        # ------ prepare mount space ------ #
+        #
+        Path(_otaclient_cfg.OTACLIENT_MOUNT_SPACE_DPATH).mkdir(
+            exist_ok=True, parents=True
+        )
         # directly point standby slot mp to self.slot_b
         _standby_slot_mp = Path(_otaclient_cfg.STANDBY_SLOT_MP)
         _standby_slot_mp.symlink_to(self.slot_b)
