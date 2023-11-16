@@ -299,9 +299,12 @@ class _NormalConfigs(BaseModel):
     #
     # ------ enable internal debug feature ------ #
     #
-    # currently available feature:
-    #   1. enable failure_traceback in status API response
+
+    # main DEBUG_MODE switch, this flag will enable all debug feature.
     DEBUG_MODE: bool = False
+
+    # enable failure_traceback field in status API response.
+    DEBUG_ENABLE_TRACEBACK_IN_STATUS_API: bool = False
 
     # name of OTA used temp folder
     OTA_TMP_DNAME: str = "ota_tmp"
