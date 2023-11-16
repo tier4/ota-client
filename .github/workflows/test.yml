@@ -25,7 +25,8 @@ jobs:
         continue-on-error: true
         uses: MishaKav/pytest-coverage-comment@v1.1.49
         with:
-          pytest-xml-coverage-path: ./test_result/coverage.xml
+          pytest-xml-coverage-path: test_result/coverage.xml
+          junitxml-path: test_result/pytest.xml
 
   python_lint_check:
     runs-on: ubuntu-20.04
