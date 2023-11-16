@@ -16,5 +16,5 @@ aiofiles==22.1.0
 zstandard==0.18.0
 pycurl==7.45.1
 typing_extensions==4.6.3
-pydantic-settings==2.0.3
-pydantic==2.4.2
+pydantic==2.5.1
+pydantic-settings==2.1.0
