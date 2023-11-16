@@ -6,10 +6,11 @@ services:
       dockerfile: ./docker/test_base/Dockerfile
     image: ota-test_base
     network_mode: bridge
-    command: "python3 -m pytest"
+    command: "bash -c 'coverage run -m pytest tests/test_boot_control && coverage xml -o test_result/coverage.xml'"
     container_name: ota-test
     volumes:
       - ../pyproject.toml:/ota-client/pyproject.toml:ro
       - ../.flake8:/ota-client/.flake8:ro
       - ../otaclient:/ota-client/otaclient:ro
       - ../tests:/ota-client/tests:ro
+      - ../test_result:/ota-client/test_result:rw

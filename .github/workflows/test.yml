@@ -3,6 +3,7 @@ name: test CI
 on: [pull_request]
 
 jobs:
+
   pytest_with_coverage:
     runs-on: ubuntu-20.04
     timeout-minutes: 20
@@ -13,13 +14,19 @@ jobs:
         run: |
           docker-compose -f docker/docker-compose_tests.yml build
       - name: Execute pytest with coverage trace under ota-test_base container
+        # NOTE: test_result folder holds the coverage.xml, check docker-compose_tests.yml for
+        #       coverage execution command line and volumes configurations.
         run: |
           set -o pipefail
-          docker-compose -f docker/docker-compose_tests.yml up --no-log-prefix --abort-on-container-exit | tee pytest-coverage.txt
+          mkdir test_result
+          docker-compose -f docker/docker-compose_tests.yml up --no-log-prefix --abort-on-container-exit
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
-        uses: MishaKav/pytest-coverage-comment@v1.1.40
+        uses: MishaKav/pytest-coverage-comment@v1.1.49
+        with:
+          - pytest-xml-coverage-path: ./test_result/coverage.xml
+
   python_lint_check:
     runs-on: ubuntu-20.04
     timeout-minutes: 3
