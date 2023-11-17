@@ -41,8 +41,11 @@ extend-exclude = '''(
 
 [tool.coverage.run]
 branch = false
+include = [
+    "otaclient/app/**/*.py",
+    "otaclient/ota_proxy/**/*.py",
+]
 omit = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
-source = ["otaclient.app", "otaclient.ota_proxy"]
 
 [tool.coverage.report]
 exclude_also = [
