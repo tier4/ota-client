@@ -15,15 +15,17 @@
 
 from __future__ import annotations
 import os.path
-from enum import Enum
+from enum import Enum, unique
 from pydantic import BaseModel, ConfigDict
 from typing import ClassVar, Dict
+from typing_extensions import Self
 
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
 from ..configs import config as cfg
 
 
+@unique
 class BootloaderType(str, Enum):
     """Bootloaders that supported by otaclient.
 
@@ -39,33 +41,47 @@ class BootloaderType(str, Enum):
     RPI_BOOT = "rpi_boot"
 
     @classmethod
-    def parse_str(cls, _input: str) -> "BootloaderType":
+    def parse_str(cls, _input: str) -> Self:
         res = cls.UNSPECIFIED
         try:  # input is enum key(capitalized)
-            res = BootloaderType[_input]
+            res = cls[_input]
         except KeyError:
             pass
         try:  # input is enum value(uncapitalized)
-            res = BootloaderType(_input)
+            res = cls(_input)
         except ValueError:
             pass
         return res
 
 
 class _SeparatedBootParOTAStatusConfig(BaseModel):
-    """Configs for platforms that have separated boot partition.
+    """Configs for platforms that have separated boot dir.
 
-    Currently cboot and rpi_boot are included in this catagory.
+    Currently cboot and rpi_boot platforms are included in this catagory.
+    1. cboot: separated boot devices, boot dirs on each slots,
+    2. rpi_boot: separated boot dirs on each slots, only share system-boot.
 
-    grub is special as it uses shared /boot, so it doesn't use this config.
+    grub platform shares /boot dir by sharing the same boot device.
     """
 
     @cached_computed_field
     def ACTIVE_BOOT_OTA_STATUS_DPATH(self) -> str:
+        """The dynamically rooted location of ota-status dir.
+
+        Default: /boot/ota-status
+        """
         return os.path.join(cfg.BOOT_DPATH, "ota-status")
 
     @cached_computed_field
     def STANDBY_BOOT_OTA_STATUS_DPATH(self) -> str:
+        """The dynamically rooted location standby slot's ota-status dir.
+
+        NOTE: this location is relatived to standby slot's mount point.
+        NOTE(20231117): for platform with separated boot dev(like cboot), it is boot controller's
+            responsibility to copy the /boot dir from standby slot rootfs to separated boot dev.
+
+        Default: /mnt/otaclient/standby_slot/boot/ota-status
+        """
         return replace_root(
             self.ACTIVE_BOOT_OTA_STATUS_DPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP
         )
@@ -73,16 +89,26 @@ class _SeparatedBootParOTAStatusConfig(BaseModel):
 
 class _CommonConfig(BaseModel):
     model_config = ConfigDict(frozen=True, validate_default=True)
-    DEFAULT_FSTAB_FPATH: ClassVar[str] = "/etc/fstab"
+    DEFAULT_FSTAB_FPATH: ClassVar = "/etc/fstab"
 
     @cached_computed_field
     def STANDBY_FSTAB_FPATH(self) -> str:
+        """The dynamically rooted location of standby slot's fstab file.
+
+        NOTE: this location is relatived to standby slot's mount point.
+
+        Default: /mnt/otaclient/standby_slot/etc/fstab
+        """
         return replace_root(
             self.DEFAULT_FSTAB_FPATH, cfg.DEFAULT_ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP
         )
 
     @cached_computed_field
     def ACTIVE_FSTAB_FPATH(self) -> str:
+        """The dynamically rooted location of active slot's fstab file.
+
+        Default: /etc/fstab
+        """
         return replace_root(
             self.DEFAULT_FSTAB_FPATH, cfg.DEFAULT_ACTIVE_ROOTFS, cfg.ACTIVE_ROOTFS
         )
@@ -91,20 +117,32 @@ class _CommonConfig(BaseModel):
 class GrubControlConfig(_CommonConfig):
     """x86-64 platform, with grub as bootloader."""
 
-    BOOTLOADER: ClassVar[BootloaderType] = BootloaderType.GRUB
-    GRUB_CFG_FNAME: ClassVar[str] = "grub.cfg"
-    BOOT_OTA_PARTITION_FNAME: ClassVar[str] = "ota-partition"
+    BOOTLOADER: ClassVar = BootloaderType.GRUB
+    GRUB_CFG_FNAME: ClassVar = "grub.cfg"
+    BOOT_OTA_PARTITION_FNAME: ClassVar = "ota-partition"
 
     @cached_computed_field
     def BOOT_GRUB_DPATH(self) -> str:
+        """The dynamically rooted location of /boot/grub dir.
+
+        Default: /boot/grub
+        """
         return os.path.join(cfg.BOOT_DPATH, "grub")
 
     @cached_computed_field
     def GRUB_CFG_FPATH(self) -> str:
+        """The dynamically rooted location of /boot/grub/grub.cfg file.
+
+        Default: /boot/grub/grub.cfg
+        """
         return os.path.join(self.BOOT_GRUB_DPATH, self.GRUB_CFG_FNAME)
 
     @cached_computed_field
     def GRUB_DEFAULT_FPATH(self) -> str:
+        """The dynamically rooted location of /etc/default/grub file.
+
+        Default: /etc/default/grub
+        """
         return os.path.join(cfg.ETC_DPATH, "default/grub")
 
 
@@ -114,17 +152,21 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
     NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
     """
 
-    BOOTLOADER: ClassVar[BootloaderType] = BootloaderType.CBOOT
+    BOOTLOADER: ClassVar = BootloaderType.CBOOT
     CHIP_ID_MODEL_MAP: ClassVar[Dict[int, str]] = {0x19: "rqx_580"}
-    DEFAULT_TEGRA_CHIP_ID_FPATH: ClassVar[
-        str
-    ] = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
-    DEFAULT_EXTLINUX_DPATH: ClassVar[str] = "/boot/extlinux"
-    DEFAULT_FIRMWARE_CFG_FPATH: ClassVar[str] = "/opt/ota/firmwares/firmware.yaml"
-    EXTLINUX_CFG_FNAME: ClassVar[str] = "extlinux.conf"
+    DEFAULT_TEGRA_CHIP_ID_FPATH: ClassVar = (
+        "/sys/module/tegra_fuse/parameters/tegra_chip_id"
+    )
+    DEFAULT_EXTLINUX_DPATH: ClassVar = "/boot/extlinux"
+    DEFAULT_FIRMWARE_CFG_FPATH: ClassVar = "/opt/ota/firmwares/firmware.yaml"
+    EXTLINUX_CFG_FNAME: ClassVar = "extlinux.conf"
 
     @cached_computed_field
     def TEGRA_CHIP_ID_FPATH(self) -> str:
+        """The dynamically rooted location of tegra chip id query API.
+
+        Default: /sys/module/tegra_fuse/parameters/tegra_chip_id
+        """
         return replace_root(
             self.DEFAULT_TEGRA_CHIP_ID_FPATH,
             cfg.DEFAULT_ACTIVE_ROOTFS,
@@ -133,6 +175,12 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
 
     @cached_computed_field
     def STANDBY_BOOT_EXTLINUX_DPATH(self) -> str:
+        """The dynamically rooted location of standby slot's extlinux cfg dir.
+
+        NOTE: this location is relatived to standby slot's mount point.
+
+        Default: /mnt/otaclient/standby_slot/boot/extlinux
+        """
         return replace_root(
             self.DEFAULT_EXTLINUX_DPATH,
             cfg.DEFAULT_ACTIVE_ROOTFS,
@@ -141,15 +189,31 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
 
     @cached_computed_field
     def STANDBY_EXTLINUX_FPATH(self) -> str:
+        """The dynamically rooted location of standby slot's extlinux cfg file.
+
+        NOTE: this location is relatived to standby slot's mount point.
+
+        Default: /mnt/otaclient/standby_slot/boot/extlinux/extlinux.conf
+        """
         return os.path.join(self.STANDBY_BOOT_EXTLINUX_DPATH, self.EXTLINUX_CFG_FNAME)
 
     @cached_computed_field
     def SEPARATE_BOOT_MOUNT_POINT(self) -> str:
+        """The dynamically rooted location of standby slot's boot dev mount point.
+
+        Default: /mnt/otaclient/standby_root
+        """
         return os.path.join(cfg.OTACLIENT_MOUNT_SPACE_DPATH, "standby_boot")
 
     # refer to the standby slot
     @cached_computed_field
     def FIRMWARE_CFG_STANDBY_FPATH(self) -> str:
+        """The dynamically rooted location of standby slot's cboot firmware.yaml file.
+
+        NOTE: this location is relatived to standby slot's mount point.
+
+        Default: /mnt/otaclient/standby_slot/opt/ota/firmwares/firmware.yaml
+        """
         return replace_root(
             self.DEFAULT_FIRMWARE_CFG_FPATH,
             cfg.DEFAULT_ACTIVE_ROOTFS,
@@ -158,26 +222,30 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
 
 
 class RPIBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
-    BBOOTLOADER: ClassVar[BootloaderType] = BootloaderType.RPI_BOOT
+    BBOOTLOADER: ClassVar = BootloaderType.RPI_BOOT
 
-    DEFAULT_RPI_MODEL_FPATH: ClassVar[str] = "/proc/device-tree/model"
-    RPI_MODEL_HINT: ClassVar[str] = "Raspberry Pi 4 Model B"
+    DEFAULT_RPI_MODEL_FPATH: ClassVar = "/proc/device-tree/model"
+    RPI_MODEL_HINT: ClassVar = "Raspberry Pi 4 Model B"
 
-    SLOT_A_FSLABEL: ClassVar[str] = "slot_a"
-    SLOT_B_FSLABEL: ClassVar[str] = "slot_b"
+    SLOT_A_FSLABEL: ClassVar = "slot_a"
+    SLOT_B_FSLABEL: ClassVar = "slot_b"
 
-    SYSTEM_BOOT_FSLABEL: ClassVar[str] = "system-boot"
-    SWITCH_BOOT_FLAG_FNAME: ClassVar[str] = "._ota_switch_boot_finalized"
+    SYSTEM_BOOT_FSLABEL: ClassVar = "system-boot"
+    SWITCH_BOOT_FLAG_FNAME: ClassVar = "._ota_switch_boot_finalized"
 
     # boot files fname
-    CONFIG_TXT_FNAME: ClassVar[str] = "config.txt"  # primary boot cfg
-    TRYBOOT_TXT_FNAME: ClassVar[str] = "tryboot.txt"  # tryboot boot cfg
-    VMLINUZ_FNAME: ClassVar[str] = "vmlinuz"
-    INITRD_IMG_FNAME: ClassVar[str] = "initrd.img"
-    CMDLINE_TXT_FNAME: ClassVar[str] = "cmdline.txt"
+    CONFIG_TXT_FNAME: ClassVar = "config.txt"  # primary boot cfg
+    TRYBOOT_TXT_FNAME: ClassVar = "tryboot.txt"  # tryboot boot cfg
+    VMLINUZ_FNAME: ClassVar = "vmlinuz"
+    INITRD_IMG_FNAME: ClassVar = "initrd.img"
+    CMDLINE_TXT_FNAME: ClassVar = "cmdline.txt"
 
     @cached_computed_field
     def RPI_MODEL_FPATH(self) -> str:
+        """The dynamically rooted location of rpi model query API.
+
+        Default: /proc/device-tree/model
+        """
         return replace_root(
             self.DEFAULT_RPI_MODEL_FPATH,
             cfg.DEFAULT_ACTIVE_ROOTFS,
@@ -186,10 +254,18 @@ class RPIBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
 
     @cached_computed_field
     def SYSTEM_BOOT_MOUNT_POINT(self) -> str:
+        """The dynamically rooted location of rpi system-boot partition mount point.
+
+        Default: /boot/firmware
+        """
         return os.path.join(cfg.BOOT_DPATH, "firmware")
 
     @cached_computed_field
     def SWITCH_BOOT_FLAG_FPATH(self) -> str:
+        """The dynamically rooted location of rpi switch boot flag file.
+
+        Default: /boot/firmware/._ota_switch_boot_finalized
+        """
         return os.path.join(self.SYSTEM_BOOT_MOUNT_POINT, self.SWITCH_BOOT_FLAG_FNAME)
 
 
