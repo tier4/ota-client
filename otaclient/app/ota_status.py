@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-from .configs import config as cfg
 from .proto import wrapper
 from . import log_setting
 
