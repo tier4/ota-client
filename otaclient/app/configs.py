@@ -28,7 +28,7 @@ from pydantic import (
     IPvAnyAddress,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import TYPE_CHECKING, Any, ClassVar, Dict
+from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar, Dict
 from typing_extensions import Annotated
 
 from otaclient import __file__ as _otaclient__init__
@@ -36,10 +36,10 @@ from otaclient._utils import cached_computed_field, validator_wrapper
 from otaclient._utils.path import replace_root
 from otaclient._utils.logging import check_loglevel
 
-# A simple trick to make plain ClassVar work when
+# A simple trick to make plain _std_ClassVar work when
 # __future__.annotations is activated.
 if not TYPE_CHECKING:
-    ClassVar = ClassVar[Any]
+    _std_ClassVar = _std_ClassVar[Any]
 
 
 OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
@@ -57,12 +57,12 @@ class CreateStandbyMechanism(str, Enum):
 class _FixedInternalConfigs(BaseModel):
     """Fixed internal configs."""
 
-    RUN_DPATH: ClassVar = "/run/otaclient"
-    OTACLIENT_PID_FPATH: ClassVar = "/run/otaclient.pid"
-    SUPPORTED_COMPRESS_ALG: ClassVar = ("zst", "zstd")
+    RUN_DPATH: _std_ClassVar = "/run/otaclient"
+    OTACLIENT_PID_FPATH: _std_ClassVar = "/run/otaclient.pid"
+    SUPPORTED_COMPRESS_ALG: _std_ClassVar = ("zst", "zstd")
 
     # filesystem label of external cache source
-    EXTERNAL_CACHE_DEV_FSLABEL: ClassVar = "ota_cache_src"
+    EXTERNAL_CACHE_DEV_FSLABEL: _std_ClassVar = "ota_cache_src"
 
 
 class _DynamicRootedPathsConfig(BaseModel):
@@ -75,7 +75,7 @@ class _DynamicRootedPathsConfig(BaseModel):
     #
     # ------ active_rootfs & container mode ------ #
     #
-    DEFAULT_ACTIVE_ROOTFS: ClassVar = "/"
+    DEFAULT_ACTIVE_ROOTFS: _std_ClassVar = "/"
 
     ACTIVE_ROOTFS: Annotated[
         str,
@@ -95,7 +95,7 @@ class _DynamicRootedPathsConfig(BaseModel):
     #
     # ------ mount point placement ------ #
     #
-    DEFAULT_OTACLIENT_MOUNT_SPACE: ClassVar = "/mnt/otaclient"
+    DEFAULT_OTACLIENT_MOUNT_SPACE: _std_ClassVar = "/mnt/otaclient"
 
     @cached_computed_field
     def OTACLIENT_MOUNT_SPACE_DPATH(self) -> str:
@@ -166,9 +166,9 @@ class _DynamicRootedPathsConfig(BaseModel):
     # NOTE: the actual location of these files depends on each boot controller
     #       implementation, please refer to boot_control.configs.
 
-    OTA_STATUS_FNAME: ClassVar = "status"
-    OTA_VERSION_FNAME: ClassVar = "version"
-    SLOT_IN_USE_FNAME: ClassVar = "slot_in_use"
+    OTA_STATUS_FNAME: _std_ClassVar = "status"
+    OTA_VERSION_FNAME: _std_ClassVar = "version"
+    SLOT_IN_USE_FNAME: _std_ClassVar = "slot_in_use"
 
     # --- some files under /etc --- #
 
@@ -209,8 +209,8 @@ class _DynamicRootedPathsConfig(BaseModel):
     #
     # This folder holds files and packages related to OTA functionality.
 
-    DEFAULT_OTA_CERTS_DPATHS: ClassVar = "/opt/ota/client/certs"
-    DEFAULT_OTA_INSTALLATION_PATH: ClassVar = "/opt/ota"
+    DEFAULT_OTA_CERTS_DPATHS: _std_ClassVar = "/opt/ota/client/certs"
+    DEFAULT_OTA_INSTALLATION_PATH: _std_ClassVar = "/opt/ota"
 
     @cached_computed_field
     def OTA_INSTALLATION_PATH(self) -> str:
