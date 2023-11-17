@@ -36,7 +36,7 @@ from otaclient._utils import cached_computed_field, validator_wrapper
 from otaclient._utils.path import replace_root
 from otaclient._utils.logging import check_loglevel
 
-# A simple trick to make plain _std_ClassVar work when
+# A simple trick to make plain ClassVar work when
 # __future__.annotations is activated.
 if not TYPE_CHECKING:
     _std_ClassVar = _std_ClassVar[Any]

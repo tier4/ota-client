@@ -17,7 +17,7 @@ from __future__ import annotations
 import os.path
 from enum import Enum, unique
 from pydantic import BaseModel, ConfigDict
-from typing import TYPE_CHECKING, ClassVar, Any
+from typing import TYPE_CHECKING, ClassVar as _std_ClassVar, Any
 from typing_extensions import Self
 
 from otaclient._utils import cached_computed_field
@@ -27,7 +27,7 @@ from ..configs import config as cfg
 # A simple trick to make plain ClassVar work when
 # __future__.annotations is activated.
 if not TYPE_CHECKING:
-    ClassVar = ClassVar[Any]
+    _std_ClassVar = _std_ClassVar[Any]
 
 
 @unique
@@ -94,7 +94,7 @@ class _SeparatedBootParOTAStatusConfig(BaseModel):
 
 class _CommonConfig(BaseModel):
     model_config = ConfigDict(frozen=True, validate_default=True)
-    DEFAULT_FSTAB_FPATH: ClassVar = "/etc/fstab"
+    DEFAULT_FSTAB_FPATH: _std_ClassVar = "/etc/fstab"
 
     @cached_computed_field
     def STANDBY_FSTAB_FPATH(self) -> str:
@@ -122,9 +122,9 @@ class _CommonConfig(BaseModel):
 class GrubControlConfig(_CommonConfig):
     """x86-64 platform, with grub as bootloader."""
 
-    BOOTLOADER: ClassVar = BootloaderType.GRUB
-    GRUB_CFG_FNAME: ClassVar = "grub.cfg"
-    BOOT_OTA_PARTITION_FNAME: ClassVar = "ota-partition"
+    BOOTLOADER: _std_ClassVar = BootloaderType.GRUB
+    GRUB_CFG_FNAME: _std_ClassVar = "grub.cfg"
+    BOOT_OTA_PARTITION_FNAME: _std_ClassVar = "ota-partition"
 
     @cached_computed_field
     def BOOT_GRUB_DPATH(self) -> str:
@@ -157,14 +157,14 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
     NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
     """
 
-    BOOTLOADER: ClassVar = BootloaderType.CBOOT
-    CHIP_ID_MODEL_MAP: ClassVar = {0x19: "rqx_580"}
-    DEFAULT_TEGRA_CHIP_ID_FPATH: ClassVar = (
+    BOOTLOADER: _std_ClassVar = BootloaderType.CBOOT
+    CHIP_ID_MODEL_MAP: _std_ClassVar = {0x19: "rqx_580"}
+    DEFAULT_TEGRA_CHIP_ID_FPATH: _std_ClassVar = (
         "/sys/module/tegra_fuse/parameters/tegra_chip_id"
     )
-    DEFAULT_EXTLINUX_DPATH: ClassVar = "/boot/extlinux"
-    DEFAULT_FIRMWARE_CFG_FPATH: ClassVar = "/opt/ota/firmwares/firmware.yaml"
-    EXTLINUX_CFG_FNAME: ClassVar = "extlinux.conf"
+    DEFAULT_EXTLINUX_DPATH: _std_ClassVar = "/boot/extlinux"
+    DEFAULT_FIRMWARE_CFG_FPATH: _std_ClassVar = "/opt/ota/firmwares/firmware.yaml"
+    EXTLINUX_CFG_FNAME: _std_ClassVar = "extlinux.conf"
 
     @cached_computed_field
     def TEGRA_CHIP_ID_FPATH(self) -> str:
@@ -227,23 +227,23 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
 
 
 class RPIBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
-    BBOOTLOADER: ClassVar = BootloaderType.RPI_BOOT
+    BBOOTLOADER: _std_ClassVar = BootloaderType.RPI_BOOT
 
-    DEFAULT_RPI_MODEL_FPATH: ClassVar = "/proc/device-tree/model"
-    RPI_MODEL_HINT: ClassVar = "Raspberry Pi 4 Model B"
+    DEFAULT_RPI_MODEL_FPATH: _std_ClassVar = "/proc/device-tree/model"
+    RPI_MODEL_HINT: _std_ClassVar = "Raspberry Pi 4 Model B"
 
-    SLOT_A_FSLABEL: ClassVar = "slot_a"
-    SLOT_B_FSLABEL: ClassVar = "slot_b"
+    SLOT_A_FSLABEL: _std_ClassVar = "slot_a"
+    SLOT_B_FSLABEL: _std_ClassVar = "slot_b"
 
-    SYSTEM_BOOT_FSLABEL: ClassVar = "system-boot"
-    SWITCH_BOOT_FLAG_FNAME: ClassVar = "._ota_switch_boot_finalized"
+    SYSTEM_BOOT_FSLABEL: _std_ClassVar = "system-boot"
+    SWITCH_BOOT_FLAG_FNAME: _std_ClassVar = "._ota_switch_boot_finalized"
 
     # boot files fname
-    CONFIG_TXT_FNAME: ClassVar = "config.txt"  # primary boot cfg
-    TRYBOOT_TXT_FNAME: ClassVar = "tryboot.txt"  # tryboot boot cfg
-    VMLINUZ_FNAME: ClassVar = "vmlinuz"
-    INITRD_IMG_FNAME: ClassVar = "initrd.img"
-    CMDLINE_TXT_FNAME: ClassVar = "cmdline.txt"
+    CONFIG_TXT_FNAME: _std_ClassVar = "config.txt"  # primary boot cfg
+    TRYBOOT_TXT_FNAME: _std_ClassVar = "tryboot.txt"  # tryboot boot cfg
+    VMLINUZ_FNAME: _std_ClassVar = "vmlinuz"
+    INITRD_IMG_FNAME: _std_ClassVar = "initrd.img"
+    CMDLINE_TXT_FNAME: _std_ClassVar = "cmdline.txt"
 
     @cached_computed_field
     def RPI_MODEL_FPATH(self) -> str:
