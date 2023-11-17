@@ -79,8 +79,8 @@ class _DynamicRootedPathsConfig(BaseModel):
 
     ACTIVE_ROOTFS: Annotated[
         str,
-        AfterValidator(validator_wrapper(isabs)),
-        AfterValidator(validator_wrapper(isdir)),
+        AfterValidator(validator_wrapper(isabs, "active rootfs path must be absolute")),
+        AfterValidator(validator_wrapper(isdir, "active rootfs must be a dir")),
     ] = DEFAULT_ACTIVE_ROOTFS
 
     @cached_computed_field

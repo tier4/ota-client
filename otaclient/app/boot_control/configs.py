@@ -25,7 +25,7 @@ from otaclient._utils.path import replace_root
 from ..configs import config as cfg
 
 # A simple trick to make plain ClassVar work when
-# __future__.annotations are activated.
+# __future__.annotations is activated.
 if not TYPE_CHECKING:
     ClassVar = ClassVar[Any]
 

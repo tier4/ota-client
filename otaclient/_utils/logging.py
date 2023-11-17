@@ -65,5 +65,5 @@ class BurstSuppressFilter(logging.Filter):
 
 def check_loglevel(_in: int) -> int:
     """Pydantic validator for logging level number."""
-    assert _in in logging._levelToName
+    assert _in in logging._levelToName, f"{_in} is not a valid logging level"
     return _in
