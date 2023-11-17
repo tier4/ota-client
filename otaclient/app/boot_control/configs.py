@@ -17,12 +17,17 @@ from __future__ import annotations
 import os.path
 from enum import Enum, unique
 from pydantic import BaseModel, ConfigDict
-from typing import ClassVar, Dict
+from typing import TYPE_CHECKING, ClassVar, Any
 from typing_extensions import Self
 
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
 from ..configs import config as cfg
+
+# A simple trick to make plain ClassVar work when
+# __future__.annotations are activated.
+if not TYPE_CHECKING:
+    ClassVar = ClassVar[Any]
 
 
 @unique
@@ -153,7 +158,7 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
     """
 
     BOOTLOADER: ClassVar = BootloaderType.CBOOT
-    CHIP_ID_MODEL_MAP: ClassVar[Dict[int, str]] = {0x19: "rqx_580"}
+    CHIP_ID_MODEL_MAP: ClassVar = {0x19: "rqx_580"}
     DEFAULT_TEGRA_CHIP_ID_FPATH: ClassVar = (
         "/sys/module/tegra_fuse/parameters/tegra_chip_id"
     )
