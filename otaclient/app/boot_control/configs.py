@@ -69,13 +69,15 @@ class _SeparatedBootParOTAStatusConfig(BaseModel):
     grub platform shares /boot dir by sharing the same boot device.
     """
 
+    OTA_STATUS_DNAME: _std_ClassVar = "ota-status"
+
     @cached_computed_field
     def ACTIVE_BOOT_OTA_STATUS_DPATH(self) -> str:
         """The dynamically rooted location of ota-status dir.
 
         Default: /boot/ota-status
         """
-        return os.path.join(cfg.BOOT_DPATH, "ota-status")
+        return os.path.join(cfg.BOOT_DPATH, self.OTA_STATUS_DNAME)
 
     @cached_computed_field
     def STANDBY_BOOT_OTA_STATUS_DPATH(self) -> str:
@@ -206,7 +208,7 @@ class CBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
     def SEPARATE_BOOT_MOUNT_POINT(self) -> str:
         """The dynamically rooted location of standby slot's boot dev mount point.
 
-        Default: /mnt/otaclient/standby_root
+        Default: /mnt/otaclient/standby_boot
         """
         return os.path.join(cfg.OTACLIENT_MOUNT_SPACE_DPATH, "standby_boot")
 
