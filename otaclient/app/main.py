@@ -16,12 +16,16 @@
 import asyncio
 import logging
 import os
+import os.path
 import sys
 from pathlib import Path
 
+# NOTE: preload protobuf/grpc related modules before any other component
+#       modules being imported.
+from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
+
 from otaclient import __version__  # type: ignore
 from otaclient._utils import if_run_as_container
-from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg, EXTRA_VERSION_FILE
 from .log_setting import configure_logging, get_ecu_id
@@ -51,6 +55,20 @@ def _check_other_otaclient():
     write_str_to_file_sync(cfg.OTACLIENT_PID_FPATH, f"{os.getpid()}")
 
 
+def _check_active_rootfs():
+    """Checking the ACTIVE_ROOTFS config value when in container mode."""
+    active_rootfs_mp = cfg.ACTIVE_ROOTFS
+    if active_rootfs_mp == cfg.DEFAULT_ACTIVE_ROOTFS:
+        return
+
+    assert os.path.isdir(
+        active_rootfs_mp
+    ), f"ACTIVE_ROOTFS must be a dir, get {active_rootfs_mp}"
+    assert os.path.isabs(
+        active_rootfs_mp
+    ), f"ACTIVE_ROOTFS must be absolute, get: {active_rootfs_mp}"
+
+
 def main():
     logger.info("started")
     if Path(EXTRA_VERSION_FILE).is_file():
@@ -66,6 +84,8 @@ def main():
             "and/or ACTIVE_ROOTFS not specified"
         )
 
-    # start the otaclient grpc server
+    # do pre-start checking
+    _check_active_rootfs()
     _check_other_otaclient()
+
     asyncio.run(launch_otaclient_grpc_server())

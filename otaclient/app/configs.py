@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os.path
 from enum import Enum
-from os.path import isabs, isdir
 from pathlib import Path
 from pydantic import (
     AfterValidator,
@@ -32,7 +31,7 @@ from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar, Dict
 from typing_extensions import Annotated
 
 from otaclient import __file__ as _otaclient__init__
-from otaclient._utils import cached_computed_field, validator_wrapper
+from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
 from otaclient._utils.logging import check_loglevel
 
@@ -77,11 +76,7 @@ class _DynamicRootedPathsConfig(BaseModel):
     #
     DEFAULT_ACTIVE_ROOTFS: _std_ClassVar = "/"
 
-    ACTIVE_ROOTFS: Annotated[
-        str,
-        AfterValidator(validator_wrapper(isabs, "active rootfs path must be absolute")),
-        AfterValidator(validator_wrapper(isdir, "active rootfs must be a dir")),
-    ] = DEFAULT_ACTIVE_ROOTFS
+    ACTIVE_ROOTFS: str = DEFAULT_ACTIVE_ROOTFS
 
     @cached_computed_field
     def IS_CONTAINER(self) -> bool:

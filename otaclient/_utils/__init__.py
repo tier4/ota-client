@@ -37,15 +37,3 @@ def if_run_as_container() -> bool:
 
 def cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
     return computed_field(cached_property(_f))
-
-
-def validator_wrapper(
-    _validate_f: Callable[[T], bool], err_msg: str = ""
-) -> Callable[[T], T]:
-    """Turns a validate function that returns bool into a pydantic validator."""
-
-    def _validator(_value: T) -> T:
-        assert _validate_f(_value), err_msg
-        return _value
-
-    return _validator
