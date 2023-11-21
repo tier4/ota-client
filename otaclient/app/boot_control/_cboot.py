@@ -298,6 +298,11 @@ class CBootController(
         try:
             self._cboot_control: _CBootControl = _CBootControl()
 
+            # ------ prepare mount space ------ #
+            otaclient_ms = Path(cfg.OTACLIENT_MOUNT_SPACE_DPATH)
+            otaclient_ms.mkdir(exist_ok=True, parents=True)
+            otaclient_ms.chmod(0o700)
+
             # load paths
             ## first try to unmount standby dev if possible
             self.standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()

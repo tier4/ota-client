@@ -386,14 +386,19 @@ class RPIBootController(BootControllerProtocol):
     def __init__(self) -> None:
         try:
             self._rpiboot_control = _RPIBootControl()
-            # mount point prepare
+
+            # ------ prepare mount space ------ #
+            otaclient_ms = Path(cfg.OTACLIENT_MOUNT_SPACE_DPATH)
+            otaclient_ms.mkdir(exist_ok=True, parents=True)
+            otaclient_ms.chmod(0o700)
+
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._rpiboot_control.standby_slot_dev,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MP,
                 active_slot_dev=self._rpiboot_control.active_slot_dev,
                 active_slot_mount_point=cfg.ACTIVE_SLOT_MP,
             )
-            # init ota-status files
+
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=self._rpiboot_control.active_slot,
                 standby_slot=self._rpiboot_control.standby_slot,
