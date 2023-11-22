@@ -37,3 +37,8 @@ def if_run_as_container() -> bool:
 
 def cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
     return computed_field(cached_property(_f))
+
+
+def truncate_str_or_bytes(_str: str | bytes, _len: int):
+    """Truncate input string/bytes and return the shorten one."""
+    return _str[:_len]
