@@ -99,13 +99,10 @@ def reboot(_args: str = "") -> NoReturn:
     new_root = cfg.ACTIVE_ROOTFS if cfg.IS_CONTAINER else None
 
     try:
-        subprocess_call(
-            f"reboot {_args}",
-            raise_exception=True,
-            new_root=new_root,
-        )
-    except Exception as e:
-        logger.error(f"something wrong when calling reboot cmd: {e!r}")
+        _reboot(_args, raise_exception=True, new_root=new_root)
+    except Exception:
+        logger.error("failed to reboot the system")
+        raise
     finally:  # ensure otaclient exits on this function being called
         sys.exit(0)
 
