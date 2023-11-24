@@ -342,8 +342,8 @@ def mount(
     _option_str = f"-o {','.join(options)}" if isinstance(options, list) else ""
     _args_str = f"{' '.join(args)}" if isinstance(args, list) else ""
 
-    _cmd = f"mount {_option_str} {_args_str} {dev} {mount_point}"
-    subprocess_call(_cmd, raise_exception=True, timeout=timeout)
+    _args = f"{_option_str} {_args_str} {dev} {mount_point}"
+    _mount(_args, raise_exception=True, timeout=timeout)
 
 
 def mount_rw(
