@@ -19,7 +19,7 @@ import os
 import os.path
 import subprocess
 import shlex
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from . import truncate_str_or_bytes
 
@@ -126,3 +126,38 @@ def subprocess_call(
             ) from e
         if capture_output:
             return default
+
+
+if TYPE_CHECKING:
+
+    def subprocess_check_output(
+        cmd: str | list[str],
+        *,
+        new_root: Optional[str] = None,
+        raise_exception: bool = False,
+        timeout: Optional[float] = None,
+        default: Optional[str] = None,
+    ) -> str | None:
+        """Run <cmd> in subprocess and return the result.
+
+        Args:
+            cmd (str | list[str]): the <cmd> to be execute.
+            new_root (str = None): if this command is required to run with chroot, specifying
+                which root to chroot to.
+            raise_exception (bool = False): if true, exception before/during subprocess execution
+                will be raised, otherwise exception will be handled.
+                Note that exception raised due to <new_root> is invalid will always be raised.
+            timeout (floats = None): subprocess execution timeout.
+            default (str = None): if subprocess execution failed but <raise_exception> is False,
+                use <default> as return value.
+
+        Returns:
+            The stdout of the execution, or <default> if execution failed and <raise_exception> is False.
+
+        Raises:
+            SubprocessCalledFailed exception if subprocess call failed or <new_root> is specified
+                but invalid(not found or not a dir).
+        """
+
+else:
+    subprocess_check_output = functools.partial(subprocess_call, capture_output=True)
