@@ -116,7 +116,7 @@ def get_attr_from_dev(
     *,
     raise_exception: bool,
     timeout: Optional[float] = None,
-):
+) -> str | None:
     """Use lsblk to query dev attr value."""
     _args = f"-in -o {attr_n} {dev}"
     return _lsblk(_args, timeout=timeout, raise_exception=raise_exception)
@@ -317,44 +317,6 @@ def umount(
             raise
 
 
-def mkfs_ext4(
-    dev: StrOrPath,
-    fslabel: Optional[str] = None,
-    fsuuid: Optional[str] = None,
-    *,
-    preserve_fslabel: bool,
-    preserve_fsuuid: bool,
-    timeout: Optional[float] = None,
-):
-    """Call mkfs.ext4 on <dev>.
-
-    Raises:
-        MkfsError on failed ext4 partition formatting.
-    """
-    if preserve_fslabel:
-        try:
-            fslabel = get_attr_from_dev(dev, "LABEL", raise_exception=True)
-        except Exception:
-            pass
-    specify_fslabel = f"-L {fslabel}" if fslabel else ""
-
-    if preserve_fsuuid:
-        try:
-            fsuuid = get_attr_from_dev(dev, "UUID", raise_exception=True)
-        except Exception:
-            pass
-    specify_fsuuid = f"-U {fsuuid}" if fsuuid else ""
-
-    logger.warning(f"format {dev} to ext4...")
-    try:
-        _cmd = f"mkfs.ext4 {specify_fsuuid} {specify_fslabel} {dev}"
-        subprocess_call(_cmd, raise_exception=True, timeout=timeout)
-    except SubProcessCalledFailed as e:
-        _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
-        logger.error(_failure_msg)
-        raise
-
-
 def mount_ro(
     target: StrOrPath,
     mount_point: StrOrPath,
@@ -389,3 +351,47 @@ def mount_ro(
         timeout=timeout,
         raise_exception=raise_exception,
     )
+
+
+def mkfs_ext4(
+    dev: StrOrPath,
+    fslabel: Optional[str] = None,
+    fsuuid: Optional[str] = None,
+    *,
+    preserve_fslabel: bool,
+    preserve_fsuuid: bool,
+    timeout: Optional[float] = None,
+) -> None:
+    """Call mkfs.ext4 on <dev>.
+
+    Args:
+        dev (StrOrPath): the target partition to format as ext4.
+        fslabel (str = None): fslabel to assign.
+        fsuuid (str = None): fsuuid to assign.
+        preserve_fslabel (bool): whether to preserve previous fs' fslabel
+            if available. If set to True, <fslabel> param will be ignored.
+        preserve_fsuuid (bool): whether to preserve previous fs'fsuuid
+            if available. If set to True, <fsuuid> param will be ignored.
+
+    Raises:
+        MkfsError on failed ext4 partition formatting.
+    """
+    if preserve_fslabel and (
+        _prev_fslabel := get_attr_from_dev(dev, "LABEL", raise_exception=False)
+    ):
+        fslabel = _prev_fslabel
+    specify_fslabel = f"-L {fslabel}" if fslabel else ""
+
+    if preserve_fsuuid and (
+        _prev_fsuuid := get_attr_from_dev(dev, "UUID", raise_exception=False)
+    ):
+        fsuuid = _prev_fsuuid
+    specify_fsuuid = f"-U {fsuuid}" if fsuuid else ""
+
+    logger.warning(f"format {dev} to ext4...")
+    try:
+        _args = f"{specify_fsuuid} {specify_fslabel} {dev}"
+        _mkfs_ext4(_args, raise_exception=True, timeout=timeout)
+    except SubProcessCalledFailed as e:
+        logger.error(f"failed to format {dev} as mkfs.ext4 on: {e!r}")
+        raise
