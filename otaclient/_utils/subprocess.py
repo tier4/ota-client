@@ -65,7 +65,6 @@ def _subprocess_call(
     raise_exception: bool = False,
     timeout: Optional[float] = None,
     capture_output: bool = False,
-    default: Optional[str] = None,
 ) -> str | None:
     if isinstance(cmd, str):
         cmd = shlex.split(cmd)
@@ -97,16 +96,12 @@ def _subprocess_call(
                 new_root=new_root,
                 stderr=str(e.stderr),
             ) from e
-        if capture_output:
-            return default
 
     except Exception as e:
         if raise_exception:
             raise SubProcessCalledFailed(
                 msg=f"unexpected exception:{cmd=}, {e!r}"
             ) from e
-        if capture_output:
-            return default
 
 
 if TYPE_CHECKING:
@@ -140,7 +135,6 @@ if TYPE_CHECKING:
         new_root: Optional[str] = None,
         raise_exception: bool = False,
         timeout: Optional[float] = None,
-        default: Optional[str] = None,
     ) -> str | None:
         """Run <cmd> in subprocess and return the result.
 
@@ -152,11 +146,9 @@ if TYPE_CHECKING:
                 will be raised, otherwise exception will be handled.
                 Note that exception raised due to <new_root> is invalid will always be raised.
             timeout (floats = None): subprocess execution timeout.
-            default (str = None): if subprocess execution failed but <raise_exception> is False,
-                use <default> as return value.
 
         Returns:
-            The stdout of the execution, or <default> if execution failed and <raise_exception> is False.
+            The stdout of the execution, or None if execution failed and <raise_exception> is False.
 
         Raises:
             SubprocessCalledFailed exception if subprocess call failed or <new_root> is specified
