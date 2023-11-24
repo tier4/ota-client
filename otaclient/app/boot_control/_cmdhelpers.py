@@ -21,44 +21,66 @@ logger = get_logger(__name__)
 P = ParamSpec("P")
 T = TypeVar("T")
 
-# ------ thin helper funcs for calling cmds ------ #
+# ------ thin wrappers for calling corresponding commands ------ #
 
 
-def _prepare_tp(_src: Callable[Concatenate[Any, P], Any]):
-    """Take paramspec from <_src> and apply to <_target>, and set first arg to take str."""
+def _exec_wrapper(
+    _: Callable[Concatenate[Any, P], Any], err_handler: Callable[[str], None]
+):
+    """A wrapper that handles logging when execution failed and provides typehints."""
 
-    def _decorator(_target) -> Callable[Concatenate[str, P], Any]:
-        return _target
+    def _decorator(_target: Callable[..., T]) -> Callable[Concatenate[str, P], T]:
+        @functools.wraps(_target)
+        def _inner(*args, **kwargs):
+            try:
+                _target(*args, **kwargs)
+            except SubProcessCalledFailed as e:
+                err_handler(e.err_report)
+                raise
+
+        return _inner  # type: ignore
 
     return _decorator
 
 
-@_prepare_tp(subprocess_check_output)
+@_exec_wrapper(subprocess_check_output, logger.warning)
 def _findfs(_args: str, **kwargs) -> str | None:
-    """
-    Usage:
-        findfs [options] {LABEL,UUID,PARTUUID,PARTLABEL}=<value>
-    """
-    _cmd = f"findfs {_args}"
-    return subprocess_check_output(_cmd, **kwargs)
+    return subprocess_check_output(f"findfs {_args}", **kwargs)
 
 
-@_prepare_tp(subprocess_check_output)
+@_exec_wrapper(subprocess_check_output, logger.warning)
 def _findmnt(_args: str, **kwargs) -> str | None:
-    _cmd = f"findmnt {_args}"
-    return subprocess_check_output(_cmd, **kwargs)
+    return subprocess_check_output(f"findmnt {_args}", **kwargs)
 
 
-@_prepare_tp(subprocess_check_output)
+@_exec_wrapper(subprocess_check_output, logger.error)
 def _lsblk(_args: str, **kwargs) -> str | None:
-    _cmd = f"lsblk {_args}"
-    return subprocess_check_output(_cmd, **kwargs)
+    return subprocess_check_output(f"lsblk {_args}", **kwargs)
 
 
-@_prepare_tp(subprocess_call)
+@_exec_wrapper(subprocess_call, logger.error)
 def _mkfs_ext4(_args: str, **kwargs) -> None:
-    _cmd = f"mkfs.ext4 {_args}"
-    return subprocess_call(_cmd, **kwargs)
+    return subprocess_call(f"mkfs.ext4 {_args}", **kwargs)
+
+
+@_exec_wrapper(subprocess_call, logger.error)
+def _reboot(_args: str, **kwargs) -> None:
+    return subprocess_call(f"reboot {_args}", **kwargs)
+
+
+@_exec_wrapper(subprocess_call, logger.error)
+def _mount(_args: str, **kwargs) -> None:
+    return subprocess_call(f"mount {_args}", **kwargs)
+
+
+@_exec_wrapper(subprocess_call, logger.warning)
+def _umount(_args: str, **kwargs) -> None:
+    return subprocess_call(f"umount {_args}", **kwargs)
+
+
+@_exec_wrapper(subprocess_call, logger.error)
+def _e2label(_args: str, **kwargs) -> None:
+    return subprocess_call(f"e2label {_args}", **kwargs)
 
 
 # ------ concrete helpers for specific purpose ------ #
