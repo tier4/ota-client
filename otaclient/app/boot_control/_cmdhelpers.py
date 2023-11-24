@@ -4,6 +4,7 @@
 from __future__ import annotations
 import functools
 import sys
+from enum import Enum, unique
 from typing import Any, Callable, Literal, NoReturn, Optional, TypeVar
 from typing_extensions import Concatenate, ParamSpec
 
@@ -135,7 +136,7 @@ def get_dev_by_attr(
     *,
     raise_exception: bool,
     timeout: Optional[float] = None,
-) -> str:
+) -> str | None:
     """Search dev by <attr> with lsblk and return its full dev path."""
     _args = f"{attr_name}={attr_value}"
     return _findfs(_args, timeout=timeout, raise_exception=raise_exception)
@@ -145,7 +146,7 @@ def get_current_rootfs_dev(
     *,
     raise_exception: bool,
     timeout: Optional[float] = None,
-) -> str:
+) -> str | None:
     """Get current rootfs dev with findmnt.
     NOTE:
         -o <COLUMN>: only print <COLUMN>
@@ -169,7 +170,7 @@ def get_dev_by_mount_point(
     *,
     raise_exception: bool,
     timeout: Optional[float] = None,
-) -> str:
+) -> str | None:
     """Return the underlying mounted dev of the given mount_point."""
     return _findmnt(
         f"-no SOURCE {mount_point}", timeout=timeout, raise_exception=raise_exception
@@ -196,7 +197,7 @@ def get_parent_dev(
     *,
     raise_exception: bool,
     timeout: Optional[float] = None,
-) -> str:
+) -> str | None:
     """
     When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
 
@@ -211,143 +212,11 @@ def set_dev_fslabel(
     dev: StrOrPath,
     fslabel: str,
     *,
-    raise_exception: bool,
+    raise_exception: bool = True,
     timeout: Optional[float] = None,
-):
+) -> None:
     cmd = f"e2label {dev} {fslabel}"
     subprocess_call(cmd, timeout=timeout, raise_exception=raise_exception)
-
-
-def mount(
-    dev: StrOrPath,
-    mount_point: StrOrPath,
-    *,
-    options: Optional[list[str]] = None,
-    args: Optional[list[str]] = None,
-    raise_exception: bool,
-    timeout: Optional[float] = None,
-):
-    """
-    mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
-
-    Raises:
-        MountError on failed mounting.
-    """
-    _option_str = f"-o {','.join(options)}" if isinstance(options, list) else ""
-    _args_str = f"{' '.join(args)}" if isinstance(args, list) else ""
-
-    _cmd = f"mount {_option_str} {_args_str} {dev} {mount_point}"
-    subprocess_call(_cmd, raise_exception=raise_exception, timeout=timeout)
-
-
-def mount_rw(
-    target: StrOrPath,
-    mount_point: StrOrPath,
-    *,
-    raise_exception: bool,
-    timeout: Optional[float] = None,
-):
-    """Mount the target to the mount_point read-write.
-
-    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
-            mount events propagation to/from this mount point.
-
-    Raises:
-        MountError on failed mounting.
-    """
-    mount(
-        target,
-        mount_point,
-        options=["rw"],
-        args=["--make-private", "--make-unbindable"],
-        timeout=timeout,
-        raise_exception=raise_exception,
-    )
-
-
-def bind_mount_ro(
-    target: StrOrPath,
-    mount_point: StrOrPath,
-    *,
-    raise_exception: bool,
-    timeout: Optional[float] = None,
-):
-    """Bind mount the target to the mount_point read-only.
-
-    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
-            mount events propagation to/from this mount point.
-
-    Raises:
-        MountError on failed mounting.
-    """
-    mount(
-        target,
-        mount_point,
-        options=["bind", "ro"],
-        args=["--make-private", "--make-unbindable"],
-        timeout=timeout,
-        raise_exception=raise_exception,
-    )
-
-
-def umount(
-    target: StrOrPath,
-    *,
-    raise_exception: bool = False,
-    timeout: Optional[float] = None,
-):
-    """Try to unmount the <target>.
-
-    Raises:
-        If ignore_error is False, raises MountError on failed unmounting.
-    """
-    if not is_target_mounted(target, raise_exception=False):
-        return
-
-    # if the target is mounted, try to unmount it.
-    try:
-        _cmd = f"umount -l {target}"
-        subprocess_call(_cmd, raise_exception=True, timeout=timeout)
-    except SubProcessCalledFailed as e:
-        logger.warning(f"failed to unmount {target}: {e!r}")
-        if raise_exception:
-            raise
-
-
-def mount_ro(
-    target: StrOrPath,
-    mount_point: StrOrPath,
-    *,
-    raise_exception: bool,
-    timeout: Optional[float] = None,
-):
-    """Mount target on mount_point read-only.
-
-    If the target device is mounted, we bind mount the target device to mount_point,
-    if the target device is not mounted, we directly mount it to the mount_point.
-
-    This method mount the target as ro with make-private flag and make-unbindable flag,
-    to prevent ANY accidental writes/changes to the target.
-
-    Raises:
-        MountError on failed mounting.
-    """
-    if is_target_mounted(target, raise_exception=False):
-        return bind_mount_ro(
-            target,
-            mount_point,
-            timeout=timeout,
-            raise_exception=raise_exception,
-        )
-
-    mount(
-        target,
-        mount_point,
-        options=["ro"],
-        args=["--make-private", "--make-unbindable"],
-        timeout=timeout,
-        raise_exception=raise_exception,
-    )
 
 
 def mkfs_ext4(
@@ -392,3 +261,204 @@ def mkfs_ext4(
     except SubProcessCalledFailed as e:
         logger.error(f"failed to format {dev} as mkfs.ext4 on: {e!r}")
         raise
+
+
+#
+# ------ mount related helper funcs and exceptions ------ #
+#
+
+
+class MountError(Exception):
+    """Mount operation failure related exception."""
+
+    def __init__(self, *args: object, failure_reason: MountFailedReason) -> None:
+        self.failure_reason = failure_reason
+        super().__init__(*args)
+
+
+@unique
+class MountFailedReason(int, Enum):
+    # error code
+    SUCCESS = 0
+    PERMISSIONS_ERROR = 1
+    SYSTEM_ERROR = 2
+    INTERNAL_ERROR = 4
+    USER_INTERRUPT = 8
+    GENERIC_MOUNT_FAILURE = 32
+
+    # custom error code
+    # specific reason for generic mount failure
+    TARGET_NOT_FOUND = -1
+    TARGET_ALREADY_MOUNTED = -2
+    MOUNT_POINT_NOT_FOUND = -3
+    BIND_MOUNT_ON_NON_DIR = -4
+
+
+def _parse_mount_failure(func: Callable[..., Any]):
+    @functools.wraps(func)
+    def _wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except SubProcessCalledFailed as e:
+            _reason = MountFailedReason(e.return_code)
+
+            if _reason != MountFailedReason.GENERIC_MOUNT_FAILURE:
+                raise MountError(failure_reason=_reason)
+
+            # if the return code is 32, determine the detailed reason
+            # of the mount failure
+            _error_msg = str(e.stderr)
+            if _error_msg.find("already mounted") != -1:
+                _fail_reason = MountFailedReason.TARGET_ALREADY_MOUNTED
+            elif _error_msg.find("mount point does not exist") != -1:
+                _fail_reason = MountFailedReason.MOUNT_POINT_NOT_FOUND
+            elif _error_msg.find("does not exist") != -1:
+                _fail_reason = MountFailedReason.TARGET_NOT_FOUND
+            elif _error_msg.find("Not a directory") != -1:
+                _fail_reason = MountFailedReason.BIND_MOUNT_ON_NON_DIR
+            else:
+                _fail_reason = MountFailedReason.GENERIC_MOUNT_FAILURE
+
+            raise MountError(_error_msg, failure_reason=_fail_reason)
+
+    return _wrapper
+
+
+@_parse_mount_failure
+def mount(
+    dev: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    options: Optional[list[str]] = None,
+    args: Optional[list[str]] = None,
+    timeout: Optional[float] = None,
+) -> None:
+    """
+    mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
+
+    Raises:
+        MountError on failed mounting.
+    """
+    _option_str = f"-o {','.join(options)}" if isinstance(options, list) else ""
+    _args_str = f"{' '.join(args)}" if isinstance(args, list) else ""
+
+    _cmd = f"mount {_option_str} {_args_str} {dev} {mount_point}"
+    subprocess_call(_cmd, raise_exception=True, timeout=timeout)
+
+
+def mount_rw(
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool,
+    timeout: Optional[float] = None,
+) -> None:
+    """Mount the target to the mount_point read-write.
+
+    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
+            mount events propagation to/from this mount point.
+
+    Raises:
+        MountError on failed mounting.
+    """
+    try:
+        mount(
+            target,
+            mount_point,
+            options=["rw"],
+            args=["--make-private", "--make-unbindable"],
+            timeout=timeout,
+        )
+    except MountError as e:
+        logger.error(f"failed to mount {target=} to {mount_point=}: {e!r}")
+        if raise_exception:
+            raise
+
+
+def bind_mount_ro(
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool,
+    timeout: Optional[float] = None,
+) -> None:
+    """Bind mount the target to the mount_point read-only.
+
+    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
+            mount events propagation to/from this mount point.
+
+    Raises:
+        MountError on failed mounting.
+    """
+    try:
+        mount(
+            target,
+            mount_point,
+            options=["bind", "ro"],
+            args=["--make-private", "--make-unbindable"],
+            timeout=timeout,
+        )
+    except MountError as e:
+        logger.error(f"failed to bind_mount_ro {target=} to {mount_point=}: {e!r}")
+        if raise_exception:
+            raise
+
+
+def mount_ro(
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool,
+    timeout: Optional[float] = None,
+) -> None:
+    """Mount target on mount_point read-only.
+
+    If the target device is mounted, we bind mount the target device to mount_point,
+    if the target device is not mounted, we directly mount it to the mount_point.
+
+    This method mount the target as ro with make-private flag and make-unbindable flag,
+    to prevent ANY accidental writes/changes to the target.
+
+    Raises:
+        MountError on failed mounting.
+    """
+    if is_target_mounted(target, raise_exception=False):
+        return bind_mount_ro(
+            target,
+            mount_point,
+            timeout=timeout,
+            raise_exception=raise_exception,
+        )
+
+    try:
+        mount(
+            target,
+            mount_point,
+            options=["ro"],
+            args=["--make-private", "--make-unbindable"],
+            timeout=timeout,
+            raise_exception=raise_exception,
+        )
+    except MountError as e:
+        logger.error(f"failed to mount_ro {target=} to {mount_point=}: {e!r}")
+        if raise_exception:
+            raise
+
+
+def umount(
+    target: StrOrPath,
+    *,
+    raise_exception: bool = False,
+    timeout: Optional[float] = None,
+) -> None:
+    """Try to unmount the <target>."""
+    if not is_target_mounted(target, raise_exception=False):
+        return
+
+    try:
+        _args = f"-l {target}"
+        _umount(_args, raise_exception=True, timeout=timeout)
+    except SubProcessCalledFailed as e:
+        logger.warning(f"failed to unmount {target}: {e!r}")
+        if raise_exception:
+            raise
