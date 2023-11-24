@@ -25,12 +25,14 @@ T = TypeVar("T")
 # ------ thin wrappers for calling corresponding commands ------ #
 
 
-def _exec_wrapper(
+def exec_wrapper(
     _: Callable[Concatenate[Any, P], Any], err_handler: Callable[[str], None]
 ):
     """A wrapper that handles logging when execution failed and provides typehints."""
 
-    def _decorator(_target: Callable[..., T]) -> Callable[Concatenate[str, P], T]:
+    def _decorator(
+        _target: Callable[..., T]
+    ) -> Callable[Concatenate[Optional[str], P], T]:
         @functools.wraps(_target)
         def _inner(*args, **kwargs):
             try:
@@ -44,42 +46,42 @@ def _exec_wrapper(
     return _decorator
 
 
-@_exec_wrapper(subprocess_check_output, logger.warning)
+@exec_wrapper(subprocess_check_output, logger.warning)
 def _findfs(_args: str, **kwargs) -> str | None:
     return subprocess_check_output(f"findfs {_args}", **kwargs)
 
 
-@_exec_wrapper(subprocess_check_output, logger.warning)
+@exec_wrapper(subprocess_check_output, logger.warning)
 def _findmnt(_args: str, **kwargs) -> str | None:
     return subprocess_check_output(f"findmnt {_args}", **kwargs)
 
 
-@_exec_wrapper(subprocess_check_output, logger.error)
+@exec_wrapper(subprocess_check_output, logger.error)
 def _lsblk(_args: str, **kwargs) -> str | None:
     return subprocess_check_output(f"lsblk {_args}", **kwargs)
 
 
-@_exec_wrapper(subprocess_call, logger.error)
+@exec_wrapper(subprocess_call, logger.error)
 def _mkfs_ext4(_args: str, **kwargs) -> None:
     return subprocess_call(f"mkfs.ext4 {_args}", **kwargs)
 
 
-@_exec_wrapper(subprocess_call, logger.error)
+@exec_wrapper(subprocess_call, logger.error)
 def _reboot(_args: str, **kwargs) -> None:
     return subprocess_call(f"reboot {_args}", **kwargs)
 
 
-@_exec_wrapper(subprocess_call, logger.error)
+@exec_wrapper(subprocess_call, logger.error)
 def _mount(_args: str, **kwargs) -> None:
     return subprocess_call(f"mount {_args}", **kwargs)
 
 
-@_exec_wrapper(subprocess_call, logger.warning)
+@exec_wrapper(subprocess_call, logger.warning)
 def _umount(_args: str, **kwargs) -> None:
     return subprocess_call(f"umount {_args}", **kwargs)
 
 
-@_exec_wrapper(subprocess_call, logger.error)
+@exec_wrapper(subprocess_call, logger.error)
 def _e2label(_args: str, **kwargs) -> None:
     return subprocess_call(f"e2label {_args}", **kwargs)
 
@@ -175,6 +177,25 @@ def get_dev_by_mount_point(
     return _findmnt(
         f"-no SOURCE {mount_point}", timeout=timeout, raise_exception=raise_exception
     )
+
+
+def get_dev_tree(
+    _parent: StrOrPath,
+    *,
+    raise_exception: bool,
+    timeout: Optional[float] = None,
+) -> str | None:
+    """
+    If <_parent> is "/dev/sdx", example return value is:
+
+        NAME="/dev/sdx"
+        NAME="/dev/sdx1" # system-boot
+        NAME="/dev/sdx2" # slot_a
+        NAME="/dev/sdx3" # slot_b
+
+    """
+    _args = f"-Pp -o NAME {_parent}"
+    return _lsblk(_args, timeout=timeout, raise_exception=raise_exception)
 
 
 def is_target_mounted(
