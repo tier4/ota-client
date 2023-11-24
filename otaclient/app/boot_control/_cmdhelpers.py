@@ -215,8 +215,8 @@ def set_dev_fslabel(
     raise_exception: bool = True,
     timeout: Optional[float] = None,
 ) -> None:
-    cmd = f"e2label {dev} {fslabel}"
-    subprocess_call(cmd, timeout=timeout, raise_exception=raise_exception)
+    _args = f"{dev} {fslabel}"
+    _e2label(_args, timeout=timeout, raise_exception=raise_exception)
 
 
 def mkfs_ext4(
