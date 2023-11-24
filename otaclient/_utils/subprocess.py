@@ -58,7 +58,7 @@ class SubProcessCalledFailed(Exception):
         return f"other failure: {self.msg}"
 
 
-def subprocess_call(
+def _subprocess_call(
     cmd: str | list[str],
     *,
     new_root: Optional[str] = None,
@@ -67,25 +67,6 @@ def subprocess_call(
     capture_output: bool = False,
     default: Optional[str] = None,
 ) -> str | None:
-    """Run <cmd> in subprocess without returnning the output.
-
-    Args:
-        cmd (str | list[str]): the <cmd> to be execute.
-        new_root (str = None): if this command is required to run with chroot, specifying
-            which root to chroot to.
-        raise_exception (bool = False): if true, exception before/during subprocess execution
-            will be raised, otherwise exception will be handled.
-            Note that exception raised due to <new_root> is invalid will always be raised.
-        timeout (floats = None): subprocess execution timeout.
-
-        capture_output (bool = False): whether to capture stdout and return it.
-        default (str = None): (only valid when <capture_output> is True) if subprocess execution failed but <raise_exception> is False,
-            use <default> as return value.
-
-    Raises:
-        SubprocessCalledFailed exception if subprocess call failed or <new_root> is specified
-            but invalid(not found or not a dir).
-    """
     if isinstance(cmd, str):
         cmd = shlex.split(cmd)
 
@@ -130,6 +111,29 @@ def subprocess_call(
 
 if TYPE_CHECKING:
 
+    def subprocess_call(
+        cmd: str | list[str],
+        *,
+        new_root: Optional[str] = None,
+        raise_exception: bool = False,
+        timeout: Optional[float] = None,
+    ) -> None:
+        """Run <cmd> in subprocess without returnning the output.
+
+        Args:
+            cmd (str | list[str]): the <cmd> to be execute.
+            new_root (str = None): if this command is required to run with chroot, specifying
+                which root to chroot to.
+            raise_exception (bool = False): if true, exception before/during subprocess execution
+                will be raised, otherwise exception will be handled.
+                Note that exception raised due to <new_root> is invalid will always be raised.
+            timeout (floats = None): subprocess execution timeout.
+
+        Raises:
+            SubprocessCalledFailed exception if subprocess call failed or <new_root> is specified
+                but invalid(not found or not a dir).
+        """
+
     def subprocess_check_output(
         cmd: str | list[str],
         *,
@@ -160,4 +164,5 @@ if TYPE_CHECKING:
         """
 
 else:
-    subprocess_check_output = functools.partial(subprocess_call, capture_output=True)
+    subprocess_call = functools.partial(_subprocess_call, capture_output=False)
+    subprocess_check_output = functools.partial(_subprocess_call, capture_output=True)
