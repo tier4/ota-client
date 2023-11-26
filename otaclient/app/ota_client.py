@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional, Type, Iterator
 from urllib.parse import urlparse
 
+from otaclient.configs import debug_flags
 from . import downloader, ota_metadata, errors as ota_errors
 from .boot_control import BootControllerProtocol, get_boot_controller
 from .common import (
@@ -527,7 +528,10 @@ class OTAClient(OTAClientProtocol):
         try:
             self.last_failure_type = exc.failure_type
             self.last_failure_reason = exc.get_failure_reason()
-            if cfg.DEBUG_MODE or cfg.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API:
+            if (
+                debug_flags.DEBUG_MODE
+                or debug_flags.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API
+            ):
                 self.last_failure_traceback = exc.get_failure_traceback()
 
             logger.error(
@@ -664,7 +668,10 @@ class OTAServicer:
                 failure_reason=e.get_failure_reason(),
             )
 
-            if cfg.DEBUG_MODE or cfg.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API:
+            if (
+                debug_flags.DEBUG_MODE
+                or debug_flags.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API
+            ):
                 self._otaclient_startup_failed_status.failure_traceback = (
                     e.get_failure_traceback()
                 )
@@ -691,7 +698,10 @@ class OTAServicer:
                 failure_reason=e.get_failure_reason(),
             )
 
-            if cfg.DEBUG_MODE or cfg.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API:
+            if (
+                debug_flags.DEBUG_MODE
+                or debug_flags.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API
+            ):
                 self._otaclient_startup_failed_status.failure_traceback = (
                     e.get_failure_traceback()
                 )
