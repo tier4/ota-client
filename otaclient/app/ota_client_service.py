@@ -13,12 +13,16 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import grpc.aio
 
-from .configs import config as cfg
+from .configs import config as cfg, service_config
 from .ecu_info import ECUInfo
+from .log_setting import get_logger
 from .proto import wrapper, v2, v2_grpc
 from .ota_client_stub import OTAClientServiceStub
+
+logger = get_logger(__name__)
 
 
 class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
@@ -50,7 +54,16 @@ def create_otaclient_grpc_server():
     v2_grpc.add_OtaClientServiceServicer_to_server(
         server=server, servicer=ota_client_service_v2
     )
-    server.add_insecure_port(f"{ecu_info.ip_addr}:{cfg.SERVER_PORT}")
+
+    listen_addr = ecu_info.ip_addr
+    if service_config.SERVER_ADDRESS:  # for advanced use case only
+        listen_addr = service_config.SERVER_ADDRESS
+    listen_port = service_config.SERVER_PORT
+
+    listen_info = f"{listen_addr}:{listen_port}"
+    logger.info(f"create OTA grpc server at {listen_info}")
+
+    server.add_insecure_port(listen_info)
     return server
 
 
