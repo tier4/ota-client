@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
 from typing_extensions import Self
 
+from otaclient.configs import logging_config
 from . import log_setting
 from .configs import config as cfg
 from .common import ensure_otaproxy_start
@@ -91,7 +92,7 @@ class _OTAProxyContext(OTAProxyContextProto):
             loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
         )
         otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
-        otaproxy_logger.setLevel(cfg.LOGGING_LEVEL)
+        otaproxy_logger.setLevel(logging_config.LOGGING_LEVEL)
         self.logger = otaproxy_logger
 
         # wait for upper otaproxy if any
