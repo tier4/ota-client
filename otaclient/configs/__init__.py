@@ -13,11 +13,12 @@
 # limitations under the License.
 """otaclient configs package."""
 
-# prefix for environmental vars name for configs.
-ENV_PREFIX = "OTA_"
 
 from ._debug_setting import debug_flags
 from ._logging import logging_config
 from ._ota_service import service_config
+
+# prefix for environmental vars name for configs.
+ENV_PREFIX = "OTA_"
 
 __all__ = ["ENV_PREFIX", "debug_flags", "logging_config", "service_config"]

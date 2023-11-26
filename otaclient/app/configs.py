@@ -31,7 +31,6 @@ from otaclient import __file__ as _otaclient__init__
 from otaclient.configs import ENV_PREFIX, service_config
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
-from otaclient._utils.logging import check_loglevel
 
 # TODO: place holder before moving app.configs into otaclient.configs package
 _ = service_config
