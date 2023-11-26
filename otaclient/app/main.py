@@ -13,8 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
-import logging
 import os
 import os.path
 import sys
@@ -26,14 +26,15 @@ from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 
 from otaclient import __version__  # type: ignore
 from otaclient._utils import if_run_as_container
+from otaclient.configs import logging_config
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg, EXTRA_VERSION_FILE
-from .log_setting import configure_logging, get_ecu_id
+from .log_setting import configure_logging, get_ecu_id, get_logger
 from .ota_client_service import launch_otaclient_grpc_server
 
 # configure logging before any code being executed
-configure_logging(loglevel=cfg.LOGGING_LEVEL, http_logging_url=get_ecu_id())
-logger = logging.getLogger(__name__)
+configure_logging(logging_config.LOGGING_LEVEL, http_logging_url=get_ecu_id())
+logger = get_logger(__name__)
 
 
 def _check_other_otaclient():
