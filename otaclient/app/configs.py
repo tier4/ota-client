@@ -27,7 +27,7 @@ from pydantic import (
     IPvAnyAddress,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar, Dict
+from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar, Dict, Optional
 from typing_extensions import Annotated
 
 from otaclient import __file__ as _otaclient__init__
@@ -46,6 +46,41 @@ OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
 # NOTE: VERSION file is installed under otaclient package root
 EXTRA_VERSION_FILE = str(OTACLIENT_PACKAGE_ROOT / "version.txt")
 
+ENV_PREFIX = "OTA_"
+# NOTE: ACTIVE_ROOTFS is specially treated and retrieved via HOST_ROOTFS_ENV.
+HOST_ROOTFS_ENV = f"{ENV_PREFIX}HOST_ROOTFS"
+
+
+#
+# ------ otaclient grpc server configs ------ #
+#
+class OTAServiceConfig(BaseSettings):
+    """Configurable configs for OTA grpc server/client call.
+
+    NOTE: for SERVER_ADDRESS, normally this value is not needed to be configured,
+        as this setting by default is configured in ecu_info.yaml.
+        The setting here is for advanced use case when we need to make server listen
+        on different address without changing ecu_info.yaml.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix=ENV_PREFIX,
+        frozen=True,
+        validate_default=True,
+    )
+
+    # NOTE: SERVER_ADDRESS specified here will supersede the value comes from ecu_info.yaml,
+    #       only specify it for advanced use case!
+    SERVER_ADDRESS: Optional[IPvAnyAddress] = None
+    SERVER_PORT: int = Field(default=50051, ge=0, le=65535)
+
+    CLIENT_CALL_PORT: int = Field(default=50051, ge=0, le=65535)
+
+
+#
+# ------ otaclient app configs ------ #
+#
+
 
 class CreateStandbyMechanism(str, Enum):
     LEGACY = "legacy"  # deprecated and removed
@@ -53,7 +88,7 @@ class CreateStandbyMechanism(str, Enum):
     IN_PLACE = "in_place"  # not yet implemented
 
 
-class _FixedInternalConfigs(BaseModel):
+class _FixedInternalConfig(BaseModel):
     """Fixed internal configs."""
 
     RUN_DPATH: _std_ClassVar = "/run/otaclient"
@@ -281,7 +316,7 @@ class _DynamicRootedPathsConfig(BaseModel):
         return os.path.join(self.EXTERNAL_CACHE_DEV_MOUNTPOINT, "data")
 
 
-class _InternalConfigs(_FixedInternalConfigs, _DynamicRootedPathsConfig):
+class _InternalConfig(_FixedInternalConfig, _DynamicRootedPathsConfig):
     """Internal configs for otaclient.
 
     User should not change these settings, except ACTIVE_ROOTFS if running as container,
@@ -289,7 +324,7 @@ class _InternalConfigs(_FixedInternalConfigs, _DynamicRootedPathsConfig):
     """
 
 
-class _NormalConfigs(BaseModel):
+class _ConfigurableConfig(BaseModel):
     """User configurable otaclient settings.
 
     These settings can tune the runtime performance and behavior of otaclient,
@@ -309,12 +344,6 @@ class _NormalConfigs(BaseModel):
 
     # name of OTA used temp folder
     OTA_TMP_DNAME: str = "ota_tmp"
-
-    #
-    # ------ otaclient grpc server config ------ #
-    #
-    SERVER_ADDRESS: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
-    SERVER_PORT: int = Field(default=50051, ge=0, le=65535)
 
     #
     # ------ otaproxy server config ------ #
@@ -431,7 +460,7 @@ class _NormalConfigs(BaseModel):
     DEFAULT_VERSION_STR: str = ""
 
 
-class Config(_InternalConfigs, _NormalConfigs):
+class Config(_InternalConfig, _ConfigurableConfig):
     model_config = ConfigDict(frozen=True, validate_default=True)
 
     @cached_computed_field
@@ -449,13 +478,9 @@ class Config(_InternalConfigs, _NormalConfigs):
 # ------ init config ------ #
 #
 
-ENV_PREFIX = "OTA_"
-# NOTE: ACTIVE_ROOTFS is specially treated and retrieved via HOST_ROOTFS_ENV.
-HOST_ROOTFS_ENV = f"{ENV_PREFIX}HOST_ROOTFS"
-
 
 def _init_config() -> Config:
-    class _ConfigurableNormalConfigs(BaseSettings, _NormalConfigs):
+    class _ConfigurableSetting(BaseSettings, _ConfigurableConfig):
         """one-time class that parse configs from environment vars."""
 
         # retrieve user configurable configs from environmental variables
@@ -466,9 +491,11 @@ def _init_config() -> Config:
         ACTIVE_ROOTFS=os.getenv(
             HOST_ROOTFS_ENV, _DynamicRootedPathsConfig.DEFAULT_ACTIVE_ROOTFS
         ),
-        **_ConfigurableNormalConfigs().model_dump(),
+        **_ConfigurableSetting().model_dump(),
     )
 
 
 config = _init_config()
+service_config = OTAServiceConfig()
+
 del _init_config
