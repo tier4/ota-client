@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Iterator, NamedTuple, Union, Dict, List, Any
 
 from . import log_setting
-from .configs import config as cfg
+from .configs import service_config
 from .boot_control import BootloaderType
 
 logger = log_setting.get_logger(__name__)
@@ -35,7 +35,7 @@ DEFAULT_ECU_INFO = {
 class ECUContact(NamedTuple):
     ecu_id: str
     host: str
-    port: int = cfg.SERVER_PORT
+    port: int = service_config.CLIENT_CALL_PORT
 
 
 @dataclass
@@ -113,7 +113,7 @@ class ECUInfo:
                 yield ECUContact(
                     ecu_id=subecu["ecu_id"],
                     host=subecu["ip_addr"],
-                    port=subecu.get("port", cfg.SERVER_PORT),
+                    port=subecu.get("port", service_config.CLIENT_CALL_PORT),
                 )
             except KeyError:
                 raise ValueError(f"{subecu=} info is invalid")
