@@ -16,13 +16,12 @@
 
 from __future__ import annotations
 from pydantic import IPvAnyAddress, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
-from . import ENV_PREFIX
+from ._common import BaseConfig
 
 
-class OTAServiceConfig(BaseSettings):
+class OTAServiceConfig(BaseConfig):
     """Configurable configs for OTA grpc server/client call.
 
     NOTE: for SERVER_ADDRESS, normally this value is not needed to be configured,
@@ -30,12 +29,6 @@ class OTAServiceConfig(BaseSettings):
         The setting here is for advanced use case when we need to make server listen
         on different address without changing ecu_info.yaml.
     """
-
-    model_config = SettingsConfigDict(
-        env_prefix=ENV_PREFIX,
-        frozen=True,
-        validate_default=True,
-    )
 
     # NOTE: SERVER_ADDRESS specified here will supersede the value comes from ecu_info.yaml,
     #       only specify it for advanced use case!

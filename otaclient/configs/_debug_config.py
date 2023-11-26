@@ -11,11 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""otaclient configs package."""
+"""otaclient debug flags settings."""
 
-from ._common import ENV_PREFIX
-from ._debug_config import debug_flags
-from ._logging_config import logging_config
-from ._ota_service_config import service_config
 
-__all__ = ["ENV_PREFIX", "debug_flags", "logging_config", "service_config"]
+from __future__ import annotations
+from ._common import BaseConfig
+
+
+class DebugFlags(BaseConfig):
+    """Enable internal debug features."""
+
+    # main DEBUG_MODE switch, this flag will enable all debug feature.
+    DEBUG_MODE: bool = False
+
+    # enable failure_traceback field in status API response.
+    DEBUG_ENABLE_TRACEBACK_IN_STATUS_API: bool = False
+
+
+debug_flags = DebugFlags()

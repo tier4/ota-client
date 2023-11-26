@@ -17,7 +17,7 @@ import asyncio
 import pytest
 import pytest_mock
 
-from otaclient.configs._ota_service import OTAServiceConfig
+from otaclient.configs._ota_service_config import OTAServiceConfig
 from otaclient.app.ecu_info import ECUInfo
 from otaclient.app.ota_client_service import create_otaclient_grpc_server
 from otaclient.app.ota_client_call import OtaClientCall

@@ -17,21 +17,14 @@
 from __future__ import annotations
 import logging
 from pydantic import AfterValidator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Dict
 from typing_extensions import Annotated
 
 from otaclient._utils.logging import check_loglevel
-from . import ENV_PREFIX
+from ._common import BaseConfig
 
 
-class LoggingSetting(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix=ENV_PREFIX,
-        frozen=True,
-        validate_default=True,
-    )
-
+class LoggingConfig(BaseConfig):
     LOGGING_LEVEL: Annotated[int, AfterValidator(check_loglevel)] = logging.INFO
     LOG_LEVEL_TABLE: Dict[str, Annotated[int, AfterValidator(check_loglevel)]] = {
         "otaclient.app.boot_control.cboot": LOGGING_LEVEL,
@@ -48,4 +41,4 @@ class LoggingSetting(BaseSettings):
     )
 
 
-logging_config = LoggingSetting()
+logging_config = LoggingConfig()
