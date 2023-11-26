@@ -729,8 +729,6 @@ class OTAClientServiceStub:
         )
 
         self.ecu_info = ecu_info
-        self.listen_addr = ecu_info.ip_addr
-        self.listen_port = cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
