@@ -15,25 +15,27 @@
 
 
 from __future__ import annotations
-import logging
 import os.path
 from enum import Enum
 from pathlib import Path
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
     IPvAnyAddress,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar, Dict, Optional
-from typing_extensions import Annotated
+from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar
 
 from otaclient import __file__ as _otaclient__init__
+from otaclient.configs import ENV_PREFIX
+from otaclient.configs.ota_service import service_config
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
 from otaclient._utils.logging import check_loglevel
+
+# TODO: place holder before moving app.configs into otaclient.configs package
+_ = service_config
 
 # A simple trick to make plain ClassVar work when
 # __future__.annotations is activated.
@@ -46,35 +48,8 @@ OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
 # NOTE: VERSION file is installed under otaclient package root
 EXTRA_VERSION_FILE = str(OTACLIENT_PACKAGE_ROOT / "version.txt")
 
-ENV_PREFIX = "OTA_"
 # NOTE: ACTIVE_ROOTFS is specially treated and retrieved via HOST_ROOTFS_ENV.
 HOST_ROOTFS_ENV = f"{ENV_PREFIX}HOST_ROOTFS"
-
-
-#
-# ------ otaclient grpc server configs ------ #
-#
-class OTAServiceConfig(BaseSettings):
-    """Configurable configs for OTA grpc server/client call.
-
-    NOTE: for SERVER_ADDRESS, normally this value is not needed to be configured,
-        as this setting by default is configured in ecu_info.yaml.
-        The setting here is for advanced use case when we need to make server listen
-        on different address without changing ecu_info.yaml.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix=ENV_PREFIX,
-        frozen=True,
-        validate_default=True,
-    )
-
-    # NOTE: SERVER_ADDRESS specified here will supersede the value comes from ecu_info.yaml,
-    #       only specify it for advanced use case!
-    SERVER_ADDRESS: Optional[IPvAnyAddress] = None
-    SERVER_PORT: int = Field(default=50051, ge=0, le=65535)
-
-    CLIENT_CALL_PORT: int = Field(default=50051, ge=0, le=65535)
 
 
 #
@@ -332,16 +307,6 @@ class _ConfigurableConfig(BaseModel):
     For example, to set SERVER_ADDRESS, set env OTA_SERVER_ADDRESS=10.0.1.1 .
     """
 
-    #
-    # ------ enable internal debug feature ------ #
-    #
-
-    # main DEBUG_MODE switch, this flag will enable all debug feature.
-    DEBUG_MODE: bool = False
-
-    # enable failure_traceback field in status API response.
-    DEBUG_ENABLE_TRACEBACK_IN_STATUS_API: bool = False
-
     # name of OTA used temp folder
     OTA_TMP_DNAME: str = "ota_tmp"
 
@@ -350,24 +315,6 @@ class _ConfigurableConfig(BaseModel):
     #
     OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
     OTA_PROXY_LISTEN_PORT: int = Field(default=8082, ge=0, le=65535)
-
-    #
-    # ------ otaclient logging setting ------ #
-    #
-    LOGGING_LEVEL: Annotated[int, AfterValidator(check_loglevel)] = logging.INFO
-    LOG_LEVEL_TABLE: Dict[str, Annotated[int, AfterValidator(check_loglevel)]] = {
-        "otaclient.app.boot_control.cboot": LOGGING_LEVEL,
-        "otaclient.app.boot_control.grub": LOGGING_LEVEL,
-        "otaclient.app.ota_client": LOGGING_LEVEL,
-        "otaclient.app.ota_client_service": LOGGING_LEVEL,
-        "otaclient.app.ota_client_stub": LOGGING_LEVEL,
-        "otaclient.app.ota_metadata": LOGGING_LEVEL,
-        "otaclient.app.downloader": LOGGING_LEVEL,
-        "otaclient.app.main": LOGGING_LEVEL,
-    }
-    LOG_FORMAT: str = (
-        "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
-    )
 
     #
     # ------ otaclient runtime behavior setting ------ #
@@ -496,6 +443,5 @@ def _init_config() -> Config:
 
 
 config = _init_config()
-service_config = OTAServiceConfig()
 
 del _init_config
