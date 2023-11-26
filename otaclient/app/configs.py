@@ -28,8 +28,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar
 
 from otaclient import __file__ as _otaclient__init__
-from otaclient.configs import ENV_PREFIX
-from otaclient.configs.ota_service import service_config
+from otaclient.configs import ENV_PREFIX, service_config
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
 from otaclient._utils.logging import check_loglevel

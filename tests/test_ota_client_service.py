@@ -17,7 +17,7 @@ import asyncio
 import pytest
 import pytest_mock
 
-from otaclient.app.configs import Config as otaclient_Config
+from otaclient.configs._ota_service import OTAServiceConfig
 from otaclient.app.ecu_info import ECUInfo
 from otaclient.app.ota_client_service import create_otaclient_grpc_server
 from otaclient.app.ota_client_call import OtaClientCall
@@ -65,7 +65,7 @@ class Test_ota_client_service:
 
     @pytest.fixture(autouse=True)
     def setup_test(self, mocker: pytest_mock.MockerFixture):
-        self.otaclient_cfg = otaclient_Config()
+        self.otaclient_cfg = OTAServiceConfig()
 
         self.otaclient_service_stub = _MockedOTAClientServiceStub()
         mocker.patch(
