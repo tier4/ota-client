@@ -17,6 +17,7 @@ import os
 import yaml
 
 from otaclient import otaclient_package_name
+from otaclient.configs import logging_config
 from .configs import config as cfg
 
 
@@ -33,7 +34,9 @@ def get_ecu_id():
 def get_logger(name: str) -> logging.Logger:
     """Helper method to get logger with name."""
     logger = logging.getLogger(name)
-    logger.setLevel(cfg.LOG_LEVEL_TABLE.get(__name__, cfg.LOGGING_LEVEL))
+    logger.setLevel(
+        logging_config.LOG_LEVEL_TABLE.get(__name__, logging_config.LOGGING_LEVEL)
+    )
     return logger
 
 
@@ -44,7 +47,9 @@ def configure_logging(loglevel: int, *, http_logging_url: str):
     #       when launching subprocess.
     # NOTE: for the root logger, set to CRITICAL to filter away logs from other
     #       external modules unless reached CRITICAL level.
-    logging.basicConfig(level=logging.CRITICAL, format=cfg.LOG_FORMAT, force=True)
+    logging.basicConfig(
+        level=logging.CRITICAL, format=logging_config.LOG_FORMAT, force=True
+    )
     # NOTE: set the <loglevel> to the otaclient package root logger
     _otaclient_logger = logging.getLogger(otaclient_package_name)
     _otaclient_logger.setLevel(loglevel)
@@ -55,7 +60,7 @@ def configure_logging(loglevel: int, *, http_logging_url: str):
         from otaclient.aws_iot_log_server import CustomHttpHandler
 
         ch = CustomHttpHandler(host=http_logging_host, url=http_logging_url)
-        fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
+        fmt = logging.Formatter(fmt=logging_config.LOG_FORMAT)
         ch.setFormatter(fmt)
 
         # NOTE: "otaclient" logger will be the root logger for all loggers name

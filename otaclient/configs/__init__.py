@@ -15,3 +15,7 @@
 
 # prefix for environmental vars name for configs.
 ENV_PREFIX = "OTA_"
+
+from .debug_setting import debug_flags
+from .logging import logging_config
+from .ota_service import service_config
