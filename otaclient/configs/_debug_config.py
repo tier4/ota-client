@@ -11,7 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""otaclient debug flags settings."""
+"""otaclient debug flags settings.
+
+Debug configs is configurable via environmental configs.
+
+Debug configs consists of two types of configs:
+1. flag: which enables/disables specific feature at runtime,
+2. override_config: which overrides specific config at runtime.
+
+If the main DEBUG_MODE flag is enable, all flag type debug configs
+will be enabled. 
+
+For override_config type config, it will be enabled if this config
+has assigned correct value via environmental var.
+"""
 
 
 from __future__ import annotations
