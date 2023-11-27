@@ -13,7 +13,7 @@
 # limitations under the License.
 """otaclient debug flags settings.
 
-Debug configs is configurable via environmental configs.
+These configs are configurable via environmental vars.
 
 Debug configs consists of two types of configs:
 1. flag: which enables/disables specific feature at runtime,
