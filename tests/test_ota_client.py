@@ -27,7 +27,6 @@ from typing import Dict
 
 from otaclient.app.boot_control import BootControllerProtocol
 from otaclient.app.boot_control.configs import BootloaderType
-from otaclient.app.configs import Config as otaclient_Config
 from otaclient.app.create_standby import StandbySlotCreatorProtocol
 from otaclient.app.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.app.ecu_info import ECUInfo
@@ -41,6 +40,7 @@ from otaclient.app.ota_client import (
 from otaclient.app.ota_metadata import parse_regulars_from_txt, parse_dirs_from_txt
 from otaclient.app.proto.wrapper import RegularInf, DirectoryInf
 from otaclient.app.proto import wrapper
+from otaclient.configs.app_cfg import Config as otaclient_Config
 
 from tests.conftest import TestConfiguration as test_cfg
 from tests.utils import SlotMeta

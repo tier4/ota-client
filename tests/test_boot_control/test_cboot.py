@@ -51,8 +51,9 @@ from functools import partial
 from pathlib import Path
 
 from otaclient._utils.path import replace_root
-from otaclient.app.configs import Config as otaclient_Config
 from otaclient.app.proto import wrapper
+from otaclient.configs.app_cfg import Config as otaclient_Config
+
 
 from tests.utils import SlotMeta, compare_dir
 from tests.conftest import TestConfiguration as test_cfg

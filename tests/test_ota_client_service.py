@@ -17,11 +17,11 @@ import asyncio
 import pytest
 import pytest_mock
 
-from otaclient.configs._ota_service_config import OTAServiceConfig
 from otaclient.app.ecu_info import ECUInfo
 from otaclient.app.ota_client_service import create_otaclient_grpc_server
 from otaclient.app.ota_client_call import OtaClientCall
 from otaclient.app.proto import wrapper
+from otaclient.configs.ota_service_cfg import OTAServiceConfig
 from tests.conftest import test_cfg
 from tests.utils import compare_message
 

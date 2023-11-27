@@ -20,8 +20,8 @@ import pytest
 from pathlib import Path
 from pytest_mock import MockerFixture
 
-from otaclient.app.configs import Config as otaclient_Config
 from otaclient.app.boot_control import BootControllerProtocol
+from otaclient.configs.app_cfg import Config as otaclient_Config
 
 from tests.conftest import TestConfiguration as test_cfg
 from tests.utils import SlotMeta, compare_dir

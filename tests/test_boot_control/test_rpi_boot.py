@@ -9,7 +9,7 @@ from string import Template
 from tests.utils import SlotMeta
 from tests.conftest import TestConfiguration as test_cfg
 from otaclient._utils.path import replace_root
-from otaclient.app.configs import Config as otaclient_Config
+from otaclient.configs.app_cfg import Config as otaclient_Config
 from otaclient.app.boot_control._rpi_boot import _FSTAB_TEMPLATE_STR
 from otaclient.app.boot_control.configs import RPIBootControlConfig
 from otaclient.app.proto import wrapper

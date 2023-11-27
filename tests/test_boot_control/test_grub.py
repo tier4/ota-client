@@ -23,7 +23,7 @@ from pathlib import Path
 
 from otaclient._utils.path import replace_root
 from otaclient.app.boot_control.configs import GrubControlConfig
-from otaclient.app.configs import Config as otaclient_Config
+from otaclient.configs.app_cfg import Config as otaclient_Config
 from otaclient.app.proto import wrapper
 
 from tests.utils import SlotMeta
