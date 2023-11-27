@@ -19,9 +19,9 @@ from dataclasses import dataclass, field, fields, MISSING
 from pathlib import Path
 from typing import Iterator, NamedTuple, Union, Dict, List, Any
 
-from otaclient.configs import service_config
 from . import log_setting
 from .boot_control import BootloaderType
+from .configs import service_config
 
 logger = log_setting.get_logger(__name__)
 

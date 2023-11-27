@@ -16,8 +16,7 @@
 from __future__ import annotations
 import grpc.aio
 
-from otaclient.configs import debug_flags, service_config
-from .configs import config as cfg
+from .configs import config as cfg, debug_flags, service_config
 from .ecu_info import ECUInfo
 from .log_setting import get_logger
 from .proto import wrapper, v2, v2_grpc

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
 import logging
 import shutil
@@ -25,9 +26,8 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
 from typing_extensions import Self
 
-from otaclient.configs import logging_config
 from . import log_setting
-from .configs import config as cfg
+from .configs import config as cfg, logging_config
 from .common import ensure_otaproxy_start
 from .boot_control._common import CMDHelperFuncs
 from .ecu_info import ECUContact, ECUInfo

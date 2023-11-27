@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
 import gc
 import json
@@ -25,7 +26,6 @@ from pathlib import Path
 from typing import Optional, Type, Iterator
 from urllib.parse import urlparse
 
-from otaclient.configs import debug_flags
 from . import downloader, ota_metadata, errors as ota_errors
 from .boot_control import BootControllerProtocol, get_boot_controller
 from .common import (
@@ -34,7 +34,7 @@ from .common import (
     RetryTaskMap,
     RetryTaskMapInterrupted,
 )
-from .configs import config as cfg
+from .configs import config as cfg, debug_flags
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .ecu_info import ECUInfo
 from .interface import OTAClientProtocol

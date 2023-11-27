@@ -19,6 +19,7 @@ from .interface import StandbySlotCreatorProtocol
 from ..configs import CreateStandbyMechanism
 from .. import log_setting
 
+
 logger = log_setting.get_logger(__name__)
 
 

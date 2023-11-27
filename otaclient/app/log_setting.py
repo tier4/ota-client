@@ -17,8 +17,7 @@ import os
 import yaml
 
 from otaclient import otaclient_package_name
-from otaclient.configs import logging_config
-from .configs import config as cfg
+from .configs import config as cfg, logging_config
 
 
 # NOTE: EcuInfo imports this log_setting so independent get_ecu_id are required.
