@@ -20,7 +20,7 @@ Debug configs consists of two types of configs:
 2. override_config: which overrides specific config at runtime.
 
 If the main DEBUG_MODE flag is enable, all flag type debug configs
-will be enabled. 
+will be enabled.
 
 For override_config type config, it will be enabled if this config
 has assigned correct value via environmental var.

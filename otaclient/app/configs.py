@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# flake8: noqa
 """Runtime configs and consts for otaclient.
 
 This is a virtual module that imports configs required by otaclient app.
@@ -20,13 +21,10 @@ This is a virtual module that imports configs required by otaclient app.
 from __future__ import annotations
 from pathlib import Path
 from otaclient import __file__ as _otaclient__init__
-from otaclient.configs.app_cfg import (
-    app_config as config,  # noqa: F401
-    CreateStandbyMechanism,  # noqa: F401
-)
-from otaclient.configs.debug_cfg import debug_flags  # noqa: F401
-from otaclient.configs.logging_cfg import logging_config  # noqa: F401
-from otaclient.configs.ota_service_cfg import service_config  # noqa: F401
+from otaclient.configs.app_cfg import app_config as config, CreateStandbyMechanism
+from otaclient.configs.debug_cfg import debug_flags
+from otaclient.configs.logging_cfg import logging_config
+from otaclient.configs.ota_service_cfg import service_config
 
 
 OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
