@@ -16,7 +16,8 @@
 from __future__ import annotations
 import grpc.aio
 
-from .configs import config as cfg, service_config
+from otaclient.configs import debug_flags, service_config
+from .configs import config as cfg
 from .ecu_info import ECUInfo
 from .log_setting import get_logger
 from .proto import wrapper, v2, v2_grpc
@@ -56,8 +57,9 @@ def create_otaclient_grpc_server():
     )
 
     listen_addr = ecu_info.ip_addr
-    if service_config.SERVER_ADDRESS:  # for advanced use case only
-        listen_addr = service_config.SERVER_ADDRESS
+    if debug_flags.DEBUG_SERVER_LISTEN_ADDR:  # for advanced debug use case only
+        logger.warning(f"{debug_flags.DEBUG_SERVER_LISTEN_ADDR=} is activated")
+        listen_addr = debug_flags.DEBUG_SERVER_LISTEN_ADDR
     listen_port = service_config.SERVER_PORT
 
     listen_info = f"{listen_addr}:{listen_port}"

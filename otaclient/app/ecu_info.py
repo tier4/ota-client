@@ -19,8 +19,8 @@ from dataclasses import dataclass, field, fields, MISSING
 from pathlib import Path
 from typing import Iterator, NamedTuple, Union, Dict, List, Any
 
+from otaclient.configs import service_config
 from . import log_setting
-from .configs import service_config
 from .boot_control import BootloaderType
 
 logger = log_setting.get_logger(__name__)
@@ -55,7 +55,7 @@ class ECUInfo:
     """
 
     ecu_id: str
-    ip_addr: str = "127.0.0.1"
+    ip_addr: str = str(service_config.DEFAULT_SERVER_ADDRESS)
     bootloader: str = BootloaderType.UNSPECIFIED.value
     available_ecu_ids: list = field(default_factory=list)  # list[str]
     secondaries: list = field(default_factory=list)  # list[dict[str, Any]]

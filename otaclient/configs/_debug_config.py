@@ -15,6 +15,8 @@
 
 
 from __future__ import annotations
+from pydantic import IPvAnyAddress
+from typing import Optional
 from ._common import BaseConfig
 
 
@@ -26,6 +28,9 @@ class DebugFlags(BaseConfig):
 
     # enable failure_traceback field in status API response.
     DEBUG_ENABLE_TRACEBACK_IN_STATUS_API: bool = False
+
+    # override otaclient grpc server listen address
+    DEBUG_SERVER_LISTEN_ADDR: Optional[IPvAnyAddress] = None
 
 
 debug_flags = DebugFlags()
