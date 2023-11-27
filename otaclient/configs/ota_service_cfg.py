@@ -18,11 +18,12 @@ For compatibility reason, this config is NOT configurable via env vars.
 
 
 from __future__ import annotations
-from pydantic import Field, BaseModel, ConfigDict, IPvAnyAddress
+from pydantic import Field, ConfigDict, IPvAnyAddress
 from typing import Literal, Union
+from ._common import BaseFixedConfig
 
 
-class OTAServiceConfig(BaseModel):
+class OTAServiceConfig(BaseFixedConfig):
     """Configurable configs for OTA grpc server/client call."""
 
     model_config = ConfigDict(frozen=True, validate_default=True)

@@ -30,10 +30,10 @@ has assigned correct value via environmental var.
 from __future__ import annotations
 from pydantic import IPvAnyAddress
 from typing import Optional
-from ._common import BaseConfig
+from ._common import BaseConfigurableConfig
 
 
-class DebugFlags(BaseConfig):
+class DebugFlags(BaseConfigurableConfig):
     """Enable internal debug features."""
 
     # main DEBUG_MODE switch, this flag will enable all debug feature.

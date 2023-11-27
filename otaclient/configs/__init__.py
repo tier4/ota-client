@@ -12,10 +12,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """otaclient configs package."""
-
-from ._common import ENV_PREFIX
-from ._debug_config import debug_flags
-from ._logging_config import logging_config
-from ._ota_service_config import service_config
-
-__all__ = ["ENV_PREFIX", "debug_flags", "logging_config", "service_config"]

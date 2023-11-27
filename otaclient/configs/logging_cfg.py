@@ -24,10 +24,10 @@ from typing import Dict
 from typing_extensions import Annotated
 
 from otaclient._utils.logging import check_loglevel
-from ._common import BaseConfig
+from ._common import BaseConfigurableConfig
 
 
-class LoggingConfig(BaseConfig):
+class LoggingConfig(BaseConfigurableConfig):
     LOGGING_LEVEL: Annotated[int, AfterValidator(check_loglevel)] = logging.INFO
     LOG_LEVEL_TABLE: Dict[str, Annotated[int, AfterValidator(check_loglevel)]] = {
         "otaclient.app.boot_control.cboot": LOGGING_LEVEL,
