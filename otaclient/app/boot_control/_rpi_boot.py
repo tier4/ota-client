@@ -14,22 +14,32 @@
 """Boot control support for Raspberry pi 4 Model B."""
 
 
+from __future__ import annotations
 import os
 import re
 from string import Template
 from pathlib import Path
 from typing import Generator
 
+from otaclient._utils.subprocess import SubProcessCalledFailed, subprocess_call
 from .. import log_setting, errors as ota_errors
 from ..configs import config as cfg
 from ..proto import wrapper
-from ..common import replace_atomic, subprocess_call
+from ..common import replace_atomic
 
-from ._common import (
-    OTAStatusFilesControl,
-    SlotMountHelper,
-    CMDHelperFuncs,
-    write_str_to_file_sync,
+from ._common import OTAStatusFilesControl, SlotMountHelper, write_str_to_file_sync
+from ._cmdhelpers import (
+    get_dev_by_mount_point,
+    get_attr_from_dev,
+    get_parent_dev,
+    get_dev_tree,
+    is_target_mounted,
+    log_exc,
+    mkfs_ext4,
+    no_arg,
+    reboot,
+    set_dev_fslabel,
+    umount,
 )
 from .configs import rpi_boot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
@@ -40,6 +50,12 @@ _FSTAB_TEMPLATE_STR = (
     "LABEL=${rootfs_fslabel}\t/\text4\tdiscard,x-systemd.growfs\t0\t1\n"
     "LABEL=system-boot\t/boot/firmware\tvfat\tdefaults\t0\t1\n"
 )
+
+
+@no_arg(subprocess_call)
+@log_exc(logger.error)
+def _flash_kernel(**kwargs) -> None:
+    subprocess_call("flash-kernel", **kwargs)
 
 
 class _RPIBootControllerError(Exception):
@@ -79,7 +95,7 @@ class _RPIBootControl:
         self.system_boot_path = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
         if not (
             self.system_boot_path.is_dir()
-            and CMDHelperFuncs.is_target_mounted(self.system_boot_path)
+            and is_target_mounted(self.system_boot_path, raise_exception=False)
         ):
             _err_msg = "system-boot is not presented or not mounted!"
             logger.error(_err_msg)
@@ -90,61 +106,76 @@ class _RPIBootControl:
     def _init_slots_info(self):
         """Get current/standby slots info."""
         logger.debug("checking and initializing slots info...")
-        try:
-            # detect active slot
-            self._active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
-                cfg.ACTIVE_ROOTFS
-            )
-            if not (
-                _active_slot := CMDHelperFuncs.get_fslabel_by_dev(self._active_slot_dev)
-            ):
-                raise ValueError(
-                    f"failed to get slot_id(fslabel) for active slot dev({self._active_slot_dev})"
-                )
-            self._active_slot = _active_slot
 
-            # detect standby slot
-            # NOTE: using the similar logic like grub, detect the silibing dev
-            #       of the active slot as standby slot
-            _parent = CMDHelperFuncs.get_parent_dev(self._active_slot_dev)
-            # list children device file from parent device
-            # exclude parent dev(always in the front)
-            # expected raw result from lsblk:
-            # NAME="/dev/sdx"
-            # NAME="/dev/sdx1" # system-boot
-            # NAME="/dev/sdx2" # slot_a
-            # NAME="/dev/sdx3" # slot_b
-            _raw_child_partitions = CMDHelperFuncs._lsblk(f"-Pp -o NAME {_parent}")
-            try:
-                # NOTE: exclude the first 2 lines(parent and system-boot)
-                _child_partitions = list(
-                    map(
-                        lambda _raw: _raw.split("=")[-1].strip('"'),
-                        _raw_child_partitions.splitlines()[2:],
-                    )
-                )
-                if (
-                    len(_child_partitions) != 2
-                    or self._active_slot_dev not in _child_partitions
-                ):
-                    raise ValueError
-                _child_partitions.remove(self._active_slot_dev)
-            except Exception:
-                raise ValueError(
-                    f"unexpected partition layout: {_raw_child_partitions}"
-                ) from None
-            # it is OK if standby_slot dev doesn't have fslabel or fslabel != standby_slot_id
-            # we will always set the fslabel
-            self._standby_slot = self.AB_FLIPS[self._active_slot]
-            self._standby_slot_dev = _child_partitions[0]
-            logger.info(
-                f"rpi_boot: active_slot: {self._active_slot}({self._active_slot_dev}), "
-                f"standby_slot: {self._standby_slot}({self._standby_slot_dev})"
-            )
-        except Exception as e:
-            _err_msg = f"failed to detect AB partition: {e!r}"
+        # detect active slot
+        _active_slot_dev = get_dev_by_mount_point(
+            cfg.ACTIVE_ROOTFS, raise_exception=False
+        )
+        if not _active_slot_dev:
+            _err_msg = f"failed to get active slot's device: rootfs={cfg.ACTIVE_ROOTFS}"
             logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg) from e
+            raise _RPIBootControllerError(_err_msg)
+        self._active_slot_dev = _active_slot_dev
+
+        if not (
+            _active_slot := get_attr_from_dev(
+                self._active_slot_dev, "LABEL", raise_exception=False
+            )
+        ):
+            raise _RPIBootControllerError(
+                f"failed to get slot_id(fslabel) for active slot dev({self._active_slot_dev})"
+            )
+        self._active_slot = _active_slot
+
+        # detect standby slot
+        # NOTE: using the similar logic like grub, detect the silibing dev
+        #       of the active slot as standby slot
+        _parent = get_parent_dev(self._active_slot_dev, raise_exception=False)
+        if not _parent:
+            _err_msg = "failed to get parent dev of slots"
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
+
+        # list children device file from parent device
+        # exclude parent dev(always in the front)
+        # expected raw result from lsblk:
+        # NAME="/dev/sdx"
+        # NAME="/dev/sdx1" # system-boot
+        # NAME="/dev/sdx2" # slot_a
+        # NAME="/dev/sdx3" # slot_b
+        _raw_child_partitions = get_dev_tree(_parent, raise_exception=False)
+        if not _raw_child_partitions:
+            raise _RPIBootControllerError(
+                f"failed to get parent dev tree for {_parent=}"
+            )
+
+        try:
+            # NOTE: exclude the first 2 lines(parent and system-boot)
+            _child_partitions = list(
+                map(
+                    lambda _raw: _raw.split("=")[-1].strip('"'),
+                    _raw_child_partitions.splitlines()[2:],
+                )
+            )
+            if (
+                len(_child_partitions) != 2
+                or self._active_slot_dev not in _child_partitions
+            ):
+                raise ValueError
+            _child_partitions.remove(self._active_slot_dev)
+        except Exception:
+            raise _RPIBootControllerError(
+                f"unexpected partition layout: {_raw_child_partitions}"
+            ) from None
+
+        # it is OK if standby_slot dev doesn't have fslabel or fslabel != standby_slot_id
+        # we will always set the fslabel
+        self._standby_slot = self.AB_FLIPS[self._active_slot]
+        self._standby_slot_dev = _child_partitions[0]
+        logger.info(
+            f"rpi_boot: active_slot: {self._active_slot}({self._active_slot_dev}), "
+            f"standby_slot: {self._standby_slot}({self._standby_slot_dev})"
+        )
 
     def _init_boot_files(self):
         """Check the availability of boot files.
@@ -220,9 +251,9 @@ class _RPIBootControl:
         """
         logger.info("update firmware with flash-kernel...")
         try:
-            subprocess_call("flash-kernel", raise_exception=True)
-            os.sync()
-        except Exception as e:
+            _flash_kernel()
+            os.sync()  # ensure the firmware is written to storage
+        except SubProcessCalledFailed as e:
             _err_msg = f"flash-kernel failed: {e!r}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
@@ -323,7 +354,7 @@ class _RPIBootControl:
                 # reboot to the same slot to apply the new firmware
 
                 logger.info("reboot to apply new firmware...")
-                CMDHelperFuncs.reboot()
+                reboot()  # this will call sys.exit(0)
 
                 # NOTE(20230614): after calling reboot, otaclient SHOULD be terminated or exception raised
                 #                 on failed reboot command subprocess call. But if somehow it doesn't,
@@ -337,11 +368,17 @@ class _RPIBootControl:
 
     def prepare_standby_dev(self, *, erase_standby: bool):
         # try umount and dev
-        if CMDHelperFuncs.is_target_mounted(self.standby_slot_dev):
-            CMDHelperFuncs.umount(self.standby_slot_dev)
+        if is_target_mounted(self.standby_slot_dev, raise_exception=False):
+            try:
+                umount(self.standby_slot_dev, raise_exception=True)
+            except SubProcessCalledFailed:
+                logger.warning(
+                    f"{self.standby_slot_dev} is mounted and failed to umount it"
+                )
+
         try:
             if erase_standby:
-                CMDHelperFuncs.mkfs_ext4(
+                mkfs_ext4(
                     self.standby_slot_dev,
                     fslabel=self.standby_slot,
                 )
@@ -349,7 +386,7 @@ class _RPIBootControl:
                 # TODO: check the standby file system status
                 #       if not erase the standby slot
                 # set the standby file system label with standby slot id
-                CMDHelperFuncs.set_dev_fslabel(self.active_slot_dev, self.standby_slot)
+                set_dev_fslabel(self.active_slot_dev, self.standby_slot)
         except Exception as e:
             _err_msg = f"failed to prepare standby dev: {e!r}"
             logger.error(_err_msg)
@@ -372,10 +409,9 @@ class _RPIBootControl:
         """Reboot with tryboot flag."""
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
-            _cmd = "reboot '0 tryboot'"
-            subprocess_call(_cmd, raise_exception=True)
-        except Exception as e:
-            _err_msg = "failed to reboot"
+            reboot("'0 tryboot'")
+        except SubProcessCalledFailed as e:
+            _err_msg = f"failed to reboot: {e!r}"
             logger.exception(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
