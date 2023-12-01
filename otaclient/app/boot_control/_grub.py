@@ -31,30 +31,41 @@ NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not
 """
 
 
+from __future__ import annotations
+from functools import cached_property
 import re
 import shutil
 from dataclasses import dataclass
-from subprocess import CalledProcessError
-from typing import ClassVar, Dict, Generator, List, Optional, Tuple
+from typing import ClassVar, Dict, Generator, List, NoReturn, Optional, Tuple
 from pathlib import Path
 from pprint import pformat
 
-from .. import log_setting, errors as ota_errors
-from ..configs import config as cfg
-from ..common import (
-    re_symlink_atomic,
-    read_str_from_file,
+from otaclient._utils.subprocess import (
+    SubProcessCalledFailed,
     subprocess_call,
     subprocess_check_output,
-    write_str_to_file_sync,
 )
+
+from .. import log_setting, errors as ota_errors
+from ..configs import config as cfg
+from ..common import re_symlink_atomic, read_str_from_file, write_str_to_file_sync
 from ..proto import wrapper
 
-from ._common import (
-    CMDHelperFuncs,
-    OTAStatusFilesControl,
-    SlotMountHelper,
-    cat_proc_cmdline,
+from ._common import OTAStatusFilesControl, SlotMountHelper, cat_proc_cmdline
+from ._cmdhelpers import (
+    _lsblk,
+    get_parent_dev,
+    get_dev_by_mount_point,
+    get_attr_from_dev,
+    get_current_rootfs_dev,
+    gen_uuid_str,
+    is_target_mounted,
+    log_exc,
+    mkfs_ext4,
+    no_arg,
+    reboot,
+    take_arg,
+    umount,
 )
 from .configs import grub_cfg as boot_cfg
 from .protocol import BootControllerProtocol
@@ -65,6 +76,54 @@ logger = log_setting.get_logger(__name__)
 
 class _GrubBootControllerError(Exception):
     """Grub boot controller internal used exception."""
+
+
+#
+# ------ cmdhelper for grub controller ------ #
+#
+
+
+@no_arg(subprocess_check_output)
+@log_exc(logger.error)
+def grub_mkconfig() -> str:
+    """
+    Raises:
+        _GrubBootControllerError on failed call.
+    """
+    try:
+        _res = subprocess_check_output(
+            "grub-mkconfig",
+            raise_exception=True,
+            new_root=cfg.ACTIVE_ROOTFS,
+        )
+        assert _res
+        return _res
+    except (SubProcessCalledFailed, AssertionError) as e:
+        _err_msg = "failed to call grub_mkconfig or return value is empty"
+        logger.error(_err_msg)
+        raise _GrubBootControllerError(_err_msg) from e
+
+
+@take_arg(subprocess_call)
+@log_exc(logger.error)
+def grub_reboot(idx: str) -> None:
+    """
+    Raises:
+        _GrubBootControllerError on failed call.
+    """
+    try:
+        subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+    except SubProcessCalledFailed as e:
+        _err_msg = f"failed to grub-reboot to {idx}: {e!r}"
+        logger.error(_err_msg)
+        raise _GrubBootControllerError(_err_msg) from e
+
+
+@take_arg(subprocess_check_output)
+@log_exc(logger.error)
+def get_dev_list_of_parent(parent: str) -> str | None:
+    _args = f"-Pp -o NAME,FSTYPE {parent}"
+    return _lsblk(_args, raise_exception=True)
 
 
 @dataclass
@@ -259,23 +318,6 @@ class GrubHelper:
         res.append("")  # add a new line at the end of the file
         return "\n".join(res)
 
-    @staticmethod
-    def grub_mkconfig() -> str:
-        try:
-            return subprocess_check_output("grub-mkconfig", raise_exception=True)
-        except CalledProcessError as e:
-            raise ValueError(
-                f"grub-mkconfig failed: {e.returncode=}, {e.stderr=}, {e.stdout=}"
-            )
-
-    @staticmethod
-    def grub_reboot(idx: int):
-        try:
-            subprocess_call(f"grub-reboot {idx}", raise_exception=True)
-        except CalledProcessError:
-            logger.exception(f"failed to grub-reboot to {idx}")
-            raise
-
 
 class GrubABPartitionDetector:
     """A/B partition detector for ota-partition on grub booted system.
@@ -319,20 +361,37 @@ class GrubABPartitionDetector:
         NOTE: revert to use previous detection mechanism.
         TODO: refine this method.
         """
-        parent = CMDHelperFuncs.get_parent_dev(active_dev)
-        boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
-        if not boot_dev:
-            _err_msg = "/boot is not mounted"
+        try:
+            parent = get_parent_dev(active_dev, raise_exception=True)
+            assert parent
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = f"failed to find parent dev for {active_dev=}"
             logger.error(_err_msg)
-            raise ValueError(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
+
+        try:
+            boot_dev = get_dev_by_mount_point(cfg.BOOT_DPATH, raise_exception=True)
+            assert boot_dev
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = f"active rootfs's {cfg.BOOT_DPATH} is not mounted"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg)
 
         # list children device file from parent device
-        cmd = f"-Pp -o NAME,FSTYPE {parent}"
+        try:
+            _dev_list = get_dev_list_of_parent(parent)
+            assert _dev_list
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = f"failed to get child devs list from {parent=}: {e!r}"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
+
         # exclude parent dev
-        output = CMDHelperFuncs._lsblk(cmd).splitlines()[1:]
+        child_dev_list = _dev_list.strip().splitlines()[1:]
+
         # FSTYPE="ext4" and
         # not (parent_device_file, root_device_file and boot_device_file)
-        for blk in output:
+        for blk in child_dev_list:
             if m := re.search(r'NAME="(.*)"\s+FSTYPE="(.*)"', blk):
                 if (
                     m.group(1) != active_dev
@@ -341,7 +400,7 @@ class GrubABPartitionDetector:
                 ):
                     return m.group(1)
 
-        _err_msg = f"{parent=} has unexpected partition layout: {output=}"
+        _err_msg = f"{parent=} has unexpected partition layout: {child_dev_list=}"
         logger.error(_err_msg)
         raise ValueError(_err_msg)
 
@@ -352,7 +411,14 @@ class GrubABPartitionDetector:
             A tuple contains the slot_name and the full dev path
             of the active slot.
         """
-        dev_path = CMDHelperFuncs.get_current_rootfs_dev()
+        try:
+            dev_path = get_current_rootfs_dev(raise_exception=True)
+            assert dev_path
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = f"failed to get current active rootfs({cfg.ACTIVE_ROOTFS})"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
+
         _dev_path_ma = self.DEV_PATH_PA.match(dev_path)
         assert _dev_path_ma, f"dev path is invalid for OTA: {dev_path}"
 
@@ -417,6 +483,23 @@ class _GrubControl:
             initialize itself.
         """
         return self._grub_control_initialized
+
+    @cached_property
+    def standby_slot_fsuuid(self) -> str:
+        """
+        Raises:
+            _GrubBootControllerError on failed call or empty result.
+        """
+        try:
+            standby_slot_fsuuid = get_attr_from_dev(
+                self.standby_root_dev, "LABEL", raise_exception=True
+            )
+            assert standby_slot_fsuuid
+            return standby_slot_fsuuid
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = f"failed to get {self.standby_root_dev=} fsuuid: {e!r}"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg)
 
     def _check_active_slot_ota_partition_file(self):
         """Check and ensure active ota-partition files, init if needed.
@@ -575,7 +658,7 @@ class _GrubControl:
 
         # step2: generate grub_cfg by grub-mkconfig
         # parse the output and find the active slot boot entry idx
-        grub_cfg_content = GrubHelper.grub_mkconfig()
+        grub_cfg_content = grub_mkconfig()
         if res := GrubHelper.get_entry(
             grub_cfg_content, kernel_ver=GrubHelper.SUFFIX_OTA
         ):
@@ -603,8 +686,9 @@ class _GrubControl:
             self.active_ota_partition_folder / boot_cfg.GRUB_CFG_FNAME
         )
 
-        grub_cfg_content = GrubHelper.grub_mkconfig()
-        standby_uuid_str = CMDHelperFuncs.get_uuid_str_by_dev(self.standby_root_dev)
+        grub_cfg_content = grub_mkconfig()
+
+        standby_uuid_str = gen_uuid_str(self.standby_slot_fsuuid)
         if grub_cfg_updated := GrubHelper.update_entry_rootfs(
             grub_cfg_content,
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
@@ -673,13 +757,18 @@ class _GrubControl:
                 standby slot's file system or not. This value is indicated and
                 passed to boot controller by the standby slot creator.
         """
-        try:
-            # try to unmount the standby root dev unconditionally
-            if CMDHelperFuncs.is_target_mounted(self.standby_root_dev):
-                CMDHelperFuncs.umount(self.standby_root_dev)
+        # try to unmount the standby root dev unconditionally
+        if is_target_mounted(self.standby_root_dev, raise_exception=False):
+            try:
+                umount(self.standby_root_dev, raise_exception=True)
+            except SubProcessCalledFailed as e:
+                _err_msg = f"standby slot dev({self.standby_root_dev}) is mounted and failed to unmount it"
+                logger.error(_err_msg)
+                raise _GrubBootControllerError(_err_msg) from e
 
+        try:
             if erase_standby:
-                CMDHelperFuncs.mkfs_ext4(self.standby_root_dev)
+                mkfs_ext4(self.standby_root_dev)
             # TODO: check the standby file system status
             #       if not erase the standby slot
         except Exception as e:
@@ -729,7 +818,7 @@ class _GrubControl:
                 read_str_from_file(self.grub_file),
                 kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
             )
-            GrubHelper.grub_reboot(idx)
+            grub_reboot(str(idx))
             logger.info(f"system will reboot to {self.standby_slot=}: boot entry {idx}")
 
         except Exception as e:
@@ -775,9 +864,19 @@ class GrubController(BootControllerProtocol):
 
         Override existed entries in standby fstab, merge new entries from active fstab.
         """
-        standby_uuid_str = CMDHelperFuncs.get_uuid_str_by_dev(
-            self._boot_control.standby_root_dev
-        )
+        try:
+            standby_slot_fsuuid = get_attr_from_dev(
+                self._boot_control.standby_root_dev, "LABEL", raise_exception=True
+            )
+            assert standby_slot_fsuuid
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = (
+                f"failed to get {self._boot_control.standby_root_dev=}'s fsuuid: {e!r}"
+            )
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg)
+
+        standby_uuid_str = gen_uuid_str(self._boot_control.standby_slot_fsuuid)
         fstab_entry_pa = re.compile(
             r"^\s*(?P<file_system>[^# ]*)\s+"
             r"(?P<mount_point>[^ ]*)\s+"
@@ -891,7 +990,7 @@ class GrubController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> Generator[None, None, None]:
+    def post_update(self) -> Generator[None, None, NoReturn]:
         try:
             logger.info("grub_boot: post-update setup...")
             # ------ update fstab ------ #
@@ -908,7 +1007,7 @@ class GrubController(BootControllerProtocol):
             self._boot_control.grub_reboot_to_standby()
 
             yield  # hand over control to otaclient
-            CMDHelperFuncs.reboot()
+            reboot()
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)
@@ -929,15 +1028,16 @@ class GrubController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_rollback(self):
+    def post_rollback(self) -> NoReturn:
         try:
             logger.info("grub_boot: post-rollback setup...")
             self._boot_control.grub_reboot_to_standby()
             self._mp_control.umount_all(ignore_error=True)
-            CMDHelperFuncs.reboot()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.BootControlPostRollbackFailed(
                 _err_msg, module=__name__
             ) from e
+
+        reboot()
