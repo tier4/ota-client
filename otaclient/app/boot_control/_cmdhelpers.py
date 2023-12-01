@@ -267,8 +267,8 @@ def mkfs_ext4(
     fslabel: Optional[str] = None,
     fsuuid: Optional[str] = None,
     *,
-    preserve_fslabel: bool,
-    preserve_fsuuid: bool,
+    preserve_fslabel: bool = False,
+    preserve_fsuuid: bool = False,
     timeout: Optional[float] = None,
 ) -> None:
     """Call mkfs.ext4 on <dev>.
@@ -277,9 +277,9 @@ def mkfs_ext4(
         dev (StrOrPath): the target partition to format as ext4.
         fslabel (str = None): fslabel to assign.
         fsuuid (str = None): fsuuid to assign.
-        preserve_fslabel (bool): whether to preserve previous fs' fslabel
+        preserve_fslabel (bool = False): whether to preserve previous fs' fslabel
             if available. If set to True, <fslabel> param will be ignored.
-        preserve_fsuuid (bool): whether to preserve previous fs'fsuuid
+        preserve_fsuuid (bool = False): whether to preserve previous fs'fsuuid
             if available. If set to True, <fsuuid> param will be ignored.
 
     Raises:
