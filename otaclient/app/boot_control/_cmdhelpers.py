@@ -25,14 +25,10 @@ T = TypeVar("T")
 # ------ thin wrappers for calling corresponding commands ------ #
 
 
-def exec_wrapper(
-    _: Callable[Concatenate[Any, P], Any], err_handler: Callable[[str], None]
-):
-    """A wrapper that handles logging when execution failed and provides typehints."""
+def log_exc(err_handler: Callable[[str], None]):
+    """A wrapper that handles logging when execution failed."""
 
-    def _decorator(
-        _target: Callable[..., T]
-    ) -> Callable[Concatenate[Optional[str], P], T]:
+    def _decorator(_target: Callable[P, T]) -> Callable[P, T]:
         @functools.wraps(_target)
         def _inner(*args, **kwargs):
             try:
@@ -46,42 +42,68 @@ def exec_wrapper(
     return _decorator
 
 
-@exec_wrapper(subprocess_check_output, logger.warning)
+def take_arg(_: Callable[Concatenate[str, P], Any]):
+    """Typehints cmdhelper that takes input args."""
+
+    def _decorator(_func: Callable[..., T]) -> Callable[Concatenate[str, P], T]:
+        return _func  # type: ignore
+
+    return _decorator
+
+
+def no_arg(_: Callable[Concatenate[str, P], Any]):
+    """Typehints cmdhelper that takes no input args."""
+
+    def _decorator(_func: Callable[..., T]) -> Callable[P, T]:
+        return _func  # type: ignore
+
+    return _decorator
+
+
+@take_arg(subprocess_check_output)
+@log_exc(logger.warning)
 def _findfs(_args: str, **kwargs) -> str | None:
     return subprocess_check_output(f"findfs {_args}", **kwargs)
 
 
-@exec_wrapper(subprocess_check_output, logger.warning)
+@take_arg(subprocess_check_output)
+@log_exc(logger.warning)
 def _findmnt(_args: str, **kwargs) -> str | None:
     return subprocess_check_output(f"findmnt {_args}", **kwargs)
 
 
-@exec_wrapper(subprocess_check_output, logger.error)
+@take_arg(subprocess_check_output)
+@log_exc(logger.error)
 def _lsblk(_args: str, **kwargs) -> str | None:
     return subprocess_check_output(f"lsblk {_args}", **kwargs)
 
 
-@exec_wrapper(subprocess_call, logger.error)
+@take_arg(subprocess_check_output)
+@log_exc(logger.error)
 def _mkfs_ext4(_args: str, **kwargs) -> None:
     return subprocess_call(f"mkfs.ext4 {_args}", **kwargs)
 
 
-@exec_wrapper(subprocess_call, logger.error)
+@take_arg(subprocess_check_output)
+@log_exc(logger.error)
 def _reboot(_args: str, **kwargs) -> None:
     return subprocess_call(f"reboot {_args}", **kwargs)
 
 
-@exec_wrapper(subprocess_call, logger.error)
+@take_arg(subprocess_check_output)
+@log_exc(logger.error)
 def _mount(_args: str, **kwargs) -> None:
     return subprocess_call(f"mount {_args}", **kwargs)
 
 
-@exec_wrapper(subprocess_call, logger.warning)
+@take_arg(subprocess_check_output)
+@log_exc(logger.warning)
 def _umount(_args: str, **kwargs) -> None:
     return subprocess_call(f"umount {_args}", **kwargs)
 
 
-@exec_wrapper(subprocess_call, logger.error)
+@take_arg(subprocess_check_output)
+@log_exc(logger.error)
 def _e2label(_args: str, **kwargs) -> None:
     return subprocess_call(f"e2label {_args}", **kwargs)
 
