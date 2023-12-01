@@ -144,7 +144,7 @@ def get_attr_from_dev(
     return _lsblk(_args, timeout=timeout, raise_exception=raise_exception)
 
 
-def get_uuid_str(uuid: str) -> str:
+def gen_uuid_str(uuid: str) -> str:
     """Return UUID string in "UUID=<uuid>" format."""
     return f"UUID={uuid}"
 
