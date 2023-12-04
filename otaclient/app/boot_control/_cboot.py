@@ -13,29 +13,39 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import os
+import os.path
 import re
 from pathlib import Path
 from functools import partial
-from subprocess import CalledProcessError
-from typing import Generator, Optional
+from typing import Generator, Literal, NoReturn
 
-from ..configs import config as cfg
-from .. import log_setting, errors as ota_errors
-from ..common import (
-    copytree_identical,
-    read_str_from_file,
+from otaclient._utils.subprocess import (
     subprocess_call,
     subprocess_check_output,
-    write_str_to_file_sync,
+    SubProcessCalledFailed,
 )
+from ..configs import config as cfg
+from .. import log_setting, errors as ota_errors
+from ..common import copytree_identical, read_str_from_file, write_str_to_file_sync
 
 from ..proto import wrapper
 
+from ._cmdhelpers import (
+    gen_partuuid_str,
+    get_current_rootfs_dev,
+    get_attr_from_dev,
+    log_exc,
+    is_target_mounted,
+    mount_rw,
+    reboot,
+    take_arg,
+    umount,
+)
 from ._common import (
     OTAStatusMixin,
     PrepareMountMixin,
-    CMDHelperFuncs,
     SlotInUseMixin,
     VersionControlMixin,
 )
@@ -47,8 +57,18 @@ from .firmware import Firmware
 logger = log_setting.get_logger(__name__)
 
 
-class NvbootctrlError(Exception):
+class _NvbootctrlError(Exception):
     """Specific internal errors related to nvbootctrl cmd."""
+
+@take_arg(subprocess_check_output)
+@log_exc(logger.error)
+def _nvbootctrl(_args: str, **kwargs) -> str | None:
+    return subprocess_check_output(f"nvbootctrl {_args}", **kwargs)
+
+
+@take_arg(subprocess_call)
+def _nvbootctrl_check_return_code(_args: str, **kwargs) -> str | None:
+    return subprocess_call(f"nvbootctrl {_args}", **kwargs)
 
 
 class Nvbootctrl:
@@ -59,6 +79,7 @@ class Nvbootctrl:
     slot num: 0->A, 1->B
     """
 
+    TARGET_TYPE = Literal["rootfs", "bootloader"]
     EMMC_DEV: str = "mmcblk0"
     NVME_DEV: str = "nvme0n1"
     # slot0<->slot1
@@ -68,89 +89,91 @@ class Nvbootctrl:
     # slot0->p1, slot1->p2
     SLOTID_PARTID_MAP = {v: k for k, v in PARTID_SLOTID_MAP.items()}
 
-    # nvbootctrl
     @staticmethod
     def _nvbootctrl(
-        arg: str, *, target="rootfs", call_only=True, raise_exception=True
-    ) -> Optional[str]:
+        args: str, *, target: TARGET_TYPE, raise_exception=True
+    ) -> str | None:
         """
         Raises:
-            NvbootCtrlError if raise_exception is True.
+            SubProcessCalledFailed if raise_exception is True.
         """
-        _cmd = f"nvbootctrl -t {target} {arg}"
+        _args = f"-t {target} {args}"
         try:
-            if call_only:
-                subprocess_call(_cmd, raise_exception=raise_exception)
-                return
-            else:
-                return subprocess_check_output(_cmd, raise_exception=raise_exception)
-        except CalledProcessError as e:
-            raise NvbootctrlError from e
+            return _nvbootctrl(
+                _args,
+                new_root=cfg.ACTIVE_ROOTFS,
+                raise_exception=raise_exception,
+            )
+        except SubProcessCalledFailed as e:
+            _err_msg = f"nvbootctrl called failed with {_args=}: {e!r}"
+            logger.error(_err_msg)
+            raise
 
     @classmethod
-    def check_rootdev(cls, dev: str) -> bool:
-        """
-        check whether the givin dev is legal root dev or not
-
-        NOTE: expect using UUID method to assign rootfs!
-        """
-        pa = re.compile(r"\broot=(?P<rdev>[\w=-]*)\b")
+    def get_current_slot(cls, *, target: TARGET_TYPE = "rootfs") -> str:
         try:
-            if ma := pa.search(subprocess_check_output("cat /proc/cmdline")):
-                res = ma.group("rdev")
-            else:
-                raise ValueError(f"failed to find specific {dev} in cmdline")
-        except (CalledProcessError, ValueError) as e:
-            raise NvbootctrlError(
-                "rootfs detect failed or rootfs is not specified by PARTUUID in kernel cmdline"
-            ) from e
-
-        uuid = res.split("=")[-1]
-
-        return Path(CMDHelperFuncs.get_dev_by_partuuid(uuid)).resolve(
-            strict=True
-        ) == Path(dev).resolve(strict=True)
-
-    @classmethod
-    def get_current_slot(cls) -> str:
-        if slot := cls._nvbootctrl("get-current-slot", call_only=False):
+            slot = cls._nvbootctrl("get-current-slot", target=target)
+            assert slot
             return slot
-        else:
-            raise NvbootctrlError
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = f"failed to get current slot: {e!r}"
+            logger.error(_err_msg)
+            raise _NvbootctrlError(_err_msg) from e
 
     @classmethod
-    def dump_slots_info(cls) -> Optional[str]:
-        return cls._nvbootctrl(
-            "dump-slots-info", call_only=False, raise_exception=False
-        )
+    def dump_slots_info(cls, *, target: TARGET_TYPE = "rootfs") -> str | None:
+        return cls._nvbootctrl("dump-slots-info", raise_exception=False, target=target)
 
     @classmethod
-    def mark_boot_successful(cls):
+    def mark_boot_successful(cls, *, target: TARGET_TYPE = "rootfs") -> None:
         """Mark current slot as boot successfully."""
-        cls._nvbootctrl("mark-boot-successful")
-
-    @classmethod
-    def set_active_boot_slot(cls, slot: str, target="rootfs"):
-        cls._nvbootctrl(f"set-active-boot-slot {slot}", target=target)
-
-    @classmethod
-    def set_slot_as_unbootable(cls, slot: str):
-        cls._nvbootctrl(f"set-slot-as-unbootable {slot}")
-
-    @classmethod
-    def is_slot_bootable(cls, slot: str) -> bool:
         try:
-            cls._nvbootctrl(f"is-slot-bootable {slot}")
+            cls._nvbootctrl("mark-boot-successful", target=target)
+        except SubProcessCalledFailed as e:
+            _err_msg = f"failed mark current slot as boot successful: {e!r}"
+            logger.error(_err_msg)
+            raise _NvbootctrlError(_err_msg) from e
+
+    @classmethod
+    def set_active_boot_slot(cls, slot: str, *, target: TARGET_TYPE = "rootfs"):
+        try:
+            cls._nvbootctrl(f"set-active-boot-slot {slot}", target=target)
+        except SubProcessCalledFailed as e:
+            _err_msg = f"failed to set active rootfs slot to {slot=}: {e!r}"
+            logger.error(_err_msg)
+            raise _NvbootctrlError(_err_msg) from e
+
+    @classmethod
+    def set_slot_as_unbootable(cls, slot: str, *, target: TARGET_TYPE = "rootfs"):
+        try:
+            cls._nvbootctrl(f"set-slot-as-unbootable {slot}", target=target)
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = f"failed to set {slot} as unbootable: {e!r}"
+            logger.error(_err_msg)
+            raise _NvbootctrlError(_err_msg) from e
+
+    @classmethod
+    def is_slot_bootable(cls, slot: str, *, target="rootfs") -> bool:
+        try:
+            # NOTE: nvbootctrl will return non-zero code on unbootable,
+            #       zero code on bootable.
+            _nvbootctrl_check_return_code(
+                f"is-slot-bootable -t {target} {slot}", raise_exception=True
+            )
             return True
-        except NvbootctrlError:
+        except SubProcessCalledFailed:
             return False
 
     @classmethod
     def is_slot_marked_successful(cls, slot: str) -> bool:
         try:
-            cls._nvbootctrl(f"is-slot-marked-successful {slot}")
+            # NOTE: nvbootctrl will return non-zero code on failed slot,
+            #       zero code on succeeded slot.
+            _nvbootctrl_check_return_code(
+                f"is-slot-marked-successful {slot}", raise_exception=True
+            )
             return True
-        except NvbootctrlError:
+        except SubProcessCalledFailed:
             return False
 
 
