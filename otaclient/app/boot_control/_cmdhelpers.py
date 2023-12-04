@@ -149,7 +149,7 @@ def gen_uuid_str(uuid: str) -> str:
     return f"UUID={uuid}"
 
 
-def get_partuuid_str(partuuid: str) -> str:
+def gen_partuuid_str(partuuid: str) -> str:
     """Return PARTUUID string in "PARTUUID=<partuuid>" format."""
     return f"PARTUUID={partuuid}"
 
@@ -491,6 +491,9 @@ def mount_ro(
 def umount(
     target: StrOrPath,
     *,
+    force: bool,
+    lazy: bool,
+    recursive: bool,
     raise_exception: bool = False,
     timeout: Optional[float] = None,
 ) -> None:
@@ -498,8 +501,17 @@ def umount(
     if not is_target_mounted(target, raise_exception=False):
         return
 
+    _options = []
+    if force:
+        _options.append("-f")
+    if lazy:
+        _options.append("-l")
+    if recursive:
+        _options.append("-R")
+    _options_str = " ".join(_options)
+
     try:
-        _args = f"-l {target}"
+        _args = f"{_options_str} {target}"
         _umount(_args, raise_exception=True, timeout=timeout)
     except SubProcessCalledFailed as e:
         logger.warning(f"failed to unmount {target}: {e!r}")
