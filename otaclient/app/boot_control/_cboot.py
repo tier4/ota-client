@@ -197,7 +197,16 @@ class _CBootControl:
 
     def _init_dev_info(self):
         self.current_slot: str = Nvbootctrl.get_current_slot()
-        self.current_rootfs_dev: str = CMDHelperFuncs.get_current_rootfs_dev()
+
+        try:
+            _current_rootfs_dev = get_current_rootfs_dev(raise_exception=True)
+            assert _current_rootfs_dev
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = f"failed to get current root dev: {e!r}"
+            logger.error(_err_msg)
+            raise _NvbootctrlError(_err_msg) from e
+        self.current_rootfs_dev: str = _current_rootfs_dev
+
         # NOTE: boot dev is always emmc device now
         self.current_boot_dev: str = f"/dev/{Nvbootctrl.EMMC_DEV}p{Nvbootctrl.SLOTID_PARTID_MAP[self.current_slot]}"
 
@@ -205,41 +214,43 @@ class _CBootControl:
         standby_partid = Nvbootctrl.SLOTID_PARTID_MAP[self.standby_slot]
         self.standby_boot_dev: str = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
 
-        # detect rootfs position
-        if self.current_rootfs_dev.find(Nvbootctrl.NVME_DEV) != -1:
-            logger.debug("rootfs on external storage detected, nvme rootfs is enable")
-            self.is_rootfs_on_external = True
-            self.standby_rootfs_dev = f"/dev/{Nvbootctrl.NVME_DEV}p{standby_partid}"
-            self.standby_slot_partuuid_str = CMDHelperFuncs.get_partuuid_str_by_dev(
-                self.standby_rootfs_dev
-            )
-        elif self.current_rootfs_dev.find(Nvbootctrl.EMMC_DEV) != -1:
-            logger.debug("using internal storage as rootfs")
-            self.is_rootfs_on_external = False
-            self.standby_rootfs_dev = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
-            self.standby_slot_partuuid_str = CMDHelperFuncs.get_partuuid_str_by_dev(
-                self.standby_rootfs_dev
-            )
-        else:
-            raise NotImplementedError(
-                f"rootfs on {self.current_rootfs_dev} is not supported, abort"
-            )
+        try:
+            # detect standby slot rootfs device
+            if self.current_rootfs_dev.find(Nvbootctrl.NVME_DEV) != -1:
+                logger.info(
+                    "rootfs on nvme storage detected, using nvme storage as rootfs"
+                )
+                self.is_rootfs_on_external = True
+                self.standby_rootfs_dev = f"/dev/{Nvbootctrl.NVME_DEV}p{standby_partid}"
 
-        # ensure rootfs is as expected
-        if not Nvbootctrl.check_rootdev(self.current_rootfs_dev):
-            msg = f"rootfs mismatch, expect {self.current_rootfs_dev} as rootfs"
-            raise NvbootctrlError(msg)
-        elif Nvbootctrl.check_rootdev(self.standby_rootfs_dev):
-            msg = (
-                f"rootfs mismatch, expect {self.standby_rootfs_dev} as standby slot dev"
-            )
-            raise NvbootctrlError(msg)
+                standby_slot_partuuid = get_attr_from_dev(
+                    self.standby_rootfs_dev, "PARTUUID", raise_exception=True
+                )
+                assert standby_slot_partuuid
+
+            elif self.current_rootfs_dev.find(Nvbootctrl.EMMC_DEV) != -1:
+                logger.info("using internal emmc storage as rootfs")
+                self.is_rootfs_on_external = False
+                self.standby_rootfs_dev = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
+
+                standby_slot_partuuid = get_attr_from_dev(
+                    self.standby_rootfs_dev, "PARTUUID", raise_exception=True
+                )
+                assert standby_slot_partuuid
+
+            else:
+                raise NotImplementedError(
+                    f"rootfs on {self.current_rootfs_dev} is not supported, abort"
+                )
+        except (SubProcessCalledFailed, AssertionError) as e:
+            _err_msg = "failed to detect standby slot rootfs device"
+            logger.error(_err_msg)
+            raise _NvbootctrlError(_err_msg) from e
+        self.standby_slot_partuuid_str = gen_partuuid_str(standby_slot_partuuid)
 
         logger.info("dev info initializing completed")
         logger.info(
-            f"{self.current_slot=}, {self.current_boot_dev=}, {self.current_rootfs_dev=}"
-        )
-        logger.info(
+            f"{self.current_slot=}, {self.current_boot_dev=}, {self.current_rootfs_dev=}\n"
             f"{self.standby_slot=}, {self.standby_boot_dev=}, {self.standby_rootfs_dev=}"
         )
 
