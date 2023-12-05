@@ -27,7 +27,16 @@ from ..configs import config as cfg
 from ..common import read_str_from_file, write_str_to_file_sync
 from ..proto import wrapper
 
-from ._cmdhelpers import umount, mount_rw, mount_ro, MountError
+from ._cmdhelpers import (
+    is_target_mounted,
+    mkfs_ext4,
+    umount,
+    mount_rw,
+    mount_ro,
+    set_ext4_dev_fslabel,
+    SubProcessCalledFailed,
+    MountError,
+)
 
 
 logger = log_setting.get_logger(__name__)
@@ -391,3 +400,48 @@ class SlotMountHelper:
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
     return read_str_from_file(target, missing_ok=False)
+
+
+def prepare_standby_slot_dev_ext4(
+    standby_slot_dev: StrOrPath,
+    *,
+    erase_standby: bool,
+    fslabel: Optional[str] = None,
+    fsuuid: Optional[str] = None,
+) -> None:
+    """Prepare the standby slot dev's filesystem as ext4.
+
+    NOTE: if erase_standby=False, assuming that the target partition is valid ext4 partition,
+          the caller should run e2fsck before calling this function!
+
+    Args:
+        fslabel(str = None): set the partition fslabel to <fslabel>.
+            if <erase_standby> is True, <fslabel> will be passed to mkfs.ext4 command,
+            if <erase_standby> is False, <fslabel> will be set with e2label.
+        fsuuid(str = None): (only used when <erase_standby> is True) set the newly formatted
+            partition's fsuuid to <fsuuid>.
+
+    Raises:
+        Passthrough the SubProcessCalledFailed raised by corresponding
+            command execution.
+    """
+    # try umount the dev if it is mounted somewhere
+    if is_target_mounted(standby_slot_dev, raise_exception=False):
+        try:
+            umount(
+                standby_slot_dev,
+                force=True,
+                lazy=False,
+                recursive=True,
+                raise_exception=True,
+            )
+        except SubProcessCalledFailed:
+            logger.warning(f"{standby_slot_dev} is mounted and failed to umount it")
+
+    if erase_standby:
+        return mkfs_ext4(standby_slot_dev, fslabel=fslabel, fsuuid=fsuuid)
+
+    if fslabel:
+        # TODO: check the standby file system status somewhere else
+        #       if not erase the standby slot.
+        set_ext4_dev_fslabel(standby_slot_dev, fslabel=fslabel)
