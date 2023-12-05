@@ -29,8 +29,6 @@ from ..configs import config as cfg
 from .. import log_setting, errors as ota_errors
 from ..common import copytree_identical, read_str_from_file, write_str_to_file_sync
 
-from ..proto import wrapper
-
 from ._cmdhelpers import (
     gen_partuuid_str,
     get_current_rootfs_dev,
@@ -43,7 +41,11 @@ from ._cmdhelpers import (
     take_arg,
     umount,
 )
-from ._common import OTAStatusFilesControl, SlotMountHelper
+from ._common import (
+    prepare_standby_slot_dev_ext4,
+    OTAStatusFilesControl,
+    SlotMountHelper,
+)
 from .configs import cboot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 from .firmware import Firmware
@@ -337,37 +339,6 @@ class _CBootControl:
             dst, re.compile(r"\n\s*APPEND.*").sub(_repl_func, ref.read_text())
         )
 
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        # try umount and dev
-        if is_target_mounted(self.standby_slot_dev, raise_exception=False):
-            try:
-                umount(
-                    self.standby_slot_dev,
-                    force=True,
-                    lazy=False,
-                    recursive=True,
-                    raise_exception=True,
-                )
-            except SubProcessCalledFailed:
-                logger.warning(
-                    f"{self.standby_slot_dev} is mounted and failed to umount it"
-                )
-
-        try:
-            if erase_standby:
-                mkfs_ext4(self.standby_slot_dev)
-            else:
-                # TODO: check the standby file system status
-                #       if not erase the standby slot
-                # NOTE: no standby slot create mechanism is using erase_standby=False now.
-                raise NotImplementedError(
-                    "no standby slot create mechanism is using erase_standby=False now."
-                )
-        except Exception as e:
-            _err_msg = f"failed to prepare standby dev: {e!r}"
-            logger.error(_err_msg)
-            raise _NvbootctrlError(_err_msg) from e
-
 
 class CBootController(BootControllerProtocol):
     def __init__(self) -> None:
@@ -479,9 +450,13 @@ class CBootController(BootControllerProtocol):
             # update active slot's ota_status
             self._ota_status_control.pre_update_current()
 
-            # mount slots
-            self._cboot_control.prepare_standby_dev(erase_standby=erase_standby)
+            # prepare and mount standby slot
+            prepare_standby_slot_dev_ext4(
+                self._cboot_control.standby_slot_dev,
+                erase_standby=erase_standby,
+            )
             self._mp_control.mount_standby_slot_dev()
+
             self._mp_control.mount_active_slot_dev()
 
             # re-populate /boot/ota-status folder for standby slot
