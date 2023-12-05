@@ -297,11 +297,13 @@ class SlotMountHelper:
         # dev
         self.standby_slot_dev = str(standby_slot_dev)
         self.active_slot_dev = str(active_slot_dev)
+
         # mount points
         self.standby_slot_mount_point = Path(standby_slot_mount_point)
         self.active_slot_mount_point = Path(active_slot_mount_point)
         self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
         self.active_slot_mount_point.mkdir(exist_ok=True, parents=True)
+
         # standby slot /boot dir
         # NOTE(20230907): this will always be <standby_slot_mp>/boot,
         #                 in the future this attribute will not be used by
