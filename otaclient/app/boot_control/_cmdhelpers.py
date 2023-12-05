@@ -337,7 +337,7 @@ class MountFailedReason(int, Enum):
     BIND_MOUNT_ON_NON_DIR = -4
 
 
-def _parse_mount_failure(func: Callable[..., Any]):
+def _parse_mount_failure(func: Callable[P, T]) -> Callable[P, T]:
     @functools.wraps(func)
     def _wrapper(*args, **kwargs):
         try:
@@ -364,7 +364,7 @@ def _parse_mount_failure(func: Callable[..., Any]):
 
             raise MountError(_error_msg, failure_reason=_fail_reason)
 
-    return _wrapper
+    return _wrapper  # type: ignore
 
 
 @_parse_mount_failure
@@ -385,8 +385,8 @@ def mount(
     _option_str = f"-o {','.join(options)}" if isinstance(options, list) else ""
     _args_str = f"{' '.join(args)}" if isinstance(args, list) else ""
 
-    _args = f"{_option_str} {_args_str} {dev} {mount_point}"
-    _mount(_args, raise_exception=True, timeout=timeout)
+    _mount_args_str = f"{_option_str} {_args_str} {dev} {mount_point}"
+    _mount(_mount_args_str, raise_exception=True, timeout=timeout)
 
 
 def mount_rw(
@@ -398,24 +398,55 @@ def mount_rw(
 ) -> None:
     """Mount the target to the mount_point read-write.
 
+    We will try to exclusively mount the target drive.
+
     NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
             mount events propagation to/from this mount point.
+    NOTE(20231205): although linux kernel allows multiple direct mount on
+            the same device, the mount options can not be changed.
+            Second mount to the same device with different -o will cause "already mounted" error.
+    NOTE(20231205): mount point itself can be stacked, new one will override the old one.
 
     Raises:
         MountError on failed mounting.
     """
+    _exec_mount = functools.partial(
+        mount,
+        target,
+        mount_point,
+        options=["rw"],
+        args=["--make-private", "--make-unbindable"],
+        timeout=timeout,
+    )
+
+    # try mount first
+    _mount_exception: Optional[MountError] = None
     try:
-        mount(
-            target,
-            mount_point,
-            options=["rw"],
-            args=["--make-private", "--make-unbindable"],
-            timeout=timeout,
-        )
+        return _exec_mount()
     except MountError as e:
-        logger.error(f"failed to mount {target=} to {mount_point=}: {e!r}")
+        _mount_exception = e  # get exc from exception handling namespace
+
+    # first mount failed with other reason rather than "already mounted" error
+    if _mount_exception.failure_reason != MountFailedReason.TARGET_ALREADY_MOUNTED:
+        _err_msg = (
+            f"failed to mount {target=} to {mount_point=} r/w: {_mount_exception!r}"
+        )
+        logger.error(_err_msg)
         if raise_exception:
-            raise
+            try:
+                raise _mount_exception from None
+            finally:
+                _mount_exception = None  # break cyclic ref
+        return
+
+    # target is already mounted try to umount first and then try mount again
+    try:
+        umount(target, force=True, lazy=False, recursive=False, raise_exception=True)
+        _exec_mount()
+    except MountError as e:
+        _err_msg = f"try to umount {target} and mount r/w again to {mount_point=} failed: {e!r}"
+        logger.error(_err_msg)
+        raise
 
 
 def bind_mount_ro(
@@ -480,7 +511,6 @@ def mount_ro(
             options=["ro"],
             args=["--make-private", "--make-unbindable"],
             timeout=timeout,
-            raise_exception=raise_exception,
         )
     except MountError as e:
         logger.error(f"failed to mount_ro {target=} to {mount_point=}: {e!r}")
@@ -497,7 +527,11 @@ def umount(
     raise_exception: bool = False,
     timeout: Optional[float] = None,
 ) -> None:
-    """Try to unmount the <target>."""
+    """Try to unmount the <target>.
+
+    Raises:
+        MountError with reason=GENERIC_MOUNT_FAILURE when umount failed.
+    """
     if not is_target_mounted(target, raise_exception=False):
         return
 
@@ -511,9 +545,13 @@ def umount(
     _options_str = " ".join(_options)
 
     try:
-        _args = f"{_options_str} {target}"
-        _umount(_args, raise_exception=True, timeout=timeout)
+        _umount_args = f"{_options_str} {target}"
+        _umount(_umount_args, raise_exception=True, timeout=timeout)
     except SubProcessCalledFailed as e:
-        logger.warning(f"failed to unmount {target}: {e!r}")
+        _err_msg = f"failed to unmount {target}: {e!r}"
+        logger.warning(_err_msg)
+
         if raise_exception:
-            raise
+            raise MountError(
+                _err_msg, failure_reason=MountFailedReason.GENERIC_MOUNT_FAILURE
+            ) from e
