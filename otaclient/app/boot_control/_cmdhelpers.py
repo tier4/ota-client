@@ -118,18 +118,17 @@ def reboot(_args: str = "") -> NoReturn:
     """Reboot the whole system otaclient running at and terminate otaclient.
 
     NOTE: rpi_boot's reboot takes args.
-    NOTE(20230614): this command MUST also make otaclient exit immediately.
+    NOTE(20231205): if reboot command succeeded, this function must terminates otaclient.
     """
     # if in container mode, execute reboot on host ns
     new_root = cfg.ACTIVE_ROOTFS if cfg.IS_CONTAINER else None
 
     try:
         _reboot(_args, raise_exception=True, new_root=new_root)
-    except Exception:
-        logger.error("failed to reboot the system")
-        raise
-    finally:  # ensure otaclient exits on this function being called
         sys.exit(0)
+    except SubProcessCalledFailed:
+        logger.error(f"failed to reboot({_args=}) the system")
+        raise
 
 
 def get_attr_from_dev(
