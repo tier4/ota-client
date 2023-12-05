@@ -1003,11 +1003,12 @@ class GrubController(BootControllerProtocol):
             self._copy_boot_files_from_standby_slot()
 
             # ------ pre-reboot ------ #
-            self._mp_control.umount_all(ignore_error=True)
+            self._mp_control.umount_all()
             self._boot_control.grub_reboot_to_standby()
 
             yield  # hand over control to otaclient
-            reboot()
+
+            reboot()  # otaclient will be terminated on succeeded call
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)
@@ -1032,12 +1033,12 @@ class GrubController(BootControllerProtocol):
         try:
             logger.info("grub_boot: post-rollback setup...")
             self._boot_control.grub_reboot_to_standby()
-            self._mp_control.umount_all(ignore_error=True)
+
+            self._mp_control.umount_all()
+            reboot()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.BootControlPostRollbackFailed(
                 _err_msg, module=__name__
             ) from e
-
-        reboot()
