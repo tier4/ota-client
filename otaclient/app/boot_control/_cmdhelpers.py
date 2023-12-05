@@ -250,7 +250,7 @@ def get_parent_dev(
     return _lsblk(_args, timeout=timeout, raise_exception=raise_exception)
 
 
-def set_dev_fslabel(
+def set_ext4_dev_fslabel(
     dev: StrOrPath,
     fslabel: str,
     *,
@@ -296,7 +296,7 @@ def mkfs_ext4(
         fsuuid = _prev_fsuuid
     specify_fsuuid = f"-U {fsuuid}" if fsuuid else ""
 
-    logger.warning(f"format {dev} to ext4...")
+    logger.warning(f"format {dev} to ext4({fsuuid=}, {fslabel=})...")
     try:
         _args = f"{specify_fsuuid} {specify_fslabel} {dev}"
         _mkfs_ext4(_args, raise_exception=True, timeout=timeout)
