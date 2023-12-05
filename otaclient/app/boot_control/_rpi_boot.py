@@ -33,7 +33,7 @@ from ._common import (
     OTAStatusFilesControl,
     SlotMountHelper,
 )
-from ._cmdhelpers import (
+from .._cmdhelpers import (
     get_dev_by_mount_point,
     get_attr_from_dev,
     get_parent_dev,

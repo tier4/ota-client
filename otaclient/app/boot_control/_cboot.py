@@ -29,7 +29,7 @@ from ..configs import config as cfg
 from .. import log_setting, errors as ota_errors
 from ..common import copytree_identical, read_str_from_file, write_str_to_file_sync
 
-from ._cmdhelpers import (
+from .._cmdhelpers import (
     gen_partuuid_str,
     get_current_rootfs_dev,
     get_attr_from_dev,

@@ -14,8 +14,8 @@ from otaclient._utils.subprocess import (
     subprocess_check_output,
 )
 from otaclient._utils.typing import StrOrPath
-from ..configs import config as cfg
-from ..log_setting import get_logger
+from .configs import config as cfg
+from .log_setting import get_logger
 
 logger = get_logger(__name__)
 

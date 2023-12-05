@@ -27,7 +27,7 @@ from ..configs import config as cfg
 from ..common import read_str_from_file, write_str_to_file_sync
 from ..proto import wrapper
 
-from ._cmdhelpers import (
+from .._cmdhelpers import (
     is_target_mounted,
     mkfs_ext4,
     umount,
