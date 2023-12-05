@@ -460,7 +460,7 @@ class CBootController(BootControllerProtocol):
         """Failure registering and cleanup at failure."""
         logger.warning("on failure try to unmounting standby slot...")
         self._ota_status_control.on_failure()
-        self._mp_control.umount_all(ignore_error=True)
+        self._mp_control.umount_all()
 
     def get_standby_slot_path(self) -> Path:
         return self._mp_control.standby_slot_mount_point
@@ -481,8 +481,8 @@ class CBootController(BootControllerProtocol):
 
             # mount slots
             self._cboot_control.prepare_standby_dev(erase_standby=erase_standby)
-            self._mp_control.mount_standby()
-            self._mp_control.mount_active()
+            self._mp_control.mount_standby_slot_dev()
+            self._mp_control.mount_active_slot_dev()
 
             # re-populate /boot/ota-status folder for standby slot
             self._ota_status_control.standby_ota_status_dir.mkdir(
@@ -524,7 +524,7 @@ class CBootController(BootControllerProtocol):
                 self._standby_slot_populate_boot_folder_to_separate_bootdev()
 
             logger.info("post update finished, rebooting...")
-            self._mp_control.umount_all(ignore_error=True)
+            self._mp_control.umount_all()
 
             # swith boot to standby slot
             self._cboot_control.switch_boot_to(self._cboot_control.standby_slot)
@@ -544,7 +544,8 @@ class CBootController(BootControllerProtocol):
         logger.info("cboot: pre-rollback setup...")
         try:
             self._ota_status_control.pre_rollback_current()
-            self._mp_control.mount_standby()
+
+            self._mp_control.mount_standby_slot_dev()
             self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
