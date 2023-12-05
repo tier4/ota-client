@@ -405,13 +405,17 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
-    def reboot_tryboot(self):
-        """Reboot with tryboot flag."""
+    def reboot_tryboot(self) -> NoReturn:
+        """Reboot with tryboot flag.
+
+        Raises:
+            _RPIBootControllerError on failed reboot call.
+        """
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
-            reboot("'0 tryboot'")
+            reboot("'0 tryboot'")  # otaclient will be terminated on succeeded call
         except SubProcessCalledFailed as e:
-            _err_msg = f"failed to reboot: {e!r}"
+            _err_msg = f"failed to reboot tryboot: {e!r}"
             logger.exception(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
@@ -579,11 +583,12 @@ class RPIBootController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_rollback(self):
+    def post_rollback(self) -> NoReturn:
         try:
             logger.info("rpi_boot: post-rollback setup...")
             self._rpiboot_control.prepare_tryboot_txt()
-            self._mp_control.umount_all(ignore_error=True)
+
+            self._mp_control.umount_all()
             self._rpiboot_control.reboot_tryboot()
         except Exception as e:
             _err_msg = f"failed on post_rollback: {e!r}"
@@ -592,15 +597,17 @@ class RPIBootController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> Generator[None, None, None]:
+    def post_update(self) -> Generator[None, None, NoReturn]:
         try:
             logger.info("rpi_boot: post-update setup...")
             self._copy_kernel_for_standby_slot()
             self._mp_control.preserve_ota_folder_to_standby()
             self._write_standby_fstab()
             self._rpiboot_control.prepare_tryboot_txt()
-            self._mp_control.umount_all(ignore_error=True)
+
             yield  # hand over control back to otaclient
+
+            self._mp_control.umount_all()
             self._rpiboot_control.reboot_tryboot()
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"

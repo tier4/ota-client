@@ -531,7 +531,8 @@ class CBootController(BootControllerProtocol):
             logger.info(f"[post-update]: {Nvbootctrl.dump_slots_info()=}")
 
             yield  # hand over control back to otaclient
-            reboot()
+
+            reboot()  # otaclient will be terminated on succeeded call
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.exception(_err_msg)
@@ -556,8 +557,8 @@ class CBootController(BootControllerProtocol):
         logger.info("cboot: post-rollback setup...")
         try:
             self._cboot_control.switch_boot_to(self._cboot_control.standby_slot)
-            self._mp_control.umount_all(ignore_error=True)
 
+            self._mp_control.umount_all()
             reboot()
         except Exception as e:
             _err_msg = f"failed on post_rollback: {e!r}"
