@@ -51,7 +51,12 @@ from ..configs import config as cfg
 from ..common import re_symlink_atomic, read_str_from_file, write_str_to_file_sync
 from ..proto import wrapper
 
-from ._common import OTAStatusFilesControl, SlotMountHelper, cat_proc_cmdline
+from ._common import (
+    cat_proc_cmdline,
+    prepare_standby_slot_dev_ext4,
+    OTAStatusFilesControl,
+    SlotMountHelper,
+)
 from ._cmdhelpers import (
     _lsblk,
     get_parent_dev,
@@ -750,32 +755,6 @@ class _GrubControl:
 
     # API
 
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        """
-        Args:
-            erase_standby: indicate boot_controller whether to format the
-                standby slot's file system or not. This value is indicated and
-                passed to boot controller by the standby slot creator.
-        """
-        # try to unmount the standby root dev unconditionally
-        if is_target_mounted(self.standby_root_dev, raise_exception=False):
-            try:
-                umount(self.standby_root_dev, raise_exception=True)
-            except SubProcessCalledFailed as e:
-                _err_msg = f"standby slot dev({self.standby_root_dev}) is mounted and failed to unmount it"
-                logger.error(_err_msg)
-                raise _GrubBootControllerError(_err_msg) from e
-
-        try:
-            if erase_standby:
-                mkfs_ext4(self.standby_root_dev)
-            # TODO: check the standby file system status
-            #       if not erase the standby slot
-        except Exception as e:
-            _err_msg = f"failed to prepare standby dev: {e!r}"
-            logger.error(_err_msg)
-            raise _GrubBootControllerError(_err_msg) from e
-
     def finalize_update_switch_boot(self):
         """Finalize switch boot and use boot files from current booted slot."""
         # NOTE: since we have not yet switched boot, the active/standby relationship is
@@ -973,9 +952,13 @@ class GrubController(BootControllerProtocol):
             ### udpate active slot's ota_status ###
             self._ota_status_control.pre_update_current()
 
-            ### mount slots ###
-            self._boot_control.prepare_standby_dev(erase_standby=erase_standby)
+            # prepare and mount standby slot dev
+            prepare_standby_slot_dev_ext4(
+                self._boot_control.standby_root_dev,
+                erase_standby=erase_standby,
+            )
             self._mp_control.mount_standby_slot_dev()
+
             self._mp_control.mount_active_slot_dev()
 
             ### update standby slot's ota_status files ###
