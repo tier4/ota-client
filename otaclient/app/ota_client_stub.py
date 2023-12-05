@@ -27,7 +27,7 @@ from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
 from typing_extensions import Self
 
 from . import log_setting
-from .boot_control._cmdhelpers import mount_ro, get_dev_by_attr, umount
+from ._cmdhelpers import mount_ro, get_dev_by_attr, umount
 from .configs import config as cfg, logging_config
 from .common import ensure_otaproxy_start
 from .ecu_info import ECUContact, ECUInfo

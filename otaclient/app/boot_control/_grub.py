@@ -57,7 +57,7 @@ from ._common import (
     OTAStatusFilesControl,
     SlotMountHelper,
 )
-from ._cmdhelpers import (
+from .._cmdhelpers import (
     _lsblk,
     get_parent_dev,
     get_dev_by_mount_point,
