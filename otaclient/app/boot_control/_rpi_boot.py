@@ -574,7 +574,8 @@ class RPIBootController(BootControllerProtocol):
         try:
             logger.info("rpi_boot: pre-rollback setup...")
             self._ota_status_control.pre_rollback_current()
-            self._mp_control.mount_standby()
+
+            self._mp_control.mount_standby_slot_dev()
             self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
@@ -616,11 +617,11 @@ class RPIBootController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def on_operation_failure(self):
+    def on_operation_failure(self) -> None:
         """Failure registering and cleanup at failure."""
         logger.warning("on failure try to unmounting standby slot...")
         self._ota_status_control.on_failure()
-        self._mp_control.umount_all(ignore_error=True)
+        self._mp_control.umount_all()
 
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
