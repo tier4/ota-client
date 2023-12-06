@@ -153,7 +153,7 @@ def get_attr_from_dev(
     timeout: Optional[float] = None,
 ) -> str | None:
     """Use lsblk to query dev attr value."""
-    _args = f"-in -o {attr_n} {dev}"
+    _args = ["-in", "-o", attr_n, str(dev)]
     return _lsblk(_args, timeout=timeout, raise_exception=raise_exception)
 
 
@@ -175,7 +175,7 @@ def get_dev_by_attr(
     timeout: Optional[float] = None,
 ) -> str | None:
     """Search dev by <attr> with lsblk and return its full dev path."""
-    _args = f"{attr_name}={attr_value}"
+    _args = [f"{attr_name}={attr_value}"]
     return _findfs(_args, timeout=timeout, raise_exception=raise_exception)
 
 
@@ -196,7 +196,7 @@ def get_current_rootfs_dev(
     """
     _active_rootfs = cfg.ACTIVE_ROOTFS
     return _findmnt(
-        f"{_active_rootfs} -o SOURCE -n -f -c",
+        ["-nfco", "SOURCE", str(_active_rootfs)],
         timeout=timeout,
         raise_exception=raise_exception,
     )
@@ -210,7 +210,9 @@ def get_dev_by_mount_point(
 ) -> str | None:
     """Return the underlying mounted dev of the given mount_point."""
     return _findmnt(
-        f"-no SOURCE {mount_point}", timeout=timeout, raise_exception=raise_exception
+        ["-no", "SOURCE", str(mount_point)],
+        timeout=timeout,
+        raise_exception=raise_exception,
     )
 
 
@@ -229,7 +231,7 @@ def get_dev_tree(
         NAME="/dev/sdx3" # slot_b
 
     """
-    _args = f"-Pp -o NAME {_parent}"
+    _args = ["-Ppo", "NAME", str(_parent)]
     return _lsblk(_args, timeout=timeout, raise_exception=raise_exception)
 
 
@@ -241,7 +243,7 @@ def is_target_mounted(
 ) -> bool:
     """Check if target device is mounted, or target folder is used as mount point."""
     _mount_info = _findmnt(
-        f"{target}",
+        [str(target)],
         timeout=timeout,
         raise_exception=raise_exception,
     )
@@ -260,7 +262,7 @@ def get_parent_dev(
     cmd params:
         -d: print the result from specified dev only.
     """
-    _args = f"-idpn -o PKNAME {child_device}"
+    _args = ["-idpno", "PKNAME", str(child_device)]
     return _lsblk(_args, timeout=timeout, raise_exception=raise_exception)
 
 
@@ -271,7 +273,7 @@ def set_ext4_dev_fslabel(
     raise_exception: bool = True,
     timeout: Optional[float] = None,
 ) -> None:
-    _args = f"{dev} {fslabel}"
+    _args = [str(dev), fslabel]
     _e2label(_args, timeout=timeout, raise_exception=raise_exception)
 
 
@@ -302,17 +304,17 @@ def mkfs_ext4(
         _prev_fslabel := get_attr_from_dev(dev, "LABEL", raise_exception=False)
     ):
         fslabel = _prev_fslabel
-    specify_fslabel = f"-L {fslabel}" if fslabel else ""
+    specify_fslabel = ["-L", fslabel] if fslabel else []
 
     if preserve_fsuuid and (
         _prev_fsuuid := get_attr_from_dev(dev, "UUID", raise_exception=False)
     ):
         fsuuid = _prev_fsuuid
-    specify_fsuuid = f"-U {fsuuid}" if fsuuid else ""
+    specify_fsuuid = ["-U", fsuuid] if fsuuid else []
 
     logger.warning(f"format {dev} to ext4({fsuuid=}, {fslabel=})...")
     try:
-        _args = f"{specify_fsuuid} {specify_fslabel} {dev}"
+        _args = [*specify_fsuuid, *specify_fslabel, str(dev)]
         _mkfs_ext4(_args, raise_exception=True, timeout=timeout)
     except SubProcessCalledFailed as e:
         logger.error(f"failed to format {dev} as mkfs.ext4 on: {e!r}")
@@ -392,17 +394,16 @@ def mount(
     args: Optional[list[str]] = None,
     timeout: Optional[float] = None,
 ) -> None:
-    """
-    mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
+    """mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
 
     Raises:
         MountError on failed mounting.
     """
-    _option_str = f"-o {','.join(options)}" if isinstance(options, list) else ""
-    _args_str = f"{' '.join(args)}" if isinstance(args, list) else ""
+    _options = ["-o", *options] if isinstance(options, list) else []
+    _args = args if isinstance(args, list) else []
 
-    _mount_args_str = f"{_option_str} {_args_str} {dev} {mount_point}"
-    _mount(_mount_args_str, raise_exception=True, timeout=timeout)
+    _mount_params = [*_options, *_args, str(dev), str(mount_point)]
+    _mount(_mount_params, raise_exception=True, timeout=timeout)
 
 
 @_parse_mount_failure
@@ -417,10 +418,10 @@ def umount(
     Raises:
         MountError on failed umounting.
     """
-    _args_str = f"{' '.join(args)}" if isinstance(args, list) else ""
+    _args = args if isinstance(args, list) else []
 
-    _umount_args_str = f"{_args_str} {target}"
-    _umount(_umount_args_str, raise_exception=True, timeout=timeout)
+    _umount_params = [*_args, str(target)]
+    _umount(_umount_params, raise_exception=True, timeout=timeout)
 
 
 def mount_rw(
@@ -475,7 +476,7 @@ def mount_rw(
 
     # target is already mounted try to umount first and then try mount again
     try:
-        umount(target, force=True, lazy=False, recursive=False, raise_exception=True)
+        umount_target(target, raise_exception=True)
         _exec_mount()
     except MountError as e:
         _err_msg = f"try to umount {target} and mount r/w again to {mount_point=} failed: {e!r}"
@@ -563,6 +564,7 @@ def umount_target(
     recursive: bool = False,
     raise_exception: bool = False,
     list_opened_files: bool = False,
+    list_opened_files_timeout: float = 3,
     timeout: Optional[float] = None,
 ) -> None:
     """Try to unmount the <target>.
@@ -590,7 +592,13 @@ def umount_target(
         if (
             e.failure_reason == MountFailedReason.TARGET_IS_BUSY
             and list_opened_files
-            and (_open_files := _lsof(str(target), raise_exception=False))
+            and (
+                _open_files := _lsof(
+                    [str(target)],
+                    raise_exception=False,
+                    timeout=list_opened_files_timeout,
+                )
+            )
         ):
             _open_files = truncate_str_or_bytes(_open_files, _MAX_LSOF_OUTPUT_LEN)
             logger.warning(f"open files on {target=}: \n{_open_files}")
