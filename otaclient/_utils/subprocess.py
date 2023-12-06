@@ -158,3 +158,14 @@ if TYPE_CHECKING:
 else:
     subprocess_call = functools.partial(_subprocess_call, capture_output=False)
     subprocess_check_output = functools.partial(_subprocess_call, capture_output=True)
+
+
+def compose_cmd(_cmd: str, _args: ArgsType) -> list[str]:
+    """Compose split cmd str from combining <_cmd> with <_args>.
+
+    For example,
+        1. compose_cmd_str("echo", ["-n", "abc"]) will get ["echo", "-n", "abc"].
+        2. compose_cmd_str("echo", "-n abc") will get the same ["echo", "-n", "abc"].
+    """
+    _parsed_args = shlex.split(_args) if isinstance(_args, str) else _args
+    return [_cmd, *_parsed_args]
