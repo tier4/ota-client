@@ -78,8 +78,9 @@ class Nvbootctrl:
     """
 
     TARGET_TYPE = Literal["rootfs", "bootloader"]
-    EMMC_DEV: str = "mmcblk0"
-    NVME_DEV: str = "nvme0n1"
+    EMMC_DEV = "mmcblk0"
+    NVME_DEV = "nvme0n1"
+
     # slot0<->slot1
     CURRENT_STANDBY_FLIP = {"0": "1", "1": "0"}
     # p1->slot0, p2->slot1
@@ -96,16 +97,11 @@ class Nvbootctrl:
             SubProcessCalledFailed if raise_exception is True.
         """
         _args = f"-t {target} {args}"
-        try:
-            return _nvbootctrl(
-                _args,
-                new_root=cfg.ACTIVE_ROOTFS,
-                raise_exception=raise_exception,
-            )
-        except SubProcessCalledFailed as e:
-            _err_msg = f"nvbootctrl called failed with {_args=}: {e!r}"
-            logger.error(_err_msg)
-            raise
+        return _nvbootctrl(
+            _args,
+            new_root=cfg.ACTIVE_ROOTFS,
+            raise_exception=raise_exception,
+        )
 
     @classmethod
     def get_current_slot(cls, *, target: TARGET_TYPE = "rootfs") -> str:
@@ -251,8 +247,15 @@ class _CBootControl:
                 raise NotImplementedError(
                     f"rootfs on {self._current_rootfs_dev} is not supported, abort"
                 )
-        except (SubProcessCalledFailed, AssertionError) as e:
-            _err_msg = "failed to detect standby slot rootfs device"
+
+        except AssertionError:
+            _err_msg = "failed to get standby slot partuuid"
+            logger.error(_err_msg)
+            raise _NvbootctrlError(_err_msg) from None
+        except SubProcessCalledFailed as e:
+            _err_msg = (
+                f"failed to detect standby slot rootfs device: {_current_rootfs_dev=}"
+            )
             logger.error(_err_msg)
             raise _NvbootctrlError(_err_msg) from e
 
