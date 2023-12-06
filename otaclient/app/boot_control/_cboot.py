@@ -177,21 +177,30 @@ class Nvbootctrl:
 
 class _CBootControl:
     def __init__(self):
-        # NOTE: only support rqx-580, rqx-58g platform right now!
-        # detect the chip id
-        self.chip_id = read_str_from_file(boot_cfg.TEGRA_CHIP_ID_FPATH)
-        if not self.chip_id or int(self.chip_id) not in boot_cfg.CHIP_ID_MODEL_MAP:
-            raise NotImplementedError(
-                f"unsupported platform found (chip_id: {self.chip_id}), abort"
-            )
-
-        self.chip_id = int(self.chip_id)
-        self.model = boot_cfg.CHIP_ID_MODEL_MAP[self.chip_id]
-        logger.info(f"{self.model=}, (chip_id={hex(self.chip_id)})")
-
-        # initializing dev info
+        self._check_tegra_chip_id()
         self._init_dev_info()
         logger.info(f"finished cboot control init: {Nvbootctrl.dump_slots_info()=}")
+
+    def _check_tegra_chip_id(self) -> None:
+        """Check whether the device is supported by CBootController.
+
+        NOTE: only support rqx-580, rqx-58g platform right now!
+
+        Raises:
+            NotImplementedError if chip_id is invalid or not in otaclient
+                cboot controller support list.
+        """
+        _raw_chip_id = read_str_from_file(boot_cfg.TEGRA_CHIP_ID_FPATH)
+        try:
+            chip_id = int(_raw_chip_id)
+        except ValueError:
+            raise NotImplementedError(f"invalid chip_id: {_raw_chip_id=}")
+
+        if chip_id not in boot_cfg.CHIP_ID_MODEL_MAP:
+            raise NotImplementedError(f"unsupported platform found ({chip_id=}), abort")
+
+        model = boot_cfg.CHIP_ID_MODEL_MAP[chip_id]
+        logger.info(f"cboot loaded for device {model=}, (chip_id={hex(chip_id)})")
 
     def _init_dev_info(self):
         self._current_slot: str = Nvbootctrl.get_current_slot()
