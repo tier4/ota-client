@@ -9,9 +9,10 @@ from typing import Any, Callable, Literal, NoReturn, Optional
 from typing_extensions import Concatenate
 
 from otaclient._utils.subprocess import (
-    SubProcessCalledFailed,
+    compose_cmd,
     subprocess_call,
     subprocess_check_output,
+    SubProcessCalledFailed,
 )
 from otaclient._utils.typing import ArgsType, StrOrPath, P, T
 from otaclient._utils import truncate_str_or_bytes
@@ -61,55 +62,64 @@ def no_arg(_: Callable[Concatenate[Any, P], Any]):
 @take_arg(subprocess_check_output)
 @log_exc(logger.warning)
 def _findfs(_args: ArgsType, **kwargs) -> str | None:
-    return subprocess_check_output(f"findfs {_args}", **kwargs)
+    _cmd: list[str] = compose_cmd("findfs", _args)
+    return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.warning)
 def _findmnt(_args: ArgsType, **kwargs) -> str | None:
-    return subprocess_check_output(f"findmnt {_args}", **kwargs)
+    _cmd: list[str] = compose_cmd("findmnt", _args)
+    return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.error)
 def _lsblk(_args: ArgsType, **kwargs) -> str | None:
-    return subprocess_check_output(f"lsblk {_args}", **kwargs)
-
-
-@take_arg(subprocess_check_output)
-@log_exc(logger.error)
-def _mkfs_ext4(_args: ArgsType, **kwargs) -> None:
-    return subprocess_call(f"mkfs.ext4 {_args}", **kwargs)
-
-
-@take_arg(subprocess_check_output)
-@log_exc(logger.error)
-def _reboot(_args: ArgsType, **kwargs) -> None:
-    return subprocess_call(f"reboot {_args}", **kwargs)
-
-
-@take_arg(subprocess_check_output)
-@log_exc(logger.error)
-def _mount(_args: ArgsType, **kwargs) -> None:
-    return subprocess_call(f"mount {_args}", **kwargs)
-
-
-@take_arg(subprocess_check_output)
-@log_exc(logger.warning)
-def _umount(_args: ArgsType, **kwargs) -> None:
-    return subprocess_call(f"umount {_args}", **kwargs)
-
-
-@take_arg(subprocess_check_output)
-@log_exc(logger.error)
-def _e2label(_args: ArgsType, **kwargs) -> None:
-    return subprocess_call(f"e2label {_args}", **kwargs)
+    _cmd: list[str] = compose_cmd("lsblk", _args)
+    return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.debug)
 def _lsof(_args: ArgsType, **kwargs) -> str | None:
-    return subprocess_check_output(f"lsof {_args}", **kwargs)
+    _cmd: list[str] = compose_cmd("lsof", _args)
+    return subprocess_check_output(_cmd, **kwargs)
+
+
+@take_arg(subprocess_call)
+@log_exc(logger.error)
+def _mkfs_ext4(_args: ArgsType, **kwargs) -> None:
+    _cmd: list[str] = compose_cmd("mkfs.ext4", _args)
+    return subprocess_call(_cmd, **kwargs)
+
+
+@take_arg(subprocess_call)
+@log_exc(logger.error)
+def _reboot(_args: ArgsType, **kwargs) -> None:
+    _cmd: list[str] = compose_cmd("reboot", _args)
+    return subprocess_call(_cmd, **kwargs)
+
+
+@take_arg(subprocess_call)
+@log_exc(logger.error)
+def _mount(_args: ArgsType, **kwargs) -> None:
+    _cmd: list[str] = compose_cmd("mount", _args)
+    return subprocess_call(_cmd, **kwargs)
+
+
+@take_arg(subprocess_call)
+@log_exc(logger.warning)
+def _umount(_args: ArgsType, **kwargs) -> None:
+    _cmd: list[str] = compose_cmd("umount", _args)
+    return subprocess_call(_cmd, **kwargs)
+
+
+@take_arg(subprocess_call)
+@log_exc(logger.error)
+def _e2label(_args: ArgsType, **kwargs) -> None:
+    _cmd: list[str] = compose_cmd("e2label", _args)
+    return subprocess_call(_cmd, **kwargs)
 
 
 # ------ concrete helpers for specific purpose ------ #
