@@ -40,10 +40,8 @@ from .._cmdhelpers import (
     get_dev_tree,
     is_target_mounted,
     log_exc,
-    mkfs_ext4,
     no_arg,
     reboot,
-    umount,
 )
 from .configs import rpi_boot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
