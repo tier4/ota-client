@@ -22,6 +22,7 @@ import shlex
 from typing import TYPE_CHECKING, Callable, Optional
 
 from . import truncate_str_or_bytes
+from .typing import ArgsType
 
 # prevent too-long stdout/stderr in err when handling exception
 _ERR_MAX_LEN = 2048
@@ -59,15 +60,14 @@ class SubProcessCalledFailed(Exception):
 
 
 def _subprocess_call(
-    cmd: str | list[str],
+    _cmd: ArgsType,
     *,
     new_root: Optional[str] = None,
     raise_exception: bool = False,
     timeout: Optional[float] = None,
     capture_output: bool = False,
 ) -> str | None:
-    if isinstance(cmd, str):
-        cmd = shlex.split(cmd)
+    cmd = shlex.split(_cmd) if isinstance(_cmd, str) else _cmd
 
     _preexec_fn: Optional[Callable[[], None]] = None
     if new_root:
