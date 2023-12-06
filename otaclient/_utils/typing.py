@@ -13,14 +13,17 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 from pathlib import Path
-from typing import Any, Callable, TypeVar, Union
+from typing import Any, Callable, TypeVar
 from typing_extensions import Concatenate, ParamSpec
 
 P = ParamSpec("P")
+T = TypeVar("T")
 RT = TypeVar("RT")
 
-StrOrPath = Union[str, Path]
+StrOrPath = TypeVar("StrOrPath", str, Path)
+ArgsType = TypeVar("ArgsType", str, "list[str]")
 
 
 def copy_callable_typehint(_source: Callable[P, Any]):
