@@ -25,9 +25,11 @@ from otaclient._utils.subprocess import (
     subprocess_check_output,
     SubProcessCalledFailed,
 )
-from ..configs import config as cfg
+
 from .. import log_setting, errors as ota_errors
+from ..configs import config as cfg
 from ..common import copytree_identical, read_str_from_file, write_str_to_file_sync
+from ..proto import wrapper
 
 from .._cmdhelpers import (
     gen_partuuid_str,
@@ -538,3 +540,9 @@ class CBootController(BootControllerProtocol):
             raise ota_errors.BootControlPostRollbackFailed(
                 _err_msg, module=__name__
             ) from e
+
+    def load_version(self) -> str:
+        return self._ota_status_control.load_active_slot_version()
+
+    def get_booted_ota_status(self) -> wrapper.StatusOta:
+        return self._ota_status_control.booted_ota_status
