@@ -42,6 +42,7 @@ condition after OTA update:
 """
 
 
+from __future__ import annotations
 import logging
 import shutil
 import typing
@@ -52,6 +53,8 @@ from pathlib import Path
 
 from otaclient._utils.path import replace_root
 from otaclient.app.proto import wrapper
+from otaclient.app.boot_control._common import SlotMountHelper
+from otaclient.app.boot_control._cboot import Nvbootctrl
 from otaclient.configs.app_cfg import Config as otaclient_Config
 
 
@@ -61,26 +64,51 @@ from tests.conftest import TestConfiguration as test_cfg
 logger = logging.getLogger(__name__)
 
 
+class _CBootTestCFG:
+    SLOT_A_ID = "0"
+    SLOT_B_ID = "1"
+    SLOT_A_DEV = "/dev/nvme0n1p1"
+    SLOT_B_DEV = "/dev/nvme0n1p2"
+
+    SLOT_A_UUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
+    SLOT_A_PARTUUID = SLOT_A_UUID
+    SLOT_B_UUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
+    SLOT_B_PARTUUID = SLOT_B_UUID
+
+    CBOOT_MODULE_PATH = "otaclient.app.boot_control._cboot"
+
+
 class CbootFSM:
     def __init__(self) -> None:
-        self.current_slot = test_cfg.SLOT_A_ID_CBOOT
-        self.standby_slot = test_cfg.SLOT_B_ID_CBOOT
+        self.current_slot, self.current_slot_dev = (
+            _CBootTestCFG.SLOT_A_ID,
+            _CBootTestCFG.SLOT_A_DEV,
+        )
+        self.standby_slot, self.standby_slot_dev = (
+            _CBootTestCFG.SLOT_B_ID,
+            _CBootTestCFG.SLOT_B_DEV,
+        )
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
 
         self.is_boot_switched = False
 
-    def get_current_slot(self):
+    def get_current_slot(self, *args, **kwargs):
         return self.current_slot
 
-    def get_standby_slot(self):
+    def get_current_slot_dev(self, *args, **kwargs):
+        return self.current_slot_dev
+
+    def get_standby_slot(self, *args, **kwargs):
         return self.standby_slot
 
-    def get_standby_partuuid_str(self):
-        if self.standby_slot == test_cfg.SLOT_B_ID_CBOOT:
-            return f"PARTUUID={test_cfg.SLOT_B_PARTUUID}"
-        else:
-            return f"PARTUUID={test_cfg.SLOT_A_PARTUUID}"
+    def get_standby_slot_dev(self, *args, **kwargs):
+        return self.standby_slot_dev
+
+    def get_standby_partuuid(self, *args, **kwargs):
+        if self.standby_slot == _CBootTestCFG.SLOT_B_ID:
+            return _CBootTestCFG.SLOT_B_PARTUUID
+        return _CBootTestCFG.SLOT_A_PARTUUID
 
     def is_current_slot_bootable(self):
         return self.current_slot_bootable
@@ -94,8 +122,15 @@ class CbootFSM:
     def mark_standby_slot_as(self, bootable: bool):
         self.standby_slot_bootable = bootable
 
-    def switch_boot(self):
+    def switch_boot_to(self, slot: str):
+        assert slot == self.standby_slot
+
         self.current_slot, self.standby_slot = self.standby_slot, self.current_slot
+        self.current_slot_dev, self.standby_slot_dev = (
+            self.standby_slot_dev,
+            self.current_slot_dev,
+        )
+
         self.current_slot_bootable, self.standby_slot_bootable = (
             self.standby_slot_bootable,
             self.current_slot_bootable,
@@ -155,10 +190,11 @@ class TestCBootControl:
             replace_root(test_cfg.OTA_STATUS_DIR, "/", str(self.slot_b))
         )
 
-    @pytest.fixture
-    def mock_setup(self, mocker: pytest_mock.MockerFixture, cboot_ab_slot):
+    @pytest.fixture(autouse=True)
+    def mock_setup(
+        self, mocker: pytest_mock.MockerFixture, cboot_ab_slot, patch_cmdhelper
+    ):
         from otaclient.app.boot_control._cboot import _CBootControl
-        from otaclient.app.boot_control._common import CMDHelperFuncs
 
         ###### start fsm ######
         self._fsm = CbootFSM()
@@ -170,7 +206,7 @@ class TestCBootControl:
         mocker.patch(
             f"{test_cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_a
         )
-        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_a)
+        mocker.patch(f"{_CBootTestCFG.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_a)
         # NOTE: remember to also patch boot.common module
         mocker.patch(
             f"{test_cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.cfg", self.mocked_cfg_slot_a
@@ -179,63 +215,69 @@ class TestCBootControl:
         # config for slot_b as active rootfs
         self.mocked_cfg_slot_b = otaclient_Config(ACTIVE_ROOTFS=str(self.slot_b))
 
-        # mocking _CBootControl
+        #
+        # ------ prepare mocked _CBootControl ------ #
+        #
 
-        __cbootcontrol_mock: _CBootControl = typing.cast(
-            _CBootControl, mocker.MagicMock(spec=_CBootControl)
+        _mocked__cboot_control_type = typing.cast(
+            "type[_CBootControl]",
+            type("_mocked__cboot_control", (_CBootControl,), {}),
         )
+
         # mock methods
-        __cbootcontrol_mock.get_current_slot = mocker.MagicMock(
+        _mocked__cboot_control_type._check_tegra_chip_id = mocker.MagicMock()
+
+        _mocked__cboot_control_type.active_slot = mocker.PropertyMock(  # type: ignore
             wraps=self._fsm.get_current_slot
         )
-        __cbootcontrol_mock.get_standby_slot = mocker.MagicMock(
+        _mocked__cboot_control_type.standby_slot = mocker.PropertyMock(  # type: ignore
             wraps=self._fsm.get_standby_slot
         )
-        __cbootcontrol_mock.get_standby_rootfs_partuuid_str = mocker.MagicMock(
-            wraps=self._fsm.get_standby_partuuid_str
+        _mocked__cboot_control_type.standby_slot_dev_partuuid = mocker.PropertyMock(  # type: ignore
+            wraps=self._fsm.get_standby_partuuid
         )
-        __cbootcontrol_mock.mark_current_slot_boot_successful.side_effect = partial(
-            self._fsm.mark_current_slot_as, True
+        _mocked__cboot_control_type.mark_current_slot_boot_successful = (
+            mocker.MagicMock(side_effect=partial(self._fsm.mark_current_slot_as, True))
         )
-        __cbootcontrol_mock.set_standby_slot_unbootable.side_effect = partial(
-            self._fsm.mark_standby_slot_as, False
+        _mocked__cboot_control_type.set_standby_slot_unbootable = mocker.MagicMock(
+            side_effect=partial(self._fsm.mark_standby_slot_as, False)
         )
-        __cbootcontrol_mock.switch_boot.side_effect = self._fsm.switch_boot
-        __cbootcontrol_mock.is_current_slot_marked_successful = mocker.MagicMock(
-            wraps=self._fsm.is_current_slot_bootable
+        _mocked__cboot_control_type.switch_boot_to = mocker.MagicMock(
+            side_effect=self._fsm.switch_boot_to
+        )
+        _mocked__cboot_control_type.is_current_slot_marked_successful = (
+            mocker.MagicMock(wraps=self._fsm.is_current_slot_bootable)
         )
         # NOTE: we only test external rootfs
-        __cbootcontrol_mock.is_external_rootfs_enabled.return_value = True
-        # make update_extlinux_cfg as it
-        __cbootcontrol_mock.update_extlinux_cfg = mocker.MagicMock(
-            wraps=_CBootControl.update_extlinux_cfg
+        _mocked__cboot_control_type.is_rootfs_on_external = mocker.PropertyMock(  # type: ignore
+            return_value=True
         )
 
-        ###### mocking _CMDHelper ######
-        # mock all helper methods in CMDHelper
-
-        _cmdhelper_mock = typing.cast(
-            CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
+        # make update_extlinux_cfg as it
+        _mocked__cboot_control_type.update_extlinux_cfg = mocker.MagicMock(
+            wraps=_CBootControl.update_extlinux_cfg
         )
 
         # patch _CBootControl
 
         mocker.patch(
-            f"{test_cfg.CBOOT_MODULE_PATH}._CBootControl",
-            return_value=__cbootcontrol_mock,
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}._CBootControl",
+            _mocked__cboot_control_type,
         )
 
-        # patch CMDHelperFuncs
+        # patch standby slot preparing
 
-        # NOTE: also remember to patch CMDHelperFuncs in common
-        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.CMDHelperFuncs", _cmdhelper_mock)
         mocker.patch(
-            f"{test_cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs",
-            _cmdhelper_mock,
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.prepare_standby_slot_dev_ext4",
+            mocker.MagicMock(),
         )
-        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.Nvbootctrl")
 
-        # patch CBootControl mounting
+        # patch slot mount helper
+
+        _mocked_slot_mount_helper_type = typing.cast(
+            "type[SlotMountHelper]",
+            type("_mocked_slot_mount_helper_type", (SlotMountHelper,), {}),
+        )
 
         def _mount_standby_slot(*args, **kwargs):
             # remove the old already exists folder
@@ -249,18 +291,75 @@ class TestCBootControl:
             # simlulate mount slot_b into otaclient mount space on slot_a
             Path(self.mocked_cfg_slot_a.ACTIVE_SLOT_MP).symlink_to(self.slot_a)
 
-        mocker.patch(
-            f"{test_cfg.CBOOT_MODULE_PATH}.CBootController._prepare_and_mount_standby",
-            mocker.MagicMock(side_effect=_mount_standby_slot),
+        _mocked_slot_mount_helper_type.mount_active_slot_dev = mocker.MagicMock(
+            wraps=_mount_active_slot
         )
-        mocker.patch(
-            f"{test_cfg.CBOOT_MODULE_PATH}.CBootController._mount_refroot",
-            mocker.MagicMock(side_effect=_mount_active_slot),
+        _mocked_slot_mount_helper_type.mount_standby_slot_dev = mocker.MagicMock(
+            wraps=_mount_standby_slot
         )
 
-        ###### binding mocked object to test instance ######
-        self.__cbootcontrol_mock = __cbootcontrol_mock
-        self._cmdhelper_mock = _cmdhelper_mock
+        mocker.patch(
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.SlotMountHelper",
+            _mocked_slot_mount_helper_type,
+        )
+
+        #
+        # ------ patch nvboot ctrl helper class ------ #
+        #
+
+        _mocked_nvboot_ctrl_type = typing.cast(
+            "type[Nvbootctrl]", type("_mocked_nvboot_ctrl", (Nvbootctrl,), {})
+        )
+        _mocked_nvboot_ctrl_type.get_current_slot = mocker.MagicMock(
+            wraps=self._fsm.get_current_slot
+        )
+
+        mocker.patch(
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.Nvbootctrl", _mocked_nvboot_ctrl_type
+        )
+
+        #
+        # ------ patch specific commands from cmdhelper module ------ #
+        #
+
+        # prevent subprocess call being executed
+        mocker.patch(
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.subprocess_check_output",
+            mocker.MagicMock(),
+        )
+        mocker.patch(
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.subprocess_call", mocker.MagicMock()
+        )
+
+        _mocked_get_current_rootfs_dev = mocker.MagicMock(
+            wraps=self._fsm.get_current_slot_dev
+        )
+        mocker.patch(
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.get_current_rootfs_dev",
+            _mocked_get_current_rootfs_dev,
+        )
+
+        # NOTE: in cboot module, get_attr_from_dev is only used for getting standby partuuid
+        _mocked_get_attr_from_dev = mocker.MagicMock(
+            wraps=self._fsm.get_standby_partuuid
+        )
+        mocker.patch(
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.get_attr_from_dev",
+            _mocked_get_attr_from_dev,
+        )
+
+        #
+        # ------ patch reboot ------ #
+        #
+        # NOTE: if not patched, the reboot will call sys.exit(0)
+        _mocked_reboot = mocker.MagicMock()
+        mocker.patch(f"{_CBootTestCFG.CBOOT_MODULE_PATH}.reboot", _mocked_reboot)
+        self._mocked_reboot = _mocked_reboot
+
+        #
+        # ------ binding mocked object to test instance #
+        #
+        self.__cbootcontrol_mock = _mocked__cboot_control_type
 
     def test_cboot_normal_update(self, mocker: pytest_mock.MockerFixture, mock_setup):
         from otaclient.app.boot_control._cboot import CBootController
@@ -348,8 +447,8 @@ class TestCBootControl:
             == self.EXTLNUX_CFG_SLOT_B.read_text()
         )
 
-        self.__cbootcontrol_mock.switch_boot.assert_called_once()
-        self._cmdhelper_mock.reboot.assert_called_once()
+        self.__cbootcontrol_mock.switch_boot_to.assert_called_once()
+        self._mocked_reboot.assert_called_once()
 
         # assert separate bootdev is populated correctly
         compare_dir(
@@ -365,11 +464,13 @@ class TestCBootControl:
         mocker.patch(
             f"{test_cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", self.mocked_cfg_slot_b
         )
-        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_b)
+        mocker.patch(f"{_CBootTestCFG.CBOOT_MODULE_PATH}.cfg", self.mocked_cfg_slot_b)
 
         # NOTE: old cboot_cfg's properties are cached, so create a new one
         _recreated_cboot_cfg = CBootControlConfig()
-        mocker.patch(f"{test_cfg.CBOOT_MODULE_PATH}.boot_cfg", _recreated_cboot_cfg)
+        mocker.patch(
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.boot_cfg", _recreated_cboot_cfg
+        )
 
         # init cboot control again
         CBootController()
