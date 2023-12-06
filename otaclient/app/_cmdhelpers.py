@@ -5,24 +5,20 @@ from __future__ import annotations
 import functools
 import sys
 from enum import Enum, unique
-from typing import Any, Callable, Literal, NoReturn, Optional, TypeVar
-from typing_extensions import Concatenate, ParamSpec, TypeAlias
+from typing import Any, Callable, Literal, NoReturn, Optional
+from typing_extensions import Concatenate
 
 from otaclient._utils.subprocess import (
     SubProcessCalledFailed,
     subprocess_call,
     subprocess_check_output,
 )
-from otaclient._utils.typing import StrOrPath
+from otaclient._utils.typing import ArgsType, StrOrPath, P, T
 from otaclient._utils import truncate_str_or_bytes
 from .configs import config as cfg
 from .log_setting import get_logger
 
 logger = get_logger(__name__)
-
-P = ParamSpec("P")
-T = TypeVar("T")
-ArgsType: TypeAlias = "str | list[str]"
 
 # ------ thin wrappers for calling corresponding commands ------ #
 
@@ -65,63 +61,54 @@ def no_arg(_: Callable[Concatenate[Any, P], Any]):
 @take_arg(subprocess_check_output)
 @log_exc(logger.warning)
 def _findfs(_args: ArgsType, **kwargs) -> str | None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_check_output(f"findfs {_args}", **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.warning)
 def _findmnt(_args: ArgsType, **kwargs) -> str | None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_check_output(f"findmnt {_args}", **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.error)
 def _lsblk(_args: ArgsType, **kwargs) -> str | None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_check_output(f"lsblk {_args}", **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.error)
 def _mkfs_ext4(_args: ArgsType, **kwargs) -> None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_call(f"mkfs.ext4 {_args}", **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.error)
 def _reboot(_args: ArgsType, **kwargs) -> None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_call(f"reboot {_args}", **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.error)
 def _mount(_args: ArgsType, **kwargs) -> None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_call(f"mount {_args}", **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.warning)
 def _umount(_args: ArgsType, **kwargs) -> None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_call(f"umount {_args}", **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.error)
 def _e2label(_args: ArgsType, **kwargs) -> None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_call(f"e2label {_args}", **kwargs)
 
 
 @take_arg(subprocess_check_output)
 @log_exc(logger.debug)
 def _lsof(_args: ArgsType, **kwargs) -> str | None:
-    _args = " ".join(_args) if isinstance(_args, list) else _args
     return subprocess_check_output(f"lsof {_args}", **kwargs)
 
 
