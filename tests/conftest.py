@@ -45,6 +45,8 @@ class TestConfiguration:
     CREATE_STANDBY_MODULE_PATH = "otaclient.app.create_standby"
     MAIN_MODULE_PATH = "otaclient.app.main"
 
+    OTACLIENT_APP__CMDHELPER = "otaclient.app._cmdhelpers"
+
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
     OTA_IMAGE_DATA_DIR = "/ota-image/data"
@@ -188,3 +190,18 @@ class ThreadpoolExecutorFixtureMixin:
             yield
         finally:
             self._executor.shutdown()
+
+
+@pytest.fixture
+def patch_cmdhelper(mocker: pytest_mock.MockerFixture):
+    """Patch app.cmdhelper to prevent them actually calling cmd from host system."""
+    _mocked_subprocess_call = mocker.MagicMock(return_value="")
+    _mocked_subprocess_check_output = mocker.MagicMock(return_value="")
+
+    mocker.patch(
+        f"{test_cfg.OTACLIENT_APP__CMDHELPER}.subprocess_call", _mocked_subprocess_call
+    )
+    mocker.patch(
+        f"{test_cfg.OTACLIENT_APP__CMDHELPER}.subprocess_check_output",
+        _mocked_subprocess_check_output,
+    )
