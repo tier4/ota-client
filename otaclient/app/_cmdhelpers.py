@@ -112,7 +112,7 @@ def _e2label(_args: str, **kwargs) -> None:
 @take_arg(subprocess_check_output)
 @log_exc(logger.debug)
 def _lsof(_args: str, **kwargs) -> str | None:
-    return subprocess_call(f"lsof {_args}", **kwargs)
+    return subprocess_check_output(f"lsof {_args}", **kwargs)
 
 
 # ------ concrete helpers for specific purpose ------ #
