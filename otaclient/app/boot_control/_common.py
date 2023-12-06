@@ -30,7 +30,7 @@ from ..proto import wrapper
 from .._cmdhelpers import (
     is_target_mounted,
     mkfs_ext4,
-    umount,
+    umount_target,
     mount_rw,
     mount_ro,
     set_ext4_dev_fslabel,
@@ -376,23 +376,15 @@ class SlotMountHelper:
         """Umount all mount points and ignore all errors."""
         logger.debug("unmount standby slot and active slot mount point...")
         try:
-            umount(
-                self.standby_slot_mount_point,
-                force=True,
-                lazy=False,
-                recursive=True,
-                raise_exception=False,
+            umount_target(
+                self.standby_slot_mount_point, recursive=True, raise_exception=False
             )
         except Exception:
             logger.warning(f"failed to umount {self.standby_slot_mount_point=}")
 
         try:
-            umount(
-                self.active_slot_mount_point,
-                force=True,
-                lazy=False,
-                recursive=True,
-                raise_exception=False,
+            umount_target(
+                self.active_slot_mount_point, recursive=True, raise_exception=False
             )
         except Exception:
             logger.warning(f"failed to umount {self.active_slot_mount_point=}")
@@ -428,13 +420,7 @@ def prepare_standby_slot_dev_ext4(
     # try umount the dev if it is mounted somewhere
     if is_target_mounted(standby_slot_dev, raise_exception=False):
         try:
-            umount(
-                standby_slot_dev,
-                force=True,
-                lazy=False,
-                recursive=True,
-                raise_exception=True,
-            )
+            umount_target(standby_slot_dev, recursive=True, raise_exception=True)
         except SubProcessCalledFailed:
             logger.warning(f"{standby_slot_dev} is mounted and failed to umount it")
 
