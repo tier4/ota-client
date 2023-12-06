@@ -27,7 +27,7 @@ from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
 from typing_extensions import Self
 
 from . import log_setting
-from ._cmdhelpers import mount_ro, get_dev_by_attr, umount
+from ._cmdhelpers import mount_ro, get_dev_by_attr, umount_target
 from .configs import config as cfg, logging_config
 from .common import ensure_otaproxy_start
 from .ecu_info import ECUContact, ECUInfo
@@ -113,13 +113,7 @@ class _OTAProxyContext(OTAProxyContextProto):
 
         # try to unmount the mount_point and cache_dev unconditionally
         _mp = Path(self._external_cache_dev_mp)
-        umount(
-            _cache_dev,
-            force=True,
-            lazy=False,
-            recursive=False,
-            raise_exception=False,
-        )
+        umount_target(_cache_dev, raise_exception=False)
         _mp.mkdir(parents=True, exist_ok=True)
 
         # try to mount cache_dev ro
@@ -140,12 +134,8 @@ class _OTAProxyContext(OTAProxyContextProto):
             return
 
         try:
-            umount(
-                self._external_cache_dev,
-                force=True,
-                lazy=False,
-                recursive=False,
-                raise_exception=True,
+            umount_target(
+                self._external_cache_dev, recursive=False, raise_exception=True
             )
         except Exception as e:
             logger.warning(
