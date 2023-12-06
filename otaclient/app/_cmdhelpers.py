@@ -14,6 +14,7 @@ from otaclient._utils.subprocess import (
     subprocess_check_output,
 )
 from otaclient._utils.typing import StrOrPath
+from otaclient._utils import truncate_str_or_bytes
 from .configs import config as cfg
 from .log_setting import get_logger
 
@@ -106,6 +107,12 @@ def _umount(_args: str, **kwargs) -> None:
 @log_exc(logger.error)
 def _e2label(_args: str, **kwargs) -> None:
     return subprocess_call(f"e2label {_args}", **kwargs)
+
+
+@take_arg(subprocess_check_output)
+@log_exc(logger.debug)
+def _lsof(_args: str, **kwargs) -> str | None:
+    return subprocess_call(f"lsof {_args}", **kwargs)
 
 
 # ------ concrete helpers for specific purpose ------ #
@@ -334,6 +341,7 @@ class MountFailedReason(int, Enum):
     TARGET_ALREADY_MOUNTED = -2
     MOUNT_POINT_NOT_FOUND = -3
     BIND_MOUNT_ON_NON_DIR = -4
+    TARGET_IS_BUSY = -5
 
 
 def _parse_mount_failure(func: Callable[P, T]) -> Callable[P, T]:
@@ -358,6 +366,8 @@ def _parse_mount_failure(func: Callable[P, T]) -> Callable[P, T]:
                 _fail_reason = MountFailedReason.TARGET_NOT_FOUND
             elif _error_msg.find("Not a directory") != -1:
                 _fail_reason = MountFailedReason.BIND_MOUNT_ON_NON_DIR
+            elif _error_msg.find("target is busy") != -1:
+                _fail_reason = MountFailedReason.TARGET_IS_BUSY
             else:
                 _fail_reason = MountFailedReason.GENERIC_MOUNT_FAILURE
 
@@ -386,6 +396,24 @@ def mount(
 
     _mount_args_str = f"{_option_str} {_args_str} {dev} {mount_point}"
     _mount(_mount_args_str, raise_exception=True, timeout=timeout)
+
+
+@_parse_mount_failure
+def umount(
+    target: StrOrPath,
+    *,
+    args: Optional[list[str]] = None,
+    timeout: Optional[float] = None,
+):
+    """umount [args[0] [args[1]...]] <target>
+
+    Raises:
+        MountError on failed umounting.
+    """
+    _args_str = f"{' '.join(args)}" if isinstance(args, list) else ""
+
+    _umount_args_str = f"{_args_str} {target}"
+    _umount(_umount_args_str, raise_exception=True, timeout=timeout)
 
 
 def mount_rw(
@@ -508,6 +536,8 @@ def mount_ro(
             target,
             mount_point,
             options=["ro"],
+            # --make-private: prevent receive/propagate mount out
+            # --make-unbindable: prevent this mount point being bind mount by others
             args=["--make-private", "--make-unbindable"],
             timeout=timeout,
         )
@@ -517,38 +547,46 @@ def mount_ro(
             raise
 
 
-def umount(
+_MAX_LSOF_OUTPUT_LEN = 2048
+
+
+def umount_target(
     target: StrOrPath,
     *,
-    force: bool,
-    lazy: bool,
-    recursive: bool,
+    recursive: bool = False,
     raise_exception: bool = False,
+    list_opened_files: bool = False,
     timeout: Optional[float] = None,
 ) -> None:
     """Try to unmount the <target>.
+
+    Args:
+        list_opened_files(bool = False): if True and umount failure reason is
+            "target is busy", list opened files on the target device.
 
     Raises:
         MountError with reason=GENERIC_MOUNT_FAILURE when umount failed.
     """
     if not is_target_mounted(target, raise_exception=False):
-        return
+        return  # no need to try umount a not mounted target
 
-    _options = []
-    if force:
-        _options.append("-f")
-    if lazy:
-        _options.append("-l")
+    _args = []
     if recursive:
-        _options.append("-R")
-    _options_str = " ".join(_options)
+        _args.append("-R")
 
     try:
-        _umount_args = f"{_options_str} {target}"
-        _umount(_umount_args, raise_exception=True, timeout=timeout)
-    except SubProcessCalledFailed as e:
+        umount(target, args=_args, timeout=timeout)
+    except MountError as e:
         _err_msg = f"failed to unmount {target}: {e!r}"
         logger.warning(_err_msg)
+
+        if (
+            e.failure_reason == MountFailedReason.TARGET_IS_BUSY
+            and list_opened_files
+            and (_open_files := _lsof(str(target), raise_exception=False))
+        ):
+            _open_files = truncate_str_or_bytes(_open_files, _MAX_LSOF_OUTPUT_LEN)
+            logger.warning(f"open files on {target=}: \n{_open_files}")
 
         if raise_exception:
             raise MountError(
