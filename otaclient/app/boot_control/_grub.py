@@ -64,13 +64,10 @@ from .._cmdhelpers import (
     get_attr_from_dev,
     get_current_rootfs_dev,
     gen_uuid_str,
-    is_target_mounted,
     log_exc,
-    mkfs_ext4,
     no_arg,
     reboot,
     take_arg,
-    umount,
 )
 from .configs import grub_cfg as boot_cfg
 from .protocol import BootControllerProtocol

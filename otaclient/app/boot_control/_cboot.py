@@ -34,12 +34,10 @@ from .._cmdhelpers import (
     get_current_rootfs_dev,
     get_attr_from_dev,
     log_exc,
-    is_target_mounted,
-    mkfs_ext4,
     mount_rw,
     reboot,
     take_arg,
-    umount,
+    umount_target,
 )
 from ._common import (
     prepare_standby_slot_dev_ext4,
@@ -413,10 +411,8 @@ class CBootController(BootControllerProtocol):
         finally:
             # unmount standby emmc boot dev on finish/failure
             try:
-                umount(
+                umount_target(
                     _boot_dir_mount_point,
-                    force=True,
-                    lazy=False,
                     recursive=True,
                     raise_exception=True,
                 )
