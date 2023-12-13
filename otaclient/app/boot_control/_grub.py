@@ -61,8 +61,8 @@ from .._cmdhelpers import (
     _lsblk,
     get_parent_dev,
     get_dev_by_mount_point,
-    get_attr_from_dev,
     get_current_rootfs_dev,
+    get_dev_fsuuid,
     gen_uuid_str,
     log_exc,
     no_arg,
@@ -493,8 +493,8 @@ class _GrubControl:
             _GrubBootControllerError on failed call or empty result.
         """
         try:
-            standby_slot_fsuuid = get_attr_from_dev(
-                self.standby_root_dev, "LABEL", raise_exception=True
+            standby_slot_fsuuid = get_dev_fsuuid(
+                self.standby_root_dev, raise_exception=True
             )
             assert standby_slot_fsuuid
             return standby_slot_fsuuid
@@ -841,8 +841,8 @@ class GrubController(BootControllerProtocol):
         Override existed entries in standby fstab, merge new entries from active fstab.
         """
         try:
-            standby_slot_fsuuid = get_attr_from_dev(
-                self._boot_control.standby_root_dev, "LABEL", raise_exception=True
+            standby_slot_fsuuid = get_dev_fsuuid(
+                self._boot_control.standby_root_dev, raise_exception=True
             )
             assert standby_slot_fsuuid
         except (SubProcessCalledFailed, AssertionError) as e:
