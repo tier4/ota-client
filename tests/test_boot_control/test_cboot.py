@@ -152,8 +152,8 @@ class TestCBootControl:
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dev = Path(ab_slots.slot_a_boot_dev)
         self.slot_b_boot_dev = Path(ab_slots.slot_b_boot_dev)
-        self.slot_a_uuid = test_cfg.SLOT_A_PARTUUID
-        self.slot_b_uuid = test_cfg.SLOT_B_PARTUUID
+        self.slot_a_uuid = _CBootTestCFG.SLOT_A_PARTUUID
+        self.slot_b_uuid = _CBootTestCFG.SLOT_B_PARTUUID
 
         #
         # prepare ota_status dir for slot_a
