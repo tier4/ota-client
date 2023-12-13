@@ -30,13 +30,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TestConfiguration:
-    # module paths
+    # common module paths
     BOOT_CONTROL_COMMON_MODULE_PATH = "otaclient.app.boot_control._common"
     BOOT_CONTROL_CONFIG_MODULE_PATH = "otaclient.app.boot_control.configs"
     CONFIGS_MODULE_PATH = "otaclient.app.configs"
-    CBOOT_MODULE_PATH = "otaclient.app.boot_control._cboot"
-    GRUB_MODULE_PATH = "otaclient.app.boot_control._grub"
-    RPI_BOOT_MODULE_PATH = "otaclient.app.boot_control._rpi_boot"
     OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
     OTACLIENT_SERVICE_MODULE_PATH = "otaclient.app.ota_client_service"
@@ -58,38 +55,15 @@ class TestConfiguration:
     CURRENT_VERSION = "123.x"
     UPDATE_VERSION = "789.x"
 
-    # slots settings for testing
-    # NOTE: grub use UUID and cboot use PARTUUID, SLOT_<slot>_UUID/PARTUUID are different
-    #       things, just happens to have the same value for only for test convenience,
-    SLOT_A_UUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
-    SLOT_A_PARTUUID = SLOT_A_UUID
-    SLOT_B_UUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
-    SLOT_B_PARTUUID = SLOT_B_UUID
-    SLOT_A_ID_GRUB = "sda2"
-    SLOT_B_ID_GRUB = "sda3"
-    SLOT_A_ID_CBOOT = "0"
-    SLOT_B_ID_CBOOT = "1"
-
     # common configuration
     OTA_DIR = "/boot/ota"
     BOOT_DIR = "/boot"
     OTA_KERNEL_LABEL = "ota"
     OTA_STANDBY_KERNEL_LABEL = "ota.standby"
-
-    # cboot specific conf
     OTA_STATUS_DIR = "/boot/ota-status"
     OTA_PARTITION_DIRNAME = "ota-partition"
-
-    # grub specific conf
     KERNEL_PREFIX = "vmlinuz"
     INITRD_PREFIX = "initrd.img"
-    GRUB_FILE = "/boot/grub/grub.cfg"
-    DEFAULT_GRUB_FILE = "/etc/default/grub"
-    FSTAB_FILE = "/etc/fstab"
-    CMDLINE_SLOT_A = (
-        f"BOOT_IMAGE=/vmlinuz-{KERNEL_VERSION} root=UUID={SLOT_A_UUID} ro quiet splash"
-    )
-    CMDLINE_SLOT_B = f"BOOT_IMAGE=/vmlinuz-{OTA_STANDBY_KERNEL_LABEL} root=UUID={SLOT_B_UUID} ro quiet splash"
 
     # otaproxy settings
     OTA_PROXY_SERVER_ADDR = "127.0.0.1"
