@@ -33,8 +33,8 @@ from ..proto import wrapper
 
 from .._cmdhelpers import (
     gen_partuuid_str,
+    get_dev_partuuid,
     get_current_rootfs_dev,
-    get_attr_from_dev,
     log_exc,
     mount_rw,
     reboot,
@@ -229,8 +229,8 @@ class _CBootControl:
                 is_rootfs_on_external = True
                 standby_rootfs_dev = f"/dev/{Nvbootctrl.NVME_DEV}p{standby_partid}"
 
-                standby_slot_partuuid = get_attr_from_dev(
-                    standby_rootfs_dev, "PARTUUID", raise_exception=True
+                standby_slot_partuuid = get_dev_partuuid(
+                    standby_rootfs_dev, raise_exception=True
                 )
                 assert standby_slot_partuuid
 
@@ -238,8 +238,8 @@ class _CBootControl:
                 logger.info("using internal emmc storage as rootfs")
                 standby_rootfs_dev = f"/dev/{Nvbootctrl.EMMC_DEV}p{standby_partid}"
 
-                standby_slot_partuuid = get_attr_from_dev(
-                    standby_rootfs_dev, "PARTUUID", raise_exception=True
+                standby_slot_partuuid = get_dev_partuuid(
+                    standby_rootfs_dev, raise_exception=True
                 )
                 assert standby_slot_partuuid
 
