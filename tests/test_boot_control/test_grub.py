@@ -32,47 +32,60 @@ from tests.conftest import TestConfiguration as test_cfg
 logger = logging.getLogger(__name__)
 
 
+class _GrubTestCFG:
+    SLOT_A_ID = "sda2"
+    SLOT_B_ID = "sda3"
+
+    SLOT_A_UUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
+    SLOT_B_UUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
+
+    CMDLINE_SLOT_A = f"BOOT_IMAGE=/vmlinuz-{test_cfg.KERNEL_VERSION} root=UUID={SLOT_A_UUID} ro quiet splash"
+    CMDLINE_SLOT_B = f"BOOT_IMAGE=/vmlinuz-{test_cfg.OTA_STANDBY_KERNEL_LABEL} root=UUID={SLOT_B_UUID} ro quiet splash"
+
+    GRUB_MODULE_PATH = "otaclient.app.boot_control._grub"
+
+
 class GrubFSM:
     def __init__(self, slot_a_mp, slot_b_mp) -> None:
-        self._current_slot = test_cfg.SLOT_A_ID_GRUB
-        self._standby_slot = test_cfg.SLOT_B_ID_GRUB
+        self._current_slot = _GrubTestCFG.SLOT_A_ID
+        self._standby_slot = _GrubTestCFG.SLOT_B_ID
         self._current_slot_mp = Path(slot_a_mp)
         self._standby_slot_mp = Path(slot_b_mp)
-        self._current_slot_dev_uuid = f"UUID={test_cfg.SLOT_A_UUID}"
-        self._standby_slot_dev_uuid = f"UUID={test_cfg.SLOT_B_UUID}"
+        self._current_slot_dev_uuid = f"UUID={_GrubTestCFG.SLOT_A_UUID}"
+        self._standby_slot_dev_uuid = f"UUID={_GrubTestCFG.SLOT_B_UUID}"
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
 
         self.is_boot_switched = False
 
-    def get_active_slot(self) -> str:
+    def get_active_slot(self, *args, **kwargs) -> str:
         return self._current_slot
 
-    def get_standby_slot(self) -> str:
+    def get_standby_slot(self, *args, **kwargs) -> str:
         return self._standby_slot
 
-    def get_active_slot_dev(self) -> str:
+    def get_active_slot_dev(self, *args, **kwargs) -> str:
         return f"/dev/{self._current_slot}"
 
-    def get_standby_slot_dev(self) -> str:
+    def get_standby_slot_dev(self, *args, **kwargs) -> str:
         return f"/dev/{self._standby_slot}"
 
-    def get_active_slot_mp(self) -> Path:
+    def get_active_slot_mp(self, *args, **kwargs)-> Path:
         return self._current_slot_mp
 
-    def get_standby_slot_mp(self) -> Path:
+    def get_standby_slot_mp(self, *args, **kwargs) -> Path:
         return self._standby_slot_mp
 
-    def get_standby_boot_dir(self) -> Path:
+    def get_standby_boot_dir(self, *args, **kwargs) -> Path:
         return self._standby_slot_mp / "boot"
 
-    def get_uuid_str_by_dev(self, dev: str):
+    def get_uuid_str_by_dev(self, dev: str, *kwargs):
         if dev == self.get_standby_slot_dev():
             return self._standby_slot_dev_uuid
         else:
             return self._current_slot_dev_uuid
 
-    def switch_boot(self):
+    def switch_boot(self, *args, **kwargs):
         self._current_slot, self._standby_slot = self._standby_slot, self._current_slot
         self._current_slot_mp, self._standby_slot_mp = (
             self._standby_slot_mp,
@@ -84,11 +97,10 @@ class GrubFSM:
         )
         self.is_boot_switched = True
 
-    def cat_proc_cmdline(self):
-        if self._current_slot == test_cfg.SLOT_A_ID_GRUB:
-            return test_cfg.CMDLINE_SLOT_A
-        else:
-            return test_cfg.CMDLINE_SLOT_B
+    def cat_proc_cmdline(self, *args, **kwargs):
+        if self._current_slot == _GrubTestCFG.SLOT_A_ID:
+            return _GrubTestCFG.CMDLINE_SLOT_A
+        return _GrubTestCFG.CMDLINE_SLOT_B
 
 
 class GrubMkConfigFSM:
