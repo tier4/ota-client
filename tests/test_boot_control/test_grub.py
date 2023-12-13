@@ -43,6 +43,10 @@ class _GrubTestCFG:
     SLOT_A_UUID = "aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa"
     SLOT_B_UUID = "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb"
 
+    GRUB_FILE = "/boot/grub/grub.cfg"
+    DEFAULT_GRUB_FILE = "/etc/default/grub"
+    FSTAB_FILE = "/etc/fstab"
+
     CMDLINE_SLOT_A = f"BOOT_IMAGE=/vmlinuz-{test_cfg.KERNEL_VERSION} root=UUID={SLOT_A_UUID} ro quiet splash"
     CMDLINE_SLOT_B = f"BOOT_IMAGE=/vmlinuz-{test_cfg.OTA_STANDBY_KERNEL_LABEL} root=UUID={SLOT_B_UUID} ro quiet splash"
 
@@ -482,7 +486,9 @@ class TestGrubControl:
 
         # NOTE: dummy ota-image doesn't have grub installed,
         #       so we need to prepare /etc/default/grub by ourself
-        default_grub = self.slot_b / Path(test_cfg.DEFAULT_GRUB_FILE).relative_to("/")
+        default_grub = self.slot_b / Path(_GrubTestCFG.DEFAULT_GRUB_FILE).relative_to(
+            "/"
+        )
         default_grub.parent.mkdir(parents=True, exist_ok=True)
         default_grub.write_text(self.DEFAULT_GRUB)
 
