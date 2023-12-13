@@ -170,7 +170,7 @@ class TestCBootControl:
         slot_a_version.write_text(test_cfg.CURRENT_VERSION)
 
         slot_a_slot_in_use = self.slot_a_ota_status_dir / "slot_in_use"
-        slot_a_slot_in_use.write_text(test_cfg.SLOT_A_ID_CBOOT)
+        slot_a_slot_in_use.write_text(_CBootTestCFG.SLOT_A_ID)
 
         #
         # prepare extlinux file for slot_a
@@ -339,13 +339,12 @@ class TestCBootControl:
             _mocked_get_current_rootfs_dev,
         )
 
-        # NOTE: in cboot module, get_attr_from_dev is only used for getting standby partuuid
-        _mocked_get_attr_from_dev = mocker.MagicMock(
+        _mocked_get_dev_partuuid = mocker.MagicMock(
             wraps=self._fsm.get_standby_partuuid
         )
         mocker.patch(
-            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.get_attr_from_dev",
-            _mocked_get_attr_from_dev,
+            f"{_CBootTestCFG.CBOOT_MODULE_PATH}.get_dev_partuuid",
+            _mocked_get_dev_partuuid,
         )
 
         #
