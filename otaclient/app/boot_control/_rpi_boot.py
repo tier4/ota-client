@@ -34,7 +34,7 @@ from ._common import (
     SlotMountHelper,
 )
 from .._cmdhelpers import (
-    get_dev_by_mount_point,
+    get_current_rootfs_dev,
     get_dev_fslabel,
     get_parent_dev,
     get_dev_tree,
@@ -110,9 +110,7 @@ class _RPIBootControl:
         logger.debug("checking and initializing slots info...")
 
         # detect active slot
-        _active_slot_dev = get_dev_by_mount_point(
-            cfg.ACTIVE_ROOTFS, raise_exception=False
-        )
+        _active_slot_dev = get_current_rootfs_dev(raise_exception=False)
         if not _active_slot_dev:
             _err_msg = f"failed to get active slot's device: rootfs={cfg.ACTIVE_ROOTFS}"
             logger.error(_err_msg)
