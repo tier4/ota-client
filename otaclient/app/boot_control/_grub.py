@@ -124,6 +124,12 @@ def grub_reboot(idx: str) -> None:
 @take_arg(subprocess_check_output)
 @log_exc(logger.error)
 def get_dev_list_of_parent(parent: str) -> str | None:
+    """
+    Example output:
+    NAME="/dev/nvme0n1" FSTYPE=""
+    NAME="/dev/nvme0n1p1" FSTYPE="vfat"
+    NAME="/dev/nvme0n1p2" FSTYPE="ext4"
+    """
     _args = f"-Pp -o NAME,FSTYPE {parent}"
     return _lsblk(_args, raise_exception=True)
 
