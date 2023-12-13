@@ -35,7 +35,7 @@ from ._common import (
 )
 from .._cmdhelpers import (
     get_dev_by_mount_point,
-    get_attr_from_dev,
+    get_dev_fslabel,
     get_parent_dev,
     get_dev_tree,
     is_target_mounted,
@@ -120,8 +120,8 @@ class _RPIBootControl:
         self._active_slot_dev = _active_slot_dev
 
         if not (
-            _active_slot := get_attr_from_dev(
-                self._active_slot_dev, "LABEL", raise_exception=False
+            _active_slot := get_dev_fslabel(
+                self._active_slot_dev, raise_exception=False
             )
         ):
             raise _RPIBootControllerError(

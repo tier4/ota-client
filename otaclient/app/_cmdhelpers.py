@@ -170,6 +170,7 @@ def get_attr_from_dev(
     return _lsblk(_args, timeout=timeout, raise_exception=raise_exception)
 
 
+# more specific version of get_attr_from_dev
 get_dev_fsuuid = functools.partial(get_attr_from_dev, attr_n="UUID")
 get_dev_partuuid = functools.partial(get_attr_from_dev, attr_n="PARTUUID")
 get_dev_fslabel = functools.partial(get_attr_from_dev, attr_n="LABEL")
