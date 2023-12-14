@@ -71,7 +71,7 @@ def _subprocess_call(
     cmd = shlex.split(_cmd) if isinstance(_cmd, str) else _cmd
 
     _preexec_fn: Optional[Callable[[], None]] = None
-    if new_root:
+    if new_root and new_root != "/":
         if not os.path.isdir(new_root):
             raise SubProcessCalledFailed(
                 msg=f"try to run cmd={' '.join(cmd)} with chroot, but {new_root=} is not a dir"
