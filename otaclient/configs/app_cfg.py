@@ -58,7 +58,8 @@ class _FixedInternalConfig(BaseModel):
     """Fixed internal configs that should not be changed."""
 
     RUN_DPATH: _std_ClassVar = "/run/otaclient"
-    OTACLIENT_PID_FPATH: _std_ClassVar = "/run/otaclient.pid"
+    OTACLIENT_RUNTIME_TMP_DNAME: _std_ClassVar = "runtime_tmp"
+    OTACLIENT_PID_FNAME: _std_ClassVar = "otaclient.pid"
     SUPPORTED_COMPRESS_ALG: _std_ClassVar = ("zst", "zstd")
 
     # filesystem label of external cache source
@@ -306,6 +307,8 @@ class _ConfigurableConfig(BaseModel):
     #
     OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
     OTA_PROXY_LISTEN_PORT: int = Field(default=8082, ge=0, le=65535)
+    DEFAULT_OTA_CACHE_DPATH: _std_ClassVar = "/ota-cache"
+    DEFAULT_OTA_CACHE_DB_FNAME: _std_ClassVar = "cache_db"
 
     #
     # ------ otaclient runtime behavior setting ------ #
@@ -408,6 +411,24 @@ class Config(BaseFixedConfig, _InternalConfig, _ConfigurableConfig):
         Default: /mnt/otaclient/standby_slot/ota_tmp
         """
         return os.path.join(self.STANDBY_SLOT_MP, self.OTA_TMP_DNAME)
+
+    @cached_computed_field
+    def OTA_CACHE_DPATH(self) -> str:
+        """The location for holding OTA cache files during OTA.
+
+        Default: /ota-cache
+        """
+        return replace_root(
+            self.DEFAULT_OTA_CACHE_DPATH, self.DEFAULT_ACTIVE_ROOTFS, self.ACTIVE_ROOTFS
+        )
+
+    @cached_computed_field
+    def OTA_CACHE_DB_FPATH(self) -> str:
+        """The location for holding OTA cache db file.
+
+        Default: /ota-cache/cache_db
+        """
+        return os.path.join(self.OTA_CACHE_DPATH, self.DEFAULT_OTA_CACHE_DB_FNAME)
 
 
 # ------ init config ------ #
