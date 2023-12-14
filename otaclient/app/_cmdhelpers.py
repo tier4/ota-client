@@ -42,9 +42,9 @@ def log_exc(err_handler: Callable[[str], None]):
 
     def _decorator(_target: Callable[P, T]) -> Callable[P, T]:
         @functools.wraps(_target)
-        def _inner(*args, **kwargs):
+        def _inner(*args, **kwargs) -> T:
             try:
-                _target(*args, **kwargs)
+                return _target(*args, **kwargs)
             except SubProcessCalledFailed as e:
                 err_handler(e.err_report)
                 raise
