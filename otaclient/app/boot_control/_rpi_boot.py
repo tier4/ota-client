@@ -251,7 +251,7 @@ class _RPIBootControl:
         """
         logger.info("update firmware with flash-kernel...")
         try:
-            _flash_kernel()
+            _flash_kernel(new_root=cfg.ACTIVE_ROOTFS)
             os.sync()  # ensure the firmware is written to storage
         except SubProcessCalledFailed as e:
             _err_msg = f"flash-kernel failed: {e!r}"
