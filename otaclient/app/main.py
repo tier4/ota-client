@@ -16,7 +16,6 @@
 from __future__ import annotations
 import asyncio
 import os
-import os.path
 import sys
 from pathlib import Path
 
@@ -36,23 +35,30 @@ configure_logging(logging_config.LOGGING_LEVEL, http_logging_url=get_ecu_id())
 logger = get_logger(__name__)
 
 
+def _prepare_otaclient_runtime_dir():
+    _runtime_dir = Path(cfg.RUN_DPATH)
+    _runtime_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(_runtime_dir, 0o550)
+
+    _runtime_tmp = _runtime_dir / cfg.OTACLIENT_RUNTIME_TMP_DNAME
+    _runtime_tmp.mkdir(parents=True, exist_ok=True)
+
+
 def _check_other_otaclient():
     """Check if there is another otaclient instance running."""
     # create a lock file to prevent multiple ota-client instances start
-    if pid := read_str_from_file(cfg.OTACLIENT_PID_FPATH):
+    _otaclient_pid_fpath = Path(cfg.RUN_DPATH) / cfg.OTACLIENT_PID_FNAME
+    if pid := read_str_from_file(_otaclient_pid_fpath):
         # running process will have a folder under /proc
         if Path(f"/proc/{pid}").is_dir():
             logger.error(f"another instance of ota-client({pid=}) is running, abort")
             sys.exit()
         else:
             logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
-            Path(cfg.OTACLIENT_PID_FPATH).unlink(missing_ok=True)
-    # create run dir
-    _run_dir = Path(cfg.RUN_DPATH)
-    _run_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(_run_dir, 0o550)
+            _otaclient_pid_fpath.unlink(missing_ok=True)
+
     # write our pid to the lock file
-    write_str_to_file_sync(cfg.OTACLIENT_PID_FPATH, f"{os.getpid()}")
+    write_str_to_file_sync(_otaclient_pid_fpath, f"{os.getpid()}")
 
 
 def _check_active_rootfs():
@@ -74,6 +80,8 @@ def main():
     if Path(EXTRA_VERSION_FILE).is_file():
         logger.info(read_str_from_file(EXTRA_VERSION_FILE))
     logger.info(f"otaclient version: {__version__}")
+
+    _prepare_otaclient_runtime_dir()
 
     # issue a warning if otaclient detects itself is running as container,
     # but config.IS_CONTAINER is not True(ACTIVE_ROOTFS is not configured).
