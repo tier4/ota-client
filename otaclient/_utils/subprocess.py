@@ -66,6 +66,7 @@ def _subprocess_call(
     raise_exception: bool = False,
     timeout: Optional[float] = None,
     capture_output: bool = False,
+    strip_result: bool = True,
 ) -> str | None:
     cmd = shlex.split(_cmd) if isinstance(_cmd, str) else _cmd
 
@@ -86,7 +87,10 @@ def _subprocess_call(
             timeout=timeout,
         )
         if capture_output:
-            return _res.stdout.decode()
+            _res = _res.stdout.decode()
+            if strip_result:
+                return _res.strip()
+            return _res
 
     except subprocess.CalledProcessError as e:
         if raise_exception:
@@ -135,6 +139,7 @@ if TYPE_CHECKING:
         new_root: Optional[str] = None,
         raise_exception: bool = False,
         timeout: Optional[float] = None,
+        strip_result: bool = True,
     ) -> str | None:
         """Run <cmd> in subprocess and return the result.
 
@@ -146,6 +151,7 @@ if TYPE_CHECKING:
                 will be raised, otherwise exception will be handled.
                 Note that exception raised due to <new_root> is invalid will always be raised.
             timeout (floats = None): subprocess execution timeout.
+            strip_result (bool = True): whether apply strip to the execution output.
 
         Returns:
             The stdout of the execution, or None if execution failed and <raise_exception> is False.
