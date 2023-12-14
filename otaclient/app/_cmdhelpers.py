@@ -418,7 +418,7 @@ def mount(
     Raises:
         MountError on failed mounting.
     """
-    _options = ["-o", *options] if isinstance(options, list) else []
+    _options = ["-o", ",".join(options)] if isinstance(options, list) else []
     _args = args if isinstance(args, list) else []
 
     _mount_params = [*_options, *_args, str(dev), str(mount_point)]
@@ -504,7 +504,7 @@ def mount_rw(
 
 
 def bind_mount_ro(
-    target: StrOrPath,
+    target_mp: StrOrPath,
     mount_point: StrOrPath,
     *,
     raise_exception: bool,
@@ -520,20 +520,20 @@ def bind_mount_ro(
     """
     try:
         mount(
-            target,
+            target_mp,
             mount_point,
             options=["bind", "ro"],
             args=["--make-private", "--make-unbindable"],
             timeout=timeout,
         )
     except MountError as e:
-        logger.error(f"failed to bind_mount_ro {target=} to {mount_point=}: {e!r}")
+        logger.error(f"failed to bind_mount_ro {target_mp=} to {mount_point=}: {e!r}")
         if raise_exception:
             raise
 
 
 def mount_ro(
-    target: StrOrPath,
+    target_dev: StrOrPath,
     mount_point: StrOrPath,
     *,
     raise_exception: bool,
@@ -541,8 +541,7 @@ def mount_ro(
 ) -> None:
     """Mount target on mount_point read-only.
 
-    If the target device is mounted, we bind mount the target device to mount_point,
-    if the target device is not mounted, we directly mount it to the mount_point.
+    Expecting the target_dev is not mounted somewhere else.
 
     This method mount the target as ro with make-private flag and make-unbindable flag,
     to prevent ANY accidental writes/changes to the target.
@@ -550,17 +549,9 @@ def mount_ro(
     Raises:
         MountError on failed mounting.
     """
-    if is_target_mounted(target, raise_exception=False):
-        return bind_mount_ro(
-            target,
-            mount_point,
-            timeout=timeout,
-            raise_exception=raise_exception,
-        )
-
     try:
         mount(
-            target,
+            target_dev,
             mount_point,
             options=["ro"],
             # --make-private: prevent receive/propagate mount out
@@ -569,7 +560,7 @@ def mount_ro(
             timeout=timeout,
         )
     except MountError as e:
-        logger.error(f"failed to mount_ro {target=} to {mount_point=}: {e!r}")
+        logger.error(f"failed to mount_ro {target_dev=} to {mount_point=}: {e!r}")
         if raise_exception:
             raise
 
