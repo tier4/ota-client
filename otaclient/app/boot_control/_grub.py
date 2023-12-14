@@ -114,7 +114,11 @@ def grub_reboot(idx: str) -> None:
         _GrubBootControllerError on failed call.
     """
     try:
-        subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+        subprocess_call(
+            f"grub-reboot {idx}",
+            raise_exception=True,
+            new_root=cfg.ACTIVE_ROOTFS,
+        )
     except SubProcessCalledFailed as e:
         _err_msg = f"failed to grub-reboot to {idx}: {e!r}"
         logger.error(_err_msg)
