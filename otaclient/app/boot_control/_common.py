@@ -32,7 +32,7 @@ from .._cmdhelpers import (
     mkfs_ext4,
     umount_target,
     mount_rw,
-    mount_ro,
+    bind_mount_ro,
     set_ext4_dev_fslabel,
     SubProcessCalledFailed,
     MountError,
@@ -340,13 +340,15 @@ class SlotMountHelper:
     def mount_active_slot_dev(self) -> None:
         """Mount active rootfs ready-only.
 
+        Active slot should always be mounted on cfg.ACTIVE_ROOTFS.
+
         Raises:
             SlotMountException on failed mount.
         """
         logger.debug("mount active slot rootfs dev...")
         try:
-            mount_ro(
-                target=self.active_slot_dev,
+            bind_mount_ro(
+                target_mp=cfg.ACTIVE_ROOTFS,
                 mount_point=self.active_slot_mount_point,
                 raise_exception=True,
             )
