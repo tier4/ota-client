@@ -119,7 +119,7 @@ class _OTAProxyContext(OTAProxyContextProto):
         # try to mount cache_dev ro
         try:
             mount_ro(
-                target=_cache_dev,
+                target_dev=_cache_dev,
                 mount_point=self._external_cache_dev_mp,
                 raise_exception=True,
             )
