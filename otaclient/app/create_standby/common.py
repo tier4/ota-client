@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import random
 import time
+import shutil
 from concurrent.futures import (
     Future,
     ThreadPoolExecutor,
@@ -40,6 +41,13 @@ from typing import (
 )
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
+from otaclient._utils.typing import StrOrPath
+from otaclient._utils.unix import (
+    ParsedPasswd,
+    ParsedGroup,
+    map_gid_by_grpnam,
+    map_uid_by_pwnam,
+)
 from ..common import create_tmp_fname
 from ..configs import config as cfg
 from ..ota_metadata import OTAMetadata, MetafilesV1
@@ -480,3 +488,133 @@ class DeltaGenerator:
             total_regular_num=self.total_regulars_num,
             total_download_files_size=self.total_download_files_size,
         )
+
+
+class PersistFilesHandler:
+    """Preserving files in persist list from <src_root> to <dst_root>.
+
+    Files being copied will have mode bits preserved,
+    and uid/gid preserved with mapping as follow:
+
+        src_uid -> src_name -> dst_name -> dst_uid
+        src_gid -> src_name -> dst_name -> dst_gid
+    """
+
+    def __init__(
+        self,
+        src_passwd_file: StrOrPath,
+        src_group_file: StrOrPath,
+        dst_passwd_file: StrOrPath,
+        dst_group_file: StrOrPath,
+        *,
+        src_root: StrOrPath,
+        dst_root: StrOrPath,
+    ):
+        self._src_pw = ParsedPasswd(src_passwd_file)
+        self._src_grp = ParsedGroup(src_group_file)
+        self._dst_pw = ParsedPasswd(dst_passwd_file)
+        self._dst_grp = ParsedGroup(dst_group_file)
+
+        self._src_root = Path(src_root)
+        self._dst_root = Path(dst_root)
+
+    def _prepare_path(
+        self,
+        _src_path: Path,
+        _dst_path: Path,
+        *,
+        skip_invalid: bool = True,
+    ):
+        """For input original path(from persistents.txt), preserve it from <src_root> to <dst_root>."""
+
+        # ------ check src_path, src_path must be existed ------ #
+        if not _src_path.exists():
+            if not skip_invalid:
+                raise FileNotFoundError(f"{_src_path=} doesn't exist")
+            logger.warning(f"{_src_path=} doesn't exist, skip...")
+            return
+
+        # ------ preserve src_path to dst_path ------ #
+        _src_stat = _src_path.stat()
+        # NOTE: check is_symlink first, as is_file/dir also returns True if
+        #       src_path is a symlink points to existed file/dir.
+        # NOTE: cleanup dst ONLY when src is available!
+        if _src_path.is_symlink():
+            _dst_path.unlink(missing_ok=True)
+            shutil.copy(_src_path, _dst_path, follow_symlinks=False)
+        elif _src_path.is_file():
+            _dst_path.unlink(missing_ok=True)
+            shutil.copy(_src_path, _dst_path, follow_symlinks=False)
+            shutil.copymode(_src_path, _dst_path, follow_symlinks=False)
+        elif _src_path.is_dir():
+            shutil.rmtree(_dst_path, ignore_errors=True)
+            _dst_path.mkdir(mode=_src_stat.st_mode, exist_ok=True)
+        elif skip_invalid:
+            logger.warning(f"{_src_path=} is missing or not file/symlink or dir, skip")
+            return
+        else:
+            raise ValueError(
+                f"type of {_src_path=} must be presented and one of file/dir/symlink"
+            )
+
+        # preserve uid/gid with mapping
+        _src_uid, _src_gid = _src_stat.st_uid, _src_stat.st_gid
+        try:
+            _dst_uid = map_uid_by_pwnam(
+                src_db=self._src_pw, dst_db=self._dst_pw, uid=_src_uid
+            )
+        except ValueError:
+            logger.warning(f"failed to find mapping for {_src_uid=}, keep unchanged")
+            _dst_uid = _src_uid
+
+        try:
+            _dst_gid = map_gid_by_grpnam(
+                src_db=self._src_grp, dst_db=self._dst_grp, gid=_src_gid
+            )
+        except ValueError:
+            logger.warning(f"failed to find mapping for {_src_gid=}, keep unchanged")
+            _dst_gid = _src_gid
+
+        os.chown(_dst_path, uid=_dst_uid, gid=_dst_gid)
+
+    # API
+
+    def preserve_persists_files(
+        self, _origin_entry: StrOrPath, *, skip_invalid: bool = True
+    ):
+        origin_entry = Path(_origin_entry).relative_to(cfg.DEFAULT_ACTIVE_ROOTFS)
+        src_path = self._src_root / origin_entry
+        dst_path = self._dst_root / origin_entry
+
+        # ------ prepare parents ------ #
+        for _idx, _parent in enumerate(reversed(origin_entry.parents)):
+            if _idx == 0:
+                continue  # skip first parent dir
+            self._prepare_path(self._src_root / _parent, self._dst_root / _parent)
+
+        # ------ prepare entry itself ------ #
+        # for normal file/symlink, directly prepare it
+        if src_path.is_symlink() or src_path.is_file():
+            self._prepare_path(src_path, dst_path)
+        # for dir, dive into is and prepare everything under this dir
+        elif src_path.is_dir():
+            for src_dirpath, _, fnames in os.walk(src_path, followlinks=False):
+                _src_dpath = Path(src_dirpath)
+                _origin_dpath = _src_dpath.relative_to(self._src_root)
+                _dst_dpath = self._dst_root / _origin_dpath
+
+                self._prepare_path(_src_dpath, _dst_dpath)
+                for _fname in fnames:
+                    self._prepare_path(
+                        _src_dpath / _fname,
+                        _dst_dpath / _fname,
+                        skip_invalid=skip_invalid,
+                    )
+        elif skip_invalid:
+            logger.warning(
+                f"{src_path=} must be presented and either a file/symlink/dir, skip"
+            )
+        else:
+            raise ValueError(
+                f"{src_path=} must be presented and either a file/symlink/dir"
+            )
