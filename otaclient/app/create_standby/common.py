@@ -579,7 +579,7 @@ class PersistFilesHandler:
 
     # API
 
-    def preserve_persists_files(
+    def preserve_persist_entry(
         self, _origin_entry: StrOrPath, *, skip_invalid: bool = True
     ):
         origin_entry = Path(_origin_entry).relative_to(cfg.DEFAULT_ACTIVE_ROOTFS)
