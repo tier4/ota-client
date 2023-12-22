@@ -528,27 +528,37 @@ class PersistFilesHandler:
         """For input original path(from persistents.txt), preserve it from <src_root> to <dst_root>."""
 
         # ------ check src_path, src_path must be existed ------ #
-        if not _src_path.exists():
+        # NOTE: Path.exists does follow link! if this symlink is dead,
+        #       Path.exists also returns False!
+        if not (_src_path.is_symlink() or _src_path.is_file() or _src_path.is_dir()):
             if not skip_invalid:
-                raise FileNotFoundError(f"{_src_path=} doesn't exist")
-            logger.warning(f"{_src_path=} doesn't exist, skip...")
+                raise FileNotFoundError(
+                    f"{_src_path=} doesn't exist or not a file/symlink/dir"
+                )
+            logger.warning(
+                f"{_src_path=} doesn't exist or not a file/symlink/dir, skip..."
+            )
             return
 
         # ------ preserve src_path to dst_path ------ #
-        _src_stat = _src_path.stat()
+        # NOTE: Path.stat always follow symlink, use os.stat instead
+        _src_stat = os.stat(_src_path, follow_symlinks=False)
+
         # NOTE: check is_symlink first, as is_file/dir also returns True if
         #       src_path is a symlink points to existed file/dir.
         # NOTE: cleanup dst ONLY when src is available!
         if _src_path.is_symlink():
             _dst_path.unlink(missing_ok=True)
             shutil.copy(_src_path, _dst_path, follow_symlinks=False)
+            # no need to change symlink's mode, it is always 777
         elif _src_path.is_file():
             _dst_path.unlink(missing_ok=True)
             shutil.copy(_src_path, _dst_path, follow_symlinks=False)
-            shutil.copymode(_src_path, _dst_path, follow_symlinks=False)
+            os.chmod(_dst_path, _src_stat.st_mode)
         elif _src_path.is_dir():
             shutil.rmtree(_dst_path, ignore_errors=True)
-            _dst_path.mkdir(mode=_src_stat.st_mode, exist_ok=True)
+            _dst_path.mkdir(exist_ok=True)
+            os.chmod(_dst_path, _src_stat.st_mode)
         elif skip_invalid:
             logger.warning(f"{_src_path=} is missing or not file/symlink or dir, skip")
             return
@@ -557,7 +567,7 @@ class PersistFilesHandler:
                 f"type of {_src_path=} must be presented and one of file/dir/symlink"
             )
 
-        # preserve uid/gid with mapping
+        # change owner with mapping
         _src_uid, _src_gid = _src_stat.st_uid, _src_stat.st_gid
         try:
             _dst_uid = map_uid_by_pwnam(
@@ -574,8 +584,7 @@ class PersistFilesHandler:
         except ValueError:
             logger.warning(f"failed to find mapping for {_src_gid=}, keep unchanged")
             _dst_gid = _src_gid
-
-        os.chown(_dst_path, uid=_dst_uid, gid=_dst_gid)
+        os.chown(_dst_path, uid=_dst_uid, gid=_dst_gid, follow_symlinks=False)
 
     # API
 
