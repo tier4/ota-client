@@ -4,6 +4,7 @@
 The input OTA images are expected to be built by ota-metadata(or images compatible with OTA image specification).
 
 This package provide the following two packing mode, each for different purposes:
+
 1. `build-cache-src`: with this mode, the built image can be recognized and utilized by otaproxy to reduce network downloading during OTA update.
 
     The following features are provided in this mode:
@@ -14,7 +15,7 @@ This package provide the following two packing mode, each for different purposes
 
     3. prepare and export built image onto specific block device as external cache source device recognized by otaproxy.
 
-2. `build-offline-ota-imgs-bundle`: with this mode, the built image can be used by the `fully offline OTA helper` script to trigger fullly offline OTA locally without any network. 
+2. `build-offline-ota-imgs-bundle`: with this mode, the built image can be used by the `fully offline OTA helper` script to trigger fullly offline OTA locally without any network.
 
     The following feature are provided in this mode:
 
@@ -70,7 +71,6 @@ The rootfs of the built image has the following layout:
 
 Both external cache source image and offline OTA image bundle use this image bundle layout.
 It means that offline OTA image can also be used as external cache source recognized by otaproxy(but user still needs to prepare the device either by themselves and extract the offline OTA image rootfs onto the prepared device, or prepare the device with this **images_packer** package).
-
 
 <!--- Please check [External cache source](https://tier4.atlassian.net/wiki/spaces/WEB/pages/2813984854/OTA+cache+mechanism+design+for+otaproxy#External-cache-source) section of the doc for more details. --->
 
