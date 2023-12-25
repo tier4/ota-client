@@ -108,25 +108,27 @@ def main_build_external_cache_src(args: argparse.Namespace):
     count = 0
 
     # retrieves images from --image arg
-    for _image_fpath in args.image:
-        count_str = str(count)
-        image_metas.append(ImageMetadata(ecu_id=count_str))
-        image_files[count_str] = _image_fpath
-        count += 1
+    if args.image:
+        for _image_fpath in args.image:
+            count_str = str(count)
+            image_metas.append(ImageMetadata(ecu_id=count_str))
+            image_files[count_str] = _image_fpath
+            count += 1
 
     # retrieves images from --image-dir arg
-    _image_store_dpath = Path(args.image_dir)
-    if not _image_store_dpath.is_dir():
-        logger.error(
-            f"ERR: specified <IMAGE_FILES_DIR>={_image_store_dpath} doesn't exist, abort"
-        )
-        sys.exit(errno.EINVAL)
+    if args.image_dir:
+        _image_store_dpath = Path(args.image_dir)
+        if not _image_store_dpath.is_dir():
+            logger.error(
+                f"ERR: specified <IMAGE_FILES_DIR>={_image_store_dpath} doesn't exist, abort"
+            )
+            sys.exit(errno.EINVAL)
 
-    for _image_fpath in _image_store_dpath.glob("*"):
-        count_str = str(count)
-        image_metas.append(ImageMetadata(ecu_id=count_str))
-        image_files[count_str] = _image_fpath
-        count += 1
+        for _image_fpath in _image_store_dpath.glob("*"):
+            count_str = str(count)
+            image_metas.append(ImageMetadata(ecu_id=count_str))
+            image_files[count_str] = _image_fpath
+            count += 1
 
     if not image_metas:
         print("ERR: at least one valid image should be given, abort")
