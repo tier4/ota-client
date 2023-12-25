@@ -173,6 +173,7 @@ def command_build_cache_src(
     subparser: argparse.ArgumentParser = subparsers.add_parser(
         name=cmd,
         description="build external OTA cache source recognized and used otaproxy.",
+        argument_default=None,
     )
     subparser.add_argument(
         "--image",
@@ -193,6 +194,7 @@ def command_build_cache_src(
     subparser.add_argument(
         "-o",
         "--output",
+        required=False,
         help="save the generated image bundle tar archive to <OUTPUT_FILE_PATH>.",
         metavar="<OUTPUT_FILE_PATH>",
     )
@@ -225,6 +227,7 @@ def command_build_offline_ota_image_bundle(
     subparser: argparse.ArgumentParser = subparsers.add_parser(
         name=cmd,
         description="build OTA image bundle for offline OTA use.",
+        argument_default=None,
     )
     subparser.add_argument(
         "--image",
@@ -239,6 +242,7 @@ def command_build_offline_ota_image_bundle(
     subparser.add_argument(
         "-o",
         "--output",
+        required=True,
         help="save the generated image bundle tar archive to <OUTPUT_FILE_PATH>.",
         metavar="<OUTPUT_FILE_PATH>",
     )
