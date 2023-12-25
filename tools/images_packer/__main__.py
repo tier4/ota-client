@@ -189,6 +189,12 @@ def command_build_cache_src(
         metavar="<IMAGE_FILES_DIR>",
     )
     subparser.add_argument(
+        "-o",
+        "--output",
+        help="save the generated image bundle tar archive to <OUTPUT_FILE_PATH>.",
+        metavar="<OUTPUT_FILE_PATH>",
+    )
+    subparser.add_argument(
         "-w",
         "--write-to",
         help=(
@@ -228,6 +234,12 @@ def command_build_offline_ota_image_bundle(
         metavar="<ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]",
         action="append",
     )
+    subparser.add_argument(
+        "-o",
+        "--output",
+        help="save the generated image bundle tar archive to <OUTPUT_FILE_PATH>.",
+        metavar="<OUTPUT_FILE_PATH>",
+    )
     return cmd, subparser
 
 
@@ -256,13 +268,6 @@ if __name__ == "__main__":
             "start from choosing different image packing modes."
         ),
     )
-    # shared args
-    main_parser.add_argument(
-        "-o",
-        "--output",
-        help="save the generated image bundle tar archive to <OUTPUT_FILE_PATH>.",
-        metavar="<OUTPUT_FILE_PATH>",
-    )
 
     # ------ define subcommands ------ #
     subparsers = main_parser.add_subparsers(
@@ -279,7 +284,7 @@ if __name__ == "__main__":
 
     args = main_parser.parse_args()
 
-    # shared args check
+    # check common args
     if args.output and (output := Path(args.output)).exists():
         print(f"ERR: {output} exists, abort")
         sys.exit(errno.EINVAL)
