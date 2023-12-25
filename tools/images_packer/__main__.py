@@ -49,6 +49,7 @@ from typing import Callable
 from .configs import cfg
 from .builder import build
 from .manifest import ImageMetadata
+from .utils import check_if_mounted, umount
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,15 @@ def main_build_external_cache_src(args: argparse.Namespace):
         logger.error("ERR: at least one export option should be specified")
         sys.exit(errno.EINVAL)
 
+    if args.write_to:
+        write_to_dev = Path(args.write_to)
+        if not write_to_dev.is_block_device():
+            logger.error(f"{write_to_dev=} is not a block device, abort")
+            sys.exit(errno.EINVAL)
+        if check_if_mounted(write_to_dev):
+            logger.warning(f"{write_to_dev=} is mounted, try to umount it...")
+            umount(write_to_dev)
+
     # ------ parse args ------ #
     image_metas: list[ImageMetadata] = []
     image_files: dict[str, Path] = {}
@@ -124,10 +134,6 @@ def main_build_external_cache_src(args: argparse.Namespace):
 
     # ------ parse export options ------ #
     output_fpath, write_to_dev = args.output, args.write_to
-
-    if write_to_dev and not Path(write_to_dev).is_block_device():
-        print(f"{write_to_dev} is not a block device, abort")
-        sys.exit(errno.EINVAL)
 
     if write_to_dev and not args.force_write_to:
         _confirm_write_to = input(

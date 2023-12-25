@@ -15,8 +15,11 @@
 
 
 from os import PathLike
+from pathlib import Path
 from typing import Union
 from typing_extensions import TypeAlias
+
+from otaclient.app.common import subprocess_call
 
 StrPath: TypeAlias = Union[str, PathLike]
 
@@ -27,3 +30,19 @@ class InputImageProcessError(Exception):
 
 class ExportError(Exception):
     ...
+
+
+PROC_MOUNTS = "/proc/mounts"
+
+
+def check_if_mounted(dev: StrPath) -> bool:
+    """Perform a fast check to see if <dev> is mounted."""
+    for line in Path(PROC_MOUNTS).read_text().splitlines():
+        if line.find(str(dev)) != -1:
+            return True
+    return False
+
+
+def umount(dev: StrPath):
+    _cmd = f"umount {dev}"
+    subprocess_call(_cmd, raise_exception=True)
