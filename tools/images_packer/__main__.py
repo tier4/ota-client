@@ -37,12 +37,14 @@ Please refer to OTA cache design doc for more details.
 """
 
 
+from __future__ import annotations
 import argparse
 import errno
 import logging
 import sys
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from .configs import cfg
 from .builder import build
@@ -51,7 +53,12 @@ from .manifest import ImageMetadata
 logger = logging.getLogger(__name__)
 
 
-def main(args):
+def main_build_offline_ota_image_bundle(args: argparse.Namespace):
+    # ------ args check ------ #
+    if not (args.output or args.write_to):
+        print("ERR: at least one export option should be specified")
+        sys.exit(errno.EINVAL)
+
     # ------ parse input image options ------ #
     image_metas = []
     image_files = {}
@@ -106,16 +113,70 @@ def main(args):
         )
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format=cfg.LOGGING_FORMAT, force=True)
-    parser = argparse.ArgumentParser(
-        prog="offline_ota_image_builder",
-        description=(
-            "Helper script that builds offline OTA image "
-            "with given OTA image(s) as external cache source or for offline OTA use."
-        ),
+def main_build_external_cache_src(args: argparse.Namespace):
+    pass
+
+
+#
+# ------ subcommands definition ------ #
+#
+
+
+def command_build_cache_src(
+    subparsers: argparse._SubParsersAction,
+) -> tuple[str, argparse.ArgumentParser]:
+    cmd = "build-cache-src"
+    subparser: argparse.ArgumentParser = subparsers.add_parser(
+        name=cmd,
+        description="build external OTA cache source recognized and used otaproxy.",
     )
-    parser.add_argument(
+    subparser.add_argument(
+        "--image",
+        help=(
+            "(Optional) OTA image to be included in the external cache source, "
+            "this argument can be specified multiple times to include multiple images."
+        ),
+        required=False,
+        metavar="<IMAGE_FILE_PATH>",
+        action="append",
+    )
+    subparser.add_argument(
+        "--image-dir",
+        help="(Optional) Specify a dir of OTA images to be included in the cache source.",
+        required=False,
+        metavar="<IMAGE_FILES_DIR>",
+    )
+    subparser.add_argument(
+        "-w",
+        "--write-to",
+        help=(
+            "(Optional) write the external cache source image to <DEVICE> and prepare the device, "
+            "and then prepare the device to be used as external cache source storage."
+        ),
+        required=False,
+        metavar="<DEVICE>",
+    )
+    subparser.add_argument(
+        "--force-write-to",
+        help=(
+            "(Optional) prepare <DEVICE> as external cache source device without inter-active confirmation, "
+            "only valid when used with -w option."
+        ),
+        required=False,
+        action="store_true",
+    )
+    return cmd, subparser
+
+
+def command_build_offline_ota_image_bundle(
+    subparsers: argparse._SubParsersAction,
+) -> tuple[str, argparse.ArgumentParser]:
+    cmd = "build-offline-ota-imgs-bundle"
+    subparser: argparse.ArgumentParser = subparsers.add_parser(
+        name=cmd,
+        description="build OTA image bundle for offline OTA use.",
+    )
+    subparser.add_argument(
         "--image",
         help=(
             "OTA image for <ECU_ID> as tar archive(compressed or uncompressed), "
@@ -125,42 +186,64 @@ if __name__ == "__main__":
         metavar="<ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]",
         action="append",
     )
-    parser.add_argument(
+    return cmd, subparser
+
+
+def register_handler(
+    _cmd: str, subparser: argparse.ArgumentParser, *, handler: Callable
+):
+    subparser.set_defaults(handler=handler)
+
+
+def get_handler(args: argparse.Namespace) -> Callable[[argparse.Namespace], None]:
+    try:
+        return args.handler
+    except AttributeError:
+        print("ERR: image packing mode is not specified, check -h for more details")
+        sys.exit(errno.EINVAL)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format=cfg.LOGGING_FORMAT, force=True)
+
+    # ------ init main parser ------ #
+    main_parser = argparse.ArgumentParser(
+        prog="images_packer",
+        description=(
+            "Helper script that builds OTA images bundle from given OTA image(s), "
+            "start from choosing different image packing modes."
+        ),
+    )
+    # shared args
+    main_parser.add_argument(
         "-o",
         "--output",
-        help="save the generated image rootfs into tar archive to <OUTPUT_PATH>.",
-        metavar="<OUTPUT_PATH>",
+        help="save the generated image bundle tar archive to <OUTPUT_FILE_PATH>.",
+        metavar="<OUTPUT_FILE_PATH>",
     )
-    parser.add_argument(
-        "-w",
-        "--write-to",
-        help=(
-            "write the image to <DEVICE> and prepare the device as "
-            "external cache source device."
-        ),
-        metavar="<DEVICE>",
-    )
-    parser.add_argument(
-        "--force-write-to",
-        help=(
-            "prepare <DEVICE> as external cache source device without inter-active confirmation, "
-            "only valid when used with -w option."
-        ),
-        action="store_true",
-    )
-    args = parser.parse_args()
 
-    # basic options check
-    if args.output and (output := Path(args.output)).is_file():
+    # ------ define subcommands ------ #
+    subparsers = main_parser.add_subparsers(
+        title="Image packing modes",
+    )
+    register_handler(
+        *command_build_cache_src(subparsers),
+        handler=main_build_external_cache_src,
+    )
+    register_handler(
+        *command_build_offline_ota_image_bundle(subparsers),
+        handler=main_build_offline_ota_image_bundle,
+    )
+
+    args = main_parser.parse_args()
+
+    # shared args check
+    if args.output and (output := Path(args.output)).exists():
         print(f"ERR: {output} exists, abort")
         sys.exit(errno.EINVAL)
 
-    if not (args.output or args.write_to):
-        print("ERR: at least one export option should be specified")
-        sys.exit(errno.EINVAL)
-
     try:
-        main(args)
+        get_handler(args)(args)
     except KeyboardInterrupt:
         print("ERR: aborted by user")
         raise
