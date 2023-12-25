@@ -78,7 +78,7 @@ def main_build_offline_ota_image_bundle(args: argparse.Namespace):
         sys.exit(errno.EINVAL)
 
     # ------ build image ------ #
-    with tempfile.TemporaryDirectory(prefix="offline_OTA_image_builder") as workdir:
+    with tempfile.TemporaryDirectory(prefix="images_packer") as workdir:
         build(
             image_metas,
             image_files,
@@ -152,7 +152,7 @@ def main_build_external_cache_src(args: argparse.Namespace):
         )
 
     # ------ build image ------ #
-    with tempfile.TemporaryDirectory(prefix="offline_OTA_image_builder") as workdir:
+    with tempfile.TemporaryDirectory(prefix="images_packer") as workdir:
         build(
             image_metas,
             image_files,
