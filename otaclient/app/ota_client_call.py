@@ -13,10 +13,12 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import grpc.aio
+from typing import Optional
 
 from .proto import wrapper, v2_grpc
-from .configs import server_cfg
+from .configs import service_config
 
 
 class ECUNoResponse(Exception):
@@ -28,10 +30,10 @@ class OtaClientCall:
     async def status_call(
         ecu_id: str,
         ecu_ipaddr: str,
-        ecu_port: int = server_cfg.SERVER_PORT,
+        ecu_port: int = service_config.CLIENT_CALL_PORT,
         *,
         request: wrapper.StatusRequest,
-        timeout=None,
+        timeout: Optional[float] = None,
     ) -> wrapper.StatusResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
@@ -47,10 +49,10 @@ class OtaClientCall:
     async def update_call(
         ecu_id: str,
         ecu_ipaddr: str,
-        ecu_port: int = server_cfg.SERVER_PORT,
+        ecu_port: int = service_config.CLIENT_CALL_PORT,
         *,
         request: wrapper.UpdateRequest,
-        timeout=None,
+        timeout: Optional[float] = None,
     ) -> wrapper.UpdateResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
@@ -66,10 +68,10 @@ class OtaClientCall:
     async def rollback_call(
         ecu_id: str,
         ecu_ipaddr: str,
-        ecu_port: int = server_cfg.SERVER_PORT,
+        ecu_port: int = service_config.CLIENT_CALL_PORT,
         *,
         request: wrapper.RollbackRequest,
-        timeout=None,
+        timeout: Optional[float] = None,
     ) -> wrapper.RollbackResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"

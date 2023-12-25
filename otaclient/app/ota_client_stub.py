@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
 import logging
 import shutil
@@ -26,7 +27,7 @@ from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
 from typing_extensions import Self
 
 from . import log_setting
-from .configs import config as cfg, server_cfg
+from .configs import config as cfg, logging_config
 from .common import ensure_otaproxy_start
 from .boot_control._common import CMDHelperFuncs
 from .ecu_info import ECUContact, ECUInfo
@@ -42,9 +43,7 @@ from otaclient.ota_proxy import (
 )
 
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 class _OTAProxyContext(OTAProxyContextProto):
@@ -93,7 +92,7 @@ class _OTAProxyContext(OTAProxyContextProto):
             loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
         )
         otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
-        otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
+        otaproxy_logger.setLevel(logging_config.LOGGING_LEVEL)
         self.logger = otaproxy_logger
 
         # wait for upper otaproxy if any
@@ -698,7 +697,7 @@ class _ECUTracker:
                     ecu_contact.ecu_id,
                     ecu_contact.host,
                     ecu_contact.port,
-                    timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
+                    timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                     request=wrapper.StatusRequest(),
                 )
                 await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)
@@ -731,8 +730,6 @@ class OTAClientServiceStub:
         )
 
         self.ecu_info = ecu_info
-        self.listen_addr = ecu_info.ip_addr
-        self.listen_port = server_cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
@@ -848,7 +845,7 @@ class OTAClientServiceStub:
                     ecu_contact.host,
                     ecu_contact.port,
                     request=request,
-                    timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
+                    timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
             tasks[_task] = ecu_contact
@@ -863,7 +860,7 @@ class OTAClientServiceStub:
                     _ecu_contact = tasks[_task]
                     logger.warning(
                         f"{_ecu_contact} doesn't respond to update request on-time"
-                        f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
+                        f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     # NOTE(20230517): aligns with the previous behavior that create
                     #                 response with RECOVERABLE OTA error for unresponsive
@@ -912,7 +909,7 @@ class OTAClientServiceStub:
                     ecu_contact.host,
                     ecu_contact.port,
                     request=request,
-                    timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
+                    timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
             tasks[_task] = ecu_contact
@@ -926,7 +923,7 @@ class OTAClientServiceStub:
                     _ecu_contact = tasks[_task]
                     logger.warning(
                         f"{_ecu_contact} doesn't respond to rollback request on-time"
-                        f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
+                        f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     # NOTE(20230517): aligns with the previous behavior that create
                     #                 response with RECOVERABLE OTA error for unresponsive

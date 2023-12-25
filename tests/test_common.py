@@ -42,7 +42,7 @@ from otaclient.app.common import (
     write_str_to_file_sync,
 )
 from tests.utils import compare_dir
-from tests.conftest import cfg, run_http_server
+from tests.conftest import run_http_server
 
 logger = logging.getLogger(__name__)
 

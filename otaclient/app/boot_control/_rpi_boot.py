@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Generator
 
 from .. import log_setting, errors as ota_errors
+from ..configs import config as cfg
 from ..proto import wrapper
 from ..common import replace_atomic, subprocess_call
 
@@ -30,12 +31,10 @@ from ._common import (
     CMDHelperFuncs,
     write_str_to_file_sync,
 )
-from .configs import rpi_boot_cfg as cfg
+from .configs import rpi_boot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 _FSTAB_TEMPLATE_STR = (
     "LABEL=${rootfs_fslabel}\t/\text4\tdiscard,x-systemd.growfs\t0\t1\n"
@@ -68,8 +67,8 @@ class _RPIBootControl:
     i.e., config.txt for slot_a will be config.txt_slot_a
     """
 
-    SLOT_A = cfg.SLOT_A_FSLABEL
-    SLOT_B = cfg.SLOT_B_FSLABEL
+    SLOT_A = boot_cfg.SLOT_A_FSLABEL
+    SLOT_B = boot_cfg.SLOT_B_FSLABEL
     AB_FLIPS = {
         SLOT_A: SLOT_B,
         SLOT_B: SLOT_A,
@@ -77,7 +76,7 @@ class _RPIBootControl:
     SEP_CHAR = "_"
 
     def __init__(self) -> None:
-        self.system_boot_path = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+        self.system_boot_path = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
         if not (
             self.system_boot_path.is_dir()
             and CMDHelperFuncs.is_target_mounted(self.system_boot_path)
@@ -94,7 +93,7 @@ class _RPIBootControl:
         try:
             # detect active slot
             self._active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
-                cfg.ACTIVE_ROOTFS_PATH
+                cfg.ACTIVE_ROOTFS
             )
             if not (
                 _active_slot := CMDHelperFuncs.get_fslabel_by_dev(self._active_slot_dev)
@@ -161,12 +160,13 @@ class _RPIBootControl:
         """
         logger.debug("checking boot files...")
         # boot file
-        self.config_txt = self.system_boot_path / cfg.CONFIG_TXT
-        self.tryboot_txt = self.system_boot_path / cfg.TRYBOOT_TXT
+        self.config_txt = self.system_boot_path / boot_cfg.CONFIG_TXT_FNAME
+        self.tryboot_txt = self.system_boot_path / boot_cfg.TRYBOOT_TXT_FNAME
 
         # active slot
         self.config_txt_active_slot = (
-            self.system_boot_path / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.active_slot}"
+            self.system_boot_path
+            / f"{boot_cfg.CONFIG_TXT_FNAME}{self.SEP_CHAR}{self.active_slot}"
         )
         if not self.config_txt_active_slot.is_file():
             _err_msg = f"missing {self.config_txt_active_slot=}"
@@ -174,22 +174,24 @@ class _RPIBootControl:
             raise _RPIBootControllerError(_err_msg)
         self.cmdline_txt_active_slot = (
             self.system_boot_path
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.active_slot}"
+            / f"{boot_cfg.CMDLINE_TXT_FNAME}{self.SEP_CHAR}{self.active_slot}"
         )
         if not self.cmdline_txt_active_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_active_slot=}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
         self.vmlinuz_active_slot = (
-            self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.active_slot}"
+            self.system_boot_path
+            / f"{boot_cfg.VMLINUZ_FNAME}{self.SEP_CHAR}{self.active_slot}"
         )
         self.initrd_img_active_slot = (
-            self.system_boot_path / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.active_slot}"
+            self.system_boot_path
+            / f"{boot_cfg.INITRD_IMG_FNAME}{self.SEP_CHAR}{self.active_slot}"
         )
         # standby slot
         self.config_txt_standby_slot = (
             self.system_boot_path
-            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{boot_cfg.CONFIG_TXT_FNAME}{self.SEP_CHAR}{self.standby_slot}"
         )
         if not self.config_txt_standby_slot.is_file():
             _err_msg = f"missing {self.config_txt_standby_slot=}"
@@ -197,18 +199,19 @@ class _RPIBootControl:
             raise _RPIBootControllerError(_err_msg)
         self.cmdline_txt_standby_slot = (
             self.system_boot_path
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{boot_cfg.CMDLINE_TXT_FNAME}{self.SEP_CHAR}{self.standby_slot}"
         )
         if not self.cmdline_txt_standby_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_standby_slot=}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
         self.vmlinuz_standby_slot = (
-            self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.standby_slot}"
+            self.system_boot_path
+            / f"{boot_cfg.VMLINUZ_FNAME}{self.SEP_CHAR}{self.standby_slot}"
         )
         self.initrd_img_standby_slot = (
             self.system_boot_path
-            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
+            / f"{boot_cfg.INITRD_IMG_FNAME}{self.SEP_CHAR}{self.standby_slot}"
         )
 
     def _update_firmware(self):
@@ -228,10 +231,14 @@ class _RPIBootControl:
             # check if the vmlinuz and initrd.img presented in /boot/firmware(system-boot),
             # if so, it means that flash-kernel works and copies the kernel, inird.img from /boot,
             # then we rename vmlinuz and initrd.img to vmlinuz_<current_slot> and initrd.img_<current_slot>
-            if (_vmlinuz := Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.VMLINUZ).is_file():
+            if (
+                _vmlinuz := Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
+                / boot_cfg.VMLINUZ_FNAME
+            ).is_file():
                 os.replace(_vmlinuz, self.vmlinuz_active_slot)
             if (
-                _initrd_img := Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.INITRD_IMG
+                _initrd_img := Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
+                / boot_cfg.INITRD_IMG_FNAME
             ).is_file():
                 os.replace(_initrd_img, self.initrd_img_active_slot)
             os.sync()
@@ -282,7 +289,7 @@ class _RPIBootControl:
         """
         logger.info("finalizing switch boot...")
         try:
-            _flag_file = self.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
+            _flag_file = self.system_boot_path / boot_cfg.SWITCH_BOOT_FLAG_FNAME
             if _flag_file.is_file():
                 # we are just after second reboot, after firmware_update,
                 # finalize the switch boot and then return True
@@ -379,22 +386,25 @@ class RPIBootController(BootControllerProtocol):
     def __init__(self) -> None:
         try:
             self._rpiboot_control = _RPIBootControl()
-            # mount point prepare
+
+            # ------ prepare mount space ------ #
+            otaclient_ms = Path(cfg.OTACLIENT_MOUNT_SPACE_DPATH)
+            otaclient_ms.mkdir(exist_ok=True, parents=True)
+            otaclient_ms.chmod(0o700)
+
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._rpiboot_control.standby_slot_dev,
-                standby_slot_mount_point=cfg.MOUNT_POINT,
+                standby_slot_mount_point=cfg.STANDBY_SLOT_MP,
                 active_slot_dev=self._rpiboot_control.active_slot_dev,
-                active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+                active_slot_mount_point=cfg.ACTIVE_SLOT_MP,
             )
-            # init ota-status files
+
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=self._rpiboot_control.active_slot,
                 standby_slot=self._rpiboot_control.standby_slot,
-                current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
-                / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
+                current_ota_status_dir=Path(boot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH),
                 # NOTE: might not yet be populated before OTA update applied!
-                standby_ota_status_dir=Path(cfg.MOUNT_POINT)
-                / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
+                standby_ota_status_dir=Path(boot_cfg.STANDBY_BOOT_OTA_STATUS_DPATH),
                 finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
             )
 
@@ -404,7 +414,8 @@ class RPIBootController(BootControllerProtocol):
                 wrapper.StatusOta.ROLLBACKING,
             ):
                 _flag_file = (
-                    self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
+                    self._rpiboot_control.system_boot_path
+                    / boot_cfg.SWITCH_BOOT_FLAG_FNAME
                 )
                 _flag_file.unlink(missing_ok=True)
 
@@ -425,17 +436,20 @@ class RPIBootController(BootControllerProtocol):
         logger.debug(
             "prepare standby slot's kernel/initrd.img to system-boot partition..."
         )
+        vmlinuz_fname = boot_cfg.VMLINUZ_FNAME
+        initrd_fname = boot_cfg.INITRD_IMG_FNAME
+
         try:
             # search for kernel
             _kernel_pa, _kernel_ver = (
-                re.compile(rf"{cfg.VMLINUZ}-(?P<kernel_ver>.*)"),
+                re.compile(rf"{vmlinuz_fname}-(?P<kernel_ver>.*)"),
                 None,
             )
             # NOTE: if there is multiple kernel, pick the first one we encounted
             # NOTE 2: according to ota-image specification, it should only be one
             #         version of kernel and initrd.img
             for _candidate in self._mp_control.standby_boot_dir.glob(
-                f"{cfg.VMLINUZ}-*"
+                f"{vmlinuz_fname}-*"
             ):
                 if _ma := _kernel_pa.match(_candidate.name):
                     _kernel_ver = _ma.group("kernel_ver")
@@ -443,9 +457,9 @@ class RPIBootController(BootControllerProtocol):
 
             if _kernel_ver is not None:
                 _kernel, _initrd_img = (
-                    self._mp_control.standby_boot_dir / f"{cfg.VMLINUZ}-{_kernel_ver}",
                     self._mp_control.standby_boot_dir
-                    / f"{cfg.INITRD_IMG}-{_kernel_ver}",
+                    / f"{vmlinuz_fname}-{_kernel_ver}",
+                    self._mp_control.standby_boot_dir / f"{initrd_fname}-{_kernel_ver}",
                 )
                 _kernel_sysboot, _initrd_img_sysboot = (
                     self._rpiboot_control.vmlinuz_standby_slot,
@@ -454,7 +468,9 @@ class RPIBootController(BootControllerProtocol):
                 replace_atomic(_kernel, _kernel_sysboot)
                 replace_atomic(_initrd_img, _initrd_img_sysboot)
             else:
-                raise ValueError("failed to kernel in /boot folder at standby slot")
+                raise ValueError(
+                    "failed to find kernel in /boot folder at standby slot"
+                )
         except Exception as e:
             _err_msg = "failed to copy kernel/initrd_img for standby slot"
             logger.error(_err_msg)
@@ -469,9 +485,7 @@ class RPIBootController(BootControllerProtocol):
         """
         logger.debug("update standby slot fstab file...")
         try:
-            _fstab_fpath = self._mp_control.standby_slot_mount_point / Path(
-                cfg.FSTAB_FPATH
-            ).relative_to("/")
+            _fstab_fpath = Path(boot_cfg.STANDBY_FSTAB_FPATH)
             _updated_fstab_str = Template(_FSTAB_TEMPLATE_STR).substitute(
                 rootfs_fslabel=self._rpiboot_control.standby_slot
             )
@@ -506,7 +520,7 @@ class RPIBootController(BootControllerProtocol):
 
             # 20230613: remove any leftover flag file if presented
             _flag_file = (
-                self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
+                self._rpiboot_control.system_boot_path / boot_cfg.SWITCH_BOOT_FLAG_FNAME
             )
             _flag_file.unlink(missing_ok=True)
         except Exception as e:

@@ -22,7 +22,7 @@ from pytest_mock import MockerFixture
 from pytest import LogCaptureFixture
 
 from otaclient.app.configs import config as otaclient_cfg
-from tests.conftest import TestConfiguration as cfg
+from tests.conftest import TestConfiguration as test_cfg
 
 FIRST_LINE_LOG = "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
 
@@ -30,14 +30,14 @@ FIRST_LINE_LOG = "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
 class TestMain:
     @pytest.fixture(autouse=True)
     def patch_main(self, mocker: MockerFixture, tmp_path: Path):
-        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.launch_otaclient_grpc_server")
+        mocker.patch(f"{test_cfg.MAIN_MODULE_PATH}.launch_otaclient_grpc_server")
 
         self._sys_exit_mocker = mocker.MagicMock(side_effect=ValueError)
-        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.sys.exit", self._sys_exit_mocker)
+        mocker.patch(f"{test_cfg.MAIN_MODULE_PATH}.sys.exit", self._sys_exit_mocker)
 
         version_file = tmp_path / "version.txt"
         version_file.write_text(FIRST_LINE_LOG)
-        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.EXTRA_VERSION_FILE", version_file)
+        mocker.patch(f"{test_cfg.MAIN_MODULE_PATH}.EXTRA_VERSION_FILE", version_file)
 
     @pytest.fixture
     def background_process(self):
@@ -47,7 +47,7 @@ class TestMain:
         _p = Process(target=_waiting)
         try:
             _p.start()
-            Path(otaclient_cfg.OTACLIENT_PID_FILE).write_text(f"{_p.pid}")
+            Path(otaclient_cfg.OTACLIENT_PID_FPATH).write_text(f"{_p.pid}")
             yield _p.pid
         finally:
             _p.kill()
@@ -58,7 +58,7 @@ class TestMain:
         main()
         assert caplog.records[0].msg == "started"
         assert caplog.records[1].msg == FIRST_LINE_LOG
-        assert Path(otaclient_cfg.OTACLIENT_PID_FILE).read_text() == f"{os.getpid()}"
+        assert Path(otaclient_cfg.OTACLIENT_PID_FPATH).read_text() == f"{os.getpid()}"
 
     def test_with_other_otaclient_started(self, background_process):
         from otaclient.app.main import main
@@ -67,4 +67,4 @@ class TestMain:
         with pytest.raises(ValueError):
             main()
         self._sys_exit_mocker.assert_called_once()
-        assert Path(otaclient_cfg.OTACLIENT_PID_FILE).read_text() == _other_pid
+        assert Path(otaclient_cfg.OTACLIENT_PID_FPATH).read_text() == _other_pid

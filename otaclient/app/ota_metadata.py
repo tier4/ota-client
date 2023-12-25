@@ -87,9 +87,7 @@ from .proto.wrapper import (
 from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
 from . import log_setting
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 
@@ -599,7 +597,7 @@ class OTAMetadata:
     def __init__(self, *, url_base: str, downloader: Downloader) -> None:
         self.url_base = url_base
         self._downloader = downloader
-        self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=cfg.RUN_DIR)
+        self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=cfg.RUN_DPATH)
         self._tmp_dir_path = Path(self._tmp_dir.name)
 
         # download and parse the metadata.jwt
@@ -626,7 +624,7 @@ class OTAMetadata:
         """Download, loading and parsing metadata.jwt."""
         logger.debug("process metadata.jwt...")
         # download and parse metadata.jwt
-        with NamedTemporaryFile(prefix="metadata_jwt", dir=cfg.RUN_DIR) as meta_f:
+        with NamedTemporaryFile(prefix="metadata_jwt", dir=cfg.RUN_DPATH) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
             self._downloader.download_retry_inf(
                 urljoin_ensure_base(self.url_base, self.METADATA_JWT),
@@ -640,13 +638,13 @@ class OTAMetadata:
             )
 
             _parser = _MetadataJWTParser(
-                _downloaded_meta_f.read_text(), certs_dir=cfg.CERTS_DIR
+                _downloaded_meta_f.read_text(), certs_dir=cfg.OTA_CERTS_DPATH
             )
         # get not yet verified parsed ota_metadata
         _ota_metadata = _parser.get_otametadata()
 
         # download certificate and verify metadata against this certificate
-        with NamedTemporaryFile(prefix="metadata_cert", dir=cfg.RUN_DIR) as cert_f:
+        with NamedTemporaryFile(prefix="metadata_cert", dir=cfg.RUN_DPATH) as cert_f:
             cert_info = _ota_metadata.certificate
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)

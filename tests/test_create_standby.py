@@ -21,10 +21,9 @@ from pathlib import Path
 from pytest_mock import MockerFixture
 
 from otaclient.app.boot_control import BootControllerProtocol
-from otaclient.app.configs import config as otaclient_cfg
-from otaclient.app.proto import wrapper
+from otaclient.configs.app_cfg import Config as otaclient_Config
 
-from tests.conftest import TestConfiguration as cfg
+from tests.conftest import TestConfiguration as test_cfg
 from tests.utils import SlotMeta, compare_dir
 
 import logging
@@ -35,39 +34,57 @@ logger = logging.getLogger(__name__)
 class Test_OTAupdate_with_create_standby_RebuildMode:
     """
     NOTE: the boot_control is mocked, only testing
-          create_standby and the logics directly implemented by OTAUpdater
+          create_standby and the logics directly implemented by OTAUpdater.
+
+    NOTE: testing the system using separated boot dev for each slots(like cboot).
     """
 
     @pytest.fixture
-    def prepare_ab_slots(self, tmp_path: Path, ab_slots: SlotMeta):
+    def setup_test(self, tmp_path: Path, ab_slots: SlotMeta):
+        #
+        # ------ prepare ab slots ------ #
+        #
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
         self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
-        self.ota_image_dir = Path(cfg.OTA_IMAGE_DIR)
+        self.ota_image_dir = Path(test_cfg.OTA_IMAGE_DIR)
 
         self.otaclient_run_dir = tmp_path / "otaclient_run_dir"
         self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
-        # ------ cleanup and prepare slot_b ------ #
-        shutil.rmtree(self.slot_b, ignore_errors=True)
-        self.slot_b.mkdir(exist_ok=True)
-        # some important paths
-        self.ota_metafiles_tmp_dir = self.slot_b / Path(
-            otaclient_cfg.OTA_TMP_META_STORE
-        ).relative_to("/")
-        self.ota_tmp_dir = self.slot_b / Path(otaclient_cfg.OTA_TMP_STORE).relative_to(
-            "/"
+
+        self.slot_a_boot_dir.mkdir(exist_ok=True, parents=True)
+        self.slot_b_boot_dir.mkdir(exist_ok=True, parents=True)
+
+        #
+        # ------ prepare config ------ #
+        #
+        _otaclient_cfg = otaclient_Config(ACTIVE_ROOTFS=str(self.slot_a))
+        self.otaclient_cfg = _otaclient_cfg
+
+        # ------ prepare otaclient run dir ------ #
+        Path(_otaclient_cfg.RUN_DPATH).mkdir(exist_ok=True, parents=True)
+
+        #
+        # ------ prepare mount space ------ #
+        #
+        Path(_otaclient_cfg.OTACLIENT_MOUNT_SPACE_DPATH).mkdir(
+            exist_ok=True, parents=True
         )
+        # directly point standby slot mp to self.slot_b
+        _standby_slot_mp = Path(_otaclient_cfg.STANDBY_SLOT_MP)
+        _standby_slot_mp.symlink_to(self.slot_b)
+
+        # some important paths
+        self.ota_metafiles_tmp_dir = Path(_otaclient_cfg.STANDBY_IMAGE_META_DPATH)
+        self.ota_tmp_dir = Path(_otaclient_cfg.STANDBY_OTA_TMP_DPATH)
 
         yield
         # cleanup slot_b after test
         shutil.rmtree(self.slot_b, ignore_errors=True)
 
     @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: MockerFixture, prepare_ab_slots):
-        from otaclient.app.proxy_info import ProxyInfo
-        from otaclient.app.configs import BaseConfig
-
+    def mock_setup(self, mocker: MockerFixture, setup_test):
         # ------ mock boot_controller ------ #
         self._boot_control = typing.cast(
             BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
@@ -75,13 +92,12 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         self._boot_control.get_standby_boot_dir.return_value = self.slot_b_boot_dir
 
         # ------ mock otaclient cfg ------ #
-        _cfg = BaseConfig()
-        _cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
-        _cfg.ACTIVE_ROOT_MOUNT_POINT = str(self.slot_a)  # type: ignore
-        _cfg.RUN_DIR = str(self.otaclient_run_dir)  # type: ignore
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
-        mocker.patch(f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.cfg", _cfg)
-        mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg", _cfg)
+        mocker.patch(f"{test_cfg.OTACLIENT_MODULE_PATH}.cfg", self.otaclient_cfg)
+        mocker.patch(
+            f"{test_cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.cfg",
+            self.otaclient_cfg,
+        )
+        mocker.patch(f"{test_cfg.OTAMETA_MODULE_PATH}.cfg", self.otaclient_cfg)
 
     def test_update_with_create_standby_RebuildMode(self, mocker: MockerFixture):
         from otaclient.app.ota_client import _OTAUpdater, OTAClientControlFlags
@@ -108,8 +124,8 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         _updater.shutdown = mocker.MagicMock()
 
         _updater.execute(
-            version=cfg.UPDATE_VERSION,
-            raw_url_base=cfg.OTA_IMAGE_URL,
+            version=test_cfg.UPDATE_VERSION,
+            raw_url_base=test_cfg.OTA_IMAGE_URL,
             cookies_json=r'{"test": "my-cookie"}',
         )
         time.sleep(2)  # wait for downloader to record stats
@@ -134,18 +150,14 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         # NOTE: for some reason tmp dir is created under OTA_IMAGE_DIR/data, but not listed
         # in the regulars.txt, so we create one here to make the test passed
         (self.slot_b / "tmp").mkdir(exist_ok=True)
+
         # NOTE: remove the ota-meta dir and ota-tmp dir to resolve the difference with OTA image
-        shutil.rmtree(
-            self.slot_b / Path(otaclient_cfg.OTA_TMP_META_STORE).relative_to("/"),
-            ignore_errors=True,
-        )
-        shutil.rmtree(
-            self.slot_b / Path(otaclient_cfg.OTA_TMP_STORE).relative_to("/"),
-            ignore_errors=True,
-        )
+        shutil.rmtree(self.ota_metafiles_tmp_dir, ignore_errors=True)
+        shutil.rmtree(self.ota_tmp_dir, ignore_errors=True)
         shutil.rmtree(self.slot_b / "opt/ota", ignore_errors=True)
+
         # --- check standby slot, ensure it is correctly populated
-        compare_dir(Path(cfg.OTA_IMAGE_DIR) / "data", self.slot_b)
+        compare_dir(Path(test_cfg.OTA_IMAGE_DIR) / "data", self.slot_b)
 
         # ------ finally close the updater ------ #
         _updater_shutdown()

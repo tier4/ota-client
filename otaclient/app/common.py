@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
 r"""Utils that shared between modules are listed here."""
+
+
 import itertools
 import os
 import shlex
@@ -44,7 +44,7 @@ from urllib.parse import urljoin
 from .log_setting import get_logger
 from .configs import config as cfg
 
-logger = get_logger(__name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = get_logger(__name__)
 
 
 def get_backoff(n: int, factor: float, _max: float) -> float:

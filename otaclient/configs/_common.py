@@ -14,26 +14,24 @@
 
 
 from __future__ import annotations
-import os.path
-from functools import cached_property
-from pydantic import computed_field
-from typing import Any, Callable, TypeVar
+from pydantic import BaseModel, ConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-T = TypeVar("T")
-
-_CONTAINER_INDICATOR_FILES = [
-    "/.dockerenv",
-    "/run/.dockerenv",
-    "/run/.containerenv",
-]
+# prefix for environmental vars name for configs.
+ENV_PREFIX = "OTA_"
 
 
-def if_run_as_container() -> bool:
-    for indicator in _CONTAINER_INDICATOR_FILES:
-        if os.path.isfile(indicator):
-            return True
-    return False
+class BaseConfigurableConfig(BaseSettings):
+    """Common base for configs that are configurable via ENV."""
+
+    model_config = SettingsConfigDict(
+        env_prefix=ENV_PREFIX,
+        frozen=True,
+        validate_default=True,
+    )
 
 
-def cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
-    return computed_field(cached_property(_f))
+class BaseFixedConfig(BaseModel):
+    """Common base for configs that should be fixed and not changable."""
+
+    model_config = ConfigDict(frozen=True, validate_default=True)

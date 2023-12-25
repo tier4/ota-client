@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
 import threading
 import typing
@@ -28,9 +29,8 @@ from otaclient.app.boot_control import BootControllerProtocol
 from otaclient.app.boot_control.configs import BootloaderType
 from otaclient.app.create_standby import StandbySlotCreatorProtocol
 from otaclient.app.create_standby.common import DeltaBundle, RegularDelta
-from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.ecu_info import ECUInfo
-from otaclient.app.errors import OTAError, OTAErrorRecoverable
+from otaclient.app.errors import OTAErrorRecoverable
 from otaclient.app.ota_client import (
     OTAClient,
     _OTAUpdater,
@@ -40,8 +40,9 @@ from otaclient.app.ota_client import (
 from otaclient.app.ota_metadata import parse_regulars_from_txt, parse_dirs_from_txt
 from otaclient.app.proto.wrapper import RegularInf, DirectoryInf
 from otaclient.app.proto import wrapper
+from otaclient.configs.app_cfg import Config as otaclient_Config
 
-from tests.conftest import TestConfiguration as cfg
+from tests.conftest import TestConfiguration as test_cfg
 from tests.utils import SlotMeta
 
 
@@ -52,34 +53,48 @@ class Test_OTAUpdater:
     """
 
     @pytest.fixture
-    def prepare_ab_slots(self, tmp_path: Path, ab_slots: SlotMeta):
+    def setup_test(self, tmp_path: Path, ab_slots: SlotMeta):
+        #
+        # ------ prepare ab slots ------ #
+        #
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
         self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
-        self.ota_image_dir = Path(cfg.OTA_IMAGE_DIR)
-
-        self.otaclient_run_dir = tmp_path / "otaclient_run_dir"
-        self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
+        self.ota_image_dir = Path(test_cfg.OTA_IMAGE_DIR)
 
         # ------ cleanup and prepare slot_b ------ #
         shutil.rmtree(self.slot_b, ignore_errors=True)
         self.slot_b.mkdir(exist_ok=True)
-        # some important paths
-        self.ota_metafiles_tmp_dir = self.slot_b / Path(
-            otaclient_cfg.OTA_TMP_META_STORE
-        ).relative_to("/")
-        self.ota_tmp_dir = self.slot_b / Path(otaclient_cfg.OTA_TMP_STORE).relative_to(
-            "/"
+
+        #
+        # ------ init otaclient config ------ #
+        #
+        self.otaclient_cfg = _otaclient_cfg = otaclient_Config(
+            ACTIVE_ROOTFS=ab_slots.slot_a
         )
+
+        # prepare dummy ab slots mount points
+        Path(_otaclient_cfg.OTACLIENT_MOUNT_SPACE_DPATH).mkdir(
+            parents=True, exist_ok=True
+        )
+        Path(_otaclient_cfg.ACTIVE_SLOT_MP).symlink_to(self.slot_a)
+        Path(_otaclient_cfg.STANDBY_SLOT_MP).symlink_to(self.slot_b)
+
+        # some important paths
+        self.ota_metafiles_tmp_dir = Path(self.otaclient_cfg.STANDBY_IMAGE_META_DPATH)
+        self.ota_tmp_dir = Path(self.otaclient_cfg.STANDBY_OTA_TMP_DPATH)
+
+        self.otaclient_run_dir = Path(_otaclient_cfg.RUN_DPATH)
+        self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
 
         yield
         # cleanup slot_b after test
         shutil.rmtree(self.slot_b, ignore_errors=True)
 
     @pytest.fixture
-    def _delta_generate(self, prepare_ab_slots):
-        _ota_image_dir = Path(cfg.OTA_IMAGE_DIR)
+    def _delta_generate(self, setup_test):
+        _ota_image_dir = Path(test_cfg.OTA_IMAGE_DIR)
         _standby_ota_tmp = self.slot_b / ".ota-tmp"
 
         # ------ manually create delta bundle ------ #
@@ -122,9 +137,6 @@ class Test_OTAUpdater:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, _delta_generate):
-        from otaclient.app.proxy_info import ProxyInfo
-        from otaclient.app.configs import BaseConfig
-
         # ------ mock boot_controller ------ #
         self._boot_control = typing.cast(
             BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
@@ -143,16 +155,13 @@ class Test_OTAUpdater:
         self._create_standby.should_erase_standby_slot.return_value = False
 
         # ------ mock otaclient cfg ------ #
-        _cfg = BaseConfig()
-        _cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
-        _cfg.ACTIVE_ROOTFS_PATH = str(self.slot_a)  # type: ignore
-        _cfg.RUN_DIR = str(self.otaclient_run_dir)  # type: ignore
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
-        mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg", _cfg)
+        mocker.patch(f"{test_cfg.OTACLIENT_MODULE_PATH}.cfg", self.otaclient_cfg)
+        mocker.patch(f"{test_cfg.OTAMETA_MODULE_PATH}.cfg", self.otaclient_cfg)
 
         # ------ mock stats collector ------ #
         mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.OTAUpdateStatsCollector", mocker.MagicMock()
+            f"{test_cfg.OTACLIENT_MODULE_PATH}.OTAUpdateStatsCollector",
+            mocker.MagicMock(),
         )
 
     def test_OTAUpdater(self, mocker: pytest_mock.MockerFixture):
@@ -170,8 +179,8 @@ class Test_OTAUpdater:
         )
 
         _updater.execute(
-            version=cfg.UPDATE_VERSION,
-            raw_url_base=cfg.OTA_IMAGE_URL,
+            version=test_cfg.UPDATE_VERSION,
+            raw_url_base=test_cfg.OTA_IMAGE_URL,
             cookies_json=r'{"test": "my-cookie"}',
         )
 
@@ -183,7 +192,7 @@ class Test_OTAUpdater:
         assert _downloaded_files_size == self._delta_bundle.total_download_files_size
         # assert the control_flags has been waited
         otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
-        assert _updater.updating_version == cfg.UPDATE_VERSION
+        assert _updater.updating_version == test_cfg.UPDATE_VERSION
         # assert boot controller is used
         self._boot_control.pre_update.assert_called_once()
         self._boot_control.post_update.assert_called_once()
@@ -243,7 +252,8 @@ class Test_OTAClient:
 
         # patch inject mocked updater
         mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}._OTAUpdater", return_value=self.ota_updater
+            f"{test_cfg.OTACLIENT_MODULE_PATH}._OTAUpdater",
+            return_value=self.ota_updater,
         )
         # inject lock into otaclient
         self.ota_client._lock = self.ota_lock
@@ -375,20 +385,20 @@ class TestOTAServicer:
         self.control_flags = mocker.MagicMock(spec=OTAClientControlFlags)
 
         #
-        # ------ patching ------
+        # ------ patching ------ #
         #
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.OTAClient", self.otaclient_cls)
+        mocker.patch(f"{test_cfg.OTACLIENT_MODULE_PATH}.OTAClient", self.otaclient_cls)
         mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.get_boot_controller",
+            f"{test_cfg.OTACLIENT_MODULE_PATH}.get_boot_controller",
             return_value=mocker.MagicMock(return_value=self.boot_controller),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.get_standby_slot_creator",
+            f"{test_cfg.OTACLIENT_MODULE_PATH}.get_standby_slot_creator",
             return_value=self.standby_slot_creator_cls,
         )
 
         #
-        # ------ start OTAServicer instance ------
+        # ------ start OTAServicer instance ------ #
         #
         self.local_use_proxy = ""
         self.otaclient_stub = OTAServicer(
@@ -404,10 +414,6 @@ class TestOTAServicer:
             self._executor.shutdown(wait=False)
 
     def test_stub_initializing(self):
-        #
-        # ------ assertion ------
-        #
-
         # ensure the OTAServicer properly compose otaclient core
         self.otaclient_cls.assert_called_once_with(
             boot_controller=self.boot_controller,

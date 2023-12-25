@@ -13,12 +13,16 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import grpc.aio
 
-from .configs import config as cfg, server_cfg
+from .configs import config as cfg, debug_flags, service_config
 from .ecu_info import ECUInfo
+from .log_setting import get_logger
 from .proto import wrapper, v2, v2_grpc
 from .ota_client_stub import OTAClientServiceStub
+
+logger = get_logger(__name__)
 
 
 class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
@@ -41,7 +45,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
 
 def create_otaclient_grpc_server():
-    ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FILE)
+    ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FPATH)
 
     service_stub = OTAClientServiceStub(ecu_info=ecu_info)
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
@@ -50,7 +54,17 @@ def create_otaclient_grpc_server():
     v2_grpc.add_OtaClientServiceServicer_to_server(
         server=server, servicer=ota_client_service_v2
     )
-    server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
+
+    listen_addr = ecu_info.ip_addr
+    if debug_flags.DEBUG_SERVER_LISTEN_ADDR:  # for advanced debug use case only
+        logger.warning(f"{debug_flags.DEBUG_SERVER_LISTEN_ADDR=} is activated")
+        listen_addr = debug_flags.DEBUG_SERVER_LISTEN_ADDR
+    listen_port = service_config.SERVER_PORT
+
+    listen_info = f"{listen_addr}:{listen_port}"
+    logger.info(f"create OTA grpc server at {listen_info}")
+
+    server.add_insecure_port(listen_info)
     return server
 
 

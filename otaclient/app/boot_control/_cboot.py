@@ -20,7 +20,7 @@ from functools import partial
 from subprocess import CalledProcessError
 from typing import Generator, Optional
 
-
+from ..configs import config as cfg
 from .. import log_setting, errors as ota_errors
 from ..common import (
     copytree_identical,
@@ -39,14 +39,12 @@ from ._common import (
     SlotInUseMixin,
     VersionControlMixin,
 )
-from .configs import cboot_cfg as cfg
+from .configs import cboot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 from .firmware import Firmware
 
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 class NvbootctrlError(Exception):
@@ -160,14 +158,14 @@ class _CBootControl:
     def __init__(self):
         # NOTE: only support rqx-580, rqx-58g platform right now!
         # detect the chip id
-        self.chip_id = read_str_from_file(cfg.TEGRA_CHIP_ID_PATH)
-        if not self.chip_id or int(self.chip_id) not in cfg.CHIP_ID_MODEL_MAP:
+        self.chip_id = read_str_from_file(boot_cfg.TEGRA_CHIP_ID_FPATH)
+        if not self.chip_id or int(self.chip_id) not in boot_cfg.CHIP_ID_MODEL_MAP:
             raise NotImplementedError(
                 f"unsupported platform found (chip_id: {self.chip_id}), abort"
             )
 
         self.chip_id = int(self.chip_id)
-        self.model = cfg.CHIP_ID_MODEL_MAP[self.chip_id]
+        self.model = boot_cfg.CHIP_ID_MODEL_MAP[self.chip_id]
         logger.info(f"{self.model=}, (chip_id={hex(self.chip_id)})")
 
         # initializing dev info
@@ -300,33 +298,36 @@ class CBootController(
         try:
             self._cboot_control: _CBootControl = _CBootControl()
 
+            # ------ prepare mount space ------ #
+            otaclient_ms = Path(cfg.OTACLIENT_MOUNT_SPACE_DPATH)
+            otaclient_ms.mkdir(exist_ok=True, parents=True)
+            otaclient_ms.chmod(0o700)
+
             # load paths
             ## first try to unmount standby dev if possible
             self.standby_slot_dev = self._cboot_control.get_standby_rootfs_dev()
             CMDHelperFuncs.umount(self.standby_slot_dev)
 
-            self.standby_slot_mount_point = Path(cfg.MOUNT_POINT)
-            self.standby_slot_mount_point.mkdir(exist_ok=True)
+            self.standby_slot_mount_point = Path(cfg.STANDBY_SLOT_MP)
+            self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
 
             ## refroot mount point
-            _refroot_mount_point = cfg.ACTIVE_ROOT_MOUNT_POINT
-            # first try to umount refroot mount point
-            CMDHelperFuncs.umount(_refroot_mount_point)
-            if not os.path.isdir(_refroot_mount_point):
-                os.mkdir(_refroot_mount_point)
+            _refroot_mount_point = cfg.ACTIVE_SLOT_MP
             self.ref_slot_mount_point = Path(_refroot_mount_point)
+
+            if os.path.isdir(_refroot_mount_point):
+                # first try to umount refroot mount point
+                CMDHelperFuncs.umount(_refroot_mount_point)
+            elif not os.path.exists(_refroot_mount_point):
+                self.ref_slot_mount_point.mkdir(exist_ok=True, parents=True)
 
             ## ota-status dir
             ### current slot
-            self.current_ota_status_dir = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
-                cfg.OTA_STATUS_DIR
-            ).relative_to("/")
+            self.current_ota_status_dir = Path(boot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH)
             self.current_ota_status_dir.mkdir(parents=True, exist_ok=True)
             ### standby slot
             # NOTE: might not yet be populated before OTA update applied!
-            self.standby_ota_status_dir = self.standby_slot_mount_point / Path(
-                cfg.OTA_STATUS_DIR
-            ).relative_to("/")
+            self.standby_ota_status_dir = Path(boot_cfg.STANDBY_BOOT_OTA_STATUS_DPATH)
 
             # init ota-status
             self._init_boot_control()
@@ -418,7 +419,7 @@ class CBootController(
 
     def _populate_boot_folder_to_separate_bootdev(self):
         # mount the actual standby_boot_dev now
-        _boot_dir_mount_point = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
+        _boot_dir_mount_point = Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT)
         _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
 
         try:
@@ -513,16 +514,11 @@ class CBootController(
     def post_update(self) -> Generator[None, None, None]:
         try:
             # firmware update
-            firmware = Firmware(
-                self.standby_slot_mount_point
-                / Path(cfg.FIRMWARE_CONFIG).relative_to("/")
-            )
+            firmware = Firmware(Path(boot_cfg.FIRMWARE_CFG_STANDBY_FPATH))
             firmware.update(int(self._cboot_control.get_standby_slot()))
 
             # update extlinux_cfg file
-            _extlinux_cfg = self.standby_slot_mount_point / Path(
-                cfg.EXTLINUX_FILE
-            ).relative_to("/")
+            _extlinux_cfg = Path(boot_cfg.STANDBY_EXTLINUX_FPATH)
             self._cboot_control.update_extlinux_cfg(
                 dst=_extlinux_cfg,
                 ref=_extlinux_cfg,

@@ -17,12 +17,12 @@ import asyncio
 import pytest
 import pytest_mock
 
-from otaclient.app.configs import server_cfg
 from otaclient.app.ecu_info import ECUInfo
 from otaclient.app.ota_client_service import create_otaclient_grpc_server
 from otaclient.app.ota_client_call import OtaClientCall
 from otaclient.app.proto import wrapper
-from tests.conftest import cfg
+from otaclient.configs.ota_service_cfg import OTAServiceConfig
+from tests.conftest import test_cfg
 from tests.utils import compare_message
 
 
@@ -62,13 +62,14 @@ class _MockedOTAClientServiceStub:
 class Test_ota_client_service:
     MY_ECU_ID = _MockedOTAClientServiceStub.MY_ECU_ID
     LISTEN_ADDR = "127.0.0.1"
-    LISTEN_PORT = server_cfg.SERVER_PORT
 
     @pytest.fixture(autouse=True)
     def setup_test(self, mocker: pytest_mock.MockerFixture):
+        self.otaclient_cfg = OTAServiceConfig()
+
         self.otaclient_service_stub = _MockedOTAClientServiceStub()
         mocker.patch(
-            f"{cfg.OTACLIENT_SERVICE_MODULE_PATH}.OTAClientServiceStub",
+            f"{test_cfg.OTACLIENT_SERVICE_MODULE_PATH}.OTAClientServiceStub",
             return_value=self.otaclient_service_stub,
         )
 
@@ -78,7 +79,7 @@ class Test_ota_client_service:
             ecu_id=self.otaclient_service_stub.MY_ECU_ID,
             ip_addr=self.LISTEN_ADDR,
         )
-        mocker.patch(f"{cfg.OTACLIENT_SERVICE_MODULE_PATH}.ECUInfo", ecu_info_mock)
+        mocker.patch(f"{test_cfg.OTACLIENT_SERVICE_MODULE_PATH}.ECUInfo", ecu_info_mock)
 
     @pytest.fixture(autouse=True)
     async def launch_otaclient_server(self, setup_test):
@@ -95,7 +96,7 @@ class Test_ota_client_service:
         update_resp = await OtaClientCall.update_call(
             ecu_id=self.MY_ECU_ID,
             ecu_ipaddr=self.LISTEN_ADDR,
-            ecu_port=self.LISTEN_PORT,
+            ecu_port=self.otaclient_cfg.SERVER_PORT,
             request=wrapper.UpdateRequest(),
         )
         compare_message(update_resp, self.otaclient_service_stub.UPDATE_RESP)
@@ -104,7 +105,7 @@ class Test_ota_client_service:
         rollback_resp = await OtaClientCall.rollback_call(
             ecu_id=self.MY_ECU_ID,
             ecu_ipaddr=self.LISTEN_ADDR,
-            ecu_port=self.LISTEN_PORT,
+            ecu_port=self.otaclient_cfg.SERVER_PORT,
             request=wrapper.RollbackRequest(),
         )
         compare_message(rollback_resp, self.otaclient_service_stub.ROLLBACK_RESP)
@@ -113,7 +114,7 @@ class Test_ota_client_service:
         status_resp = await OtaClientCall.status_call(
             ecu_id=self.MY_ECU_ID,
             ecu_ipaddr=self.LISTEN_ADDR,
-            ecu_port=self.LISTEN_PORT,
+            ecu_port=self.otaclient_cfg.SERVER_PORT,
             request=wrapper.StatusRequest(),
         )
         compare_message(status_resp, self.otaclient_service_stub.STATUS_RESP)

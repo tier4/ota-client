@@ -11,9 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
 r"""Common used helpers, classes and functions for different bank creating methods."""
+
+
+from __future__ import annotations
 import os
 import random
 import time
@@ -50,9 +51,7 @@ from ..update_stats import (
     RegInfProcessedStats,
 )
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 class _WeakRef:
@@ -101,8 +100,10 @@ class _HardlinkTracker:
 class HardlinkRegister:
     def __init__(self):
         self._lock = Lock()
-        self._hash_ref_dict: Dict[str, _WeakRef] = WeakValueDictionary()  # type: ignore
-        self._ref_tracker_dict: Dict[_WeakRef, _HardlinkTracker] = WeakKeyDictionary()  # type: ignore
+        self._hash_ref_dict: WeakValueDictionary[str, _WeakRef] = WeakValueDictionary()
+        self._ref_tracker_dict: WeakKeyDictionary[
+            _WeakRef, _HardlinkTracker
+        ] = WeakKeyDictionary()
 
     def get_tracker(
         self, _identifier: Any, path: str, nlink: int

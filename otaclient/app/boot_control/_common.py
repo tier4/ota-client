@@ -21,6 +21,7 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import List, Optional, Union, Callable
 
+from otaclient._utils.path import replace_root
 from ._errors import (
     BootControlError,
     MountError,
@@ -39,9 +40,7 @@ from ..common import (
 from ..proto import wrapper
 
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 class CMDHelperFuncs:
@@ -798,9 +797,7 @@ class SlotMountHelper:
         # NOTE(20230907): this will always be <standby_slot_mp>/boot,
         #                 in the future this attribute will not be used by
         #                 standby slot creater.
-        self.standby_boot_dir = self.standby_slot_mount_point / Path(
-            cfg.BOOT_DIR
-        ).relative_to("/")
+        self.standby_boot_dir = self.standby_slot_mount_point / "boot"
 
     def mount_standby(self, *, raise_exc: bool = True) -> bool:
         """Mount standby slot dev to <standby_slot_mount_point>.
@@ -861,12 +858,15 @@ class SlotMountHelper:
         so we should preserve it for each slot, accross each update.
         """
         logger.debug("copy /boot/ota from active to standby.")
+
+        _src = Path(cfg.BOOT_OTA_DPATH)
+        _dst = Path(
+            replace_root(cfg.BOOT_OTA_DPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP)
+        )
         try:
-            _src = self.active_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
-            _dst = self.standby_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
             shutil.copytree(_src, _dst, dirs_exist_ok=True)
         except Exception as e:
-            raise ValueError(f"failed to copy /boot/ota from active to standby: {e!r}")
+            raise ValueError(f"failed to copy {_src=} to {_dst=}: {e!r}")
 
     def umount_all(self, *, ignore_error: bool = False):
         logger.debug("unmount standby slot and active slot mount point...")

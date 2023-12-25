@@ -25,11 +25,8 @@ from pathlib import Path
 
 from . import log_setting
 from .configs import config as cfg
-from .configs import server_cfg
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 PRE_DEFINED_PROXY_INFO_YAML = """
@@ -61,8 +58,8 @@ class ProxyInfo:
     gateway: bool = False
     upper_ota_proxy: str = ""
     enable_local_ota_proxy: bool = False
-    local_ota_proxy_listen_addr: str = server_cfg.OTA_PROXY_LISTEN_ADDRESS
-    local_ota_proxy_listen_port: int = server_cfg.OTA_PROXY_LISTEN_PORT
+    local_ota_proxy_listen_addr: str = str(cfg.OTA_PROXY_LISTEN_ADDRESS)
+    local_ota_proxy_listen_port: int = cfg.OTA_PROXY_LISTEN_PORT
     # NOTE: this field not presented in v2.5.4,
     #       for current implementation, it should be default to True.
     #       This field doesn't take effect if enable_local_ota_proxy is False
@@ -87,7 +84,7 @@ class ProxyInfo:
             return ""
 
 
-def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FILE) -> ProxyInfo:
+def parse_proxy_info(proxy_info_file: str = cfg.PROXY_INFO_FPATH) -> ProxyInfo:
     _loaded: Dict[str, Any]
     try:
         _loaded = yaml.safe_load(Path(proxy_info_file).read_text())

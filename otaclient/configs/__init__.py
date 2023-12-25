@@ -11,29 +11,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
-from __future__ import annotations
-import os.path
-from functools import cached_property
-from pydantic import computed_field
-from typing import Any, Callable, TypeVar
-
-T = TypeVar("T")
-
-_CONTAINER_INDICATOR_FILES = [
-    "/.dockerenv",
-    "/run/.dockerenv",
-    "/run/.containerenv",
-]
-
-
-def if_run_as_container() -> bool:
-    for indicator in _CONTAINER_INDICATOR_FILES:
-        if os.path.isfile(indicator):
-            return True
-    return False
-
-
-def cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
-    return computed_field(cached_property(_f))
+"""otaclient configs package."""

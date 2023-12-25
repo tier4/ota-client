@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
 import gc
 import json
@@ -33,7 +34,7 @@ from .common import (
     RetryTaskMap,
     RetryTaskMapInterrupted,
 )
-from .configs import config as cfg
+from .configs import config as cfg, debug_flags
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .ecu_info import ECUInfo
 from .interface import OTAClientProtocol
@@ -51,9 +52,7 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = log_setting.get_logger(__name__)
 
 
 class OTAClientControlFlags:
@@ -119,12 +118,8 @@ class _OTAUpdater:
         self._update_stats_collector = OTAUpdateStatsCollector()
 
         # paths
-        self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_STORE
-        ).relative_to("/")
-        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_META_STORE
-        ).relative_to("/")
+        self._ota_tmp_on_standby = Path(cfg.STANDBY_OTA_TMP_DPATH)
+        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.STANDBY_IMAGE_META_DPATH)
 
     # helper methods
 
@@ -211,6 +206,7 @@ class _OTAUpdater:
         """Apply OTA update to standby slot."""
         # ------ pre_update ------ #
         # --- prepare standby slot --- #
+
         # NOTE: erase standby slot or not based on the used StandbySlotCreator
         logger.debug("boot controller prepares standby slot...")
         self._boot_controller.pre_update(
@@ -218,9 +214,10 @@ class _OTAUpdater:
             standby_as_ref=False,  # NOTE: this option is deprecated and not used by bootcontroller
             erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
+
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
-        self._ota_tmp_on_standby.mkdir(exist_ok=True)
-        self._ota_tmp_image_meta_dir_on_standby.mkdir(exist_ok=True)
+        self._ota_tmp_on_standby.mkdir(parents=True, exist_ok=True)
+        self._ota_tmp_image_meta_dir_on_standby.mkdir(parents=True, exist_ok=True)
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
@@ -228,8 +225,8 @@ class _OTAUpdater:
         self._standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
-            standby_slot_mount_point=cfg.MOUNT_POINT,
-            active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+            standby_slot_mount_point=cfg.STANDBY_SLOT_MP,
+            active_slot_mount_point=cfg.ACTIVE_SLOT_MP,
             stats_collector=self._update_stats_collector,
         )
         try:
@@ -531,7 +528,10 @@ class OTAClient(OTAClientProtocol):
         try:
             self.last_failure_type = exc.failure_type
             self.last_failure_reason = exc.get_failure_reason()
-            if cfg.DEBUG_MODE:
+            if (
+                debug_flags.DEBUG_MODE
+                or debug_flags.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API
+            ):
                 self.last_failure_traceback = exc.get_failure_traceback()
 
             logger.error(
@@ -668,7 +668,10 @@ class OTAServicer:
                 failure_reason=e.get_failure_reason(),
             )
 
-            if cfg.DEBUG_MODE:
+            if (
+                debug_flags.DEBUG_MODE
+                or debug_flags.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API
+            ):
                 self._otaclient_startup_failed_status.failure_traceback = (
                     e.get_failure_traceback()
                 )
@@ -695,7 +698,10 @@ class OTAServicer:
                 failure_reason=e.get_failure_reason(),
             )
 
-            if cfg.DEBUG_MODE:
+            if (
+                debug_flags.DEBUG_MODE
+                or debug_flags.DEBUG_ENABLE_TRACEBACK_IN_STATUS_API
+            ):
                 self._otaclient_startup_failed_status.failure_traceback = (
                     e.get_failure_traceback()
                 )

@@ -47,6 +47,8 @@ class TestConfiguration:
 
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
+    OTA_IMAGE_DATA_DIR = "/ota-image/data"
+    METADATA_JWT_FNAME = "metadata.jwt"
     OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
     OTA_IMAGE_SERVER_PORT = 8080
     OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
@@ -92,28 +94,28 @@ class TestConfiguration:
     OTA_PROXY_SERVER_PORT = 18080
 
 
-cfg = TestConfiguration()
+test_cfg = TestConfiguration()
 
 
 @pytest.fixture(autouse=True, scope="session")
 def run_http_server_subprocess():
     _server_p = Process(
         target=run_http_server,
-        args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
-        kwargs={"directory": cfg.OTA_IMAGE_DIR},
+        args=[test_cfg.OTA_IMAGE_SERVER_ADDR, test_cfg.OTA_IMAGE_SERVER_PORT],
+        kwargs={"directory": test_cfg.OTA_IMAGE_DIR},
     )
     try:
         _server_p.start()
         # NOTE: wait for 2 seconds for the server to fully start
         time.sleep(2)
-        logger.info(f"start background ota-image server on {cfg.OTA_IMAGE_URL}")
+        logger.info(f"start background ota-image server on {test_cfg.OTA_IMAGE_URL}")
         yield
     finally:
         logger.info("shutdown background ota-image server")
         _server_p.kill()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="class")
 def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     """Prepare AB slots for the whole test session.
 
@@ -129,16 +131,17 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     Return:
         A tuple includes the path to A/B slots respectly.
     """
-    # prepare slot_a
+    #
+    # ------ prepare slot_a ------ #
+    #
     slot_a = tmp_path_factory.mktemp("slot_a")
     shutil.copytree(
-        Path(cfg.OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
+        Path(test_cfg.OTA_IMAGE_DIR) / "data", slot_a, dirs_exist_ok=True, symlinks=True
     )
-    # simulate the diff between versions
+    # simulate the diff between local running image and target OTA image
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
     shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
-    # boot dir is a separated folder, so delete the boot folder under slot_a
-    # shutil.rmtree(slot_a / "boot", ignore_errors=True)
+
     # manually create symlink to kernel and initrd.img
     vmlinuz_symlink = slot_a / "boot" / TestConfiguration.KERNEL_PREFIX
     vmlinuz_symlink.symlink_to(
@@ -149,19 +152,17 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
         f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
     )
 
-    # prepare slot_b
+    #
+    # ------ prepare slot_b ------ #
+    #
     slot_b = tmp_path_factory.mktemp("slot_b")
 
-    # boot dev
+    #
+    # ------ prepare separated boot dev ------ #
+    #
     slot_a_boot_dev = tmp_path_factory.mktemp("slot_a_boot")
-    slot_a_boot_dir = slot_a_boot_dev / "boot"
-    slot_a_boot_dir.mkdir()
-    shutil.copytree(
-        Path(cfg.OTA_IMAGE_DIR) / "data/boot", slot_a_boot_dir, dirs_exist_ok=True
-    )
     slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
-    slot_b_boot_dir = slot_b_boot_dev / "boot"
-    slot_b_boot_dir.mkdir()
+
     return SlotMeta(
         slot_a=str(slot_a),
         slot_b=str(slot_b),
