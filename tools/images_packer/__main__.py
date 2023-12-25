@@ -54,11 +54,6 @@ logger = logging.getLogger(__name__)
 
 
 def main_build_offline_ota_image_bundle(args: argparse.Namespace):
-    # ------ args check ------ #
-    if not (args.output or args.write_to):
-        print("ERR: at least one export option should be specified")
-        sys.exit(errno.EINVAL)
-
     # ------ parse input image options ------ #
     image_metas = []
     image_files = {}
@@ -76,6 +71,52 @@ def main_build_offline_ota_image_bundle(args: argparse.Namespace):
             image_files[_ecu_id] = _image_fpath
         else:
             logger.warning(f"ignore illegal image pair: {raw_pair}")
+
+    if not image_metas:
+        print("ERR: at least one valid image should be given, abort")
+        sys.exit(errno.EINVAL)
+
+    # ------ build image ------ #
+    with tempfile.TemporaryDirectory(prefix="offline_OTA_image_builder") as workdir:
+        build(
+            image_metas,
+            image_files,
+            workdir=workdir,
+            output=args.output,
+        )
+
+
+def main_build_external_cache_src(args: argparse.Namespace):
+    # ------ args check ------ #
+    if not (args.output or args.write_to):
+        logger.error("ERR: at least one export option should be specified")
+        sys.exit(errno.EINVAL)
+
+    # ------ parse args ------ #
+    image_metas: list[ImageMetadata] = []
+    image_files: dict[str, Path] = {}
+    count = 0
+
+    # retrieves images from --image arg
+    for _image_fpath in args.image:
+        count_str = str(count)
+        image_metas.append(ImageMetadata(ecu_id=count_str))
+        image_files[count_str] = _image_fpath
+        count += 1
+
+    # retrieves images from --image-dir arg
+    _image_store_dpath = Path(args.image_dir)
+    if not _image_store_dpath.is_dir():
+        logger.error(
+            f"ERR: specified <IMAGE_FILES_DIR>={_image_store_dpath} doesn't exist, abort"
+        )
+        sys.exit(errno.EINVAL)
+
+    for _image_fpath in _image_store_dpath.glob("*"):
+        count_str = str(count)
+        image_metas.append(ImageMetadata(ecu_id=count_str))
+        image_files[count_str] = _image_fpath
+        count += 1
 
     if not image_metas:
         print("ERR: at least one valid image should be given, abort")
@@ -109,12 +150,7 @@ def main_build_offline_ota_image_bundle(args: argparse.Namespace):
             image_files,
             workdir=workdir,
             output=output_fpath,
-            write_to_dev=write_to_dev,
         )
-
-
-def main_build_external_cache_src(args: argparse.Namespace):
-    pass
 
 
 #

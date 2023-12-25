@@ -174,7 +174,7 @@ def build(
     *,
     workdir: StrPath,
     output: Optional[StrPath],
-    write_to_dev: Optional[StrPath],
+    write_to_dev: Optional[StrPath] = None,
 ):
     _start_time = time.time()
     logger.info(f"job started at {int(_start_time)}")
