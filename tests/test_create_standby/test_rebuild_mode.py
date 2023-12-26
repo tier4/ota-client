@@ -64,6 +64,9 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
 
         # ------ prepare otaclient run dir ------ #
         Path(_otaclient_cfg.RUN_DPATH).mkdir(exist_ok=True, parents=True)
+        (
+            Path(_otaclient_cfg.RUN_DPATH) / _otaclient_cfg.OTACLIENT_RUNTIME_TMP_DNAME
+        ).mkdir(exist_ok=True, parents=True)
 
         #
         # ------ prepare mount space ------ #
