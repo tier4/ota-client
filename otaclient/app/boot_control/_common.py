@@ -422,7 +422,7 @@ def prepare_standby_slot_dev_ext4(
     # try umount the dev if it is mounted somewhere
     if is_target_mounted(standby_slot_dev, raise_exception=False):
         try:
-            umount_target(standby_slot_dev, recursive=True, raise_exception=True)
+            umount_target(standby_slot_dev, raise_exception=True)
         except SubProcessCalledFailed:
             logger.warning(f"{standby_slot_dev} is mounted and failed to umount it")
 
