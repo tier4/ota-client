@@ -46,8 +46,8 @@ from otaclient._utils.typing import StrOrPath
 from otaclient._utils.unix import (
     ParsedPasswd,
     ParsedGroup,
-    map_gid_by_grpnam,
-    map_uid_by_pwnam,
+    map_gid_by_grpnam as _utils_map_gid_by_grpnam,
+    map_uid_by_pwnam as _utils_map_uid_by_pwnam,
 )
 from ..common import create_tmp_fname
 from ..configs import config as cfg
@@ -513,20 +513,38 @@ class PersistFilesHandler:
     ):
         self._uid_mapper = functools.lru_cache()(
             functools.partial(
-                map_uid_by_pwnam,
+                self.map_uid_by_pwnam,
                 src_db=ParsedPasswd(src_passwd_file),
                 dst_db=ParsedPasswd(dst_passwd_file),
             )
         )
         self._gid_mapper = functools.lru_cache()(
             functools.partial(
-                map_gid_by_grpnam,
+                self.map_gid_by_grpnam,
                 src_db=ParsedGroup(src_group_file),
                 dst_db=ParsedGroup(dst_group_file),
             )
         )
         self._src_root = Path(src_root)
         self._dst_root = Path(dst_root)
+
+    @staticmethod
+    def map_uid_by_pwnam(
+        *, src_db: ParsedPasswd, dst_db: ParsedPasswd, uid: int
+    ) -> int:
+        _mapped_uid = _utils_map_uid_by_pwnam(src_db=src_db, dst_db=dst_db, uid=uid)
+        _usern = src_db._by_uid[uid]
+
+        logger.info(f"{_usern=}: mapping src_{uid=} to {_mapped_uid}")
+        return _mapped_uid
+
+    @staticmethod
+    def map_gid_by_grpnam(*, src_db: ParsedGroup, dst_db: ParsedGroup, gid: int) -> int:
+        _mapped_gid = _utils_map_gid_by_grpnam(src_db=src_db, dst_db=dst_db, gid=gid)
+        _groupn = src_db._by_gid[gid]
+
+        logger.info(f"{_groupn=}: mapping src_{gid=} to {_mapped_gid=}")
+        return _mapped_gid
 
     def _chown_with_mapping(
         self, _src_stat: os.stat_result, _dst_path: StrOrPath
