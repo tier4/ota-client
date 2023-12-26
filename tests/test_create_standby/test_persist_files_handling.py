@@ -331,7 +331,7 @@ def test_copy_tree_src_dir(mocker, tmp_path):
         dst_group_file=dst_group_file,
         src_root=src,
         dst_root=dst,
-    ).preserve_persist_entry(persist_entry, skip_invalid=False)
+    ).preserve_persist_entry(persist_entry)
 
     # src/A
     assert (dst / A.relative_to(src)).is_dir()
@@ -512,15 +512,13 @@ def test_copy_tree_B_exists(mocker, tmp_path):
     assert (dst / A.relative_to(src)).is_dir()
     assert not (dst / A.relative_to(src)).is_symlink()
     # 'A' is created by this function before hand
-    # NOTE(20231222): if src dir exists in the dest, we should
-    #                 remove the dst and preserve src to dest.
-    assert_uid_gid_mode(dst / A.relative_to(src), 18, 29, 0o115)
+    assert_uid_gid_mode(dst / A.relative_to(src), 0, 1, 0o765)
 
     # src/A/B
     assert (dst / B.relative_to(src)).is_dir()
     assert not (dst / B.relative_to(src)).is_symlink()
     # 'B' is created by this function before hand
-    assert_uid_gid_mode(dst / B.relative_to(src), 141, 265534, 0o122)
+    assert_uid_gid_mode(dst / B.relative_to(src), 1, 2, 0o654)
 
     # src/A/B/C/
     assert (dst / C.relative_to(src)).is_dir()
