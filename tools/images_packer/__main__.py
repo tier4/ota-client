@@ -70,12 +70,14 @@ def main_build_offline_ota_image_bundle(args: argparse.Namespace):
                 )
             )
             if _ecu_id in image_files:
-                logger.warning(
+                logger.error(
                     (
-                        f"override previously set OTA target image for ECU@{_ecu_id} "
-                        f"from {image_files[_ecu_id]} to {_image_fpath}"
+                        f"ERR: OTA target image for ECU@{_ecu_id} is already set to"
+                        f"from {image_files[_ecu_id]}, please check the params"
                     )
                 )
+                sys.exit(errno.EINVAL)
+
             image_files[_ecu_id] = _image_fpath
         else:
             logger.warning(f"ignore illegal image pair: {raw_pair}")
