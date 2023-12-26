@@ -23,7 +23,7 @@ if [ $# -ne 2 ]; then
   exit 1
 fi
 
-IMAGE=$1
+IMAGE=$(realpath $1)
 DEVICE=$2
 
 UUID=$(lsblk ${DEVICE} -n -o UUID || true)
