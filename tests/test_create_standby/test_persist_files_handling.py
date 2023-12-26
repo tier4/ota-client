@@ -13,13 +13,20 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import os
 import stat
-import pytest
 from pathlib import Path
+
+from otaclient._utils.path import replace_root
+from otaclient.app.create_standby.common import PersistFilesHandler
 
 
 def create_files(tmp_path: Path):
+    """
+    20231222: this function create <src> and <dst> folders as preserved src rootfs and save destination rootfs.
+    """
+
     dst = tmp_path / "dst"
     dst.mkdir()
 
@@ -291,8 +298,6 @@ crontab:x:2105:
 
 
 def test_copy_tree_src_dir(mocker, tmp_path):
-    from otaclient.app.copy_tree import CopyTree
-
     (
         dst,
         src,
@@ -317,65 +322,70 @@ def test_copy_tree_src_dir(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    CopyTree(
-        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_with_parents(B, dst)
+    # NOTE: persist entry must be canonical and starts with /
+    persist_entry = replace_root(B, src, "/")
+    PersistFilesHandler(
+        src_passwd_file=src_passwd_file,
+        src_group_file=src_group_file,
+        dst_passwd_file=dst_passwd_file,
+        dst_group_file=dst_group_file,
+        src_root=src,
+        dst_root=dst,
+    ).preserve_persist_entry(persist_entry)
 
     # src/A
-    assert (dst / A.relative_to("/")).is_dir()
-    assert not (dst / A.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / A.relative_to("/"), 18, 29, 0o115)
+    assert (dst / A.relative_to(src)).is_dir()
+    assert not (dst / A.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / A.relative_to(src), 18, 29, 0o115)
 
     # src/A/B/
-    assert (dst / B.relative_to("/")).is_dir()
-    assert not (dst / B.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / B.relative_to("/"), 141, 265534, 0o122)
+    assert (dst / B.relative_to(src)).is_dir()
+    assert not (dst / B.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / B.relative_to(src), 141, 265534, 0o122)
 
     # src/A/B/c
-    assert (dst / c.relative_to("/")).is_file()
-    assert not (dst / c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / c.relative_to("/"), 1100, 2102, 0o123)
+    assert (dst / c.relative_to(src)).is_file()
+    assert not (dst / c.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / c.relative_to(src), 1100, 2102, 0o123)
 
     # src/A/B/to_c
-    assert (dst / to_c.relative_to("/")).is_file()
-    assert (dst / to_c.relative_to("/")).is_symlink()
+    assert (dst / to_c.relative_to(src)).is_file()
+    assert (dst / to_c.relative_to(src)).is_symlink()
     # uid, gid can't be converted so original uid, gid is used.
-    assert_uid_gid_mode(dst / to_c.relative_to("/"), 12345678, 87654321, 0o777)
+    assert_uid_gid_mode(dst / to_c.relative_to(src), 12345678, 87654321, 0o777)
 
     # src/A/B/to_broken_c
-    assert not (dst / to_broken_c.relative_to("/")).is_file()
-    assert (dst / to_broken_c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / to_broken_c.relative_to("/"), 1104, 2104, 0o777)
+    assert not (dst / to_broken_c.relative_to(src)).is_file()
+    assert (dst / to_broken_c.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / to_broken_c.relative_to(src), 1104, 2104, 0o777)
 
     # src/A/B/C/
-    assert (dst / C.relative_to("/")).is_dir()
-    assert not (dst / C.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / C.relative_to("/"), 1105, 2105, 0o126)
+    assert (dst / C.relative_to(src)).is_dir()
+    assert not (dst / C.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / C.relative_to(src), 1105, 2105, 0o126)
 
     # followings should not exist
     # src/a
-    assert not (dst / a.relative_to("/")).exists()
-    assert not (dst / a.relative_to("/")).is_symlink()
+    assert not (dst / a.relative_to(src)).exists()
+    assert not (dst / a.relative_to(src)).is_symlink()
     # src/to_a
-    assert not (dst / to_a.relative_to("/")).exists()
-    assert not (dst / to_a.relative_to("/")).is_symlink()
+    assert not (dst / to_a.relative_to(src)).exists()
+    assert not (dst / to_a.relative_to(src)).is_symlink()
     # src/to_broken_a
-    assert not (dst / to_broken_a.relative_to("/")).exists()
-    assert not (dst / to_broken_a.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_a.relative_to(src)).exists()
+    assert not (dst / to_broken_a.relative_to(src)).is_symlink()
     # src/A/b
-    assert not (dst / b.relative_to("/")).exists()
-    assert not (dst / b.relative_to("/")).is_symlink()
+    assert not (dst / b.relative_to(src)).exists()
+    assert not (dst / b.relative_to(src)).is_symlink()
     # src/A/to_b
-    assert not (dst / to_b.relative_to("/")).exists()
-    assert not (dst / to_b.relative_to("/")).is_symlink()
+    assert not (dst / to_b.relative_to(src)).exists()
+    assert not (dst / to_b.relative_to(src)).is_symlink()
     # src/A/to_broken_b
-    assert not (dst / to_broken_b.relative_to("/")).exists()
-    assert not (dst / to_broken_b.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_b.relative_to(src)).exists()
+    assert not (dst / to_broken_b.relative_to(src)).is_symlink()
 
 
 def test_copy_tree_src_file(mocker, tmp_path):
-    from otaclient.app.copy_tree import CopyTree
-
     (
         dst,
         src,
@@ -400,56 +410,59 @@ def test_copy_tree_src_file(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    CopyTree(
-        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_with_parents(to_b, dst)
+    PersistFilesHandler(
+        src_passwd_file=src_passwd_file,
+        src_group_file=src_group_file,
+        dst_passwd_file=dst_passwd_file,
+        dst_group_file=dst_group_file,
+        src_root=src,
+        dst_root=dst,
+    ).preserve_persist_entry(replace_root(to_b, src, "/"))
 
     # src/A
-    assert (dst / A.relative_to("/")).is_dir()
-    assert not (dst / A.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / A.relative_to("/"), 18, 29, 0o115)
+    assert (dst / A.relative_to(src)).is_dir()
+    assert not (dst / A.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / A.relative_to(src), 18, 29, 0o115)
 
     # src/A/to_b (src/A/b is not copied, so to_b.is_file() is False)
-    assert not (dst / to_b.relative_to("/")).is_file()
-    assert (dst / to_b.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / to_b.relative_to("/"), 133, 234, 0o777)
+    assert not (dst / to_b.relative_to(src)).is_file()
+    assert (dst / to_b.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / to_b.relative_to(src), 133, 234, 0o777)
 
     # followings should not exist
     # src/a
-    assert not (dst / a.relative_to("/")).exists()
-    assert not (dst / a.relative_to("/")).is_symlink()
+    assert not (dst / a.relative_to(src)).exists()
+    assert not (dst / a.relative_to(src)).is_symlink()
     # src/to_a
-    assert not (dst / to_a.relative_to("/")).exists()
-    assert not (dst / to_a.relative_to("/")).is_symlink()
+    assert not (dst / to_a.relative_to(src)).exists()
+    assert not (dst / to_a.relative_to(src)).is_symlink()
     # src/to_broken_a
-    assert not (dst / to_broken_a.relative_to("/")).exists()
-    assert not (dst / to_broken_a.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_a.relative_to(src)).exists()
+    assert not (dst / to_broken_a.relative_to(src)).is_symlink()
     # src/A/b
-    assert not (dst / b.relative_to("/")).exists()
-    assert not (dst / b.relative_to("/")).is_symlink()
+    assert not (dst / b.relative_to(src)).exists()
+    assert not (dst / b.relative_to(src)).is_symlink()
     # src/A/to_broken_b
-    assert not (dst / to_broken_b.relative_to("/")).exists()
-    assert not (dst / to_broken_b.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_b.relative_to(src)).exists()
+    assert not (dst / to_broken_b.relative_to(src)).is_symlink()
     # src/A/B
-    assert not (dst / B.relative_to("/")).exists()
-    assert not (dst / B.relative_to("/")).is_symlink()
+    assert not (dst / B.relative_to(src)).exists()
+    assert not (dst / B.relative_to(src)).is_symlink()
     # src/A/B/c
-    assert not (dst / c.relative_to("/")).exists()
-    assert not (dst / c.relative_to("/")).is_symlink()
+    assert not (dst / c.relative_to(src)).exists()
+    assert not (dst / c.relative_to(src)).is_symlink()
     # src/A/B/to_c
-    assert not (dst / to_c.relative_to("/")).exists()
-    assert not (dst / to_c.relative_to("/")).is_symlink()
+    assert not (dst / to_c.relative_to(src)).exists()
+    assert not (dst / to_c.relative_to(src)).is_symlink()
     # src/A/B/to_broken_c
-    assert not (dst / to_broken_c.relative_to("/")).exists()
-    assert not (dst / to_broken_c.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_c.relative_to(src)).exists()
+    assert not (dst / to_broken_c.relative_to(src)).is_symlink()
     # src/A/B/C/
-    assert not (dst / C.relative_to("/")).exists()
-    assert not (dst / C.relative_to("/")).is_symlink()
+    assert not (dst / C.relative_to(src)).exists()
+    assert not (dst / C.relative_to(src)).is_symlink()
 
 
 def test_copy_tree_B_exists(mocker, tmp_path):
-    from otaclient.app.copy_tree import CopyTree
-
     (
         dst,
         src,
@@ -467,7 +480,7 @@ def test_copy_tree_B_exists(mocker, tmp_path):
         C,
     ) = create_files(tmp_path)
 
-    dst_A = dst / tmp_path.relative_to("/") / "src" / "A"
+    dst_A = dst / "A"
     dst_A.mkdir(parents=True)
     print(f"dst_A {dst_A}")
     dst_B = dst_A / "B"
@@ -486,60 +499,63 @@ def test_copy_tree_B_exists(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    CopyTree(
-        src_passwd_file, src_group_file, dst_passwd_file, dst_group_file
-    ).copy_with_parents(C, dst)
+    PersistFilesHandler(
+        src_passwd_file=src_passwd_file,
+        src_group_file=src_group_file,
+        dst_passwd_file=dst_passwd_file,
+        dst_group_file=dst_group_file,
+        src_root=src,
+        dst_root=dst,
+    ).preserve_persist_entry(replace_root(C, src, "/"))
 
     # src/A
-    assert (dst / A.relative_to("/")).is_dir()
-    assert not (dst / A.relative_to("/")).is_symlink()
+    assert (dst / A.relative_to(src)).is_dir()
+    assert not (dst / A.relative_to(src)).is_symlink()
     # 'A' is created by this function before hand
-    assert_uid_gid_mode(dst / A.relative_to("/"), 0, 1, 0o765)
+    assert_uid_gid_mode(dst / A.relative_to(src), 0, 1, 0o765)
 
     # src/A/B
-    assert (dst / B.relative_to("/")).is_dir()
-    assert not (dst / B.relative_to("/")).is_symlink()
+    assert (dst / B.relative_to(src)).is_dir()
+    assert not (dst / B.relative_to(src)).is_symlink()
     # 'B' is created by this function before hand
-    assert_uid_gid_mode(dst / B.relative_to("/"), 1, 2, 0o654)
+    assert_uid_gid_mode(dst / B.relative_to(src), 1, 2, 0o654)
 
     # src/A/B/C/
-    assert (dst / C.relative_to("/")).is_dir()
-    assert not (dst / C.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / C.relative_to("/"), 1105, 2105, 0o126)
+    assert (dst / C.relative_to(src)).is_dir()
+    assert not (dst / C.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / C.relative_to(src), 1105, 2105, 0o126)
 
     # followings should not exist
     # src/a
-    assert not (dst / a.relative_to("/")).exists()
-    assert not (dst / a.relative_to("/")).is_symlink()
+    assert not (dst / a.relative_to(src)).exists()
+    assert not (dst / a.relative_to(src)).is_symlink()
     # src/to_a
-    assert not (dst / to_a.relative_to("/")).exists()
-    assert not (dst / to_a.relative_to("/")).is_symlink()
+    assert not (dst / to_a.relative_to(src)).exists()
+    assert not (dst / to_a.relative_to(src)).is_symlink()
     # src/to_broken_a
-    assert not (dst / to_broken_a.relative_to("/")).exists()
-    assert not (dst / to_broken_a.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_a.relative_to(src)).exists()
+    assert not (dst / to_broken_a.relative_to(src)).is_symlink()
     # src/A/b
-    assert not (dst / b.relative_to("/")).exists()
-    assert not (dst / b.relative_to("/")).is_symlink()
+    assert not (dst / b.relative_to(src)).exists()
+    assert not (dst / b.relative_to(src)).is_symlink()
     # src/A/to_b (src/A/b is not copied, so to_b.is_file() is False)
-    assert not (dst / to_b.relative_to("/")).exists()
-    assert not (dst / to_b.relative_to("/")).is_symlink()
+    assert not (dst / to_b.relative_to(src)).exists()
+    assert not (dst / to_b.relative_to(src)).is_symlink()
     # src/A/to_broken_b
-    assert not (dst / to_broken_b.relative_to("/")).exists()
-    assert not (dst / to_broken_b.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_b.relative_to(src)).exists()
+    assert not (dst / to_broken_b.relative_to(src)).is_symlink()
     # src/A/B/c
-    assert not (dst / c.relative_to("/")).exists()
-    assert not (dst / c.relative_to("/")).is_symlink()
+    assert not (dst / c.relative_to(src)).exists()
+    assert not (dst / c.relative_to(src)).is_symlink()
     # src/A/B/to_c
-    assert not (dst / to_c.relative_to("/")).exists()
-    assert not (dst / to_c.relative_to("/")).is_symlink()
+    assert not (dst / to_c.relative_to(src)).exists()
+    assert not (dst / to_c.relative_to(src)).is_symlink()
     # src/A/B/to_broken_c
-    assert not (dst / to_broken_c.relative_to("/")).exists()
-    assert not (dst / to_broken_c.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_c.relative_to(src)).exists()
+    assert not (dst / to_broken_c.relative_to(src)).is_symlink()
 
 
 def test_copy_tree_with_symlink_overwrite(mocker, tmp_path):
-    from otaclient.app.copy_tree import CopyTree
-
     (
         dst,
         src,
@@ -564,31 +580,36 @@ def test_copy_tree_with_symlink_overwrite(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    ct = CopyTree(src_passwd_file, src_group_file, dst_passwd_file, dst_group_file)
+    ct = PersistFilesHandler(
+        src_passwd_file=src_passwd_file,
+        src_group_file=src_group_file,
+        dst_passwd_file=dst_passwd_file,
+        dst_group_file=dst_group_file,
+        src_root=src,
+        dst_root=dst,
+    )
 
-    ct.copy_with_parents(to_a, dst)
-    ct.copy_with_parents(to_broken_a, dst)
+    ct.preserve_persist_entry(replace_root(to_a, src, "/"))
+    ct.preserve_persist_entry(replace_root(to_broken_a, src, "/"))
 
     # followings should exist
     # src/to_a
-    assert (dst / to_a.relative_to("/")).is_symlink()
+    assert (dst / to_a.relative_to(src)).is_symlink()
     # src/to_broken_a
-    assert (dst / to_broken_a.relative_to("/")).is_symlink()
+    assert (dst / to_broken_a.relative_to(src)).is_symlink()
 
     # overwrite symlinks
-    ct.copy_with_parents(to_a, dst)
-    ct.copy_with_parents(to_broken_a, dst)
+    ct.preserve_persist_entry(replace_root(to_a, src, "/"))
+    ct.preserve_persist_entry(replace_root(to_broken_a, src, "/"))
 
     # followings should exist
     # src/to_a
-    assert (dst / to_a.relative_to("/")).is_symlink()
+    assert (dst / to_a.relative_to(src)).is_symlink()
     # src/to_broken_a
-    assert (dst / to_broken_a.relative_to("/")).is_symlink()
+    assert (dst / to_broken_a.relative_to(src)).is_symlink()
 
 
 def test_copy_tree_src_dir_dst_file(mocker, tmp_path):
-    from otaclient.app.copy_tree import CopyTree
-
     (
         dst,
         src,
@@ -613,72 +634,77 @@ def test_copy_tree_src_dir_dst_file(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    ct = CopyTree(src_passwd_file, src_group_file, dst_passwd_file, dst_group_file)
+    ct = PersistFilesHandler(
+        src_passwd_file=src_passwd_file,
+        src_group_file=src_group_file,
+        dst_passwd_file=dst_passwd_file,
+        dst_group_file=dst_group_file,
+        src_root=src,
+        dst_root=dst,
+    )
 
     (dst / src.relative_to("/") / "A").mkdir(parents=True)
     # NOTE: create {dst}/{src}/A/B as *file* before hand
     (dst / src.relative_to("/") / "A" / "B").write_text("B")
 
-    ct.copy_with_parents(B, dst)
+    ct.preserve_persist_entry(replace_root(B, src, "/"))
 
     # src/A
-    assert (dst / A.relative_to("/")).is_dir()
-    assert not (dst / A.relative_to("/")).is_symlink()
+    assert (dst / A.relative_to(src)).is_dir()
+    assert not (dst / A.relative_to(src)).is_symlink()
     # NOTE: {dst}/{src}/A exists before copy so uid, gid and mode are unchanged.
     assert_uid_gid_mode(
-        dst / A.relative_to("/"), *uid_gid_mode(dst / src.relative_to("/") / "A")
+        dst / A.relative_to(src), *uid_gid_mode(dst / src.relative_to(src) / "A")
     )
 
     # src/A/B/
-    assert (dst / B.relative_to("/")).is_dir()
-    assert not (dst / B.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / B.relative_to("/"), 141, 265534, 0o122)
+    assert (dst / B.relative_to(src)).is_dir()
+    assert not (dst / B.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / B.relative_to(src), 141, 265534, 0o122)
 
     # src/A/B/c
-    assert (dst / c.relative_to("/")).is_file()
-    assert not (dst / c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / c.relative_to("/"), 1100, 2102, 0o123)
+    assert (dst / c.relative_to(src)).is_file()
+    assert not (dst / c.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / c.relative_to(src), 1100, 2102, 0o123)
 
     # src/A/B/to_c
-    assert (dst / to_c.relative_to("/")).is_file()
-    assert (dst / to_c.relative_to("/")).is_symlink()
+    assert (dst / to_c.relative_to(src)).is_file()
+    assert (dst / to_c.relative_to(src)).is_symlink()
     # uid, gid can't be converted so original uid, gid is used.
-    assert_uid_gid_mode(dst / to_c.relative_to("/"), 12345678, 87654321, 0o777)
+    assert_uid_gid_mode(dst / to_c.relative_to(src), 12345678, 87654321, 0o777)
 
     # src/A/B/to_broken_c
-    assert not (dst / to_broken_c.relative_to("/")).is_file()
-    assert (dst / to_broken_c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / to_broken_c.relative_to("/"), 1104, 2104, 0o777)
+    assert not (dst / to_broken_c.relative_to(src)).is_file()
+    assert (dst / to_broken_c.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / to_broken_c.relative_to(src), 1104, 2104, 0o777)
 
     # src/A/B/C/
-    assert (dst / C.relative_to("/")).is_dir()
-    assert not (dst / C.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / C.relative_to("/"), 1105, 2105, 0o126)
+    assert (dst / C.relative_to(src)).is_dir()
+    assert not (dst / C.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / C.relative_to(src), 1105, 2105, 0o126)
 
     # followings should not exist
     # src/a
-    assert not (dst / a.relative_to("/")).exists()
-    assert not (dst / a.relative_to("/")).is_symlink()
+    assert not (dst / a.relative_to(src)).exists()
+    assert not (dst / a.relative_to(src)).is_symlink()
     # src/to_a
-    assert not (dst / to_a.relative_to("/")).exists()
-    assert not (dst / to_a.relative_to("/")).is_symlink()
+    assert not (dst / to_a.relative_to(src)).exists()
+    assert not (dst / to_a.relative_to(src)).is_symlink()
     # src/to_broken_a
-    assert not (dst / to_broken_a.relative_to("/")).exists()
-    assert not (dst / to_broken_a.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_a.relative_to(src)).exists()
+    assert not (dst / to_broken_a.relative_to(src)).is_symlink()
     # src/A/b
-    assert not (dst / b.relative_to("/")).exists()
-    assert not (dst / b.relative_to("/")).is_symlink()
+    assert not (dst / b.relative_to(src)).exists()
+    assert not (dst / b.relative_to(src)).is_symlink()
     # src/A/to_b
-    assert not (dst / to_b.relative_to("/")).exists()
-    assert not (dst / to_b.relative_to("/")).is_symlink()
+    assert not (dst / to_b.relative_to(src)).exists()
+    assert not (dst / to_b.relative_to(src)).is_symlink()
     # src/A/to_broken_b
-    assert not (dst / to_broken_b.relative_to("/")).exists()
-    assert not (dst / to_broken_b.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_b.relative_to(src)).exists()
+    assert not (dst / to_broken_b.relative_to(src)).is_symlink()
 
 
 def test_copy_tree_src_file_dst_dir(mocker, tmp_path):
-    from otaclient.app.copy_tree import CopyTree
-
     (
         dst,
         src,
@@ -703,66 +729,73 @@ def test_copy_tree_src_file_dst_dir(mocker, tmp_path):
         dst_group_file,
     ) = create_passwd_group_files(tmp_path)
 
-    ct = CopyTree(src_passwd_file, src_group_file, dst_passwd_file, dst_group_file)
+    ct = PersistFilesHandler(
+        src_passwd_file=src_passwd_file,
+        src_group_file=src_group_file,
+        dst_passwd_file=dst_passwd_file,
+        dst_group_file=dst_group_file,
+        src_root=src,
+        dst_root=dst,
+    )
 
     # NOTE: create {dst}/{src}/A/B/c as *dir* before hand
     (dst / src.relative_to("/") / "A" / "B" / "c").mkdir(parents=True)
 
-    ct.copy_with_parents(B, dst)
+    ct.preserve_persist_entry(replace_root(B, src, "/"))
 
     # src/A
-    assert (dst / A.relative_to("/")).is_dir()
-    assert not (dst / A.relative_to("/")).is_symlink()
+    assert (dst / A.relative_to(src)).is_dir()
+    assert not (dst / A.relative_to(src)).is_symlink()
     # NOTE: {dst}/{src}/A exists before copy so uid, gid and mode are unchanged.
     assert_uid_gid_mode(
-        dst / A.relative_to("/"), *uid_gid_mode(dst / src.relative_to("/") / "A")
+        dst / A.relative_to(src), *uid_gid_mode(dst / src.relative_to(src) / "A")
     )
 
     # src/A/B/
-    assert (dst / B.relative_to("/")).is_dir()
-    assert not (dst / B.relative_to("/")).is_symlink()
+    assert (dst / B.relative_to(src)).is_dir()
+    assert not (dst / B.relative_to(src)).is_symlink()
     # NOTE: {dst}/{src}/A/B exists before copy so uid, gid and mode are unchanged.
     assert_uid_gid_mode(
-        dst / B.relative_to("/"), *uid_gid_mode(dst / src.relative_to("/") / "A" / "B")
+        dst / B.relative_to(src), *uid_gid_mode(dst / src.relative_to(src) / "A" / "B")
     )
 
     # src/A/B/c
-    assert (dst / c.relative_to("/")).is_file()
-    assert not (dst / c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / c.relative_to("/"), 1100, 2102, 0o123)
+    assert (dst / c.relative_to(src)).is_file()
+    assert not (dst / c.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / c.relative_to(src), 1100, 2102, 0o123)
 
     # src/A/B/to_c
-    assert (dst / to_c.relative_to("/")).is_file()
-    assert (dst / to_c.relative_to("/")).is_symlink()
+    assert (dst / to_c.relative_to(src)).is_file()
+    assert (dst / to_c.relative_to(src)).is_symlink()
     # uid, gid can't be converted so original uid, gid is used.
-    assert_uid_gid_mode(dst / to_c.relative_to("/"), 12345678, 87654321, 0o777)
+    assert_uid_gid_mode(dst / to_c.relative_to(src), 12345678, 87654321, 0o777)
 
     # src/A/B/to_broken_c
-    assert not (dst / to_broken_c.relative_to("/")).is_file()
-    assert (dst / to_broken_c.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / to_broken_c.relative_to("/"), 1104, 2104, 0o777)
+    assert not (dst / to_broken_c.relative_to(src)).is_file()
+    assert (dst / to_broken_c.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / to_broken_c.relative_to(src), 1104, 2104, 0o777)
 
     # src/A/B/C/
-    assert (dst / C.relative_to("/")).is_dir()
-    assert not (dst / C.relative_to("/")).is_symlink()
-    assert_uid_gid_mode(dst / C.relative_to("/"), 1105, 2105, 0o126)
+    assert (dst / C.relative_to(src)).is_dir()
+    assert not (dst / C.relative_to(src)).is_symlink()
+    assert_uid_gid_mode(dst / C.relative_to(src), 1105, 2105, 0o126)
 
     # followings should not exist
     # src/a
-    assert not (dst / a.relative_to("/")).exists()
-    assert not (dst / a.relative_to("/")).is_symlink()
+    assert not (dst / a.relative_to(src)).exists()
+    assert not (dst / a.relative_to(src)).is_symlink()
     # src/to_a
-    assert not (dst / to_a.relative_to("/")).exists()
-    assert not (dst / to_a.relative_to("/")).is_symlink()
+    assert not (dst / to_a.relative_to(src)).exists()
+    assert not (dst / to_a.relative_to(src)).is_symlink()
     # src/to_broken_a
-    assert not (dst / to_broken_a.relative_to("/")).exists()
-    assert not (dst / to_broken_a.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_a.relative_to(src)).exists()
+    assert not (dst / to_broken_a.relative_to(src)).is_symlink()
     # src/A/b
-    assert not (dst / b.relative_to("/")).exists()
-    assert not (dst / b.relative_to("/")).is_symlink()
+    assert not (dst / b.relative_to(src)).exists()
+    assert not (dst / b.relative_to(src)).is_symlink()
     # src/A/to_b
-    assert not (dst / to_b.relative_to("/")).exists()
-    assert not (dst / to_b.relative_to("/")).is_symlink()
+    assert not (dst / to_b.relative_to(src)).exists()
+    assert not (dst / to_b.relative_to(src)).is_symlink()
     # src/A/to_broken_b
-    assert not (dst / to_broken_b.relative_to("/")).exists()
-    assert not (dst / to_broken_b.relative_to("/")).is_symlink()
+    assert not (dst / to_broken_b.relative_to(src)).exists()
+    assert not (dst / to_broken_b.relative_to(src)).is_symlink()

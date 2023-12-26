@@ -32,7 +32,7 @@ from ..update_stats import (
 from ..proto.wrapper import RegularInf
 from .. import log_setting
 
-from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
+from .common import HardlinkRegister, DeltaGenerator, DeltaBundle, PersistFilesHandler
 from .interface import StandbySlotCreatorProtocol
 
 logger = log_setting.get_logger(__name__)
@@ -78,10 +78,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
             entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
     def _process_persistents(self):
-        """NOTE: just copy from legacy mode"""
-        from ..copy_tree import CopyTree
-
-        _copy_tree = CopyTree(
+        _handler = PersistFilesHandler(
             src_passwd_file=Path(cfg.PASSWD_FPATH),
             src_group_file=Path(cfg.GROUP_FPATH),
             dst_passwd_file=Path(
@@ -90,16 +87,12 @@ class RebuildMode(StandbySlotCreatorProtocol):
             dst_group_file=Path(
                 replace_root(cfg.GROUP_FPATH, cfg.ACTIVE_ROOTFS, cfg.STANDBY_SLOT_MP)
             ),
+            src_root=self.active_slot_mp,
+            dst_root=self.standby_slot_mp,
         )
 
         for _perinf in self._ota_metadata.iter_metafile(MetafilesV1.PERSISTENT_FNAME):
-            _perinf_path = Path(_perinf.path)
-            if (
-                _perinf_path.is_file()
-                or _perinf_path.is_dir()
-                or _perinf_path.is_symlink()
-            ):  # NOTE: not equivalent to perinf.path.exists()
-                _copy_tree.copy_with_parents(_perinf_path, self.standby_slot_mp)
+            _handler.preserve_persist_entry(_perinf.path)
 
     def _process_symlinks(self):
         for _symlink in self._ota_metadata.iter_metafile(
