@@ -73,7 +73,7 @@ def main_build_offline_ota_image_bundle(args: argparse.Namespace):
                 logger.error(
                     (
                         f"ERR: OTA target image for ECU@{_ecu_id} is already set to"
-                        f"from {image_files[_ecu_id]}, please check the params"
+                        f"{image_files[_ecu_id]}, please check the --image params"
                     )
                 )
                 sys.exit(errno.EINVAL)
@@ -243,8 +243,7 @@ def command_build_offline_ota_image_bundle(
         help=(
             "OTA image for <ECU_ID> as tar archive(compressed or uncompressed), "
             "this option can be used multiple times to include multiple images. \n"
-            "NOTE: if multiple OTA target image is specified for the same ECU, the later one "
-            "will override the previous set one."
+            "NOTE: multiple OTA target image specified for the same ECU is unexpected behavior"
         ),
         required=True,
         metavar="<ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]",

@@ -191,7 +191,7 @@ optional arguments:
   -h, --help            show this help message and exit
   --image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]
                         OTA image for <ECU_ID> as tar archive(compressed or uncompressed), this option can be used multiple times to include multiple images.
-                        NOTE: if multiple OTA target image is specified for the same ECU, the later one will override the previous set one.
+                        NOTE: multiple OTA target image specified for the same ECU is unexpected behavior.
   -o <OUTPUT_FILE_PATH>, --output <OUTPUT_FILE_PATH>
                         save the generated image bundle tar archive to <OUTPUT_FILE_PATH>.
 ```
