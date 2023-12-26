@@ -635,6 +635,7 @@ class PersistFilesHandler:
             # ------ prepare entries in current dir ------ #
             for _fname in fnames:
                 _src_fpath, _dst_fpath = src_cur_dpath / _fname, dst_cur_dpath / _fname
+                self._rm_target(_dst_fpath)
                 if _src_fpath.is_symlink():
                     self._prepare_symlink(_src_fpath, _dst_fpath)
                     continue
@@ -642,6 +643,7 @@ class PersistFilesHandler:
 
             # symlinks to dirs also included in dnames, we must handle it
             for _dname in dnames:
-                _src_dpath = src_cur_dpath / _dname
+                _src_dpath, _dst_dpath = src_cur_dpath / _dname, dst_cur_dpath / _dname
                 if _src_dpath.is_symlink():
-                    self._prepare_symlink(_src_dpath, dst_cur_dpath / _dname)
+                    self._rm_target(_dst_dpath)
+                    self._prepare_symlink(_src_dpath, _dst_dpath)
