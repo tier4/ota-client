@@ -535,7 +535,7 @@ class PersistFilesHandler:
         _mapped_uid = _utils_map_uid_by_pwnam(src_db=src_db, dst_db=dst_db, uid=uid)
         _usern = src_db._by_uid[uid]
 
-        logger.info(f"{_usern=}: mapping src_{uid=} to {_mapped_uid}")
+        logger.info(f"{_usern=}: mapping src_{uid=} to {_mapped_uid=}")
         return _mapped_uid
 
     @staticmethod
