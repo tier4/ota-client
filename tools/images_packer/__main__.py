@@ -69,6 +69,13 @@ def main_build_offline_ota_image_bundle(args: argparse.Namespace):
                     image_version=_image_version,
                 )
             )
+            if _ecu_id in image_files:
+                logger.warning(
+                    (
+                        f"override previously set OTA target image for ECU@{_ecu_id} "
+                        f"from {image_files[_ecu_id]} to {_image_fpath}"
+                    )
+                )
             image_files[_ecu_id] = _image_fpath
         else:
             logger.warning(f"ignore illegal image pair: {raw_pair}")
@@ -233,7 +240,9 @@ def command_build_offline_ota_image_bundle(
         "--image",
         help=(
             "OTA image for <ECU_ID> as tar archive(compressed or uncompressed), "
-            "this option can be used multiple times to include multiple images."
+            "this option can be used multiple times to include multiple images. \n"
+            "NOTE: if multiple OTA target image is specified for the same ECU, the later one "
+            "will override the previous set one."
         ),
         required=True,
         metavar="<ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]",
