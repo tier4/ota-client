@@ -591,7 +591,9 @@ class PersistFilesHandler:
 
     # API
 
-    def preserve_persist_entry(self, _persist_entry: StrOrPath):
+    def preserve_persist_entry(
+        self, _persist_entry: StrOrPath, *, src_missing_ok: bool = True
+    ):
         logger.info(
             f"preserving {_persist_entry} from {self._src_root} to {self._dst_root}"
         )
@@ -617,10 +619,13 @@ class PersistFilesHandler:
             return
 
         # we only process normal file/symlink/dir
-        if not src_path.is_dir():
-            raise ValueError(
-                f"{src_path=} must be presented and either a file/symlink/dir"
-            )
+        if src_path.exists() and not src_path.is_dir():
+            raise ValueError(f"{src_path=} must be either a file/symlink/dir")
+        if not src_path.exists():
+            _err_msg = f"{src_path=} not found"
+            logger.warning(_err_msg)
+            if not src_missing_ok:
+                raise ValueError(_err_msg)
 
         # for src as dir, cleanup dst_dirc,
         # dive into src_dir and preserve everything under the src dir
