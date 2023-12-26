@@ -133,7 +133,7 @@ This image builder requires latest ota-client to be installed/accessable. The re
 ```bash
 # current folder layout: venv ota-client
 (venv) $ cd ota-client
-(venv) $ sudo -E env PATH=$PATH python3 -m tools.image_packer build-cache-src --image-dir=./images_dir --output=t2.tar
+(venv) $ sudo -E env PATH=$PATH python3 -m tools.images_packer build-cache-src --image-dir=./images_dir --output=t2.tar
 ```
 
 This will build the external cache source image with images listed in `./images_dir`, and export the built image as `t2.tar` tar archive.
@@ -143,17 +143,17 @@ This will build the external cache source image with images listed in `./images_
 ```bash
 # current folder layout: venv ota-client
 (venv) $ cd ota-client
-(venv) $ sudo -E env PATH=$PATH python3 -m tools.image_packer build-offline-ota-imgs-bundle --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.tgz:ver_20230808 --output=t2.tar
+(venv) $ sudo -E env PATH=$PATH python3 -m tools.images_packer build-offline-ota-imgs-bundle --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.tgz:ver_20230808 --output=t2.tar
 ```
 
 This will build the offline OTA image with `p1_image.tgz` and `p2_image.tgz`, which are for ECU `p1` and `p2`, and export the built image as `t2.tar` tar archive.
 
-#### Usage 3: Build the external cache source image and create external cache source dev
+#### Usage 3: Build the external cache source image and create external cache source device
 
 ```bash
 # current folder layout: venv ota-client
 (venv) $ cd ota-client
-(venv) $ sudo -E env PATH=$PATH python3 -m tools.image_packer build-cache-src  --image-dir=./images_dir --write-to=/dev/<target_dev>
+(venv) $ sudo -E env PATH=$PATH python3 -m tools.images_packer build-cache-src  --image-dir=./images_dir --write-to=/dev/<target_dev>
 ```
 
 This will build the external cache source image OTA images listed in the `./images_dir`, and prepare the `/dev/<target_dev>` as external cache source device(ext4 filesystem labelled with `ota_cache_src`) with image rootfs exported to the filesystem on `/dev/<target_device>`.
@@ -183,7 +183,7 @@ optional arguments:
 ### `build-offline-ota-imgs-bundle` subcommand
 
 ```text
-usage: images_packer build-offline-ota-imgs-bundle [-h] --image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>] [-o <OUTPUT_FILE_PATH>]
+usage: images_packer build-offline-ota-imgs-bundle [-h] --image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>] -o <OUTPUT_FILE_PATH>
 
 build OTA image bundle for offline OTA use.
 
@@ -191,6 +191,7 @@ optional arguments:
   -h, --help            show this help message and exit
   --image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]
                         OTA image for <ECU_ID> as tar archive(compressed or uncompressed), this option can be used multiple times to include multiple images.
+                        NOTE: if multiple OTA target image is specified for the same ECU, the later one will override the previous set one.
   -o <OUTPUT_FILE_PATH>, --output <OUTPUT_FILE_PATH>
                         save the generated image bundle tar archive to <OUTPUT_FILE_PATH>.
 ```
