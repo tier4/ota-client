@@ -576,45 +576,45 @@ class PersistFilesHandler:
         os.chmod(_dst_path, _src_stat.st_mode)
         self._chown_with_mapping(_src_stat, _dst_path)
 
-    def _prepare_parent(self, _src_path: Path, _dst_path: Path) -> None:
-        if _dst_path.is_dir():  # keep the origin parent on dst as it
-            return
-        if _dst_path.is_symlink() or _dst_path.is_file():
-            _dst_path.unlink(missing_ok=True)
-            self._prepare_dir(_src_path, _dst_path)
-            return
-        if _dst_path.exists():
-            raise ValueError(
-                f"{_dst_path=} is not a normal file/symlink/dir, cannot cleanup"
+    def _prepare_parent(self, _origin_entry: Path) -> None:
+        for _parent in reversed(_origin_entry.parents):
+            _src_parent, _dst_parent = (
+                self._src_root / _parent,
+                self._dst_root / _parent,
             )
-        self._prepare_dir(_src_path, _dst_path)
+            if _dst_parent.is_dir():  # keep the origin parent on dst as it
+                continue
+            if _dst_parent.is_symlink() or _dst_parent.is_file():
+                _dst_parent.unlink(missing_ok=True)
+                self._prepare_dir(_src_parent, _dst_parent)
+                continue
+            if _dst_parent.exists():
+                raise ValueError(
+                    f"{_dst_parent=} is not a normal file/symlink/dir, cannot cleanup"
+                )
+            self._prepare_dir(_src_parent, _dst_parent)
 
     # API
 
     def preserve_persist_entry(
         self, _persist_entry: StrOrPath, *, src_missing_ok: bool = True
     ):
-        logger.info(
-            f"preserving {_persist_entry} from {self._src_root} to {self._dst_root}"
-        )
+        logger.info(f"preserving {_persist_entry}")
         # persist_entry in persists.txt must be rooted at /
         origin_entry = Path(_persist_entry).relative_to(cfg.DEFAULT_ACTIVE_ROOTFS)
         src_path = self._src_root / origin_entry
         dst_path = self._dst_root / origin_entry
 
-        # ------ prepare parents ------ #
-        for _parent in reversed(origin_entry.parents):
-            self._prepare_parent(self._src_root / _parent, self._dst_root / _parent)
-
-        # ------ prepare entry itself ------ #
         # NOTE: always check if symlink first!
         if src_path.is_symlink():
             self._rm_target(dst_path)
+            self._prepare_parent(origin_entry)
             self._prepare_symlink(src_path, dst_path)
             return
 
         if src_path.is_file():
             self._rm_target(dst_path)
+            self._prepare_parent(origin_entry)
             self._prepare_file(src_path, dst_path)
             return
 
@@ -629,6 +629,7 @@ class PersistFilesHandler:
 
         # for src as dir, cleanup dst_dirc,
         # dive into src_dir and preserve everything under the src dir
+        self._prepare_parent(origin_entry)
         for src_curdir, dnames, fnames in os.walk(src_path, followlinks=False):
             src_cur_dpath = Path(src_curdir)
             dst_cur_dpath = self._dst_root / src_cur_dpath.relative_to(self._src_root)
