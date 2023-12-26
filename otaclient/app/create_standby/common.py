@@ -605,22 +605,27 @@ class PersistFilesHandler:
         src_path = self._src_root / origin_entry
         dst_path = self._dst_root / origin_entry
 
-        # NOTE: always check if symlink first!
+        # ------ src is symlink ------ #
+        # NOTE: always check if symlink first as is_file/is_dir/exists all follow_symlinks
         if src_path.is_symlink():
             self._rm_target(dst_path)
             self._prepare_parent(origin_entry)
             self._prepare_symlink(src_path, dst_path)
             return
 
+        # ------ src is file ------ #
         if src_path.is_file():
             self._rm_target(dst_path)
             self._prepare_parent(origin_entry)
             self._prepare_file(src_path, dst_path)
             return
 
+        # ------ src is not regular file/symlink/dir ------ #
         # we only process normal file/symlink/dir
         if src_path.exists() and not src_path.is_dir():
             raise ValueError(f"{src_path=} must be either a file/symlink/dir")
+
+        # ------ src doesn't exist ------ #
         if not src_path.exists():
             _err_msg = f"{src_path=} not found"
             logger.warning(_err_msg)
@@ -628,7 +633,7 @@ class PersistFilesHandler:
                 raise ValueError(_err_msg)
             return
 
-        # for src as dir, cleanup dst_dirc,
+        # ------ src is dir ------ #
         # dive into src_dir and preserve everything under the src dir
         self._prepare_parent(origin_entry)
         for src_curdir, dnames, fnames in os.walk(src_path, followlinks=False):
