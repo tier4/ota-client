@@ -626,6 +626,7 @@ class PersistFilesHandler:
             logger.warning(_err_msg)
             if not src_missing_ok:
                 raise ValueError(_err_msg)
+            return
 
         # for src as dir, cleanup dst_dirc,
         # dive into src_dir and preserve everything under the src dir
