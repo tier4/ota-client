@@ -552,11 +552,15 @@ class PersistFilesHandler:
             return _target.unlink(missing_ok=True)
         elif _target.is_dir():
             return shutil.rmtree(_target, ignore_errors=True)
-        raise ValueError(f"{_target} is not normal file/symlink/dir, failed to remove")
+        elif _target.exists():
+            raise ValueError(
+                f"{_target} is not normal file/symlink/dir, failed to remove"
+            )
 
     def _prepare_symlink(self, _src_path: Path, _dst_path: Path) -> None:
         _dst_path.symlink_to(os.readlink(_src_path))
-        self._chown_with_mapping(_src_path.stat(), _dst_path)
+        # NOTE: to get stat from symlink, using os.stat with follow_symlinks=False
+        self._chown_with_mapping(os.stat(_src_path, follow_symlinks=False), _dst_path)
 
     def _prepare_dir(self, _src_path: Path, _dst_path: Path) -> None:
         _dst_path.mkdir(exist_ok=True)
