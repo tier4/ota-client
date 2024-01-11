@@ -22,7 +22,7 @@ Check README.md for the spec.
 
 import json
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List
+from typing import List
 
 from .configs import cfg
 
