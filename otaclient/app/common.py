@@ -14,6 +14,7 @@
 r"""Utils that shared between modules are listed here."""
 
 
+from __future__ import annotations
 import itertools
 import os
 import shlex
