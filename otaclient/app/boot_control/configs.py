@@ -18,7 +18,6 @@ import os.path
 from enum import Enum, unique
 from pydantic import BaseModel, ConfigDict
 from typing import TYPE_CHECKING, ClassVar as _std_ClassVar, Any
-from typing_extensions import Self
 
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
@@ -46,7 +45,7 @@ class BootloaderType(str, Enum):
     RPI_BOOT = "rpi_boot"
 
     @classmethod
-    def parse_str(cls, _input: str) -> Self:
+    def parse_str(cls, _input: str) -> BootloaderType:
         res = cls.UNSPECIFIED
         try:  # input is enum key(capitalized)
             res = cls[_input]
