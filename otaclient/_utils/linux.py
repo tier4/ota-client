@@ -188,5 +188,5 @@ def nsenter(pid: int, *_ns_names: NS_NAME_LITERAL, chroot: bool = True) -> None:
                 raise OSError(f"failed to chroot to {pid=}'s root") from e
 
 
-# in most of the cases, entering the following namespaces are enough
 DEFAULT_NS_TO_ENTER: tuple[NS_NAME_LITERAL, ...] = ("mnt", "pid", "ipc", "user")
+"""in most of the cases, entering the following root namespaces are enough"""
