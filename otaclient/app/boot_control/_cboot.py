@@ -25,6 +25,7 @@ from otaclient._utils.subprocess import (
     subprocess_check_output,
     SubProcessCalledFailed,
 )
+from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 
 from .. import log_setting, errors as ota_errors
 from ..configs import config as cfg
@@ -99,7 +100,7 @@ class Nvbootctrl:
         _args = f"-t {target} {args}"
         return _nvbootctrl(
             _args,
-            new_root=cfg.ACTIVE_ROOTFS,
+            enter_root_ns=DEFAULT_NS_TO_ENTER,
             raise_exception=raise_exception,
         )
 
@@ -400,11 +401,7 @@ class CBootController(BootControllerProtocol):
         _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
 
         try:
-            mount_rw(
-                self._cboot_control.standby_slot_boot_dev,
-                _boot_dir_mount_point,
-                raise_exception=True,
-            )
+            mount_rw(self._cboot_control.standby_slot_boot_dev, _boot_dir_mount_point)
         except SubProcessCalledFailed as e:
             _err_msg = f"failed to mount standby boot dev: {e!r}"
             logger.error(_err_msg)
@@ -425,11 +422,7 @@ class CBootController(BootControllerProtocol):
         finally:
             # unmount standby emmc boot dev on finish/failure
             try:
-                umount_target(
-                    _boot_dir_mount_point,
-                    recursive=True,
-                    raise_exception=True,
-                )
+                umount_target(_boot_dir_mount_point)
             except Exception as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
                 logger.warning(_failure_msg)
