@@ -473,9 +473,7 @@ def mount_rw(
     *,
     timeout: Optional[float] = None,
 ) -> None:
-    """Mount the target to the mount_point read-write.
-
-    We will try to exclusively mount the target drive.
+    """Mount the target to the mount_point read-write exclusively.
 
     NOTE: pass args = ["--make-unbindable"] to prevent re-bind of this mount point.
     NOTE(20231205): although linux kernel allows multiple direct mount on
@@ -488,21 +486,7 @@ def mount_rw(
         MountError on failed mounting.
     """
     # first try to unconditionally umount all mount points on this target(device)
-    try:
-        umount(
-            target,
-            args=["-A", "-f", "-R"],
-        )
-    except MountError as e:
-        _err_msg = f"failed to umount {target}: {e!r}"
-        logger.error(_err_msg)
-
-        if e.failure_reason == MountFailedReason.TARGET_IS_BUSY:
-            _opened_files = truncate_str_or_bytes(
-                get_opened_files_on_target(target) or "", 2048
-            )
-            logger.error(f"opened files on {target}: \n{_opened_files}")
-        raise e
+    umount_target(target)
 
     try:
         mount(
@@ -547,27 +531,12 @@ def mount_ro(
     *,
     timeout: Optional[float] = None,
 ) -> None:
-    """Mount target on mount_point read-only.
+    """Mount target on mount_point read-only exclusively.
 
     Raises:
         MountError on failed mounting.
     """
-    try:
-        umount(
-            target_dev,
-            args=["-A", "-f", "-R"],
-        )
-    except MountError as e:
-        _err_msg = f"failed to umount {target_dev}: {e!r}"
-        logger.error(_err_msg)
-
-        if e.failure_reason == MountFailedReason.TARGET_IS_BUSY:
-            _opened_files = truncate_str_or_bytes(
-                get_opened_files_on_target(target_dev) or "", 2048
-            )
-            logger.error(f"opened files on {target_dev}: \n{_opened_files}")
-        raise
-
+    umount_target(target_dev)
     try:
         mount(
             target_dev,
@@ -578,6 +547,29 @@ def mount_ro(
         )
     except MountError as e:
         logger.error(f"failed to mount_ro {target_dev=} to {mount_point=}: {e!r}")
+        raise
+
+
+def umount_target(target: StrOrPath, *, list_opened_files: bool = True) -> None:
+    """Umount all mounts on <target> recursively.
+
+    Raises:
+        MountError on failed umount.
+    """
+    try:
+        umount(
+            target,
+            args=["-A", "-f", "-R"],
+        )
+    except MountError as e:
+        _err_msg = f"failed to umount {target}: {e!r}"
+        logger.error(_err_msg)
+
+        if list_opened_files and e.failure_reason == MountFailedReason.TARGET_IS_BUSY:
+            _opened_files = truncate_str_or_bytes(
+                get_opened_files_on_target(target) or "", 2048
+            )
+            logger.error(f"opened files on {target}: \n{_opened_files}")
         raise
 
 
