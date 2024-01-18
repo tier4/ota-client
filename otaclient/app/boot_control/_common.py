@@ -328,9 +328,7 @@ class SlotMountHelper:
         logger.debug("mount standby slot rootfs dev...")
         try:
             mount_rw(
-                target=self.standby_slot_dev,
-                mount_point=self.standby_slot_mount_point,
-                raise_exception=True,
+                target=self.standby_slot_dev, mount_point=self.standby_slot_mount_point
             )
         except MountError as e:
             _err_msg = f"failed to mount {self.standby_slot_dev=} to {self.standby_slot_mount_point=}: {e!r}"
@@ -348,9 +346,7 @@ class SlotMountHelper:
         logger.debug("mount active slot rootfs dev...")
         try:
             bind_mount_ro(
-                target_mp=cfg.ACTIVE_ROOTFS,
-                mount_point=self.active_slot_mount_point,
-                raise_exception=True,
+                target_mp=cfg.ACTIVE_ROOTFS, mount_point=self.active_slot_mount_point
             )
         except MountError as e:
             _err_msg = f"failed to mount {self.active_slot_dev=} to {self.standby_slot_mount_point}: {e!r}"
@@ -378,16 +374,12 @@ class SlotMountHelper:
         """Umount all mount points and ignore all errors."""
         logger.debug("unmount standby slot and active slot mount point...")
         try:
-            umount_target(
-                self.standby_slot_mount_point, recursive=True, raise_exception=False
-            )
+            umount_target(self.standby_slot_mount_point)
         except Exception:
             logger.warning(f"failed to umount {self.standby_slot_mount_point=}")
 
         try:
-            umount_target(
-                self.active_slot_mount_point, recursive=True, raise_exception=False
-            )
+            umount_target(self.active_slot_mount_point)
         except Exception:
             logger.warning(f"failed to umount {self.active_slot_mount_point=}")
 
@@ -422,7 +414,7 @@ def prepare_standby_slot_dev_ext4(
     # try umount the dev if it is mounted somewhere
     if is_target_mounted(standby_slot_dev, raise_exception=False):
         try:
-            umount_target(standby_slot_dev, raise_exception=True)
+            umount_target(standby_slot_dev)
         except SubProcessCalledFailed:
             logger.warning(f"{standby_slot_dev} is mounted and failed to umount it")
 

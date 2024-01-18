@@ -45,6 +45,7 @@ from otaclient._utils.subprocess import (
     subprocess_call,
     subprocess_check_output,
 )
+from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 
 from .. import log_setting, errors as ota_errors
 from ..configs import config as cfg
@@ -96,7 +97,7 @@ def grub_mkconfig() -> str:
         _res = subprocess_check_output(
             "grub-mkconfig",
             raise_exception=True,
-            new_root=cfg.ACTIVE_ROOTFS,
+            enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
         )
         assert _res
         return _res
@@ -117,7 +118,7 @@ def grub_reboot(idx: str) -> None:
         subprocess_call(
             f"grub-reboot {idx}",
             raise_exception=True,
-            new_root=cfg.ACTIVE_ROOTFS,
+            enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
         )
     except SubProcessCalledFailed as e:
         _err_msg = f"failed to grub-reboot to {idx}: {e!r}"

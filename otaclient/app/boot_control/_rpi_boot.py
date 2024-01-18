@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Generator, NoReturn
 
 from otaclient._utils.subprocess import SubProcessCalledFailed, subprocess_call
+from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
+
 from .. import log_setting, errors as ota_errors
 from ..configs import config as cfg
 from ..proto import wrapper
@@ -251,7 +253,9 @@ class _RPIBootControl:
         """
         logger.info("update firmware with flash-kernel...")
         try:
-            _flash_kernel(new_root=cfg.ACTIVE_ROOTFS)
+            _flash_kernel(
+                enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None
+            )
             os.sync()  # ensure the firmware is written to storage
         except SubProcessCalledFailed as e:
             _err_msg = f"flash-kernel failed: {e!r}"
