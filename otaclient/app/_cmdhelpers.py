@@ -27,6 +27,7 @@ from otaclient._utils.subprocess import (
     subprocess_check_output,
     SubProcessCalledFailed,
 )
+from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 from otaclient._utils.typing import ArgsType, StrOrPath, P, T
 from otaclient._utils import truncate_str_or_bytes
 from .configs import config as cfg
@@ -146,12 +147,15 @@ def reboot(_args: str = "") -> NoReturn:
 
     NOTE: rpi_boot's reboot takes args.
     NOTE(20231205): if reboot command succeeded, this function must terminates otaclient.
+    NOTE(20240118): this command requires nsenter to root ns.
     """
     # if in container mode, execute reboot on host ns
-    new_root = cfg.ACTIVE_ROOTFS if cfg.IS_CONTAINER else None
-
     try:
-        _reboot(_args, raise_exception=True, new_root=new_root)
+        _reboot(
+            _args,
+            raise_exception=True,
+            enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
+        )
         sys.exit(0)
     except SubProcessCalledFailed:
         logger.error(f"failed to reboot({_args=}) the system")
@@ -260,9 +264,13 @@ def is_target_mounted(
     raise_exception: bool,
     timeout: Optional[float] = None,
 ) -> bool:
-    """Check if target device is mounted, or target folder is used as mount point."""
+    """Check if target device is mounted, or target folder is used as mount point.
+
+    NOTE(20240118): this command requires nsenter to root ns.
+    """
     _mount_info = _findmnt(
         [str(target)],
+        enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
         timeout=timeout,
         raise_exception=raise_exception,
     )
@@ -343,6 +351,8 @@ def mkfs_ext4(
 #
 # ------ mount related helper funcs and exceptions ------ #
 #
+# NOTE(20240118): always execute mount/umount in the root mnt namespace,
+#                 mount points created by otaclient should be in root mnt namespace.
 
 
 class MountError(Exception):
@@ -415,6 +425,8 @@ def mount(
 ) -> None:
     """mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
 
+    NOTE(20240118): always executed in root mount ns.
+
     Raises:
         MountError on failed mounting.
     """
@@ -422,7 +434,12 @@ def mount(
     _args = args if isinstance(args, list) else []
 
     _mount_params = [*_options, *_args, str(dev), str(mount_point)]
-    _mount(_mount_params, raise_exception=True, timeout=timeout)
+    _mount(
+        _mount_params,
+        enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
+        raise_exception=True,
+        timeout=timeout,
+    )
 
 
 @_parse_mount_failure
@@ -434,86 +451,79 @@ def umount(
 ):
     """umount [args[0] [args[1]...]] <target>
 
+    NOTE(20240118): always executed in root mount ns.
+
     Raises:
         MountError on failed umounting.
     """
     _args = args if isinstance(args, list) else []
 
     _umount_params = [*_args, str(target)]
-    _umount(_umount_params, raise_exception=True, timeout=timeout)
+    _umount(
+        _umount_params,
+        enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
+        raise_exception=True,
+        timeout=timeout,
+    )
 
 
 def mount_rw(
     target: StrOrPath,
     mount_point: StrOrPath,
     *,
-    raise_exception: bool,
     timeout: Optional[float] = None,
 ) -> None:
     """Mount the target to the mount_point read-write.
 
     We will try to exclusively mount the target drive.
 
-    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
-            mount events propagation to/from this mount point.
+    NOTE: pass args = ["--make-unbindable"] to prevent re-bind of this mount point.
     NOTE(20231205): although linux kernel allows multiple direct mount on
             the same device, the mount options can not be changed.
             Second mount to the same device with different -o will cause "already mounted" error.
     NOTE(20231205): mount point itself can be stacked, new one will override the old one.
+    NOTE(20240118): always mount in root namespace.
 
     Raises:
         MountError on failed mounting.
     """
-    _exec_mount = functools.partial(
-        mount,
-        target,
-        mount_point,
-        options=["rw"],
-        args=["--make-private", "--make-unbindable"],
-        timeout=timeout,
-    )
-
-    # try mount first
-    _mount_exception: Optional[MountError] = None
+    # first try to unconditionally umount all mount points on this target(device)
     try:
-        return _exec_mount()
-    except MountError as e:
-        _mount_exception = e  # get exc from exception handling namespace
-
-    # first mount failed with other reason rather than "already mounted" error
-    if _mount_exception.failure_reason != MountFailedReason.TARGET_ALREADY_MOUNTED:
-        _err_msg = (
-            f"failed to mount {target=} to {mount_point=} r/w: {_mount_exception!r}"
+        umount(
+            target,
+            args=["-A", "-f", "-R"],
         )
-        logger.error(_err_msg)
-        if raise_exception:
-            try:
-                raise _mount_exception from None
-            finally:
-                _mount_exception = None  # break cyclic ref
-        return
-
-    # target is already mounted try to umount first and then try mount again
-    try:
-        umount_target(target, raise_exception=True)
-        _exec_mount()
     except MountError as e:
-        _err_msg = f"try to umount {target} and mount r/w again to {mount_point=} failed: {e!r}"
+        _err_msg = f"failed to umount {target}: {e!r}"
         logger.error(_err_msg)
-        raise
+
+        if e.failure_reason == MountFailedReason.TARGET_IS_BUSY:
+            _opened_files = truncate_str_or_bytes(
+                get_opened_files_on_target(target) or "", 2048
+            )
+            logger.error(f"opened files on {target}: \n{_opened_files}")
+        raise e
+
+    try:
+        mount(
+            target,
+            mount_point,
+            options=["rw"],
+            args=["--make-unbindable"],
+            timeout=timeout,
+        )
+    except MountError as e:
+        logger.error(f"failed to mount {target=} to {mount_point=} as rw: {e!r}")
+        return
 
 
 def bind_mount_ro(
     target_mp: StrOrPath,
     mount_point: StrOrPath,
     *,
-    raise_exception: bool,
     timeout: Optional[float] = None,
 ) -> None:
     """Bind mount the target to the mount_point read-only.
-
-    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
-            mount events propagation to/from this mount point.
 
     Raises:
         MountError on failed mounting.
@@ -523,97 +533,62 @@ def bind_mount_ro(
             target_mp,
             mount_point,
             options=["bind", "ro"],
-            args=["--make-private", "--make-unbindable"],
+            args=["--make-unbindable"],
             timeout=timeout,
         )
     except MountError as e:
         logger.error(f"failed to bind_mount_ro {target_mp=} to {mount_point=}: {e!r}")
-        if raise_exception:
-            raise
+        raise
 
 
 def mount_ro(
     target_dev: StrOrPath,
     mount_point: StrOrPath,
     *,
-    raise_exception: bool,
     timeout: Optional[float] = None,
 ) -> None:
     """Mount target on mount_point read-only.
-
-    Expecting the target_dev is not mounted somewhere else.
-
-    This method mount the target as ro with make-private flag and make-unbindable flag,
-    to prevent ANY accidental writes/changes to the target.
 
     Raises:
         MountError on failed mounting.
     """
     try:
+        umount(
+            target_dev,
+            args=["-A", "-f", "-R"],
+        )
+    except MountError as e:
+        _err_msg = f"failed to umount {target_dev}: {e!r}"
+        logger.error(_err_msg)
+
+        if e.failure_reason == MountFailedReason.TARGET_IS_BUSY:
+            _opened_files = truncate_str_or_bytes(
+                get_opened_files_on_target(target_dev) or "", 2048
+            )
+            logger.error(f"opened files on {target_dev}: \n{_opened_files}")
+        raise
+
+    try:
         mount(
             target_dev,
             mount_point,
             options=["ro"],
-            # --make-private: prevent receive/propagate mount out
-            # --make-unbindable: prevent this mount point being bind mount by others
-            args=["--make-private", "--make-unbindable"],
+            args=["--make-unbindable"],
             timeout=timeout,
         )
     except MountError as e:
         logger.error(f"failed to mount_ro {target_dev=} to {mount_point=}: {e!r}")
-        if raise_exception:
-            raise
+        raise
 
 
-_MAX_LSOF_OUTPUT_LEN = 2048
+def get_opened_files_on_target(target: StrOrPath, *, timeout: float = 3) -> str | None:
+    """Get opened files on specific target.
 
-
-def umount_target(
-    target: StrOrPath,
-    *,
-    recursive: bool = False,
-    raise_exception: bool = False,
-    list_opened_files: bool = False,
-    list_opened_files_timeout: float = 3,
-    timeout: Optional[float] = None,
-) -> None:
-    """Try to unmount the <target>.
-
-    Args:
-        list_opened_files(bool = False): if True and umount failure reason is
-            "target is busy", list opened files on the target device.
-
-    Raises:
-        MountError with reason=GENERIC_MOUNT_FAILURE when umount failed.
+    NOTE: this function is executed in root mount ns.
     """
-    if not is_target_mounted(target, raise_exception=False):
-        return  # no need to try umount a not mounted target
-
-    _args = []
-    if recursive:
-        _args.append("-R")
-
-    try:
-        umount(target, args=_args, timeout=timeout)
-    except MountError as e:
-        _err_msg = f"failed to unmount {target}: {e!r}"
-        logger.warning(_err_msg)
-
-        if (
-            e.failure_reason == MountFailedReason.TARGET_IS_BUSY
-            and list_opened_files
-            and (
-                _open_files := _lsof(
-                    [str(target)],
-                    raise_exception=False,
-                    timeout=list_opened_files_timeout,
-                )
-            )
-        ):
-            _open_files = truncate_str_or_bytes(_open_files, _MAX_LSOF_OUTPUT_LEN)
-            logger.warning(f"open files on {target=}: \n{_open_files}")
-
-        if raise_exception:
-            raise MountError(
-                _err_msg, failure_reason=MountFailedReason.GENERIC_MOUNT_FAILURE
-            ) from e
+    return _lsof(
+        [str(target)],
+        enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
+        raise_exception=False,
+        timeout=timeout,
+    )
