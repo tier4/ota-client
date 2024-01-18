@@ -186,3 +186,7 @@ def nsenter(pid: int, *_ns_names: NS_NAME_LITERAL, chroot: bool = True) -> None:
                 os.chdir("/")
             except OSError as e:
                 raise OSError(f"failed to chroot to {pid=}'s root") from e
+
+
+# in most of the cases, entering the following namespaces are enough
+DEFAULT_NS_TO_ENTER: tuple[NS_NAME_LITERAL, ...] = ("mnt", "pid", "ipc", "user")

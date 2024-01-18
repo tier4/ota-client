@@ -37,7 +37,7 @@ class SubProcessCalledFailed(Exception):
         return_code: int = -1,
         stdout: str = "",
         stderr: str = "",
-        enter_root_ns: tuple[NS_NAME_LITERAL, ...] = (),
+        enter_root_ns: Optional[tuple[NS_NAME_LITERAL, ...]] = None,
         msg: str = "",
     ) -> None:
         self.cmd = cmd
@@ -63,7 +63,7 @@ class SubProcessCalledFailed(Exception):
 def _subprocess_call(
     _cmd: ArgsType,
     *,
-    enter_root_ns: tuple[NS_NAME_LITERAL, ...] = (),
+    enter_root_ns: Optional[tuple[NS_NAME_LITERAL, ...]] = None,
     raise_exception: bool = False,
     timeout: Optional[float] = None,
     capture_output: bool = False,
@@ -110,7 +110,7 @@ if TYPE_CHECKING:
     def subprocess_call(
         cmd: str | list[str],
         *,
-        enter_root_ns: tuple[NS_NAME_LITERAL, ...] = (),
+        enter_root_ns: Optional[tuple[NS_NAME_LITERAL, ...]] = None,
         raise_exception: bool = False,
         timeout: Optional[float] = None,
     ) -> None:
@@ -118,7 +118,7 @@ if TYPE_CHECKING:
 
         Args:
             cmd (str | list[str]): the <cmd> to be execute.
-            enter_root_ns (tuple[NS_NAME_LITERAL, ...] = ()): whether to execute the command under pid 1's ns,
+            enter_root_ns (tuple[NS_NAME_LITERAL, ...] = None): whether to execute the command under pid 1's ns,
                 default is not entering any root namespace.
             raise_exception (bool = False): if true, exception before/during subprocess execution
                 will be raised, otherwise exception will be handled.
@@ -133,7 +133,7 @@ if TYPE_CHECKING:
     def subprocess_check_output(
         cmd: str | list[str],
         *,
-        enter_root_ns: tuple[NS_NAME_LITERAL, ...] = (),
+        enter_root_ns: Optional[tuple[NS_NAME_LITERAL, ...]] = None,
         raise_exception: bool = False,
         timeout: Optional[float] = None,
         strip_result: bool = True,
@@ -142,7 +142,7 @@ if TYPE_CHECKING:
 
         Args:
             cmd (str | list[str]): the <cmd> to be execute.
-            enter_root_ns (tuple[NS_NAME_LITERAL, ...] = ()): whether to execute the command under pid 1's ns,
+            enter_root_ns (tuple[NS_NAME_LITERAL, ...] = None): whether to execute the command under pid 1's ns,
                 default is not entering any root namespace.
             raise_exception (bool = False): if true, exception before/during subprocess execution
                 will be raised, otherwise exception will be handled.
