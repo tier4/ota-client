@@ -141,6 +141,9 @@ def setns(fd: int, nstype: int = 0):
         raise OSError(f"setns failed with return code {_err_name}")
 
 
+INIT_PID = 1
+
+
 def nsenter(pid: int, *_ns_names: NS_NAME_LITERAL, chroot: bool = True) -> None:
     """Make current process enter target <pid>'s <ns_name(s)>.
 

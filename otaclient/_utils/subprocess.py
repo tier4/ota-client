@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from . import truncate_str_or_bytes
 from .typing import ArgsType
+from .linux import INIT_PID, NS_NAME_LITERAL, nsenter
 
 # prevent too-long stdout/stderr in err when handling exception
 _ERR_MAX_LEN = 2048
@@ -36,22 +37,22 @@ class SubProcessCalledFailed(Exception):
         return_code: int = -1,
         stdout: str = "",
         stderr: str = "",
-        new_root: Optional[str] = None,
+        enter_root_ns: tuple[NS_NAME_LITERAL, ...] = (),
         msg: str = "",
     ) -> None:
         self.cmd = cmd
         self.return_code = return_code
         self.stdout = truncate_str_or_bytes(stdout, _ERR_MAX_LEN)
         self.stderr = truncate_str_or_bytes(stderr, _ERR_MAX_LEN)
-        self.new_root = new_root
+        self.enter_root_mount_ns = enter_root_ns
         self.msg = msg
-        super().__init__(f"{cmd=} execution failed({new_root=}): {msg}")
+        super().__init__(f"{cmd=} execution failed({enter_root_ns=}): {msg}")
 
     @property
     def err_report(self):
         if self.cmd:
             return (
-                f"cmd({self.cmd}) execution failed(new_root={self.new_root}): {self.msg}\n"
+                f"{self:!r}\n"
                 f"return_code=({self.return_code}, \n"
                 f"stderr={truncate_str_or_bytes(self.stderr, _ERR_MAX_LEN)}, \n"
                 f"stdout={truncate_str_or_bytes(self.stdout, _ERR_MAX_LEN)})\n"
@@ -62,7 +63,7 @@ class SubProcessCalledFailed(Exception):
 def _subprocess_call(
     _cmd: ArgsType,
     *,
-    new_root: Optional[str] = None,
+    enter_root_ns: tuple[NS_NAME_LITERAL, ...] = (),
     raise_exception: bool = False,
     timeout: Optional[float] = None,
     capture_output: bool = False,
@@ -71,12 +72,8 @@ def _subprocess_call(
     cmd = shlex.split(_cmd) if isinstance(_cmd, str) else _cmd
 
     _preexec_fn: Optional[Callable[[], None]] = None
-    if new_root and new_root != "/":
-        if not os.path.isdir(new_root):
-            raise SubProcessCalledFailed(
-                msg=f"try to run cmd={' '.join(cmd)} with chroot, but {new_root=} is not a dir"
-            )
-        _preexec_fn = functools.partial(os.chroot, new_root)
+    if enter_root_ns:
+        _preexec_fn = functools.partial(nsenter, INIT_PID, *enter_root_ns)
 
     try:
         _res = subprocess.run(
@@ -97,7 +94,7 @@ def _subprocess_call(
             raise SubProcessCalledFailed(
                 " ".join(cmd),
                 return_code=e.returncode,
-                new_root=new_root,
+                enter_root_ns=enter_root_ns,
                 stderr=str(e.stderr),
             ) from e
 
@@ -113,7 +110,7 @@ if TYPE_CHECKING:
     def subprocess_call(
         cmd: str | list[str],
         *,
-        new_root: Optional[str] = None,
+        enter_root_ns: tuple[NS_NAME_LITERAL, ...] = (),
         raise_exception: bool = False,
         timeout: Optional[float] = None,
     ) -> None:
@@ -121,8 +118,8 @@ if TYPE_CHECKING:
 
         Args:
             cmd (str | list[str]): the <cmd> to be execute.
-            new_root (str = None): if this command is required to run with chroot, specifying
-                which root to chroot to.
+            enter_root_ns (tuple[NS_NAME_LITERAL, ...] = ()): whether to execute the command under pid 1's ns,
+                default is not entering any root namespace.
             raise_exception (bool = False): if true, exception before/during subprocess execution
                 will be raised, otherwise exception will be handled.
                 Note that exception raised due to <new_root> is invalid will always be raised.
@@ -136,7 +133,7 @@ if TYPE_CHECKING:
     def subprocess_check_output(
         cmd: str | list[str],
         *,
-        new_root: Optional[str] = None,
+        enter_root_ns: tuple[NS_NAME_LITERAL, ...] = (),
         raise_exception: bool = False,
         timeout: Optional[float] = None,
         strip_result: bool = True,
@@ -145,8 +142,8 @@ if TYPE_CHECKING:
 
         Args:
             cmd (str | list[str]): the <cmd> to be execute.
-            new_root (str = None): if this command is required to run with chroot, specifying
-                which root to chroot to.
+            enter_root_ns (tuple[NS_NAME_LITERAL, ...] = ()): whether to execute the command under pid 1's ns,
+                default is not entering any root namespace.
             raise_exception (bool = False): if true, exception before/during subprocess execution
                 will be raised, otherwise exception will be handled.
                 Note that exception raised due to <new_root> is invalid will always be raised.
