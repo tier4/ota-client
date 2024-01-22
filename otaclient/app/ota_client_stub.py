@@ -116,7 +116,12 @@ class _OTAProxyContext(OTAProxyContextProto):
         # try to unmount the mount_point and cache_dev unconditionally
         _mp = Path(self._external_cache_dev_mp)
         try:
-            umount(_cache_dev, timeout=DEFAULT_UMOUNT_TIMEOUT)
+            umount(
+                _cache_dev,
+                timeout=DEFAULT_UMOUNT_TIMEOUT,
+                all_mounts=True,
+                recursive=True,
+            )
         except Exception as e:
             logger.warning(
                 f"failed to mount {_cache_dev}: {e!r}, skip using external cache source"
@@ -143,7 +148,12 @@ class _OTAProxyContext(OTAProxyContextProto):
             return
 
         try:
-            umount(self._external_cache_dev, timeout=DEFAULT_UMOUNT_TIMEOUT)
+            umount(
+                self._external_cache_dev,
+                timeout=DEFAULT_UMOUNT_TIMEOUT,
+                all_mounts=True,
+                recursive=True,
+            )
         except Exception as e:
             logger.warning(
                 f"failed to unmount external cache_dev {self._external_cache_dev}: {e!r}"
