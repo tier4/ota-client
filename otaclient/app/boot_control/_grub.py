@@ -65,7 +65,6 @@ from .._cmdhelpers import (
     get_current_rootfs_dev,
     get_dev_fsuuid,
     gen_uuid_str,
-    log_exc,
     no_arg,
     reboot,
     take_arg,
@@ -87,12 +86,12 @@ class _GrubBootControllerError(Exception):
 
 
 @no_arg(subprocess_check_output)
-@log_exc(logger.error)
 def grub_mkconfig() -> str:
     """
     Raises:
         _GrubBootControllerError on failed call.
     """
+    logger.debug(f"cmd execute: grub-mkconfig")
     try:
         _res = subprocess_check_output(
             "grub-mkconfig",
@@ -108,15 +107,16 @@ def grub_mkconfig() -> str:
 
 
 @take_arg(subprocess_call)
-@log_exc(logger.error)
 def grub_reboot(idx: str) -> None:
     """
     Raises:
         _GrubBootControllerError on failed call.
     """
+    _cmd = f"grub-reboot {idx}"
+    logger.debug(f"cmd execute: {_cmd}")
     try:
         subprocess_call(
-            f"grub-reboot {idx}",
+            _cmd,
             raise_exception=True,
             enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
         )
@@ -127,7 +127,6 @@ def grub_reboot(idx: str) -> None:
 
 
 @take_arg(subprocess_check_output)
-@log_exc(logger.error)
 def get_dev_list_of_parent(parent: str) -> str | None:
     """
     Example output:
@@ -136,6 +135,7 @@ def get_dev_list_of_parent(parent: str) -> str | None:
     NAME="/dev/nvme0n1p2" FSTYPE="ext4"
     """
     _args = f"-Pp -o NAME,FSTYPE {parent}"
+    logger.debug(f"cmd executed: lsblk {_args}")
     return _lsblk(_args, raise_exception=True)
 
 

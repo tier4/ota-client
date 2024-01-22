@@ -37,7 +37,6 @@ from .._cmdhelpers import (
     gen_partuuid_str,
     get_dev_partuuid,
     get_current_rootfs_dev,
-    log_exc,
     mount_rw,
     reboot,
     take_arg,
@@ -61,14 +60,17 @@ class _NvbootctrlError(Exception):
 
 
 @take_arg(subprocess_check_output)
-@log_exc(logger.error)
 def _nvbootctrl(_args: str, **kwargs) -> str | None:
-    return subprocess_check_output(f"nvbootctrl {_args}", **kwargs)
+    _cmd = f"nvbootctrl {_args}"
+    logger.debug(f"cmd execute: {_cmd}")
+    return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_call)
 def _nvbootctrl_check_return_code(_args: str, **kwargs) -> str | None:
-    return subprocess_call(f"nvbootctrl {_args}", **kwargs)
+    _cmd = f"nvbootctrl {_args}"
+    logger.debug(f"cmd execute: {_cmd}")
+    return subprocess_call(_cmd, **kwargs)
 
 
 class Nvbootctrl:

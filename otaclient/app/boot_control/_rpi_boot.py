@@ -41,7 +41,6 @@ from .._cmdhelpers import (
     get_parent_dev,
     get_dev_tree,
     is_target_mounted,
-    log_exc,
     no_arg,
     reboot,
 )
@@ -57,8 +56,8 @@ _FSTAB_TEMPLATE_STR = (
 
 
 @no_arg(subprocess_call)
-@log_exc(logger.error)
 def _flash_kernel(**kwargs) -> None:
+    logger.debug(f"cmd executed: flash-kernel")
     subprocess_call("flash-kernel", **kwargs)
 
 
