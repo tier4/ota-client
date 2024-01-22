@@ -17,14 +17,17 @@
 from __future__ import annotations
 import functools
 import sys
+from contextlib import contextmanager
 from typing import Any, Callable, Literal, NoReturn, Optional
 from typing_extensions import Concatenate
 
 from otaclient._utils.subprocess import (
     compose_cmd,
+    gen_err_report,
     subprocess_call,
     subprocess_check_output,
     SubProcessCallFailed,
+    SubProcessCallTimeoutExpired,
 )
 from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 from otaclient._utils.typing import ArgsType, StrOrPath, P, T
@@ -35,6 +38,22 @@ from .log_setting import get_logger
 logger = get_logger(__name__)
 
 # ------ thin wrappers for calling corresponding commands ------ #
+
+
+@contextmanager
+def log_subprocess_exec(
+    _logger: Callable[[str], None], _msg: str = "", *, include_err_report: bool = True
+):
+    """A context manager that logs subprocess run failure.
+
+    Exception is re-raised directly.
+    """
+    try:
+        yield
+    except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
+        _err_report = gen_err_report(e) if include_err_report else ""
+        _logger(f"{_msg}: {_err_report}")
+        raise
 
 
 def take_arg(_: Callable[Concatenate[Any, P], Any]):
@@ -132,16 +151,13 @@ def reboot(_args: str = "") -> NoReturn:
     NOTE(20240118): this command requires nsenter to root ns.
     """
     # if in container mode, execute reboot on host ns
-    try:
+    with log_subprocess_exec(logger.error, f"failed to reboot({_args=}) the system"):
         _reboot(
             _args,
             raise_exception=True,
             enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
         )
-        sys.exit(0)
-    except SubProcessCallFailed:
-        logger.error(f"failed to reboot({_args=}) the system")
-        raise
+        sys.exit(0)  # must ensure otaclient exits after reboot is called
 
 
 def get_attr_from_dev(
@@ -307,7 +323,7 @@ def mkfs_ext4(
             if available. If set to True, <fsuuid> param will be ignored.
 
     Raises:
-        MkfsError on failed ext4 partition formatting.
+        SubprocessCallFailed on failed ext4 partition formatting.
     """
     if preserve_fslabel and (
         _prev_fslabel := get_attr_from_dev(dev, "LABEL", raise_exception=False)
@@ -322,12 +338,9 @@ def mkfs_ext4(
     specify_fsuuid = ["-U", fsuuid] if fsuuid else []
 
     logger.warning(f"format {dev} to ext4({fsuuid=}, {fslabel=})...")
-    try:
+    with log_subprocess_exec(logger.error, f"failed to format {dev} using mkfs.ext4"):
         _args = [*specify_fsuuid, *specify_fslabel, str(dev)]
         _mkfs_ext4(_args, raise_exception=True, timeout=timeout)
-    except SubProcessCallFailed as e:
-        logger.error(f"failed to format {dev} as mkfs.ext4 on: {e!r}")
-        raise
 
 
 #
@@ -424,14 +437,21 @@ def mount_rw(
         SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
     # first try to unconditionally umount all mount points on this target(device)
-    umount(target_dev)
-    mount(
-        target_dev,
-        mount_point,
-        options=["rw"],
-        args=["--make-unbindable"],
-        timeout=timeout,
-    )
+    with log_subprocess_exec(
+        logger.error, f"failed to unconditionally umount {target_dev}"
+    ):
+        umount(target_dev)
+
+    with log_subprocess_exec(
+        logger.error, f"failed to mount {target_dev} to {mount_point}"
+    ):
+        mount(
+            target_dev,
+            mount_point,
+            options=["rw"],
+            args=["--make-unbindable"],
+            timeout=timeout,
+        )
 
 
 def bind_mount_ro(
@@ -445,13 +465,16 @@ def bind_mount_ro(
     Raises:
         SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
-    mount(
-        target_mp,
-        mount_point,
-        options=["bind", "ro"],
-        args=["--make-unbindable"],
-        timeout=timeout,
-    )
+    with log_subprocess_exec(
+        logger.error, f"failed to bind mount ro {target_mp} to {mount_point}"
+    ):
+        mount(
+            target_mp,
+            mount_point,
+            options=["bind", "ro"],
+            args=["--make-unbindable"],
+            timeout=timeout,
+        )
 
 
 def mount_ro(
@@ -465,14 +488,21 @@ def mount_ro(
     Raises:
         SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
-    umount(target_dev)
-    mount(
-        target_dev,
-        mount_point,
-        options=["ro"],
-        args=["--make-unbindable"],
-        timeout=timeout,
-    )
+    with log_subprocess_exec(
+        logger.error, f"failed to unconditionally umount {target_dev}"
+    ):
+        umount(target_dev)
+
+    with log_subprocess_exec(
+        logger.error, f"failed to mount ro {target_dev} to {mount_point}"
+    ):
+        mount(
+            target_dev,
+            mount_point,
+            options=["ro"],
+            args=["--make-unbindable"],
+            timeout=timeout,
+        )
 
 
 def get_opened_files_on_target(target: StrOrPath, *, timeout: float = 3) -> str | None:
