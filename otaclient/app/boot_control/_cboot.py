@@ -21,6 +21,7 @@ from functools import partial
 from typing import Generator, Literal, NoReturn
 
 from otaclient._utils.subprocess import (
+    compose_cmd,
     subprocess_call,
     subprocess_check_output,
     SubProcessCallFailed,
@@ -61,14 +62,14 @@ class _NvbootctrlError(Exception):
 
 @take_arg(subprocess_check_output)
 def _nvbootctrl(_args: str, **kwargs) -> str | None:
-    _cmd = f"nvbootctrl {_args}"
+    _cmd = compose_cmd("nvbootctrl", _args)
     logger.debug(f"cmd execute: {_cmd}")
     return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_call)
 def _nvbootctrl_check_return_code(_args: str, **kwargs) -> str | None:
-    _cmd = f"nvbootctrl {_args}"
+    _cmd = compose_cmd("nvbootctrl", _args)
     logger.debug(f"cmd execute: {_cmd}")
     return subprocess_call(_cmd, **kwargs)
 
