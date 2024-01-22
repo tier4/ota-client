@@ -32,7 +32,6 @@ from ..common import read_str_from_file, write_str_to_file_sync
 from ..proto import wrapper
 
 from .._cmdhelpers import (
-    is_target_mounted,
     mkfs_ext4,
     umount,
     mount_rw,
@@ -297,9 +296,6 @@ class SlotMountException(Exception):
 class SlotMountHelper:
     """Helper class that provides methods for mounting slots."""
 
-    DEFAULT_MOUNT_TIMEOUT = None
-    DEFAULT_UMOUNT_TIMEOUT = None
-
     def __init__(
         self,
         *,
@@ -333,9 +329,8 @@ class SlotMountHelper:
         logger.debug("mount standby slot rootfs dev...")
         try:
             mount_rw(
-                target=self.standby_slot_dev,
+                target_dev=self.standby_slot_dev,
                 mount_point=self.standby_slot_mount_point,
-                timeout=self.DEFAULT_MOUNT_TIMEOUT,
             )
         except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
             _err_msg = f"failed to mount {self.standby_slot_dev=} to {self.standby_slot_mount_point=}: {e!r}"
@@ -355,7 +350,6 @@ class SlotMountHelper:
             bind_mount_ro(
                 target_mp=cfg.ACTIVE_ROOTFS,
                 mount_point=self.active_slot_mount_point,
-                timeout=self.DEFAULT_MOUNT_TIMEOUT,
             )
         except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
             _err_msg = f"failed to mount {self.active_slot_dev=} to {self.standby_slot_mount_point}: {e!r}"
@@ -383,12 +377,12 @@ class SlotMountHelper:
         """Umount all mount points and ignore all errors."""
         logger.debug("unmount standby slot and active slot mount point...")
         try:
-            umount(self.standby_slot_mount_point, timeout=self.DEFAULT_UMOUNT_TIMEOUT)
+            umount(self.standby_slot_mount_point)
         except Exception:
             logger.warning(f"failed to umount {self.standby_slot_mount_point=}")
 
         try:
-            umount(self.active_slot_mount_point, timeout=self.DEFAULT_UMOUNT_TIMEOUT)
+            umount(self.active_slot_mount_point)
         except Exception:
             logger.warning(f"failed to umount {self.active_slot_mount_point=}")
 
@@ -421,11 +415,11 @@ def prepare_standby_slot_dev_ext4(
             command execution.
     """
     # try umount the dev if it is mounted somewhere
-    if is_target_mounted(standby_slot_dev, raise_exception=False):
-        try:
-            umount(standby_slot_dev, timeout=SlotMountHelper.DEFAULT_UMOUNT_TIMEOUT)
-        except SubProcessCallFailed:
-            logger.warning(f"{standby_slot_dev} is mounted and failed to umount it")
+    umount(
+        standby_slot_dev,
+        recursive=True,
+        all_mounts=True,
+    )
 
     if erase_standby:
         return mkfs_ext4(standby_slot_dev, fslabel=fslabel, fsuuid=fsuuid)
