@@ -17,7 +17,7 @@ from __future__ import annotations
 import functools
 import subprocess
 import shlex
-from subprocess import CalledProcessError, TimeoutExpired
+from subprocess import CalledProcessError, TimeoutExpired, SubprocessError
 from typing import TYPE_CHECKING, Callable, Optional
 from typing_extensions import TypeAlias
 
@@ -28,13 +28,16 @@ from .linux import INIT_PID, NS_NAME_LITERAL, nsenter
 # prevent too-long stdout/stderr in err when handling exception
 _ERR_MAX_LEN = 2048
 
-# for backward compatibility
+# avoid manually import from std subprocess module when using this module
+SubProcessCalledError: TypeAlias = SubprocessError
 SubProcessCalledFailed: TypeAlias = CalledProcessError
 SubProcessCalledTimeoutExpired: TypeAlias = TimeoutExpired
 
 
-def err_report(_in: CalledProcessError) -> str:
+def gen_err_report(_in: SubProcessCalledFailed | SubProcessCalledTimeoutExpired) -> str:
     """Compose error report from exception."""
+    if isinstance(_in, SubProcessCalledTimeoutExpired):
+        return f"{_in!r}"
     return (
         f"{_in!r}\n"
         f"return_code=({_in.returncode}, \n"
