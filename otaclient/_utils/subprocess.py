@@ -29,14 +29,13 @@ from .linux import INIT_PID, NS_NAME_LITERAL, nsenter
 _ERR_MAX_LEN = 2048
 
 # avoid manually import from std subprocess module when using this module
-SubProcessCalledError: TypeAlias = SubprocessError
-SubProcessCalledFailed: TypeAlias = CalledProcessError
-SubProcessCalledTimeoutExpired: TypeAlias = TimeoutExpired
+SubProcessCallFailed: TypeAlias = CalledProcessError
+SubProcessCallTimeoutExpired: TypeAlias = TimeoutExpired
 
 
-def gen_err_report(_in: SubProcessCalledFailed | SubProcessCalledTimeoutExpired) -> str:
+def gen_err_report(_in: SubProcessCallFailed | SubProcessCallTimeoutExpired) -> str:
     """Compose error report from exception."""
-    if isinstance(_in, SubProcessCalledTimeoutExpired):
+    if isinstance(_in, SubProcessCallTimeoutExpired):
         return f"{_in!r}"
     return (
         f"{_in!r}\n"
