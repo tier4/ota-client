@@ -15,11 +15,11 @@
 
 from __future__ import annotations
 import functools
-import os
-import os.path
 import subprocess
 import shlex
+from subprocess import CalledProcessError, TimeoutExpired
 from typing import TYPE_CHECKING, Callable, Optional
+from typing_extensions import TypeAlias
 
 from . import truncate_str_or_bytes
 from .typing import ArgsType
@@ -28,36 +28,19 @@ from .linux import INIT_PID, NS_NAME_LITERAL, nsenter
 # prevent too-long stdout/stderr in err when handling exception
 _ERR_MAX_LEN = 2048
 
+# for backward compatibility
+SubProcessCalledFailed: TypeAlias = CalledProcessError
+SubProcessCalledTimeoutExpired: TypeAlias = TimeoutExpired
 
-class SubProcessCalledFailed(Exception):
-    def __init__(
-        self,
-        cmd: str = "",
-        *,
-        return_code: int = -1,
-        stdout: str = "",
-        stderr: str = "",
-        enter_root_ns: Optional[tuple[NS_NAME_LITERAL, ...]] = None,
-        msg: str = "",
-    ) -> None:
-        self.cmd = cmd
-        self.return_code = return_code
-        self.stdout = truncate_str_or_bytes(stdout, _ERR_MAX_LEN)
-        self.stderr = truncate_str_or_bytes(stderr, _ERR_MAX_LEN)
-        self.enter_root_mount_ns = enter_root_ns
-        self.msg = msg
-        super().__init__(f"{cmd=} execution failed({enter_root_ns=}): {msg}")
 
-    @property
-    def err_report(self):
-        if self.cmd:
-            return (
-                f"{self:!r}\n"
-                f"return_code=({self.return_code}, \n"
-                f"stderr={truncate_str_or_bytes(self.stderr, _ERR_MAX_LEN)}, \n"
-                f"stdout={truncate_str_or_bytes(self.stdout, _ERR_MAX_LEN)})\n"
-            )
-        return f"other failure: {self.msg}"
+def err_report(_in: CalledProcessError) -> str:
+    """Compose error report from exception."""
+    return (
+        f"{_in!r}\n"
+        f"return_code=({_in.returncode}, \n"
+        f"stderr={truncate_str_or_bytes(_in.stderr, _ERR_MAX_LEN)}, \n"
+        f"stdout={truncate_str_or_bytes(_in.stdout, _ERR_MAX_LEN)})\n"
+    )
 
 
 def _subprocess_call(
@@ -89,20 +72,9 @@ def _subprocess_call(
                 return _res.strip()
             return _res
 
-    except subprocess.CalledProcessError as e:
+    except Exception:
         if raise_exception:
-            raise SubProcessCalledFailed(
-                " ".join(cmd),
-                return_code=e.returncode,
-                enter_root_ns=enter_root_ns,
-                stderr=str(e.stderr),
-            ) from e
-
-    except Exception as e:
-        if raise_exception:
-            raise SubProcessCalledFailed(
-                msg=f"unexpected exception:{cmd=}, {e!r}"
-            ) from e
+            raise
 
 
 if TYPE_CHECKING:
@@ -126,8 +98,8 @@ if TYPE_CHECKING:
             timeout (floats = None): subprocess execution timeout.
 
         Raises:
-            SubprocessCalledFailed exception if subprocess call failed or <new_root> is specified
-                but invalid(not found or not a dir).
+            SubprocessCalledFailed exception if subprocess call failed, SubProcessCalledTimeoutExpired if cmd execution
+                timeout is defined and reached.
         """
 
     def subprocess_check_output(
@@ -154,8 +126,8 @@ if TYPE_CHECKING:
             The stdout of the execution, or None if execution failed and <raise_exception> is False.
 
         Raises:
-            SubprocessCalledFailed exception if subprocess call failed or <new_root> is specified
-                but invalid(not found or not a dir).
+            SubprocessCalledFailed exception if subprocess call failed, SubProcessCalledTimeoutExpired if cmd execution
+                timeout is defined and reached.
         """
 
 else:
