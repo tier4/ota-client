@@ -402,7 +402,7 @@ def umount(
             timeout=timeout,
         )
     except SubProcessCallFailed as e:
-        _std_err = str(e.stderr)
+        _std_err = e.stderr.decode()
         if _std_err.find("not mounted") != -1:
             return
 
