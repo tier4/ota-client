@@ -21,7 +21,7 @@ from string import Template
 from pathlib import Path
 from typing import Generator, NoReturn
 
-from otaclient._utils.subprocess import SubProcessCalledFailed, subprocess_call
+from otaclient._utils.subprocess import SubProcessCallFailed, subprocess_call
 from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 
 from .. import log_setting, errors as ota_errors
@@ -257,7 +257,7 @@ class _RPIBootControl:
                 enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None
             )
             os.sync()  # ensure the firmware is written to storage
-        except SubProcessCalledFailed as e:
+        except SubProcessCallFailed as e:
             _err_msg = f"flash-kernel failed: {e!r}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
@@ -392,7 +392,7 @@ class _RPIBootControl:
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
             reboot("'0 tryboot'")  # otaclient will be terminated on succeeded call
-        except SubProcessCalledFailed as e:
+        except SubProcessCallFailed as e:
             _err_msg = f"failed to reboot tryboot: {e!r}"
             logger.exception(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e

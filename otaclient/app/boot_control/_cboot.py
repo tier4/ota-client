@@ -41,7 +41,7 @@ from .._cmdhelpers import (
     mount_rw,
     reboot,
     take_arg,
-    umount_target,
+    umount,
 )
 from ._common import (
     prepare_standby_slot_dev_ext4,
@@ -427,7 +427,7 @@ class CBootController(BootControllerProtocol):
         finally:
             # unmount standby emmc boot dev on finish/failure
             try:
-                umount_target(_boot_dir_mount_point)
+                umount(_boot_dir_mount_point)
             except Exception as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
                 logger.warning(_failure_msg)

@@ -41,7 +41,7 @@ from pathlib import Path
 from pprint import pformat
 
 from otaclient._utils.subprocess import (
-    SubProcessCalledFailed,
+    SubProcessCallFailed,
     subprocess_call,
     subprocess_check_output,
 )
@@ -101,7 +101,7 @@ def grub_mkconfig() -> str:
         )
         assert _res
         return _res
-    except (SubProcessCalledFailed, AssertionError) as e:
+    except (SubProcessCallFailed, AssertionError) as e:
         _err_msg = "failed to call grub_mkconfig or return value is empty"
         logger.error(_err_msg)
         raise _GrubBootControllerError(_err_msg) from e
@@ -120,7 +120,7 @@ def grub_reboot(idx: str) -> None:
             raise_exception=True,
             enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
         )
-    except SubProcessCalledFailed as e:
+    except SubProcessCallFailed as e:
         _err_msg = f"failed to grub-reboot to {idx}: {e!r}"
         logger.error(_err_msg)
         raise _GrubBootControllerError(_err_msg) from e
@@ -377,7 +377,7 @@ class GrubABPartitionDetector:
         try:
             parent = get_parent_dev(active_dev, raise_exception=True)
             assert parent
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = f"failed to find parent dev for {active_dev=}"
             logger.error(_err_msg)
             raise _GrubBootControllerError(_err_msg) from e
@@ -385,7 +385,7 @@ class GrubABPartitionDetector:
         try:
             boot_dev = get_dev_by_mount_point(cfg.BOOT_DPATH, raise_exception=True)
             assert boot_dev
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = f"active rootfs's {cfg.BOOT_DPATH} is not mounted"
             logger.error(_err_msg)
             raise _GrubBootControllerError(_err_msg)
@@ -394,7 +394,7 @@ class GrubABPartitionDetector:
         try:
             _dev_list = get_dev_list_of_parent(parent)
             assert _dev_list
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = f"failed to get child devs list from {parent=}: {e!r}"
             logger.error(_err_msg)
             raise _GrubBootControllerError(_err_msg) from e
@@ -427,7 +427,7 @@ class GrubABPartitionDetector:
         try:
             dev_path = get_current_rootfs_dev(raise_exception=True)
             assert dev_path
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = f"failed to get current active rootfs({cfg.ACTIVE_ROOTFS})"
             logger.error(_err_msg)
             raise _GrubBootControllerError(_err_msg) from e
@@ -509,7 +509,7 @@ class _GrubControl:
             )
             assert standby_slot_fsuuid
             return standby_slot_fsuuid
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = f"failed to get {self.standby_root_dev=} fsuuid: {e!r}"
             logger.error(_err_msg)
             raise _GrubBootControllerError(_err_msg)
@@ -856,7 +856,7 @@ class GrubController(BootControllerProtocol):
                 self._boot_control.standby_root_dev, raise_exception=True
             )
             assert standby_slot_fsuuid
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = (
                 f"failed to get {self._boot_control.standby_root_dev=}'s fsuuid: {e!r}"
             )
