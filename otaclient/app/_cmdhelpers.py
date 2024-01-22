@@ -17,7 +17,6 @@
 from __future__ import annotations
 import functools
 import sys
-from enum import Enum, unique
 from typing import Any, Callable, Literal, NoReturn, Optional
 from typing_extensions import Concatenate
 
@@ -25,11 +24,13 @@ from otaclient._utils.subprocess import (
     compose_cmd,
     subprocess_call,
     subprocess_check_output,
-    SubProcessCalledFailed,
+    SubProcessCallFailed,
+    SubProcessCallTimeoutExpired,
+    gen_err_report,
 )
 from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 from otaclient._utils.typing import ArgsType, StrOrPath, P, T
-from otaclient._utils import truncate_str_or_bytes
+from otaclient._utils import truncate_str
 from .configs import config as cfg
 from .log_setting import get_logger
 
@@ -46,8 +47,8 @@ def log_exc(err_handler: Callable[[str], None]):
         def _inner(*args, **kwargs) -> T:
             try:
                 return _target(*args, **kwargs)
-            except SubProcessCalledFailed as e:
-                err_handler(e.err_report)
+            except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
+                err_handler(gen_err_report(e))
                 raise
 
         return _inner  # type: ignore
@@ -157,7 +158,7 @@ def reboot(_args: str = "") -> NoReturn:
             enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
         )
         sys.exit(0)
-    except SubProcessCalledFailed:
+    except SubProcessCallFailed:
         logger.error(f"failed to reboot({_args=}) the system")
         raise
 
@@ -343,7 +344,7 @@ def mkfs_ext4(
     try:
         _args = [*specify_fsuuid, *specify_fslabel, str(dev)]
         _mkfs_ext4(_args, raise_exception=True, timeout=timeout)
-    except SubProcessCalledFailed as e:
+    except SubProcessCallFailed as e:
         logger.error(f"failed to format {dev} as mkfs.ext4 on: {e!r}")
         raise
 
@@ -355,66 +356,6 @@ def mkfs_ext4(
 #                 mount points created by otaclient should be in root mnt namespace.
 
 
-class MountError(Exception):
-    """Mount operation failure related exception."""
-
-    def __init__(self, *args: object, failure_reason: MountFailedReason) -> None:
-        self.failure_reason = failure_reason
-        super().__init__(*args)
-
-
-@unique
-class MountFailedReason(int, Enum):
-    # error code
-    SUCCESS = 0
-    PERMISSIONS_ERROR = 1
-    SYSTEM_ERROR = 2
-    INTERNAL_ERROR = 4
-    USER_INTERRUPT = 8
-    GENERIC_MOUNT_FAILURE = 32
-
-    # custom error code
-    # specific reason for generic mount failure
-    TARGET_NOT_FOUND = -1
-    TARGET_ALREADY_MOUNTED = -2
-    MOUNT_POINT_NOT_FOUND = -3
-    BIND_MOUNT_ON_NON_DIR = -4
-    TARGET_IS_BUSY = -5
-
-
-def _parse_mount_failure(func: Callable[P, T]) -> Callable[P, T]:
-    @functools.wraps(func)
-    def _wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except SubProcessCalledFailed as e:
-            _reason = MountFailedReason(e.return_code)
-
-            if _reason != MountFailedReason.GENERIC_MOUNT_FAILURE:
-                raise MountError(failure_reason=_reason)
-
-            # if the return code is 32, determine the detailed reason
-            # of the mount failure
-            _error_msg = str(e.stderr)
-            if _error_msg.find("already mounted") != -1:
-                _fail_reason = MountFailedReason.TARGET_ALREADY_MOUNTED
-            elif _error_msg.find("mount point does not exist") != -1:
-                _fail_reason = MountFailedReason.MOUNT_POINT_NOT_FOUND
-            elif _error_msg.find("does not exist") != -1:
-                _fail_reason = MountFailedReason.TARGET_NOT_FOUND
-            elif _error_msg.find("Not a directory") != -1:
-                _fail_reason = MountFailedReason.BIND_MOUNT_ON_NON_DIR
-            elif _error_msg.find("target is busy") != -1:
-                _fail_reason = MountFailedReason.TARGET_IS_BUSY
-            else:
-                _fail_reason = MountFailedReason.GENERIC_MOUNT_FAILURE
-
-            raise MountError(_error_msg, failure_reason=_fail_reason)
-
-    return _wrapper  # type: ignore
-
-
-@_parse_mount_failure
 def mount(
     dev: StrOrPath,
     mount_point: StrOrPath,
@@ -428,7 +369,7 @@ def mount(
     NOTE(20240118): always executed in root mount ns.
 
     Raises:
-        MountError on failed mounting.
+        SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
     _options = ["-o", ",".join(options)] if isinstance(options, list) else []
     _args = args if isinstance(args, list) else []
@@ -442,29 +383,33 @@ def mount(
     )
 
 
-@_parse_mount_failure
 def umount(
     target: StrOrPath,
     *,
-    args: Optional[list[str]] = None,
-    timeout: Optional[float] = None,
-):
-    """umount [args[0] [args[1]...]] <target>
-
-    NOTE(20240118): always executed in root mount ns.
+    list_opened_files: bool = True,
+    timeout: Optional[float] = 120,
+) -> None:
+    """Umount all mounts on <target> recursively.
 
     Raises:
-        MountError on failed umounting.
+        SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
-    _args = args if isinstance(args, list) else []
+    try:
+        _umount(
+            ["-ARf", str(target)],
+            enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
+            raise_exception=True,
+            timeout=timeout,
+        )
+    except SubProcessCallFailed as e:
+        _std_err = str(e.stderr)
+        if _std_err.find("not mounted") != -1:
+            return
 
-    _umount_params = [*_args, str(target)]
-    _umount(
-        _umount_params,
-        enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
-        raise_exception=True,
-        timeout=timeout,
-    )
+        if list_opened_files and _std_err.find("target is busy") != -1:
+            _opened_files = truncate_str(get_opened_files_on_target(target) or "", 2048)
+            logger.error(f"opened files on {target}: \n{_opened_files}")
+        raise
 
 
 def mount_rw(
@@ -483,22 +428,17 @@ def mount_rw(
     NOTE(20240118): always mount in root namespace.
 
     Raises:
-        MountError on failed mounting.
+        SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
     # first try to unconditionally umount all mount points on this target(device)
-    umount_target(target)
-
-    try:
-        mount(
-            target,
-            mount_point,
-            options=["rw"],
-            args=["--make-unbindable"],
-            timeout=timeout,
-        )
-    except MountError as e:
-        logger.error(f"failed to mount {target=} to {mount_point=} as rw: {e!r}")
-        return
+    umount(target)
+    mount(
+        target,
+        mount_point,
+        options=["rw"],
+        args=["--make-unbindable"],
+        timeout=timeout,
+    )
 
 
 def bind_mount_ro(
@@ -510,19 +450,15 @@ def bind_mount_ro(
     """Bind mount the target to the mount_point read-only.
 
     Raises:
-        MountError on failed mounting.
+        SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
-    try:
-        mount(
-            target_mp,
-            mount_point,
-            options=["bind", "ro"],
-            args=["--make-unbindable"],
-            timeout=timeout,
-        )
-    except MountError as e:
-        logger.error(f"failed to bind_mount_ro {target_mp=} to {mount_point=}: {e!r}")
-        raise
+    mount(
+        target_mp,
+        mount_point,
+        options=["bind", "ro"],
+        args=["--make-unbindable"],
+        timeout=timeout,
+    )
 
 
 def mount_ro(
@@ -534,43 +470,16 @@ def mount_ro(
     """Mount target on mount_point read-only exclusively.
 
     Raises:
-        MountError on failed mounting.
+        SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
-    umount_target(target_dev)
-    try:
-        mount(
-            target_dev,
-            mount_point,
-            options=["ro"],
-            args=["--make-unbindable"],
-            timeout=timeout,
-        )
-    except MountError as e:
-        logger.error(f"failed to mount_ro {target_dev=} to {mount_point=}: {e!r}")
-        raise
-
-
-def umount_target(target: StrOrPath, *, list_opened_files: bool = True) -> None:
-    """Umount all mounts on <target> recursively.
-
-    Raises:
-        MountError on failed umount.
-    """
-    try:
-        umount(
-            target,
-            args=["-A", "-f", "-R"],
-        )
-    except MountError as e:
-        _err_msg = f"failed to umount {target}: {e!r}"
-        logger.error(_err_msg)
-
-        if list_opened_files and e.failure_reason == MountFailedReason.TARGET_IS_BUSY:
-            _opened_files = truncate_str_or_bytes(
-                get_opened_files_on_target(target) or "", 2048
-            )
-            logger.error(f"opened files on {target}: \n{_opened_files}")
-        raise
+    umount(target_dev)
+    mount(
+        target_dev,
+        mount_point,
+        options=["ro"],
+        args=["--make-unbindable"],
+        timeout=timeout,
+    )
 
 
 def get_opened_files_on_target(target: StrOrPath, *, timeout: float = 3) -> str | None:
