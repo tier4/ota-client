@@ -15,14 +15,15 @@
 
 from __future__ import annotations
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, Union
 from typing_extensions import Concatenate, ParamSpec, TypeAlias
 
 P = ParamSpec("P")
 T = TypeVar("T")
 RT = TypeVar("RT")
 
-StrOrPath: TypeAlias = "str | Path"
+StrOrPath: TypeAlias = Union[str, Path]
+StrOrByte: TypeAlias = Union[str, bytes]
 ArgsType = TypeVar("ArgsType", str, "list[str]")
 
 
