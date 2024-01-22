@@ -25,8 +25,6 @@ from otaclient._utils.subprocess import (
     subprocess_call,
     subprocess_check_output,
     SubProcessCallFailed,
-    SubProcessCallTimeoutExpired,
-    gen_err_report,
 )
 from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 from otaclient._utils.typing import ArgsType, StrOrPath, P, T
@@ -37,23 +35,6 @@ from .log_setting import get_logger
 logger = get_logger(__name__)
 
 # ------ thin wrappers for calling corresponding commands ------ #
-
-
-def log_exc(err_handler: Callable[[str], None]):
-    """A wrapper that handles logging when execution failed."""
-
-    def _decorator(_target: Callable[P, T]) -> Callable[P, T]:
-        @functools.wraps(_target)
-        def _inner(*args, **kwargs) -> T:
-            try:
-                return _target(*args, **kwargs)
-            except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
-                err_handler(gen_err_report(e))
-                raise
-
-        return _inner  # type: ignore
-
-    return _decorator
 
 
 def take_arg(_: Callable[Concatenate[Any, P], Any]):
@@ -75,65 +56,65 @@ def no_arg(_: Callable[Concatenate[Any, P], Any]):
 
 
 @take_arg(subprocess_check_output)
-@log_exc(logger.warning)
 def _findfs(_args: ArgsType, **kwargs) -> str | None:
     _cmd: list[str] = compose_cmd("findfs", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_check_output)
-@log_exc(logger.warning)
 def _findmnt(_args: ArgsType, **kwargs) -> str | None:
     _cmd: list[str] = compose_cmd("findmnt", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_check_output)
-@log_exc(logger.error)
 def _lsblk(_args: ArgsType, **kwargs) -> str | None:
     _cmd: list[str] = compose_cmd("lsblk", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_check_output)
-@log_exc(logger.debug)
 def _lsof(_args: ArgsType, **kwargs) -> str | None:
     _cmd: list[str] = compose_cmd("lsof", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_check_output(_cmd, **kwargs)
 
 
 @take_arg(subprocess_call)
-@log_exc(logger.error)
 def _mkfs_ext4(_args: ArgsType, **kwargs) -> None:
     _cmd: list[str] = compose_cmd("mkfs.ext4", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_call(_cmd, **kwargs)
 
 
 @take_arg(subprocess_call)
-@log_exc(logger.error)
 def _reboot(_args: ArgsType, **kwargs) -> None:
     _cmd: list[str] = compose_cmd("reboot", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_call(_cmd, **kwargs)
 
 
 @take_arg(subprocess_call)
-@log_exc(logger.error)
 def _mount(_args: ArgsType, **kwargs) -> None:
     _cmd: list[str] = compose_cmd("mount", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_call(_cmd, **kwargs)
 
 
 @take_arg(subprocess_call)
-@log_exc(logger.warning)
 def _umount(_args: ArgsType, **kwargs) -> None:
     _cmd: list[str] = compose_cmd("umount", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_call(_cmd, **kwargs)
 
 
 @take_arg(subprocess_call)
-@log_exc(logger.error)
 def _e2label(_args: ArgsType, **kwargs) -> None:
     _cmd: list[str] = compose_cmd("e2label", _args)
+    logger.debug(f"cmd execute: {' '.join(_cmd)}")
     return subprocess_call(_cmd, **kwargs)
 
 
