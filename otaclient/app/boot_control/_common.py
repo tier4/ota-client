@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import Optional, Callable
 
 from otaclient._utils.path import replace_root
+from otaclient._utils.subprocess import (
+    SubProcessCallFailed,
+    SubProcessCallTimeoutExpired,
+)
 from otaclient._utils.typing import StrOrPath
 
 from .. import log_setting
@@ -30,12 +34,10 @@ from ..proto import wrapper
 from .._cmdhelpers import (
     is_target_mounted,
     mkfs_ext4,
-    umount_target,
+    umount,
     mount_rw,
     bind_mount_ro,
     set_ext4_dev_fslabel,
-    SubProcessCalledFailed,
-    MountError,
 )
 
 
@@ -295,6 +297,9 @@ class SlotMountException(Exception):
 class SlotMountHelper:
     """Helper class that provides methods for mounting slots."""
 
+    DEFAULT_MOUNT_TIMEOUT = None
+    DEFAULT_UMOUNT_TIMEOUT = None
+
     def __init__(
         self,
         *,
@@ -328,9 +333,11 @@ class SlotMountHelper:
         logger.debug("mount standby slot rootfs dev...")
         try:
             mount_rw(
-                target=self.standby_slot_dev, mount_point=self.standby_slot_mount_point
+                target=self.standby_slot_dev,
+                mount_point=self.standby_slot_mount_point,
+                timeout=self.DEFAULT_MOUNT_TIMEOUT,
             )
-        except MountError as e:
+        except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
             _err_msg = f"failed to mount {self.standby_slot_dev=} to {self.standby_slot_mount_point=}: {e!r}"
             logger.error(_err_msg)
             raise SlotMountException(_err_msg) from e
@@ -346,9 +353,11 @@ class SlotMountHelper:
         logger.debug("mount active slot rootfs dev...")
         try:
             bind_mount_ro(
-                target_mp=cfg.ACTIVE_ROOTFS, mount_point=self.active_slot_mount_point
+                target_mp=cfg.ACTIVE_ROOTFS,
+                mount_point=self.active_slot_mount_point,
+                timeout=self.DEFAULT_MOUNT_TIMEOUT,
             )
-        except MountError as e:
+        except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
             _err_msg = f"failed to mount {self.active_slot_dev=} to {self.standby_slot_mount_point}: {e!r}"
             logger.error(_err_msg)
             raise SlotMountException(_err_msg) from e
@@ -374,12 +383,12 @@ class SlotMountHelper:
         """Umount all mount points and ignore all errors."""
         logger.debug("unmount standby slot and active slot mount point...")
         try:
-            umount_target(self.standby_slot_mount_point)
+            umount(self.standby_slot_mount_point, timeout=self.DEFAULT_UMOUNT_TIMEOUT)
         except Exception:
             logger.warning(f"failed to umount {self.standby_slot_mount_point=}")
 
         try:
-            umount_target(self.active_slot_mount_point)
+            umount(self.active_slot_mount_point, timeout=self.DEFAULT_UMOUNT_TIMEOUT)
         except Exception:
             logger.warning(f"failed to umount {self.active_slot_mount_point=}")
 
@@ -414,8 +423,8 @@ def prepare_standby_slot_dev_ext4(
     # try umount the dev if it is mounted somewhere
     if is_target_mounted(standby_slot_dev, raise_exception=False):
         try:
-            umount_target(standby_slot_dev)
-        except SubProcessCalledFailed:
+            umount(standby_slot_dev, timeout=SlotMountHelper.DEFAULT_UMOUNT_TIMEOUT)
+        except SubProcessCallFailed:
             logger.warning(f"{standby_slot_dev} is mounted and failed to umount it")
 
     if erase_standby:
