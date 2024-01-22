@@ -387,7 +387,7 @@ def umount(
     target: StrOrPath,
     *,
     list_opened_files: bool = True,
-    timeout: Optional[float] = 120,
+    timeout: Optional[float] = None,
 ) -> None:
     """Umount all mounts on <target> recursively.
 
