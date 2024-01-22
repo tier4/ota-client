@@ -386,6 +386,8 @@ def mount(
 def umount(
     target: StrOrPath,
     *,
+    recursive: bool = False,
+    all_mounts: bool = False,
     list_opened_files: bool = True,
     timeout: Optional[float] = None,
 ) -> None:
@@ -394,15 +396,22 @@ def umount(
     Raises:
         SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
+    _args = []
+    if recursive:
+        _args.append("-R")
+    if all_mounts:
+        _args.append("-A")
+    _args.append(str(target))
+
     try:
         _umount(
-            ["-ARf", str(target)],
+            _args,
             enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
             raise_exception=True,
             timeout=timeout,
         )
     except SubProcessCallFailed as e:
-        _std_err = e.stderr.decode()
+        _std_err: str = e.stderr.decode()
         if _std_err.find("not mounted") != -1:
             return
 
