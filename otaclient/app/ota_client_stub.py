@@ -27,7 +27,7 @@ from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
 from typing_extensions import Self
 
 from . import log_setting
-from ._cmdhelpers import mount_ro, get_dev_by_attr, umount_target
+from ._cmdhelpers import mount_ro, get_dev_by_attr, umount
 from .configs import config as cfg, logging_config
 from .common import ensure_otaproxy_start
 from .ecu_info import ECUContact, ECUInfo
@@ -44,6 +44,8 @@ from otaclient.ota_proxy import (
 
 
 logger = log_setting.get_logger(__name__)
+
+DEFAULT_UMOUNT_TIMEOUT = DEFAULT_MOUNT_TIMEOUT = 360  # seconds
 
 
 class _OTAProxyContext(OTAProxyContextProto):
@@ -114,7 +116,7 @@ class _OTAProxyContext(OTAProxyContextProto):
         # try to unmount the mount_point and cache_dev unconditionally
         _mp = Path(self._external_cache_dev_mp)
         try:
-            umount_target(_cache_dev)
+            umount(_cache_dev, timeout=DEFAULT_UMOUNT_TIMEOUT)
         except Exception as e:
             logger.warning(
                 f"failed to mount {_cache_dev}: {e!r}, skip using external cache source"
@@ -128,6 +130,7 @@ class _OTAProxyContext(OTAProxyContextProto):
             mount_ro(
                 target_dev=_cache_dev,
                 mount_point=self._external_cache_dev_mp,
+                timeout=DEFAULT_MOUNT_TIMEOUT,
             )
             self._external_cache_activated = True
         except Exception as e:
@@ -140,7 +143,7 @@ class _OTAProxyContext(OTAProxyContextProto):
             return
 
         try:
-            umount_target(self._external_cache_dev)
+            umount(self._external_cache_dev, timeout=DEFAULT_UMOUNT_TIMEOUT)
         except Exception as e:
             logger.warning(
                 f"failed to unmount external cache_dev {self._external_cache_dev}: {e!r}"
