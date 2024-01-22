@@ -38,6 +38,7 @@ from .._cmdhelpers import (
     gen_partuuid_str,
     get_dev_partuuid,
     get_current_rootfs_dev,
+    log_subprocess_exec,
     mount_rw,
     reboot,
     take_arg,
@@ -102,15 +103,14 @@ class Nvbootctrl:
             SubProcessCalledFailed if raise_exception is True.
         """
         _args = f"-t {target} {args}"
-        try:
+        with log_subprocess_exec(
+            logger.warning, f"nvbootctrl command({_args=}) execution failed"
+        ):
             return _nvbootctrl(
                 _args,
                 enter_root_ns=DEFAULT_NS_TO_ENTER,
                 raise_exception=raise_exception,
             )
-        except SubProcessCallFailed as e:
-            logger.warning(gen_err_report(e))
-            raise
 
     @classmethod
     def get_current_slot(cls, *, target: TARGET_TYPE = "rootfs") -> str:
