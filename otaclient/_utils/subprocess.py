@@ -21,7 +21,7 @@ from subprocess import CalledProcessError, TimeoutExpired, SubprocessError
 from typing import TYPE_CHECKING, Callable, Optional
 from typing_extensions import TypeAlias
 
-from . import truncate_str_or_bytes
+from . import truncate_str
 from .typing import ArgsType
 from .linux import INIT_PID, NS_NAME_LITERAL, nsenter
 
@@ -40,8 +40,8 @@ def gen_err_report(_in: SubProcessCallFailed | SubProcessCallTimeoutExpired) -> 
     return (
         f"{_in!r}\n"
         f"return_code=({_in.returncode}, \n"
-        f"stderr={truncate_str_or_bytes(_in.stderr, _ERR_MAX_LEN)}, \n"
-        f"stdout={truncate_str_or_bytes(_in.stdout, _ERR_MAX_LEN)})\n"
+        f"stderr={truncate_str(_in.stderr.decode(), _ERR_MAX_LEN)}, \n"
+        f"stdout={truncate_str(_in.stdout.decode(), _ERR_MAX_LEN)})\n"
     )
 
 

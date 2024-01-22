@@ -23,7 +23,6 @@ T = TypeVar("T")
 RT = TypeVar("RT")
 
 StrOrPath: TypeAlias = Union[str, Path]
-StrOrBytes: TypeAlias = Union[str, bytes]
 ArgsType = TypeVar("ArgsType", str, "list[str]")
 
 
