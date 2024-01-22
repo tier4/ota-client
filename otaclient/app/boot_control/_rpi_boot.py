@@ -40,6 +40,7 @@ from .._cmdhelpers import (
     get_dev_fslabel,
     get_parent_dev,
     get_dev_tree,
+    log_subprocess_exec,
     is_target_mounted,
     no_arg,
     reboot,
@@ -58,7 +59,8 @@ _FSTAB_TEMPLATE_STR = (
 @no_arg(subprocess_call)
 def _flash_kernel(**kwargs) -> None:
     logger.debug(f"cmd executed: flash-kernel")
-    subprocess_call("flash-kernel", **kwargs)
+    with log_subprocess_exec(logger.error, "failed to flash-kernel"):
+        subprocess_call("flash-kernel", **kwargs)
 
 
 class _RPIBootControllerError(Exception):
