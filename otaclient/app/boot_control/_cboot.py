@@ -23,7 +23,8 @@ from typing import Generator, Literal, NoReturn
 from otaclient._utils.subprocess import (
     subprocess_call,
     subprocess_check_output,
-    SubProcessCalledFailed,
+    SubProcessCallFailed,
+    gen_err_report,
 )
 from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 
@@ -98,11 +99,15 @@ class Nvbootctrl:
             SubProcessCalledFailed if raise_exception is True.
         """
         _args = f"-t {target} {args}"
-        return _nvbootctrl(
-            _args,
-            enter_root_ns=DEFAULT_NS_TO_ENTER,
-            raise_exception=raise_exception,
-        )
+        try:
+            return _nvbootctrl(
+                _args,
+                enter_root_ns=DEFAULT_NS_TO_ENTER,
+                raise_exception=raise_exception,
+            )
+        except SubProcessCallFailed as e:
+            logger.warning(gen_err_report(e))
+            raise
 
     @classmethod
     def get_current_slot(cls, *, target: TARGET_TYPE = "rootfs") -> str:
@@ -110,7 +115,7 @@ class Nvbootctrl:
             slot = cls._nvbootctrl("get-current-slot", target=target)
             assert slot
             return slot
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = f"failed to get current slot: {e!r}"
             logger.error(_err_msg)
             raise _NvbootctrlError(_err_msg) from e
@@ -124,7 +129,7 @@ class Nvbootctrl:
         """Mark current slot as boot successfully."""
         try:
             cls._nvbootctrl("mark-boot-successful", target=target)
-        except SubProcessCalledFailed as e:
+        except SubProcessCallFailed as e:
             _err_msg = f"failed mark current slot as boot successful: {e!r}"
             logger.error(_err_msg)
             raise _NvbootctrlError(_err_msg) from e
@@ -133,7 +138,7 @@ class Nvbootctrl:
     def set_active_boot_slot(cls, slot: str, *, target: TARGET_TYPE = "rootfs"):
         try:
             cls._nvbootctrl(f"set-active-boot-slot {slot}", target=target)
-        except SubProcessCalledFailed as e:
+        except SubProcessCallFailed as e:
             _err_msg = f"failed to set active rootfs slot to {slot=}: {e!r}"
             logger.error(_err_msg)
             raise _NvbootctrlError(_err_msg) from e
@@ -142,7 +147,7 @@ class Nvbootctrl:
     def set_slot_as_unbootable(cls, slot: str, *, target: TARGET_TYPE = "rootfs"):
         try:
             cls._nvbootctrl(f"set-slot-as-unbootable {slot}", target=target)
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = f"failed to set {slot} as unbootable: {e!r}"
             logger.error(_err_msg)
             raise _NvbootctrlError(_err_msg) from e
@@ -156,7 +161,7 @@ class Nvbootctrl:
                 f"is-slot-bootable -t {target} {slot}", raise_exception=True
             )
             return True
-        except SubProcessCalledFailed:
+        except SubProcessCallFailed:
             return False
 
     @classmethod
@@ -168,7 +173,7 @@ class Nvbootctrl:
                 f"is-slot-marked-successful {slot}", raise_exception=True
             )
             return True
-        except SubProcessCalledFailed:
+        except SubProcessCallFailed:
             return False
 
 
@@ -205,7 +210,7 @@ class _CBootControl:
         try:
             _current_rootfs_dev = get_current_rootfs_dev(raise_exception=True)
             assert _current_rootfs_dev
-        except (SubProcessCalledFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError) as e:
             _err_msg = f"failed to get current root dev: {e!r}"
             logger.error(_err_msg)
             raise _NvbootctrlError(_err_msg) from e
@@ -253,7 +258,7 @@ class _CBootControl:
             _err_msg = "failed to get standby slot partuuid"
             logger.error(_err_msg)
             raise _NvbootctrlError(_err_msg) from None
-        except SubProcessCalledFailed as e:
+        except SubProcessCallFailed as e:
             _err_msg = (
                 f"failed to detect standby slot rootfs device: {_current_rootfs_dev=}"
             )
@@ -402,7 +407,7 @@ class CBootController(BootControllerProtocol):
 
         try:
             mount_rw(self._cboot_control.standby_slot_boot_dev, _boot_dir_mount_point)
-        except SubProcessCalledFailed as e:
+        except SubProcessCallFailed as e:
             _err_msg = f"failed to mount standby boot dev: {e!r}"
             logger.error(_err_msg)
             raise _NvbootctrlError(_err_msg) from e
