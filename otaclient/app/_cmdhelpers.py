@@ -355,6 +355,9 @@ def mkfs_ext4(
 # NOTE(20240118): always execute mount/umount in the root mnt namespace,
 #                 mount points created by otaclient should be in root mnt namespace.
 
+DEFAULT_MOUNT_TIMEOUT = None
+DEFAULT_UMOUNT_TIMEOUT = None
+
 
 def mount(
     dev: StrOrPath,
@@ -362,7 +365,7 @@ def mount(
     *,
     options: Optional[list[str]] = None,
     args: Optional[list[str]] = None,
-    timeout: Optional[float] = None,
+    timeout: Optional[float] = DEFAULT_MOUNT_TIMEOUT,
 ) -> None:
     """mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
 
@@ -389,9 +392,9 @@ def umount(
     recursive: bool = False,
     all_mounts: bool = False,
     list_opened_files: bool = True,
-    timeout: Optional[float] = None,
+    timeout: Optional[float] = DEFAULT_UMOUNT_TIMEOUT,
 ) -> None:
-    """Umount all mounts on <target> recursively.
+    """Umount target with options.
 
     Raises:
         SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
@@ -422,10 +425,10 @@ def umount(
 
 
 def mount_rw(
-    target: StrOrPath,
+    target_dev: StrOrPath,
     mount_point: StrOrPath,
     *,
-    timeout: Optional[float] = None,
+    timeout: Optional[float] = DEFAULT_MOUNT_TIMEOUT,
 ) -> None:
     """Mount the target to the mount_point read-write exclusively.
 
@@ -440,9 +443,9 @@ def mount_rw(
         SubprocessCallFailed on failed mounting, or SubProcessCallTimeoutExpired on timeout mount.
     """
     # first try to unconditionally umount all mount points on this target(device)
-    umount(target)
+    umount(target_dev)
     mount(
-        target,
+        target_dev,
         mount_point,
         options=["rw"],
         args=["--make-unbindable"],
@@ -474,7 +477,7 @@ def mount_ro(
     target_dev: StrOrPath,
     mount_point: StrOrPath,
     *,
-    timeout: Optional[float] = None,
+    timeout: Optional[float] = DEFAULT_MOUNT_TIMEOUT,
 ) -> None:
     """Mount target on mount_point read-only exclusively.
 
