@@ -294,23 +294,27 @@ class SlotMountException(Exception):
 
 
 class SlotMountHelper:
-    """Helper class that provides methods for mounting slots."""
+    """Helper class that provides methods for mounting slots.
+
+    NOTE(20240123): for container mode, mount/umount related operations are always
+                    being executed in root mount namespace, so use canonical paths
+                    for these operations.
+    """
 
     def __init__(
-        self,
-        *,
-        standby_slot_dev: StrOrPath,
-        standby_slot_mount_point: StrOrPath,
-        active_slot_dev: StrOrPath,
-        active_slot_mount_point: StrOrPath,
+        self, *, standby_slot_dev: StrOrPath, active_slot_dev: StrOrPath
     ) -> None:
         # dev
         self.standby_slot_dev = str(standby_slot_dev)
         self.active_slot_dev = str(active_slot_dev)
 
         # mount points
-        self.standby_slot_mount_point = Path(standby_slot_mount_point)
-        self.active_slot_mount_point = Path(active_slot_mount_point)
+        self.standby_slot_mount_point = Path(cfg.STANDBY_SLOT_MP)
+        self._canonical_standby_slot_mp = cfg.DEFAULT_STANDBY_SLOT_MP_DPATH
+
+        self.active_slot_mount_point = Path(cfg.ACTIVE_SLOT_MP)
+        self._canonical_active_slot_mp = cfg.DEFAULT_ACTIVE_SLOT_MP_DPATH
+
         self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
         self.active_slot_mount_point.mkdir(exist_ok=True, parents=True)
 
@@ -323,6 +327,8 @@ class SlotMountHelper:
     def mount_standby_slot_dev(self) -> None:
         """Mount standby slot dev r/w to <standby_slot_mount_point>.
 
+        NOTE(20240123): use canonical mount points paths for mount operation.
+
         Raises:
             SlotMountException on failed mount.
         """
@@ -330,7 +336,7 @@ class SlotMountHelper:
         try:
             mount_rw(
                 target_dev=self.standby_slot_dev,
-                mount_point=self.standby_slot_mount_point,
+                mount_point=self._canonical_standby_slot_mp,
             )
         except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
             _err_msg = f"failed to mount {self.standby_slot_dev=} to {self.standby_slot_mount_point=}: {e!r}"
@@ -341,6 +347,7 @@ class SlotMountHelper:
         """Mount active rootfs ready-only.
 
         Active slot should always be mounted on cfg.ACTIVE_ROOTFS.
+        NOTE(20240123): use canonical mount points paths for mount operation.
 
         Raises:
             SlotMountException on failed mount.
@@ -349,7 +356,7 @@ class SlotMountHelper:
         try:
             bind_mount_ro(
                 target_mp=cfg.ACTIVE_ROOTFS,
-                mount_point=self.active_slot_mount_point,
+                mount_point=self._canonical_active_slot_mp,
             )
         except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
             _err_msg = f"failed to mount {self.active_slot_dev=} to {self.standby_slot_mount_point}: {e!r}"
@@ -374,17 +381,20 @@ class SlotMountHelper:
             raise ValueError(f"failed to copy {_src=} to {_dst=}: {e!r}")
 
     def umount_all(self):
-        """Umount all mount points and ignore all errors."""
+        """Umount all mount points and ignore all errors.
+
+        NOTE(20240123): use canonical mount points paths for umount operation.
+        """
         logger.debug("unmount standby slot and active slot mount point...")
         try:
-            umount(self.standby_slot_mount_point)
+            umount(self._canonical_standby_slot_mp)
         except Exception:
-            logger.warning(f"failed to umount {self.standby_slot_mount_point=}")
+            logger.warning(f"failed to umount {self._canonical_standby_slot_mp=}")
 
         try:
-            umount(self.active_slot_mount_point)
+            umount(self._canonical_active_slot_mp)
         except Exception:
-            logger.warning(f"failed to umount {self.active_slot_mount_point=}")
+            logger.warning(f"failed to umount {self._canonical_active_slot_mp=}")
 
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
