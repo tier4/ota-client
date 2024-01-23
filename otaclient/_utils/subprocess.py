@@ -17,13 +17,34 @@ from __future__ import annotations
 import functools
 import subprocess
 import shlex
-from subprocess import CalledProcessError, TimeoutExpired, SubprocessError
+from concurrent.futures import ProcessPoolExecutor
+from subprocess import CalledProcessError, TimeoutExpired
 from typing import TYPE_CHECKING, Callable, Optional
 from typing_extensions import TypeAlias
 
 from . import truncate_str
 from .typing import ArgsType
 from .linux import INIT_PID, NS_NAME_LITERAL, nsenter
+
+_process_pool = None
+
+
+def enable_process_pool(max_workers: int = 1):
+    """Enable dispatching all subprocess calls to a process pool.
+
+    This is MUST for otaclient in container mode as grpc doesn't play
+        well with os.fork once the grpc server is created and loaded,
+    Call to this method MUST happens before grpc server created.
+
+    In normal cases, we want the subprocess calls to be executed
+        one by one, so max_workers=1 should be used in most cases.
+
+    Args:
+        max_workers(int=1): max num of worker process.
+    """
+    global _process_pool
+    _process_pool = ProcessPoolExecutor(max_workers=max_workers)
+
 
 # prevent too-long stdout/stderr in err when handling exception
 _ERR_MAX_LEN = 2048
@@ -133,8 +154,23 @@ if TYPE_CHECKING:
         """
 
 else:
-    subprocess_call = functools.partial(_subprocess_call, capture_output=False)
-    subprocess_check_output = functools.partial(_subprocess_call, capture_output=True)
+    if _process_pool:
+
+        def subprocess_call(*args, **kwargs):
+            return _process_pool.submit(
+                _subprocess_call, *args, **kwargs, capture_output=False
+            ).result()
+
+        def subprocess_check_output(*args, **kwargs):
+            return _process_pool.submit(
+                _subprocess_call, *args, **kwargs, capture_output=True
+            ).result()
+
+    else:
+        subprocess_call = functools.partial(_subprocess_call, capture_output=False)
+        subprocess_check_output = functools.partial(
+            _subprocess_call, capture_output=True
+        )
 
 
 def compose_cmd(_cmd: str, _args: ArgsType) -> list[str]:

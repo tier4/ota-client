@@ -25,6 +25,7 @@ from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 
 from otaclient import __version__  # type: ignore
 from otaclient._utils import if_run_as_container
+from otaclient._utils.subprocess import enable_process_pool
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg, logging_config, EXTRA_VERSION_FILE
 from .log_setting import configure_logging, get_ecu_id, get_logger
@@ -95,5 +96,11 @@ def main():
     # do pre-start checking
     _check_active_rootfs()
     _check_other_otaclient()
+
+    # Enable utils.subprocess process pool mode if we are in container mode
+    # see utils.subprocess.enable_process_pool for more details
+    # This MUST be called before grpc server created and lauched.
+    if cfg.IS_CONTAINER:
+        enable_process_pool()
 
     asyncio.run(launch_otaclient_grpc_server())

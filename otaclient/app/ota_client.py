@@ -621,7 +621,7 @@ class OTAServicer:
         *,
         control_flags: OTAClientControlFlags,
         ecu_info: ECUInfo,
-        executor: Optional[ThreadPoolExecutor] = None,
+        executor: ThreadPoolExecutor,
         otaclient_version: str = __version__,
         proxy: Optional[str] = None,
     ) -> None:
