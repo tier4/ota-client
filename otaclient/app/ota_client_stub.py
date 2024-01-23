@@ -744,9 +744,13 @@ class OTAClientServiceStub:
     """
 
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
+    THREAD_POOL_MAX_WORKERS = 4
 
     def __init__(self, *, ecu_info: ECUInfo, _proxy_cfg=proxy_cfg):
-        self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
+        self._executor = ThreadPoolExecutor(
+            thread_name_prefix="otaclient_service_stub",
+            max_workers=self.THREAD_POOL_MAX_WORKERS,
+        )
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
         )
