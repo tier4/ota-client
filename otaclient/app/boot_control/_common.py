@@ -333,6 +333,13 @@ class SlotMountHelper:
             SlotMountException on failed mount.
         """
         logger.debug("mount standby slot rootfs dev...")
+        # also try to umount the mount point first,
+        # but it is OK that umount is failed as stack mount is allowed.
+        try:
+            umount(self._canonical_standby_slot_mp)
+        except Exception:
+            pass
+
         try:
             mount_rw(
                 target_dev=self.standby_slot_dev,
@@ -353,6 +360,13 @@ class SlotMountHelper:
             SlotMountException on failed mount.
         """
         logger.debug("mount active slot rootfs dev...")
+        # also try to umount the mount point first,
+        # but it is OK that umount is failed as stack mount is allowed.
+        try:
+            umount(self._canonical_active_slot_mp)
+        except Exception:
+            pass
+
         try:
             bind_mount_ro(
                 target_mp=cfg.DEFAULT_ACTIVE_ROOTFS,
