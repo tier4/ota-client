@@ -131,14 +131,14 @@ def open_target_ns(pid: int, nsname: NS_NAME_LITERAL):
 
 
 LIBC = "libc.so.6"
-libc = ctypes.CDLL(LIBC)
+libc = ctypes.CDLL(LIBC, use_errno=True)
 
 
 def setns(fd: int, nstype: int = 0):
     _return_code = libc.setns(ctypes.c_int(fd), ctypes.c_int(nstype))
     if _return_code != 0:
-        _err_name = errorcode[_return_code]
-        raise OSError(f"setns failed with return code {_err_name}")
+        _errno = ctypes.get_errno()
+        raise OSError(f"setns failed with {errorcode[_errno]}")
 
 
 INIT_PID = 1
@@ -188,5 +188,5 @@ def nsenter(pid: int, *_ns_names: NS_NAME_LITERAL, chroot: bool = True) -> None:
                 raise OSError(f"failed to chroot to {pid=}'s root") from e
 
 
-DEFAULT_NS_TO_ENTER: tuple[NS_NAME_LITERAL, ...] = ("mnt", "pid", "ipc", "user")
+DEFAULT_NS_TO_ENTER: tuple[NS_NAME_LITERAL, ...] = ("mnt",)
 """in most of the cases, entering the following root namespaces are enough"""
