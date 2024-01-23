@@ -297,8 +297,8 @@ class SlotMountHelper:
     """Helper class that provides methods for mounting slots.
 
     NOTE(20240123): for container mode, mount/umount related operations are always
-                    being executed in root mount namespace, so use canonical paths
-                    for these operations.
+                    being executed in root mount namespace, so also use canonical paths
+                    for these operations like normal mode.
     """
 
     def __init__(
