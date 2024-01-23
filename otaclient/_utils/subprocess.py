@@ -154,23 +154,21 @@ if TYPE_CHECKING:
         """
 
 else:
-    if _process_pool:
 
-        def subprocess_call(*args, **kwargs):
+    def subprocess_call(*args, **kwargs):
+        if _process_pool:
+            logger.warning(f"ppm: {args=}")
             return _process_pool.submit(
                 _subprocess_call, *args, **kwargs, capture_output=False
             ).result()
+        return _subprocess_call(*args, **kwargs, capture_output=False)
 
-        def subprocess_check_output(*args, **kwargs):
+    def subprocess_check_output(*args, **kwargs):
+        if _process_pool:
             return _process_pool.submit(
                 _subprocess_call, *args, **kwargs, capture_output=True
             ).result()
-
-    else:
-        subprocess_call = functools.partial(_subprocess_call, capture_output=False)
-        subprocess_check_output = functools.partial(
-            _subprocess_call, capture_output=True
-        )
+        return _subprocess_call(*args, **kwargs, capture_output=True)
 
 
 def compose_cmd(_cmd: str, _args: ArgsType) -> list[str]:
