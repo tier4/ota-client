@@ -108,7 +108,7 @@ class Nvbootctrl:
         ):
             return _nvbootctrl(
                 _args,
-                enter_root_ns=DEFAULT_NS_TO_ENTER,
+                enter_root_ns=DEFAULT_NS_TO_ENTER if cfg.IS_CONTAINER else None,
                 raise_exception=raise_exception,
             )
 
