@@ -157,7 +157,6 @@ else:
 
     def subprocess_call(*args, **kwargs):
         if _process_pool:
-            logger.warning(f"ppm: {args=}")
             return _process_pool.submit(
                 _subprocess_call, *args, **kwargs, capture_output=False
             ).result()
