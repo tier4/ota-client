@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 import functools
+import multiprocessing as mp
 import subprocess
 import shlex
 from concurrent.futures import ProcessPoolExecutor
@@ -43,7 +44,10 @@ def enable_process_pool(max_workers: int = 1):
         max_workers(int=1): max num of worker process.
     """
     global _process_pool
-    _process_pool = ProcessPoolExecutor(max_workers=max_workers)
+    _process_pool = ProcessPoolExecutor(
+        max_workers=max_workers,
+        mp_context=mp.get_context("spawn"),
+    )
 
 
 # prevent too-long stdout/stderr in err when handling exception
