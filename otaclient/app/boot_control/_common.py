@@ -355,7 +355,7 @@ class SlotMountHelper:
         logger.debug("mount active slot rootfs dev...")
         try:
             bind_mount_ro(
-                target_mp=cfg.ACTIVE_ROOTFS,
+                target_mp=cfg.DEFAULT_ACTIVE_ROOTFS,
                 mount_point=self._canonical_active_slot_mp,
             )
         except (SubProcessCallFailed, SubProcessCallTimeoutExpired) as e:
