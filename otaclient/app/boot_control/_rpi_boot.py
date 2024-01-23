@@ -413,9 +413,7 @@ class RPIBootController(BootControllerProtocol):
 
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._rpiboot_control.standby_slot_dev,
-                standby_slot_mount_point=cfg.STANDBY_SLOT_MP,
                 active_slot_dev=self._rpiboot_control.active_slot_dev,
-                active_slot_mount_point=cfg.ACTIVE_SLOT_MP,
             )
 
             self._ota_status_control = OTAStatusFilesControl(
