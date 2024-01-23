@@ -93,6 +93,13 @@ class _DynamicRootedPathsConfig(BaseModel):
     # ------ mount point placement ------ #
     #
     DEFAULT_OTACLIENT_MOUNT_SPACE: _std_ClassVar = "/mnt/otaclient"
+    """The canonical rooted otaclient mount space dpath."""
+
+    DEFAULT_ACTIVE_SLOT_MP_DPATH: _std_ClassVar = "/mnt/otaclient/active_slot"
+    """The canonical rooted active slot mount point dpath."""
+
+    DEFAULT_STANDBY_SLOT_MP_DPATH: _std_ClassVar = "/mnt/otaclient/standby_slot"
+    """The canonical rooted standby slot mount point dpath."""
 
     @cached_computed_field
     def OTACLIENT_MOUNT_SPACE_DPATH(self) -> str:
