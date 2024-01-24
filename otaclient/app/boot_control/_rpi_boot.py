@@ -97,14 +97,18 @@ class _RPIBootControl:
     SEP_CHAR = "_"
 
     def __init__(self) -> None:
-        self.system_boot_path = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
+        # NOTE(20240124): canonical path should be used for is_target_mount
         if not (
-            self.system_boot_path.is_dir()
-            and is_target_mounted(self.system_boot_path, raise_exception=False)
+            is_target_mounted(
+                boot_cfg.CANONICAL_SYSTEM_BOOT_MOUNT_POINT,
+                raise_exception=False,
+            )
         ):
             _err_msg = "system-boot is not presented or not mounted!"
             logger.error(_err_msg)
             raise ValueError(_err_msg)
+
+        self.system_boot_path = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
         self._init_slots_info()
         self._init_boot_files()
 

@@ -258,13 +258,20 @@ class RPIBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
             cfg.ACTIVE_ROOTFS,
         )
 
+    CANONICAL_SYSTEM_BOOT_MOUNT_POINT: _std_ClassVar = "/boot/firmware"
+    """The canonical mount point of system-boot partition."""
+
     @cached_computed_field
     def SYSTEM_BOOT_MOUNT_POINT(self) -> str:
         """The dynamically rooted location of rpi system-boot partition mount point.
 
         Default: /boot/firmware
         """
-        return os.path.join(cfg.BOOT_DPATH, "firmware")
+        return replace_root(
+            self.CANONICAL_SYSTEM_BOOT_MOUNT_POINT,
+            cfg.DEFAULT_ACTIVE_ROOTFS,
+            cfg.ACTIVE_ROOTFS,
+        )
 
     @cached_computed_field
     def SWITCH_BOOT_FLAG_FPATH(self) -> str:
