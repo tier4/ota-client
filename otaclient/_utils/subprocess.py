@@ -14,6 +14,7 @@
 
 
 from __future__ import annotations
+import atexit
 import functools
 import multiprocessing as mp
 import subprocess
@@ -48,6 +49,10 @@ def enable_process_pool(max_workers: int = 1):
         max_workers=max_workers,
         mp_context=mp.get_context("spawn"),
     )
+
+    # let _process_pool cleanup itself on python
+    # interpreter exits
+    atexit.register(_process_pool.shutdown)
 
 
 # prevent too-long stdout/stderr in err when handling exception
