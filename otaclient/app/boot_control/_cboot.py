@@ -19,6 +19,7 @@ import re
 from pathlib import Path
 from functools import partial
 from typing import Generator, Literal, NoReturn
+from otaclient._utils.path import replace_root
 
 from otaclient._utils.subprocess import (
     compose_cmd,
@@ -406,8 +407,18 @@ class CBootController(BootControllerProtocol):
         _boot_dir_mount_point = Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT)
         _boot_dir_mount_point.mkdir(exist_ok=True, parents=True)
 
+        # NOTE(20240124): mount related operation MUST always use canonical path
+        _canonical_boot_dir_mp = replace_root(
+            boot_cfg.SEPARATE_BOOT_MOUNT_POINT,
+            cfg.ACTIVE_ROOTFS,
+            cfg.DEFAULT_ACTIVE_ROOTFS,
+        )
+
         try:
-            mount_rw(self._cboot_control.standby_slot_boot_dev, _boot_dir_mount_point)
+            mount_rw(
+                self._cboot_control.standby_slot_boot_dev,
+                _canonical_boot_dir_mp,
+            )
         except SubProcessCallFailed as e:
             _err_msg = f"failed to mount standby boot dev: {e!r}"
             logger.error(_err_msg)
@@ -427,8 +438,9 @@ class CBootController(BootControllerProtocol):
 
         finally:
             # unmount standby emmc boot dev on finish/failure
+            # NOTE(20240124): umount operation MUST always use canonical path
             try:
-                umount(_boot_dir_mount_point)
+                umount(_canonical_boot_dir_mp)
             except Exception as e:
                 _failure_msg = f"failed to umount boot dev: {e!r}"
                 logger.warning(_failure_msg)
