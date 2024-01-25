@@ -21,6 +21,8 @@ from errno import errorcode
 from pathlib import Path
 from typing import Literal
 
+from otaclient._utils.subprocess import subprocess_call
+
 from .typing import StrOrPath
 
 
@@ -190,3 +192,52 @@ def nsenter(pid: int, *_ns_names: NS_NAME_LITERAL, chroot: bool = True) -> None:
 
 DEFAULT_NS_TO_ENTER: tuple[NS_NAME_LITERAL, ...] = ("mnt",)
 """in most of the cases, entering the following root namespaces are enough"""
+
+
+#
+# ------ swapfile creation mechanism ------ #
+#
+# Reference: https://wiki.archlinux.org/title/swap#Swap_file_creation
+def create_swapfile(swapfile_fpath: StrOrPath, size_in_MiB: int) -> StrOrPath:
+    """Create swapfile at <swapfile_fpath> with <size_in_MiB>MiB.
+
+    Args:
+        swapfile_fpath(StrOrPath): the path to place the created swapfile.
+        size_in_MiB(int): the size of to-be-created swapfile.
+
+    Returns:
+        The path to the newly created swapfile.
+
+    Raises:
+        ValueError on file already exists at <swapfile_fpath>, SubprocessCallFailed
+            on failed swapfile creation.
+    """
+    swapfile_fpath = Path(swapfile_fpath)
+    if swapfile_fpath.exists():
+        raise ValueError(f"{swapfile_fpath=} exists, skip")
+
+    # create a new file with <size_in_MiB>MiB size
+    # executes:
+    #   dd if=/dev/zero of=/swapfile bs=1M count=8k
+    #   chmod 0600 /swapfile
+    subprocess_call(
+        [
+            "dd",
+            "if=/dev/zero",
+            f"of={str(swapfile_fpath)}",
+            "bs=1M",
+            f"count={size_in_MiB}",
+        ],
+        raise_exception=True,
+    )
+    swapfile_fpath.chmod(0o600)
+
+    # prepare the created file as swapfile
+    # executes:
+    #   mkswap /swapfile
+    subprocess_call(
+        ["mkswap", str(swapfile_fpath)],
+        raise_exception=True,
+    )
+
+    return swapfile_fpath
