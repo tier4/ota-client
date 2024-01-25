@@ -44,10 +44,12 @@ class TestMain:
         def _waiting():
             time.sleep(1234)
 
+        _pid_file = Path(otaclient_cfg.RUN_DPATH) / otaclient_cfg.OTACLIENT_PID_FNAME
+
         _p = Process(target=_waiting)
         try:
             _p.start()
-            Path(otaclient_cfg.OTACLIENT_PID_FPATH).write_text(f"{_p.pid}")
+            _pid_file.write_text(f"{_p.pid}")
             yield _p.pid
         finally:
             _p.kill()
@@ -55,16 +57,20 @@ class TestMain:
     def test_main_with_version(self, caplog: LogCaptureFixture):
         from otaclient.app.main import main
 
+        _pid_file = Path(otaclient_cfg.RUN_DPATH) / otaclient_cfg.OTACLIENT_PID_FNAME
+
         main()
         assert caplog.records[0].msg == "started"
         assert caplog.records[1].msg == FIRST_LINE_LOG
-        assert Path(otaclient_cfg.OTACLIENT_PID_FPATH).read_text() == f"{os.getpid()}"
+        assert _pid_file.read_text() == f"{os.getpid()}"
 
     def test_with_other_otaclient_started(self, background_process):
         from otaclient.app.main import main
+
+        _pid_file = Path(otaclient_cfg.RUN_DPATH) / otaclient_cfg.OTACLIENT_PID_FNAME
 
         _other_pid = f"{background_process}"
         with pytest.raises(ValueError):
             main()
         self._sys_exit_mocker.assert_called_once()
-        assert Path(otaclient_cfg.OTACLIENT_PID_FPATH).read_text() == _other_pid
+        assert _pid_file.read_text() == _other_pid

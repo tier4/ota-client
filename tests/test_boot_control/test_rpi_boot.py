@@ -10,6 +10,7 @@ from tests.utils import SlotMeta
 from tests.conftest import TestConfiguration as test_cfg
 from otaclient._utils.path import replace_root
 from otaclient.configs.app_cfg import Config as otaclient_Config
+from otaclient.app.boot_control._common import SlotMountHelper
 from otaclient.app.boot_control._rpi_boot import _FSTAB_TEMPLATE_STR
 from otaclient.app.boot_control.configs import RPIBootControlConfig
 from otaclient.app.proto import wrapper
@@ -23,8 +24,10 @@ class _RPIBootTestCfg:
     # slot config
     SLOT_A = RPIBootControlConfig.SLOT_A_FSLABEL
     SLOT_B = RPIBootControlConfig.SLOT_B_FSLABEL
-    SLOT_A_DEV = "slot_a_dev"
-    SLOT_B_DEV = "slot_b_dev"
+    PARENT_DEV = "/dev/sda"
+    SYSTEM_BOOT_DEV = "/dev/sda1"
+    SLOT_A_DEV = "/dev/sda2"
+    SLOT_B_DEV = "/dev/sda3"
     SEP_CHAR = "_"
 
     # dummy boot files content
@@ -34,16 +37,14 @@ class _RPIBootTestCfg:
     CMDLINE_TXT_SLOT_B = "cmdline_txt_slot_b"
 
     # module path
-    rpiboot_control_module_path = f"{test_cfg.RPI_BOOT_MODULE_PATH}._RPIBootControl"
-    rpi_boot_RPIBoot_CMDHelperFuncs_MODULE = (
-        f"{test_cfg.RPI_BOOT_MODULE_PATH}.CMDHelperFuncs"
-    )
-    boot_control_common_CMDHelperFuncs_MODULE = (
-        f"{test_cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs"
-    )
+    RPI_BOOT_MODULE_PATH = "otaclient.app.boot_control._rpi_boot"
 
     # image version
     VERSION = "rpi_boot_test"
+
+
+class ExitAfterUpdateFirmware(BaseException):
+    """Exception to break otaclient execution when reaching firmware update."""
 
 
 class RPIBootABPartitionFSM:
@@ -54,7 +55,7 @@ class RPIBootABPartitionFSM:
         self._standby_slot_dev = _RPIBootTestCfg.SLOT_B_DEV
         self.is_switched_boot = False
 
-    def reboot_tryboot(self):
+    def reboot_tryboot(self, *args, **kwargs):
         logger.info(f"tryboot to {self._standby_slot=}")
         self.is_switched_boot = True
         self._active_slot, self._standby_slot = self._standby_slot, self._active_slot
@@ -63,23 +64,22 @@ class RPIBootABPartitionFSM:
             self._active_slot_dev,
         )
 
-    def get_active_slot(self) -> str:
+    def get_active_slot(self, *args, **kwargs) -> str:
         return self._active_slot
 
-    def get_standby_slot(self) -> str:
+    def get_standby_slot(self, *args, **kwargs) -> str:
         return self._standby_slot
 
-    def get_standby_slot_dev(self) -> str:
+    def get_standby_slot_dev(self, *args, **kwargs) -> str:
         return self._standby_slot_dev
 
-    def get_active_slot_dev(self) -> str:
+    def get_active_slot_dev(self, *args, **kwargs) -> str:
         return self._active_slot_dev
 
-
-class _RebootEXP(BaseException):
-    """NOTE: use BaseException to escape normal Exception catch."""
-
-    ...
+    def get_dev_fslabel(self, dev: str, **kwargs) -> str:
+        if dev == _RPIBootTestCfg.SLOT_A_DEV:
+            return _RPIBootTestCfg.SLOT_A
+        return _RPIBootTestCfg.SLOT_B
 
 
 class TestRPIBootControl:
@@ -126,9 +126,10 @@ class TestRPIBootControl:
         (self.slot_b_pa / "etc").mkdir(parents=True, exist_ok=True)
 
     @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: pytest_mock.MockerFixture, rpi_boot_ab_slot):
+    def mock_setup(
+        self, mocker: pytest_mock.MockerFixture, rpi_boot_ab_slot, patch_cmdhelper
+    ):
         from otaclient.app.boot_control._rpi_boot import _RPIBootControl
-        from otaclient.app.boot_control._common import CMDHelperFuncs
 
         #
         # ------ start the test FSM ------ #
@@ -143,7 +144,8 @@ class TestRPIBootControl:
             self.mocked_otaclient_cfg_slot_a,
         )
         mocker.patch(
-            f"{test_cfg.RPI_BOOT_MODULE_PATH}.cfg", self.mocked_otaclient_cfg_slot_a
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.cfg",
+            self.mocked_otaclient_cfg_slot_a,
         )
         # NOTE: remember to also patch otaclient cfg in boot.common module
         mocker.patch(
@@ -151,7 +153,12 @@ class TestRPIBootControl:
             self.mocked_otaclient_cfg_slot_a,
         )
         # after the mocked cfg is applied, we can init rpi_boot cfg instance
-        self.mocked_boot_cfg_slot_a = RPIBootControlConfig()
+        _mocked_boot_cfg_slot_a = RPIBootControlConfig()
+        self.mocked_boot_cfg_slot_a = _mocked_boot_cfg_slot_a
+        mocker.patch(
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.boot_cfg",
+            _mocked_boot_cfg_slot_a,
+        )
 
         #
         # ------ prepare mocked _RPIBootControl ------ #
@@ -186,119 +193,181 @@ class TestRPIBootControl:
 
         # mock firmware update method, only check if it is called
         _mocked__rpi_boot_ctrl._update_firmware = mocker.Mock()
+
+        # apply patch
+        mocker.patch(
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}._RPIBootControl",
+            _mocked__rpi_boot_ctrl,
+        )
         self.mocked__rpi_boot_ctrl_type = _mocked__rpi_boot_ctrl
 
         #
-        # ------ patch CMDHelperFuncs ------ #
+        # ------ patch specific commands from cmdhelper module ------ #
         #
-        self._mocked_cmdhelper = typing.cast(
-            CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
-        )
-        # NOTE: especially patch this method, as _RPIBootControl's __init__ uses this method
-        #       to check if system-boot folder is a mount point.
-        self._mocked_cmdhelper.is_target_mounted = mocker.Mock(return_value=True)
-
-        # NOTE: rpi_boot only call CMDHelperFuncs.reboot once in finalize_switch_boot method
-        self._mocked_cmdhelper.reboot = mocker.Mock(side_effect=_RebootEXP("reboot"))
+        # prevent subprocess call being executed
         mocker.patch(
-            _RPIBootTestCfg.rpi_boot_RPIBoot_CMDHelperFuncs_MODULE,
-            self._mocked_cmdhelper,
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.subprocess_call",
+            mocker.MagicMock(),
         )
-        # NOTE: also remember to patch CMDHelperFuncs in boot_control.common module
+
+        # get_current_rootfs_dev
+        _mocked_get_current_rootfs_dev = mocker.MagicMock(
+            wraps=self._fsm.get_active_slot_dev
+        )
         mocker.patch(
-            _RPIBootTestCfg.boot_control_common_CMDHelperFuncs_MODULE,
-            self._mocked_cmdhelper,
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.get_current_rootfs_dev",
+            _mocked_get_current_rootfs_dev,
         )
 
-    @pytest.fixture(autouse=True)
-    def setup_test(self, mocker: pytest_mock.MockerFixture, mock_setup):
-        _otaclient_cfg = self.mocked_otaclient_cfg_slot_a
-        _rpi_boot_cfg = self.mocked_boot_cfg_slot_a
-
-        #
-        # ------ setup mount space ------ #
-        #
-        # NOTE: as we mock CMDHelpers, mount is not executed, so we prepare the mount points
-        #   by ourselves.(In the future we can use FSM to do it.)
-        Path(_otaclient_cfg.OTACLIENT_MOUNT_SPACE_DPATH).mkdir(
-            parents=True, exist_ok=True
+        # get_dev_fslabel
+        _mocked_get_dev_fslabel = mocker.MagicMock(wraps=self._fsm.get_dev_fslabel)
+        mocker.patch(
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.get_dev_fslabel",
+            _mocked_get_dev_fslabel,
         )
-        Path(_otaclient_cfg.ACTIVE_SLOT_MP).symlink_to(self.slot_a_pa)
-        Path(_otaclient_cfg.STANDBY_SLOT_MP).symlink_to(self.slot_b_pa)
+
+        # get_parent_dev
+        mocker.patch(
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.get_parent_dev",
+            mocker.MagicMock(return_value=_RPIBootTestCfg.PARENT_DEV),
+        )
+
+        # get_dev_tree
+        _dev_tree_data = (
+            'NAME="/dev/sda"'
+            'NAME="/dev/sda1"'  # system-boot
+            'NAME="/dev/sda2"'  # slot_a
+            'NAME="/dev/sda3"'  # slot_b
+        )
+        mocker.patch(
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.get_dev_tree",
+            mocker.MagicMock(return_value=_dev_tree_data),
+        )
+
+        # is_target_mounted
+        # NOTE: this func is only used to check if /boot/firmware is mounted or not
+        mocker.patch(
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.is_target_mounted",
+            mocker.MagicMock(return_value=True),
+        )
+
+        # reboot
+        # NOTE: reboot is only called twice in rpi_boot module, one is in
+        #       reboot_tryboot method(which is mocked), another is after firmware update.
+        #       So we add side_effect here to simulate otaclient exits on firmware update.
+        _mocked_reboot = mocker.MagicMock(side_effect=ExitAfterUpdateFirmware)
+        mocker.patch(f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.reboot", _mocked_reboot)
+        self._mocked_reboot = _mocked_reboot
 
         #
-        # ------ setup OTA status files ------ #
+        # ------ patch slot mount helper ------ #
+        #
+        _mocked_slot_mount_helper_type = typing.cast(
+            "type[SlotMountHelper]",
+            type("_mocked_slot_mount_helper_type", (SlotMountHelper,), {}),
+        )
+
+        def _mount_standby_slot(*args, **kwargs):
+            # remove the old already exists folder
+            Path(self.mocked_otaclient_cfg_slot_a.STANDBY_SLOT_MP).rmdir()
+            # simulate mount slot_b into otaclient mount space on slot_a
+            Path(self.mocked_otaclient_cfg_slot_a.STANDBY_SLOT_MP).symlink_to(
+                self.slot_b_pa
+            )
+
+        def _mount_active_slot(*args, **kwargs):
+            # remove the old already exists folder
+            Path(self.mocked_otaclient_cfg_slot_a.ACTIVE_SLOT_MP).rmdir()
+            # simlulate mount slot_b into otaclient mount space on slot_a
+            Path(self.mocked_otaclient_cfg_slot_a.ACTIVE_SLOT_MP).symlink_to(
+                self.slot_a_pa
+            )
+
+        _mocked_slot_mount_helper_type.mount_active_slot_dev = mocker.MagicMock(
+            wraps=_mount_active_slot
+        )
+        _mocked_slot_mount_helper_type.mount_standby_slot_dev = mocker.MagicMock(
+            wraps=_mount_standby_slot
+        )
+
+        mocker.patch(
+            f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.SlotMountHelper",
+            _mocked_slot_mount_helper_type,
+        )
+
+        #
+        # ------ setup slot_a OTA status files ------ #
         #
 
-        # setup slot a
-        self.slot_a_ota_status_dir = Path(_rpi_boot_cfg.ACTIVE_BOOT_OTA_STATUS_DPATH)
+        self.slot_a_ota_status_dir = Path(
+            _mocked_boot_cfg_slot_a.ACTIVE_BOOT_OTA_STATUS_DPATH
+        )
         self.slot_a_ota_status_dir.mkdir(parents=True, exist_ok=True)
 
         slot_a_ota_dir = self.slot_a_pa / "boot" / "ota"
         slot_a_ota_dir.mkdir(parents=True, exist_ok=True)
 
-        slot_a_ota_status = self.slot_a_ota_status_dir / _otaclient_cfg.OTA_STATUS_FNAME
+        slot_a_ota_status = (
+            self.slot_a_ota_status_dir
+            / self.mocked_otaclient_cfg_slot_a.OTA_STATUS_FNAME
+        )
         slot_a_ota_status.write_text(wrapper.StatusOta.SUCCESS.name)
 
-        slot_a_version = self.slot_a_ota_status_dir / _otaclient_cfg.OTA_VERSION_FNAME
+        slot_a_version = (
+            self.slot_a_ota_status_dir
+            / self.mocked_otaclient_cfg_slot_a.OTA_VERSION_FNAME
+        )
         slot_a_version.write_text(test_cfg.CURRENT_VERSION)
         slot_a_slot_in_use = (
-            self.slot_a_ota_status_dir / _otaclient_cfg.SLOT_IN_USE_FNAME
+            self.slot_a_ota_status_dir
+            / self.mocked_otaclient_cfg_slot_a.SLOT_IN_USE_FNAME
         )
-        slot_a_slot_in_use.write_text(_rpi_boot_cfg.SLOT_A_FSLABEL)
+        slot_a_slot_in_use.write_text(_mocked_boot_cfg_slot_a.SLOT_A_FSLABEL)
 
-        # setup slot_b
-        self.slot_b_ota_status_dir = Path(_rpi_boot_cfg.STANDBY_BOOT_OTA_STATUS_DPATH)
-        self.slot_b_ota_status_dir.mkdir(parents=True, exist_ok=True)
+        self.slot_b_ota_status_dir = Path(
+            _mocked_boot_cfg_slot_a.STANDBY_BOOT_OTA_STATUS_DPATH
+        )
 
         #
         # ------ setup shared system-boot partition ------ #
         #
         # NOTE: primary config.txt is for slot_a at the beginning
-        (self.system_boot_mp / f"{_rpi_boot_cfg.CONFIG_TXT_FNAME}").write_text(
-            _RPIBootTestCfg.CONFIG_TXT_SLOT_A
-        )
+        (
+            self.system_boot_mp / f"{_mocked_boot_cfg_slot_a.CONFIG_TXT_FNAME}"
+        ).write_text(_RPIBootTestCfg.CONFIG_TXT_SLOT_A)
         # NOTE: rpi_boot controller currently doesn't check the content of boot files, but only ensure the existence
         (
             self.system_boot_mp
-            / f"{_rpi_boot_cfg.CONFIG_TXT_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+            / f"{_mocked_boot_cfg_slot_a.CONFIG_TXT_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text(_RPIBootTestCfg.CONFIG_TXT_SLOT_A)
         (
             self.system_boot_mp
-            / f"{_rpi_boot_cfg.CONFIG_TXT_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+            / f"{_mocked_boot_cfg_slot_a.CONFIG_TXT_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
         ).write_text(_RPIBootTestCfg.CONFIG_TXT_SLOT_B)
         (
             self.system_boot_mp
-            / f"{_rpi_boot_cfg.CMDLINE_TXT_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+            / f"{_mocked_boot_cfg_slot_a.CMDLINE_TXT_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text(_RPIBootTestCfg.CMDLINE_TXT_SLOT_A)
         (
             self.system_boot_mp
-            / f"{_rpi_boot_cfg.CMDLINE_TXT_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+            / f"{_mocked_boot_cfg_slot_a.CMDLINE_TXT_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
         ).write_text(_RPIBootTestCfg.CMDLINE_TXT_SLOT_B)
         (
             self.system_boot_mp
-            / f"{_rpi_boot_cfg.VMLINUZ_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+            / f"{_mocked_boot_cfg_slot_a.VMLINUZ_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text("slot_a_vmlinux")
         (
             self.system_boot_mp
-            / f"{_rpi_boot_cfg.INITRD_IMG_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+            / f"{_mocked_boot_cfg_slot_a.INITRD_IMG_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text("slot_a_initrdimg")
         self.vmlinuz_slot_b = (
             self.system_boot_mp
-            / f"{_rpi_boot_cfg.VMLINUZ_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+            / f"{_mocked_boot_cfg_slot_a.VMLINUZ_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
         )
         self.initrd_img_slot_b = (
             self.system_boot_mp
-            / f"{_rpi_boot_cfg.INITRD_IMG_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+            / f"{_mocked_boot_cfg_slot_a.INITRD_IMG_FNAME}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
         )
-
-        #
-        # ------ patch rpi_boot module for slot_a ------ #
-        #
-        mocker.patch(
-            _RPIBootTestCfg.rpiboot_control_module_path, self.mocked__rpi_boot_ctrl_type
-        )
-        mocker.patch(f"{test_cfg.RPI_BOOT_MODULE_PATH}.boot_cfg", _rpi_boot_cfg)
 
     def test_rpi_boot_normal_update(self, mocker: pytest_mock.MockerFixture):
         from otaclient.app.boot_control._rpi_boot import RPIBootController
@@ -334,15 +403,6 @@ class TestRPIBootControl:
             == _RPIBootTestCfg.SLOT_B
         )
 
-        self._mocked_cmdhelper.mount_rw.assert_called_once_with(
-            target=self._fsm._standby_slot_dev,
-            mount_point=Path(_otaclient_cfg.STANDBY_SLOT_MP),
-        )
-        self._mocked_cmdhelper.mount_ro.assert_called_once_with(
-            target=self._fsm._active_slot_dev,
-            mount_point=Path(_otaclient_cfg.ACTIVE_SLOT_MP),
-        )
-
         # ------ mocked in_update ------ #
         # this should be done by create_standby module, so we do it manually here instead
         self.slot_b_boot_dir = self.slot_b_pa / "boot"
@@ -361,6 +421,7 @@ class TestRPIBootControl:
         _post_updater = rpi_boot_controller1.post_update()
         next(_post_updater)
         next(_post_updater, None)  # actual reboot here
+
         # --- assertions: --- #
         # 1. make sure that retry boot is called
         # 2. make sure that fstab file is updated for slot_b
@@ -389,6 +450,7 @@ class TestRPIBootControl:
         assert (
             self.system_boot_mp / _rpi_boot_cfg.CONFIG_TXT_FNAME
         ).read_text() == _RPIBootTestCfg.CONFIG_TXT_SLOT_A
+        self.mocked__rpi_boot_ctrl_type.reboot_tryboot.assert_called_once()
 
         #
         # ------ boot_controller_inst2: first reboot ------ #
@@ -398,19 +460,19 @@ class TestRPIBootControl:
         # patch rpi_boot_cfg for boot_controller_inst2
         _otaclient_cfg = self.mocked_otaclient_cfg_slot_b
         mocker.patch(f"{test_cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.cfg", _otaclient_cfg)
-        mocker.patch(f"{test_cfg.RPI_BOOT_MODULE_PATH}.cfg", _otaclient_cfg)
+        mocker.patch(f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.cfg", _otaclient_cfg)
         mocker.patch(f"{test_cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.cfg", _otaclient_cfg)
 
         # after the mocked cfg is applied, we can init rpi_boot cfg instance
         _rpi_boot_cfg = RPIBootControlConfig()
-        mocker.patch(f"{test_cfg.RPI_BOOT_MODULE_PATH}.boot_cfg", _rpi_boot_cfg)
+        mocker.patch(f"{_RPIBootTestCfg.RPI_BOOT_MODULE_PATH}.boot_cfg", _rpi_boot_cfg)
 
         # ------ boot_controller_inst2.stage1: first reboot finalizing switch boot and update firmware ------ #
         logger.info("1st reboot: finalize switch boot and update firmware....")
         # --- execution --- #
-        # NOTE: raise a _RebootEXP to simulate reboot and interrupt the otaclient
-        with pytest.raises(_RebootEXP):
-            RPIBootController()  # NOTE: init only
+        # expect otaclient exits when reboot is called
+        with pytest.raises(ExitAfterUpdateFirmware):
+            _ = RPIBootController()
 
         # --- assertions: --- #
         # 1. assert that otaclient reboots the device
@@ -421,7 +483,8 @@ class TestRPIBootControl:
         # 6. make sure the SWITCH_BOOT_FLAG_FILE file is created
         # 7. make sure ota_status is still UPDATING
         self.mocked__rpi_boot_ctrl_type._update_firmware.assert_called_once()
-        self._mocked_cmdhelper.reboot.assert_called_once()
+        self._mocked_reboot.assert_called_once_with()
+
         assert (
             self.system_boot_mp / _rpi_boot_cfg.CONFIG_TXT_FNAME
         ).read_text() == _RPIBootTestCfg.CONFIG_TXT_SLOT_B

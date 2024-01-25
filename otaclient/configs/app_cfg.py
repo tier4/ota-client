@@ -58,11 +58,12 @@ class _FixedInternalConfig(BaseModel):
     """Fixed internal configs that should not be changed."""
 
     RUN_DPATH: _std_ClassVar = "/run/otaclient"
-    OTACLIENT_PID_FPATH: _std_ClassVar = "/run/otaclient.pid"
+    OTACLIENT_RUNTIME_TMP_DNAME: _std_ClassVar = "runtime_tmp"
+    OTACLIENT_PID_FNAME: _std_ClassVar = "otaclient.pid"
     SUPPORTED_COMPRESS_ALG: _std_ClassVar = ("zst", "zstd")
 
-    # filesystem label of external cache source
     EXTERNAL_CACHE_DEV_FSLABEL: _std_ClassVar = "ota_cache_src"
+    """filesystem label of external cache source."""
 
 
 class _DynamicRootedPathsConfig(BaseModel):
@@ -92,6 +93,13 @@ class _DynamicRootedPathsConfig(BaseModel):
     # ------ mount point placement ------ #
     #
     DEFAULT_OTACLIENT_MOUNT_SPACE: _std_ClassVar = "/mnt/otaclient"
+    """The canonical rooted otaclient mount space dpath."""
+
+    DEFAULT_ACTIVE_SLOT_MP_DPATH: _std_ClassVar = "/mnt/otaclient/active_slot"
+    """The canonical rooted active slot mount point dpath."""
+
+    DEFAULT_STANDBY_SLOT_MP_DPATH: _std_ClassVar = "/mnt/otaclient/standby_slot"
+    """The canonical rooted standby slot mount point dpath."""
 
     @cached_computed_field
     def OTACLIENT_MOUNT_SPACE_DPATH(self) -> str:
@@ -298,14 +306,16 @@ class _ConfigurableConfig(BaseModel):
     For example, to set SERVER_ADDRESS, set env OTA_SERVER_ADDRESS=10.0.1.1 .
     """
 
-    # name of OTA used temp folder
     OTA_TMP_DNAME: str = "ota_tmp"
+    """name of OTA used temp folder."""
 
     #
     # ------ otaproxy server config ------ #
     #
-    OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
+    OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = Field(default="0.0.0.0")
     OTA_PROXY_LISTEN_PORT: int = Field(default=8082, ge=0, le=65535)
+    DEFAULT_OTA_CACHE_DPATH: _std_ClassVar = "/ota-cache"
+    DEFAULT_OTA_CACHE_DB_FNAME: _std_ClassVar = "cache_db"
 
     #
     # ------ otaclient runtime behavior setting ------ #
@@ -352,8 +362,9 @@ class _ConfigurableConfig(BaseModel):
     #
     # --- create standby setting --- #
     #
-    # now only REBUILD mode is available
     STANDBY_CREATION_MODE: CreateStandbyMechanism = CreateStandbyMechanism.REBUILD
+    """NOTE: now only REBUILD mode is implemented."""
+
     MAX_CONCURRENT_PROCESS_FILE_TASKS: int = Field(default=256, le=2048)
     CREATE_STANDBY_RETRY_MAX: int = 3
     CREATE_STANDBY_BACKOFF_FACTOR: int = 1
@@ -362,40 +373,48 @@ class _ConfigurableConfig(BaseModel):
     #
     # --- ECU status polling setting, otaproxy dependency managing --- #
     #
-    # The ECU status storage will summarize the stored ECUs' status report
-    # and generate overall status report for all ECUs every <INTERVAL> seconds.
     OVERALL_ECUS_STATUS_UPDATE_INTERVAL: int = 6  # seconds
+    """
+    The ECU status storage will summarize the stored ECUs' status report
+        and generate overall status report for all ECUs every <INTERVAL> seconds.
+    """
 
-    # If ECU has been disconnected longer than <TIMEOUT> seconds, it will be
-    # treated as UNREACHABLE, and will not be counted when generating overall
-    # ECUs status report.
-    # NOTE: unreachable_timeout should be larger than
-    #       downloading_group timeout
     ECU_UNREACHABLE_TIMEOUT: int = 20 * 60  # seconds
+    """
+    If ECU has been disconnected longer than <TIMEOUT> seconds, it will be
+        treated as UNREACHABLE, and will not be counted when generating overall
+        ECUs status report.
 
-    # Otaproxy should not be shutdowned with less than <INTERVAL> seconds
-    # after it just starts to prevent repeatedly start/stop cycle.
+    NOTE: unreachable_timeout should be larger than downloading_group timeout.
+    """
+
     OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL: int = 1 * 60  # seconds
+    """
+    OTAProxy should not be shutdowned with less than <INTERVAL> seconds
+    after it just starts to prevent repeatedly start/stop cycle.
+    """
 
-    # When any ECU acks update request, this ECU will directly set the overall ECU status
-    # to any_in_update=True, any_requires_network=True, all_success=False, to prevent
-    # pre-mature overall ECU status changed caused by child ECU delayed ack to update request.
-    #
-    # This pre-set overall ECU status will be kept for <KEEP_TIME> seconds.
-    # This value is expected to be larger than the time cost for subECU acks the OTA request.
     KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED: int = 60  # seconds
+    """
+    When any ECU acks update request, this ECU will directly set the overall ECU status
+        to any_in_update=True, any_requires_network=True, all_success=False, to prevent
+        pre-mature overall ECU status changed caused by child ECU delayed ack to update request.
 
-    # Active status polling interval, when there is active OTA update in the cluster.
+    This pre-set overall ECU status will be kept for <KEEP_TIME> seconds.
+    This value is expected to be larger than the time cost for subECU acks the OTA request.
+    """
+
     ACTIVE_INTERVAL: int = 1  # second
+    """Active status polling interval, when there is active OTA update in the cluster."""
 
-    # Idle status polling interval, when ther is no active OTA updaste in the cluster.
     IDLE_INTERVAL: int = 10  # seconds
+    """Idle status polling interval, when ther is no active OTA updaste in the cluster."""
 
     #
     # --- default version str --- #
     #
-    # The string return in status API firmware_version field if version is unknown.
     DEFAULT_VERSION_STR: str = ""
+    """The string return in status API firmware_version field if version is unknown."""
 
 
 class Config(BaseFixedConfig, _InternalConfig, _ConfigurableConfig):
@@ -408,6 +427,24 @@ class Config(BaseFixedConfig, _InternalConfig, _ConfigurableConfig):
         Default: /mnt/otaclient/standby_slot/ota_tmp
         """
         return os.path.join(self.STANDBY_SLOT_MP, self.OTA_TMP_DNAME)
+
+    @cached_computed_field
+    def OTA_CACHE_DPATH(self) -> str:
+        """The location for holding OTA cache files during OTA.
+
+        Default: /ota-cache
+        """
+        return replace_root(
+            self.DEFAULT_OTA_CACHE_DPATH, self.DEFAULT_ACTIVE_ROOTFS, self.ACTIVE_ROOTFS
+        )
+
+    @cached_computed_field
+    def OTA_CACHE_DB_FPATH(self) -> str:
+        """The location for holding OTA cache db file.
+
+        Default: /ota-cache/cache_db
+        """
+        return os.path.join(self.OTA_CACHE_DPATH, self.DEFAULT_OTA_CACHE_DB_FNAME)
 
 
 # ------ init config ------ #

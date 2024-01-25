@@ -43,7 +43,7 @@ from typing import (
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from otaclient._utils.typing import StrOrPath
-from otaclient._utils.unix import (
+from otaclient._utils.linux import (
     ParsedPasswd,
     ParsedGroup,
     map_gid_by_grpnam as _utils_map_gid_by_grpnam,

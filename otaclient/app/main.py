@@ -16,7 +16,6 @@
 from __future__ import annotations
 import asyncio
 import os
-import os.path
 import sys
 from pathlib import Path
 
@@ -26,6 +25,7 @@ from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 
 from otaclient import __version__  # type: ignore
 from otaclient._utils import if_run_as_container
+from otaclient._utils.subprocess import enable_process_pool
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg, logging_config, EXTRA_VERSION_FILE
 from .log_setting import configure_logging, get_ecu_id, get_logger
@@ -36,23 +36,30 @@ configure_logging(logging_config.LOGGING_LEVEL, http_logging_url=get_ecu_id())
 logger = get_logger(__name__)
 
 
+def _prepare_otaclient_runtime_dir():
+    _runtime_dir = Path(cfg.RUN_DPATH)
+    _runtime_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(_runtime_dir, 0o550)
+
+    _runtime_tmp = _runtime_dir / cfg.OTACLIENT_RUNTIME_TMP_DNAME
+    _runtime_tmp.mkdir(parents=True, exist_ok=True)
+
+
 def _check_other_otaclient():
     """Check if there is another otaclient instance running."""
     # create a lock file to prevent multiple ota-client instances start
-    if pid := read_str_from_file(cfg.OTACLIENT_PID_FPATH):
+    _otaclient_pid_fpath = Path(cfg.RUN_DPATH) / cfg.OTACLIENT_PID_FNAME
+    if pid := read_str_from_file(_otaclient_pid_fpath):
         # running process will have a folder under /proc
         if Path(f"/proc/{pid}").is_dir():
             logger.error(f"another instance of ota-client({pid=}) is running, abort")
             sys.exit()
         else:
             logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
-            Path(cfg.OTACLIENT_PID_FPATH).unlink(missing_ok=True)
-    # create run dir
-    _run_dir = Path(cfg.RUN_DPATH)
-    _run_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(_run_dir, 0o550)
+            _otaclient_pid_fpath.unlink(missing_ok=True)
+
     # write our pid to the lock file
-    write_str_to_file_sync(cfg.OTACLIENT_PID_FPATH, f"{os.getpid()}")
+    write_str_to_file_sync(_otaclient_pid_fpath, f"{os.getpid()}")
 
 
 def _check_active_rootfs():
@@ -75,6 +82,8 @@ def main():
         logger.info(read_str_from_file(EXTRA_VERSION_FILE))
     logger.info(f"otaclient version: {__version__}")
 
+    _prepare_otaclient_runtime_dir()
+
     # issue a warning if otaclient detects itself is running as container,
     # but config.IS_CONTAINER is not True(ACTIVE_ROOTFS is not configured).
     # TODO: do more things over this unexpected condition?
@@ -87,5 +96,11 @@ def main():
     # do pre-start checking
     _check_active_rootfs()
     _check_other_otaclient()
+
+    # Enable utils.subprocess process pool mode if we are in container mode
+    # see utils.subprocess.enable_process_pool for more details
+    # This MUST be called before grpc server created and lauched.
+    if cfg.IS_CONTAINER:
+        enable_process_pool()
 
     asyncio.run(launch_otaclient_grpc_server())

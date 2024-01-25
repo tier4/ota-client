@@ -50,7 +50,7 @@ from urllib.parse import quote
 from OpenSSL import crypto
 from pathlib import Path
 from functools import partial
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import NamedTemporaryFile
 from typing import (
     Any,
     Callable,
@@ -597,8 +597,7 @@ class OTAMetadata:
     def __init__(self, *, url_base: str, downloader: Downloader) -> None:
         self.url_base = url_base
         self._downloader = downloader
-        self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=cfg.RUN_DPATH)
-        self._tmp_dir_path = Path(self._tmp_dir.name)
+        self._tmp_dir = Path(cfg.RUN_DPATH) / cfg.OTACLIENT_RUNTIME_TMP_DNAME
 
         # download and parse the metadata.jwt
         self.scheme_version = _MetadataJWTClaimsLayout.SCHEME_VERSION
@@ -624,7 +623,7 @@ class OTAMetadata:
         """Download, loading and parsing metadata.jwt."""
         logger.debug("process metadata.jwt...")
         # download and parse metadata.jwt
-        with NamedTemporaryFile(prefix="metadata_jwt", dir=cfg.RUN_DPATH) as meta_f:
+        with NamedTemporaryFile(prefix="metadata_jwt", dir=self._tmp_dir) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
             self._downloader.download_retry_inf(
                 urljoin_ensure_base(self.url_base, self.METADATA_JWT),
@@ -644,7 +643,7 @@ class OTAMetadata:
         _ota_metadata = _parser.get_otametadata()
 
         # download certificate and verify metadata against this certificate
-        with NamedTemporaryFile(prefix="metadata_cert", dir=cfg.RUN_DPATH) as cert_f:
+        with NamedTemporaryFile(prefix="metadata_cert", dir=self._tmp_dir) as cert_f:
             cert_info = _ota_metadata.certificate
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
@@ -669,7 +668,9 @@ class OTAMetadata:
 
         def _process_text_base_otameta_file(_metafile: MetaFile):
             _parser_info = self.METAFILE_PARSER_MAPPING[MetafilesV1(_metafile.file)]
-            with NamedTemporaryFile(prefix=f"metafile_{_metafile.file}") as _metafile_f:
+            with NamedTemporaryFile(
+                prefix=f"metafile_{_metafile.file}", dir=self._tmp_dir
+            ) as _metafile_f:
                 _metafile_fpath = Path(_metafile_f.name)
                 self._downloader.download(
                     urljoin_ensure_base(self.url_base, quote(_metafile.file)),
@@ -681,10 +682,11 @@ class OTAMetadata:
                         )
                     },
                 )
+
                 # convert to internal used version and store as binary files
                 _count = 0
                 with open(_metafile_fpath, "r") as _src_f, open(
-                    Path(self._tmp_dir.name) / _parser_info.bin_fname, "wb"
+                    self._tmp_dir / _parser_info.bin_fname, "wb"
                 ) as _dst_f:
                     exporter = Uint32LenDelimitedMsgWriter(
                         _dst_f, _parser_info.wrapper_type
@@ -734,12 +736,12 @@ class OTAMetadata:
     def save_metafiles_bin_to(self, dst_dir: PathLike):
         for _, _inf_files_mapping in self.METAFILE_PARSER_MAPPING.items():
             _fname = _inf_files_mapping.bin_fname
-            _fpath = self._tmp_dir_path / _fname
+            _fpath = self._tmp_dir / _fname
             shutil.copy(_fpath, dst_dir)
 
     def iter_metafile(self, metafile: MetafilesV1) -> Iterator[Any]:
         _parser_info = self.METAFILE_PARSER_MAPPING[metafile]
-        with open(self._tmp_dir_path / _parser_info.bin_fname, "rb") as _f:
+        with open(self._tmp_dir / _parser_info.bin_fname, "rb") as _f:
             _stream_reader = Uint32LenDelimitedMsgReader(_f, _parser_info.wrapper_type)
             yield from _stream_reader.iter_msg()
 

@@ -27,9 +27,9 @@ from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
 from typing_extensions import Self
 
 from . import log_setting
+from ._cmdhelpers import mount_ro, get_dev_by_attr, umount
 from .configs import config as cfg, logging_config
 from .common import ensure_otaproxy_start
-from .boot_control._common import CMDHelperFuncs
 from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientControlFlags, OTAServicer
 from .ota_client_call import ECUNoResponse, OtaClientCall
@@ -44,6 +44,8 @@ from otaclient.ota_proxy import (
 
 
 logger = log_setting.get_logger(__name__)
+
+DEFAULT_UMOUNT_TIMEOUT = DEFAULT_MOUNT_TIMEOUT = 360  # seconds
 
 
 class _OTAProxyContext(OTAProxyContextProto):
@@ -102,7 +104,9 @@ class _OTAProxyContext(OTAProxyContextProto):
 
     def _mount_external_cache_storage(self):
         # detect cache_dev on every startup
-        _cache_dev = CMDHelperFuncs._findfs("LABEL", self._external_cache_dev_fslabel)
+        _cache_dev = get_dev_by_attr(
+            "LABEL", self._external_cache_dev_fslabel, raise_exception=False
+        )
         if not _cache_dev:
             return
 
@@ -111,16 +115,27 @@ class _OTAProxyContext(OTAProxyContextProto):
 
         # try to unmount the mount_point and cache_dev unconditionally
         _mp = Path(self._external_cache_dev_mp)
-        CMDHelperFuncs.umount(_cache_dev, ignore_error=True)
-        if _mp.is_dir():
-            CMDHelperFuncs.umount(self._external_cache_dev_mp, ignore_error=True)
-        else:
-            _mp.mkdir(parents=True, exist_ok=True)
+        try:
+            umount(
+                _cache_dev,
+                timeout=DEFAULT_UMOUNT_TIMEOUT,
+                all_mounts=True,
+                recursive=True,
+            )
+        except Exception as e:
+            logger.warning(
+                f"failed to mount {_cache_dev}: {e!r}, skip using external cache source"
+            )
+            return
+
+        _mp.mkdir(parents=True, exist_ok=True)
 
         # try to mount cache_dev ro
         try:
-            CMDHelperFuncs.mount_ro(
-                target=_cache_dev, mount_point=self._external_cache_dev_mp
+            mount_ro(
+                target_dev=_cache_dev,
+                mount_point=self._external_cache_dev_mp,
+                timeout=DEFAULT_MOUNT_TIMEOUT,
             )
             self._external_cache_activated = True
         except Exception as e:
@@ -131,14 +146,21 @@ class _OTAProxyContext(OTAProxyContextProto):
     def _umount_external_cache_storage(self):
         if not self._external_cache_activated or not self._external_cache_dev:
             return
+
         try:
-            CMDHelperFuncs.umount(self._external_cache_dev)
+            umount(
+                self._external_cache_dev,
+                timeout=DEFAULT_UMOUNT_TIMEOUT,
+                all_mounts=True,
+                recursive=True,
+            )
         except Exception as e:
             logger.warning(
                 f"failed to unmount external cache_dev {self._external_cache_dev}: {e!r}"
             )
         finally:
-            self.started = self._external_cache_activated = False
+            self.started = False
+            self._external_cache_activated = False
 
     def __enter__(self) -> Self:
         try:
@@ -223,8 +245,8 @@ class OTAProxyLauncher:
                     host=self._proxy_info.local_ota_proxy_listen_addr,
                     port=self._proxy_info.local_ota_proxy_listen_port,
                     init_cache=init_cache,
-                    cache_dir=self._proxy_server_cfg.BASE_DIR,
-                    cache_db_f=self._proxy_server_cfg.DB_FILE,
+                    cache_dir=cfg.OTA_CACHE_DPATH,
+                    cache_db_f=cfg.OTA_CACHE_DB_FPATH,
                     upper_proxy=self.upper_otaproxy,
                     enable_cache=self._proxy_info.enable_local_ota_proxy_cache,
                     enable_https=self._proxy_info.gateway,
@@ -722,9 +744,13 @@ class OTAClientServiceStub:
     """
 
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
+    THREAD_POOL_MAX_WORKERS = 4
 
     def __init__(self, *, ecu_info: ECUInfo, _proxy_cfg=proxy_cfg):
-        self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
+        self._executor = ThreadPoolExecutor(
+            thread_name_prefix="otaclient_service_stub",
+            max_workers=self.THREAD_POOL_MAX_WORKERS,
+        )
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
         )

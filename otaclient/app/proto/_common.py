@@ -755,7 +755,7 @@ class _DefaultValueEnumMeta(EnumMeta):
 
 class EnumWrapper(IntEnum, metaclass=_DefaultValueEnumMeta):
     @classmethod
-    def convert(cls, _in: Union[int, str, Self]) -> Self:
+    def convert(cls, _in: Union[int, str, Self]) -> EnumWrapper:
         if isinstance(_in, int):
             return cls(_in)
         elif isinstance(_in, str):

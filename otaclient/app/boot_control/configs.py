@@ -18,7 +18,6 @@ import os.path
 from enum import Enum, unique
 from pydantic import BaseModel, ConfigDict
 from typing import TYPE_CHECKING, ClassVar as _std_ClassVar, Any
-from typing_extensions import Self
 
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
@@ -46,7 +45,7 @@ class BootloaderType(str, Enum):
     RPI_BOOT = "rpi_boot"
 
     @classmethod
-    def parse_str(cls, _input: str) -> Self:
+    def parse_str(cls, _input: str) -> BootloaderType:
         res = cls.UNSPECIFIED
         try:  # input is enum key(capitalized)
             res = cls[_input]
@@ -259,13 +258,20 @@ class RPIBootControlConfig(_CommonConfig, _SeparatedBootParOTAStatusConfig):
             cfg.ACTIVE_ROOTFS,
         )
 
+    CANONICAL_SYSTEM_BOOT_MOUNT_POINT: _std_ClassVar = "/boot/firmware"
+    """The canonical mount point of system-boot partition."""
+
     @cached_computed_field
     def SYSTEM_BOOT_MOUNT_POINT(self) -> str:
         """The dynamically rooted location of rpi system-boot partition mount point.
 
         Default: /boot/firmware
         """
-        return os.path.join(cfg.BOOT_DPATH, "firmware")
+        return replace_root(
+            self.CANONICAL_SYSTEM_BOOT_MOUNT_POINT,
+            cfg.DEFAULT_ACTIVE_ROOTFS,
+            cfg.ACTIVE_ROOTFS,
+        )
 
     @cached_computed_field
     def SWITCH_BOOT_FLAG_FPATH(self) -> str:
