@@ -26,7 +26,6 @@ from otaclient._utils.subprocess import (
     subprocess_call,
     subprocess_check_output,
     SubProcessCallFailed,
-    gen_err_report,
 )
 from otaclient._utils.linux import DEFAULT_NS_TO_ENTER
 

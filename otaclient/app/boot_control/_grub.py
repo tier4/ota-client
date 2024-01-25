@@ -91,7 +91,7 @@ def grub_mkconfig() -> str:
     Raises:
         _GrubBootControllerError on failed call.
     """
-    logger.debug(f"cmd execute: grub-mkconfig")
+    logger.debug("cmd execute: grub-mkconfig")
     try:
         _res = subprocess_check_output(
             "grub-mkconfig",
@@ -385,7 +385,7 @@ class GrubABPartitionDetector:
         try:
             boot_dev = get_dev_by_mount_point(cfg.BOOT_DPATH, raise_exception=True)
             assert boot_dev
-        except (SubProcessCallFailed, AssertionError) as e:
+        except (SubProcessCallFailed, AssertionError):
             _err_msg = f"active rootfs's {cfg.BOOT_DPATH} is not mounted"
             logger.error(_err_msg)
             raise _GrubBootControllerError(_err_msg)

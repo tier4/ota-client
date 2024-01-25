@@ -384,7 +384,7 @@ class _ConfigurableConfig(BaseModel):
     If ECU has been disconnected longer than <TIMEOUT> seconds, it will be
         treated as UNREACHABLE, and will not be counted when generating overall
         ECUs status report.
-    
+
     NOTE: unreachable_timeout should be larger than downloading_group timeout.
     """
 
@@ -399,7 +399,7 @@ class _ConfigurableConfig(BaseModel):
     When any ECU acks update request, this ECU will directly set the overall ECU status
         to any_in_update=True, any_requires_network=True, all_success=False, to prevent
         pre-mature overall ECU status changed caused by child ECU delayed ack to update request.
-    
+
     This pre-set overall ECU status will be kept for <KEEP_TIME> seconds.
     This value is expected to be larger than the time cost for subECU acks the OTA request.
     """

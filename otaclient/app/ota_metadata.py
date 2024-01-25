@@ -50,7 +50,7 @@ from urllib.parse import quote
 from OpenSSL import crypto
 from pathlib import Path
 from functools import partial
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import NamedTemporaryFile
 from typing import (
     Any,
     Callable,

@@ -58,7 +58,7 @@ _FSTAB_TEMPLATE_STR = (
 
 @no_arg(subprocess_call)
 def _flash_kernel(**kwargs) -> None:
-    logger.debug(f"cmd executed: flash-kernel")
+    logger.debug("cmd executed: flash-kernel")
     with log_subprocess_exec(logger.error, "failed to flash-kernel"):
         subprocess_call("flash-kernel", **kwargs)
 
