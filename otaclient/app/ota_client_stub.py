@@ -733,7 +733,6 @@ class OTAClientServiceStub:
 
         self._otaclient_control_flags = OTAClientControlFlags()
         self._otaclient_wrapper = OTAServicer(
-            ecu_info=ecu_info,
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
             proxy=proxy_info.get_proxy_for_local_ota(),
