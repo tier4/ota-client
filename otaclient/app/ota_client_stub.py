@@ -93,7 +93,7 @@ class _OTAProxyContext(OTAProxyContextProto):
         #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
         #       and then set the otaclient.ota_proxy logger to DEFAULT_LOG_LEVEL
         log_setting.configure_logging(
-            loglevel=logging.CRITICAL, http_logging_url=log_setting.get_ecu_id()
+            loglevel=logging.CRITICAL, http_logging_url=ecu_info.ecu_id
         )
         otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
         otaproxy_logger.setLevel(logging_config.LOGGING_LEVEL)

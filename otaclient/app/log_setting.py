@@ -28,8 +28,13 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
-def configure_logging(loglevel: int, *, http_logging_url: str):
-    """Configure logging with http handler."""
+def configure_logging(loglevel: int, *, http_logging_url: str) -> None:
+    """Configure logging with http handler.
+
+    Args:
+        loglevel(int): the loglevel to the configured logger.
+        http_logging_url(str): the path component of the logging dest URL.
+    """
     # configure the root logger
     # NOTE: force to reload the basicConfig, this is for overriding setting
     #       when launching subprocess.
