@@ -16,8 +16,7 @@
 from __future__ import annotations
 import grpc.aio
 
-from .configs import config as cfg, debug_flags, service_config
-from .ecu_info import ECUInfo
+from .configs import config as cfg, debug_flags, ecu_info, service_config
 from .log_setting import get_logger
 from .proto import wrapper, v2, v2_grpc
 from .ota_client_stub import OTAClientServiceStub
@@ -45,9 +44,7 @@ class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):
 
 
 def create_otaclient_grpc_server():
-    ecu_info = ECUInfo.parse_ecu_info(cfg.ECU_INFO_FPATH)
-
-    service_stub = OTAClientServiceStub(ecu_info=ecu_info)
+    service_stub = OTAClientServiceStub()
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
     server = grpc.aio.server()
