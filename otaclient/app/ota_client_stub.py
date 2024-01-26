@@ -34,13 +34,13 @@ from .ecu_info import ECUContact, ECUInfo
 from .ota_client import OTAClientControlFlags, OTAServicer
 from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
-from .proxy_info import proxy_cfg
 
 from otaclient.ota_proxy import (
     OTAProxyContextProto,
     subprocess_otaproxy_launcher,
     config as local_otaproxy_cfg,
 )
+from otaclient.configs.proxy_info import proxy_cfg
 
 
 logger = log_setting.get_logger(__name__)

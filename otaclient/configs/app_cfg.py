@@ -304,8 +304,11 @@ class _ConfigurableConfig(BaseModel):
     #
     # ------ otaproxy server config ------ #
     #
-    OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
+    OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = Field(default="0.0.0.0")
     OTA_PROXY_LISTEN_PORT: int = Field(default=8082, ge=0, le=65535)
+
+    LOGGING_SERVER_ADDRESS: IPvAnyAddress = Field(default="127.0.0.1")
+    LOGGING_SERVER_PORT: int = Field(default=8083, ge=0, le=65535)
 
     #
     # ------ otaclient runtime behavior setting ------ #
