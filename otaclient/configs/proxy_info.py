@@ -131,4 +131,4 @@ def parse_proxy_info(proxy_info_file: StrOrPath) -> ProxyInfo:
     return ProxyInfo.model_validate(loaded_proxy_info)
 
 
-proxy_cfg = parse_proxy_info(cfg.PROXY_INFO_FPATH)
+proxy_info = parse_proxy_info(cfg.PROXY_INFO_FPATH)
