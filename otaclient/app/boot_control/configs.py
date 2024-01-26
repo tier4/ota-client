@@ -15,48 +15,18 @@
 
 from __future__ import annotations
 import os.path
-from enum import Enum, unique
 from pydantic import BaseModel, ConfigDict
 from typing import TYPE_CHECKING, ClassVar as _std_ClassVar, Any
-from typing_extensions import Self
 
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
+from otaclient.configs.ecu_info import BootloaderType
 from ..configs import config as cfg
 
 # A simple trick to make plain ClassVar work when
 # __future__.annotations is activated.
 if not TYPE_CHECKING:
     _std_ClassVar = _std_ClassVar[Any]
-
-
-@unique
-class BootloaderType(str, Enum):
-    """Bootloaders that supported by otaclient.
-
-    grub: generic x86_64 platform with grub
-    cboot: ADLink rqx-580, rqx-58g, with BSP 32.5.x
-        (theoretically other Nvidia jetson xavier devices using cboot are also supported)
-    rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28
-    """
-
-    UNSPECIFIED = "unspecified"
-    GRUB = "grub"
-    CBOOT = "cboot"
-    RPI_BOOT = "rpi_boot"
-
-    @classmethod
-    def parse_str(cls, _input: str) -> Self:
-        res = cls.UNSPECIFIED
-        try:  # input is enum key(capitalized)
-            res = cls[_input]
-        except KeyError:
-            pass
-        try:  # input is enum value(uncapitalized)
-            res = cls(_input)
-        except ValueError:
-            pass
-        return res
 
 
 class _SeparatedBootParOTAStatusConfig(BaseModel):

@@ -49,7 +49,11 @@ DEFAULT_ECU_INFO = {
 
 class BootloaderType(str, Enum):
     """Bootloaders that supported by otaclient.
-    This class is copied from app.boot_control as it.
+
+    grub: generic x86_64 platform with grub
+    cboot: ADLink rqx-580, rqx-58g, with BSP 32.5.x
+        (theoretically other Nvidia jetson xavier devices using cboot are also supported)
+    rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28
     """
 
     UNSPECIFIED = "unspecified"
