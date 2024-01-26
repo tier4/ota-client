@@ -34,9 +34,8 @@ from .common import (
     RetryTaskMap,
     RetryTaskMapInterrupted,
 )
-from .configs import config as cfg, debug_flags
+from .configs import config as cfg, debug_flags, ecu_info
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
-from .ecu_info import ECUInfo
 from .interface import OTAClientProtocol
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
@@ -620,7 +619,6 @@ class OTAServicer:
         self,
         *,
         control_flags: OTAClientControlFlags,
-        ecu_info: ECUInfo,
         executor: Optional[ThreadPoolExecutor] = None,
         otaclient_version: str = __version__,
         proxy: Optional[str] = None,
