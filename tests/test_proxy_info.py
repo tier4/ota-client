@@ -37,7 +37,7 @@ PARSED_PRE_DEFINED_PROXY_INFO_DICT = {
     "enable_local_ota_proxy_cache": True,
     "local_ota_proxy_listen_addr": "0.0.0.0",
     "local_ota_proxy_listen_port": 8082,
-    "logging_server": "http://127.0.0.1:8083",
+    "logging_server": None,
 }
 
 PERCEPTION_ECU_PROXY_INFO_YAML = """\
@@ -45,6 +45,7 @@ gateway: false
 enable_local_ota_proxy: true
 upper_ota_proxy: "http://10.0.0.1:8082"
 enable_local_ota_proxy_cache: true
+logging_server: "http://10.0.0.1:8083",
 """
 
 # Bad configured yaml file that contains invalid value.
@@ -84,7 +85,7 @@ BAD_CORRUPTED_PROXY_INFO_YAML = """\
                 "enable_local_ota_proxy_cache": True,
                 "local_ota_proxy_listen_addr": "0.0.0.0",
                 "local_ota_proxy_listen_port": 8082,
-                "logging_server": "http://127.0.0.1:8083",
+                "logging_server": "http://10.0.0.1:8083",
             },
         ),
         # case 3: testing invalid/corrupted proxy_info.yaml
