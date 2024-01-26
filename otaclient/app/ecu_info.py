@@ -60,7 +60,7 @@ class BootloaderType(str, Enum):
 
 class ECUContact(BaseModel):
     ecu_id: str
-    host: str
+    ip_addr: str
     port: int = Field(default=service_config.CLIENT_CALL_PORT, gt=0, lt=65535)
 
 
