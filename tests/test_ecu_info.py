@@ -17,7 +17,12 @@ from __future__ import annotations
 import pytest
 from pathlib import Path
 
-from otaclient.app.ecu_info import ECUInfo, ECUContact, BootloaderType
+from otaclient.configs.ecu_info import (
+    parse_ecu_info,
+    ECUInfo,
+    ECUContact,
+    BootloaderType,
+)
 
 # please refer to ecu_info.py for the DEFAULT_ECU_INFO definition
 DEFAULT_ECU_INFO_OBJ = ECUInfo(
@@ -143,7 +148,7 @@ def test_ecu_info(tmp_path: Path, ecu_info_yaml: str, expected_ecu_info: ECUInfo
     (ecu_info_file := ota_dir / "ecu_info.yaml").write_text(ecu_info_yaml)
 
     # --- execution --- #
-    loaded_ecu_info = ECUInfo.parse_ecu_info(ecu_info_file)
+    loaded_ecu_info = parse_ecu_info(ecu_info_file)
 
     # --- assertion --- #
     assert loaded_ecu_info == expected_ecu_info
