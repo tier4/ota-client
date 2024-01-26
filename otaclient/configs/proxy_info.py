@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import yaml
 import warnings
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 from pathlib import Path
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -73,9 +73,7 @@ class ProxyInfo(BaseModel):
     #       This field doesn't take effect if enable_local_ota_proxy is False
     enable_local_ota_proxy_cache: bool = True
 
-    logging_server: str = (
-        f"http://{cfg.LOGGING_SERVER_ADDRESS}:{cfg.LOGGING_SERVER_PORT}"
-    )
+    logging_server: Optional[str] = None
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""
