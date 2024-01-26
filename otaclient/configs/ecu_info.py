@@ -34,9 +34,9 @@ from enum import Enum
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Any, ClassVar, List, Iterator
-from typing_extensions import Self
 
 from otaclient._utils.typing import StrOrPath
+from otaclient.configs.app_cfg import app_config
 from otaclient.configs.ota_service_cfg import service_config
 
 logger = logging.getLogger(__name__)
@@ -72,24 +72,6 @@ class ECUInfo(BaseModel):
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
 
-    @classmethod
-    def parse_ecu_info(cls, ecu_info_file: StrOrPath) -> Self:
-        try:
-            _raw_yaml_str = Path(ecu_info_file).read_text()
-        except FileNotFoundError as e:
-            logger.error(f"{e!r}")
-            raise
-
-        try:
-            ecu_info_dict: dict[str, Any] = yaml.safe_load(_raw_yaml_str)
-            assert isinstance(ecu_info_dict, dict), "not a valid ecu_info.yaml"
-
-            return cls.model_validate(ecu_info_dict)
-        except Exception as e:
-            logger.warning(f"{ecu_info_file=} is invalid, use default config: {e!r}")
-            logger.warning(f"invalid ecu_info.yaml contenxt: {_raw_yaml_str}")
-            return cls.model_validate(DEFAULT_ECU_INFO)
-
     def iter_direct_subecu_contact(self) -> Iterator[ECUContact]:
         yield from self.secondaries
 
@@ -102,3 +84,24 @@ class ECUInfo(BaseModel):
         if len(self.available_ecu_ids) == 0:
             return [self.ecu_id]
         return self.available_ecu_ids.copy()
+
+
+def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
+    try:
+        _raw_yaml_str = Path(ecu_info_file).read_text()
+    except FileNotFoundError as e:
+        logger.error(f"{e!r}")
+        raise
+
+    try:
+        ecu_info_dict: dict[str, Any] = yaml.safe_load(_raw_yaml_str)
+        assert isinstance(ecu_info_dict, dict), "not a valid ecu_info.yaml"
+
+        return ECUInfo.model_validate(ecu_info_dict)
+    except Exception as e:
+        logger.warning(f"{ecu_info_file=} is invalid, use default config: {e!r}")
+        logger.warning(f"invalid ecu_info.yaml contenxt: {_raw_yaml_str}")
+        return ECUInfo.model_validate(DEFAULT_ECU_INFO)
+
+
+ecu_info = parse_ecu_info(ecu_info_file=app_config.ECU_INFO_FPATH)
