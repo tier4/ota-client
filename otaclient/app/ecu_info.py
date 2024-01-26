@@ -11,20 +11,35 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-r"""ECU metadatas definition."""
+r"""ECU metadatas definition.
 
+Version 1 scheme example:
+    format_vesrion: 1
+    ecu_id: "autoware"
+    ip_addr: "0.0.0.0"
+    bootloader: "grub"
+    secondaries:
+        - ecu_id: "p1"
+            ip_addr: "0.0.0.0"
+    available_ecu_ids:
+        - "autoware"
+        - "p1
+"""
+
+
+from __future__ import annotations
+import logging
 import yaml
-from copy import deepcopy
-from dataclasses import dataclass, field, fields, MISSING
+from enum import Enum
 from pathlib import Path
-from typing import Iterator, NamedTuple, Union, Dict, List, Any
+from pydantic import BaseModel, Field
+from typing import Any, ClassVar, List, Iterator
+from typing_extensions import Self
 
-from . import log_setting
-from .boot_control import BootloaderType
-from .configs import service_config
+from otaclient._utils.typing import StrOrPath
+from otaclient.configs.ota_service_cfg import service_config
 
-logger = log_setting.get_logger(__name__)
-
+logger = logging.getLogger(__name__)
 
 DEFAULT_ECU_INFO = {
     "format_version": 1,  # current version is 1
@@ -32,98 +47,58 @@ DEFAULT_ECU_INFO = {
 }
 
 
-class ECUContact(NamedTuple):
+class BootloaderType(str, Enum):
+    """Bootloaders that supported by otaclient.
+    This class is copied from app.boot_control as it.
+    """
+
+    UNSPECIFIED = "unspecified"
+    GRUB = "grub"
+    CBOOT = "cboot"
+    RPI_BOOT = "rpi_boot"
+
+
+class ECUContact(BaseModel):
     ecu_id: str
     host: str
-    port: int = service_config.CLIENT_CALL_PORT
+    port: int = Field(default=service_config.CLIENT_CALL_PORT, gt=0, lt=65535)
 
 
-@dataclass
-class ECUInfo:
-    """
-    Version 1 scheme example:
-        format_vesrion: 1
-        ecu_id: "autoware"
-        ip_addr: "0.0.0.0"
-        bootloader: "grub"
-        secondaries:
-            - ecu_id: "p1"
-              ip_addr: "0.0.0.0"
-        available_ecu_ids:
-            - "autoware"
-            - "p1
-    """
-
+class ECUInfo(BaseModel):
+    format_version: ClassVar[int] = 1
     ecu_id: str
     ip_addr: str = str(service_config.DEFAULT_SERVER_ADDRESS)
-    bootloader: str = BootloaderType.UNSPECIFIED.value
-    available_ecu_ids: list = field(default_factory=list)  # list[str]
-    secondaries: list = field(default_factory=list)  # list[dict[str, Any]]
-    format_version: int = 1
+    bootloader: BootloaderType = BootloaderType.UNSPECIFIED
+    available_ecu_ids: List[str] = Field(default_factory=list)
+    secondaries: List[ECUContact] = Field(default_factory=list)
 
     @classmethod
-    def parse_ecu_info(cls, ecu_info_file: Union[str, Path]) -> "ECUInfo":
-        ecu_info = deepcopy(DEFAULT_ECU_INFO)
+    def parse_ecu_info(cls, ecu_info_file: StrOrPath) -> Self:
         try:
-            ecu_info_yaml = Path(ecu_info_file).read_text()
-            _ecu_info = yaml.safe_load(ecu_info_yaml)
-            assert isinstance(_ecu_info, Dict)
-            ecu_info = _ecu_info
-        except (yaml.error.MarkedYAMLError, AssertionError) as e:
-            logger.warning(
-                f"invalid {ecu_info_yaml=}, use default config: {e!r}"  # type: ignore
-            )
+            _raw_yaml_str = Path(ecu_info_file).read_text()
+        except FileNotFoundError as e:
+            logger.error(f"{e!r}")
+            raise
+
+        try:
+            ecu_info_dict: dict[str, Any] = yaml.safe_load(_raw_yaml_str)
+            assert isinstance(ecu_info_dict, dict), "not a valid ecu_info.yaml"
+
+            return cls.model_validate(ecu_info_dict)
         except Exception as e:
-            logger.warning(
-                f"{ecu_info_file=} not found or unexpected err, use default config: {e!r}"
-            )
-        logger.info(f"parsed {ecu_info=}")
-
-        # load options
-        # NOTE: if option is not presented,
-        #       this option will be set to the default value
-        _ecu_info_dict: Dict[str, Any] = dict()
-        for _field in fields(cls):
-            _option = ecu_info.get(_field.name)
-            if not isinstance(_option, _field.type):
-                if _option is not None:
-                    logger.warning(
-                        f"{_field.name} contains invalid value={_option}, "
-                        "ignored and set to default={_field.default}"
-                    )
-                if _field.default is MISSING and _field.default_factory is MISSING:
-                    raise ValueError(
-                        f"required field {_field.name} is not presented, abort"
-                    )
-                _ecu_info_dict[_field.name] = (
-                    _field.default
-                    if _field.default is not MISSING
-                    else _field.default_factory()  # type: ignore
-                )
-            # parsed _option is available
-            else:
-                _ecu_info_dict[_field.name] = _option
-
-        # initialize ECUInfo inst
-        return cls(**deepcopy(_ecu_info_dict))
+            logger.warning(f"{ecu_info_file=} is invalid, use default config: {e!r}")
+            logger.warning(f"invalid ecu_info.yaml contenxt: {_raw_yaml_str}")
+            return cls.model_validate(DEFAULT_ECU_INFO)
 
     def iter_direct_subecu_contact(self) -> Iterator[ECUContact]:
-        for subecu in self.secondaries:
-            try:
-                yield ECUContact(
-                    ecu_id=subecu["ecu_id"],
-                    host=subecu["ip_addr"],
-                    port=subecu.get("port", service_config.CLIENT_CALL_PORT),
-                )
-            except KeyError:
-                raise ValueError(f"{subecu=} info is invalid")
+        yield from self.secondaries
 
     def get_bootloader(self) -> BootloaderType:
-        return BootloaderType.parse_str(self.bootloader)
+        return self.bootloader
 
-    def get_available_ecu_ids(self) -> List[str]:
+    def get_available_ecu_ids(self) -> list[str]:
         # onetime fix, if no availabe_ecu_id is specified,
         # add my_ecu_id into the list
         if len(self.available_ecu_ids) == 0:
-            self.available_ecu_ids.append(self.ecu_id)
+            return [self.ecu_id]
         return self.available_ecu_ids.copy()
