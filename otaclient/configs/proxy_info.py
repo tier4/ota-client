@@ -18,23 +18,18 @@ from __future__ import annotations
 import logging
 import yaml
 import warnings
-from typing import Any, ClassVar, Optional
+from typing import Any, Optional
 from pathlib import Path
 from pydantic import AliasChoices, BaseModel, Field
 
 from otaclient._utils.typing import StrOrPath
 from otaclient.configs.app_cfg import app_config as cfg
+from otaclient.configs._common import BaseFixedConfig
 
 logger = logging.getLogger(__name__)
 
-# NOTE: this default is for backward compatible with x1.
-PRE_DEFINED_PROXY_INFO_YAML = """
-enable_local_ota_proxy: true
-gateway: true
-"""
 
-
-class ProxyInfo(BaseModel):
+class ProxyInfo(BaseFixedConfig):
     """OTA-proxy configuration.
 
     NOTE 1(20221220): when proxy_info.yaml is missing/not a valid yaml,
@@ -107,20 +102,28 @@ def _deprecation_check(_in: dict[str, Any]) -> None:
             )
 
 
+# NOTE: this default is for backward compatible with x1.
+DEFAULT_PROXY_INFO = ProxyInfo(
+    format_version=1,
+    gateway=True,
+    enable_local_ota_proxy=True,
+)
+DEFAULT_PROXY_INFO_YAML = """\
+gateway: true
+enable_local_ota_proxy: true
+"""
+
+
 def parse_proxy_info(proxy_info_file: StrOrPath) -> ProxyInfo:
     try:
-        _raw_yaml_str = Path(proxy_info_file).read_text()
-        loaded_proxy_info = yaml.safe_load(_raw_yaml_str)
+        loaded_proxy_info = yaml.safe_load(Path(proxy_info_file).read_text())
         assert isinstance(loaded_proxy_info, dict), "not a valid yaml file"
-
         _deprecation_check(loaded_proxy_info)
         return ProxyInfo.model_validate(loaded_proxy_info, strict=True)
     except Exception as e:
         logger.warning(f"{proxy_info_file=} is missing or invalid: {e!r} ")
-        loaded_proxy_info = yaml.safe_load(PRE_DEFINED_PROXY_INFO_YAML)
-        logger.warning(f"use default main ECU config: {loaded_proxy_info}")
-
-        return ProxyInfo.model_validate(loaded_proxy_info)
+        logger.warning(f"use default main ECU config: {DEFAULT_PROXY_INFO}")
+        return DEFAULT_PROXY_INFO
 
 
 proxy_info = parse_proxy_info(cfg.PROXY_INFO_FPATH)
