@@ -685,7 +685,7 @@ class _ECUTracker:
         #       In normal running this event will never be set.
         self._debug_ecu_status_polling_shutdown_event = asyncio.Event()
         asyncio.create_task(self._polling_local_ecu_status())
-        for ecu_contact in ecu_info.iter_direct_subecu_contact():
+        for ecu_contact in ecu_info.secondaries:
             asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
@@ -833,7 +833,7 @@ class OTAClientServiceStub:
 
         # first: dispatch update request to all directly connected subECUs
         tasks: Dict[asyncio.Task, ECUContact] = {}
-        for ecu_contact in self.ecu_info.iter_direct_subecu_contact():
+        for ecu_contact in self.ecu_info.secondaries:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
             _task = asyncio.create_task(
@@ -897,7 +897,7 @@ class OTAClientServiceStub:
 
         # first: dispatch rollback request to all directly connected subECUs
         tasks: Dict[asyncio.Task, ECUContact] = {}
-        for ecu_contact in self.ecu_info.iter_direct_subecu_contact():
+        for ecu_contact in self.ecu_info.secondaries:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
             _task = asyncio.create_task(
