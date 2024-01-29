@@ -32,19 +32,15 @@ import logging
 import yaml
 from enum import Enum
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import Any, ClassVar, List, Iterator
+from pydantic import Field
+from typing import List
 
 from otaclient._utils.typing import StrOrPath
+from otaclient.configs._common import BaseFixedConfig
 from otaclient.configs.app_cfg import app_config
 from otaclient.configs.ota_service_cfg import service_config
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_ECU_INFO = {
-    "format_version": 1,  # current version is 1
-    "ecu_id": "autoware",  # should be unique for each ECU in vehicle
-}
 
 
 class BootloaderType(str, Enum):
@@ -62,13 +58,13 @@ class BootloaderType(str, Enum):
     RPI_BOOT = "rpi_boot"
 
 
-class ECUContact(BaseModel):
+class ECUContact(BaseFixedConfig):
     ecu_id: str
     ip_addr: str
     port: int = Field(default=service_config.CLIENT_CALL_PORT, gt=0, lt=65535)
 
 
-class ECUInfo(BaseModel):
+class ECUInfo(BaseFixedConfig):
     """ECU info configuration.
 
     Attributes:
@@ -99,19 +95,24 @@ class ECUInfo(BaseModel):
         return self.available_ecu_ids.copy()
 
 
+# NOTE: this is backward compatibility for old x1 that doesn't have
+#       ecu_info.yaml installed.
+DEFAULT_ECU_INFO = ECUInfo(
+    format_version=1,  # current version is 1
+    ecu_id="autoware",  # should be unique for each ECU in vehicle
+)
+
+
 def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
     try:
         _raw_yaml_str = Path(ecu_info_file).read_text()
         loaded_ecu_info = yaml.safe_load(_raw_yaml_str)
         assert isinstance(loaded_ecu_info, dict), "not a valid yaml file"
-
         return ECUInfo.model_validate(loaded_ecu_info, strict=True)
     except Exception as e:
         logger.warning(f"{ecu_info_file=} is missing or invalid: {e!r}")
-        loaded_ecu_info = DEFAULT_ECU_INFO
-        logger.warning(f"use default ecu_info: {loaded_ecu_info}")
-
-        return ECUInfo.model_validate(loaded_ecu_info)
+        logger.warning(f"use default ecu_info: {DEFAULT_ECU_INFO}")
+        return DEFAULT_ECU_INFO
 
 
 ecu_info = parse_ecu_info(ecu_info_file=app_config.ECU_INFO_FPATH)

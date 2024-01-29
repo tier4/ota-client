@@ -20,7 +20,7 @@ import yaml
 import warnings
 from typing import Any, Optional
 from pathlib import Path
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, Field
 
 from otaclient._utils.typing import StrOrPath
 from otaclient.configs.app_cfg import app_config as cfg
@@ -102,16 +102,13 @@ def _deprecation_check(_in: dict[str, Any]) -> None:
             )
 
 
-# NOTE: this default is for backward compatible with x1.
+# NOTE: this default is for backward compatible with old device
+#       that doesn't have proxy_info.yaml installed.
 DEFAULT_PROXY_INFO = ProxyInfo(
     format_version=1,
     gateway=True,
     enable_local_ota_proxy=True,
 )
-DEFAULT_PROXY_INFO_YAML = """\
-gateway: true
-enable_local_ota_proxy: true
-"""
 
 
 def parse_proxy_info(proxy_info_file: StrOrPath) -> ProxyInfo:
