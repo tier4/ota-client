@@ -17,34 +17,30 @@ from __future__ import annotations
 import logging
 import pytest
 from pathlib import Path
-from typing import Any, Dict
 
 from otaclient.configs.proxy_info import (
     parse_proxy_info,
     DEFAULT_PROXY_INFO,
-    DEFAULT_PROXY_INFO_YAML,
+    ProxyInfo,
 )
 
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROXY_INFO_DICT = DEFAULT_PROXY_INFO.model_dump()
-
 
 @pytest.mark.parametrize(
     "_input_yaml, _expected",
     (
-        # case 1: testing when proxy_info.yaml is missing
+        # ------ case 1: proxy_info.yaml is missing ------ #
         # this case is for single ECU that doesn't have proxy_info.yaml and
         # can directly connect to the remote.
         # NOTE: this default value is for x1 backward compatibility.
         (
-            DEFAULT_PROXY_INFO_YAML,
-            DEFAULT_PROXY_INFO_DICT,
+            "# this is an empty file",
+            DEFAULT_PROXY_INFO,
         ),
-        # case 2: tesing typical sub ECU setting
+        # ------ case 2: typical sub ECU's proxy_info.yaml ------ #
         (
-            # typical sub ECU's proxy_info configuration
             (
                 "gateway: false\n"
                 "enable_local_ota_proxy: true\n"
@@ -52,26 +48,28 @@ DEFAULT_PROXY_INFO_DICT = DEFAULT_PROXY_INFO.model_dump()
                 "enable_local_ota_proxy_cache: true\n"
                 'logging_server: "http://10.0.0.1:8083"\n'
             ),
-            {
-                "format_version": 1,
-                "gateway": False,
-                "upper_ota_proxy": "http://10.0.0.1:8082",
-                "enable_local_ota_proxy": True,
-                "enable_local_ota_proxy_cache": True,
-                "local_ota_proxy_listen_addr": "0.0.0.0",
-                "local_ota_proxy_listen_port": 8082,
-                "logging_server": "http://10.0.0.1:8083",
-            },
+            ProxyInfo(
+                **{
+                    "format_version": 1,
+                    "gateway": False,
+                    "upper_ota_proxy": "http://10.0.0.1:8082",
+                    "enable_local_ota_proxy": True,
+                    "enable_local_ota_proxy_cache": True,
+                    "local_ota_proxy_listen_addr": "0.0.0.0",
+                    "local_ota_proxy_listen_port": 8082,
+                    "logging_server": "http://10.0.0.1:8083",
+                }
+            ),
         ),
-        # case 3: testing invalid/corrupted proxy_info.yaml
+        # ------ case 3: invalid/corrupted proxy_info.yaml ------ #
         # If the proxy_info.yaml is not a yaml, otaclient will also treat
         # this case the same as proxy_info.yaml missing, the pre-defined
         # proxy_info.yaml will be used.
         (
             "not a valid proxy_info.yaml",
-            DEFAULT_PROXY_INFO_DICT,
+            DEFAULT_PROXY_INFO,
         ),
-        # case 4: testing when proxy_info.yaml is valid yaml but contains invalid fields
+        # ------ case 4: proxy_info.yaml is valid yaml but contains invalid fields ------ #
         # in this case, default predefined default proxy_info.yaml will be loaded
         # NOTE(20240126): Previous behavior is invalid field will be replaced by default value,
         #                   and other fields will be preserved as much as possible.
@@ -88,19 +86,19 @@ DEFAULT_PROXY_INFO_DICT = DEFAULT_PROXY_INFO.model_dump()
                 "local_ota_proxy_listen_addr: 123\n"
                 'local_ota_proxy_listen_port: "2808"\n'
             ),
-            DEFAULT_PROXY_INFO_DICT,
+            DEFAULT_PROXY_INFO,
         ),
-        # case 5: testing corrupted proxy_info
+        # ------ case 5: corrupted/invalid yaml ------ #
         # in this case, default predefined default proxy_info.yaml will be loaded
         (
             "/t/t/t/t/t/t/t/tyaml file should not contain tabs/t/t/t/",
-            DEFAULT_PROXY_INFO_DICT,
+            DEFAULT_PROXY_INFO,
         ),
     ),
 )
-def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: Dict[str, Any]):
+def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: ProxyInfo):
     proxy_info_file = tmp_path / "proxy_info.yml"
     proxy_info_file.write_text(_input_yaml)
     _proxy_info = parse_proxy_info(str(proxy_info_file))
 
-    assert _proxy_info.model_dump() == _expected
+    assert _proxy_info == _expected
