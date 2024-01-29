@@ -17,7 +17,7 @@ from __future__ import annotations
 import ipaddress
 from pathlib import Path
 from typing import Any, Callable, TypeVar, Union
-from typing_extensions import Annotated, Concatenate, ParamSpec
+from typing_extensions import Concatenate, ParamSpec
 from urllib.parse import urlparse
 
 P = ParamSpec("P")
