@@ -32,7 +32,7 @@ import logging
 import yaml
 from enum import Enum
 from pathlib import Path
-from pydantic import Field
+from pydantic import Field, IPvAnyAddress
 from typing import List
 
 from otaclient._utils.typing import StrOrPath
@@ -60,7 +60,7 @@ class BootloaderType(str, Enum):
 
 class ECUContact(BaseFixedConfig):
     ecu_id: str
-    ip_addr: str
+    ip_addr: IPvAnyAddress
     port: int = Field(default=service_config.CLIENT_CALL_PORT, gt=0, lt=65535)
 
 
@@ -78,7 +78,7 @@ class ECUInfo(BaseFixedConfig):
 
     format_version: int = 1
     ecu_id: str
-    ip_addr: str = str(service_config.DEFAULT_SERVER_ADDRESS)
+    ip_addr: IPvAnyAddress = Field(default=service_config.DEFAULT_SERVER_ADDRESS)
     bootloader: BootloaderType = BootloaderType.UNSPECIFIED
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
