@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, TypeVar, Union
 from typing_extensions import Concatenate, ParamSpec
