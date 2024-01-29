@@ -21,7 +21,6 @@ from otaclient.configs.ecu_info import (
     DEFAULT_ECU_INFO,
     parse_ecu_info,
     ECUInfo,
-    ECUContact,
     BootloaderType,
 )
 
@@ -50,9 +49,11 @@ from otaclient.configs.ecu_info import (
         (
             ("format_version: 1\n" 'ecu_id: "autoware"\n' 'ip_addr: "192.168.1.1"\n'),
             ECUInfo(
-                ecu_id="autoware",
-                ip_addr="192.168.1.1",
-                bootloader=BootloaderType.UNSPECIFIED,
+                **{
+                    "ecu_id": "autoware",
+                    "ip_addr": "192.168.1.1",
+                    "bootloader": BootloaderType.UNSPECIFIED,
+                }
             ),
         ),
         # case 2.2: single ECU with bootloader type specified
@@ -64,9 +65,11 @@ from otaclient.configs.ecu_info import (
                 'bootloader: "grub"\n'
             ),
             ECUInfo(
-                ecu_id="autoware",
-                ip_addr="192.168.1.1",
-                bootloader=BootloaderType.GRUB,
+                **{
+                    "ecu_id": "autoware",
+                    "ip_addr": "192.168.1.1",
+                    "bootloader": BootloaderType.GRUB,
+                }
             ),
         ),
         # --- case 3: multiple ECUs --- #
@@ -84,20 +87,22 @@ from otaclient.configs.ecu_info import (
                 '  ip_addr: "192.168.0.12"\n'
             ),
             ECUInfo(
-                ecu_id="autoware",
-                ip_addr="192.168.1.1",
-                bootloader=BootloaderType.UNSPECIFIED,
-                available_ecu_ids=["autoware", "p1", "p2"],
-                secondaries=[
-                    ECUContact(
-                        ecu_id="p1",
-                        ip_addr="192.168.0.11",
-                    ),
-                    ECUContact(
-                        ecu_id="p2",
-                        ip_addr="192.168.0.12",
-                    ),
-                ],
+                **{
+                    "ecu_id": "autoware",
+                    "ip_addr": "192.168.1.1",
+                    "bootloader": BootloaderType.UNSPECIFIED,
+                    "available_ecu_ids": ["autoware", "p1", "p2"],
+                    "secondaries": [
+                        {
+                            "ecu_id": "p1",
+                            "ip_addr": "192.168.0.11",
+                        },
+                        {
+                            "ecu_id": "p2",
+                            "ip_addr": "192.168.0.12",
+                        },
+                    ],
+                }
             ),
         ),
         # case 3.2: multiple ECUs, with main ECU's bootloader specified
@@ -115,20 +120,22 @@ from otaclient.configs.ecu_info import (
                 '  ip_addr: "192.168.0.12"\n'
             ),
             ECUInfo(
-                ecu_id="autoware",
-                ip_addr="192.168.1.1",
-                available_ecu_ids=["autoware", "p1", "p2"],
-                bootloader=BootloaderType.GRUB,
-                secondaries=[
-                    ECUContact(
-                        ecu_id="p1",
-                        ip_addr="192.168.0.11",
-                    ),
-                    ECUContact(
-                        ecu_id="p2",
-                        ip_addr="192.168.0.12",
-                    ),
-                ],
+                **{
+                    "ecu_id": "autoware",
+                    "ip_addr": "192.168.1.1",
+                    "bootloader": BootloaderType.GRUB,
+                    "available_ecu_ids": ["autoware", "p1", "p2"],
+                    "secondaries": [
+                        {
+                            "ecu_id": "p1",
+                            "ip_addr": "192.168.0.11",
+                        },
+                        {
+                            "ecu_id": "p2",
+                            "ip_addr": "192.168.0.12",
+                        },
+                    ],
+                }
             ),
         ),
     ),
