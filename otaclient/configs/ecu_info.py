@@ -32,11 +32,12 @@ import logging
 import yaml
 from enum import Enum
 from pathlib import Path
-from pydantic import Field, IPvAnyAddress
+from pydantic import BeforeValidator, Field, IPvAnyAddress
 from typing import List
+from typing_extensions import Annotated
 
 from otaclient._utils.typing import StrOrPath
-from otaclient.configs._common import BaseFixedConfig
+from otaclient.configs._common import BaseFixedConfig, gen_strenum_validator
 from otaclient.configs.app_cfg import app_config
 from otaclient.configs.ota_service_cfg import service_config
 
@@ -79,7 +80,10 @@ class ECUInfo(BaseFixedConfig):
     format_version: int = 1
     ecu_id: str
     ip_addr: IPvAnyAddress = Field(default=service_config.DEFAULT_SERVER_ADDRESS)
-    bootloader: BootloaderType = BootloaderType.UNSPECIFIED
+    bootloader: Annotated[
+        BootloaderType,
+        BeforeValidator(gen_strenum_validator(BootloaderType)),
+    ] = BootloaderType.UNSPECIFIED
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
 
