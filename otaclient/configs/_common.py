@@ -16,6 +16,9 @@
 from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Any, Callable
+
+from otaclient._utils.typing import T
 
 # prefix for environmental vars name for configs.
 ENV_PREFIX = "OTA_"
@@ -35,3 +38,20 @@ class BaseFixedConfig(BaseModel):
     """Common base for configs that should be fixed and not changable."""
 
     model_config = ConfigDict(frozen=True, validate_default=True)
+
+
+def gen_strenum_validator(enum_type: type[T]) -> Callable[[T | str | Any], T]:
+    """A before validator generator that converts input value into enum
+    before passing it to pydantic validator.
+
+    NOTE(20240129): as upto pydantic v2.5.3, (str, Enum) field cannot
+                    pass strict validation if input is str.
+    """
+
+    def _inner(value: T | str | Any) -> T:
+        assert isinstance(
+            value, (enum_type, str)
+        ), f"{value=} should be {enum_type} or str type"
+        return enum_type(value)
+
+    return _inner
