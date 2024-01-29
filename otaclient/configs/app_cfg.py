@@ -27,12 +27,18 @@ There are three types of configs defined in this module:
 from __future__ import annotations
 import os.path
 from enum import Enum
-from pydantic import BaseModel, Field, IPvAnyAddress
+from pydantic import BaseModel, Field
 from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar
 
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
-from ._common import ENV_PREFIX, BaseConfigurableConfig, BaseFixedConfig
+from otaclient.configs._common import (
+    ENV_PREFIX,
+    BaseConfigurableConfig,
+    BaseFixedConfig,
+    IPAddressAny,
+    NetworkPort,
+)
 
 # A simple trick to make plain ClassVar work when
 # __future__.annotations is activated.
@@ -76,7 +82,6 @@ class _DynamicRootedPathsConfig(BaseModel):
     # ------ active_rootfs & container mode ------ #
     #
     DEFAULT_ACTIVE_ROOTFS: _std_ClassVar = "/"
-
     ACTIVE_ROOTFS: str = DEFAULT_ACTIVE_ROOTFS
 
     @cached_computed_field
@@ -299,16 +304,19 @@ class _ConfigurableConfig(BaseModel):
     """
 
     # name of OTA used temp folder
-    OTA_TMP_DNAME: str = "ota_tmp"
+    OTA_TMP_DNAME: _std_ClassVar = "ota_tmp"
 
     #
     # ------ otaproxy server config ------ #
     #
-    OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = Field(default="0.0.0.0")
-    OTA_PROXY_LISTEN_PORT: int = Field(default=8082, ge=0, le=65535)
+    OTA_PROXY_LISTEN_ADDRESS: IPAddressAny = "0.0.0.0"
+    OTA_PROXY_LISTEN_PORT: NetworkPort = 8082
 
-    LOGGING_SERVER_ADDRESS: IPvAnyAddress = Field(default="127.0.0.1")
-    LOGGING_SERVER_PORT: int = Field(default=8083, ge=0, le=65535)
+    #
+    # ------ otaclient logging server config ------ #
+    #
+    LOGGING_SERVER_ADDRESS: IPAddressAny = "127.0.0.1"
+    LOGGING_SERVER_PORT: NetworkPort = 8083
 
     #
     # ------ otaclient runtime behavior setting ------ #
