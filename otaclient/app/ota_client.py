@@ -648,7 +648,7 @@ class OTAServicer:
         self._otaclient_inst: Optional[OTAClient] = None
 
         # select boot_controller and standby_slot implementations
-        _bootctrl_cls = get_boot_controller(ecu_info.get_bootloader())
+        _bootctrl_cls = get_boot_controller(ecu_info.bootloader)
         _standby_slot_creator = get_standby_slot_creator(cfg.STANDBY_CREATION_MODE)
 
         # boot controller starts up
