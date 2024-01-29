@@ -18,21 +18,12 @@ import pytest
 from pathlib import Path
 
 from otaclient.configs.ecu_info import (
+    DEFAULT_ECU_INFO,
     parse_ecu_info,
     ECUInfo,
     ECUContact,
     BootloaderType,
 )
-
-# please refer to ecu_info.py for the DEFAULT_ECU_INFO definition
-DEFAULT_ECU_INFO_OBJ = ECUInfo(
-    ecu_id="autoware",
-    bootloader=BootloaderType.UNSPECIFIED,
-)
-DEFAULT_ECU_INFO_YAML = """\
-format_version: 1
-ecu_id: "autoware"    
-"""
 
 
 @pytest.mark.parametrize(
@@ -42,17 +33,17 @@ ecu_id: "autoware"
         # case 1.1: valid yaml(empty file), invalid ecu_info
         (
             "# this is an empty file",
-            DEFAULT_ECU_INFO_OBJ,
+            DEFAULT_ECU_INFO,
         ),
         # case 1.2: valid yaml(array), invalid ecu_info
         (
             ("- this is an\n" "- yaml file that\n" "- contains a array\n"),
-            DEFAULT_ECU_INFO_OBJ,
+            DEFAULT_ECU_INFO,
         ),
         # case 1.2: invalid yaml
         (
             "    - \n not a \n [ valid yaml",
-            DEFAULT_ECU_INFO_OBJ,
+            DEFAULT_ECU_INFO,
         ),
         # --- case 2: single ECU --- #
         # case 2.1: basic single ECU
