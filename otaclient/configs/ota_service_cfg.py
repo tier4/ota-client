@@ -18,9 +18,8 @@ For compatibility reason, this config is NOT configurable via env vars.
 
 
 from __future__ import annotations
-from pydantic import Field, ConfigDict, IPvAnyAddress
-from typing import Literal, Union
-from ._common import BaseFixedConfig
+from pydantic import ConfigDict
+from ._common import BaseFixedConfig, IPAddressAny, NetworkPort
 
 
 class OTAServiceConfig(BaseFixedConfig):
@@ -29,10 +28,10 @@ class OTAServiceConfig(BaseFixedConfig):
     model_config = ConfigDict(frozen=True, validate_default=True)
 
     # used when listen_addr is not configured in ecu_info.yaml.
-    DEFAULT_SERVER_ADDRESS: Union[IPvAnyAddress, Literal["127.0.0.1"]] = "127.0.0.1"
+    DEFAULT_SERVER_ADDRESS: IPAddressAny = "127.0.0.1"
 
-    SERVER_PORT: int = Field(default=50051, ge=0, le=65535)
-    CLIENT_CALL_PORT: int = Field(default=50051, ge=0, le=65535)
+    SERVER_PORT: NetworkPort = 50051
+    CLIENT_CALL_PORT: NetworkPort = 50051
 
 
 service_config = OTAServiceConfig()
