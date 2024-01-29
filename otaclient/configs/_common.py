@@ -14,11 +14,11 @@
 
 
 from __future__ import annotations
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Any, Callable
+from typing_extensions import Annotated
 
-from otaclient._utils.typing import T
+from otaclient._utils.typing import http_url_validator, ip_validator, port_validator
 
 # prefix for environmental vars name for configs.
 ENV_PREFIX = "OTA_"
@@ -40,18 +40,7 @@ class BaseFixedConfig(BaseModel):
     model_config = ConfigDict(frozen=True, validate_default=True)
 
 
-def gen_strenum_validator(enum_type: type[T]) -> Callable[[T | str | Any], T]:
-    """A before validator generator that converts input value into enum
-    before passing it to pydantic validator.
-
-    NOTE(20240129): as upto pydantic v2.5.3, (str, Enum) field cannot
-                    pass strict validation if input is str.
-    """
-
-    def _inner(value: T | str | Any) -> T:
-        assert isinstance(
-            value, (enum_type, str)
-        ), f"{value=} should be {enum_type} or str type"
-        return enum_type(value)
-
-    return _inner
+# extended field types
+NetworkPort = Annotated[int, AfterValidator(port_validator)]
+IPAddressAny = Annotated[str, AfterValidator(ip_validator)]
+HTTPURLAny = Annotated[str, AfterValidator(http_url_validator)]
