@@ -69,6 +69,17 @@ class ECUContact(BaseModel):
 
 
 class ECUInfo(BaseModel):
+    """ECU info configuration.
+
+    Attributes:
+        format_version: the ecu_info.yaml scheme version, current is 1.
+        ecu_id: the unique ID of this ECU.
+        ip_addr: the IP address OTA servicer listening on, default is <service_config.DEFAULT_SERVER_ADDRESS>.
+        bootloader: the bootloader type of this ECU, default is UNSPECIFIC(detect at runtime).
+        available_ecu_ids: a list of ECU IDs that should be involved in OTA campaign.
+        secondaries: a list of ECUContact objects for sub ECUs.
+    """
+
     format_version: int = 1
     ecu_id: str
     ip_addr: str = str(service_config.DEFAULT_SERVER_ADDRESS)
@@ -76,13 +87,11 @@ class ECUInfo(BaseModel):
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
 
-    def iter_direct_subecu_contact(self) -> Iterator[ECUContact]:
-        yield from self.secondaries
-
-    def get_bootloader(self) -> BootloaderType:
-        return self.bootloader
-
     def get_available_ecu_ids(self) -> list[str]:
+        """
+        NOTE: this method should be used instead of directly accessing the
+              available_ecu_ids attrs for backward compatibility reason.
+        """
         # onetime fix, if no availabe_ecu_id is specified,
         # add my_ecu_id into the list
         if len(self.available_ecu_ids) == 0:
