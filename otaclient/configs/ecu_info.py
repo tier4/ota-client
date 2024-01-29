@@ -69,7 +69,7 @@ class ECUContact(BaseModel):
 
 
 class ECUInfo(BaseModel):
-    format_version: ClassVar[int] = 1
+    format_version: int = 1
     ecu_id: str
     ip_addr: str = str(service_config.DEFAULT_SERVER_ADDRESS)
     bootloader: BootloaderType = BootloaderType.UNSPECIFIED
@@ -93,19 +93,16 @@ class ECUInfo(BaseModel):
 def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
     try:
         _raw_yaml_str = Path(ecu_info_file).read_text()
-    except FileNotFoundError as e:
-        logger.error(f"{e!r}")
-        raise
+        loaded_ecu_info = yaml.safe_load(_raw_yaml_str)
+        assert isinstance(loaded_ecu_info, dict), "not a valid yaml file"
 
-    try:
-        ecu_info_dict: dict[str, Any] = yaml.safe_load(_raw_yaml_str)
-        assert isinstance(ecu_info_dict, dict), "not a valid ecu_info.yaml"
-
-        return ECUInfo.model_validate(ecu_info_dict)
+        return ECUInfo.model_validate(loaded_ecu_info, strict=True)
     except Exception as e:
-        logger.warning(f"{ecu_info_file=} is invalid, use default config: {e!r}")
-        logger.warning(f"invalid ecu_info.yaml contenxt: {_raw_yaml_str}")
-        return ECUInfo.model_validate(DEFAULT_ECU_INFO)
+        logger.warning(f"{ecu_info_file=} is missing or invalid: {e!r}")
+        loaded_ecu_info = DEFAULT_ECU_INFO
+        logger.warning(f"use default ecu_info: {loaded_ecu_info}")
+
+        return ECUInfo.model_validate(loaded_ecu_info)
 
 
 ecu_info = parse_ecu_info(ecu_info_file=app_config.ECU_INFO_FPATH)

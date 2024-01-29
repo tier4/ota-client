@@ -41,7 +41,7 @@ class ProxyInfo(BaseModel):
                       a pre_defined proxy_info.yaml as follow will be used.
 
     Attributes:
-        version: the proxy_info.yaml scheme version, current is 1.
+        format_version: the proxy_info.yaml scheme version, current is 1.
         enable_local_ota_proxy: whether to launch a local ota_proxy server.
         enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy.
         gateway: whether to use HTTPS when local ota_proxy connects to remote.
@@ -52,7 +52,7 @@ class ProxyInfo(BaseModel):
         logging_server: the URL of AWS IoT otaclient logs upload server.
     """
 
-    version: ClassVar[int] = 1
+    format_version: int = 1
     # NOTE(20221219): the default values for the following settings
     #                 now align with v2.5.4
     gateway: bool = False
@@ -108,25 +108,19 @@ def _deprecation_check(_in: dict[str, Any]) -> None:
 
 
 def parse_proxy_info(proxy_info_file: StrOrPath) -> ProxyInfo:
-    loaded_proxy_info: dict[str, Any]
     try:
         _raw_yaml_str = Path(proxy_info_file).read_text()
         loaded_proxy_info = yaml.safe_load(_raw_yaml_str)
-        assert isinstance(
-            loaded_proxy_info, dict
-        ), f"invalid proxy_info.yaml: {_raw_yaml_str=}"
+        assert isinstance(loaded_proxy_info, dict), "not a valid yaml file"
 
         _deprecation_check(loaded_proxy_info)
         return ProxyInfo.model_validate(loaded_proxy_info, strict=True)
     except Exception as e:
-        logger.warning(
-            f"failed to load {proxy_info_file=} or config file corrupted: {e!r} "
-        )
+        logger.warning(f"{proxy_info_file=} is missing or invalid: {e!r} ")
         loaded_proxy_info = yaml.safe_load(PRE_DEFINED_PROXY_INFO_YAML)
         logger.warning(f"use default main ECU config: {loaded_proxy_info}")
 
-    _deprecation_check(loaded_proxy_info)
-    return ProxyInfo.model_validate(loaded_proxy_info)
+        return ProxyInfo.model_validate(loaded_proxy_info)
 
 
 proxy_info = parse_proxy_info(cfg.PROXY_INFO_FPATH)
