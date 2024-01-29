@@ -18,13 +18,18 @@ from __future__ import annotations
 import logging
 import yaml
 import warnings
-from typing import Any, Optional
+from typing import Any
 from pathlib import Path
-from pydantic import AliasChoices, Field, HttpUrl
+from pydantic import AliasChoices, Field
 
 from otaclient._utils.typing import StrOrPath
 from otaclient.configs.app_cfg import app_config as cfg
-from otaclient.configs._common import BaseFixedConfig
+from otaclient.configs._common import (
+    BaseFixedConfig,
+    IPAddressAny,
+    HTTPURLAny,
+    NetworkPort,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +56,7 @@ class ProxyInfo(BaseFixedConfig):
     # NOTE(20221219): the default values for the following settings
     #                 now align with v2.5.4
     gateway: bool = False
-    upper_ota_proxy: Optional[HttpUrl] = None
+    upper_ota_proxy: HTTPURLAny = Field(default="", validate_default=False)
     enable_local_ota_proxy: bool = Field(
         default=False,
         # NOTE(20240126): enable_ota_proxy is deprecated,
@@ -61,14 +66,14 @@ class ProxyInfo(BaseFixedConfig):
             "enable_ota_proxy",
         ),
     )
-    local_ota_proxy_listen_addr: str = str(cfg.OTA_PROXY_LISTEN_ADDRESS)
-    local_ota_proxy_listen_port: int = cfg.OTA_PROXY_LISTEN_PORT
+    local_ota_proxy_listen_addr: IPAddressAny = cfg.OTA_PROXY_LISTEN_ADDRESS
+    local_ota_proxy_listen_port: NetworkPort = cfg.OTA_PROXY_LISTEN_PORT
     # NOTE: this field not presented in v2.5.4,
     #       for current implementation, it should be default to True.
     #       This field doesn't take effect if enable_local_ota_proxy is False
     enable_local_ota_proxy_cache: bool = True
 
-    logging_server: Optional[HttpUrl] = None
+    logging_server: HTTPURLAny = Field(default="", validate_default=False)
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""
@@ -77,7 +82,7 @@ class ProxyInfo(BaseFixedConfig):
             return f"http://{self.local_ota_proxy_listen_addr}:{self.local_ota_proxy_listen_port}"
         elif self.upper_ota_proxy:
             # else we directly use the upper proxy
-            return str(self.upper_ota_proxy)
+            return self.upper_ota_proxy
         # default not using proxy
 
 
