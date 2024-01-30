@@ -13,15 +13,15 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
+import logging
 import pytest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from pytest_mock import MockerFixture
 from typing import Any, Dict, List, Set
 
-import pytest_mock
-
-from otaclient.app.ecu_info import ECUInfo
 from otaclient.app.ota_client import OTAServicer
 from otaclient.app.ota_client_call import OtaClientCall
 from otaclient.app.ota_client_stub import (
@@ -30,14 +30,14 @@ from otaclient.app.ota_client_stub import (
     OTAProxyLauncher,
 )
 from otaclient.app.proto import wrapper
-from otaclient.app.proxy_info import ProxyInfo
+from otaclient.configs.ecu_info import ECUInfo, parse_ecu_info
+from otaclient.configs.proxy_info import ProxyInfo, parse_proxy_info
 from otaclient.ota_proxy import OTAProxyContextProto
 from otaclient.ota_proxy.config import Config as otaproxyConfig
 
 from tests.utils import compare_message
 from tests.conftest import test_cfg
 
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,27 @@ available_ecu_ids:
     - "p2"
 """
 
+PROXY_INFO_YAML = """\
+gateway: false,
+enable_local_ota_proxy: true
+local_ota_proxy_listen_addr: "127.0.0.1"
+local_ota_proxy_listen_port: 8082
+"""
+
+
+@pytest.fixture
+def ecu_info_fixture(tmp_path: Path) -> ECUInfo:
+    _yaml_f = tmp_path / "ecu_info.yaml"
+    _yaml_f.write_text(ECU_INFO_YAML)
+    return parse_ecu_info(_yaml_f)
+
+
+@pytest.fixture
+def proxy_info_fixture(tmp_path: Path) -> ProxyInfo:
+    _yaml_f = tmp_path / "proxy_info.yaml"
+    _yaml_f.write_text(PROXY_INFO_YAML)
+    return parse_proxy_info(_yaml_f)
+
 
 class _DummyOTAProxyContext(OTAProxyContextProto):
     def __init__(self, sentinel) -> None:
@@ -80,28 +101,30 @@ class _DummyOTAProxyContext(OTAProxyContextProto):
 
 class TestOTAProxyLauncher:
     @pytest.fixture(autouse=True)
-    async def mock_setup(self, tmp_path: Path):
-        proxy_info = ProxyInfo(
-            gateway=False,
-            upper_ota_proxy="",
-            enable_local_ota_proxy=True,
-            local_ota_proxy_listen_addr="127.0.0.1",
-            local_ota_proxy_listen_port=8082,
-        )
-        proxy_server_cfg = otaproxyConfig()
-
+    async def mock_setup(
+        self, mocker: MockerFixture, tmp_path: Path, proxy_info_fixture: ProxyInfo
+    ):
         cache_base_dir = tmp_path / "ota_cache"
         self.sentinel_file = tmp_path / "otaproxy_sentinel"
+
+        # ------ prepare mocked proxy_info and otaproxy_cfg ------ #
+        self.proxy_info = proxy_info = proxy_info_fixture
+        self.proxy_server_cfg = proxy_server_cfg = otaproxyConfig()
         proxy_server_cfg.BASE_DIR = str(cache_base_dir)  # type: ignore
         proxy_server_cfg.DB_FILE = str(cache_base_dir / "cache_db")  # type: ignore
+
+        # ------ apply cfg patches ------ #
+        mocker.patch(f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.proxy_info", proxy_info)
+        mocker.patch(
+            f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.local_otaproxy_cfg",
+            proxy_server_cfg,
+        )
 
         # init launcher inst
         threadpool = ThreadPoolExecutor()
         self.otaproxy_launcher = OTAProxyLauncher(
             executor=threadpool,
             subprocess_ctx=_DummyOTAProxyContext(str(self.sentinel_file)),
-            _proxy_info=proxy_info,
-            _proxy_server_cfg=proxy_server_cfg,
         )
 
         try:
@@ -137,13 +160,17 @@ class TestECUStatusStorage:
     SAFE_INTERVAL_FOR_PROPERTY_UPDATE = 1.2
 
     @pytest.fixture(autouse=True)
-    async def setup_test(self, tmp_path: Path):
-        ecu_info_f = tmp_path / "ecu_info.yml"
-        ecu_info_f.write_text(ECU_INFO_YAML)
-        self.ecu_info = ECUInfo.parse_ecu_info(ecu_info_f)
+    async def setup_test(
+        self, mocker: MockerFixture, tmp_path: Path, ecu_info_fixture: ECUInfo
+    ):
+        # ------ load test ecu_info.yaml ------ #
+        self.ecu_info = ecu_info = ecu_info_fixture
+
+        # ------ apply cfg patches ------ #
+        mocker.patch(f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.ecu_info", ecu_info)
 
         # init and setup the ecu_storage
-        self.ecu_storage = ECUStatusStorage(self.ecu_info)
+        self.ecu_storage = ECUStatusStorage()
         # NOTE: decrease the interval for faster testing
         self.ecu_storage.PROPERTY_REFRESH_INTERVAL = self.PROPERTY_REFRESH_INTERVAL_FOR_TEST  # type: ignore
 
@@ -694,16 +721,20 @@ class TestOTAClientServiceStub:
         )
 
     @pytest.fixture(autouse=True)
-    async def setup_test(self, tmp_path: Path, mocker: pytest_mock.MockerFixture):
+    async def setup_test(
+        self,
+        mocker: MockerFixture,
+        ecu_info_fixture: ECUInfo,
+        proxy_info_fixture: ProxyInfo,
+    ):
         threadpool = ThreadPoolExecutor()
 
-        # prepare ecu_info
-        ecu_info_f = tmp_path / "ecu_info.yml"
-        ecu_info_f.write_text(ECU_INFO_YAML)
-        self.ecu_info = ECUInfo.parse_ecu_info(ecu_info_f)
+        # ------ mock and patch ecu_info ------ #
+        self.ecu_info = ecu_info = ecu_info_fixture
+        mocker.patch(f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.ecu_info", ecu_info)
 
-        # init and setup the ecu_storage
-        self.ecu_storage = ECUStatusStorage(self.ecu_info)
+        # ------ init and setup the ecu_storage ------ #
+        self.ecu_storage = ECUStatusStorage()
         self.ecu_storage.on_ecus_accept_update_request = mocker.AsyncMock()
         # NOTE: decrease the interval to speed up testing
         #       (used by _otaproxy_lifecycle_managing/_otaclient_control_flags_managing task)
@@ -723,11 +754,9 @@ class TestOTAClientServiceStub:
         self.otaclient_call.update_call = mocker.AsyncMock(
             wraps=self._subecu_accept_update_request
         )
-        # proxy_info
-        self.proxy_info = ProxyInfo(
-            enable_local_ota_proxy=True,
-            upper_ota_proxy="",
-        )
+        # ------ mock and patch proxy_info ------ #
+        self.proxy_info = proxy_info = proxy_info_fixture
+        mocker.patch(f"{test_cfg.OTACLIENT_STUB_MODULE_PATH}.proxy_info", proxy_info)
 
         # --- patching and mocking --- #
         mocker.patch(
@@ -751,9 +780,7 @@ class TestOTAClientServiceStub:
         )
 
         # --- start the OTAClientServiceStub --- #
-        self.otaclient_service_stub = OTAClientServiceStub(
-            ecu_info=self.ecu_info, _proxy_cfg=self.proxy_info
-        )
+        self.otaclient_service_stub = OTAClientServiceStub()
 
         try:
             yield
