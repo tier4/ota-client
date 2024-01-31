@@ -13,12 +13,14 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import requests
 import logging
 import logging.handlers
-from queue import Queue, Empty
+from urllib.parse import urlparse
+from queue import Queue
 from threading import Thread
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger(__name__)
@@ -26,64 +28,46 @@ logger = logging.getLogger(__name__)
 
 class CustomHttpHandler(logging.Handler):
     # https://stackoverflow.com/questions/62957814/python-logging-log-data-to-server-using-the-logging-module
-    def __init__(self, host, url, timeout=3.0):
+    def __init__(self, url: str, timeout=3.0, *, max_queue_len=4096):
         """
         only method post is supported
         secure(=https) is not supported
         """
         super().__init__()
-        self.host = host
-        self.url = url if url.startswith("/") else f"/{url}"
+        _parsed_url = urlparse(url)
+        self.url = _parsed_url._replace(scheme="http").geturl()
+
         self.timeout = timeout
-        self.queue = Queue(maxsize=4096)
+        self.queue = Queue(maxsize=max_queue_len)
+
         self.thread = Thread(target=self._start, daemon=True)
         self.thread.start()
 
     def emit(self, record):
-        log_entry = self.format(record)
-        if self.queue.full():
-            try:
-                self.queue.get_nowait()
-            except Empty:
-                pass
-        try:
-            self.queue.put_nowait(log_entry)
-        except Empty:
-            pass
+        """Get a record from logging module and put it into self.queue."""
+        _queue = self.queue
+        with _queue.mutex:
+            if 0 < _queue.maxsize <= _queue._qsize():
+                _queue._get()  # drop one oldest item from list
+            _queue._put(self.format(record))
 
     def _start(self):
         session = requests.Session()
-        retries = Retry(total=5, backoff_factor=1)  # 0, 1, 2, 4, 8
-        Retry.DEFAULT_BACKOFF_MAX = 10
+        retries = Retry(total=5, backoff_factor=1)
+
+        # NOTE: for urllib3 version below 2.0, there is no way to set
+        #       backoff_max when instanitiate Retry object.
+        Retry.DEFAULT_BACKOFF_MAX = 10  # type: ignore
+
         session.mount("http://", HTTPAdapter(max_retries=retries))
         while True:
             log_entry = self.queue.get()
             try:
-                session.post(
-                    url=f"http://{self.host}{self.url}",
+                with session.post(
+                    url=self.url,
                     data=log_entry,
                     timeout=self.timeout,
-                )
+                ):
+                    pass
             except Exception:
-                logger.exception("post failure")
-
-
-if __name__ == "__main__":
-    from configs import LOG_FORMAT
-
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
-    fmt = logging.Formatter(fmt=LOG_FORMAT)
-
-    # stream handler
-    _sh = logging.StreamHandler()
-    _sh.setFormatter(fmt)
-
-    _hh = CustomHttpHandler(host="localhost:8080", url="my-ecu-id-123")
-    _hh.setFormatter(fmt)
-
-    logger.addHandler(_sh)
-    logger.addHandler(_hh)
-
-    logger.info("123")
-    logger.info("xyz")
+                pass
