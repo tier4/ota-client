@@ -24,7 +24,7 @@ from typing import Any, NamedTuple
 from urllib.parse import urljoin
 
 from otaclient._utils import chain_query
-from otaclient.aws_iot_log_server.ggcfg import GreengrassConfig
+from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
 
 logger = logging.getLogger(__name__)
 
