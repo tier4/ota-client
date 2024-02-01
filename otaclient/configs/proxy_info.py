@@ -73,7 +73,12 @@ class ProxyInfo(BaseFixedConfig):
     #       This field doesn't take effect if enable_local_ota_proxy is False
     enable_local_ota_proxy_cache: bool = True
 
-    logging_server: HTTPURLAny = Field(default="", validate_default=False)
+    # NOTE(20240201): check ota_client_log_server_port var in autoware_ecu_setup
+    #                 ansible configurations.
+    LOGGING_SERVER_PORT: NetworkPort = 8083
+    # NOTE: when logging_server is not configured, it implicitly means the logging server
+    #       is located at localhost.
+    logging_server: HTTPURLAny = f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""
