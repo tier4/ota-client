@@ -11,106 +11,95 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Greengrass config v1/v2 parsing implementation."""
 
 
-import logging
-import json
-import yaml
-import re
+from __future__ import annotations
+from functools import partial
+from pydantic import BaseModel, ConfigDict
+from typing import Any, NamedTuple
 
-from .configs import LOG_FORMAT
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-_sh = logging.StreamHandler()
-fmt = logging.Formatter(fmt=LOG_FORMAT)
-_sh.setFormatter(fmt)
-logger.addHandler(_sh)
+from otaclient._utils import chain_query
 
 
-class GreengrassConfig:
-    @staticmethod
-    def parse_config(v1_config, v2_config) -> dict:
-        try:
-            return GreengrassConfig.parse_v2_config(v2_config)
-        except Exception:
-            return GreengrassConfig.parse_v1_config(v1_config)
+class _FixedConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
 
-    @staticmethod
-    def parse_v1_config(config) -> dict:
-        try:
-            with open(config) as f:
-                cfg = json.load(f)
-        except FileNotFoundError:
-            logger.exception(f"config file is not found: file={config}")
-            raise
-        except json.JSONDecodeError as e:
-            logger.exception(f"invalid json format: {e}")
-            raise
 
-        ca_path = cfg.get("crypto", {}).get("caPath")
-        private_key_path = (
-            cfg.get("crypto", {})
-            .get("principals", {})
-            .get("IoTCertificate", {})
-            .get("privateKeyPath")
-        )
-        certificate_path = (
-            cfg.get("crypto", {})
-            .get("principals", {})
-            .get("IoTCertificate", {})
-            .get("certificatePath")
-        )
-        thing_arn = cfg.get("coreThing", {}).get("thingArn")
+def remove_prefix(_str: str, _prefix: str) -> str:
+    # NOTE: in py3.8 we don't have str.removeprefix yet.
+    if _str.startswith(_prefix):
+        return _str.replace(_prefix, "", 1)
+    return _str
 
-        strs = thing_arn.split(":", 6)
-        if len(strs) != 6:
-            logger.error(f"invalid thing arn: thing_arn={thing_arn}")
-            raise Exception(f"invalid thing arn: thing_arn={thing_arn}")
 
-        region = strs[3]
-        thing_name = strs[5]
+regulate_path = partial(remove_prefix, _prefix="file://")
 
-        def remove_prefix(s, prefix):
-            return re.sub(f"^{prefix}", "", s)
 
-        return {
-            "ca_cert": remove_prefix(ca_path, "file://"),
-            "private_key": remove_prefix(private_key_path, "file://"),
-            "cert": remove_prefix(certificate_path, "file://"),
-            "region": region,
-            "thing_name": remove_prefix(thing_name, "thing/"),
-        }
+class _ThingArn(NamedTuple):
+    """
+    Format:
+        arn:partition:service:region:account-id:resource-id
+        arn:partition:service:region:account-id:resource-type/resource-id
+        arn:partition:service:region:account-id:resource-type:resource-id
 
-    @staticmethod
-    def parse_v2_config(config) -> dict:
-        try:
-            with open(config) as f:
-                cfg = yaml.safe_load(f)
-        except FileNotFoundError:
-            logger.exception(f"config file is not found: file={config}")
-            raise
-        except yaml.YAMLError as e:
-            logger.exception(f"invalid yaml format: {e}")
-            raise
+    Check https://docs.aws.amazon.com/IAM/latest/UserGuide/reference-arns.html for details.
+    """
 
-        ca_path = cfg["system"]["rootCaPath"]
-        private_key_path = cfg["system"]["privateKeyPath"]
-        certificate_path = cfg["system"]["certificateFilePath"]
-        thing_name = cfg["system"]["thingName"]
-        # When greengrass_v2 uses TPM2.0, both private and certificate should be specified with pkcs11 notation.
-        # But certificate file is required for this module, so replace it to the actual file name and check if it exists.
-        if certificate_path.startswith("pkcs11:"):
-            certificate_path = "/greengrass/certs/gg.cert.pem"
-            with open(certificate_path) as f:
-                pass
+    arn: str
+    partition: str
+    service: str
+    region: str
+    account_id: str
+    resource_id: str
 
-        region = cfg["services"]["aws.greengrass.Nucleus"]["configuration"]["awsRegion"]
 
-        return {
-            "ca_cert": ca_path,
-            "private_key": private_key_path,
-            "cert": certificate_path,
-            "region": region,
-            "thing_name": thing_name,
-        }
+def parse_v1_config(_cfg: dict[str, Any]) -> GreengrassConfig:
+    """Parse Greengrass V1 config json and take what we need.
+
+    Check https://docs.aws.amazon.com/greengrass/v1/developerguide/gg-core.html
+        for example of full version of config.json.
+    """
+    _raw_thing_arn: str = chain_query(_cfg, "coreThing:thingArn")
+    _thing_arn = _ThingArn(*_raw_thing_arn.split(":", 6))
+    return GreengrassConfig(
+        ca_path=regulate_path(chain_query(_cfg, "crypto:caPath")),
+        private_key_path=regulate_path(
+            chain_query(_cfg, "crypto:principals:IoTCertificate:privateKeyPath")
+        ),
+        certificate_path=regulate_path(
+            chain_query(_cfg, "crypto:principals:IoTCertificate:certificatePath")
+        ),
+        thing_name=remove_prefix(_thing_arn.resource_id, "thing/"),
+        region=_thing_arn.region,
+    )
+
+
+def parse_v2_config(_cfg: dict[str, Any]) -> GreengrassConfig:
+    """Parse Greengrass V2 config yaml and take what we need.
+
+    Check https://github.com/aws4embeddedlinux/meta-aws/blob/master/recipes-iot/aws-iot-greengrass/files/greengrassv2-init.yaml
+        for example of full version of ggv2 config.yaml.
+
+    For TPM2.0, see https://docs.aws.amazon.com/greengrass/v2/developerguide/hardware-security.html.
+    """
+
+    return GreengrassConfig(
+        ca_path=chain_query(_cfg, "system:rootCaPath"),
+        private_key_path=chain_query(_cfg, "system:privateKeyPath"),
+        certificate_path=chain_query(_cfg, "system:certificateFilePath"),
+        thing_name=chain_query(_cfg, "system:thingName"),
+        region=chain_query(
+            _cfg, "services:aws.greengrass.Nucleus:configuration:awsRegion"
+        ),
+    )
+
+
+class GreengrassConfig(_FixedConfig):
+    """Configurations we need picked from parsed Greengrass V1/V2 configration file."""
+
+    ca_path: str
+    private_key_path: str
+    certificate_path: str
+    thing_name: str
+    region: str
