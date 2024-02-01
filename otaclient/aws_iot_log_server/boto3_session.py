@@ -13,125 +13,132 @@
 # limitations under the License.
 
 
-import requests
-import pycurl
-import json
+from __future__ import annotations
 import botocore.credentials
 import botocore.session
 import boto3
 import logging
-import datetime
-from pytz import utc
+import json
+import pycurl
+from typing import Any, NamedTuple
+from urllib.parse import urljoin
 
-from .configs import LOG_FORMAT
+from otaclient._utils import chain_query
+from otaclient.aws_iot_log_server.ggcfg import GreengrassConfig
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-_sh = logging.StreamHandler()
-fmt = logging.Formatter(fmt=LOG_FORMAT)
-_sh.setFormatter(fmt)
-logger.addHandler(_sh)
+
+
+class CredentialPack(NamedTuple):
+    access_key: str
+    secret_key: str
+    token: str
+    expiry_time: Any
 
 
 class Boto3Session:
     def __init__(
         self,
-        config: dict,
+        *,
+        gg_config: GreengrassConfig,
         credential_provider_endpoint: str,
         role_alias: str,
-    ):
-        cfg = config
+    ) -> None:
+        """
+        Args:
+            gg_config: parsed Greengrass configuration.
+            credential_provider_endpoint: the HTTPS URL endpoint to get credential from.
+            role_alias: path component in full credential query HTTP URL.
+        """
+        self._ca_cert = gg_config.ca_path
+        self._cert = gg_config.certificate_path
+        self._private_key = gg_config.private_key_path
+        self._region = gg_config.region
+        self._thing_name = gg_config.thing_name
 
-        self._ca_cert = cfg.get("ca_cert")
-        self._cert = cfg.get("cert")
-        self._private_key = cfg.get("private_key")
-        self._region = cfg.get("region")
-        self._thing_name = cfg.get("thing_name")
-
-        self._credential_provider_endpoint = credential_provider_endpoint
+        # NOTE: ensure endpoint URL base is ended with /
+        self._credential_provider_endpoint = (
+            f"{credential_provider_endpoint.rstrip('/')}/"
+        )
         self._role_alias = role_alias
 
-    # session is automatically refreshed
     def get_session(self, session_duration: int = 0):
         # ref: https://github.com/boto/botocore/blob/f1d41183e0fad31301ad7331a8962e3af6359a22/botocore/credentials.py#L368
-        session_credentials = (
-            botocore.credentials.RefreshableCredentials.create_from_metadata(
-                metadata=self._refresh(session_duration),
-                refresh_using=self._refresh,
-                method="sts-assume-role",
-            )
+        session_credentials = botocore.credentials.RefreshableCredentials.create_from_metadata(
+            metadata=self._refresh(session_duration),
+            # session is automatically refreshed with refresh_using set
+            refresh_using=self._refresh,
+            method="sts-assume-role",
         )
         session = botocore.session.get_session()
         session._credentials = session_credentials
         session.set_config_variable("region", self._region)
-
         return boto3.Session(botocore_session=session)
 
-    def _get_body(self, url, use_pycurl=False):
-        if use_pycurl:  # pycurl implementation
-            headers = [f"x-amzn-iot-thingname:{self._thing_name}"]
-            connection = pycurl.Curl()
-            connection.setopt(connection.URL, url)
+    def _get_body(self, url: str):
+        headers = [f"x-amzn-iot-thingname:{self._thing_name}"]
+        connection = pycurl.Curl()
+        connection.setopt(pycurl.URL, url)
 
-            if self._private_key.startswith("pkcs11:"):
-                connection.setopt(pycurl.SSLENGINE, "pkcs11")
-                connection.setopt(pycurl.SSLKEYTYPE, "eng")
+        # NOTE(20240131): TPM2.0 support, use pkcs11 interface from openssl
+        _use_openssl_pkcs11 = False
+        if self._private_key.startswith("pkcs11:"):
+            _use_openssl_pkcs11 = True
+            connection.setopt(pycurl.SSLKEYTYPE, "eng")
+        if self._cert.startswith("pkcs11:"):
+            _use_openssl_pkcs11 = True
+            connection.setopt(pycurl.SSLCERTTYPE, "eng")
+        if _use_openssl_pkcs11:
+            connection.setopt(pycurl.SSLENGINE, "pkcs11")
 
-            # server auth option
-            connection.setopt(connection.SSL_VERIFYPEER, True)
-            connection.setopt(connection.CAINFO, self._ca_cert)
-            connection.setopt(connection.CAPATH, None)
-            connection.setopt(connection.SSL_VERIFYHOST, 2)
+        # server auth option
+        connection.setopt(pycurl.SSL_VERIFYPEER, 1)
+        connection.setopt(pycurl.CAINFO, self._ca_cert)
+        connection.setopt(pycurl.CAPATH, None)
+        connection.setopt(pycurl.SSL_VERIFYHOST, 2)
 
-            # client auth option
-            connection.setopt(connection.SSLCERT, self._cert)
-            connection.setopt(connection.SSLKEY, self._private_key)
-            connection.setopt(connection.HTTPHEADER, headers)
+        # client auth option
+        connection.setopt(pycurl.SSLCERT, self._cert)
+        connection.setopt(pycurl.SSLKEY, self._private_key)
+        connection.setopt(pycurl.HTTPHEADER, headers)
 
-            response = connection.perform_rs()
-            status = connection.getinfo(pycurl.HTTP_CODE)
-            if status // 100 != 2:
-                raise Exception(f"response error: {status=}")
-            connection.close()
-            return json.loads(response)
-        else:  # requests implementation
-            # ref: https://docs.aws.amazon.com/ja_jp/iot/latest/developerguide/authorizing-direct-aws.html
-            headers = {"x-amzn-iot-thingname": self._thing_name}
-            logger.info(f"url: {url}, headers: {headers}")
-            try:
-                response = requests.get(
-                    url,
-                    verify=self._ca_cert,
-                    cert=(self._cert, self._private_key),
-                    headers=headers,
-                )
-                response.raise_for_status()
-                return json.loads(response.text)
-            except requests.exceptions.RequestException:
-                logger.warning("requests error")
-                raise
+        response = connection.perform_rs()
+        status = connection.getinfo(pycurl.HTTP_CODE)
+        connection.close()
 
-    def _refresh(self, session_duration: int = 0) -> dict:
-        url = f"https://{self._credential_provider_endpoint}/role-aliases/{self._role_alias}/credentials"
+        if status // 100 != 2:
+            raise ValueError(f"response error: {status=}")
+        return response
+
+    def _refresh(self, session_duration: int = 0) -> CredentialPack:
+        # TODO: the provider endpoint should be a HTTPS URL!
+        url = urljoin(
+            self._credential_provider_endpoint,
+            f"role-aliases/{self._role_alias}/credentials",
+        )
 
         try:
-            body = self._get_body(url, use_pycurl=True)
-        except json.JSONDecodeError:
-            logger.exception(f"invalid response: resp={body}")
+            resp = self._get_body(url)
+        except ValueError as e:
+            logger.error(f"token refreshing request failed: {e!r}")
             raise
 
-        expiry_time = body.get("credentials", {}).get("expiration")
-        if session_duration > 0:
-            now = datetime.datetime.now(tz=utc)
-            new_expiry_time = now + datetime.timedelta(seconds=float(session_duration))
-            expiry_time = new_expiry_time.isoformat(timespec="seconds")
+        try:
+            body: dict[str, Any] = json.loads(resp)
+            assert isinstance(body, dict)
+        except json.JSONDecodeError as e:
+            logger.error(f"resp is not valid json: {e!r}")
+            raise
+        except AssertionError:
+            logger.error("resp should be a json object")
+            raise
 
-        logger.info(f"session is refreshed: expiry_time: {expiry_time}")
+        expiry_time = chain_query(body, "credentials:expiration")
+        logger.debug(f"session is refreshed, expiry_time: {expiry_time}")
 
-        credentials = {
-            "access_key": body.get("credentials", {}).get("accessKeyId"),
-            "secret_key": body.get("credentials", {}).get("secretAccessKey"),
-            "token": body.get("credentials", {}).get("sessionToken"),
-            "expiry_time": expiry_time,
-        }
-        return credentials
+        return CredentialPack(
+            access_key=chain_query(body, "credentials:accessKeyId"),
+            secret_key=chain_query(body, "credentials:secretAccessKey"),
+            token=chain_query(body, "credentials:sessionToken"),
+            expiry_time=expiry_time,
+        )
