@@ -32,7 +32,7 @@ from .log_setting import configure_logging, get_ecu_id, get_logger
 from .ota_client_service import launch_otaclient_grpc_server
 
 # configure logging before any code being executed
-configure_logging(logging_config.LOGGING_LEVEL, http_logging_url=get_ecu_id())
+configure_logging(logging_config.LOGGING_LEVEL, logging_url_path=get_ecu_id())
 logger = get_logger(__name__)
 
 
