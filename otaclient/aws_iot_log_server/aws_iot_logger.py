@@ -13,198 +13,166 @@
 # limitations under the License.
 
 
-import time
-from retrying import retry
-from botocore.exceptions import ClientError
-from datetime import datetime
+from __future__ import annotations
 import logging
-from queue import Queue, Empty
+import time
+from botocore.client import BaseClient
 from concurrent.futures import ThreadPoolExecutor
-from typing import TypedDict, List
+from datetime import datetime
+from queue import Queue, Empty
+from typing import Optional, cast
+from pydantic import BaseModel
 
-from .boto3_session import Boto3Session
-from .configs import LOG_FORMAT
+from otaclient.aws_iot_log_server.boto3_session import Boto3Session
+from otaclient.aws_iot_log_server.greengrass_config import GreengrassConfig
+
+from otaclient._utils.retry import retry
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-_sh = logging.StreamHandler()
-fmt = logging.Formatter(fmt=LOG_FORMAT)
-_sh.setFormatter(fmt)
-logger.addHandler(_sh)
 
 
-class LogMessage(TypedDict):
+class LogMessage(BaseModel):
     timestamp: int
     message: str
+
+
+class LogEvent(BaseModel):
+    logGroupName: str
+    logStreamName: str
+    logEvents: list[LogMessage]
+    sequenceToken: Optional[str] = None
 
 
 class AwsIotLogger:
     def __init__(
         self,
-        aws_credential_provider_endpoint,
-        aws_role_alias,
-        aws_cloudwatch_log_group,
-        ca_cert_file,
-        private_key_file,
-        cert_file,
-        region,
-        thing_name,
+        aws_credential_provider_endpoint: str,
+        aws_role_alias: str,
+        aws_cloudwatch_log_group: str,
+        gg_config: GreengrassConfig,
+        max_queue_len=4096,
+        max_logs_per_merge=128,
         interval=60,
     ):
         _boto3_session = Boto3Session(
-            config={
-                "ca_cert": ca_cert_file,
-                "cert": cert_file,
-                "private_key": private_key_file,
-                "region": region,
-                "thing_name": thing_name,
-            },
+            gg_config=gg_config,
             credential_provider_endpoint=aws_credential_provider_endpoint,
             role_alias=aws_role_alias,
         )
-        _client = _boto3_session.get_session().client("logs")
+        _client = cast(BaseClient, _boto3_session.get_session().client("logs"))
 
         # create log group
-        try:
-            _client.create_log_group(logGroupName=aws_cloudwatch_log_group)
-            logger.info(f"{aws_cloudwatch_log_group=} has been created.")
-        except (
-            _client.exceptions.OperationAbortedException,
-            _client.exceptions.ResourceAlreadyExistsException,
-        ):
-            pass
+        @retry(max_retry=6, backoff_factor=2)
+        def _create_log_group():
+            try:
+                _client.create_log_group(logGroupName=aws_cloudwatch_log_group)
+                logger.info(f"{aws_cloudwatch_log_group=} has been created")
+            except (_client.exceptions.ResourceAlreadyExistsException,):
+                logger.info(
+                    f"{aws_cloudwatch_log_group=} already existed, skip creating"
+                )
+            except Exception as e:
+                logger.error(f"{aws_cloudwatch_log_group=} failed to be created: {e!r}")
+                raise
+
+        _create_log_group()
+
         self._log_group_name = aws_cloudwatch_log_group
         self._client = _client
-        self._thing_name = thing_name
+        self._thing_name = gg_config.thing_name
         self._sequence_tokens = {}
         self._interval = interval
-        self._log_message_queue = Queue()
+        self._log_message_queue: Queue[tuple[str, LogMessage]] = Queue(
+            maxsize=max_queue_len
+        )
+        self._max_logs_per_merge = max_logs_per_merge
         self._executor = ThreadPoolExecutor()
         self._executor.submit(self._send_messages_thread)
 
-    @retry(stop_max_attempt_number=5, wait_fixed=500)
+    @retry(max_retry=6, backoff_factor=2)
     def send_messages(
         self,
         log_stream_suffix: str,
-        message_list: List[LogMessage],
+        message_list: list[LogMessage],
     ):
         log_stream_name = self._get_log_stream_name(log_stream_suffix)
-        sequence_token = self._sequence_tokens.get(log_stream_name)
+
         _client = self._client
         try:
-            log_event = {
-                "logGroupName": self._log_group_name,
-                "logStreamName": log_stream_name,
-                "logEvents": message_list,
-            }
-            if sequence_token:
-                log_event["sequenceToken"] = sequence_token
-
-            response = _client.put_log_events(**log_event)
-            self._sequence_tokens[log_stream_name] = response.get("nextSequenceToken")
-        except ClientError as e:
-            if isinstance(
-                e,
-                (
-                    _client.exceptions.DataAlreadyAcceptedException,
-                    _client.exceptions.InvalidSequenceTokenException,
-                ),
+            response = _client.put_log_events(
+                **LogEvent(
+                    logGroupName=self._log_group_name,
+                    logStreamName=log_stream_name,
+                    logEvents=message_list,
+                    sequenceToken=self._sequence_tokens.get(log_stream_name),
+                ).model_dump(exclude_none=True)
+            )
+            if _sequence_token := response.get("nextSequenceToken"):
+                self._sequence_tokens[log_stream_name] = _sequence_token
+        except (
+            _client.exceptions.DataAlreadyAcceptedException,
+            _client.exceptions.InvalidSequenceTokenException,
+        ) as e:
+            next_expected_token = e.response["Error"]["Message"].rsplit(" ", 1)[-1]
+            # null as the next sequenceToken means don't include any
+            # sequenceToken at all, not that the token should be set to "null"
+            if next_expected_token == "null":
+                self._sequence_tokens.pop(log_stream_name, None)
+            else:
+                self._sequence_tokens[log_stream_name] = next_expected_token
+        except _client.exceptions.ResourceNotFoundException as e:
+            try:
+                _client.create_log_stream(
+                    logGroupName=self._log_group_name,
+                    logStreamName=log_stream_name,
+                )
+                logger.info(f"{log_stream_name=} has been created.")
+            except (
+                _client.exceptions.OperationAbortedException,
+                _client.exceptions.ResourceAlreadyExistsException,
             ):
-                next_expected_token = e.response["Error"]["Message"].rsplit(" ", 1)[-1]
-                # null as the next sequenceToken means don't include any
-                # sequenceToken at all, not that the token should be set to "null"
-                if next_expected_token == "null":
-                    self._sequence_tokens[log_stream_name] = None
-                else:
-                    self._sequence_tokens[log_stream_name] = next_expected_token
-            elif isinstance(e, _client.exceptions.ResourceNotFoundException):
-                try:
-                    _client.create_log_stream(
-                        logGroupName=self._log_group_name,
-                        logStreamName=log_stream_name,
-                    )
-                    logger.info(f"{log_stream_name=} has been created.")
-                except (
-                    _client.exceptions.OperationAbortedException,
-                    _client.exceptions.ResourceAlreadyExistsException,
-                ):
-                    self._sequence_tokens[log_stream_name] = None
+                self._sequence_tokens.pop(log_stream_name, None)
             raise
-        except Exception:
-            # put log and just ignore
-            logger.exception(
-                "put_log_events failure: "
+        except Exception as e:
+            logger.error(
+                f"put_log_events failure: {e!r}"
                 f"log_group_name={self._log_group_name}, "
                 f"log_stream_name={log_stream_name}"
             )
+            # just ignore other unhandled exceptions
 
     def put_message(self, log_stream_suffix: str, message: LogMessage):
-        data = {log_stream_suffix: message}
-        self._log_message_queue.put(data)
+        _queue = self._log_message_queue
+        with _queue.mutex:
+            if _queue.maxsize > 0 and _queue._qsize() >= _queue.maxsize:
+                _queue.get_nowait()  # drop one oldest entry
+            _queue.put((log_stream_suffix, message))
 
     def _send_messages_thread(self):
-        try:
-            while True:
-                # merge message
-                message_dict = {}
-                while True:
-                    try:
-                        q = self._log_message_queue
-                        data = q.get(block=False)
-                        log_stream_suffix = next(iter(data))  # first key
-                        if log_stream_suffix not in message_dict:
-                            message_dict[log_stream_suffix] = []
-                        message = data[log_stream_suffix]
-                        message_dict[log_stream_suffix].append(message)
-                    except Empty:
-                        break
-                # send merged message
-                for k, v in message_dict.items():
-                    self.send_messages(k, v)
-                time.sleep(self._interval)
-        except Exception as e:
-            logger.exception(e)
+        while True:
+            # merge message
+            message_dict: dict[str, list[LogMessage]] = {}
+
+            _merge_count = 0
+            while _merge_count < self._max_logs_per_merge:
+                _queue = self._log_message_queue
+                try:
+                    data = _queue.get_nowait()
+                    _merge_count += 1
+                    log_stream_suffix, message = data
+
+                    if log_stream_suffix not in message_dict:
+                        message_dict[log_stream_suffix] = []
+                    message_dict[log_stream_suffix].append(message)
+                except Empty:
+                    break
+
+            # send merged message
+            for log_stream_suffix, logs in message_dict.items():
+                self.send_messages(log_stream_suffix, logs)
+
+            time.sleep(self._interval)
 
     def _get_log_stream_name(self, log_stream_sufix):
         fmt = "{strftime:%Y/%m/%d}".format(strftime=datetime.utcnow())
         return f"{fmt}/{self._thing_name}/{log_stream_sufix}"
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--aws_credential_provider_endpoint", required=True)
-    parser.add_argument("--aws_role_alias", required=True)
-    parser.add_argument("--aws_cloudwatch_log_group", required=True)
-    parser.add_argument("--ca_cert_file")
-    parser.add_argument("--private_key_file")
-    parser.add_argument("--cert_file")
-    parser.add_argument("--region")
-    parser.add_argument("--thing_name")
-    args = parser.parse_args()
-
-    kwargs = dict(
-        aws_credential_provider_endpoint=args.aws_credential_provider_endpoint,
-        aws_role_alias=args.aws_role_alias,
-        aws_cloudwatch_log_group=args.aws_cloudwatch_log_group,
-        ca_cert_file=args.ca_cert_file,
-        private_key_file=args.private_key_file,
-        cert_file=args.cert_file,
-        region=args.region,
-        thing_name=args.thing_name,
-        interval=2,
-    )
-
-    aws_iot_logger = AwsIotLogger(**kwargs)
-
-    def create_log_message(message: str):
-        return {"timestamp": int(time.time()) * 1000, "message": message}
-
-    aws_iot_logger.send_messages("my_ecu_name4", [create_log_message("hello")])
-    aws_iot_logger.send_messages("my_ecu_name4", [create_log_message("hello-x")])
-    aws_iot_logger.send_messages("my_ecu_name4", [create_log_message("hello-xx")])
-
-    aws_iot_logger.put_message("my_ecu_name4", create_log_message("hello-1"))
-    aws_iot_logger.put_message("my_ecu_name4", create_log_message("hello-2"))
-    aws_iot_logger.put_message("my_ecu_name4", create_log_message("hello-3"))
