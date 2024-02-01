@@ -37,3 +37,34 @@ def if_run_as_container() -> bool:
 
 def cached_computed_field(_f: Callable[[Any], Any]) -> cached_property[Any]:
     return computed_field(cached_property(_f))
+
+
+def chain_query(_obj: dict[str, Any], _path: str, *, splitter: str = ":") -> Any:
+    """Chain access a nested dict <_obj> according to search <_path>.
+
+    For example:
+        for <_obj> as a dict object like the following:
+        _obj = {
+            "level_name": "root_level",
+            "level1": {
+                "level_name": "level1,
+                "level2": {
+                    "level_name": "level2",
+                    "attr_we_need": "some_value",
+                }
+            }
+        }
+
+        To get the <attr_we_need>, we can use the search path as follow:
+            level1:level2:attr_we_need
+
+        then we can call this method like:
+        cahin_query(_obj, "level1:level2:attr_we_need") to get the value we need.
+
+    Args:
+        _obj: a nested dict object.
+        _path: a dot-splitted search path string.
+    """
+    for _next in _path.split(splitter):
+        _obj = _obj[_next]
+    return _obj

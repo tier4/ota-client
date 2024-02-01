@@ -18,6 +18,7 @@ from typing import Any, Callable, TypeVar, Union
 from typing_extensions import Concatenate, ParamSpec
 
 P = ParamSpec("P")
+T = TypeVar("T")
 RT = TypeVar("RT")
 
 StrOrPath = Union[str, Path]
