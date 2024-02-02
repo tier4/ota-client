@@ -18,7 +18,7 @@ import platform
 from pathlib import Path
 from typing_extensions import deprecated
 
-from .configs import BootloaderType, ecu_info
+from .configs import BootloaderType
 from ._errors import BootControlError
 from .protocol import BootControllerProtocol
 
