@@ -95,7 +95,7 @@ class ProxyInfo(BaseFixedConfig):
 
         Evidence is if no upper_ota_proxy, then this otaproxy should act as a gateway.
         """
-        return bool(self.upper_ota_proxy)
+        return not bool(self.upper_ota_proxy)
 
 
 # deprecated field definition
