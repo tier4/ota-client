@@ -124,13 +124,20 @@ DEFAULT_PROXY_INFO = ProxyInfo(
 
 def parse_proxy_info(proxy_info_file: StrOrPath) -> ProxyInfo:
     try:
-        loaded_proxy_info = yaml.safe_load(Path(proxy_info_file).read_text())
+        _raw_yaml_str = Path(proxy_info_file).read_text()
+    except FileNotFoundError as e:
+        logger.warning(f"{proxy_info_file=} not found: {e!r}")
+        logger.warning(f"use default proxy_info: {DEFAULT_PROXY_INFO}")
+        return DEFAULT_PROXY_INFO
+
+    try:
+        loaded_proxy_info = yaml.safe_load(_raw_yaml_str)
         assert isinstance(loaded_proxy_info, dict), "not a valid yaml file"
         _deprecation_check(loaded_proxy_info)
         return ProxyInfo.model_validate(loaded_proxy_info, strict=True)
     except Exception as e:
-        logger.warning(f"{proxy_info_file=} is missing or invalid: {e!r} ")
-        logger.warning(f"use default main ECU config: {DEFAULT_PROXY_INFO}")
+        logger.warning(f"{proxy_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
+        logger.warning(f"use default proxy_info: {DEFAULT_PROXY_INFO}")
         return DEFAULT_PROXY_INFO
 
 
