@@ -30,9 +30,10 @@ Version 1 scheme example:
 from __future__ import annotations
 import logging
 import yaml
+import warnings
 from enum import Enum
 from pathlib import Path
-from pydantic import BeforeValidator, Field
+from pydantic import AfterValidator, BeforeValidator, Field
 from typing import List
 from typing_extensions import Annotated
 
@@ -51,16 +52,29 @@ logger = logging.getLogger(__name__)
 class BootloaderType(str, Enum):
     """Bootloaders that supported by otaclient.
 
-    grub: generic x86_64 platform with grub
-    cboot: ADLink rqx-580, rqx-58g, with BSP 32.5.x
+    auto_detect: (DEPRECATED) at runtime detecting what bootloader is in use in this ECU.
+    grub: generic x86_64 platform with grub.
+    cboot: ADLink rqx-580, rqx-58g, with BSP 32.5.x.
         (theoretically other Nvidia jetson xavier devices using cboot are also supported)
-    rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28
+    rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28(with tryboot support).
     """
 
-    UNSPECIFIED = "unspecified"
+    AUTO_DETECT = "auto_detect"
     GRUB = "grub"
     CBOOT = "cboot"
     RPI_BOOT = "rpi_boot"
+
+    @staticmethod
+    def deprecation_validator(value: BootloaderType) -> BootloaderType:
+        if value == BootloaderType.AUTO_DETECT:
+            _warning_msg = (
+                "bootloader field in ecu_info.yaml is not set or set to auto_detect(DEPRECATED), "
+                "runtime bootloader type detection is UNRELIABLE and bootloader field SHOULD be "
+                "set in ecu_info.yaml"
+            )
+            warnings.warn(_warning_msg, DeprecationWarning, stacklevel=1)
+            logger.warning(_warning_msg)
+        return value
 
 
 class ECUContact(BaseFixedConfig):
@@ -76,7 +90,7 @@ class ECUInfo(BaseFixedConfig):
         format_version: the ecu_info.yaml scheme version, current is 1.
         ecu_id: the unique ID of this ECU.
         ip_addr: the IP address OTA servicer listening on, default is <service_config.DEFAULT_SERVER_ADDRESS>.
-        bootloader: the bootloader type of this ECU, default is UNSPECIFIC(detect at runtime).
+        bootloader: the bootloader type of this ECU.
         available_ecu_ids: a list of ECU IDs that should be involved in OTA campaign.
         secondaries: a list of ECUContact objects for sub ECUs.
     """
@@ -87,7 +101,8 @@ class ECUInfo(BaseFixedConfig):
     bootloader: Annotated[
         BootloaderType,
         BeforeValidator(gen_strenum_validator(BootloaderType)),
-    ] = BootloaderType.UNSPECIFIED
+        AfterValidator(BootloaderType.deprecation_validator),
+    ] = BootloaderType.AUTO_DETECT
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
 
@@ -115,7 +130,9 @@ def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
     try:
         _raw_yaml_str = Path(ecu_info_file).read_text()
         loaded_ecu_info = yaml.safe_load(_raw_yaml_str)
-        assert isinstance(loaded_ecu_info, dict), "not a valid yaml file"
+        assert isinstance(
+            loaded_ecu_info, dict
+        ), f"not a valid yaml file: {_raw_yaml_str=}"
         return ECUInfo.model_validate(loaded_ecu_info, strict=True)
     except Exception as e:
         logger.warning(f"{ecu_info_file=} is missing or invalid: {e!r}")

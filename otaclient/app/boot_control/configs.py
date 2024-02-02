@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, ClassVar as _std_ClassVar, Any
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
 from otaclient.configs.ecu_info import BootloaderType
-from ..configs import config as cfg
+from ..configs import config as cfg, ecu_info  # type: ignore
 
 # A simple trick to make plain ClassVar work when
 # __future__.annotations is activated.
