@@ -95,7 +95,7 @@ logger = logging.getLogger(__name__)
         # for superseded field, the corresponding field should be assigned.
         # for removed field, it should not impact the config file loading.
         (
-            ("enable_ota_proxy: true\ngateway: true\n"),
+            "enable_ota_proxy: true\ngateway: false\n",
             DEFAULT_PROXY_INFO,
         ),
     ),
