@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import yaml
 import warnings
-from typing import Any
+from typing import Any, ClassVar
 from pathlib import Path
 from pydantic import AliasChoices, Field
 
@@ -73,7 +73,7 @@ class ProxyInfo(BaseFixedConfig):
 
     # NOTE(20240201): check ota_client_log_server_port var in autoware_ecu_setup
     #                 ansible configurations.
-    LOGGING_SERVER_PORT: NetworkPort = 8083
+    LOGGING_SERVER_PORT: ClassVar[int] = 8083
     # NOTE: when logging_server is not configured, it implicitly means the logging server
     #       is located at localhost.
     #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
