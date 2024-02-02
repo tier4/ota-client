@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
         # ------ case 2: typical sub ECU's proxy_info.yaml ------ #
         (
             (
-                "gateway: false\n"
+                "gateway_otaproxy: false\n"
                 "enable_local_ota_proxy: true\n"
                 'upper_ota_proxy: "http://10.0.0.1:8082"\n'
                 "enable_local_ota_proxy_cache: true\n"
@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
             # This yaml file is valid, but all fields' values are invalid.
             (
                 "enable_local_ota_proxy: dafef\n"
-                "gateway: 123\n"
+                "gateway_otaproxy: 123\n"
                 "upper_ota_proxy: true\n"
                 "enable_local_ota_proxy_cache: adfaea\n"
                 "local_ota_proxy_listen_addr: 123\n"
@@ -92,6 +92,11 @@ logger = logging.getLogger(__name__)
         # in this case, default predefined default proxy_info.yaml will be loaded
         (
             "/t/t/t/t/t/t/t/tyaml file should not contain tabs/t/t/t/",
+            DEFAULT_PROXY_INFO,
+        ),
+        # ------ case 6: backward compatibility test ------ #
+        (
+            ("enable_ota_proxy: true\ngateway: true\n"),
             DEFAULT_PROXY_INFO,
         ),
     ),
