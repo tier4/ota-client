@@ -18,11 +18,11 @@ from __future__ import annotations
 import logging
 import yaml
 import warnings
+from functools import cached_property
 from typing import Any, ClassVar
 from pathlib import Path
 from pydantic import AliasChoices, Field
 
-from otaclient._utils import cached_computed_field
 from otaclient._utils.typing import StrOrPath
 from otaclient.configs.app_cfg import app_config as cfg
 from otaclient.configs._common import (
@@ -89,11 +89,13 @@ class ProxyInfo(BaseFixedConfig):
             return self.upper_ota_proxy
         # default not using proxy
 
-    @cached_computed_field
+    @cached_property
     def gateway_otaproxy(self) -> bool:
         """Whether this local otaproxy is a gateway otaproxy.
 
         Evidence is if no upper_ota_proxy, then this otaproxy should act as a gateway.
+        NOTE(20240202): this replaces the previous user-configurable gateway field in
+                        the proxy_info.yaml.
         """
         return not bool(self.upper_ota_proxy)
 
