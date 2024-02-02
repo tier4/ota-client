@@ -303,8 +303,10 @@ class _ConfigurableConfig(BaseModel):
     For example, to set SERVER_ADDRESS, set env OTA_SERVER_ADDRESS=10.0.1.1 .
     """
 
-    # name of OTA used temp folder
-    OTA_TMP_DNAME: _std_ClassVar = "ota_tmp"
+    OTA_TMP_DNAME: str = "ota_tmp"
+    """name of OTA used temp folder.
+    Default: ota_tmp.
+    """
 
     #
     # ------ otaproxy server config ------ #
@@ -347,11 +349,13 @@ class _ConfigurableConfig(BaseModel):
     #
     # --- download settings for the whole download tasks group --- #
     #
-    # if retry keeps failing without any success in
-    # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
-    # download task group and raise NETWORK OTA error.
     MAX_CONCURRENT_DOWNLOAD_TASKS: int = Field(default=128, le=1024)
     DOWNLOAD_GROUP_INACTIVE_TIMEOUT: int = 5 * 60  # seconds
+    """
+    if retry keeps failing without any success in
+        DOWNLOAD_GROUP_INACTIVE_TIMEOUT time, failed the whole
+        download task group and raise NETWORK OTA error."""
+
     DOWNLOAD_GROUP_BACKOFF_MAX: int = 12  # seconds
     DOWNLOAD_GROUP_BACKOFF_FACTOR: int = 1  # seconds
 
