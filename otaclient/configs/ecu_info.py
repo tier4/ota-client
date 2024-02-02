@@ -72,7 +72,7 @@ class BootloaderType(str, Enum):
                 "runtime bootloader type detection is UNRELIABLE and bootloader field SHOULD be "
                 "set in ecu_info.yaml"
             )
-            warnings.warn(_warning_msg, DeprecationWarning, stacklevel=1)
+            warnings.warn(_warning_msg, DeprecationWarning, stacklevel=2)
             logger.warning(_warning_msg)
         return value
 
