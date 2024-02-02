@@ -42,7 +42,6 @@ logger = logging.getLogger(__name__)
         # ------ case 2: typical sub ECU's proxy_info.yaml ------ #
         (
             (
-                "gateway_otaproxy: false\n"
                 "enable_local_ota_proxy: true\n"
                 'upper_ota_proxy: "http://10.0.0.1:8082"\n'
                 "enable_local_ota_proxy_cache: true\n"
@@ -51,7 +50,6 @@ logger = logging.getLogger(__name__)
             ProxyInfo(
                 **{
                     "format_version": 1,
-                    "gateway": False,
                     "upper_ota_proxy": "http://10.0.0.1:8082",
                     "enable_local_ota_proxy": True,
                     "enable_local_ota_proxy_cache": True,
@@ -80,7 +78,6 @@ logger = logging.getLogger(__name__)
             # This yaml file is valid, but all fields' values are invalid.
             (
                 "enable_local_ota_proxy: dafef\n"
-                "gateway_otaproxy: 123\n"
                 "upper_ota_proxy: true\n"
                 "enable_local_ota_proxy_cache: adfaea\n"
                 "local_ota_proxy_listen_addr: 123\n"
@@ -95,6 +92,8 @@ logger = logging.getLogger(__name__)
             DEFAULT_PROXY_INFO,
         ),
         # ------ case 6: backward compatibility test ------ #
+        # for superseded field, the corresponding field should be assigned.
+        # for removed field, it should not impact the config file loading.
         (
             ("enable_ota_proxy: true\ngateway: true\n"),
             DEFAULT_PROXY_INFO,

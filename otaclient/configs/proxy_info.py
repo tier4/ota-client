@@ -22,6 +22,7 @@ from typing import Any
 from pathlib import Path
 from pydantic import AliasChoices, Field
 
+from otaclient._utils import cached_computed_field
 from otaclient._utils.typing import StrOrPath
 from otaclient.configs.app_cfg import app_config as cfg
 from otaclient.configs._common import (
@@ -44,7 +45,6 @@ class ProxyInfo(BaseFixedConfig):
         format_version: the proxy_info.yaml scheme version, current is 1.
         enable_local_ota_proxy: whether to launch a local ota_proxy server.
         enable_local_ota_proxy_cache: enable cache mechanism on ota-proxy.
-        gateway_otaproxy: whether the local otaproxy is a gateway otaproxy.
         local_ota_proxy_listen_addr: ipaddr ota_proxy listens on.
         local_ota_proxy_listen_port: port ota_proxy used.
         upper_ota_proxy: the URL of upper OTA proxy used by local ota_proxy server
@@ -55,14 +55,6 @@ class ProxyInfo(BaseFixedConfig):
     format_version: int = 1
     # NOTE(20221219): the default values for the following settings
     #                 now align with v2.5.4
-    gateway_otaproxy: bool = Field(
-        default=False,
-        # DEPRECATED(20240202): "gateway" is superseded by "gateway_otaproxy".
-        validation_alias=AliasChoices(
-            "gateway_otaproxy",
-            "gateway",
-        ),
-    )
     upper_ota_proxy: HTTPURLAny = Field(default="", validate_default=False)
     enable_local_ota_proxy: bool = Field(
         default=False,
@@ -97,13 +89,18 @@ class ProxyInfo(BaseFixedConfig):
             return self.upper_ota_proxy
         # default not using proxy
 
+    @cached_computed_field
+    def gateway_otaproxy(self) -> bool:
+        """Whether this local otaproxy is a gateway otaproxy.
+
+        Evidence is if no upper_ota_proxy, then this otaproxy should act as a gateway.
+        """
+        return bool(self.upper_ota_proxy)
+
 
 # deprecated field definition
 # <deprecated_old_name> -> <new_field_name>
-_deprecated_field: dict[str, str] = {
-    "enable_ota_proxy": "enable_local_ota_proxy",
-    "gateway": "gateway_otaproxy",
-}
+_deprecated_field: dict[str, str] = {"enable_ota_proxy": "enable_local_ota_proxy"}
 
 
 def _deprecation_check(_in: dict[str, Any]) -> None:
@@ -126,7 +123,6 @@ def _deprecation_check(_in: dict[str, Any]) -> None:
 #       that doesn't have proxy_info.yaml installed.
 DEFAULT_PROXY_INFO = ProxyInfo(
     format_version=1,
-    gateway_otaproxy=True,
     enable_local_ota_proxy=True,
 )
 
