@@ -129,13 +129,17 @@ DEFAULT_ECU_INFO = ECUInfo(
 def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
     try:
         _raw_yaml_str = Path(ecu_info_file).read_text()
+    except FileNotFoundError as e:
+        logger.warning(f"{ecu_info_file=} not found: {e!r}")
+        logger.warning(f"use default ecu_info: {DEFAULT_ECU_INFO}")
+        return DEFAULT_ECU_INFO
+
+    try:
         loaded_ecu_info = yaml.safe_load(_raw_yaml_str)
-        assert isinstance(
-            loaded_ecu_info, dict
-        ), f"not a valid yaml file: {_raw_yaml_str=}"
+        assert isinstance(loaded_ecu_info, dict), "not a valid yaml file"
         return ECUInfo.model_validate(loaded_ecu_info, strict=True)
     except Exception as e:
-        logger.warning(f"{ecu_info_file=} is missing or invalid: {e!r}")
+        logger.warning(f"{ecu_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
         logger.warning(f"use default ecu_info: {DEFAULT_ECU_INFO}")
         return DEFAULT_ECU_INFO
 
