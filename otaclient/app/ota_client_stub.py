@@ -227,7 +227,7 @@ class OTAProxyLauncher:
                     cache_db_f=local_otaproxy_cfg.DB_FILE,
                     upper_proxy=self.upper_otaproxy,
                     enable_cache=proxy_info.enable_local_ota_proxy_cache,
-                    enable_https=proxy_info.gateway,
+                    enable_https=proxy_info.gateway_otaproxy,
                 )
             )
             self._otaproxy_subprocess = otaproxy_subprocess

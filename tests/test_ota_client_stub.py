@@ -61,7 +61,7 @@ available_ecu_ids:
 """
 
 PROXY_INFO_YAML = """\
-gateway: false,
+gateway_otaproxy: false,
 enable_local_ota_proxy: true
 local_ota_proxy_listen_addr: "127.0.0.1"
 local_ota_proxy_listen_port: 8082
