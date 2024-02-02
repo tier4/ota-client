@@ -78,6 +78,7 @@ class ProxyInfo(BaseFixedConfig):
     LOGGING_SERVER_PORT: NetworkPort = 8083
     # NOTE: when logging_server is not configured, it implicitly means the logging server
     #       is located at localhost.
+    #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
     logging_server: HTTPURLAny = f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
 
     def get_proxy_for_local_ota(self) -> str | None:
