@@ -11,20 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-r"""ECU metadatas definition.
-
-Version 1 scheme example:
-    format_vesrion: 1
-    ecu_id: "autoware"
-    ip_addr: "0.0.0.0"
-    bootloader: "grub"
-    secondaries:
-        - ecu_id: "p1"
-            ip_addr: "0.0.0.0"
-    available_ecu_ids:
-        - "autoware"
-        - "p1
-"""
+"""ECU metadatas definition and parsing logic."""
 
 
 from __future__ import annotations
