@@ -97,6 +97,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
             proxy=None,
             control_flags=otaclient_control_flags,
         )
+        _updater._process_persistents = persist_handler = mocker.MagicMock()
         # NOTE: mock the shutdown method as we need to assert before the
         #       updater is closed.
         _updater_shutdown = _updater.shutdown
@@ -110,6 +111,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         time.sleep(2)  # wait for downloader to record stats
 
         # ------ assertions ------ #
+        persist_handler.assert_called_once()
         # --- assert update finished
         _updater.shutdown.assert_called_once()
         otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
