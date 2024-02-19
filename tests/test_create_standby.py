@@ -87,11 +87,6 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         from otaclient.app.ota_client import _OTAUpdater, OTAClientControlFlags
         from otaclient.app.create_standby.rebuild_mode import RebuildMode
 
-        # TODO: not test process_persistent currently,
-        #       as we currently directly compare the standby slot
-        #       with the OTA image.
-        RebuildMode._process_persistents = mocker.MagicMock()
-
         # ------ execution ------ #
         otaclient_control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
