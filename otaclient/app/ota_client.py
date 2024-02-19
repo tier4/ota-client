@@ -286,6 +286,32 @@ class _OTAUpdater:
 
         logger.info("finished updating standby slot")
 
+    def _process_persistents(self):
+        """NOTE: just copy from legacy mode"""
+        from .copy_tree import CopyTree
+
+        standby_slot_mp = self._boot_controller.get_standby_slot_path()
+
+        _passwd_file = Path(cfg.PASSWD_FILE)
+        _group_file = Path(cfg.GROUP_FILE)
+        _copy_tree = CopyTree(
+            src_passwd_file=_passwd_file,
+            src_group_file=_group_file,
+            dst_passwd_file=standby_slot_mp / _passwd_file.relative_to("/"),
+            dst_group_file=standby_slot_mp / _group_file.relative_to("/"),
+        )
+
+        for _perinf in self._otameta.iter_metafile(
+            ota_metadata.MetafilesV1.PERSISTENT_FNAME
+        ):
+            _perinf_path = Path(_perinf.path)
+            if (
+                _perinf_path.is_file()
+                or _perinf_path.is_dir()
+                or _perinf_path.is_symlink()
+            ):  # NOTE: not equivalent to perinf.path.exists()
+                _copy_tree.copy_with_parents(_perinf_path, standby_slot_mp)
+
     def _execute_update(
         self,
         version: str,
@@ -391,13 +417,15 @@ class _OTAUpdater:
             )
 
         # ------ post update ------ #
-        logger.info("local update finished, wait on all subecs...")
-        logger.info("enter boot control post update phase...")
-        # boot controller postupdate
+        logger.info("enter post update phase...")
         self.update_phase = wrapper.UpdatePhase.PROCESSING_POSTUPDATE
+        # NOTE(20240219): move persist file handling here
+        self._process_persistents()
+
+        # boot controller postupdate
         next(_postupdate_gen := self._boot_controller.post_update())
 
-        # wait for sub ecu if needed before rebooting
+        logger.info("local update finished, wait on all subecs...")
         self._control_flags.wait_can_reboot_flag()
         next(_postupdate_gen, None)  # reboot
 
