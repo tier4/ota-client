@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
 import gc
 import json
@@ -30,6 +31,7 @@ from .boot_control import BootControllerProtocol, get_boot_controller
 from .common import (
     get_backoff,
     ensure_otaproxy_start,
+    PersistFilesHandler,
     RetryTaskMap,
     RetryTaskMapInterrupted,
 )
@@ -290,18 +292,15 @@ class _OTAUpdater:
         logger.info("finished updating standby slot")
 
     def _process_persistents(self):
-        """NOTE: just copy from legacy mode"""
-        from .copy_tree import CopyTree
+        standby_slot_mp = Path(cfg.MOUNT_POINT)
 
-        standby_slot_mp = self._boot_controller.get_standby_slot_path()
-
-        _passwd_file = Path(cfg.PASSWD_FILE)
-        _group_file = Path(cfg.GROUP_FILE)
-        _copy_tree = CopyTree(
-            src_passwd_file=_passwd_file,
-            src_group_file=_group_file,
-            dst_passwd_file=standby_slot_mp / _passwd_file.relative_to("/"),
-            dst_group_file=standby_slot_mp / _group_file.relative_to("/"),
+        _handler = PersistFilesHandler(
+            src_passwd_file=Path(cfg.PASSWD_FILE),
+            src_group_file=Path(cfg.GROUP_FILE),
+            dst_passwd_file=Path(standby_slot_mp / "etc/passwd"),
+            dst_group_file=Path(standby_slot_mp / "etc/group"),
+            src_root=cfg.ACTIVE_ROOT_MOUNT_POINT,
+            dst_root=cfg.MOUNT_POINT,
         )
 
         for _perinf in self._otameta.iter_metafile(
@@ -323,7 +322,7 @@ class _OTAUpdater:
             if (
                 _per_fpath.is_file() or _per_fpath.is_dir() or _per_fpath.is_symlink()
             ):  # NOTE: not equivalent to perinf.path.exists()
-                _copy_tree.copy_with_parents(_per_fpath, standby_slot_mp)
+                _handler.preserve_persist_entry(_per_fpath)
 
     def _execute_update(
         self,
