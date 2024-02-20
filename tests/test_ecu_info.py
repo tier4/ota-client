@@ -13,24 +13,17 @@
 # limitations under the License.
 
 
-import yaml
+from __future__ import annotations
 import pytest
 from pathlib import Path
-from typing import Any, List, Dict
 
-from otaclient.app.boot_control import BootloaderType
-from otaclient.app.ecu_info import ECUInfo
-
-# please refer to ecu_info.py for the DEFAULT_ECU_INFO definition
-DEFAULT_ECU_INFO_OBJ = ECUInfo(
-    format_version=1,
-    ecu_id="autoware",
-    bootloader=BootloaderType.UNSPECIFIED.value,
+from otaclient.configs.ecu_info import (
+    DEFAULT_ECU_INFO,
+    parse_ecu_info,
+    ECUInfo,
+    ECUContact,
+    BootloaderType,
 )
-DEFAULT_ECU_INFO_YAML = """\
-format_version: 1
-ecu_id: "autoware"    
-"""
 
 
 @pytest.mark.parametrize(
@@ -40,27 +33,26 @@ ecu_id: "autoware"
         # case 1.1: valid yaml(empty file), invalid ecu_info
         (
             "# this is an empty file",
-            DEFAULT_ECU_INFO_OBJ,
+            DEFAULT_ECU_INFO,
         ),
         # case 1.2: valid yaml(array), invalid ecu_info
         (
             ("- this is an\n" "- yaml file that\n" "- contains a array\n"),
-            DEFAULT_ECU_INFO_OBJ,
+            DEFAULT_ECU_INFO,
         ),
         # case 1.2: invalid yaml
         (
             "    - \n not a \n [ valid yaml",
-            DEFAULT_ECU_INFO_OBJ,
+            DEFAULT_ECU_INFO,
         ),
         # --- case 2: single ECU --- #
         # case 2.1: basic single ECU
         (
             ("format_version: 1\n" 'ecu_id: "autoware"\n' 'ip_addr: "192.168.1.1"\n'),
             ECUInfo(
-                format_version=1,
                 ecu_id="autoware",
                 ip_addr="192.168.1.1",
-                bootloader=BootloaderType.UNSPECIFIED.value,
+                bootloader=BootloaderType.AUTO_DETECT,
             ),
         ),
         # case 2.2: single ECU with bootloader type specified
@@ -72,10 +64,9 @@ ecu_id: "autoware"
                 'bootloader: "grub"\n'
             ),
             ECUInfo(
-                format_version=1,
                 ecu_id="autoware",
                 ip_addr="192.168.1.1",
-                bootloader=BootloaderType.GRUB.value,
+                bootloader=BootloaderType.GRUB,
             ),
         ),
         # --- case 3: multiple ECUs --- #
@@ -93,20 +84,19 @@ ecu_id: "autoware"
                 '  ip_addr: "192.168.0.12"\n'
             ),
             ECUInfo(
-                format_version=1,
                 ecu_id="autoware",
                 ip_addr="192.168.1.1",
-                bootloader=BootloaderType.UNSPECIFIED.value,
+                bootloader=BootloaderType.AUTO_DETECT,
                 available_ecu_ids=["autoware", "p1", "p2"],
                 secondaries=[
-                    {
-                        "ecu_id": "p1",
-                        "ip_addr": "192.168.0.11",
-                    },
-                    {
-                        "ecu_id": "p2",
-                        "ip_addr": "192.168.0.12",
-                    },
+                    ECUContact(
+                        ecu_id="p1",
+                        ip_addr="192.168.0.11",
+                    ),
+                    ECUContact(
+                        ecu_id="p2",
+                        ip_addr="192.168.0.12",
+                    ),
                 ],
             ),
         ),
@@ -125,20 +115,19 @@ ecu_id: "autoware"
                 '  ip_addr: "192.168.0.12"\n'
             ),
             ECUInfo(
-                format_version=1,
                 ecu_id="autoware",
                 ip_addr="192.168.1.1",
+                bootloader=BootloaderType.GRUB,
                 available_ecu_ids=["autoware", "p1", "p2"],
-                bootloader=BootloaderType.GRUB.value,
                 secondaries=[
-                    {
-                        "ecu_id": "p1",
-                        "ip_addr": "192.168.0.11",
-                    },
-                    {
-                        "ecu_id": "p2",
-                        "ip_addr": "192.168.0.12",
-                    },
+                    ECUContact(
+                        ecu_id="p1",
+                        ip_addr="192.168.0.11",
+                    ),
+                    ECUContact(
+                        ecu_id="p2",
+                        ip_addr="192.168.0.12",
+                    ),
                 ],
             ),
         ),
@@ -150,7 +139,7 @@ def test_ecu_info(tmp_path: Path, ecu_info_yaml: str, expected_ecu_info: ECUInfo
     (ecu_info_file := ota_dir / "ecu_info.yaml").write_text(ecu_info_yaml)
 
     # --- execution --- #
-    loaded_ecu_info = ECUInfo.parse_ecu_info(ecu_info_file)
+    loaded_ecu_info = parse_ecu_info(ecu_info_file)
 
     # --- assertion --- #
     assert loaded_ecu_info == expected_ecu_info
