@@ -12,22 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 import logging
-import os
-import yaml
 
 from otaclient import otaclient_package_name
-from .configs import config as cfg, logging_config
-
-
-# NOTE: EcuInfo imports this log_setting so independent get_ecu_id are required.
-def get_ecu_id():
-    try:
-        with open(cfg.ECU_INFO_FPATH) as f:
-            ecu_info = yaml.load(f, Loader=yaml.SafeLoader)
-            return ecu_info["ecu_id"]
-    except Exception:
-        return "autoware"
+from .configs import logging_config, proxy_info
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -39,8 +28,13 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
-def configure_logging(loglevel: int, *, http_logging_url: str):
-    """Configure logging with http handler."""
+def configure_logging(loglevel: int, *, http_logging_url: str) -> None:
+    """Configure logging with http handler.
+
+    Args:
+        loglevel(int): the loglevel to the configured logger.
+        http_logging_url(str): the path component of the logging dest URL.
+    """
     # configure the root logger
     # NOTE: force to reload the basicConfig, this is for overriding setting
     #       when launching subprocess.
@@ -55,7 +49,8 @@ def configure_logging(loglevel: int, *, http_logging_url: str):
 
     # if http_logging is enabled, attach the http handler to
     # the otaclient package root logger
-    if http_logging_host := os.environ.get("HTTP_LOGGING_SERVER"):
+    # NOTE(20240126): now proxy_info module can parse the http_logging setting.
+    if http_logging_host := proxy_info.logging_server:
         from otaclient.aws_iot_log_server import CustomHttpHandler
 
         ch = CustomHttpHandler(host=http_logging_host, url=http_logging_url)

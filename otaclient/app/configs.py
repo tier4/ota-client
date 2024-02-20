@@ -23,6 +23,8 @@ from pathlib import Path
 from otaclient import __file__ as _otaclient__init__
 from otaclient.configs.app_cfg import app_config as config, CreateStandbyMechanism
 from otaclient.configs.debug_cfg import debug_flags
+from otaclient.configs.ecu_info import ecu_info
+from otaclient.configs.proxy_info import proxy_info
 from otaclient.configs.logging_cfg import logging_config
 from otaclient.configs.ota_service_cfg import service_config
 

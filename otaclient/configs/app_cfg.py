@@ -27,12 +27,18 @@ There are three types of configs defined in this module:
 from __future__ import annotations
 import os.path
 from enum import Enum
-from pydantic import BaseModel, Field, IPvAnyAddress
+from pydantic import BaseModel, Field
 from typing import TYPE_CHECKING, Any, ClassVar as _std_ClassVar
 
 from otaclient._utils import cached_computed_field
 from otaclient._utils.path import replace_root
-from ._common import ENV_PREFIX, BaseConfigurableConfig, BaseFixedConfig
+from otaclient.configs._common import (
+    ENV_PREFIX,
+    BaseConfigurableConfig,
+    BaseFixedConfig,
+    IPAddressAny,
+    NetworkPort,
+)
 
 # A simple trick to make plain ClassVar work when
 # __future__.annotations is activated.
@@ -76,7 +82,6 @@ class _DynamicRootedPathsConfig(BaseModel):
     # ------ active_rootfs & container mode ------ #
     #
     DEFAULT_ACTIVE_ROOTFS: _std_ClassVar = "/"
-
     ACTIVE_ROOTFS: str = DEFAULT_ACTIVE_ROOTFS
 
     @cached_computed_field
@@ -298,14 +303,22 @@ class _ConfigurableConfig(BaseModel):
     For example, to set SERVER_ADDRESS, set env OTA_SERVER_ADDRESS=10.0.1.1 .
     """
 
-    # name of OTA used temp folder
     OTA_TMP_DNAME: str = "ota_tmp"
+    """name of OTA used temp folder.
+    Default: ota_tmp.
+    """
 
     #
     # ------ otaproxy server config ------ #
     #
-    OTA_PROXY_LISTEN_ADDRESS: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
-    OTA_PROXY_LISTEN_PORT: int = Field(default=8082, ge=0, le=65535)
+    OTA_PROXY_LISTEN_ADDRESS: IPAddressAny = "0.0.0.0"
+    OTA_PROXY_LISTEN_PORT: NetworkPort = 8082
+
+    #
+    # ------ otaclient logging server config ------ #
+    #
+    LOGGING_SERVER_ADDRESS: IPAddressAny = "127.0.0.1"
+    LOGGING_SERVER_PORT: NetworkPort = 8083
 
     #
     # ------ otaclient runtime behavior setting ------ #
@@ -336,11 +349,13 @@ class _ConfigurableConfig(BaseModel):
     #
     # --- download settings for the whole download tasks group --- #
     #
-    # if retry keeps failing without any success in
-    # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
-    # download task group and raise NETWORK OTA error.
     MAX_CONCURRENT_DOWNLOAD_TASKS: int = Field(default=128, le=1024)
     DOWNLOAD_GROUP_INACTIVE_TIMEOUT: int = 5 * 60  # seconds
+    """
+    if retry keeps failing without any success in
+        DOWNLOAD_GROUP_INACTIVE_TIMEOUT time, failed the whole
+        download task group and raise NETWORK OTA error."""
+
     DOWNLOAD_GROUP_BACKOFF_MAX: int = 12  # seconds
     DOWNLOAD_GROUP_BACKOFF_FACTOR: int = 1  # seconds
 
