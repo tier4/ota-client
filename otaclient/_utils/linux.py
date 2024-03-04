@@ -14,10 +14,8 @@
 
 
 from __future__ import annotations
-from math import ceil
 from pathlib import Path
-from subprocess import check_output, check_call
-from typing import Optional
+from subprocess import check_call
 
 
 def create_swapfile(
@@ -65,21 +63,3 @@ def create_swapfile(
     check_call(["mkswap", str(swapfile_fpath)], timeout=timeout)
 
     return swapfile_fpath
-
-
-def detect_swapfile_size(swapfile_fpath: str | Path, *, timeout=120) -> Optional[int]:
-    """Get the size of <swapfile_fpath> in MiB."""
-    swapfile_fpath = Path(swapfile_fpath)
-    if not swapfile_fpath.is_file():
-        return
-
-    _cmd = [
-        "swapon",
-        "--show=SIZE",
-        "--noheadings",
-        "--raw",
-        "--bytes",
-        str(swapfile_fpath),
-    ]
-    _raw_size = check_output(_cmd, timeout=timeout).decode().strip()
-    return ceil(int(_raw_size) / 1024**2)
