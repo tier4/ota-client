@@ -122,13 +122,13 @@ class Test_OTAUpdater:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, _delta_generate):
-        from otaclient.app.proxy_info import ProxyInfo
         from otaclient.app.configs import BaseConfig
 
         # ------ mock boot_controller ------ #
         self._boot_control = typing.cast(
             BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
         )
+
         # ------ mock create_standby ------ #
         self._create_standby = typing.cast(
             StandbySlotCreatorProtocol,
@@ -168,6 +168,7 @@ class Test_OTAUpdater:
             proxy=None,
             control_flags=otaclient_control_flags,
         )
+        _updater._process_persistents = process_persists_handler = mocker.MagicMock()
 
         _updater.execute(
             version=cfg.UPDATE_VERSION,
@@ -190,6 +191,7 @@ class Test_OTAUpdater:
         # assert create standby module is used
         self._create_standby.calculate_and_prepare_delta.assert_called_once()
         self._create_standby.create_standby_slot.assert_called_once()
+        process_persists_handler.assert_called_once()
 
 
 class Test_OTAClient:

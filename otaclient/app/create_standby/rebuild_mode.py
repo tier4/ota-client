@@ -78,28 +78,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
         for entry in self.delta_bundle.get_new_dirs():
             entry.mkdir_relative_to_mount_point(self.standby_slot_mp)
 
-    def _process_persistents(self):
-        """NOTE: just copy from legacy mode"""
-        from ..copy_tree import CopyTree
-
-        _passwd_file = Path(cfg.PASSWD_FILE)
-        _group_file = Path(cfg.GROUP_FILE)
-        _copy_tree = CopyTree(
-            src_passwd_file=_passwd_file,
-            src_group_file=_group_file,
-            dst_passwd_file=self.standby_slot_mp / _passwd_file.relative_to("/"),
-            dst_group_file=self.standby_slot_mp / _group_file.relative_to("/"),
-        )
-
-        for _perinf in self._ota_metadata.iter_metafile(MetafilesV1.PERSISTENT_FNAME):
-            _perinf_path = Path(_perinf.path)
-            if (
-                _perinf_path.is_file()
-                or _perinf_path.is_dir()
-                or _perinf_path.is_symlink()
-            ):  # NOTE: not equivalent to perinf.path.exists()
-                _copy_tree.copy_with_parents(_perinf_path, self.standby_slot_mp)
-
     def _process_symlinks(self):
         for _symlink in self._ota_metadata.iter_metafile(
             MetafilesV1.SYMBOLICLINK_FNAME
@@ -211,7 +189,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
         self._process_dirs()
         self._process_regulars()
         self._process_symlinks()
-        self._process_persistents()
+        # NOTE(20240219): mv persist file handling logic from
+        #                 create_standby implementation to post_update hook.
+        # self._process_persistents()
         self._save_meta()
         # cleanup on successful finish
         # NOTE: if failed, the tmp dirs will not be removed now,

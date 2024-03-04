@@ -87,11 +87,6 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         from otaclient.app.ota_client import _OTAUpdater, OTAClientControlFlags
         from otaclient.app.create_standby.rebuild_mode import RebuildMode
 
-        # TODO: not test process_persistent currently,
-        #       as we currently directly compare the standby slot
-        #       with the OTA image.
-        RebuildMode._process_persistents = mocker.MagicMock()
-
         # ------ execution ------ #
         otaclient_control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
@@ -102,6 +97,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
             proxy=None,
             control_flags=otaclient_control_flags,
         )
+        _updater._process_persistents = persist_handler = mocker.MagicMock()
         # NOTE: mock the shutdown method as we need to assert before the
         #       updater is closed.
         _updater_shutdown = _updater.shutdown
@@ -115,6 +111,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         time.sleep(2)  # wait for downloader to record stats
 
         # ------ assertions ------ #
+        persist_handler.assert_called_once()
         # --- assert update finished
         _updater.shutdown.assert_called_once()
         otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
