@@ -52,8 +52,8 @@ def copy_callable_typehint_to_method(_source: Callable[P, Any]):
 _MultiUnits = Literal["GiB", "MiB", "KiB", "Bytes", "KB", "MB", "GB"]
 # fmt: off
 _multiplier: dict[_MultiUnits, int] = {
-    "GiB": (1024 ** 3), "MiB": (1024 ** 2), "KiB": (1024 ** 1),
-    "GB": (1000 **3), "MB": (1000 ** 2), "KB": (1000 ** 1),
+    "GiB": 1024 ** 3, "MiB": 1024 ** 2, "KiB": 1024 ** 1,
+    "GB": 1000 ** 3, "MB": 1000 ** 2, "KB": 1000 ** 1,
     "Bytes": 1,
 }
 # fmt: on
