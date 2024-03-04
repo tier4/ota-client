@@ -46,7 +46,8 @@ from .update_stats import (
 )
 from . import log_setting
 
-from otaclient._utils.linux import create_swapfile, detect_swapfile_size
+from otaclient._utils import get_file_size
+from otaclient._utils.linux import create_swapfile
 
 try:
     from otaclient import __version__  # type: ignore
@@ -312,11 +313,11 @@ class _OTAUpdater:
             if str(_per_fpath) in ["/swapfile", "/swap.img"]:
                 _new_swapfile = standby_slot_mp / _per_fpath
                 try:
-                    _swapfile_size = detect_swapfile_size(_per_fpath)  # in MiB
-                    assert _swapfile_size is not None
+                    _swapfile_size = get_file_size(_per_fpath, units="MiB")
+                    assert _swapfile_size is not None, f"{_per_fpath} doesn't exist"
                     create_swapfile(_new_swapfile, _swapfile_size)
                 except Exception as e:
-                    logger.warning(f"failed to create {_per_fpath}: {e!r}")
+                    logger.warning(f"failed to create {_per_fpath}, skip: {e!r}")
                 continue
 
             if (
