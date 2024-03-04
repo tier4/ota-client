@@ -11,8 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Any, Callable, TypeVar
-from typing_extensions import ParamSpec, Concatenate
+
+
+from __future__ import annotations
+from math import ceil
+from pathlib import Path
+from typing import Any, Callable, Optional, TypeVar
+from typing_extensions import Literal, ParamSpec, Concatenate
 
 P = ParamSpec("P")
 
@@ -42,3 +47,22 @@ def copy_callable_typehint_to_method(_source: Callable[P, Any]):
         return target  # type: ignore
 
     return _decorator
+
+
+_MultiUnits = Literal["GiB", "MiB", "KiB", "Bytes", "KB", "MB", "GB"]
+# fmt: off
+_multiplier: dict[_MultiUnits, int] = {
+    "GiB": 1024 ** 3, "MiB": 1024 ** 2, "KiB": 1024 ** 1,
+    "GB": 1000 ** 3, "MB": 1000 ** 2, "KB": 1000 ** 1,
+    "Bytes": 1,
+}
+# fmt: on
+
+
+def get_file_size(
+    swapfile_fpath: str | Path, units: _MultiUnits = "Bytes"
+) -> Optional[int]:
+    """Helper for get file size with <units>."""
+    swapfile_fpath = Path(swapfile_fpath)
+    if swapfile_fpath.is_file():
+        return ceil(swapfile_fpath.stat().st_size / _multiplier[units])

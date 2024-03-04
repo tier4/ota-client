@@ -46,6 +46,9 @@ from .update_stats import (
 )
 from . import log_setting
 
+from otaclient._utils import get_file_size
+from otaclient._utils.linux import create_swapfile
+
 try:
     from otaclient import __version__  # type: ignore
 except ImportError:
@@ -304,13 +307,23 @@ class _OTAUpdater:
         for _perinf in self._otameta.iter_metafile(
             ota_metadata.MetafilesV1.PERSISTENT_FNAME
         ):
-            _perinf_path = Path(_perinf.path)
+            _per_fpath = Path(_perinf.path)
+
+            # NOTE(20240220): fast fix for handling swapfile
+            if str(_per_fpath) in ["/swapfile", "/swap.img"]:
+                _new_swapfile = standby_slot_mp / _per_fpath
+                try:
+                    _swapfile_size = get_file_size(_per_fpath, units="MiB")
+                    assert _swapfile_size is not None, f"{_per_fpath} doesn't exist"
+                    create_swapfile(_new_swapfile, _swapfile_size)
+                except Exception as e:
+                    logger.warning(f"failed to create {_per_fpath}, skip: {e!r}")
+                continue
+
             if (
-                _perinf_path.is_file()
-                or _perinf_path.is_dir()
-                or _perinf_path.is_symlink()
+                _per_fpath.is_file() or _per_fpath.is_dir() or _per_fpath.is_symlink()
             ):  # NOTE: not equivalent to perinf.path.exists()
-                _copy_tree.copy_with_parents(_perinf_path, standby_slot_mp)
+                _copy_tree.copy_with_parents(_per_fpath, standby_slot_mp)
 
     def _execute_update(
         self,
