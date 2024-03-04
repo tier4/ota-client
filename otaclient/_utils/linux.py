@@ -19,7 +19,7 @@ from subprocess import check_call
 
 
 def create_swapfile(
-    swapfile_fpath: str | Path, size_in_MiB: int, *, timeout=600
+    swapfile_fpath: str | Path, size_in_MiB: int, *, timeout=900
 ) -> Path:
     """Create swapfile at <swapfile_fpath> with <size_in_MiB>MiB.
 
@@ -28,7 +28,7 @@ def create_swapfile(
     Args:
         swapfile_fpath(StrOrPath): the path to place the created swapfile.
         size_in_MiB(int): the size of to-be-created swapfile.
-        timeout: timeout of swapfile creating, default is 600 seconds.
+        timeout: timeout of swapfile creating, default is 15mins.
 
     Returns:
         The Path object to the newly created swapfile.
