@@ -12,9 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+from __future__ import annotations
+
 import logging
 import os
+import time
 import yaml
+from queue import Queue, Empty
+from threading import Thread
+from urllib.parse import urljoin
+
+import requests
 
 from otaclient import otaclient_package_name
 from .configs import config as cfg
@@ -37,7 +46,53 @@ def get_logger(name: str, loglevel: int) -> logging.Logger:
     return logger
 
 
-def configure_logging(loglevel: int, *, http_logging_url: str):
+class _LogTeeHandler(logging.Handler):
+    """Implementation of teeing local logs to a remote otaclient-iot-logger server."""
+
+    def __init__(
+        self,
+        upload_interval: int = 30,
+        max_entries_per_upload: int = 512,
+        max_backlog: int = 2048,
+    ) -> None:
+        super().__init__()
+        self._queue: Queue[str] = Queue(maxsize=max_backlog)
+        self._max_entries_per_upload = max_entries_per_upload
+        self._upload_interval = upload_interval
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._queue.put_nowait(self.format(record))
+        except Exception:
+            pass
+
+    def start_upload_thread(self, endpoint_url: str):
+        _queue, _max_per_upload, _interval = (
+            self._queue,
+            self._max_entries_per_upload,
+            self._upload_interval,
+        )
+
+        def _thread_main():
+            _session = requests.Session()
+
+            while True:
+                for _ in range(_max_per_upload):
+                    try:
+                        _entry = _queue.get_nowait()
+                        _session.post(endpoint_url, data=_entry)
+                    except Empty:
+                        break
+                    except Exception:
+                        pass
+                time.sleep(_interval)
+
+        _thread = Thread(target=_thread_main, daemon=True)
+        _thread.start()
+        return _thread
+
+
+def configure_logging(loglevel: int, *, ecu_id: str):
     """Configure logging with http handler."""
     # configure the root logger
     # NOTE: force to reload the basicConfig, this is for overriding setting
@@ -49,14 +104,16 @@ def configure_logging(loglevel: int, *, http_logging_url: str):
     _otaclient_logger = logging.getLogger(otaclient_package_name)
     _otaclient_logger.setLevel(loglevel)
 
-    # if http_logging is enabled, attach the http handler to
-    # the otaclient package root logger
-    if http_logging_host := os.environ.get("HTTP_LOGGING_SERVER"):
-        from otaclient.aws_iot_log_server import CustomHttpHandler
+    if iot_logger_url := os.environ.get("HTTP_LOGGING_SERVER"):
+        iot_logger_url = f"{iot_logger_url.rstrip('/')}/"
+        log_upload_endpoint = urljoin(iot_logger_url, ecu_id)
 
-        ch = CustomHttpHandler(host=http_logging_host, url=http_logging_url)
+        ch = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
         ch.setFormatter(fmt)
+
+        # star the logging thread
+        ch.start_upload_thread(log_upload_endpoint)
 
         # NOTE: "otaclient" logger will be the root logger for all loggers name
         #       starts with "otaclient.", and the settings will affect its child loggers.
