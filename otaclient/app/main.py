@@ -27,7 +27,7 @@ from .log_setting import configure_logging, get_ecu_id
 from .ota_client_service import launch_otaclient_grpc_server
 
 # configure logging before any code being executed
-configure_logging(loglevel=cfg.DEFAULT_LOG_LEVEL, http_logging_url=get_ecu_id())
+configure_logging(loglevel=cfg.DEFAULT_LOG_LEVEL, ecu_id=get_ecu_id())
 logger = logging.getLogger(__name__)
 
 
