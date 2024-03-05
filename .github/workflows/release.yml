@@ -1,21 +1,22 @@
-name: release
+name: Release CI
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - name: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: setup python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
+          # use the minimum py ver we support to
+          # generate the wheel
           python-version: 3.8
 
       - name: install packages
