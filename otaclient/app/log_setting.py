@@ -87,7 +87,9 @@ class _LogTeeHandler(logging.Handler):
                         pass
                 time.sleep(_interval)
 
-        return Thread(target=_thread_main, daemon=True)
+        _thread = Thread(target=_thread_main, daemon=True)
+        _thread.start()
+        return _thread
 
 
 def configure_logging(loglevel: int, *, ecu_id: str):
