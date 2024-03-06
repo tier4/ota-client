@@ -104,15 +104,25 @@ def configure_logging(loglevel: int, *, ecu_id: str):
     _otaclient_logger = logging.getLogger(otaclient_package_name)
     _otaclient_logger.setLevel(loglevel)
 
+    # NOTE(20240306): for only god knows reason, although in proxy_info.yaml,
+    #   the logging_server field is assigned with an URL, and otaclient
+    #   expects an URL, the run.sh from autoware_ecu_system_setup pass in
+    #   HTTP_LOGGING_SERVER with URL schema being removed!?
+    # NOTE: I will do a quick fix here as I don't want to touch autoware_ecu_system_setup
+    #   for now, leave it in the future.
     if iot_logger_url := os.environ.get("HTTP_LOGGING_SERVER"):
-        iot_logger_url = f"{iot_logger_url.rstrip('/')}/"
-        log_upload_endpoint = urljoin(iot_logger_url, ecu_id)
+        # special treatment for not-a-URL passed in by run.sh
+        # note that we only support http, the proxy_info.yaml should be properly setup.
+        if not (iot_logger_url.startswith("http") or iot_logger_url.startswith("HTTP")):
+            iot_logger_url = f"http://{iot_logger_url.strip('/')}"
+        iot_logger_url = f"{iot_logger_url.strip('/')}/"
 
         ch = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
         ch.setFormatter(fmt)
 
         # star the logging thread
+        log_upload_endpoint = urljoin(iot_logger_url, ecu_id)
         ch.start_upload_thread(log_upload_endpoint)
 
         # NOTE: "otaclient" logger will be the root logger for all loggers name
