@@ -13,9 +13,11 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import logging
 import platform
 from pathlib import Path
+from typing_extensions import deprecated
 from typing import Type
 
 from .configs import BootloaderType, cboot_cfg, rpi_boot_cfg
@@ -27,7 +29,8 @@ from ..common import read_str_from_file
 logger = logging.getLogger(__name__)
 
 
-def detect_bootloader(raise_on_unknown=True) -> BootloaderType:
+@deprecated("bootloader type SHOULD be set in ecu_info.yaml instead of detecting")
+def detect_bootloader() -> BootloaderType:
     """Detect which bootloader we are running with by some evidence.
 
     Evidence:
@@ -42,12 +45,16 @@ def detect_bootloader(raise_on_unknown=True) -> BootloaderType:
     machine, arch = platform.machine(), platform.processor()
     if machine == "x86_64" or arch == "x86_64":
         return BootloaderType.GRUB
+
     # distinguish between rpi and jetson xavier device
     if machine == "aarch64" or arch == "aarch64":
+        from .configs import cboot_cfg, rpi_boot_cfg
+
         # evidence: jetson xvaier device has a special file which reveals the
         #           tegra chip id
         if Path(cboot_cfg.TEGRA_CHIP_ID_PATH).is_file():
             return BootloaderType.CBOOT
+
         # evidence: rpi device has a special file which reveals the rpi model
         rpi_model_file = Path(rpi_boot_cfg.RPI_MODEL_FILE)
         if rpi_model_file.is_file():
@@ -55,24 +62,21 @@ def detect_bootloader(raise_on_unknown=True) -> BootloaderType:
                 rpi_boot_cfg.RPI_MODEL_HINT
             ) != -1:
                 return BootloaderType.RPI_BOOT
-            else:
-                logger.error(
-                    f"detect unsupported raspberry pi platform({_model_str=}), only {rpi_boot_cfg.RPI_MODEL_HINT} is supported"
-                )
 
-    # failed to detect bootloader
-    if raise_on_unknown:
-        raise ValueError(f"unsupported platform({machine=}, {arch=}) detected, abort")
-    return BootloaderType.UNSPECIFIED
+            logger.error(
+                f"detect unsupported raspberry pi platform({_model_str=}), "
+                f"only {rpi_boot_cfg.RPI_MODEL_HINT} is supported"
+            )
+    raise ValueError(f"unsupported platform({machine=}, {arch=}) detected, abort")
 
 
 def get_boot_controller(
     bootloader_type: BootloaderType,
-) -> Type[BootControllerProtocol]:
+) -> type[BootControllerProtocol]:
     # if ecu_info doesn't specify the bootloader type,
-    # we try to detect by ourselves
-    if bootloader_type is BootloaderType.UNSPECIFIED:
-        bootloader_type = detect_bootloader(raise_on_unknown=True)
+    # we try to detect by ourselves.
+    if bootloader_type is BootloaderType.AUTO_DETECT:
+        bootloader_type = detect_bootloader()
     logger.info(f"use boot_controller for {bootloader_type=}")
 
     if bootloader_type == BootloaderType.GRUB:
