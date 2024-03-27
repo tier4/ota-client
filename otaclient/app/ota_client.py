@@ -38,7 +38,6 @@ from .common import (
 )
 from .configs import config as cfg
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
-from .ecu_info import ECUInfo
 from .interface import OTAClientProtocol
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
@@ -50,6 +49,7 @@ from .update_stats import (
 
 from otaclient._utils import get_file_size
 from otaclient._utils.linux import create_swapfile
+from otaclient.configs.ecu_info import ECUInfo
 
 try:
     from otaclient import __version__  # type: ignore
@@ -694,7 +694,7 @@ class OTAServicer:
         self._otaclient_inst: Optional[OTAClient] = None
 
         # select boot_controller and standby_slot implementations
-        _bootctrl_cls = get_boot_controller(ecu_info.get_bootloader())
+        _bootctrl_cls = get_boot_controller(ecu_info.bootloader)
         _standby_slot_creator = get_standby_slot_creator(cfg.STANDBY_CREATION_MODE)
 
         # boot controller starts up
