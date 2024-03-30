@@ -310,7 +310,7 @@ class _OTAUpdater:
 
             # NOTE(20240220): fast fix for handling swapfile
             if str(_per_fpath) in ["/swapfile", "/swap.img"]:
-                _new_swapfile = standby_slot_mp / _per_fpath
+                _new_swapfile = standby_slot_mp / _per_fpath.relative_to("/")
                 try:
                     _swapfile_size = get_file_size(_per_fpath, units="MiB")
                     assert _swapfile_size is not None, f"{_per_fpath} doesn't exist"
