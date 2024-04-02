@@ -31,9 +31,9 @@ from otaclient import otaclient_package_name
 from .configs import config as cfg
 
 _logging_running = True
-_logging_upload_thread: MutableMapping[Thread, Queue[str | None]] = (
-    weakref.WeakKeyDictionary()
-)
+_logging_upload_thread: MutableMapping[
+    Thread, Queue[str | None]
+] = weakref.WeakKeyDictionary()
 
 
 def _python_exit():
