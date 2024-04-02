@@ -20,7 +20,7 @@ import logging
 import os
 import weakref
 import yaml
-from queue import Queue, Full
+from queue import Queue
 from threading import Thread
 from urllib.parse import urljoin
 from typing import MutableMapping
@@ -30,7 +30,7 @@ import requests
 from otaclient import otaclient_package_name
 from .configs import config as cfg
 
-_LOGGING_RUNNING = True
+_logging_running = True
 _logging_upload_thread: MutableMapping[Thread, Queue[str | None]] = (
     weakref.WeakKeyDictionary()
 )
@@ -38,13 +38,13 @@ _logging_upload_thread: MutableMapping[Thread, Queue[str | None]] = (
 
 def _python_exit():
     """Let the log upload thread exit at python exit."""
-    global _LOGGING_RUNNING
-    _LOGGING_RUNNING = False
+    global _logging_running
+    _logging_running = False
 
     # unblock the thread
     for t, q in _logging_upload_thread.items():
         q.put_nowait(None)
-        t.join()
+        t.join(timeout=3)
 
 
 atexit.register(_python_exit)
@@ -85,12 +85,12 @@ class _LogTeeHandler(logging.Handler):
 
         def _thread_main():
             _session = requests.Session()
-            global _LOGGING_RUNNING
+            global _logging_running
 
-            while _LOGGING_RUNNING:
+            while _logging_running:
                 entry = _queue.get()
                 if entry is None:
-                    break  # stop signal
+                    return  # stop signal
                 if not entry:
                     continue  # skip uploading empty log line
 
