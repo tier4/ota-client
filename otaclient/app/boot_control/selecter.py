@@ -18,9 +18,8 @@ import logging
 import platform
 from pathlib import Path
 from typing_extensions import deprecated
-from typing import Type
 
-from .configs import BootloaderType, cboot_cfg, rpi_boot_cfg
+from .configs import BootloaderType
 from ._errors import BootControlError
 from .protocol import BootControllerProtocol
 
