@@ -16,6 +16,7 @@ r"""Utils that shared between modules are listed here."""
 
 from __future__ import annotations
 import itertools
+import logging
 import os
 import shlex
 import shutil
@@ -42,7 +43,6 @@ from typing import (
 )
 from urllib.parse import urljoin
 
-from .log_setting import get_logger
 from .configs import config as cfg
 
 from otaclient._utils.linux import (
@@ -52,7 +52,7 @@ from otaclient._utils.linux import (
     ParsedPasswd,
 )
 
-logger = get_logger(__name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL))
+logger = logging.getLogger(__name__)
 
 
 def get_backoff(n: int, factor: float, _max: float) -> float:

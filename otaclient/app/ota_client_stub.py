@@ -42,9 +42,7 @@ from otaclient.ota_proxy import (
 )
 
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 class _OTAProxyContext(OTAProxyContextProto):
@@ -89,9 +87,7 @@ class _OTAProxyContext(OTAProxyContextProto):
         # NOTE: on otaproxy subprocess, we first set log level of the root logger
         #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
         #       and then set the otaclient.ota_proxy logger to DEFAULT_LOG_LEVEL
-        log_setting.configure_logging(
-            loglevel=logging.CRITICAL, ecu_id=log_setting.get_ecu_id()
-        )
+        log_setting.configure_logging()
         otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
         otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
         self.logger = otaproxy_logger

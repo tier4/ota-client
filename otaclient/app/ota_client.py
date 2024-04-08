@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import json
+import logging
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -46,7 +47,6 @@ from .update_stats import (
     RegInfProcessedStats,
     RegProcessOperation,
 )
-from . import log_setting
 
 from otaclient._utils import get_file_size
 from otaclient._utils.linux import create_swapfile
@@ -56,9 +56,7 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 class OTAClientControlFlags:

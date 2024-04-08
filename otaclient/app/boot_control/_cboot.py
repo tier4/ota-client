@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -21,7 +22,7 @@ from subprocess import CalledProcessError
 from typing import Generator, Optional
 
 
-from .. import log_setting, errors as ota_errors
+from .. import errors as ota_errors
 from ..common import (
     copytree_identical,
     read_str_from_file,
@@ -44,9 +45,7 @@ from .protocol import BootControllerProtocol
 from .firmware import Firmware
 
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 class NvbootctrlError(Exception):
@@ -178,7 +177,9 @@ class _CBootControl:
         self.current_slot: str = Nvbootctrl.get_current_slot()
         self.current_rootfs_dev: str = CMDHelperFuncs.get_current_rootfs_dev()
         # NOTE: boot dev is always emmc device now
-        self.current_boot_dev: str = f"/dev/{Nvbootctrl.EMMC_DEV}p{Nvbootctrl.SLOTID_PARTID_MAP[self.current_slot]}"
+        self.current_boot_dev: str = (
+            f"/dev/{Nvbootctrl.EMMC_DEV}p{Nvbootctrl.SLOTID_PARTID_MAP[self.current_slot]}"
+        )
 
         self.standby_slot: str = Nvbootctrl.CURRENT_STANDBY_FLIP[self.current_slot]
         standby_partid = Nvbootctrl.SLOTID_PARTID_MAP[self.standby_slot]

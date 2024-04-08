@@ -14,13 +14,14 @@
 """Boot control support for Raspberry pi 4 Model B."""
 
 
+import logging
 import os
 import re
 from string import Template
 from pathlib import Path
 from typing import Generator
 
-from .. import log_setting, errors as ota_errors
+from .. import errors as ota_errors
 from ..proto import wrapper
 from ..common import replace_atomic, subprocess_call
 
@@ -33,9 +34,7 @@ from ._common import (
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 _FSTAB_TEMPLATE_STR = (
     "LABEL=${rootfs_fslabel}\t/\text4\tdiscard,x-systemd.growfs\t0\t1\n"

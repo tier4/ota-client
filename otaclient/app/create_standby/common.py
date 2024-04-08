@@ -11,9 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
 r"""Common used helpers, classes and functions for different bank creating methods."""
+
+
+import logging
 import os
 import random
 import time
@@ -43,16 +44,13 @@ from ..common import create_tmp_fname
 from ..configs import config as cfg
 from ..ota_metadata import OTAMetadata, MetafilesV1
 from ..proto.wrapper import RegularInf, DirectoryInf
-from .. import log_setting
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegProcessOperation,
     RegInfProcessedStats,
 )
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 class _WeakRef:

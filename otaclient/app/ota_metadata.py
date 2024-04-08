@@ -40,6 +40,7 @@ Version1 OTA metafiles list:
 from __future__ import annotations
 import base64
 import json
+import logging
 import re
 import shutil
 import time
@@ -85,11 +86,8 @@ from .proto.wrapper import (
     SymbolicLinkInf,
 )
 from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
-from . import log_setting
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 
