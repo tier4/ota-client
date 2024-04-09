@@ -25,7 +25,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from otaclient import otaclient_package_name
+import otaclient
 from .configs import config as cfg
 
 
@@ -91,7 +91,7 @@ def configure_logging():
     #       external modules unless reached CRITICAL level.
     logging.basicConfig(level=logging.CRITICAL, format=cfg.LOG_FORMAT, force=True)
     # NOTE: set the <loglevel> to the otaclient package root logger
-    _otaclient_logger = logging.getLogger(otaclient_package_name)
+    _otaclient_logger = logging.getLogger(otaclient.__name__)
     _otaclient_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
 
     # configure each sub loggers

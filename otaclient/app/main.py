@@ -22,7 +22,7 @@ from pathlib import Path
 from otaclient import __version__  # type: ignore
 from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 from .common import read_str_from_file, write_str_to_file_sync
-from .configs import config as cfg, EXTRA_VERSION_FILE
+from .configs import config as cfg
 from .log_setting import configure_logging
 from .ota_client_service import launch_otaclient_grpc_server
 
@@ -52,8 +52,6 @@ def _check_other_otaclient():
 
 def main():
     logger.info("started")
-    if Path(EXTRA_VERSION_FILE).is_file():
-        logger.info(read_str_from_file(EXTRA_VERSION_FILE))
     logger.info(f"otaclient version: {__version__}")
 
     # start the otaclient grpc server

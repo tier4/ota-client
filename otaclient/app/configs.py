@@ -15,15 +15,7 @@
 
 from enum import Enum, auto
 from logging import INFO
-from pathlib import Path
 from typing import Dict, Tuple
-
-from otaclient import __file__ as _otaclient__init__
-
-_OTACLIENT_PACKAGE_ROOT = Path(_otaclient__init__).parent
-
-# NOTE: VERSION file is installed under otaclient package root
-EXTRA_VERSION_FILE = str(_OTACLIENT_PACKAGE_ROOT / "version.txt")
 
 
 class CreateStandbyMechanism(Enum):
@@ -55,8 +47,8 @@ class _InternalSettings:
     # ------ common paths ------ #
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
-    # NOTE: certs dir is located at the otaclient package root
-    CERTS_DIR = str(_OTACLIENT_PACKAGE_ROOT / "certs")
+    OTACLIENT_INSTALLATION_DIR = "/opt/ota/client"
+    CERTS_DIR = "/opt/ota/client/certs"
     ACTIVE_ROOTFS_PATH = "/"
     BOOT_DIR = "/boot"
     OTA_DIR = "/boot/ota"
