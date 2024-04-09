@@ -89,6 +89,7 @@ class ECUInfo(BaseFixedConfig):
         BootloaderType,
         BeforeValidator(gen_strenum_validator(BootloaderType)),
         AfterValidator(BootloaderType.deprecation_validator),
+        Field(validate_default=False),
     ] = BootloaderType.AUTO_DETECT
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
