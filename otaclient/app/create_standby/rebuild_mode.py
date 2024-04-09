@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import logging
 import os
 import shutil
 import time
@@ -29,14 +30,11 @@ from ..update_stats import (
     RegProcessOperation,
 )
 from ..proto.wrapper import RegularInf
-from .. import log_setting
 
 from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
 from .interface import StandbySlotCreatorProtocol
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 class RebuildMode(StandbySlotCreatorProtocol):

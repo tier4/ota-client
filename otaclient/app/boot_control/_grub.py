@@ -31,6 +31,7 @@ NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not
 """
 
 
+import logging
 import re
 import shutil
 from dataclasses import dataclass
@@ -39,7 +40,7 @@ from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 from pathlib import Path
 from pprint import pformat
 
-from .. import log_setting, errors as ota_errors
+from .. import errors as ota_errors
 from ..common import (
     re_symlink_atomic,
     read_str_from_file,
@@ -59,9 +60,7 @@ from .configs import grub_cfg as cfg
 from .protocol import BootControllerProtocol
 
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 class _GrubBootControllerError(Exception):

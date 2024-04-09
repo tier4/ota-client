@@ -14,6 +14,7 @@
 
 
 import errno
+import logging
 import os
 import requests
 import threading
@@ -50,11 +51,8 @@ from otaclient._utils import copy_callable_typehint
 from otaclient.ota_proxy import OTAFileCacheControl
 from .configs import config as cfg
 from .common import wait_with_backoff
-from . import log_setting
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE

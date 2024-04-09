@@ -14,6 +14,7 @@
 r"""Shared utils for boot_controller."""
 
 
+import logging
 import os
 import shutil
 import sys
@@ -28,7 +29,6 @@ from ._errors import (
     MountFailedReason,
 )
 
-from .. import log_setting
 from ..configs import config as cfg
 from ..common import (
     read_str_from_file,
@@ -39,9 +39,7 @@ from ..common import (
 from ..proto import wrapper
 
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 class CMDHelperFuncs:

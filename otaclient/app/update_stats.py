@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -21,14 +22,11 @@ from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Generator, List
 
-from . import log_setting
 from .configs import config as cfg
 from .proto.wrapper import UpdateStatus
 
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 class RegProcessOperation(Enum):

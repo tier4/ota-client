@@ -11,26 +11,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
 """Proxy setting parsing.
 
 check docs/README.md for more details.
 """
+
+
+import logging
 import yaml
 import warnings
 from dataclasses import dataclass, fields
 from typing import Any, ClassVar, Dict
 from pathlib import Path
 
-from . import log_setting
 from .configs import config as cfg
 from .configs import server_cfg
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
-
+logger = logging.getLogger(__name__)
 
 PRE_DEFINED_PROXY_INFO_YAML = """
 enable_local_ota_proxy: true

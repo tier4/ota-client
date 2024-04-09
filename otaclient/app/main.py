@@ -23,11 +23,11 @@ from otaclient import __version__  # type: ignore
 from .proto import wrapper, v2, v2_grpc, ota_metafiles  # noqa: F401
 from .common import read_str_from_file, write_str_to_file_sync
 from .configs import config as cfg, EXTRA_VERSION_FILE
-from .log_setting import configure_logging, get_ecu_id
+from .log_setting import configure_logging
 from .ota_client_service import launch_otaclient_grpc_server
 
 # configure logging before any code being executed
-configure_logging(loglevel=cfg.DEFAULT_LOG_LEVEL, ecu_id=get_ecu_id())
+configure_logging()
 logger = logging.getLogger(__name__)
 
 

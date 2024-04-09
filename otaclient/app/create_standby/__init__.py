@@ -13,15 +13,13 @@
 # limitations under the License.
 
 
+import logging
 from typing import Type
 
 from .interface import StandbySlotCreatorProtocol
-from ..configs import CreateStandbyMechanism, config as cfg
-from .. import log_setting
+from ..configs import CreateStandbyMechanism
 
-logger = log_setting.get_logger(
-    __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)
-)
+logger = logging.getLogger(__name__)
 
 
 def get_standby_slot_creator(
