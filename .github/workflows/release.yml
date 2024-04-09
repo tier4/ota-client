@@ -24,21 +24,25 @@ jobs:
 
       - name: build otaclient package
         run: |
-          python -m build --wheel --outdir dist/ .
-          for WHL in dist/*.whl; \
-            do \
-              sha256sum ${WHL} | sed -E "s@(\w+)\s+.*@sha256:\1@" > \
-                $(dirname ${WHL})/${WHL}.checksum; \
-            done
+          python -m build --wheel --outdir /dist/ .
 
       - name: build a proto binary
         run: |
           cd proto
           make
+          cp proto/pb2/dist/*.whl /dist
+
+      - name: calculate checksum
+        run: |
+          for WHL in /dist/*.whl; \
+            do \
+              sha256sum ${WHL} | sed -E "s@(\w+)\s+.*@sha256:\1@" > \
+                ${WHL}.checksum; \
+            done
 
       - name: release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            dist/*.whl
-            proto/pb2/dist/*.whl
+            /dist/*.whl
+            /dist/*.checksum
