@@ -21,15 +21,11 @@ import warnings
 from functools import cached_property
 from typing import Any, ClassVar
 from pathlib import Path
-from pydantic import AliasChoices, Field
 
-from otaclient._utils.typing import StrOrPath
-from otaclient.configs._common import (
-    BaseFixedConfig,
-    IPAddressAny,
-    HTTPURLAny,
-    NetworkPort,
-)
+from pydantic import AliasChoices, Field, IPvAnyAddress, AnyHttpUrl
+
+from otaclient._utils.typing import StrOrPath, NetworkPort
+from otaclient.configs._common import BaseFixedConfig
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +50,7 @@ class ProxyInfo(BaseFixedConfig):
     format_version: int = 1
     # NOTE(20221219): the default values for the following settings
     #                 now align with v2.5.4
-    upper_ota_proxy: HTTPURLAny = Field(default="", validate_default=False)
+    upper_ota_proxy: AnyHttpUrl = Field(default="", validate_default=False)
     enable_local_ota_proxy: bool = Field(
         default=False,
         # NOTE(20240126): "enable_ota_proxy" is superseded by "enable_local_ota_proxy".
@@ -65,7 +61,7 @@ class ProxyInfo(BaseFixedConfig):
     )
     # NOTE(20240327): set the default as literal for now, in the future
     #   this will be app_cfg.OTA_PROXY_LISTEN_ADDRESS and app_cfg.OTA_PROXY_LISTEN_PORT.
-    local_ota_proxy_listen_addr: IPAddressAny = "0.0.0.0"
+    local_ota_proxy_listen_addr: IPvAnyAddress = Field(default="0.0.0.0")
     local_ota_proxy_listen_port: NetworkPort = 8082
     # NOTE: this field not presented in v2.5.4,
     #       for current implementation, it should be default to True.
@@ -78,7 +74,9 @@ class ProxyInfo(BaseFixedConfig):
     # NOTE: when logging_server is not configured, it implicitly means the logging server
     #       is located at localhost.
     #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
-    logging_server: HTTPURLAny = f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
+    logging_server: AnyHttpUrl = Field(
+        default=f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
+    )
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""

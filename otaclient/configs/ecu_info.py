@@ -20,16 +20,13 @@ import yaml
 import warnings
 from enum import Enum
 from pathlib import Path
-from pydantic import AfterValidator, BeforeValidator, Field
 from typing import List
 from typing_extensions import Annotated
 
-from otaclient._utils.typing import StrOrPath, gen_strenum_validator
-from otaclient.configs._common import (
-    BaseFixedConfig,
-    NetworkPort,
-    IPAddressAny,
-)
+from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
+
+from otaclient._utils.typing import StrOrPath, gen_strenum_validator, NetworkPort
+from otaclient.configs._common import BaseFixedConfig
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +61,7 @@ class BootloaderType(str, Enum):
 
 class ECUContact(BaseFixedConfig):
     ecu_id: str
-    ip_addr: IPAddressAny
+    ip_addr: IPvAnyAddress
     # NOTE(20240327): set the default as literal for now, in the future
     #   this will be service_cfg.CLIENT_CALL_PORT.
     port: NetworkPort = 50051
@@ -87,7 +84,7 @@ class ECUInfo(BaseFixedConfig):
     # NOTE(20240327): set the default as literal for now, in the future
     #   when app_configs are fully backported this will be replaced by
     #   service_cfg.DEFAULT_SERVER_ADDRESS
-    ip_addr: IPAddressAny = "127.0.0.1"
+    ip_addr: IPvAnyAddress = Field(default="127.0.0.1")
     bootloader: Annotated[
         BootloaderType,
         BeforeValidator(gen_strenum_validator(BootloaderType)),
