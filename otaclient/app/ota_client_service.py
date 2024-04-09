@@ -15,7 +15,7 @@
 
 import grpc.aio
 
-from .configs import config as cfg, ecu_info, server_cfg
+from .configs import ecu_info, server_cfg
 from .proto import wrapper, v2, v2_grpc
 from .ota_client_stub import OTAClientServiceStub
 
