@@ -16,13 +16,13 @@
 
 from __future__ import annotations
 import logging
-import yaml
 import warnings
 from enum import Enum
 from pathlib import Path
 from typing import List
 from typing_extensions import Annotated
 
+import yaml
 from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
 
 from otaclient._utils.typing import StrOrPath, gen_strenum_validator, NetworkPort

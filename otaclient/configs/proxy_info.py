@@ -16,13 +16,14 @@
 
 from __future__ import annotations
 import logging
-import yaml
 import warnings
 from functools import cached_property
 from typing import Any, ClassVar, Optional
 from pathlib import Path
 
+import yaml
 from pydantic import AliasChoices, Field, IPvAnyAddress, AnyHttpUrl
+from pydantic_core import Url
 
 from otaclient._utils.typing import StrOrPath, NetworkPort
 from otaclient.configs._common import BaseFixedConfig
@@ -74,9 +75,7 @@ class ProxyInfo(BaseFixedConfig):
     # NOTE: when logging_server is not configured, it implicitly means the logging server
     #       is located at localhost.
     #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
-    logging_server: AnyHttpUrl = Field(
-        default=f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
-    )
+    logging_server: AnyHttpUrl = Url(f"http://127.0.0.1:{LOGGING_SERVER_PORT}")
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""
