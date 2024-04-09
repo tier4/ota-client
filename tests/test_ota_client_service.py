@@ -13,15 +13,17 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 import asyncio
 import pytest
 import pytest_mock
 
 from otaclient.app.configs import server_cfg
-from otaclient.app.ecu_info import ECUInfo
 from otaclient.app.ota_client_service import create_otaclient_grpc_server
 from otaclient.app.ota_client_call import OtaClientCall
 from otaclient.app.proto import wrapper
+from otaclient.configs.ecu_info import ECUInfo
+
 from tests.conftest import cfg
 from tests.utils import compare_message
 
@@ -72,13 +74,11 @@ class Test_ota_client_service:
             return_value=self.otaclient_service_stub,
         )
 
-        ecu_info_mock = mocker.MagicMock(spec=ECUInfo)
-        # NOTE: mocked to use 127.0.0.1, and still use server_cfg.SERVER_PORT
-        ecu_info_mock.parse_ecu_info.return_value = ECUInfo(
+        self.ecu_info_mock = ecu_info_mock = ECUInfo(
             ecu_id=self.otaclient_service_stub.MY_ECU_ID,
-            ip_addr=self.LISTEN_ADDR,
+            ip_addr=self.LISTEN_ADDR,  # type: ignore
         )
-        mocker.patch(f"{cfg.OTACLIENT_SERVICE_MODULE_PATH}.ECUInfo", ecu_info_mock)
+        mocker.patch(f"{cfg.OTACLIENT_SERVICE_MODULE_PATH}.ecu_info", ecu_info_mock)
 
     @pytest.fixture(autouse=True)
     async def launch_otaclient_server(self, setup_test):
