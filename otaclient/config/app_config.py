@@ -20,8 +20,9 @@ This module supports otaclient runtime behavior configs via environmental variab
 
 
 from __future__ import annotations
-
 from enum import Enum
+from logging import INFO
+from typing import Dict
 
 from pydantic import Field, IPvAnyAddress
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -50,6 +51,31 @@ class AppConfigs(BaseSettings):
     Default: ota_tmp.
     """
     CERTS_DPATH: str = "/opt/ota/client/certs"
+
+    # ------ otaclient logging setting ------ #
+    # TODO: in the future use a config yaml file to define logging
+    #   settings.
+    DEFAULT_LOG_LEVEL = INFO
+    LOG_LEVEL_TABLE: Dict[str, int] = {
+        "otaclient.app.boot_control.cboot": INFO,
+        "otaclient.app.boot_control.grub": INFO,
+        "otaclient.app.ota_client": INFO,
+        "otaclient.app.ota_client_service": INFO,
+        "otaclient.app.ota_client_stub": INFO,
+        "otaclient.app.ota_metadata": INFO,
+        "otaclient.app.downloader": INFO,
+        "otaclient.app.main": INFO,
+    }
+    LOG_FORMAT = (
+        "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
+    )
+
+    #
+    # ------ otaclient OTA service API config ------ #
+    #
+    OTA_API_SERVER_ADDRESS: IPvAnyAddress = Field(default="127.0.0.1")
+    OTA_API_SERVER_PORT: Port = 50051
+    CLIENT_CALL_PORT: Port = 50051
 
     #
     # ------ otaproxy server config ------ #
