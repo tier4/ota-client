@@ -51,13 +51,12 @@ class _OTAProxyContext(OTAProxyContextProto):
     def __init__(
         self,
         *,
-        upper_proxy: Optional[str],
-        external_cache_enabled: bool,
+        external_cache_enabled: bool = True,
         external_cache_dev_fslable: str = cfg.EXTERNAL_CACHE_DEV_FSLABEL,
         external_cache_dev_mp: str = cfg.EXTERNAL_CACHE_DEV_MOUNTPOINT,
         external_cache_path: str = cfg.EXTERNAL_CACHE_SRC_PATH,
     ) -> None:
-        self.upper_proxy = upper_proxy
+        self.upper_proxy = proxy_info.upper_ota_proxy
         self.external_cache_enabled = external_cache_enabled
 
         self._external_cache_activated = False
@@ -95,7 +94,7 @@ class _OTAProxyContext(OTAProxyContextProto):
         # wait for upper otaproxy if any
         if self.upper_proxy:
             otaproxy_logger.info(f"wait for {self.upper_proxy=} online...")
-            ensure_otaproxy_start(self.upper_proxy)
+            ensure_otaproxy_start(str(self.upper_proxy))
 
     def _mount_external_cache_storage(self):
         # detect cache_dev on every startup
@@ -168,7 +167,9 @@ class OTAProxyLauncher:
         self, *, executor: ThreadPoolExecutor, subprocess_ctx: OTAProxyContextProto
     ) -> None:
         self.enabled = proxy_info.enable_local_ota_proxy
-        self.upper_otaproxy = proxy_info.upper_ota_proxy
+        self.upper_otaproxy = (
+            str(proxy_info.upper_ota_proxy) if proxy_info.upper_ota_proxy else ""
+        )
         self.subprocess_ctx = subprocess_ctx
 
         self._lock = asyncio.Lock()
@@ -207,10 +208,11 @@ class OTAProxyLauncher:
             _subprocess_entry = subprocess_otaproxy_launcher(
                 subprocess_ctx=self.subprocess_ctx
             )
+
             otaproxy_subprocess = await self._run_in_executor(
                 partial(
                     _subprocess_entry,
-                    host=proxy_info.local_ota_proxy_listen_addr,
+                    host=str(proxy_info.local_ota_proxy_listen_addr),
                     port=proxy_info.local_ota_proxy_listen_port,
                     init_cache=init_cache,
                     cache_dir=local_otaproxy_cfg.BASE_DIR,
@@ -684,7 +686,7 @@ class _ECUTracker:
             try:
                 _ecu_resp = await OtaClientCall.status_call(
                     ecu_contact.ecu_id,
-                    ecu_contact.ip_addr,
+                    str(ecu_contact.ip_addr),
                     ecu_contact.port,
                     timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                     request=wrapper.StatusRequest(),
@@ -747,11 +749,7 @@ class OTAClientServiceStub:
         if proxy_info.enable_local_ota_proxy:
             self._otaproxy_launcher = OTAProxyLauncher(
                 executor=self._executor,
-                subprocess_ctx=_OTAProxyContext(
-                    upper_proxy=proxy_info.upper_ota_proxy,
-                    # NOTE: default enable detecting external cache storage
-                    external_cache_enabled=True,
-                ),
+                subprocess_ctx=_OTAProxyContext(),
             )
             asyncio.create_task(self._otaproxy_lifecycle_managing())
             asyncio.create_task(self._otaclient_control_flags_managing())
@@ -831,7 +829,7 @@ class OTAClientServiceStub:
             _task = asyncio.create_task(
                 OtaClientCall.update_call(
                     ecu_contact.ecu_id,
-                    ecu_contact.ip_addr,
+                    str(ecu_contact.ip_addr),
                     ecu_contact.port,
                     request=request,
                     timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
@@ -895,7 +893,7 @@ class OTAClientServiceStub:
             _task = asyncio.create_task(
                 OtaClientCall.rollback_call(
                     ecu_contact.ecu_id,
-                    ecu_contact.ip_addr,
+                    str(ecu_contact.ip_addr),
                     ecu_contact.port,
                     request=request,
                     timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
