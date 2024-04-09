@@ -177,9 +177,7 @@ class _CBootControl:
         self.current_slot: str = Nvbootctrl.get_current_slot()
         self.current_rootfs_dev: str = CMDHelperFuncs.get_current_rootfs_dev()
         # NOTE: boot dev is always emmc device now
-        self.current_boot_dev: str = (
-            f"/dev/{Nvbootctrl.EMMC_DEV}p{Nvbootctrl.SLOTID_PARTID_MAP[self.current_slot]}"
-        )
+        self.current_boot_dev: str = f"/dev/{Nvbootctrl.EMMC_DEV}p{Nvbootctrl.SLOTID_PARTID_MAP[self.current_slot]}"
 
         self.standby_slot: str = Nvbootctrl.CURRENT_STANDBY_FLIP[self.current_slot]
         standby_partid = Nvbootctrl.SLOTID_PARTID_MAP[self.standby_slot]
