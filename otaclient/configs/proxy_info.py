@@ -19,7 +19,7 @@ import logging
 import yaml
 import warnings
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 from pathlib import Path
 
 from pydantic import AliasChoices, Field, IPvAnyAddress, AnyHttpUrl
@@ -50,7 +50,7 @@ class ProxyInfo(BaseFixedConfig):
     format_version: int = 1
     # NOTE(20221219): the default values for the following settings
     #                 now align with v2.5.4
-    upper_ota_proxy: AnyHttpUrl = Field(default="", validate_default=False)
+    upper_ota_proxy: Optional[AnyHttpUrl] = None
     enable_local_ota_proxy: bool = Field(
         default=False,
         # NOTE(20240126): "enable_ota_proxy" is superseded by "enable_local_ota_proxy".
@@ -85,7 +85,7 @@ class ProxyInfo(BaseFixedConfig):
             return f"http://{self.local_ota_proxy_listen_addr}:{self.local_ota_proxy_listen_port}"
         elif self.upper_ota_proxy:
             # else we directly use the upper proxy
-            return self.upper_ota_proxy
+            return str(self.upper_ota_proxy)
         # default not using proxy
 
     @cached_property

@@ -14,11 +14,9 @@
 
 
 from __future__ import annotations
-from pydantic import AfterValidator, BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing_extensions import Annotated
 
-from otaclient._utils.typing import http_url_validator, ip_validator, port_validator
 
 # prefix for environmental vars name for configs.
 ENV_PREFIX = "OTA_"
@@ -38,9 +36,3 @@ class BaseFixedConfig(BaseModel):
     """Common base for configs that should be fixed and not changable."""
 
     model_config = ConfigDict(frozen=True, validate_default=True)
-
-
-# extended field types
-NetworkPort = Annotated[int, AfterValidator(port_validator)]
-IPAddressAny = Annotated[str, AfterValidator(ip_validator)]
-HTTPURLAny = Annotated[str, AfterValidator(http_url_validator)]
