@@ -29,8 +29,9 @@ jobs:
 
       - name: build a proto binary
         run: |
-          cd proto
+          pushd proto
           make
+          popd
           cp proto/pb2/dist/*.whl dist
 
       - name: calculate checksum
