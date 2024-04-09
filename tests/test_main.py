@@ -35,10 +35,6 @@ class TestMain:
         self._sys_exit_mocker = mocker.MagicMock(side_effect=ValueError)
         mocker.patch(f"{cfg.MAIN_MODULE_PATH}.sys.exit", self._sys_exit_mocker)
 
-        version_file = tmp_path / "version.txt"
-        version_file.write_text(FIRST_LINE_LOG)
-        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.EXTRA_VERSION_FILE", version_file)
-
     @pytest.fixture
     def background_process(self):
         def _waiting():
@@ -52,12 +48,11 @@ class TestMain:
         finally:
             _p.kill()
 
-    def test_main_with_version(self, caplog: LogCaptureFixture):
+    def test_main(self, caplog: LogCaptureFixture):
         from otaclient.app.main import main
 
         main()
         assert caplog.records[0].msg == "started"
-        assert caplog.records[1].msg == FIRST_LINE_LOG
         assert Path(otaclient_cfg.OTACLIENT_PID_FILE).read_text() == f"{os.getpid()}"
 
     def test_with_other_otaclient_started(self, background_process):
