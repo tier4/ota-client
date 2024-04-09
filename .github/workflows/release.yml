@@ -18,23 +18,24 @@ jobs:
           # use the minimum py ver we support to generate the wheel
           python-version: 3.8
 
-      - name: install packages
-        run: >-
+      - name: install build deps
+        run: |
+          python -m pip install -U pip build
           python -m pip install -r proto/requirements.txt
 
       - name: build otaclient package
         run: |
-          python -m build --wheel --outdir /dist/ .
+          python -m build --wheel --outdir dist/ .
 
       - name: build a proto binary
         run: |
           cd proto
           make
-          cp proto/pb2/dist/*.whl /dist
+          cp proto/pb2/dist/*.whl dist
 
       - name: calculate checksum
         run: |
-          for WHL in /dist/*.whl; \
+          for WHL in dist/*.whl; \
             do \
               sha256sum ${WHL} | sed -E "s@(\w+)\s+.*@sha256:\1@" > \
                 ${WHL}.checksum; \
@@ -44,5 +45,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            /dist/*.whl
-            /dist/*.checksum
+            dist/*.whl
+            dist/*.checksum
