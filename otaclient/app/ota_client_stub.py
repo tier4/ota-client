@@ -718,14 +718,13 @@ class OTAClientServiceStub:
             asyncio.get_running_loop().run_in_executor, self._executor
         )
 
-        self.ecu_info = ecu_info
+        self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
         self.listen_port = server_cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
         self._otaclient_wrapper = OTAServicer(
-            ecu_info=ecu_info,
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
             proxy=proxy_info.get_proxy_for_local_ota(),
@@ -826,7 +825,7 @@ class OTAClientServiceStub:
 
         # first: dispatch update request to all directly connected subECUs
         tasks: Dict[asyncio.Task, ECUContact] = {}
-        for ecu_contact in self.ecu_info.secondaries:
+        for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
             _task = asyncio.create_task(
@@ -890,7 +889,7 @@ class OTAClientServiceStub:
 
         # first: dispatch rollback request to all directly connected subECUs
         tasks: Dict[asyncio.Task, ECUContact] = {}
-        for ecu_contact in self.ecu_info.secondaries:
+        for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
             _task = asyncio.create_task(

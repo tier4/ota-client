@@ -36,7 +36,7 @@ from .common import (
     RetryTaskMap,
     RetryTaskMapInterrupted,
 )
-from .configs import config as cfg
+from .configs import config as cfg, ecu_info
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .interface import OTAClientProtocol
 from .ota_status import LiveOTAStatus
@@ -49,7 +49,6 @@ from .update_stats import (
 
 from otaclient._utils import get_file_size
 from otaclient._utils.linux import create_swapfile
-from otaclient.configs.ecu_info import ECUInfo
 
 try:
     from otaclient import __version__  # type: ignore
@@ -664,7 +663,6 @@ class OTAServicer:
         self,
         *,
         control_flags: OTAClientControlFlags,
-        ecu_info: ECUInfo,
         executor: Optional[ThreadPoolExecutor] = None,
         otaclient_version: str = __version__,
         proxy: Optional[str] = None,
