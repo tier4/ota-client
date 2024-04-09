@@ -95,7 +95,7 @@ def configure_logging():
     _otaclient_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
 
     # configure each sub loggers
-    for _module_name, _log_level in cfg.LOG_LEVEL_TABLE:
+    for _module_name, _log_level in cfg.LOG_LEVEL_TABLE.items():
         _logger = logging.getLogger(_module_name)
         _logger.setLevel(_log_level)
 
