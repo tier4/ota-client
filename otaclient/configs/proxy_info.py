@@ -75,7 +75,9 @@ class ProxyInfo(BaseFixedConfig):
     # NOTE: when logging_server is not configured, it implicitly means the logging server
     #       is located at localhost.
     #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
-    logging_server: AnyHttpUrl = Url(f"http://127.0.0.1:{LOGGING_SERVER_PORT}")
+    logging_server: Optional[AnyHttpUrl] = Url(
+        f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
+    )
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""

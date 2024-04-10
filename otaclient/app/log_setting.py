@@ -86,8 +86,8 @@ def configure_logging():
         _logger = logging.getLogger(_module_name)
         _logger.setLevel(_log_level)
 
-    if iot_logger_url := str(proxy_info.logging_server):
-        iot_logger_url = f"{iot_logger_url.strip('/')}/"
+    if iot_logger_url := proxy_info.logging_server:
+        iot_logger_url = f"{str(iot_logger_url).strip('/')}/"
 
         ch = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
