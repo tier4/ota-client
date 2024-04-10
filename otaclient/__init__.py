@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-from otaclient._version import version, __version__
+try:
+    from otaclient._version import version, __version__
+except ImportError:
+    # unknown version
+    version = __version__ = "0.0.0"
 
 __all__ = ["version", "__version__"]

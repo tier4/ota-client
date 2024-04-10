@@ -289,6 +289,7 @@ class _OTAUpdater:
         logger.info("finished updating standby slot")
 
     def _process_persistents(self):
+        logger.info("start persist files handling...")
         standby_slot_mp = Path(cfg.MOUNT_POINT)
 
         _handler = PersistFilesHandler(
@@ -316,6 +317,7 @@ class _OTAUpdater:
                     _swapfile_size = get_file_size(_per_fpath, units="MiB")
                     assert _swapfile_size is not None, f"{_per_fpath} doesn't exist"
                     create_swapfile(_new_swapfile, _swapfile_size)
+                    logger.warning(f"create {_new_swapfile} with {_swapfile_size=}")
                 except Exception as e:
                     logger.warning(
                         f"failed to create swapfile {_per_fpath} to standby slot, skip: {e!r}"
