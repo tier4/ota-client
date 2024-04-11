@@ -20,7 +20,7 @@ import shutil
 import sys
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Optional, Union, Callable
+from typing import List, Optional, Union, Callable, NoReturn
 
 from ._errors import (
     BootControlError,
@@ -402,7 +402,7 @@ class CMDHelperFuncs:
             cls._mount(target, str(mount_point), options=options, args=args)
 
     @classmethod
-    def reboot(cls):
+    def reboot(cls) -> NoReturn:
         """Reboot the whole system otaclient running at and terminate otaclient.
 
         NOTE(20230614): this command MUST also make otaclient exit immediately.

@@ -76,6 +76,7 @@ class CBootControlConfig(BaseConfig):
     SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
     # refer to the standby slot
     FIRMWARE_CONFIG: str = "/opt/ota/firmwares/firmware.yaml"
+    NV_TEGRA_RELEASE_FPATH: str = "/etc/nv_tegra_release"
 
 
 @dataclass
