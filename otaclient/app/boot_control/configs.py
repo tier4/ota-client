@@ -31,6 +31,7 @@ class BootloaderType(Enum):
 
     UNSPECIFIED = "unspecified"
     GRUB = "grub"
+    JETSON_CBOOT = "jetson_cboot"
     CBOOT = "cboot"
     RPI_BOOT = "rpi_boot"
 
