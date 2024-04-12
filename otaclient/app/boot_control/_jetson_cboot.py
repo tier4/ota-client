@@ -289,7 +289,7 @@ class _CBootControl:
 
     MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
     NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
-    INTERNAL_EMMC_DEV = "mmcblk0"
+    INTERNAL_EMMC_DEVNAME = "mmcblk0"
     _slot_id_partid = {SlotID("0"): "1", SlotID("1"): "2"}
 
     def __init__(self):
@@ -364,47 +364,42 @@ class _CBootControl:
             logger.warning("this might indicates a failed previous firmware update")
 
         # ------ detect rootfs_dev and parent_dev ------ #
-        rootfs_dev_path = CMDHelperFuncs.get_current_rootfs_dev().strip()
-        current_rootfs_dev = Path(rootfs_dev_path).name
-        parent_dev_path = CMDHelperFuncs.get_parent_dev(rootfs_dev_path)
-        self.parent_dev = parent_dev = Path(parent_dev_path).name
+        self.cuurent_rootfs_devpath = current_rootfs_devpath = (
+            CMDHelperFuncs.get_current_rootfs_dev().strip()
+        )
+        self.parent_devpath = parent_devpath = Path(
+            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
+        )
 
         self.external_rootfs = False
-        if parent_dev.startswith(self.MMCBLK_DEV_PREFIX):
-            logger.info(f"device boots from internal emmc: {parent_dev}")
-        elif parent_dev.startswith(self.NVMESSD_DEV_PREFIX):
-            logger.info(f"device boots from external nvme ssd: {parent_dev}")
+        parent_devname = parent_devpath.name
+        if parent_devname.startswith(self.MMCBLK_DEV_PREFIX):
+            logger.info(f"device boots from internal emmc: {parent_devpath}")
+        elif parent_devname.startswith(self.NVMESSD_DEV_PREFIX):
+            logger.info(f"device boots from external nvme ssd: {parent_devpath}")
             self.external_rootfs = True
         else:
-            _err_msg = f"we don't support boot from {parent_dev=} currently"
+            _err_msg = f"we don't support boot from {parent_devpath=} currently"
             logger.error(_err_msg)
             raise JetsonCBootContrlError(_err_msg) from NotImplementedError(
-                f"unsupported bootdev {parent_dev}"
+                f"unsupported bootdev {parent_devpath}"
             )
 
         # rootfs partition
-        self.current_rootfs_dev = current_rootfs_dev
-        current_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
-            rootfs_dev_path
-        )
-        self.standby_rootfs_dev = (
-            f"{parent_dev}p{self._slot_id_partid[standby_rootfs_slot]}"
+        self.standby_rootfs_devpath = (
+            f"/dev/{parent_devname}p{self._slot_id_partid[standby_rootfs_slot]}"
         )
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
-            f"/dev/{self.standby_rootfs_dev}"
+            f"{self.standby_rootfs_devpath}"
         )
 
         # internal emmc partition
-        self.current_internal_emmc_dev = (
-            f"{self.INTERNAL_EMMC_DEV}p{self._slot_id_partid[current_rootfs_slot]}"
-        )
-        self.standby_internal_emmc_dev = (
-            f"{self.INTERNAL_EMMC_DEV}p{self._slot_id_partid[standby_rootfs_slot]}"
-        )
+        self.current_internal_emmc_devpath = f"/dev/{self.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[current_rootfs_slot]}"
+        self.standby_internal_emmc_devpath = f"/dev/{self.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_rootfs_slot]}"
 
         logger.info(
-            f"finished cboot control init: {current_rootfs_dev=},{current_rootfs_slot=}\n"
-            f"{current_rootfs_dev_partuuid=}, {self.standby_rootfs_dev_partuuid=}"
+            f"finished cboot control init: {current_rootfs_slot=}\n"
+            f"{self.standby_rootfs_devpath=}, {self.standby_rootfs_dev_partuuid=}"
         )
         logger.info(f"nvbootctrl dump-slots-info: \n{_NVBootctrl.dump_slots_info()}")
 
@@ -450,12 +445,12 @@ class _CBootControl:
         _NVBootctrl.set_active_boot_slot(target_slot)
 
     def prepare_standby_dev(self, *, erase_standby: bool):
-        if CMDHelperFuncs.is_target_mounted(self.standby_rootfs_dev):
-            CMDHelperFuncs.umount(self.standby_rootfs_dev)
+        if CMDHelperFuncs.is_target_mounted(self.standby_rootfs_devpath):
+            CMDHelperFuncs.umount(self.standby_rootfs_devpath)
 
         if erase_standby:
             try:
-                CMDHelperFuncs.mkfs_ext4(self.standby_rootfs_dev)
+                CMDHelperFuncs.mkfs_ext4(self.standby_rootfs_devpath)
             except Exception as e:
                 _err_msg = f"failed to mkfs.ext4 on standby dev: {e!r}"
                 logger.error(_err_msg)
@@ -494,9 +489,9 @@ class JetsonCBootControl(BootControllerProtocol):
 
             # mount point prepare
             self._mp_control = SlotMountHelper(
-                standby_slot_dev=self._cboot_control.standby_rootfs_dev,
+                standby_slot_dev=self._cboot_control.standby_rootfs_devpath,
                 standby_slot_mount_point=cfg.MOUNT_POINT,
-                active_slot_dev=self._cboot_control.current_rootfs_dev,
+                active_slot_dev=self._cboot_control.cuurent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
             # init ota-status files
@@ -547,7 +542,7 @@ class JetsonCBootControl(BootControllerProtocol):
 
         try:
             CMDHelperFuncs.mount_rw(
-                self._cboot_control.standby_internal_emmc_dev,
+                self._cboot_control.standby_internal_emmc_devpath,
                 _internal_emmc_mp,
             )
         except Exception as e:
@@ -691,8 +686,9 @@ class JetsonCBootControl(BootControllerProtocol):
             # udpate active slot's ota_status
             self._ota_status_control.pre_update_current()
 
-            # set standby rootfs as unbootable as we are going to update it
-            self._cboot_control.set_standby_rootfs_unbootable()
+            if not self._cboot_control.unified_ab_enabled:
+                # set standby rootfs as unbootable as we are going to update it
+                self._cboot_control.set_standby_rootfs_unbootable()
 
             # prepare standby slot dev
             self._cboot_control.prepare_standby_dev(erase_standby=erase_standby)
