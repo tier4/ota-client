@@ -328,27 +328,31 @@ class _CBootControl:
                 raise JetsonCBootContrlError(_err_msg)
 
         # ------ check A/B slots ------ #
-        # if unified A/B is not enabled, and bootloader slot and rootfs slot mismatch,
-        #   try to correct this mismatch by switch bootloader to align with rootfs slot.
+        self.current_bootloader_slot = current_bootloader_slot = (
+            _NVBootctrl.get_current_slot()
+        )
+        self.standby_bootloader_slot = standby_bootloader_slot = (
+            _NVBootctrl.get_standby_slot()
+        )
         if not unified_ab_enabled:
-            current_rootfs_slot = _NVBootctrl.get_current_slot(target="rootfs")
-            current_bootloader_slot = _NVBootctrl.get_current_slot()
-            if current_rootfs_slot != current_bootloader_slot:
-                logger.error(
-                    "bootloader and rootfs A/B slot mismatches: "
-                    f"{current_rootfs_slot=}, {current_bootloader_slot=}"
-                )
-                logger.warning(
-                    "try to correct this mismatch by switch bootloader slot "
-                    "to align with rootfs slot"
-                )
-                logger.warning("rebooting now ...")
-                _NVBootctrl.set_active_boot_slot(current_rootfs_slot)
-                CMDHelperFuncs.reboot()
+            self.current_rootfs_slot = current_rootfs_slot = (
+                _NVBootctrl.get_current_slot(target="rootfs")
+            )
+            self.standby_rootfs_slot = standby_rootfs_slot = (
+                _NVBootctrl.get_standby_slot(target="rootfs")
+            )
+        else:
+            self.current_rootfs_slot = current_rootfs_slot = current_bootloader_slot
+            self.standby_rootfs_slot = standby_rootfs_slot = standby_bootloader_slot
 
-        # at this point bootloader slot and rootfs slot is the same
-        self.current_slot = current_slot = _NVBootctrl.get_current_slot()
-        self.standby_slot = standby_slot = _NVBootctrl.get_standby_slot()
+        # check if rootfs slot and bootloader slot mismatches, this only happens
+        #   when unified_ab is not enabled.
+        if current_rootfs_slot != current_bootloader_slot:
+            logger.warning(
+                "bootloader and rootfs A/B slot mismatches: "
+                f"{current_rootfs_slot=}, {current_bootloader_slot=}"
+            )
+            logger.warning("this might indicates a failed previous firmware update")
 
         # ------ detect rootfs_dev and parent_dev ------ #
         rootfs_dev_path = CMDHelperFuncs.get_current_rootfs_dev().strip()
@@ -374,21 +378,23 @@ class _CBootControl:
         current_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
             rootfs_dev_path
         )
-        self.standby_rootfs_dev = f"{parent_dev}p{self._slot_id_partid[standby_slot]}"
+        self.standby_rootfs_dev = (
+            f"{parent_dev}p{self._slot_id_partid[standby_rootfs_slot]}"
+        )
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
             f"/dev/{self.standby_rootfs_dev}"
         )
 
         # internal emmc partition
         self.current_internal_emmc_dev = (
-            f"{self.INTERNAL_EMMC_DEV}p{self._slot_id_partid[current_slot]}"
+            f"{self.INTERNAL_EMMC_DEV}p{self._slot_id_partid[current_rootfs_slot]}"
         )
         self.standby_internal_emmc_dev = (
-            f"{self.INTERNAL_EMMC_DEV}p{self._slot_id_partid[standby_slot]}"
+            f"{self.INTERNAL_EMMC_DEV}p{self._slot_id_partid[standby_rootfs_slot]}"
         )
 
         logger.info(
-            f"finished cboot control init: {current_rootfs_dev=},{current_slot=}\n"
+            f"finished cboot control init: {current_rootfs_dev=},{current_rootfs_slot=}\n"
             f"{current_rootfs_dev_partuuid=}, {self.standby_rootfs_dev_partuuid=}"
         )
         logger.info(f"{_NVBootctrl.dump_slots_info()=}")
@@ -420,17 +426,18 @@ class _CBootControl:
         return True
 
     def set_standby_rootfs_unbootable(self):
-        _NVBootctrl.set_slot_as_unbootable(self.standby_slot, target="rootfs")
+        _NVBootctrl.set_slot_as_unbootable(self.standby_rootfs_slot, target="rootfs")
 
     def switch_boot(self) -> None:
-        target_slot = self.standby_slot
+        # NOTE(20240412): we always try to align bootloader slot with rootfs.
+        target_slot = self.standby_rootfs_slot
 
         logger.info(f"switch boot to {target_slot=}")
         if not self.unified_ab_enabled:
-            # when unified_ab enabled, switching bootloader slot will also switch
-            #   the rootfs slot.
-            _NVBootctrl.set_active_boot_slot(target_slot, target="bootloader")
-        # NOTE: the set-active-boot-slot command can be called multiple time.
+            _NVBootctrl.set_active_boot_slot(target_slot, target="rootfs")
+
+        # when unified_ab enabled, switching bootloader slot will also switch
+        #   the rootfs slot.
         _NVBootctrl.set_active_boot_slot(target_slot)
 
     def prepare_standby_dev(self, *, erase_standby: bool):
@@ -485,8 +492,8 @@ class JetsonCBootControl(BootControllerProtocol):
             )
             # init ota-status files
             self._ota_status_control = OTAStatusFilesControl(
-                active_slot=self._cboot_control.current_slot,
-                standby_slot=self._cboot_control.standby_slot,
+                active_slot=self._cboot_control.current_rootfs_slot,
+                standby_slot=self._cboot_control.standby_rootfs_slot,
                 current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
                 / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
                 # NOTE: might not yet be populated before OTA update applied!
@@ -591,11 +598,11 @@ class JetsonCBootControl(BootControllerProtocol):
                 None for no firmware update occurs.
         """
         logger.info("jetson-cboot: entering nv firmware update ...")
-        standby_slot = self._cboot_control.standby_slot
+        standby_bootloader_slot = self._cboot_control.standby_bootloader_slot
         standby_firmware_bsp_ver = self.firmware_bsp_version.get_bsp_ver_by_slot(
-            standby_slot
+            standby_bootloader_slot
         )
-        logger.info(f"{standby_slot=} BSP ver: {standby_firmware_bsp_ver}")
+        logger.info(f"{standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}")
 
         # ------ check if we need to do firmware update ------ #
         _new_bsp_v_fpath = self._mp_control.standby_slot_mount_point / Path(
@@ -611,7 +618,7 @@ class JetsonCBootControl(BootControllerProtocol):
         logger.info(f"BUP package version: {new_bsp_v=}")
         if standby_firmware_bsp_ver and standby_firmware_bsp_ver >= new_bsp_v:
             logger.info(
-                f"{standby_slot=} has newer or equal ver of firmware, skip firmware update"
+                f"{standby_bootloader_slot=} has newer or equal ver of firmware, skip firmware update"
             )
             return
 
@@ -639,10 +646,11 @@ class JetsonCBootControl(BootControllerProtocol):
         # ------ register new firmware version ------ #
         if _firmware_applied:
             logger.info(
-                "nv_firmware: apply firmware completed, bootloader slot "
-                f"will switch to {self._cboot_control.standby_slot}"
+                f"nv_firmware: successfully apply firmware to {self._cboot_control.standby_rootfs_slot=}"
             )
-            self.firmware_bsp_version.set_bsp_ver_by_slot(standby_slot, new_bsp_v)
+            self.firmware_bsp_version.set_bsp_ver_by_slot(
+                standby_bootloader_slot, new_bsp_v
+            )
             return True
         logger.info("no firmware payload BUP available, skip firmware update")
 
