@@ -40,14 +40,14 @@ from .protocol import BootControllerProtocol
 logger = logging.getLogger(__name__)
 
 
-class SlotID:
+class SlotID(str):
     VALID_SLOTS = ["0", "1"]
 
     def __new__(cls, _in: str | Self) -> Self:
         if isinstance(_in, cls):
             return _in
         if _in in cls.VALID_SLOTS:
-            return cls(_in)
+            return str.__new__(cls, _in)
         raise ValueError(f"{_in=} is not valid slot num, should be '0' or '1'.")
 
 
