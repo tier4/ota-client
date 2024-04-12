@@ -313,10 +313,12 @@ class _CBootControl:
 
         # ------ sanity check, jetson-cboot is not used after BSP R34 ------ #
         if not bsp_version < (34, 0, 0):
-            raise JetsonCBootContrlError(
+            _err_msg = (
                 f"jetson-cboot only supports BSP version < R34, but get {bsp_version=}. "
                 "Please use jetson-uefi bootloader type for this device."
             )
+            logger.error(_err_msg)
+            raise JetsonCBootContrlError(_err_msg)
 
         # ------ check if unified A/B is enabled ------ #
         self.unified_ab_enabled = unified_ab_enabled = False
@@ -336,6 +338,9 @@ class _CBootControl:
                 _err_msg = "rootfs A/B is not enabled!"
                 logger.error(_err_msg)
                 raise JetsonCBootContrlError(_err_msg)
+
+        if unified_ab_enabled:
+            logger.info("unified A/B is enabled")
 
         # ------ check A/B slots ------ #
         self.current_bootloader_slot = current_bootloader_slot = (
@@ -360,7 +365,7 @@ class _CBootControl:
         if current_rootfs_slot != current_bootloader_slot:
             logger.warning(
                 "bootloader and rootfs A/B slot mismatches: "
-                f"{current_rootfs_slot=}, {current_bootloader_slot=}"
+                f"{current_rootfs_slot=} != {current_bootloader_slot=}"
             )
             logger.warning("this might indicates a failed previous firmware update")
 
@@ -393,16 +398,21 @@ class _CBootControl:
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
             f"{self.standby_rootfs_devpath}"
         )
+        logger.info(
+            "finish detecting rootfs devs: \n"
+            f"active_slot({current_rootfs_slot}): {self.cuurent_rootfs_devpath=}\n"
+            f"standby_slot({standby_rootfs_slot}): {self.standby_rootfs_devpath=}, {self.standby_rootfs_dev_partuuid=}"
+        )
 
         # internal emmc partition
-        self.current_internal_emmc_devpath = f"/dev/{self.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[current_rootfs_slot]}"
         self.standby_internal_emmc_devpath = f"/dev/{self.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_rootfs_slot]}"
 
-        logger.info(
-            f"finished cboot control init: {current_rootfs_slot=}\n"
-            f"{self.standby_rootfs_devpath=}, {self.standby_rootfs_dev_partuuid=}"
-        )
+        logger.info(f"finished cboot control init: {current_rootfs_slot=}")
         logger.info(f"nvbootctrl dump-slots-info: \n{_NVBootctrl.dump_slots_info()}")
+        if not unified_ab_enabled:
+            logger.info(
+                f"nvbootctrl -t rootfs dump-slots-info: \n{_NVBootctrl.dump_slots_info(target='rootfs')}"
+            )
 
     # API
 
@@ -422,12 +432,9 @@ class _CBootControl:
                 set the status of slots to success.
         """
         try:
-            logger.info(f"nv_update_engine verify: {NVUpdateEngine.verify_update()}")
-            logger.info(f"{_NVBootctrl.dump_slots_info()=}")
-            logger.info(f"{_NVBootctrl.dump_slots_info(target='rootfs')}")
+            logger.info(f"nv_update_engine verify: \n{NVUpdateEngine.verify_update()}")
         except CalledProcessError as e:
             logger.warning(f"failed to dump info: {e!r}")
-
         return True
 
     def set_standby_rootfs_unbootable(self):
@@ -629,11 +636,12 @@ class JetsonCBootControl(BootControllerProtocol):
 
         # ------ preform firmware update ------ #
         # TODO: /opt/ota_package config and firmware configs
-        firmware_dpath = self._mp_control.standby_slot_mount_point / "opt/ota_package"
-        firmware_fnames = ["bl_only_payload", "xusb_only_payload"]
+        firmware_dpath = self._mp_control.standby_slot_mount_point / Path(
+            cfg.FIRMWARE_DPATH
+        ).relative_to("/")
 
         _firmware_applied = False
-        for firmware in firmware_fnames:
+        for firmware in cfg.FIRMWARE_LIST:
             if (firmware_fpath := firmware_dpath / firmware).is_file():
                 logger.info(f"nv_firmware: apply {firmware_fpath} ...")
                 try:
