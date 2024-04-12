@@ -24,7 +24,7 @@ from subprocess import run, CalledProcessError
 from typing import Any, Generator, NamedTuple, Literal, Optional
 
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
-from typing_extensions import Annotated, NewType, Self
+from typing_extensions import Annotated, Self
 
 from otaclient.app import errors as ota_errors
 from otaclient.app.common import copytree_identical, write_str_to_file_sync
@@ -40,8 +40,15 @@ from .protocol import BootControllerProtocol
 logger = logging.getLogger(__name__)
 
 
-SlotID = NewType("SlotID", str)
-"""Literal["0", "1"]"""
+class SlotID:
+    VALID_SLOTS = ["0", "1"]
+
+    def __new__(cls, _in: str | Self) -> Self:
+        if isinstance(_in, cls):
+            return _in
+        if _in in cls.VALID_SLOTS:
+            return cls(_in)
+        raise ValueError(f"{_in=} is not valid slot num, should be '0' or '1'.")
 
 
 class BSPVersion(NamedTuple):
@@ -128,7 +135,7 @@ class _NVBootctrl:
             cmd.extend(["-t", target])
         cmd.append(_cmd)
         if _slot_id:
-            cmd.append(_slot_id)
+            cmd.append(str(_slot_id))
 
         res = run(
             cmd,
@@ -149,7 +156,9 @@ class _NVBootctrl:
     def get_current_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
         """Prints currently running SLOT."""
         cmd = "get-current-slot"
-        return cls._nvbootctrl(cmd, target=target)
+        res = cls._nvbootctrl(cmd, check_output=True, target=target)
+        assert isinstance(res, str), f"invalid output from get-current-slot: {res}"
+        return SlotID(res.strip())
 
     @classmethod
     def get_standby_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
@@ -256,7 +265,7 @@ class NVUpdateEngine:
 
 BSP_VER_PA = re.compile(
     (
-        r"R(?P<major_ver>\d+) \(\w+\), REVISION: (?P<major_rev>\d+)\.(?P<minor_rev>\d+), "
+        r"# R(?P<major_ver>\d+) \(\w+\), REVISION: (?P<major_rev>\d+)\.(?P<minor_rev>\d+), "
         r"GCID: (?P<gcid>\d+), BOARD: (?P<board>\w+), EABI: (?P<eabi>\w+)"
     )
 )
@@ -285,7 +294,7 @@ class _CBootControl:
 
     def __init__(self):
         # ------ sanity check, confirm we are at jetson device ------ #
-        if os.path.exists(cfg.TEGRA_CHIP_ID_PATH):
+        if not os.path.exists(cfg.TEGRA_CHIP_ID_PATH):
             _err_msg = f"not a jetson device, {cfg.TEGRA_CHIP_ID_PATH} doesn't exist"
             logger.error(_err_msg)
             raise JetsonCBootContrlError(_err_msg)
@@ -397,7 +406,7 @@ class _CBootControl:
             f"finished cboot control init: {current_rootfs_dev=},{current_rootfs_slot=}\n"
             f"{current_rootfs_dev_partuuid=}, {self.standby_rootfs_dev_partuuid=}"
         )
-        logger.info(f"{_NVBootctrl.dump_slots_info()=}")
+        logger.info(f"nvbootctrl dump-slots-info: \n{_NVBootctrl.dump_slots_info()}")
 
     # API
 
@@ -492,8 +501,8 @@ class JetsonCBootControl(BootControllerProtocol):
             )
             # init ota-status files
             self._ota_status_control = OTAStatusFilesControl(
-                active_slot=self._cboot_control.current_rootfs_slot,
-                standby_slot=self._cboot_control.standby_rootfs_slot,
+                active_slot=str(self._cboot_control.current_rootfs_slot),
+                standby_slot=str(self._cboot_control.standby_rootfs_slot),
                 current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
                 / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
                 # NOTE: might not yet be populated before OTA update applied!
