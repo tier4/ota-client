@@ -104,7 +104,8 @@ class FirmwareBSPVersion(BaseModel):
             self.slot_a = bsp_ver
         elif slot_id == "1":
             self.slot_b = bsp_ver
-        raise ValueError(f"invalid {slot_id=}")
+        else:
+            raise ValueError(f"invalid {slot_id=}")
 
 
 class JetsonCBootContrlError(Exception):
