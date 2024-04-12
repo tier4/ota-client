@@ -416,8 +416,6 @@ class CMDHelperFuncs:
             raise
 
 
-###### helper mixins ######
-
 FinalizeSwitchBootFunc = Callable[[], bool]
 
 
@@ -663,114 +661,6 @@ class OTAStatusFilesControl:
         switch to use live_ota_status by otaclient after otaclient is running.
         """
         return self._ota_status
-
-
-class SlotInUseMixin:
-    current_ota_status_dir: Path
-    standby_ota_status_dir: Path
-
-    def _store_current_slot_in_use(self, _slot: str):
-        write_str_to_file_sync(
-            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
-        )
-
-    def _store_standby_slot_in_use(self, _slot: str):
-        write_str_to_file_sync(
-            self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
-        )
-
-    def _load_current_slot_in_use(self) -> Optional[str]:
-        if res := read_str_from_file(
-            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, default=""
-        ):
-            return res
-
-
-class OTAStatusMixin:
-    current_ota_status_dir: Path
-    standby_ota_status_dir: Path
-    ota_status: wrapper.StatusOta
-
-    def _store_current_ota_status(self, _status: wrapper.StatusOta):
-        write_str_to_file_sync(
-            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
-        )
-
-    def _store_standby_ota_status(self, _status: wrapper.StatusOta):
-        write_str_to_file_sync(
-            self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
-        )
-
-    def _load_current_ota_status(self) -> Optional[wrapper.StatusOta]:
-        if _status_str := read_str_from_file(
-            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
-        ).upper():
-            try:
-                return wrapper.StatusOta[_status_str]
-            except KeyError:
-                pass  # invalid status string
-
-    def get_booted_ota_status(self) -> wrapper.StatusOta:
-        return self.ota_status
-
-
-class VersionControlMixin:
-    current_ota_status_dir: Path
-    standby_ota_status_dir: Path
-
-    def _store_standby_version(self, _version: str):
-        write_str_to_file_sync(
-            self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
-            _version,
-        )
-
-    def load_version(self) -> str:
-        _version = read_str_from_file(
-            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
-            missing_ok=True,
-            default="",
-        )
-        if not _version:
-            logger.warning("version file not found, return empty version string")
-
-        return _version
-
-
-class PrepareMountMixin:
-    standby_slot_mount_point: Path
-    ref_slot_mount_point: Path
-
-    def _prepare_and_mount_standby(self, standby_slot_dev: str, *, erase=False):
-        self.standby_slot_mount_point.mkdir(parents=True, exist_ok=True)
-
-        # first try umount the dev
-        CMDHelperFuncs.umount(standby_slot_dev)
-
-        # format the whole standby slot if needed
-        if erase:
-            logger.warning(f"perform mkfs.ext4 on standby slot({standby_slot_dev})")
-            CMDHelperFuncs.mkfs_ext4(standby_slot_dev)
-
-        # try to mount the standby dev
-        CMDHelperFuncs.mount_rw(standby_slot_dev, self.standby_slot_mount_point)
-
-    def _mount_refroot(
-        self,
-        *,
-        standby_dev: str,
-        active_dev: str,
-        standby_as_ref: bool,
-    ):
-        CMDHelperFuncs.mount_refroot(
-            standby_slot_dev=standby_dev,
-            active_slot_dev=active_dev,
-            refroot_mount_point=str(self.ref_slot_mount_point),
-            standby_as_ref=standby_as_ref,
-        )
-
-    def _umount_all(self, *, ignore_error: bool = False):
-        CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
-        CMDHelperFuncs.umount(self.ref_slot_mount_point, ignore_error=ignore_error)
 
 
 class SlotMountHelper:
