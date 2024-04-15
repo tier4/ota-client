@@ -53,8 +53,7 @@ class SlotID(str):
 
 class BSPVersion(NamedTuple):
     """
-    example: 32.6.1
-    see https://developer.nvidia.com/embedded/jetson-linux-archive for BSP version history.
+    example version string: R32.6.1
     """
 
     major_ver: int
@@ -65,11 +64,7 @@ class BSPVersion(NamedTuple):
     def parse(cls, _in: str) -> Self:
         """Parse "Rxx.yy.z string into BSPVersion."""
         major_ver, major_rev, minor_rev = _in[1:].split(".")
-        return cls(
-            int(major_ver),
-            int(major_rev),
-            int(minor_rev),
-        )
+        return cls(int(major_ver), int(major_rev), int(minor_rev))
 
     @staticmethod
     def dump(to_export: BSPVersion) -> str:
@@ -98,14 +93,13 @@ class JetsonCBootContrlError(Exception):
 
 
 class _NVBootctrl:
-    """Helper for calling nvbootctrl commands."""
+    """Helper for calling nvbootctrl commands.
+
+    Without -t option, the target will be bootloader by default.
+    """
 
     NVBOOTCTRL = "nvbootctrl"
     NVBootctrlTarget = Literal["bootloader", "rootfs"]
-    slot_id_flip: dict[SlotID, SlotID] = {
-        SlotID("0"): SlotID("1"),
-        SlotID("1"): SlotID("0"),
-    }
 
     @classmethod
     def _nvbootctrl(
@@ -132,12 +126,6 @@ class _NVBootctrl:
             return res.stdout.decode()
         return
 
-    @staticmethod
-    def _check_slot_id(slot_id: SlotID) -> SlotID:
-        if slot_id not in [SlotID("0"), SlotID("1")]:
-            raise ValueError(f"invalid slot id: {slot_id=}")
-        return slot_id
-
     @classmethod
     def get_current_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
         """Prints currently running SLOT."""
@@ -150,9 +138,10 @@ class _NVBootctrl:
     def get_standby_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
         """Prints standby SLOT.
 
-        NOTE: this method is implemented by nvbootctrl get-current-slot.
+        NOTE: this method is implemented with nvbootctrl get-current-slot.
         """
-        return cls.slot_id_flip[cls.get_current_slot(target=target)]
+        current_slot = cls.get_current_slot(target=target)
+        return SlotID("0") if current_slot == "1" else SlotID("0")
 
     @classmethod
     def set_active_boot_slot(
@@ -160,7 +149,7 @@ class _NVBootctrl:
     ) -> None:
         """On next boot, load and execute SLOT."""
         cmd = "set-active-boot-slot"
-        return cls._nvbootctrl(cmd, cls._check_slot_id(slot_id), target=target)
+        return cls._nvbootctrl(cmd, SlotID(slot_id), target=target)
 
     @classmethod
     def set_slot_as_unbootable(
@@ -168,7 +157,7 @@ class _NVBootctrl:
     ) -> None:
         """Mark SLOT as invalid."""
         cmd = "set-slot-as-unbootable"
-        return cls._nvbootctrl(cmd, cls._check_slot_id(slot_id), target=target)
+        return cls._nvbootctrl(cmd, SlotID(slot_id), target=target)
 
     @classmethod
     def dump_slots_info(cls, *, target: Optional[NVBootctrlTarget] = None) -> str:
@@ -211,6 +200,7 @@ class NVUpdateEngine:
 
     @classmethod
     def _nv_update_engine(cls, payload: Path | str):
+        """nv_update_engine apply BUP, non unified_ab version."""
         cmd = [
             cls.NV_UPDATE_ENGINE,
             "-i",
@@ -224,6 +214,7 @@ class NVUpdateEngine:
 
     @classmethod
     def _nv_update_engine_unified_ab(cls, payload: Path | str):
+        """nv_update_engine apply BUP, unified_ab version."""
         cmd = [
             cls.NV_UPDATE_ENGINE,
             "-i",
@@ -236,16 +227,15 @@ class NVUpdateEngine:
 
     @classmethod
     def apply_firmware_update(cls, payload: Path | str, *, unified_ab: bool) -> None:
-        """Apply firmware update."""
         if unified_ab:
             return cls._nv_update_engine_unified_ab(payload)
-        cls._nv_update_engine(payload)
+        return cls._nv_update_engine(payload)
 
     @classmethod
     def verify_update(cls) -> CompletedProcess:
         """Dump the nv_update_engine update verification.
 
-        NOTE: no exception will be raised, the caller should check the
+        NOTE: no exception will be raised, the caller MUST check the
             call result by themselves.
 
         Returns:
@@ -286,17 +276,13 @@ class FirmwareBSPVersionControl:
     def get_version_by_slot(self, slot_id: SlotID) -> Optional[BSPVersion]:
         if slot_id == "0":
             return self._version.slot_a
-        elif slot_id == "1":
-            return self._version.slot_b
-        raise ValueError(f"invalid {slot_id=}")
+        return self._version.slot_b
 
     def set_version_by_slot(self, slot_id: SlotID, version: Optional[BSPVersion]):
         if slot_id == "0":
             self._version.slot_a = version
-        elif slot_id == "1":
-            self._version.slot_b = version
         else:
-            raise ValueError(f"invalid {slot_id=}")
+            self._version.slot_b = version
 
 
 BSP_VER_PA = re.compile(
@@ -305,12 +291,13 @@ BSP_VER_PA = re.compile(
         r"GCID: (?P<gcid>\d+), BOARD: (?P<board>\w+), EABI: (?P<eabi>\w+)"
     )
 )
+"""Example: # R32 (release), REVISION: 6.1, GCID: 27863751, BOARD: t186ref, EABI: aarch64, DATE: Mon Jul 26 19:36:31 UTC 2021 """
 
 
 def parse_bsp_version(nv_tegra_release: str) -> BSPVersion:
     """Get current BSP version from contents of /etc/nv_tegra_release.
 
-    Example: # R32 (release), REVISION: 6.1, GCID: 27863751, BOARD: t186ref, EABI: aarch64, DATE: Mon Jul 26 19:36:31 UTC 2021
+    see https://developer.nvidia.com/embedded/jetson-linux-archive for BSP version history.
     """
     ma = BSP_VER_PA.match(nv_tegra_release)
     assert ma, f"invalid nv_tegra_release content: {nv_tegra_release}"
@@ -350,32 +337,35 @@ class _CBootControl:
         if not bsp_version < (34, 0, 0):
             _err_msg = (
                 f"jetson-cboot only supports BSP version < R34, but get {bsp_version=}. "
-                "Please use jetson-uefi bootloader type for this device."
+                "Please use jetson-uefi bootloader type for device with BSP >= R34."
             )
             logger.error(_err_msg)
             raise JetsonCBootContrlError(_err_msg)
 
         # ------ check if unified A/B is enabled ------ #
-        self.unified_ab_enabled = unified_ab_enabled = False
+        # NOTE: mismatch rootfs BSP version and bootloader firmware BSP version
+        #   is NOT supported and MUST not occur.
+        unified_ab_enabled = False
         if bsp_version >= (32, 6, 0):
             # NOTE: unified A/B is supported starting from r32.6
-            self.unified_ab_enabled = unified_ab_enabled = (
-                _NVBootctrl.is_unified_enabled()
-            )
+            unified_ab_enabled = _NVBootctrl.is_unified_enabled()
             if unified_ab_enabled is None:
                 _err_msg = "rootfs A/B is not enabled!"
                 logger.error(_err_msg)
                 raise JetsonCBootContrlError(_err_msg)
-        else:
+        else:  # R32.5 and below doesn't support unified A/B
             try:
-                _NVBootctrl.get_current_slot()
+                _NVBootctrl.get_current_slot(target="rootfs")
             except CalledProcessError:
                 _err_msg = "rootfs A/B is not enabled!"
                 logger.error(_err_msg)
                 raise JetsonCBootContrlError(_err_msg)
+        self.unified_ab_enabled = unified_ab_enabled
 
         if unified_ab_enabled:
-            logger.info("unified A/B is enabled")
+            logger.info(
+                "unified A/B is enabled, rootfs and bootloader will be switched together"
+            )
 
         # ------ check A/B slots ------ #
         self.current_bootloader_slot = current_bootloader_slot = (
@@ -409,16 +399,16 @@ class _CBootControl:
             CMDHelperFuncs.get_current_rootfs_dev().strip()
         )
         self.parent_devpath = parent_devpath = Path(
-            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
+            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath).strip()
         )
 
-        self.external_rootfs = False
+        self._external_rootfs = False
         parent_devname = parent_devpath.name
         if parent_devname.startswith(self.MMCBLK_DEV_PREFIX):
             logger.info(f"device boots from internal emmc: {parent_devpath}")
         elif parent_devname.startswith(self.NVMESSD_DEV_PREFIX):
             logger.info(f"device boots from external nvme ssd: {parent_devpath}")
-            self.external_rootfs = True
+            self._external_rootfs = True
         else:
             _err_msg = f"we don't support boot from {parent_devpath=} currently"
             logger.error(_err_msg)
@@ -432,7 +422,7 @@ class _CBootControl:
         )
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
             f"{self.standby_rootfs_devpath}"
-        )
+        ).strip()
         logger.info(
             "finish detecting rootfs devs: \n"
             f"active_slot({current_rootfs_slot}): {self.cuurent_rootfs_devpath=}\n"
@@ -453,16 +443,21 @@ class _CBootControl:
 
     @property
     def external_rootfs_enabled(self) -> bool:
-        return self.external_rootfs
+        """Indicate whether rootfs on external storage is enabled.
+
+        NOTE: distiguish from boot from external storage, as R32.5 and below doesn't
+            support native NVMe boot.
+        """
+        return self._external_rootfs
 
     def set_standby_rootfs_unbootable(self):
         _NVBootctrl.set_slot_as_unbootable(self.standby_rootfs_slot, target="rootfs")
 
-    def switch_boot(self) -> None:
+    def switch_boot_to_standby(self) -> None:
         # NOTE(20240412): we always try to align bootloader slot with rootfs.
         target_slot = self.standby_rootfs_slot
 
-        logger.info(f"switch boot to {target_slot=}")
+        logger.info(f"switch boot to standby slot({target_slot})")
         if not self.unified_ab_enabled:
             _NVBootctrl.set_active_boot_slot(target_slot, target="rootfs")
 
@@ -471,8 +466,7 @@ class _CBootControl:
         _NVBootctrl.set_active_boot_slot(target_slot)
 
     def prepare_standby_dev(self, *, erase_standby: bool):
-        if CMDHelperFuncs.is_target_mounted(self.standby_rootfs_devpath):
-            CMDHelperFuncs.umount(self.standby_rootfs_devpath)
+        CMDHelperFuncs.umount(self.standby_rootfs_devpath, ignore_error=True)
 
         if erase_standby:
             try:
@@ -525,7 +519,7 @@ class JetsonCBootControl(BootControllerProtocol):
             ).relative_to("/")
 
             # load firmware BSP version from current rootfs slot
-            self.firmware_bsp_version = FirmwareBSPVersionControl(
+            self._firmware_ver_control = FirmwareBSPVersionControl(
                 current_firmware_bsp_vf=current_ota_status_dir
                 / cfg.FIRMWARE_BSP_VERSION_FNAME,
                 standby_firmware_bsp_vf=standby_ota_status_dir
@@ -541,7 +535,6 @@ class JetsonCBootControl(BootControllerProtocol):
                 standby_ota_status_dir=standby_ota_status_dir,
                 finalize_switching_boot=self._finalize_switching_boot,
             )
-
         except Exception as e:
             _err_msg = f"failed to start jetson-cboot controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
@@ -550,7 +543,7 @@ class JetsonCBootControl(BootControllerProtocol):
         """Verify the firmware update result.
 
         If firmware update failed(updated bootloader slot boot failed), clear the according slot's
-            firmware_bsp_version information.
+            firmware_bsp_version information to force firmware update in next OTA.
         """
         _update_result = NVUpdateEngine.verify_update()
         if (retcode := _update_result.returncode) != 0:
@@ -562,10 +555,10 @@ class JetsonCBootControl(BootControllerProtocol):
             )
             logger.error(_err_msg)
 
-            # NOTE that we are after OTA first reboot, so the newly updated slot is the current slot.
+            # NOTE: always only change current slots firmware_bsp_version file here.
             _current_slot = self._cboot_control.current_bootloader_slot
-            self.firmware_bsp_version.set_version_by_slot(_current_slot, None)
-            self.firmware_bsp_version.write_current_firmware_bsp_version()
+            self._firmware_ver_control.set_version_by_slot(_current_slot, None)
+            self._firmware_ver_control.write_current_firmware_bsp_version()
             return False
 
         logger.info(f"nv_update_engine verify succeeded: \n{_update_result.stdout}")
@@ -575,30 +568,27 @@ class JetsonCBootControl(BootControllerProtocol):
         """Copy the standby slot's /boot to internal emmc dev.
 
         This method is involved when external rootfs is enabled, aligning with
-            the behavior with the NVIDIA flashing script.
+            the behavior of the NVIDIA flashing script.
 
         NOTE: at the time this method is called, the /boot folder at
             standby slot rootfs MUST be fully setup!
         """
-        # mount the actual standby_boot_dev now
-        _internal_emmc_mp = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
-        _internal_emmc_mp.mkdir(exist_ok=True, parents=True)
+        # mount corresponding internal emmc device
+        internal_emmc_mp = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
+        internal_emmc_mp.mkdir(exist_ok=True, parents=True)
+        internal_emmc_devpath = self._cboot_control.standby_internal_emmc_devpath
 
         try:
-            CMDHelperFuncs.mount_rw(
-                self._cboot_control.standby_internal_emmc_devpath,
-                _internal_emmc_mp,
-            )
+            CMDHelperFuncs.umount(internal_emmc_devpath, ignore_error=True)
+            CMDHelperFuncs.mount_rw(internal_emmc_devpath, internal_emmc_mp)
         except Exception as e:
             _msg = f"failed to mount standby internal emmc dev: {e!r}"
             logger.error(_msg)
             raise JetsonCBootContrlError(_msg) from e
 
         try:
-            dst = _internal_emmc_mp / "boot"
-            dst.mkdir(exist_ok=True, parents=True)
+            dst = internal_emmc_mp / "boot"
             src = self._mp_control.standby_slot_mount_point / "boot"
-
             # copy the standby slot's boot folder to emmc boot dev
             copytree_identical(src, dst)
         except Exception as e:
@@ -606,13 +596,13 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.error(_msg)
             raise JetsonCBootContrlError(_msg) from e
         finally:
-            CMDHelperFuncs.umount(_internal_emmc_mp, ignore_error=True)
+            CMDHelperFuncs.umount(internal_emmc_mp, ignore_error=True)
 
     def _preserve_ota_config_files_to_standby(self):
         """Preserve /boot/ota to standby /boot folder."""
         src = self._mp_control.active_slot_mount_point / "boot" / "ota"
-        if not src.is_dir():  # basically it is not possible
-            logger.info(f"{src} doesn't exist, skip preserve /boot/ota folder.")
+        if not src.is_dir():  # basically this should not happen
+            logger.warning(f"{src} doesn't exist, skip preserve /boot/ota folder.")
             return
 
         dst = self._mp_control.standby_slot_mount_point / "boot" / "ota"
@@ -620,26 +610,26 @@ class JetsonCBootControl(BootControllerProtocol):
         copytree_identical(src, dst)
 
     def _update_standby_slot_extlinux_cfg(self):
+        """update standby slot's /boot/extlinux/extlinux.conf to update root indicator."""
         src = standby_slot_extlinux = self._mp_control.standby_slot_mount_point / Path(
             cfg.EXTLINUX_FILE
         ).relative_to("/")
+        # if standby slot doesn't have extlinux.conf installed, use current booted
+        #   extlinux.conf as template source.
         if not standby_slot_extlinux.is_file():
-            src = self._mp_control.active_slot_mount_point / Path(
-                cfg.EXTLINUX_FILE
-            ).relative_to("/")
+            src = Path(cfg.EXTLINUX_FILE)
 
         # update the extlinux.conf with standby slot rootfs' partuuid
-        updated_extlinux_cfg = self._cboot_control.update_extlinux_cfg(
-            src.read_text(),
-            self._cboot_control.standby_rootfs_dev_partuuid,
+        write_str_to_file_sync(
+            standby_slot_extlinux,
+            self._cboot_control.update_extlinux_cfg(
+                src.read_text(),
+                self._cboot_control.standby_rootfs_dev_partuuid,
+            ),
         )
-        write_str_to_file_sync(standby_slot_extlinux, updated_extlinux_cfg)
 
     def _nv_firmware_update(self) -> Optional[bool]:
         """Perform firmware update with nv_update_engine.
-
-        NOTE(20240412): mostly a failed firmware update is caused by BUP not applicable
-            to the device, and no changes will be applied in this condidition.
 
         Returns:
             True if firmware update applied, False for failed firmware update,
@@ -647,7 +637,7 @@ class JetsonCBootControl(BootControllerProtocol):
         """
         logger.info("jetson-cboot: entering nv firmware update ...")
         standby_bootloader_slot = self._cboot_control.standby_bootloader_slot
-        standby_firmware_bsp_ver = self.firmware_bsp_version.get_version_by_slot(
+        standby_firmware_bsp_ver = self._firmware_ver_control.get_version_by_slot(
             standby_bootloader_slot
         )
         logger.info(f"{standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}")
@@ -676,8 +666,8 @@ class JetsonCBootControl(BootControllerProtocol):
         ).relative_to("/")
 
         _firmware_applied = False
-        for firmware in cfg.FIRMWARE_LIST:
-            if (firmware_fpath := firmware_dpath / firmware).is_file():
+        for firmware_fname in cfg.FIRMWARE_LIST:
+            if (firmware_fpath := firmware_dpath / firmware_fname).is_file():
                 logger.info(f"nv_firmware: apply {firmware_fpath} ...")
                 try:
                     NVUpdateEngine.apply_firmware_update(
@@ -688,7 +678,17 @@ class JetsonCBootControl(BootControllerProtocol):
                 except CalledProcessError as e:
                     _err_msg = f"failed to apply BUP {firmware_fpath}: {e!r}, {e.stderr=}, {e.stdout=}"
                     logger.error(_err_msg)
-                    logger.warning("firmware update interrupted")
+                    logger.warning("firmware update interrupted, failing OTA...")
+
+                    # if the firmware update is interrupted halfway(some of the BUP is applied),
+                    #   revert bootloader slot switch
+                    if _firmware_applied:
+                        logger.warning(
+                            "revert bootloader slot switch to current active slot"
+                        )
+                        _NVBootctrl.set_active_boot_slot(
+                            self._cboot_control.current_bootloader_slot
+                        )
                     return False
 
         # ------ register new firmware version ------ #
@@ -696,7 +696,7 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.info(
                 f"nv_firmware: successfully apply firmware to {self._cboot_control.standby_rootfs_slot=}"
             )
-            self.firmware_bsp_version.set_version_by_slot(
+            self._firmware_ver_control.set_version_by_slot(
                 standby_bootloader_slot, new_bsp_v
             )
             return True
@@ -718,6 +718,7 @@ class JetsonCBootControl(BootControllerProtocol):
 
             if not self._cboot_control.unified_ab_enabled:
                 # set standby rootfs as unbootable as we are going to update it
+                # this operation not applicable when unified A/B is enabled.
                 self._cboot_control.set_standby_rootfs_unbootable()
 
             # prepare standby slot dev
@@ -742,30 +743,32 @@ class JetsonCBootControl(BootControllerProtocol):
             self._update_standby_slot_extlinux_cfg()
 
             # ------ firmware update ------ #
-            if self._nv_firmware_update():
+            _fw_update_result = self._nv_firmware_update()
+            if _fw_update_result:
                 # update the firmware_bsp_version file on firmware update applied
-                self.firmware_bsp_version.write_standby_firmware_bsp_version()
-                self.firmware_bsp_version.write_current_firmware_bsp_version()
+                self._firmware_ver_control.write_standby_firmware_bsp_version()
+                self._firmware_ver_control.write_current_firmware_bsp_version()
+            elif _fw_update_result is not None:
+                raise JetsonCBootContrlError("firmware update failed")
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             self._preserve_ota_config_files_to_standby()
 
             # ------ for external rootfs, preserve /boot folder to internal ------ #
-            if self._cboot_control.external_rootfs:
+            if self._cboot_control._external_rootfs:
                 logger.info(
-                    "rootfs on external storage detected: "
+                    "rootfs on external storage enabled: "
                     "copy standby slot rootfs' /boot folder "
                     "to corresponding internal emmc dev ..."
                 )
                 self._copy_standby_slot_boot_to_internal_emmc()
 
             # ------ switch boot to standby ------ #
-            self._cboot_control.switch_boot()
+            self._cboot_control.switch_boot_to_standby()
 
             # ------ prepare to reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
-            logger.info(f"[post-update]: {_NVBootctrl.dump_slots_info()=}")
-
+            logger.info(f"[post-update]: \n{_NVBootctrl.dump_slots_info()}")
             logger.info("post update finished, wait for reboot ...")
             yield  # hand over control back to otaclient
             CMDHelperFuncs.reboot()
@@ -793,7 +796,7 @@ class JetsonCBootControl(BootControllerProtocol):
         try:
             logger.info("jetson-cboot: post-rollback setup...")
             self._mp_control.umount_all(ignore_error=True)
-            self._cboot_control.switch_boot()
+            self._cboot_control.switch_boot_to_standby()
             CMDHelperFuncs.reboot()
         except Exception as e:
             _err_msg = f"failed on post_rollback: {e!r}"
