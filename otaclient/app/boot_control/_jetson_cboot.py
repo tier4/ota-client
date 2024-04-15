@@ -252,12 +252,10 @@ class FirmwareBSPVersionControl:
     def __init__(
         self, current_firmware_bsp_vf: Path, standby_firmware_bsp_vf: Path
     ) -> None:
-        self._version = FirmwareBSPVersion()
         self._current_fw_bsp_vf = current_firmware_bsp_vf
         self._standby_fw_bsp_vf = standby_firmware_bsp_vf
 
-    def read_firmware_bsp_version(self):
-        """Ready firmware BSP version from current slot's fw_bsp_version file."""
+        self._version = FirmwareBSPVersion()
         try:
             self._version = FirmwareBSPVersion.model_validate_json(
                 self._current_fw_bsp_vf.read_text()
@@ -521,6 +519,7 @@ class JetsonCBootControl(BootControllerProtocol):
 
     def __init__(self) -> None:
         try:
+            # startup boot controller
             self._cboot_control = _CBootControl()
 
             # mount point prepare
@@ -530,34 +529,28 @@ class JetsonCBootControl(BootControllerProtocol):
                 active_slot_dev=self._cboot_control.cuurent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
+            current_ota_status_dir = Path(cfg.OTA_STATUS_DIR)
+            standby_ota_status_dir = self._mp_control.standby_slot_mount_point / Path(
+                cfg.OTA_STATUS_DIR
+            ).relative_to("/")
+
+            # load firmware BSP version from current rootfs slot
+            self.firmware_bsp_version = FirmwareBSPVersionControl(
+                current_firmware_bsp_vf=current_ota_status_dir
+                / cfg.FIRMWARE_BSP_VERSION_FNAME,
+                standby_firmware_bsp_vf=standby_ota_status_dir
+                / cfg.FIRMWARE_BSP_VERSION_FNAME,
+            )
+
             # init ota-status files
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=str(self._cboot_control.current_rootfs_slot),
                 standby_slot=str(self._cboot_control.standby_rootfs_slot),
-                current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
-                / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
+                current_ota_status_dir=current_ota_status_dir,
                 # NOTE: might not yet be populated before OTA update applied!
-                standby_ota_status_dir=Path(cfg.MOUNT_POINT)
-                / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
+                standby_ota_status_dir=standby_ota_status_dir,
                 finalize_switching_boot=self._cboot_control.finalize_switching_boot,
             )
-
-            # read firmware_bsp_verion from current slot
-            self.firmware_bsp_version = FirmwareBSPVersion()
-
-            fw_bsp_vf = (
-                self._ota_status_control.current_ota_status_dir
-                / self.FIRMWARE_BSA_VERSION_FNAME
-            )
-            try:
-                self.firmware_bsp_version = FirmwareBSPVersion.model_validate_json(
-                    fw_bsp_vf.read_text()
-                )
-            except Exception as e:
-                logger.warning(
-                    f"invalid or missing firmware_bsp_verion file, removed: {e!r}"
-                )
-                fw_bsp_vf.unlink(missing_ok=True)
 
         except Exception as e:
             _err_msg = f"failed to start jetson-cboot controller: {e!r}"
