@@ -126,13 +126,13 @@ def test_parse_bsp_version(_in: str, expected: BSPVersion):
     ["_template_f", "_updated_f", "partuuid"],
     (
         (
-            "exlinux.conf-r35.4.1-template1",
-            "exlinux.conf-r35.4.1-updated1",
+            "extlinux.conf-r35.4.1-template1",
+            "extlinux.conf-r35.4.1-updated1",
             "11aa-bbcc-22dd",
         ),
         (
-            "exlinux.conf-r35.4.1-template2",
-            "exlinux.conf-r35.4.1-updated2",
+            "extlinux.conf-r35.4.1-template2",
+            "extlinux.conf-r35.4.1-updated2",
             "11aa-bbcc-22dd",
         ),
     ),

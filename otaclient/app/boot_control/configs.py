@@ -78,7 +78,9 @@ class JetsonCBootControlConfig(BaseConfig):
     SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
     # refer to the standby slot
     FIRMWARE_DPATH: str = "/opt/ota_package"
-    FIRMWARE_LIST: List[str] = ["bl_only_payload", "xusb_only_payload"]
+    FIRMWARE_LIST: List[str] = field(
+        default_factory=lambda: ["bl_only_payload", "xusb_only_payload"]
+    )
     NV_TEGRA_RELEASE_FPATH: str = "/etc/nv_tegra_release"
 
 
