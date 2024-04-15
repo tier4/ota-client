@@ -61,10 +61,14 @@ class BSPVersion(NamedTuple):
     minor_rev: int
 
     @classmethod
-    def parse(cls, _in: str) -> Self:
+    def parse(cls, _in: str | BSPVersion | Any) -> Self:
         """Parse "Rxx.yy.z string into BSPVersion."""
-        major_ver, major_rev, minor_rev = _in[1:].split(".")
-        return cls(int(major_ver), int(major_rev), int(minor_rev))
+        if isinstance(_in, cls):
+            return _in
+        if isinstance(_in, str):
+            major_ver, major_rev, minor_rev = _in[1:].split(".")
+            return cls(int(major_ver), int(major_rev), int(minor_rev))
+        raise ValueError(f"expect str or BSPVersion instance, get {type(_in)}")
 
     @staticmethod
     def dump(to_export: BSPVersion) -> str:
