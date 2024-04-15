@@ -213,8 +213,14 @@ class NVUpdateEngine:
             str(payload),
             "--no-reboot",
         ]
-        logger.info(f"apply BUP {payload=}")
-        run(cmd, check=True, capture_output=True)
+        res = run(cmd, check=True, capture_output=True)
+        logger.info(
+            (
+                f"apply BUP {payload=}: \n"
+                f"stdout: {res.stdout.decode()}\n"
+                f"stderr: {res.stderr.decode()}"
+            )
+        )
 
     @classmethod
     def _nv_update_engine_unified_ab(cls, payload: Path | str):
@@ -226,8 +232,14 @@ class NVUpdateEngine:
             "--payload",
             str(payload),
         ]
-        logger.info(f"apply BUP {payload=} with unified A/B")
-        run(cmd, check=True, capture_output=True)
+        res = run(cmd, check=True, capture_output=True)
+        logger.info(
+            (
+                f"apply BUP {payload=} with unified A/B: \n"
+                f"stdout: {res.stdout.decode()}\n"
+                f"stderr: {res.stderr.decode()}"
+            )
+        )
 
     @classmethod
     def apply_firmware_update(cls, payload: Path | str, *, unified_ab: bool) -> None:
@@ -236,7 +248,7 @@ class NVUpdateEngine:
         return cls._nv_update_engine(payload)
 
     @classmethod
-    def verify_update(cls) -> CompletedProcess:
+    def verify_update(cls) -> CompletedProcess[bytes]:
         """Dump the nv_update_engine update verification.
 
         NOTE: no exception will be raised, the caller MUST check the
@@ -427,9 +439,13 @@ class _CBootControl:
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
             f"{self.standby_rootfs_devpath}"
         ).strip()
+        current_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
+            current_rootfs_devpath
+        ).strip()
+
         logger.info(
             "finish detecting rootfs devs: \n"
-            f"active_slot({current_rootfs_slot}): {self.cuurent_rootfs_devpath=}\n"
+            f"active_slot({current_rootfs_slot}): {self.cuurent_rootfs_devpath=}, {current_rootfs_dev_partuuid=}\n"
             f"standby_slot({standby_rootfs_slot}): {self.standby_rootfs_devpath=}, {self.standby_rootfs_dev_partuuid=}"
         )
 
@@ -565,7 +581,9 @@ class JetsonCBootControl(BootControllerProtocol):
             self._firmware_ver_control.write_current_firmware_bsp_version()
             return False
 
-        logger.info(f"nv_update_engine verify succeeded: \n{_update_result.stdout}")
+        logger.info(
+            f"nv_update_engine verify succeeded: \n{_update_result.stdout.decode()}"
+        )
         return True
 
     def _copy_standby_slot_boot_to_internal_emmc(self):
