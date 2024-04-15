@@ -73,6 +73,7 @@ class JetsonCBootControlConfig(BaseConfig):
     TEGRA_CHIP_ID_PATH: str = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
     CHIP_ID_MODEL_MAP: Dict[int, str] = field(default_factory=lambda: {0x19: "rqx_580"})
     OTA_STATUS_DIR: str = "/boot/ota-status"
+    FIRMWARE_BSP_VERSION_FNAME: str = "firmware_bsp_version"
     EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
     SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
     # refer to the standby slot

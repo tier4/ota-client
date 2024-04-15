@@ -20,7 +20,7 @@ import os
 import re
 from functools import partial
 from pathlib import Path
-from subprocess import run, CalledProcessError
+from subprocess import CompletedProcess, run, CalledProcessError
 from typing import Any, Generator, NamedTuple, Literal, Optional
 
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
@@ -242,9 +242,18 @@ class NVUpdateEngine:
         cls._nv_update_engine(payload)
 
     @classmethod
-    def verify_update(cls) -> str:
-        """Dump the nv_update_engine update verification."""
+    def verify_update(cls) -> CompletedProcess:
+        """Dump the nv_update_engine update verification.
+
+        NOTE: no exception will be raised, the caller should check the
+            call result by themselves.
+
+        Returns:
+            A CompletedProcess object with the call result.
+        """
         cmd = [cls.NV_UPDATE_ENGINE, "--verify"]
+        return run(cmd, check=False, capture_output=True)
+
 
 class FirmwareBSPVersionControl:
     """firmware_bsp_version ota-status file for tracking firmware version."""
@@ -446,23 +455,6 @@ class _CBootControl:
     def external_rootfs_enabled(self) -> bool:
         return self.external_rootfs
 
-    def finalize_switching_boot(self) -> bool:
-        """Dump information after OTA reboot, this method always return True.
-
-        Actually we don't need to do anything for finalizing jetson-cboot, as:
-
-            1. if rootfs/bootloader boots failed, jetson boot will automatically
-                fallback to previous slot. This situation can be handled by OTAStatusFilesControl.
-
-            2. if boot switches successfully, the jetson boot will automatically
-                set the status of slots to success.
-        """
-        try:
-            logger.info(f"nv_update_engine verify: \n{NVUpdateEngine.verify_update()}")
-        except CalledProcessError as e:
-            logger.warning(f"failed to dump info: {e!r}")
-        return True
-
     def set_standby_rootfs_unbootable(self):
         _NVBootctrl.set_slot_as_unbootable(self.standby_rootfs_slot, target="rootfs")
 
@@ -515,8 +507,6 @@ class _CBootControl:
 class JetsonCBootControl(BootControllerProtocol):
     """BootControllerProtocol implementation for jetson-cboot."""
 
-    FIRMWARE_BSA_VERSION_FNAME = "firmware_bsp_version"
-
     def __init__(self) -> None:
         try:
             # startup boot controller
@@ -549,12 +539,37 @@ class JetsonCBootControl(BootControllerProtocol):
                 current_ota_status_dir=current_ota_status_dir,
                 # NOTE: might not yet be populated before OTA update applied!
                 standby_ota_status_dir=standby_ota_status_dir,
-                finalize_switching_boot=self._cboot_control.finalize_switching_boot,
+                finalize_switching_boot=self._finalize_switching_boot,
             )
 
         except Exception as e:
             _err_msg = f"failed to start jetson-cboot controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
+
+    def _finalize_switching_boot(self) -> bool:
+        """Verify the firmware update result.
+
+        If firmware update failed(updated bootloader slot boot failed), clear the according slot's
+            firmware_bsp_version information.
+        """
+        _update_result = NVUpdateEngine.verify_update()
+        if (retcode := _update_result.returncode) != 0:
+            _err_msg = (
+                f"The previous firmware update failed(verify return {retcode}): \n"
+                f"stderr: {_update_result.stderr}\n"
+                f"stdout: {_update_result.stdout}\n"
+                "failing the OTA and clear firmware version due to new bootloader slot boot failed."
+            )
+            logger.error(_err_msg)
+
+            # NOTE that we are after OTA first reboot, so the newly updated slot is the current slot.
+            _current_slot = self._cboot_control.current_bootloader_slot
+            self.firmware_bsp_version.set_version_by_slot(_current_slot, None)
+            self.firmware_bsp_version.write_current_firmware_bsp_version()
+            return False
+
+        logger.info(f"nv_update_engine verify succeeded: \n{_update_result.stdout}")
+        return True
 
     def _copy_standby_slot_boot_to_internal_emmc(self):
         """Copy the standby slot's /boot to internal emmc dev.
@@ -632,7 +647,7 @@ class JetsonCBootControl(BootControllerProtocol):
         """
         logger.info("jetson-cboot: entering nv firmware update ...")
         standby_bootloader_slot = self._cboot_control.standby_bootloader_slot
-        standby_firmware_bsp_ver = self.firmware_bsp_version.get_bsp_ver_by_slot(
+        standby_firmware_bsp_ver = self.firmware_bsp_version.get_version_by_slot(
             standby_bootloader_slot
         )
         logger.info(f"{standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}")
@@ -656,7 +671,6 @@ class JetsonCBootControl(BootControllerProtocol):
             return
 
         # ------ preform firmware update ------ #
-        # TODO: /opt/ota_package config and firmware configs
         firmware_dpath = self._mp_control.standby_slot_mount_point / Path(
             cfg.FIRMWARE_DPATH
         ).relative_to("/")
@@ -682,25 +696,11 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.info(
                 f"nv_firmware: successfully apply firmware to {self._cboot_control.standby_rootfs_slot=}"
             )
-            self.firmware_bsp_version.set_bsp_ver_by_slot(
+            self.firmware_bsp_version.set_version_by_slot(
                 standby_bootloader_slot, new_bsp_v
             )
             return True
         logger.info("no firmware payload BUP available, skip firmware update")
-
-    def _write_firmware_bsp_version(self) -> None:
-        """Write instance firmware_bsp_version to firmware_bsp_version file."""
-        _fw_bsp_v_json = self.firmware_bsp_version.model_dump_json()
-        current_version_file = (
-            self._ota_status_control.current_ota_status_dir
-            / self.FIRMWARE_BSA_VERSION_FNAME
-        )
-        standby_version_file = (
-            self._ota_status_control.standby_ota_status_dir
-            / self.FIRMWARE_BSA_VERSION_FNAME
-        )
-        write_str_to_file_sync(standby_version_file, _fw_bsp_v_json)
-        write_str_to_file_sync(current_version_file, _fw_bsp_v_json)
 
     # APIs
 
@@ -743,8 +743,9 @@ class JetsonCBootControl(BootControllerProtocol):
 
             # ------ firmware update ------ #
             if self._nv_firmware_update():
-                # firmware updated, update the firmware_bsp_version file
-                self._write_firmware_bsp_version()
+                # update the firmware_bsp_version file on firmware update applied
+                self.firmware_bsp_version.write_standby_firmware_bsp_version()
+                self.firmware_bsp_version.write_current_firmware_bsp_version()
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             self._preserve_ota_config_files_to_standby()
