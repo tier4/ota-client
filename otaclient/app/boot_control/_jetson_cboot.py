@@ -92,21 +92,6 @@ class FirmwareBSPVersion(BaseModel):
     slot_a: Optional[BSPVersionStr] = None
     slot_b: Optional[BSPVersionStr] = None
 
-    def get_bsp_ver_by_slot(self, slot_id: SlotID) -> Optional[BSPVersion]:
-        if slot_id == "0":
-            return self.slot_a
-        elif slot_id == "1":
-            return self.slot_b
-        raise ValueError(f"invalid {slot_id=}")
-
-    def set_bsp_ver_by_slot(self, slot_id: SlotID, bsp_ver: BSPVersion):
-        if slot_id == "0":
-            self.slot_a = bsp_ver
-        elif slot_id == "1":
-            self.slot_b = bsp_ver
-        else:
-            raise ValueError(f"invalid {slot_id=}")
-
 
 class JetsonCBootContrlError(Exception):
     """Exception types for covering jetson-cboot related errors."""
@@ -260,8 +245,51 @@ class NVUpdateEngine:
     def verify_update(cls) -> str:
         """Dump the nv_update_engine update verification."""
         cmd = [cls.NV_UPDATE_ENGINE, "--verify"]
-        res = run(cmd, check=False, capture_output=True)
-        return res.stdout.decode()
+
+class FirmwareBSPVersionControl:
+    """firmware_bsp_version ota-status file for tracking firmware version."""
+
+    def __init__(
+        self, current_firmware_bsp_vf: Path, standby_firmware_bsp_vf: Path
+    ) -> None:
+        self._version = FirmwareBSPVersion()
+        self._current_fw_bsp_vf = current_firmware_bsp_vf
+        self._standby_fw_bsp_vf = standby_firmware_bsp_vf
+
+    def read_firmware_bsp_version(self):
+        """Ready firmware BSP version from current slot's fw_bsp_version file."""
+        try:
+            self._version = FirmwareBSPVersion.model_validate_json(
+                self._current_fw_bsp_vf.read_text()
+            )
+        except Exception as e:
+            logger.warning(
+                f"invalid or missing firmware_bsp_verion file, removed: {e!r}"
+            )
+            self._current_fw_bsp_vf.unlink(missing_ok=True)
+
+    def write_current_firmware_bsp_version(self) -> None:
+        """Write instance firmware_bsp_version to firmware_bsp_version file."""
+        write_str_to_file_sync(self._current_fw_bsp_vf, self._version.model_dump_json())
+
+    def write_standby_firmware_bsp_version(self) -> None:
+        """Write instance firmware_bsp_version to firmware_bsp_version file."""
+        write_str_to_file_sync(self._standby_fw_bsp_vf, self._version.model_dump_json())
+
+    def get_version_by_slot(self, slot_id: SlotID) -> Optional[BSPVersion]:
+        if slot_id == "0":
+            return self._version.slot_a
+        elif slot_id == "1":
+            return self._version.slot_b
+        raise ValueError(f"invalid {slot_id=}")
+
+    def set_version_by_slot(self, slot_id: SlotID, version: Optional[BSPVersion]):
+        if slot_id == "0":
+            self._version.slot_a = version
+        elif slot_id == "1":
+            self._version.slot_b = version
+        else:
+            raise ValueError(f"invalid {slot_id=}")
 
 
 BSP_VER_PA = re.compile(
