@@ -43,7 +43,8 @@ class BootloaderType(str, Enum):
 
     AUTO_DETECT = "auto_detect"
     GRUB = "grub"
-    CBOOT = "cboot"
+    CBOOT = "cboot"  # deprecated, use jetson-cboot instead
+    JETSON_CBOOT = "jetson-cboot"
     RPI_BOOT = "rpi_boot"
 
     @staticmethod
