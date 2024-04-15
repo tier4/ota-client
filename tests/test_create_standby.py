@@ -22,7 +22,6 @@ from pytest_mock import MockerFixture
 
 from otaclient.app.boot_control import BootControllerProtocol
 from otaclient.app.configs import config as otaclient_cfg
-from otaclient.app.proto import wrapper
 
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
@@ -65,7 +64,6 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: MockerFixture, prepare_ab_slots):
-        from otaclient.app.proxy_info import ProxyInfo
         from otaclient.app.configs import BaseConfig
 
         # ------ mock boot_controller ------ #

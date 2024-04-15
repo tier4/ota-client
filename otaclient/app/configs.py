@@ -17,6 +17,11 @@ from enum import Enum, auto
 from logging import INFO
 from typing import Dict, Tuple
 
+from otaclient.configs.ecu_info import ecu_info
+from otaclient.configs.proxy_info import proxy_info
+
+ecu_info, proxy_info = ecu_info, proxy_info  # to prevent static check warnings
+
 
 class CreateStandbyMechanism(Enum):
     LEGACY = 0  # deprecated and removed

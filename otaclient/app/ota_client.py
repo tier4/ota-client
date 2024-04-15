@@ -36,9 +36,8 @@ from .common import (
     RetryTaskMap,
     RetryTaskMapInterrupted,
 )
-from .configs import config as cfg
+from .configs import config as cfg, ecu_info
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
-from .ecu_info import ECUInfo
 from .interface import OTAClientProtocol
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
@@ -290,6 +289,7 @@ class _OTAUpdater:
         logger.info("finished updating standby slot")
 
     def _process_persistents(self):
+        logger.info("start persist files handling...")
         standby_slot_mp = Path(cfg.MOUNT_POINT)
 
         _handler = PersistFilesHandler(
@@ -317,6 +317,7 @@ class _OTAUpdater:
                     _swapfile_size = get_file_size(_per_fpath, units="MiB")
                     assert _swapfile_size is not None, f"{_per_fpath} doesn't exist"
                     create_swapfile(_new_swapfile, _swapfile_size)
+                    logger.warning(f"create {_new_swapfile} with {_swapfile_size=}")
                 except Exception as e:
                     logger.warning(
                         f"failed to create swapfile {_per_fpath} to standby slot, skip: {e!r}"
@@ -664,7 +665,6 @@ class OTAServicer:
         self,
         *,
         control_flags: OTAClientControlFlags,
-        ecu_info: ECUInfo,
         executor: Optional[ThreadPoolExecutor] = None,
         otaclient_version: str = __version__,
         proxy: Optional[str] = None,
@@ -694,7 +694,7 @@ class OTAServicer:
         self._otaclient_inst: Optional[OTAClient] = None
 
         # select boot_controller and standby_slot implementations
-        _bootctrl_cls = get_boot_controller(ecu_info.get_bootloader())
+        _bootctrl_cls = get_boot_controller(ecu_info.bootloader)
         _standby_slot_creator = get_standby_slot_creator(cfg.STANDBY_CREATION_MODE)
 
         # boot controller starts up

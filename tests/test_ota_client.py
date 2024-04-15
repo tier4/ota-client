@@ -29,8 +29,7 @@ from otaclient.app.boot_control.configs import BootloaderType
 from otaclient.app.create_standby import StandbySlotCreatorProtocol
 from otaclient.app.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.app.configs import config as otaclient_cfg
-from otaclient.app.ecu_info import ECUInfo
-from otaclient.app.errors import OTAError, OTAErrorRecoverable
+from otaclient.app.errors import OTAErrorRecoverable
 from otaclient.app.ota_client import (
     OTAClient,
     _OTAUpdater,
@@ -40,6 +39,7 @@ from otaclient.app.ota_client import (
 from otaclient.app.ota_metadata import parse_regulars_from_txt, parse_dirs_from_txt
 from otaclient.app.proto.wrapper import RegularInf, DirectoryInf
 from otaclient.app.proto import wrapper
+from otaclient.configs.ecu_info import ECUInfo
 
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
@@ -358,11 +358,10 @@ class Test_OTAClient:
 
 
 class TestOTAServicer:
-    BOOTLOADER_TYPE = BootloaderType.GRUB
     ECU_INFO = ECUInfo(
         format_version=1,
         ecu_id="my_ecu_id",
-        bootloader=BOOTLOADER_TYPE.value,
+        bootloader=BootloaderType.GRUB,
         available_ecu_ids=["my_ecu_id"],
         secondaries=[],
     )
@@ -388,15 +387,16 @@ class TestOTAServicer:
             f"{cfg.OTACLIENT_MODULE_PATH}.get_standby_slot_creator",
             return_value=self.standby_slot_creator_cls,
         )
+        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.ecu_info", self.ECU_INFO)
 
         #
         # ------ start OTAServicer instance ------
         #
         self.local_use_proxy = ""
         self.otaclient_stub = OTAServicer(
-            ecu_info=self.ECU_INFO,
             executor=self._executor,
             control_flags=self.control_flags,
+            otaclient_version="otaclient test version",
             proxy=self.local_use_proxy,
         )
 
