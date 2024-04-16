@@ -145,7 +145,7 @@ class _NVBootctrl:
         NOTE: this method is implemented with nvbootctrl get-current-slot.
         """
         current_slot = cls.get_current_slot(target=target)
-        return SlotID("0") if current_slot == "1" else SlotID("0")
+        return SlotID("0") if current_slot == "1" else SlotID("1")
 
     @classmethod
     def set_active_boot_slot(
@@ -592,6 +592,7 @@ class JetsonCBootControl(BootControllerProtocol):
         This method is involved when external rootfs is enabled, aligning with
             the behavior of the NVIDIA flashing script.
 
+        WARNING: DO NOT call this method if we are not booted from external rootfs!
         NOTE: at the time this method is called, the /boot folder at
             standby slot rootfs MUST be fully setup!
         """
