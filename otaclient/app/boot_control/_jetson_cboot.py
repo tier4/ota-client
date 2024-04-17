@@ -411,7 +411,7 @@ class _CBootControl:
             logger.warning("this might indicates a failed previous firmware update")
 
         # ------ detect rootfs_dev and parent_dev ------ #
-        self.cuurent_rootfs_devpath = current_rootfs_devpath = (
+        self.curent_rootfs_devpath = current_rootfs_devpath = (
             CMDHelperFuncs.get_current_rootfs_dev().strip()
         )
         self.parent_devpath = parent_devpath = Path(
@@ -445,7 +445,7 @@ class _CBootControl:
 
         logger.info(
             "finish detecting rootfs devs: \n"
-            f"active_slot({current_rootfs_slot}): {self.cuurent_rootfs_devpath=}, {current_rootfs_dev_partuuid=}\n"
+            f"active_slot({current_rootfs_slot}): {self.curent_rootfs_devpath=}, {current_rootfs_dev_partuuid=}\n"
             f"standby_slot({standby_rootfs_slot}): {self.standby_rootfs_devpath=}, {self.standby_rootfs_dev_partuuid=}"
         )
 
@@ -530,7 +530,7 @@ class JetsonCBootControl(BootControllerProtocol):
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._cboot_control.standby_rootfs_devpath,
                 standby_slot_mount_point=cfg.MOUNT_POINT,
-                active_slot_dev=self._cboot_control.cuurent_rootfs_devpath,
+                active_slot_dev=self._cboot_control.curent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
             current_ota_status_dir = Path(cfg.OTA_STATUS_DIR)
