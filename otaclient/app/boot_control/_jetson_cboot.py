@@ -139,6 +139,14 @@ class _NVBootctrl:
         return SlotID(res.strip())
 
     @classmethod
+    def mark_boot_successful(
+        cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
+    ) -> None:
+        """Mark current slot as GOOD."""
+        cmd = "mark-boot-successful"
+        cls._nvbootctrl(cmd, slot_id, target=target)
+
+    @classmethod
     def get_standby_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
         """Prints standby SLOT.
 
@@ -560,29 +568,37 @@ class JetsonCBootControl(BootControllerProtocol):
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _finalize_switching_boot(self) -> bool:
-        """Verify the firmware update result.
-
+        """
         If firmware update failed(updated bootloader slot boot failed), clear the according slot's
             firmware_bsp_version information to force firmware update in next OTA.
+        Also if unified A/B is NOT enabled and everything is alright, execute mark-boot-success <cur_slot>
+            to mark the current booted rootfs boots successfully.
         """
-        _update_result = NVUpdateEngine.verify_update()
-        if (retcode := _update_result.returncode) != 0:
+        current_boot_slot = self._cboot_control.current_bootloader_slot
+        current_rootfs_slot = self._cboot_control.current_rootfs_slot
+
+        update_result = NVUpdateEngine.verify_update()
+        if (retcode := update_result.returncode) != 0:
             _err_msg = (
                 f"The previous firmware update failed(verify return {retcode}): \n"
-                f"stderr: {_update_result.stderr}\n"
-                f"stdout: {_update_result.stdout}\n"
+                f"stderr: {update_result.stderr}\n"
+                f"stdout: {update_result.stdout}\n"
                 "failing the OTA and clear firmware version due to new bootloader slot boot failed."
             )
             logger.error(_err_msg)
 
             # NOTE: always only change current slots firmware_bsp_version file here.
-            _current_slot = self._cboot_control.current_bootloader_slot
-            self._firmware_ver_control.set_version_by_slot(_current_slot, None)
+            self._firmware_ver_control.set_version_by_slot(current_boot_slot, None)
             self._firmware_ver_control.write_current_firmware_bsp_version()
             return False
 
+        # NOTE(20240417): rootfs slot is manually switched by set-active-boot-slot,
+        #   so we need to manually set the slot as success after first reboot.
+        if not self._cboot_control.unified_ab_enabled:
+            _NVBootctrl.mark_boot_successful(current_rootfs_slot, target="rootfs")
+
         logger.info(
-            f"nv_update_engine verify succeeded: \n{_update_result.stdout.decode()}"
+            f"nv_update_engine verify succeeded: \n{update_result.stdout.decode()}"
         )
         return True
 
