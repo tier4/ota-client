@@ -17,26 +17,13 @@ from __future__ import annotations
 
 import atexit
 import logging
-import os
-import yaml
+import requests
 from queue import Queue
 from threading import Event, Thread
 from urllib.parse import urljoin
 
-import requests
-
 import otaclient
-from .configs import config as cfg
-
-
-# NOTE: EcuInfo imports this log_setting so independent get_ecu_id are required.
-def get_ecu_id():
-    try:
-        with open(cfg.ECU_INFO_FILE) as f:
-            ecu_info = yaml.load(f, Loader=yaml.SafeLoader)
-            return ecu_info["ecu_id"]
-    except Exception:
-        return "autoware"
+from .configs import config as cfg, ecu_info, proxy_info
 
 
 class _LogTeeHandler(logging.Handler):
@@ -99,25 +86,15 @@ def configure_logging():
         _logger = logging.getLogger(_module_name)
         _logger.setLevel(_log_level)
 
-    # NOTE(20240306): for only god knows reason, although in proxy_info.yaml,
-    #   the logging_server field is assigned with an URL, and otaclient
-    #   expects an URL, the run.sh from autoware_ecu_system_setup pass in
-    #   HTTP_LOGGING_SERVER with URL schema being removed!?
-    # NOTE: I will do a quick fix here as I don't want to touch autoware_ecu_system_setup
-    #   for now, leave it in the future.
-    if iot_logger_url := os.environ.get("HTTP_LOGGING_SERVER"):
-        # special treatment for not-a-URL passed in by run.sh
-        # note that we only support http, the proxy_info.yaml should be properly setup.
-        if not (iot_logger_url.startswith("http") or iot_logger_url.startswith("HTTP")):
-            iot_logger_url = f"http://{iot_logger_url.strip('/')}"
-        iot_logger_url = f"{iot_logger_url.strip('/')}/"
+    if iot_logger_url := proxy_info.logging_server:
+        iot_logger_url = f"{str(iot_logger_url).strip('/')}/"
 
         ch = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
         ch.setFormatter(fmt)
 
         # star the logging thread
-        log_upload_endpoint = urljoin(iot_logger_url, get_ecu_id())
+        log_upload_endpoint = urljoin(iot_logger_url, ecu_info.ecu_id)
         ch.start_upload_thread(log_upload_endpoint)
 
         # NOTE: "otaclient" logger will be the root logger for all loggers name

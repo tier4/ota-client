@@ -13,39 +13,13 @@
 # limitations under the License.
 
 
+from __future__ import annotations
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Dict
 
 from ..configs import BaseConfig
 
-
-class BootloaderType(Enum):
-    """Bootloaders that supported by otaclient.
-
-    grub: generic x86_64 platform with grub
-    cboot: ADLink rqx-580, rqx-58g, with BSP 32.5.x
-        (theoretically other Nvidia jetson xavier devices using cboot are also supported)
-    rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28
-    """
-
-    UNSPECIFIED = "unspecified"
-    GRUB = "grub"
-    CBOOT = "cboot"
-    RPI_BOOT = "rpi_boot"
-
-    @classmethod
-    def parse_str(cls, _input: str) -> "BootloaderType":
-        res = cls.UNSPECIFIED
-        try:  # input is enum key(capitalized)
-            res = BootloaderType[_input]
-        except KeyError:
-            pass
-        try:  # input is enum value(uncapitalized)
-            res = BootloaderType(_input)
-        except ValueError:
-            pass
-        return res
+from otaclient.configs.ecu_info import BootloaderType
 
 
 @dataclass
