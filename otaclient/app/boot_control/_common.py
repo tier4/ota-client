@@ -14,13 +14,14 @@
 r"""Shared utils for boot_controller."""
 
 
+from __future__ import annotations
 import logging
 import os
 import shutil
 import sys
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Optional, Union, Callable, NoReturn
+from typing import List, Literal, Optional, Union, Callable, NoReturn
 
 from ._errors import (
     BootControlError,
@@ -40,6 +41,14 @@ from ..proto import wrapper
 
 
 logger = logging.getLogger(__name__)
+
+# fmt: off
+PartitionToken = Literal[
+    "UUID", "PARTUUID",
+    "LABEL", "PARTLABEL",
+    "TYPE",
+]
+# fmt: on
 
 
 class CMDHelperFuncs:
@@ -74,6 +83,8 @@ class CMDHelperFuncs:
     @staticmethod
     def _findfs(key: str, value: str) -> str:
         """
+        DEPRECATED, use blkid instead.
+
         findfs finds a partition by conditions
         Usage:
             findfs [options] {LABEL,UUID,PARTUUID,PARTLABEL}=<value>
@@ -147,15 +158,29 @@ class CMDHelperFuncs:
 
     @classmethod
     def get_dev_by_partlabel(cls, partlabel: str) -> str:
+        """DEPRECATED, use get_dev_by_token instead"""
         return cls._findfs("PARTLABEL", partlabel)
 
     @classmethod
     def get_dev_by_fslabel(cls, fslabel: str) -> str:
+        """DEPRECATED, use get_dev_by_token instead"""
         return cls._findfs("LABEL", fslabel)
 
     @classmethod
     def get_dev_by_partuuid(cls, partuuid: str) -> str:
+        """DEPRECATED, use get_dev_by_token instead"""
         return cls._findfs("PARTUUID", partuuid)
+
+    @classmethod
+    def get_dev_by_token(cls, token: PartitionToken, value: str) -> list[str]:
+        """Get a list of device(s) that matches the token=value pair.
+
+        This is implemented by calling:
+            blkid -o device -t <TOKEN>=<VALUE>
+        """
+        cmd = ["blkid", "-o", "device", "-t", f"{token}={value}"]
+        res = subprocess_check_output(cmd).strip()
+        return res.splitlines()
 
     @classmethod
     def get_current_rootfs_dev(cls) -> str:
