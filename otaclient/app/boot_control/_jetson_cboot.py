@@ -11,7 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Boot control implementation for NVIDIA Jetson device boot with cboot."""
+"""Boot control implementation for NVIDIA Jetson device boots with cboot.
+
+Supports BSP version < R34.
+"""
 
 
 from __future__ import annotations
@@ -53,6 +56,7 @@ class JetsonCBootContrlError(Exception):
 class _NVBootctrl(NVBootctrlCommon):
     """Helper for calling nvbootctrl commands.
 
+    For BSP version < R34.
     Without -t option, the target will be bootloader by default.
     """
 
