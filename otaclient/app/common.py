@@ -143,17 +143,18 @@ def subprocess_call(cmd: str | list[str], *, raise_exception=False):
             raise
 
 
-def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> str:
+def subprocess_check_output(
+    cmd: str | list[str], *, raise_exception=False, default=""
+) -> str:
     """
     Raises:
         a ValueError containing information about the failure.
     """
     try:
-        return (
-            subprocess.check_output(shlex.split(cmd), stderr=subprocess.PIPE)
-            .decode()
-            .strip()
-        )
+        if isinstance(cmd, str):
+            cmd = shlex.split(cmd)
+
+        return subprocess.check_output(cmd, stderr=subprocess.PIPE).decode().strip()
     except subprocess.CalledProcessError as e:
         msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
         logger.debug(msg)
