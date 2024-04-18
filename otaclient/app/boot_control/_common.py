@@ -51,25 +51,25 @@ class CMDHelperFuncs:
         dev: str,
         mount_point: str,
         *,
+        fstype: Optional[str] = None,
         options: Optional[List[str]] = None,
         args: Optional[List[str]] = None,
     ):
         """
-        mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
+        mount [-t <fstype>] [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
 
         Raises:
             MountError on failed mounting.
         """
-        _option_str = ""
+        cmd = ["mount"]
+        if fstype:
+            cmd.extend(["-t", fstype])
         if options:
-            _option_str = f"-o {','.join(options)}"
-
-        _args_str = ""
-        if args:
-            _args_str = f"{' '.join(args)}"
-
-        _cmd = f"mount {_option_str} {_args_str} {dev} {mount_point}"
-        subprocess_call(_cmd, raise_exception=True)
+            cmd.extend(["-o", ",".join(options)])
+        if isinstance(args, list) and args:
+            cmd.extend(args)
+        cmd.extend([dev, mount_point])
+        subprocess_call(cmd, raise_exception=True)
 
     @staticmethod
     def _findfs(key: str, value: str) -> str:
