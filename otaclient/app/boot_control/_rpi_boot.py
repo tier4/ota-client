@@ -327,26 +327,6 @@ class _RPIBootControl:
             logger.error(_err_msg)
             return False
 
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        # try umount and dev
-        if CMDHelperFuncs.is_target_mounted(self.standby_slot_dev):
-            CMDHelperFuncs.umount(self.standby_slot_dev)
-        try:
-            if erase_standby:
-                CMDHelperFuncs.mkfs_ext4(
-                    self.standby_slot_dev,
-                    fslabel=self.standby_slot,
-                )
-            else:
-                # TODO: check the standby file system status
-                #       if not erase the standby slot
-                # set the standby file system label with standby slot id
-                CMDHelperFuncs.set_dev_fslabel(self.active_slot_dev, self.standby_slot)
-        except Exception as e:
-            _err_msg = f"failed to prepare standby dev: {e!r}"
-            logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg) from e
-
     def prepare_tryboot_txt(self):
         """Copy the standby slot's config.txt as tryboot.txt."""
         logger.debug("prepare tryboot.txt...")
@@ -496,7 +476,11 @@ class RPIBootController(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._rpiboot_control.prepare_standby_dev(erase_standby=erase_standby)
+            self._mp_control.prepare_standby_dev(
+                erase_standby=erase_standby,
+                fslabel=self._rpiboot_control.standby_slot,
+            )
+
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
 
