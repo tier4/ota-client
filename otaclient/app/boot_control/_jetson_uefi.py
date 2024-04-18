@@ -59,6 +59,8 @@ class _NVBootctrl(NVBootctrlCommon):
     Without -t option, the target will be bootloader by default.
     """
 
+    CAPSULE_UPDATE_PATTERN = re.compile(r"Capsule update status: (?P<status>\d+)")
+
     @classmethod
     def get_capsule_update_result(cls) -> str:
         """Check the Capsule update status.
@@ -78,8 +80,7 @@ class _NVBootctrl(NVBootctrlCommon):
         slots_info = cls.dump_slots_info()
         logger.info(f"checking Capsule update result: \n{slots_info}")
 
-        pattern = re.compile(r"Capsule update status: (?P<status>\d+)")
-        ma = pattern.search(slots_info)
+        ma = cls.CAPSULE_UPDATE_PATTERN.search(slots_info)
         assert ma, "failed to get Capsule update result"
 
         update_result = ma.group("status")
@@ -91,29 +92,33 @@ class CapsuleUpdate:
 
     EFIVARS_FSTYPE = "efivarfs"
 
-    def __init__(self, boot_devpath: Path | str, standby_slot_mp: Path | str) -> None:
+    def __init__(
+        self, boot_parent_devpath: Path | str, standby_slot_mp: Path | str
+    ) -> None:
         # NOTE: use the esp partition at the current booted device
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
         #   we use the esp at nvme0n1.
-        boot_devpath = str(boot_devpath)
+        boot_parent_devpath = str(boot_parent_devpath)
         self.esp_mp = boot_cfg.ESP_MOUNTPOINT
 
         # NOTE: we get the update capsule from the standby slot
         self.standby_slot_mp = Path(standby_slot_mp)
 
-        # if boots from external, expects to have multiple esp parts, we need to get the one at our booted dev
+        # NOTE: if boots from external, expects to have multiple esp parts,
+        #   we need to get the one at our booted parent dev.
         esp_parts = CMDHelperFuncs.get_dev_by_token(
             token="PARTLABEL", value=boot_cfg.ESP_PARTLABEL
         )
         for _esp_part in esp_parts:
-            if _esp_part.find(boot_devpath) != -1:
+            if _esp_part.find(boot_parent_devpath) != -1:
                 logger.info(f"find esp partition at {_esp_part}")
-                self.esp_part = _esp_part
+                esp_part = _esp_part
                 break
         else:
-            _err_msg = f"failed to find esp partition on {boot_devpath}"
+            _err_msg = f"failed to find esp partition on {boot_parent_devpath}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
+        self.esp_part = esp_part
 
     @classmethod
     def _ensure_efivarfs_mounted(cls) -> None:
@@ -140,9 +145,9 @@ class CapsuleUpdate:
         try:
             CMDHelperFuncs.mount_rw(self.esp_part, self.esp_mp)
         except Exception as e:
-            raise JetsonUEFIBootControlError(
-                f"failed to mount {self.esp_part} onto {self.esp_mp}: {e!r}"
-            )
+            _err_msg = f"failed to mount {self.esp_part=} to {self.esp_mp}: {e!r}"
+            logger.error(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg) from e
 
         capsule_payload_location = Path(self.esp_mp) / boot_cfg.CAPSULE_PAYLOAD_LOCATION
         try:
@@ -246,15 +251,14 @@ class _UEFIBoot:
                 f"unsupported bootdev {parent_devpath}"
             )
 
-        # rootfs partition
         self.standby_rootfs_devpath = (
             f"/dev/{parent_devname}p{self._slot_id_partid[standby_slot]}"
         )
-        self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
-            f"{self.standby_rootfs_devpath}"
+        self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+            "PARTUUID", f"{self.standby_rootfs_devpath}"
         ).strip()
-        current_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
-            current_rootfs_devpath
+        current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+            "PARTUUID", current_rootfs_devpath
         ).strip()
 
         logger.info(
@@ -466,7 +470,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
             # ------ firmware update ------ #
             firmware_updater = CapsuleUpdate(
-                boot_devpath=self._uefi_control.parent_devpath,
+                boot_parent_devpath=self._uefi_control.parent_devpath,
                 standby_slot_mp=self._mp_control.standby_slot_mount_point,
             )
             firmware_updater.firmware_update()
