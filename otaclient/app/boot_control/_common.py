@@ -781,6 +781,14 @@ class SlotMountHelper:
         except Exception as e:
             raise ValueError(f"failed to copy /boot/ota from active to standby: {e!r}")
 
+    def prepare_standby_dev(self, *, erase_standby: bool = False) -> None:
+        CMDHelperFuncs.umount(self.standby_slot_dev, ignore_error=True)
+
+        if erase_standby:
+            CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev)
+        # TODO: in the future if in-place update mode is implemented, do a
+        #   fschck over the standby slot file system.
+
     def umount_all(self, *, ignore_error: bool = False):
         logger.debug("unmount standby slot and active slot mount point...")
         CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
