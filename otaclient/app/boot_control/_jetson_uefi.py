@@ -25,9 +25,10 @@ import re
 import shutil
 from functools import partial
 from pathlib import Path
-from typing import Generator, Literal
+from typing import Generator
 
 from otaclient.app import errors as ota_errors
+from otaclient.app.configs import config as cfg
 from otaclient.app.common import copytree_identical, write_str_to_file_sync
 from otaclient.app.proto import wrapper
 from ._common import (
@@ -35,7 +36,7 @@ from ._common import (
     SlotMountHelper,
     CMDHelperFuncs,
 )
-from .configs import cboot_cfg as cfg
+from .configs import jetson_uefi_cfg as boot_cfg
 from ._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
@@ -57,9 +58,6 @@ class _NVBootctrl(NVBootctrlCommon):
     For BSP version >= R34 with UEFI boot.
     Without -t option, the target will be bootloader by default.
     """
-
-    NVBOOTCTRL = "nvbootctrl"
-    NVBootctrlTarget = Literal["bootloader", "rootfs"]
 
     @classmethod
     def get_capsule_update_result(cls) -> str:
@@ -91,28 +89,23 @@ class _NVBootctrl(NVBootctrlCommon):
 class CapsuleUpdate:
     """Firmware update implementation using Capsule update."""
 
-    CAPSULE_PAYLOAD_LOCATION = "EFI/UpdateCapsule"
-    MAGIC_BYTES = b"\x07\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00"
-    UPDATE_TRIGGER_EFIVAR = "OsIndications-8be4df61-93ca-11d2-aa0d-00e098032b8c"
-    EFIVARS_DPATH = "/sys/firmware/efi/efivars/"
     EFIVARS_FSTYPE = "efivarfs"
-    ESP_PARTLABEL = "esp"
-    ESP_MOUNTPOINT = "/mnt/esp"
-    # TODO: move these options into uefi boot configs
-    CAPSULE_PAYLOAD_FNAME = "bl_only_payload.Cap"
 
-    def __init__(self, boot_devpath: Path | str) -> None:
+    def __init__(self, boot_devpath: Path | str, standby_slot_mp: Path | str) -> None:
         # NOTE: use the esp partition at the current booted device
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
         #   we use the esp at nvme0n1.
         self.boot_devpath = Path(boot_devpath)
         self.boot_devname = Path(boot_devpath).name
 
-        self.esp_mp = self.ESP_MOUNTPOINT
+        self.esp_mp = boot_cfg.ESP_MOUNTPOINT
+
+        # NOTE: we get the update capsule from the standby slot
+        self.standby_slot_mp = Path(standby_slot_mp)
 
         # if boots from external, expects to have multiple esp parts, we need to get the one at our booted dev
         esp_parts = CMDHelperFuncs.get_dev_by_token(
-            token="PARTLABEL", value=self.ESP_PARTLABEL
+            token="PARTLABEL", value=boot_cfg.ESP_PARTLABEL
         )
         for _esp_part in esp_parts:
             if _esp_part.find(self.boot_devname) != -1:
@@ -126,22 +119,22 @@ class CapsuleUpdate:
 
     @classmethod
     def _ensure_efivarfs_mounted(cls) -> None:
-        if CMDHelperFuncs.is_target_mounted(cls.EFIVARS_DPATH):
+        if CMDHelperFuncs.is_target_mounted(boot_cfg.EFIVARS_DPATH):
             return
 
         logger.warning(
-            f"efivars is not mounted! try to mount it at {cls.EFIVARS_DPATH}"
+            f"efivars is not mounted! try to mount it at {boot_cfg.EFIVARS_DPATH}"
         )
         try:
             CMDHelperFuncs._mount(
                 cls.EFIVARS_FSTYPE,
-                cls.EFIVARS_DPATH,
+                boot_cfg.EFIVARS_DPATH,
                 fstype=cls.EFIVARS_FSTYPE,
                 options=["rw", "nosuid", "nodev", "noexec", "relatime"],
             )
         except Exception as e:
             raise JetsonUEFIBootControlError(
-                f"failed to mount {cls.EFIVARS_FSTYPE} on {cls.EFIVARS_DPATH}: {e!r}"
+                f"failed to mount {cls.EFIVARS_FSTYPE} on {boot_cfg.EFIVARS_DPATH}: {e!r}"
             ) from e
 
     def _prepare_payload(self) -> None:
@@ -153,10 +146,11 @@ class CapsuleUpdate:
                 f"failed to mount {self.esp_part} onto {self.esp_mp}: {e!r}"
             )
 
-        capsule_payload_fpath = Path(cfg.FIRMWARE_DPATH) / self.CAPSULE_PAYLOAD_FNAME
-        capsule_payload_location = Path(self.esp_mp) / self.CAPSULE_PAYLOAD_LOCATION
+        capsule_payload_location = Path(self.esp_mp) / boot_cfg.CAPSULE_PAYLOAD_LOCATION
         try:
-            shutil.copy(capsule_payload_fpath, capsule_payload_location)
+            for capsule_fname in boot_cfg.FIRMWARE_LIST:
+                capsule_payload_fpath = self.standby_slot_mp / capsule_fname
+                shutil.copy(capsule_payload_fpath, capsule_payload_location)
         except Exception as e:
             _err_msg = f"failed to copy update Capsule from {capsule_payload_fpath} to {capsule_payload_location}: {e!r}"
             logger.error(_err_msg)
@@ -166,10 +160,12 @@ class CapsuleUpdate:
 
     def _write_efivar(self) -> None:
         """Write magic efivar to trigger firmware Capsule update in next boot."""
-        magic_efivar_fpath = Path(self.EFIVARS_DPATH) / self.UPDATE_TRIGGER_EFIVAR
+        magic_efivar_fpath = (
+            Path(boot_cfg.EFIVARS_DPATH) / boot_cfg.UPDATE_TRIGGER_EFIVAR
+        )
         try:
             with open(magic_efivar_fpath, "rb") as f:
-                f.write(self.MAGIC_BYTES)
+                f.write(boot_cfg.MAGIC_BYTES)
                 os.fsync(f.fileno())
         except Exception as e:
             _err_msg = f"failed to write magic bytes into {magic_efivar_fpath}: {e!r}"
@@ -197,15 +193,17 @@ class _UEFIBoot:
 
     def __init__(self):
         # ------ sanity check, confirm we are at jetson device ------ #
-        if not os.path.exists(cfg.TEGRA_CHIP_ID_PATH):
-            _err_msg = f"not a jetson device, {cfg.TEGRA_CHIP_ID_PATH} doesn't exist"
+        if not os.path.exists(boot_cfg.TEGRA_CHIP_ID_PATH):
+            _err_msg = (
+                f"not a jetson device, {boot_cfg.TEGRA_CHIP_ID_PATH} doesn't exist"
+            )
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
 
         # ------ check BSP version ------ #
         try:
             self.bsp_version = bsp_version = parse_bsp_version(
-                Path(cfg.NV_TEGRA_RELEASE_FPATH).read_text()
+                Path(boot_cfg.NV_TEGRA_RELEASE_FPATH).read_text()
             )
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
@@ -341,17 +339,17 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 active_slot_dev=self._uefi_control.curent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
-            current_ota_status_dir = Path(cfg.OTA_STATUS_DIR)
+            current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
             standby_ota_status_dir = self._mp_control.standby_slot_mount_point / Path(
-                cfg.OTA_STATUS_DIR
+                boot_cfg.OTA_STATUS_DIR
             ).relative_to("/")
 
             # load firmware BSP version from current rootfs slot
             self._firmware_ver_control = FirmwareBSPVersionControl(
                 current_firmware_bsp_vf=current_ota_status_dir
-                / cfg.FIRMWARE_BSP_VERSION_FNAME,
+                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
                 standby_firmware_bsp_vf=standby_ota_status_dir
-                / cfg.FIRMWARE_BSP_VERSION_FNAME,
+                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
             )
 
             # init ota-status files
@@ -412,7 +410,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             standby slot rootfs MUST be fully setup!
         """
         # mount corresponding internal emmc device
-        internal_emmc_mp = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
+        internal_emmc_mp = Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT)
         internal_emmc_mp.mkdir(exist_ok=True, parents=True)
         internal_emmc_devpath = self._uefi_control.standby_internal_emmc_devpath
 
@@ -450,12 +448,12 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def _update_standby_slot_extlinux_cfg(self):
         """update standby slot's /boot/extlinux/extlinux.conf to update root indicator."""
         src = standby_slot_extlinux = self._mp_control.standby_slot_mount_point / Path(
-            cfg.EXTLINUX_FILE
+            boot_cfg.EXTLINUX_FILE
         ).relative_to("/")
         # if standby slot doesn't have extlinux.conf installed, use current booted
         #   extlinux.conf as template source.
         if not standby_slot_extlinux.is_file():
-            src = Path(cfg.EXTLINUX_FILE)
+            src = Path(boot_cfg.EXTLINUX_FILE)
 
         # update the extlinux.conf with standby slot rootfs' partuuid
         write_str_to_file_sync(
@@ -502,7 +500,10 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             self._update_standby_slot_extlinux_cfg()
 
             # ------ firmware update ------ #
-            firmware_updater = CapsuleUpdate(self._uefi_control.parent_devpath)
+            firmware_updater = CapsuleUpdate(
+                boot_devpath=self._uefi_control.parent_devpath,
+                standby_slot_mp=self._mp_control.standby_slot_mount_point,
+            )
             firmware_updater.firmware_update()
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
