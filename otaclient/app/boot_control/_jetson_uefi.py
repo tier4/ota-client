@@ -23,7 +23,6 @@ import logging
 import os
 import re
 import shutil
-from functools import partial
 from pathlib import Path
 from typing import Generator
 
@@ -42,6 +41,7 @@ from ._jetson_common import (
     NVBootctrlCommon,
     SlotID,
     parse_bsp_version,
+    update_extlinux_cfg,
 )
 from .protocol import BootControllerProtocol
 
@@ -95,9 +95,7 @@ class CapsuleUpdate:
         # NOTE: use the esp partition at the current booted device
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
         #   we use the esp at nvme0n1.
-        self.boot_devpath = Path(boot_devpath)
-        self.boot_devname = Path(boot_devpath).name
-
+        boot_devpath = str(boot_devpath)
         self.esp_mp = boot_cfg.ESP_MOUNTPOINT
 
         # NOTE: we get the update capsule from the standby slot
@@ -108,12 +106,12 @@ class CapsuleUpdate:
             token="PARTLABEL", value=boot_cfg.ESP_PARTLABEL
         )
         for _esp_part in esp_parts:
-            if _esp_part.find(self.boot_devname) != -1:
+            if _esp_part.find(boot_devpath) != -1:
                 logger.info(f"find esp partition at {_esp_part}")
                 self.esp_part = _esp_part
                 break
         else:
-            _err_msg = f"failed to find esp partition on {self.boot_devpath}"
+            _err_msg = f"failed to find esp partition on {boot_devpath}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
 
@@ -159,7 +157,11 @@ class CapsuleUpdate:
             CMDHelperFuncs.umount(self.esp_mp, ignore_error=True)
 
     def _write_efivar(self) -> None:
-        """Write magic efivar to trigger firmware Capsule update in next boot."""
+        """Write magic efivar to trigger firmware Capsule update in next boot.
+
+        Raises:
+            JetsonUEFIBootControlError on failed Capsule update preparing.
+        """
         magic_efivar_fpath = (
             Path(boot_cfg.EFIVARS_DPATH) / boot_cfg.UPDATE_TRIGGER_EFIVAR
         )
@@ -186,9 +188,6 @@ class CapsuleUpdate:
 class _UEFIBoot:
     """Low-level boot control implementation for jetson-uefi."""
 
-    MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
-    NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
-    INTERNAL_EMMC_DEVNAME = "mmcblk0"
     _slot_id_partid = {SlotID("0"): "1", SlotID("1"): "2"}
 
     def __init__(self):
@@ -235,9 +234,9 @@ class _UEFIBoot:
 
         self._external_rootfs = False
         parent_devname = parent_devpath.name
-        if parent_devname.startswith(self.MMCBLK_DEV_PREFIX):
+        if parent_devname.startswith(boot_cfg.MMCBLK_DEV_PREFIX):
             logger.info(f"device boots from internal emmc: {parent_devpath}")
-        elif parent_devname.startswith(self.NVMESSD_DEV_PREFIX):
+        elif parent_devname.startswith(boot_cfg.NVMESSD_DEV_PREFIX):
             logger.info(f"device boots from external nvme ssd: {parent_devpath}")
             self._external_rootfs = True
         else:
@@ -265,9 +264,7 @@ class _UEFIBoot:
         )
 
         # internal emmc partition
-        self.standby_internal_emmc_devpath = (
-            f"/dev/{self.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_slot]}"
-        )
+        self.standby_internal_emmc_devpath = f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_slot]}"
 
         logger.info("finished jetson-uefi boot control startup")
         logger.info(f"nvbootctrl dump-slots-info: \n{_NVBootctrl.dump_slots_info()}")
@@ -290,38 +287,6 @@ class _UEFIBoot:
         # when unified_ab enabled, switching bootloader slot will also switch
         #   the rootfs slot.
         _NVBootctrl.set_active_boot_slot(target_slot)
-
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        CMDHelperFuncs.umount(self.standby_rootfs_devpath, ignore_error=True)
-
-        if erase_standby:
-            try:
-                CMDHelperFuncs.mkfs_ext4(self.standby_rootfs_devpath)
-            except Exception as e:
-                _err_msg = f"failed to mkfs.ext4 on standby dev: {e!r}"
-                logger.error(_err_msg)
-                raise JetsonUEFIBootControlError(_err_msg) from e
-        # TODO: in the future if in-place update mode is implemented, do a
-        #   fschck over the standby slot file system.
-
-    @staticmethod
-    def update_extlinux_cfg(_input: str, partuuid: str) -> str:
-        """Update input exlinux text with input rootfs <partuuid_str>."""
-
-        partuuid_str = f"PARTUUID={partuuid}"
-
-        def _replace(ma: re.Match, repl: str):
-            append_l: str = ma.group(0)
-            if append_l.startswith("#"):
-                return append_l
-            res, n = re.compile(r"root=[\w\-=]*").subn(repl, append_l)
-            if not n:  # this APPEND line doesn't contain root= placeholder
-                res = f"{append_l} {repl}"
-
-            return res
-
-        _repl_func = partial(_replace, repl=f"root={partuuid_str}")
-        return re.compile(r"\n\s*APPEND.*").sub(_repl_func, _input)
 
 
 class JetsonUEFIBootControl(BootControllerProtocol):
@@ -458,7 +423,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         # update the extlinux.conf with standby slot rootfs' partuuid
         write_str_to_file_sync(
             standby_slot_extlinux,
-            self._uefi_control.update_extlinux_cfg(
+            update_extlinux_cfg(
                 src.read_text(),
                 self._uefi_control.standby_rootfs_dev_partuuid,
             ),
@@ -479,7 +444,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             # prepare standby slot dev
-            self._uefi_control.prepare_standby_dev(erase_standby=erase_standby)
+            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             # mount slots
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
