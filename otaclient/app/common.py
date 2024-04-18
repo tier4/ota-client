@@ -119,7 +119,7 @@ def write_str_to_file_sync(path: Union[Path, str], input: str):
 
 
 # wrapped subprocess call
-def subprocess_call(cmd: str, *, raise_exception=False):
+def subprocess_call(cmd: str | list[str], *, raise_exception=False):
     """
 
     Raises:
@@ -128,8 +128,11 @@ def subprocess_call(cmd: str, *, raise_exception=False):
     try:
         # NOTE: we need to check the stderr and stdout when error occurs,
         # so use subprocess.run here instead of subprocess.check_call
+        if isinstance(cmd, str):
+            cmd = shlex.split(cmd)
+
         subprocess.run(
-            shlex.split(cmd),
+            cmd,
             check=True,
             capture_output=True,
         )
