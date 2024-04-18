@@ -43,6 +43,7 @@ from ._jetson_common import (
     NVBootctrlCommon,
     SlotID,
     parse_bsp_version,
+    update_extlinux_cfg,
 )
 from .protocol import BootControllerProtocol
 
@@ -60,7 +61,6 @@ class _NVBootctrl(NVBootctrlCommon):
     Without -t option, the target will be bootloader by default.
     """
 
-    NVBOOTCTRL = "nvbootctrl"
     NVBootctrlTarget = Literal["bootloader", "rootfs"]
 
     @classmethod
@@ -179,15 +179,17 @@ class _CBootControl:
 
     def __init__(self):
         # ------ sanity check, confirm we are at jetson device ------ #
-        if not os.path.exists(cfg.TEGRA_CHIP_ID_PATH):
-            _err_msg = f"not a jetson device, {cfg.TEGRA_CHIP_ID_PATH} doesn't exist"
+        if not os.path.exists(boot_cfg.TEGRA_CHIP_ID_PATH):
+            _err_msg = (
+                f"not a jetson device, {boot_cfg.TEGRA_CHIP_ID_PATH} doesn't exist"
+            )
             logger.error(_err_msg)
             raise JetsonCBootContrlError(_err_msg)
 
         # ------ check BSP version ------ #
         try:
             self.bsp_version = bsp_version = parse_bsp_version(
-                Path(cfg.NV_TEGRA_RELEASE_FPATH).read_text()
+                Path(boot_cfg.NV_TEGRA_RELEASE_FPATH).read_text()
             )
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
@@ -266,9 +268,9 @@ class _CBootControl:
 
         self._external_rootfs = False
         parent_devname = parent_devpath.name
-        if parent_devname.startswith(self.MMCBLK_DEV_PREFIX):
+        if parent_devname.startswith(boot_cfg.MMCBLK_DEV_PREFIX):
             logger.info(f"device boots from internal emmc: {parent_devpath}")
-        elif parent_devname.startswith(self.NVMESSD_DEV_PREFIX):
+        elif parent_devname.startswith(boot_cfg.NVMESSD_DEV_PREFIX):
             logger.info(f"device boots from external nvme ssd: {parent_devpath}")
             self._external_rootfs = True
         else:
@@ -296,7 +298,7 @@ class _CBootControl:
         )
 
         # internal emmc partition
-        self.standby_internal_emmc_devpath = f"/dev/{self.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_rootfs_slot]}"
+        self.standby_internal_emmc_devpath = f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_rootfs_slot]}"
 
         logger.info(f"finished cboot control init: {current_rootfs_slot=}")
         logger.info(f"nvbootctrl dump-slots-info: \n{_NVBootctrl.dump_slots_info()}")
@@ -366,17 +368,17 @@ class JetsonCBootControl(BootControllerProtocol):
                 active_slot_dev=self._cboot_control.curent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
-            current_ota_status_dir = Path(cfg.OTA_STATUS_DIR)
+            current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
             standby_ota_status_dir = self._mp_control.standby_slot_mount_point / Path(
-                cfg.OTA_STATUS_DIR
+                boot_cfg.OTA_STATUS_DIR
             ).relative_to("/")
 
             # load firmware BSP version from current rootfs slot
             self._firmware_ver_control = FirmwareBSPVersionControl(
                 current_firmware_bsp_vf=current_ota_status_dir
-                / cfg.FIRMWARE_BSP_VERSION_FNAME,
+                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
                 standby_firmware_bsp_vf=standby_ota_status_dir
-                / cfg.FIRMWARE_BSP_VERSION_FNAME,
+                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
             )
 
             # init ota-status files
@@ -438,7 +440,7 @@ class JetsonCBootControl(BootControllerProtocol):
             standby slot rootfs MUST be fully setup!
         """
         # mount corresponding internal emmc device
-        internal_emmc_mp = Path(cfg.SEPARATE_BOOT_MOUNT_POINT)
+        internal_emmc_mp = Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT)
         internal_emmc_mp.mkdir(exist_ok=True, parents=True)
         internal_emmc_devpath = self._cboot_control.standby_internal_emmc_devpath
 
@@ -480,17 +482,17 @@ class JetsonCBootControl(BootControllerProtocol):
     def _update_standby_slot_extlinux_cfg(self):
         """update standby slot's /boot/extlinux/extlinux.conf to update root indicator."""
         src = standby_slot_extlinux = self._mp_control.standby_slot_mount_point / Path(
-            cfg.EXTLINUX_FILE
+            boot_cfg.EXTLINUX_FILE
         ).relative_to("/")
         # if standby slot doesn't have extlinux.conf installed, use current booted
         #   extlinux.conf as template source.
         if not standby_slot_extlinux.is_file():
-            src = Path(cfg.EXTLINUX_FILE)
+            src = Path(boot_cfg.EXTLINUX_FILE)
 
         # update the extlinux.conf with standby slot rootfs' partuuid
         write_str_to_file_sync(
             standby_slot_extlinux,
-            self._cboot_control.update_extlinux_cfg(
+            update_extlinux_cfg(
                 src.read_text(),
                 self._cboot_control.standby_rootfs_dev_partuuid,
             ),
@@ -512,7 +514,7 @@ class JetsonCBootControl(BootControllerProtocol):
 
         # ------ check if we need to do firmware update ------ #
         _new_bsp_v_fpath = self._mp_control.standby_slot_mount_point / Path(
-            cfg.NV_TEGRA_RELEASE_FPATH
+            boot_cfg.NV_TEGRA_RELEASE_FPATH
         ).relative_to("/")
         try:
             new_bsp_v = parse_bsp_version(_new_bsp_v_fpath.read_text())
@@ -530,11 +532,11 @@ class JetsonCBootControl(BootControllerProtocol):
 
         # ------ preform firmware update ------ #
         firmware_dpath = self._mp_control.standby_slot_mount_point / Path(
-            cfg.FIRMWARE_DPATH
+            boot_cfg.FIRMWARE_DPATH
         ).relative_to("/")
 
         _firmware_applied = False
-        for firmware_fname in cfg.FIRMWARE_LIST:
+        for firmware_fname in boot_cfg.FIRMWARE_LIST:
             if (firmware_fpath := firmware_dpath / firmware_fname).is_file():
                 logger.info(f"nv_firmware: apply {firmware_fpath} ...")
                 try:

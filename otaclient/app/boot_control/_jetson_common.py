@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
@@ -241,3 +242,22 @@ def parse_bsp_version(nv_tegra_release: str) -> BSPVersion:
         int(ma.group("major_rev")),
         int(ma.group("minor_rev")),
     )
+
+
+def update_extlinux_cfg(_input: str, partuuid: str) -> str:
+    """Update input exlinux text with input rootfs <partuuid_str>."""
+
+    partuuid_str = f"PARTUUID={partuuid}"
+
+    def _replace(ma: re.Match, repl: str):
+        append_l: str = ma.group(0)
+        if append_l.startswith("#"):
+            return append_l
+        res, n = re.compile(r"root=[\w\-=]*").subn(repl, append_l)
+        if not n:  # this APPEND line doesn't contain root= placeholder
+            res = f"{append_l} {repl}"
+
+        return res
+
+    _repl_func = partial(_replace, repl=f"root={partuuid_str}")
+    return re.compile(r"\n\s*APPEND.*").sub(_repl_func, _input)

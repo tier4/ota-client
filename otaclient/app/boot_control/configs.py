@@ -47,6 +47,10 @@ class JetsonBootCommon:
     NV_TEGRA_RELEASE_FPATH = "/etc/nv_tegra_release"
     SEPARATE_BOOT_MOUNT_POINT = "/mnt/standby_boot"
 
+    MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
+    NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
+    INTERNAL_EMMC_DEVNAME = "mmcblk0"
+
 
 class JetsonCBootControlConfig(JetsonBootCommon):
     """Jetson device booted with cboot.
