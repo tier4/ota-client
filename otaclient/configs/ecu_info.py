@@ -45,6 +45,7 @@ class BootloaderType(str, Enum):
     GRUB = "grub"
     CBOOT = "cboot"  # deprecated, use jetson-cboot instead
     JETSON_CBOOT = "jetson-cboot"
+    JETSON_UEFI = "jetson-uefi"
     RPI_BOOT = "rpi_boot"
 
     @staticmethod
