@@ -11,7 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Jetson device boot control implementation common."""
+"""Jetson device boot control implementation common.
+
+This module is shared by jetson-cboot and jetson-uefi bootloader type.
+"""
 
 
 from __future__ import annotations
