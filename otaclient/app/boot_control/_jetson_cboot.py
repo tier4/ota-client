@@ -327,19 +327,6 @@ class _CBootControl:
         #   the rootfs slot.
         _NVBootctrl.set_active_boot_slot(target_slot)
 
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        CMDHelperFuncs.umount(self.standby_rootfs_devpath, ignore_error=True)
-
-        if erase_standby:
-            try:
-                CMDHelperFuncs.mkfs_ext4(self.standby_rootfs_devpath)
-            except Exception as e:
-                _err_msg = f"failed to mkfs.ext4 on standby dev: {e!r}"
-                logger.error(_err_msg)
-                raise JetsonCBootContrlError(_err_msg) from e
-        # TODO: in the future if in-place update mode is implemented, do a
-        #   fschck over the standby slot file system.
-
 
 class JetsonCBootControl(BootControllerProtocol):
     """BootControllerProtocol implementation for jetson-cboot."""
@@ -576,7 +563,7 @@ class JetsonCBootControl(BootControllerProtocol):
                 self._cboot_control.set_standby_rootfs_unbootable()
 
             # prepare standby slot dev
-            self._cboot_control.prepare_standby_dev(erase_standby=erase_standby)
+            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             # mount slots
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
