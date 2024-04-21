@@ -203,19 +203,8 @@ class CMDHelperFuncs:
             return
 
         # if the target is mounted, try to unmount it.
-        try:
-            _cmd = ["umount", str(target)]
-            subprocess_call(_cmd, raise_exception=raise_exception)
-        except CalledProcessError as e:
-            if raise_exception:
-                _failure_msg = (
-                    f"failed to umount {target}: {e!r}\n"
-                    f"retcode={e.returncode}, \n"
-                    f"stderr={e.stderr.decode()}, \n"
-                    f"stdout={e.stdout.decode()}"
-                )
-                logger.warning(_failure_msg)
-                raise
+        _cmd = ["umount", str(target)]
+        subprocess_call(_cmd, raise_exception=raise_exception)
 
     @classmethod
     def mkfs_ext4(
@@ -595,57 +584,27 @@ class SlotMountHelper:
             cfg.BOOT_DIR
         ).relative_to("/")
 
-    def mount_standby(self, *, raise_exc: bool = True) -> bool:
-        """Mount standby slot dev to <standby_slot_mount_point>.
-
-        Args:
-            erase_standby: whether to format standby slot dev to ext4 before mounting.
-            raise_exc: if exception occurs, raise it or not.
-
-        Return:
-            A bool indicates whether the mount succeeded or not.
-        """
+    def mount_standby(self) -> None:
+        """Mount standby slot dev to <standby_slot_mount_point>."""
         logger.debug("mount standby slot rootfs dev...")
-        try:
-            # first try umount mount point and dev
-            CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=True)
-            if CMDHelperFuncs.is_target_mounted(self.standby_slot_dev):
-                CMDHelperFuncs.umount(self.standby_slot_dev)
+        if CMDHelperFuncs.is_target_mounted(
+            self.standby_slot_dev, raise_exception=False
+        ):
+            logger.debug(f"{self.standby_slot_dev=} is mounted, try to umount it ...")
+            CMDHelperFuncs.umount(self.standby_slot_dev, raise_exception=False)
 
-            # try to mount the standby dev
-            CMDHelperFuncs.mount_rw(
-                target=self.standby_slot_dev,
-                mount_point=self.standby_slot_mount_point,
-            )
-            return True
-        except Exception:
-            if raise_exc:
-                raise
-            return False
+        CMDHelperFuncs.mount_rw(
+            target=self.standby_slot_dev,
+            mount_point=self.standby_slot_mount_point,
+        )
 
-    def mount_active(self, *, raise_exc: bool = True) -> bool:
-        """Mount active rootfs ready-only.
-
-        Args:
-            raise_exc: if exception occurs, raise it or not.
-
-        Return:
-            A bool indicates whether the mount succeeded or not.
-        """
-        # first try umount the mount_point
+    def mount_active(self) -> None:
+        """Mount active rootfs ready-only."""
         logger.debug("mount active slot rootfs dev...")
-        try:
-            CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=True)
-            # mount active slot ro, unpropagated
-            CMDHelperFuncs.mount_ro(
-                target=self.active_slot_dev,
-                mount_point=self.active_slot_mount_point,
-            )
-            return True
-        except Exception:
-            if raise_exc:
-                raise
-            return False
+        CMDHelperFuncs.mount_ro(
+            target=self.active_slot_dev,
+            mount_point=self.active_slot_mount_point,
+        )
 
     def preserve_ota_folder_to_standby(self):
         """Copy the /boot/ota folder to standby slot to preserve it.
@@ -667,8 +626,7 @@ class SlotMountHelper:
         erase_standby: bool = False,
         fslabel: Optional[str] = None,
     ) -> None:
-        CMDHelperFuncs.umount(self.standby_slot_dev, ignore_error=True)
-
+        CMDHelperFuncs.umount(self.standby_slot_dev, raise_exception=False)
         if erase_standby:
             return CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
 
@@ -679,8 +637,12 @@ class SlotMountHelper:
 
     def umount_all(self, *, ignore_error: bool = False):
         logger.debug("unmount standby slot and active slot mount point...")
-        CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
-        CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=ignore_error)
+        CMDHelperFuncs.umount(
+            self.standby_slot_mount_point, raise_exception=ignore_error
+        )
+        CMDHelperFuncs.umount(
+            self.active_slot_mount_point, raise_exception=ignore_error
+        )
 
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
