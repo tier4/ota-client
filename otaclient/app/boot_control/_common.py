@@ -226,10 +226,12 @@ class CMDHelperFuncs:
         If fslabel and/or fsuuid provided, use them in prior, otherwise
             try to preserve fsuuid and fslabel if possible.
 
+        NOTE: -F is used to bypass interactive confirmation.
+
         Raises:
             Original CalledProcessError from the failed command execution.
         """
-        cmd = ["mkfs.ext4"]
+        cmd = ["mkfs.ext4", "-F"]
 
         if not fsuuid:
             try:
