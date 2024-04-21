@@ -18,16 +18,20 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
 from functools import partial
 from pathlib import Path
-from subprocess import CompletedProcess, run, CalledProcessError
 from typing import Any, Generator, NamedTuple, Literal, Optional
 
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Self
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import copytree_identical, write_str_to_file_sync
+from otaclient.app.common import (
+    copytree_identical,
+    write_str_to_file_sync,
+    subprocess_run_wrapper,
+)
 from otaclient.app.proto import wrapper
 from ._common import (
     OTAStatusFilesControl,
@@ -121,14 +125,13 @@ class _NVBootctrl:
         if _slot_id:
             cmd.append(str(_slot_id))
 
-        res = run(
+        res = subprocess_run_wrapper(
             cmd,
             check=True,
-            capture_output=True,
+            check_output=True,
         )
         if check_output:
-            return res.stdout.decode()
-        return
+            return res.stdout.decode().strip()
 
     @classmethod
     def get_current_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
@@ -197,7 +200,7 @@ class _NVBootctrl:
         try:
             cls._nvbootctrl(cmd)
             return True
-        except CalledProcessError as e:
+        except subprocess.CalledProcessError as e:
             if e.returncode == 70:
                 return False
             elif e.returncode == 69:
@@ -213,15 +216,15 @@ class NVUpdateEngine:
     @classmethod
     def _nv_update_engine(cls, payload: Path | str):
         """nv_update_engine apply BUP, non unified_ab version."""
+        # fmt: off
         cmd = [
             cls.NV_UPDATE_ENGINE,
-            "-i",
-            "bl",
-            "--payload",
-            str(payload),
+            "-i", "bl",
+            "--payload", str(payload),
             "--no-reboot",
         ]
-        res = run(cmd, check=True, capture_output=True)
+        # fmt: on
+        res = subprocess_run_wrapper(cmd, check=True, check_output=True)
         logger.info(
             (
                 f"apply BUP {payload=}: \n"
@@ -233,14 +236,14 @@ class NVUpdateEngine:
     @classmethod
     def _nv_update_engine_unified_ab(cls, payload: Path | str):
         """nv_update_engine apply BUP, unified_ab version."""
+        # fmt: off
         cmd = [
             cls.NV_UPDATE_ENGINE,
-            "-i",
-            "bl-only",
-            "--payload",
-            str(payload),
+            "-i", "bl-only",
+            "--payload", str(payload),
         ]
-        res = run(cmd, check=True, capture_output=True)
+        # fmt: on
+        res = subprocess_run_wrapper(cmd, check=True, check_output=True)
         logger.info(
             (
                 f"apply BUP {payload=} with unified A/B: \n"
@@ -256,7 +259,7 @@ class NVUpdateEngine:
         return cls._nv_update_engine(payload)
 
     @classmethod
-    def verify_update(cls) -> CompletedProcess[bytes]:
+    def verify_update(cls) -> subprocess.CompletedProcess[bytes]:
         """Dump the nv_update_engine update verification.
 
         NOTE: no exception will be raised, the caller MUST check the
@@ -266,7 +269,7 @@ class NVUpdateEngine:
             A CompletedProcess object with the call result.
         """
         cmd = [cls.NV_UPDATE_ENGINE, "--verify"]
-        return run(cmd, check=False, capture_output=True)
+        return subprocess_run_wrapper(cmd, check=False, check_output=True)
 
 
 class FirmwareBSPVersionControl:
@@ -380,7 +383,7 @@ class _CBootControl:
         else:  # R32.5 and below doesn't support unified A/B
             try:
                 _NVBootctrl.get_current_slot(target="rootfs")
-            except CalledProcessError:
+            except subprocess.CalledProcessError:
                 _err_msg = "rootfs A/B is not enabled!"
                 logger.error(_err_msg)
                 raise JetsonCBootContrlError(_err_msg)
@@ -568,8 +571,8 @@ class JetsonCBootControl(BootControllerProtocol):
         if (retcode := update_result.returncode) != 0:
             _err_msg = (
                 f"The previous firmware update failed(verify return {retcode}): \n"
-                f"stderr: {update_result.stderr}\n"
-                f"stdout: {update_result.stdout}\n"
+                f"stderr: {update_result.stderr.decode()}\n"
+                f"stdout: {update_result.stdout.decode()}\n"
                 "failing the OTA and clear firmware version due to new bootloader slot boot failed."
             )
             logger.error(_err_msg)
@@ -705,8 +708,12 @@ class JetsonCBootControl(BootControllerProtocol):
                         unified_ab=bool(self._cboot_control.unified_ab_enabled),
                     )
                     _firmware_applied = True
-                except CalledProcessError as e:
-                    _err_msg = f"failed to apply BUP {firmware_fpath}: {e!r}, {e.stderr=}, {e.stdout=}"
+                except subprocess.CalledProcessError as e:
+                    _err_msg = (
+                        f"failed to apply BUP {firmware_fpath}: {e!r}, \n"
+                        f"stderr={e.stderr.decode()}, \n"
+                        f"stdout={e.stdout.decode()}"
+                    )
                     logger.error(_err_msg)
                     logger.warning("firmware update interrupted, failing OTA...")
 
