@@ -20,7 +20,6 @@ from pathlib import Path
 from typing_extensions import deprecated
 
 from .configs import BootloaderType
-from ._errors import BootControlError
 from .protocol import BootControllerProtocol
 
 from ..common import read_str_from_file
@@ -87,4 +86,4 @@ def get_boot_controller(
 
         return RPIBootController
 
-    raise BootControlError from NotImplementedError(f"unsupported: {bootloader_type=}")
+    raise NotImplementedError(f"unsupported: {bootloader_type=}")
