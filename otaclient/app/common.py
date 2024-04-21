@@ -165,8 +165,7 @@ def subprocess_check_output(
     except subprocess.CalledProcessError as e:
         _err_msg = (
             f"command({cmd=}) failed(retcode={e.returncode}: \n"
-            f"{e.stderr.decode()}\n"
-            f"{e.stdout.decode()}\n)"
+            f"stderr={e.stderr.decode()}"
         )
         logger.debug(_err_msg)
 
@@ -193,8 +192,7 @@ def subprocess_call(
     except subprocess.CalledProcessError as e:
         _err_msg = (
             f"command({cmd=}) failed(retcode={e.returncode}: \n"
-            f"{e.stderr.decode()}\n"
-            f"{e.stdout.decode()}\n)"
+            f"stderr={e.stderr.decode()}"
         )
         logger.debug(_err_msg)
 
