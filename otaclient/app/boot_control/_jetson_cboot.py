@@ -420,10 +420,10 @@ class _CBootControl:
 
         # ------ detect rootfs_dev and parent_dev ------ #
         self.curent_rootfs_devpath = current_rootfs_devpath = (
-            CMDHelperFuncs.get_current_rootfs_dev().strip()
+            CMDHelperFuncs.get_current_rootfs_dev()
         )
         self.parent_devpath = parent_devpath = Path(
-            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath).strip()
+            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
         )
 
         self._external_rootfs = False
@@ -444,12 +444,12 @@ class _CBootControl:
         self.standby_rootfs_devpath = (
             f"/dev/{parent_devname}p{self._slot_id_partid[standby_rootfs_slot]}"
         )
-        self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
-            f"{self.standby_rootfs_devpath}"
-        ).strip()
-        current_rootfs_dev_partuuid = CMDHelperFuncs.get_partuuid_by_dev(
-            current_rootfs_devpath
-        ).strip()
+        self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+            "PARTUUID", f"{self.standby_rootfs_devpath}"
+        )
+        current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+            "PARTUUID", current_rootfs_devpath
+        )
 
         logger.info(
             "finish detecting rootfs devs: \n"
@@ -492,19 +492,6 @@ class _CBootControl:
         # when unified_ab enabled, switching bootloader slot will also switch
         #   the rootfs slot.
         _NVBootctrl.set_active_boot_slot(target_slot)
-
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        CMDHelperFuncs.umount(self.standby_rootfs_devpath, ignore_error=True)
-
-        if erase_standby:
-            try:
-                CMDHelperFuncs.mkfs_ext4(self.standby_rootfs_devpath)
-            except Exception as e:
-                _err_msg = f"failed to mkfs.ext4 on standby dev: {e!r}"
-                logger.error(_err_msg)
-                raise JetsonCBootContrlError(_err_msg) from e
-        # TODO: in the future if in-place update mode is implemented, do a
-        #   fschck over the standby slot file system.
 
     @staticmethod
     def update_extlinux_cfg(_input: str, partuuid: str) -> str:
@@ -618,7 +605,11 @@ class JetsonCBootControl(BootControllerProtocol):
         internal_emmc_devpath = self._cboot_control.standby_internal_emmc_devpath
 
         try:
-            CMDHelperFuncs.umount(internal_emmc_devpath, ignore_error=True)
+            if CMDHelperFuncs.is_target_mounted(
+                internal_emmc_devpath, raise_exception=False
+            ):
+                logger.debug("internal emmc device is mounted, try to unmount ...")
+                CMDHelperFuncs.umount(internal_emmc_devpath, raise_exception=False)
             CMDHelperFuncs.mount_rw(internal_emmc_devpath, internal_emmc_mp)
         except Exception as e:
             _msg = f"failed to mount standby internal emmc dev: {e!r}"
@@ -635,7 +626,7 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.error(_msg)
             raise JetsonCBootContrlError(_msg) from e
         finally:
-            CMDHelperFuncs.umount(internal_emmc_mp, ignore_error=True)
+            CMDHelperFuncs.umount(internal_emmc_mp, raise_exception=False)
 
     def _preserve_ota_config_files_to_standby(self):
         """Preserve /boot/ota to standby /boot folder."""
@@ -761,7 +752,7 @@ class JetsonCBootControl(BootControllerProtocol):
                 self._cboot_control.set_standby_rootfs_unbootable()
 
             # prepare standby slot dev
-            self._cboot_control.prepare_standby_dev(erase_standby=erase_standby)
+            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             # mount slots
             self._mp_control.mount_standby()
             self._mp_control.mount_active()

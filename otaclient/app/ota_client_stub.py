@@ -115,9 +115,9 @@ class _OTAProxyContext(OTAProxyContextProto):
 
         # try to unmount the mount_point and cache_dev unconditionally
         _mp = Path(self._external_cache_dev_mp)
-        CMDHelperFuncs.umount(_cache_dev, ignore_error=True)
+        CMDHelperFuncs.umount(_cache_dev, raise_exception=True)
         if _mp.is_dir():
-            CMDHelperFuncs.umount(self._external_cache_dev_mp, ignore_error=True)
+            CMDHelperFuncs.umount(self._external_cache_dev_mp, raise_exception=True)
         else:
             _mp.mkdir(parents=True, exist_ok=True)
 
