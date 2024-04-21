@@ -35,8 +35,8 @@ class GrubFSM:
         self._standby_slot = cfg.SLOT_B_ID_GRUB
         self._current_slot_mp = Path(slot_a_mp)
         self._standby_slot_mp = Path(slot_b_mp)
-        self._current_slot_dev_uuid = f"UUID={cfg.SLOT_A_UUID}"
-        self._standby_slot_dev_uuid = f"UUID={cfg.SLOT_B_UUID}"
+        self._current_slot_dev_uuid = cfg.SLOT_A_UUID
+        self._standby_slot_dev_uuid = cfg.SLOT_B_UUID
         self.current_slot_bootable = True
         self.standby_slot_bootable = True
 
@@ -63,7 +63,7 @@ class GrubFSM:
     def get_standby_boot_dir(self) -> Path:
         return self._standby_slot_mp / "boot"
 
-    def get_uuid_str_by_dev(self, dev: str):
+    def get_attrs_by_dev(self, attr: str, dev: str) -> str:
         if dev == self.get_standby_slot_dev():
             return self._standby_slot_dev_uuid
         else:
@@ -271,8 +271,8 @@ class TestGrubControl:
             CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
         )
         _CMDHelper_mock.reboot.side_effect = self._fsm.switch_boot
-        _CMDHelper_mock.get_uuid_str_by_dev = mocker.MagicMock(
-            wraps=self._fsm.get_uuid_str_by_dev
+        _CMDHelper_mock.get_attrs_by_dev = mocker.MagicMock(
+            wraps=self._fsm.get_attrs_by_dev
         )
         # bind the mocker to the test instance
         self._CMDHelper_mock = _CMDHelper_mock
