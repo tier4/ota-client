@@ -92,7 +92,9 @@ class _RPIBootControl:
         logger.debug("checking and initializing slots info...")
         try:
             # detect active slot
-            self._active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+            _active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+            assert _active_slot_dev
+            self._active_slot_dev = _active_slot_dev
 
             _active_slot = CMDHelperFuncs.get_attrs_by_dev(
                 "LABEL", str(self._active_slot_dev)
