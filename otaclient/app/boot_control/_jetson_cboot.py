@@ -336,7 +336,6 @@ def parse_bsp_version(nv_tegra_release: str) -> BSPVersion:
 
 
 class _CBootControl:
-
     MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
     NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
     INTERNAL_EMMC_DEVNAME = "mmcblk0"
@@ -395,19 +394,19 @@ class _CBootControl:
             )
 
         # ------ check A/B slots ------ #
-        self.current_bootloader_slot = current_bootloader_slot = (
-            _NVBootctrl.get_current_slot()
-        )
-        self.standby_bootloader_slot = standby_bootloader_slot = (
-            _NVBootctrl.get_standby_slot()
-        )
+        self.current_bootloader_slot = (
+            current_bootloader_slot
+        ) = _NVBootctrl.get_current_slot()
+        self.standby_bootloader_slot = (
+            standby_bootloader_slot
+        ) = _NVBootctrl.get_standby_slot()
         if not unified_ab_enabled:
-            self.current_rootfs_slot = current_rootfs_slot = (
-                _NVBootctrl.get_current_slot(target="rootfs")
-            )
-            self.standby_rootfs_slot = standby_rootfs_slot = (
-                _NVBootctrl.get_standby_slot(target="rootfs")
-            )
+            self.current_rootfs_slot = (
+                current_rootfs_slot
+            ) = _NVBootctrl.get_current_slot(target="rootfs")
+            self.standby_rootfs_slot = (
+                standby_rootfs_slot
+            ) = _NVBootctrl.get_standby_slot(target="rootfs")
         else:
             self.current_rootfs_slot = current_rootfs_slot = current_bootloader_slot
             self.standby_rootfs_slot = standby_rootfs_slot = standby_bootloader_slot
@@ -422,9 +421,9 @@ class _CBootControl:
             logger.warning("this might indicates a failed previous firmware update")
 
         # ------ detect rootfs_dev and parent_dev ------ #
-        self.curent_rootfs_devpath = current_rootfs_devpath = (
-            CMDHelperFuncs.get_current_rootfs_dev()
-        )
+        self.curent_rootfs_devpath = (
+            current_rootfs_devpath
+        ) = CMDHelperFuncs.get_current_rootfs_dev()
         self.parent_devpath = parent_devpath = Path(
             CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
         )
