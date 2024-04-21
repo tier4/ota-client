@@ -14,6 +14,7 @@
 """Boot control support for Raspberry pi 4 Model B."""
 
 
+from __future__ import annotations
 import logging
 import os
 import re
@@ -23,7 +24,7 @@ from typing import Generator
 
 from .. import errors as ota_errors
 from ..proto import wrapper
-from ..common import replace_atomic, subprocess_call
+from ..common import replace_atomic, subprocess_call, subprocess_check_output
 
 from ._common import (
     OTAStatusFilesControl,
@@ -92,21 +93,18 @@ class _RPIBootControl:
         logger.debug("checking and initializing slots info...")
         try:
             # detect active slot
-            self._active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
-                cfg.ACTIVE_ROOTFS_PATH
+            self._active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+
+            _active_slot = CMDHelperFuncs.get_attrs_by_dev(
+                "LABEL", str(self._active_slot_dev)
             )
-            if not (
-                _active_slot := CMDHelperFuncs.get_fslabel_by_dev(self._active_slot_dev)
-            ):
-                raise ValueError(
-                    f"failed to get slot_id(fslabel) for active slot dev({self._active_slot_dev})"
-                )
+            assert _active_slot, f"not a valid active slot fslabel: {_active_slot}"
             self._active_slot = _active_slot
 
             # detect standby slot
             # NOTE: using the similar logic like grub, detect the silibing dev
             #       of the active slot as standby slot
-            _parent = CMDHelperFuncs.get_parent_dev(self._active_slot_dev)
+            _parent = CMDHelperFuncs.get_parent_dev(str(self._active_slot_dev))
             # list children device file from parent device
             # exclude parent dev(always in the front)
             # expected raw result from lsblk:
@@ -114,7 +112,11 @@ class _RPIBootControl:
             # NAME="/dev/sdx1" # system-boot
             # NAME="/dev/sdx2" # slot_a
             # NAME="/dev/sdx3" # slot_b
-            _raw_child_partitions = CMDHelperFuncs._lsblk(f"-Pp -o NAME {_parent}")
+            _check_dev_family_cmd = ["lsblk", "-Ppo", "NAME", _parent]
+            _raw_child_partitions = subprocess_check_output(
+                _check_dev_family_cmd, raise_exception=True
+            )
+
             try:
                 # NOTE: exclude the first 2 lines(parent and system-boot)
                 _child_partitions = list(
@@ -341,7 +343,7 @@ class _RPIBootControl:
                 # TODO: check the standby file system status
                 #       if not erase the standby slot
                 # set the standby file system label with standby slot id
-                CMDHelperFuncs.set_dev_fslabel(self.active_slot_dev, self.standby_slot)
+                CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, self.standby_slot)
         except Exception as e:
             _err_msg = f"failed to prepare standby dev: {e!r}"
             logger.error(_err_msg)
@@ -364,8 +366,7 @@ class _RPIBootControl:
         """Reboot with tryboot flag."""
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
-            _cmd = "reboot '0 tryboot'"
-            subprocess_call(_cmd, raise_exception=True)
+            CMDHelperFuncs.reboot(args=["0 tryboot"])
         except Exception as e:
             _err_msg = "failed to reboot"
             logger.exception(_err_msg)
