@@ -49,7 +49,7 @@ class CMDHelperFuncs:
     @classmethod
     def get_attrs_by_dev(
         cls, attr: PartitionToken, dev: Path | str, *, raise_exception: bool = True
-    ) -> Optional[str]:
+    ) -> str:
         """Get <attr> from <dev>.
 
         This is implemented by calling:
@@ -88,9 +88,7 @@ class CMDHelperFuncs:
         return subprocess_check_output(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def get_mount_point_by_dev(
-        cls, dev: str, *, raise_exception: bool = True
-    ) -> Optional[str]:
+    def get_mount_point_by_dev(cls, dev: str, *, raise_exception: bool = True) -> str:
         """Get the FIRST mountpoint of the <dev>.
 
         This is implemented by calling:
@@ -105,7 +103,7 @@ class CMDHelperFuncs:
     @classmethod
     def get_dev_by_mount_point(
         cls, mount_point: str, *, raise_exception: bool = True
-    ) -> Optional[str]:
+    ) -> str:
         """Return the underlying mounted dev of the given mount_point.
 
         This is implemented by calling:
@@ -129,9 +127,7 @@ class CMDHelperFuncs:
         return bool(subprocess_check_output(cmd, raise_exception=raise_exception))
 
     @classmethod
-    def get_parent_dev(
-        cls, child_device: str, *, raise_exception: bool = True
-    ) -> Optional[str]:
+    def get_parent_dev(cls, child_device: str, *, raise_exception: bool = True) -> str:
         """Get the parent devpath from <child_device>.
         When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
 
@@ -147,7 +143,9 @@ class CMDHelperFuncs:
         subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def mount_rw(cls, target: str, mount_point: Path | str):
+    def mount_rw(
+        cls, target: str, mount_point: Path | str, *, raise_exception: bool = True
+    ):
         """Mount the target to the mount_point read-write.
 
         This is implemented by calling:
@@ -168,10 +166,12 @@ class CMDHelperFuncs:
             str(mount_point),
         ]
         # fmt: on
-        subprocess_call(cmd, raise_exception=True)
+        subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def bind_mount_ro(cls, target: str, mount_point: Path | str):
+    def bind_mount_ro(
+        cls, target: str, mount_point: Path | str, *, raise_exception: bool = True
+    ):
         """Bind mount the target to the mount_point read-only.
 
         This is implemented by calling:
@@ -189,10 +189,10 @@ class CMDHelperFuncs:
             str(mount_point)
         ]
         # fmt: on
-        subprocess_call(cmd, raise_exception=True)
+        subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def umount(cls, target: Path | str, *, ignore_error=False):
+    def umount(cls, target: Path | str, *, raise_exception: bool = True):
         """Try to unmount the <target>.
 
         This function will first check whether the <target> is mounted.
@@ -205,9 +205,9 @@ class CMDHelperFuncs:
         # if the target is mounted, try to unmount it.
         try:
             _cmd = ["umount", str(target)]
-            subprocess_call(_cmd, raise_exception=True)
+            subprocess_call(_cmd, raise_exception=raise_exception)
         except CalledProcessError as e:
-            if not ignore_error:
+            if raise_exception:
                 _failure_msg = (
                     f"failed to umount {target}: {e!r}\n"
                     f"retcode={e.returncode}, \n"
@@ -219,7 +219,12 @@ class CMDHelperFuncs:
 
     @classmethod
     def mkfs_ext4(
-        cls, dev: str, *, fslabel: Optional[str] = None, fsuuid: Optional[str] = None
+        cls,
+        dev: str,
+        *,
+        fslabel: Optional[str] = None,
+        fsuuid: Optional[str] = None,
+        raise_exception: bool = True,
     ):
         """Call mkfs.ext4 on <dev>.
 
@@ -235,7 +240,7 @@ class CMDHelperFuncs:
 
         if not fsuuid:
             try:
-                fsuuid = cls.get_attrs_by_dev("UUID", dev, raise_exception=True)
+                fsuuid = cls.get_attrs_by_dev("UUID", dev)
                 assert fsuuid
                 logger.debug(f"reuse previous UUID: {fsuuid}")
             except Exception:
@@ -246,7 +251,7 @@ class CMDHelperFuncs:
 
         if not fslabel:
             try:
-                fslabel = cls.get_attrs_by_dev("LABEL", dev, raise_exception=True)
+                fslabel = cls.get_attrs_by_dev("LABEL", dev)
                 assert fslabel
                 logger.debug(f"reuse previous fs LABEL: {fslabel}")
             except Exception:
@@ -257,10 +262,12 @@ class CMDHelperFuncs:
 
         cmd.append(dev)
         logger.warning(f"execute {cmd=}")
-        subprocess_call(cmd, raise_exception=True)
+        subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def mount_ro(cls, *, target: str, mount_point: str | Path):
+    def mount_ro(
+        cls, *, target: str, mount_point: str | Path, raise_exception: bool = True
+    ):
         """Mount target on mount_point read-only.
 
         If the target device is mounted, we bind mount the target device to mount_point,
@@ -280,6 +287,7 @@ class CMDHelperFuncs:
             CMDHelperFuncs.bind_mount_ro(
                 _active_mount_point,
                 mount_point,
+                raise_exception=raise_exception,
             )
         else:
             # target is not mounted, we mount it by ourself
@@ -292,7 +300,7 @@ class CMDHelperFuncs:
                 str(mount_point),
             ]
             # fmt: on
-            subprocess_call(cmd, raise_exception=True)
+            subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
     def reboot(cls, args: Optional[list[str]] = None) -> NoReturn:
