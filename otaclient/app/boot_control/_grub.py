@@ -31,6 +31,7 @@ NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not
 """
 
 
+from __future__ import annotations
 import logging
 import re
 import shutil
@@ -327,9 +328,16 @@ class GrubABPartitionDetector:
             raise ValueError(_err_msg)
 
         # list children device file from parent device
-        cmd = f"-Pp -o NAME,FSTYPE {parent}"
+        cmd = ["lsblk", "-Ppo", "NAME,FSTYPE", parent]
+        try:
+            cmd_result = subprocess_check_output(cmd, raise_exception=True)
+        except Exception as e:
+            _err_msg = f"failed to detect boot device family tree: {e!r}"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
+
         # exclude parent dev
-        output = CMDHelperFuncs._lsblk(cmd).splitlines()[1:]
+        output = cmd_result.splitlines()[1:]
         # FSTYPE="ext4" and
         # not (parent_device_file, root_device_file and boot_device_file)
         for blk in output:
@@ -352,7 +360,14 @@ class GrubABPartitionDetector:
             A tuple contains the slot_name and the full dev path
             of the active slot.
         """
-        dev_path = CMDHelperFuncs.get_current_rootfs_dev()
+        try:
+            dev_path = CMDHelperFuncs.get_current_rootfs_dev()
+            assert dev_path
+        except Exception as e:
+            _err_msg = f"failed to detect current rootfs dev: {e!r}"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
+
         _dev_path_ma = self.DEV_PATH_PA.match(dev_path)
         assert _dev_path_ma, f"dev path is invalid for OTA: {dev_path}"
 
@@ -605,7 +620,17 @@ class _GrubControl:
         active_slot_grub_file = self.active_ota_partition_folder / cfg.GRUB_CFG_FNAME
 
         grub_cfg_content = GrubHelper.grub_mkconfig()
-        standby_uuid_str = CMDHelperFuncs.get_uuid_str_by_dev(self.standby_root_dev)
+        try:
+            standby_uuid = CMDHelperFuncs.get_attrs_by_dev(
+                "UUID", self.standby_root_dev
+            )
+            assert standby_uuid
+        except Exception as e:
+            _err_msg = f"failed to get UUID of {self.standby_root_dev}: {e!r}"
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
+
+        standby_uuid_str = f"UUID={standby_uuid}"
         if grub_cfg_updated := GrubHelper.update_entry_rootfs(
             grub_cfg_content,
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
@@ -666,27 +691,6 @@ class _GrubControl:
         )
 
     # API
-
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        """
-        Args:
-            erase_standby: indicate boot_controller whether to format the
-                standby slot's file system or not. This value is indicated and
-                passed to boot controller by the standby slot creator.
-        """
-        try:
-            # try to unmount the standby root dev unconditionally
-            if CMDHelperFuncs.is_target_mounted(self.standby_root_dev):
-                CMDHelperFuncs.umount(self.standby_root_dev)
-
-            if erase_standby:
-                CMDHelperFuncs.mkfs_ext4(self.standby_root_dev)
-            # TODO: check the standby file system status
-            #       if not erase the standby slot
-        except Exception as e:
-            _err_msg = f"failed to prepare standby dev: {e!r}"
-            logger.error(_err_msg)
-            raise _GrubBootControllerError(_err_msg) from e
 
     def finalize_update_switch_boot(self):
         """Finalize switch boot and use boot files from current booted slot."""
@@ -769,9 +773,19 @@ class GrubController(BootControllerProtocol):
 
         Override existed entries in standby fstab, merge new entries from active fstab.
         """
-        standby_uuid_str = CMDHelperFuncs.get_uuid_str_by_dev(
-            self._boot_control.standby_root_dev
-        )
+        try:
+            standby_uuid = CMDHelperFuncs.get_attrs_by_dev(
+                "UUID", self._boot_control.standby_root_dev
+            )
+            assert standby_uuid
+        except Exception as e:
+            _err_msg = (
+                f"failed to get UUID of {self._boot_control.standby_root_dev}: {e!r}"
+            )
+            logger.error(_err_msg)
+            raise _GrubBootControllerError(_err_msg) from e
+
+        standby_uuid_str = f"UUID={standby_uuid}"
         fstab_entry_pa = re.compile(
             r"^\s*(?P<file_system>[^# ]*)\s+"
             r"(?P<mount_point>[^ ]*)\s+"
@@ -869,7 +883,7 @@ class GrubController(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._boot_control.prepare_standby_dev(erase_standby=erase_standby)
+            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
 

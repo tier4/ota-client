@@ -14,6 +14,7 @@
 """Boot control support for Raspberry pi 4 Model B."""
 
 
+from __future__ import annotations
 import logging
 import os
 import re
@@ -23,7 +24,7 @@ from typing import Generator
 
 from .. import errors as ota_errors
 from ..proto import wrapper
-from ..common import replace_atomic, subprocess_call
+from ..common import replace_atomic, subprocess_call, subprocess_check_output
 
 from ._common import (
     OTAStatusFilesControl,
@@ -77,9 +78,8 @@ class _RPIBootControl:
 
     def __init__(self) -> None:
         self.system_boot_path = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-        if not (
-            self.system_boot_path.is_dir()
-            and CMDHelperFuncs.is_target_mounted(self.system_boot_path)
+        if not CMDHelperFuncs.is_target_mounted(
+            self.system_boot_path, raise_exception=False
         ):
             _err_msg = "system-boot is not presented or not mounted!"
             logger.error(_err_msg)
@@ -92,21 +92,22 @@ class _RPIBootControl:
         logger.debug("checking and initializing slots info...")
         try:
             # detect active slot
-            self._active_slot_dev = CMDHelperFuncs.get_dev_by_mount_point(
-                cfg.ACTIVE_ROOTFS_PATH
+            _active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+            assert _active_slot_dev
+            self._active_slot_dev = _active_slot_dev
+
+            _active_slot = CMDHelperFuncs.get_attrs_by_dev(
+                "LABEL", str(self._active_slot_dev)
             )
-            if not (
-                _active_slot := CMDHelperFuncs.get_fslabel_by_dev(self._active_slot_dev)
-            ):
-                raise ValueError(
-                    f"failed to get slot_id(fslabel) for active slot dev({self._active_slot_dev})"
-                )
+            assert _active_slot
             self._active_slot = _active_slot
 
             # detect standby slot
             # NOTE: using the similar logic like grub, detect the silibing dev
             #       of the active slot as standby slot
-            _parent = CMDHelperFuncs.get_parent_dev(self._active_slot_dev)
+            _parent = CMDHelperFuncs.get_parent_dev(str(self._active_slot_dev))
+            assert _parent
+
             # list children device file from parent device
             # exclude parent dev(always in the front)
             # expected raw result from lsblk:
@@ -114,7 +115,11 @@ class _RPIBootControl:
             # NAME="/dev/sdx1" # system-boot
             # NAME="/dev/sdx2" # slot_a
             # NAME="/dev/sdx3" # slot_b
-            _raw_child_partitions = CMDHelperFuncs._lsblk(f"-Pp -o NAME {_parent}")
+            _check_dev_family_cmd = ["lsblk", "-Ppo", "NAME", _parent]
+            _raw_child_partitions = subprocess_check_output(
+                _check_dev_family_cmd, raise_exception=True
+            )
+
             try:
                 # NOTE: exclude the first 2 lines(parent and system-boot)
                 _child_partitions = list(
@@ -315,37 +320,11 @@ class _RPIBootControl:
                 # reboot to the same slot to apply the new firmware
 
                 logger.info("reboot to apply new firmware...")
-                CMDHelperFuncs.reboot()
-
-                # NOTE(20230614): after calling reboot, otaclient SHOULD be terminated or exception raised
-                #                 on failed reboot command subprocess call. But if somehow it doesn't,
-                #                 it should be treated as failure and return False here.
-                return False
-
+                CMDHelperFuncs.reboot()  # this function will make otaclient exit immediately
         except Exception as e:
             _err_msg = f"failed to finalize boot switching: {e!r}"
             logger.error(_err_msg)
             return False
-
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        # try umount and dev
-        if CMDHelperFuncs.is_target_mounted(self.standby_slot_dev):
-            CMDHelperFuncs.umount(self.standby_slot_dev)
-        try:
-            if erase_standby:
-                CMDHelperFuncs.mkfs_ext4(
-                    self.standby_slot_dev,
-                    fslabel=self.standby_slot,
-                )
-            else:
-                # TODO: check the standby file system status
-                #       if not erase the standby slot
-                # set the standby file system label with standby slot id
-                CMDHelperFuncs.set_dev_fslabel(self.active_slot_dev, self.standby_slot)
-        except Exception as e:
-            _err_msg = f"failed to prepare standby dev: {e!r}"
-            logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg) from e
 
     def prepare_tryboot_txt(self):
         """Copy the standby slot's config.txt as tryboot.txt."""
@@ -364,8 +343,7 @@ class _RPIBootControl:
         """Reboot with tryboot flag."""
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
-            _cmd = "reboot '0 tryboot'"
-            subprocess_call(_cmd, raise_exception=True)
+            CMDHelperFuncs.reboot(args=["0 tryboot"])
         except Exception as e:
             _err_msg = "failed to reboot"
             logger.exception(_err_msg)
@@ -496,7 +474,10 @@ class RPIBootController(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._rpiboot_control.prepare_standby_dev(erase_standby=erase_standby)
+            self._mp_control.prepare_standby_dev(
+                erase_standby=erase_standby,
+                fslabel=self._rpiboot_control.standby_slot,
+            )
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
 

@@ -30,6 +30,7 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Generator,
@@ -118,45 +119,80 @@ def write_str_to_file_sync(path: Union[Path, str], input: str):
         os.fsync(f.fileno())
 
 
-# wrapped subprocess call
-def subprocess_call(cmd: str, *, raise_exception=False):
-    """
+def _subprocess_run_wrapper(
+    cmd: str | list[str],
+    *,
+    check_output: bool,
+    raise_exception: bool,
+    default: str = "",
+    timeout: Optional[float] = None,
+) -> str | None:
+    """A wrapper of subprocess.run command."""
+    if isinstance(cmd, str):
+        cmd = shlex.split(cmd)
 
-    Raises:
-        a ValueError containing information about the failure.
-    """
     try:
-        # NOTE: we need to check the stderr and stdout when error occurs,
-        # so use subprocess.run here instead of subprocess.check_call
-        subprocess.run(
-            shlex.split(cmd),
-            check=True,
-            capture_output=True,
+        res = subprocess.run(
+            cmd,
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE if check_output else None,
+            timeout=timeout,
         )
+        if check_output:
+            return res.stdout.decode().strip()
     except subprocess.CalledProcessError as e:
-        msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
-        logger.debug(msg)
+        _err_msg = (
+            f"command({cmd=}) failed(retcode={e.returncode}: \n"
+            f"{e.stderr.decode()}\n"
+            f"{e.stdout.decode()}\n)"
+        )
+        logger.debug(_err_msg)
+
         if raise_exception:
             raise
+        if check_output:
+            return default
 
 
-def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> str:
-    """
-    Raises:
-        a ValueError containing information about the failure.
-    """
-    try:
-        return (
-            subprocess.check_output(shlex.split(cmd), stderr=subprocess.PIPE)
-            .decode()
-            .strip()
-        )
-    except subprocess.CalledProcessError as e:
-        msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
-        logger.debug(msg)
-        if raise_exception:
-            raise
-        return default
+if TYPE_CHECKING:
+
+    def subprocess_check_output(
+        cmd: str | list[str],
+        *,
+        raise_exception: bool = False,
+        default: str = "",
+        timeout: Optional[float] = None,
+    ) -> str:  # type: ignore
+        """Run the command and return its output if possible.
+        NOTE: this method will call decode and strip on the raw output.
+
+        Params:
+            cmd: string or list of string of command to be called.
+            raise_exception: Whether to raise the exception from
+                underlaying subprocess.check_output.
+            default: when <raise_exception> is True, return this <default>.
+
+        Raises:
+            The original CalledProcessError from calling subprocess.check_output if
+                the execution failed and <raise_exception> is True.
+        """
+
+    def subprocess_call(
+        cmd: str | list[str],
+        *,
+        raise_exception: bool = False,
+        timeout: Optional[float] = None,
+    ) -> None:
+        """Run the <cmd> without checking its output.
+
+        Raises:
+            The original CalledProcessError from calling subprocess.check_output if
+                the execution failed and <raise_exception> is True.
+        """
+
+else:
+    subprocess_call = partial(_subprocess_run_wrapper, check_output=False)
+    subprocess_check_output = partial(_subprocess_run_wrapper, check_output=True)
 
 
 def copy_stat(src: Union[Path, str], dst: Union[Path, str]):

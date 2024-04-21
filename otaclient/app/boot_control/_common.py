@@ -14,20 +14,13 @@
 r"""Shared utils for boot_controller."""
 
 
+from __future__ import annotations
 import logging
-import os
 import shutil
 import sys
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import List, Optional, Union, Callable, NoReturn
-
-from ._errors import (
-    BootControlError,
-    MountError,
-    MkfsError,
-    MountFailedReason,
-)
+from typing import Literal, Optional, Union, Callable, NoReturn
 
 from ..configs import config as cfg
 from ..common import (
@@ -41,340 +34,229 @@ from ..proto import wrapper
 
 logger = logging.getLogger(__name__)
 
+# fmt: off
+PartitionToken = Literal[
+    "UUID", "PARTUUID",
+    "LABEL", "PARTLABEL",
+    "TYPE",
+]
+# fmt: on
+
 
 class CMDHelperFuncs:
     """HelperFuncs bundle for wrapped linux cmd."""
 
-    @staticmethod
-    @MountFailedReason.parse_failed_reason
-    def _mount(
-        dev: str,
-        mount_point: str,
-        *,
-        options: Optional[List[str]] = None,
-        args: Optional[List[str]] = None,
-    ):
+    @classmethod
+    def get_attrs_by_dev(
+        cls, attr: PartitionToken, dev: Path | str, *, raise_exception: bool = True
+    ) -> str:
+        """Get <attr> from <dev>.
+
+        This is implemented by calling:
+            lsblk -in -o <attr> <dev>
         """
-        mount [-o option1[,option2, ...]]] [args[0] [args[1]...]] <dev> <mount_point>
+        cmd = ["lsblk", "-ino", attr, str(dev)]
+        return subprocess_check_output(cmd, raise_exception=raise_exception)
+
+    @classmethod
+    def get_dev_by_token(
+        cls, token: PartitionToken, value: str, *, raise_exception: bool = True
+    ) -> Optional[list[str]]:
+        """Get a list of device(s) that matches the token=value pair.
+
+        This is implemented by calling:
+            blkid -o device -t <TOKEN>=<VALUE>
+        """
+        cmd = ["blkid", "-o", "device", "-t", f"{token}={value}"]
+        if res := subprocess_check_output(cmd, raise_exception=raise_exception):
+            return res.splitlines()
+
+    @classmethod
+    def get_current_rootfs_dev(cls, *, raise_exception: bool = True) -> str:
+        """Get the devpath of current rootfs dev.
+
+        This is implemented by calling
+            findmnt -nfc -o SOURCE /
+
+        Returns:
+            full path to dev of the current rootfs.
 
         Raises:
-            MountError on failed mounting.
+            subprocess.CalledProcessError on failed command call.
         """
-        _option_str = ""
-        if options:
-            _option_str = f"-o {','.join(options)}"
-
-        _args_str = ""
-        if args:
-            _args_str = f"{' '.join(args)}"
-
-        _cmd = f"mount {_option_str} {_args_str} {dev} {mount_point}"
-        subprocess_call(_cmd, raise_exception=True)
-
-    @staticmethod
-    def _findfs(key: str, value: str) -> str:
-        """
-        findfs finds a partition by conditions
-        Usage:
-            findfs [options] {LABEL,UUID,PARTUUID,PARTLABEL}=<value>
-        """
-        _cmd = f"findfs {key}={value}"
-        return subprocess_check_output(_cmd)
-
-    @staticmethod
-    def _findmnt(args: str) -> str:
-        _cmd = f"findmnt {args}"
-        return subprocess_check_output(_cmd)
-
-    @staticmethod
-    def _lsblk(args: str, *, raise_exception=False) -> str:
-        """lsblk command wrapper.
-
-        Default return empty str if raise_exception==False.
-        """
-        _cmd = f"lsblk {args}"
-        return subprocess_check_output(
-            _cmd,
-            raise_exception=raise_exception,
-            default="",
-        )
-
-    ###### derived helper methods ######
+        cmd = ["findmnt", "-nfco", "SOURCE", cfg.ACTIVE_ROOTFS_PATH]
+        return subprocess_check_output(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def get_fslabel_by_dev(cls, dev: str) -> str:
-        """Return the fslabel of the dev if any or empty str."""
-        args = f"-in -o LABEL {dev}"
-        return cls._lsblk(args)
+    def get_mount_point_by_dev(cls, dev: str, *, raise_exception: bool = True) -> str:
+        """Get the FIRST mountpoint of the <dev>.
 
-    @classmethod
-    def get_partuuid_by_dev(cls, dev: str) -> str:
-        """Return partuuid of input device."""
-        args = f"-in -o PARTUUID {dev}"
-        try:
-            return cls._lsblk(args, raise_exception=True)
-        except Exception as e:
-            msg = f"failed to get partuuid for {dev}: {e!r}"
-            raise ValueError(msg) from None
-
-    @classmethod
-    def get_uuid_by_dev(cls, dev: str) -> str:
-        """Return uuid of input device."""
-        args = f"-in -o UUID {dev}"
-        try:
-            return cls._lsblk(args, raise_exception=True)
-        except Exception as e:
-            msg = f"failed to get uuid for {dev}: {e!r}"
-            raise ValueError(msg) from None
-
-    @classmethod
-    def get_uuid_str_by_dev(cls, dev: str) -> str:
-        """Return UUID string of input device.
-
-        Returns:
-            str like: "UUID=<uuid>"
-        """
-        return f"UUID={cls.get_uuid_by_dev(dev)}"
-
-    @classmethod
-    def get_partuuid_str_by_dev(cls, dev: str) -> str:
-        """Return PARTUUID string of input device.
-
-        Returns:
-            str like: "PARTUUID=<partuuid>"
-        """
-        return f"PARTUUID={cls.get_partuuid_by_dev(dev)}"
-
-    @classmethod
-    def get_dev_by_partlabel(cls, partlabel: str) -> str:
-        return cls._findfs("PARTLABEL", partlabel)
-
-    @classmethod
-    def get_dev_by_fslabel(cls, fslabel: str) -> str:
-        return cls._findfs("LABEL", fslabel)
-
-    @classmethod
-    def get_dev_by_partuuid(cls, partuuid: str) -> str:
-        return cls._findfs("PARTUUID", partuuid)
-
-    @classmethod
-    def get_current_rootfs_dev(cls) -> str:
-        """
-        NOTE:
-            -o <COLUMN>: only print <COLUMN>
-            -n: no headings
-            -f: only show the first file system
-            -c: canonicalize printed paths
-
-        Returns:
-            full path to dev of the current rootfs
-        """
-        if res := cls._findmnt("/ -o SOURCE -n -f -c"):
-            return res
-        else:
-            raise BootControlError("failed to detect current rootfs")
-
-    @classmethod
-    def get_mount_point_by_dev(cls, dev: str, *, raise_exception=True) -> str:
-        """
-        findmnt <dev> -o TARGET -n
+        This is implemented by calling:
+            findmnt <dev> -nfo TARGET <dev>
 
         NOTE: findmnt raw result might have multiple lines if target dev is bind mounted.
-        use option -f to only show the first file system
+            use option -f to only show the first file system.
         """
-        mount_points = cls._findmnt(f"{dev} -o TARGET -n -f")
-        if not mount_points and raise_exception:
-            raise MountError(f"{dev} is not mounted")
-
-        return mount_points
+        cmd = ["findmnt", "-nfo", "TARGET", dev]
+        return subprocess_check_output(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def get_dev_by_mount_point(cls, mount_point: str) -> str:
-        """Return the underlying mounted dev of the given mount_point."""
-        return cls._findmnt(f"-no SOURCE {mount_point}")
+    def get_dev_by_mount_point(
+        cls, mount_point: str, *, raise_exception: bool = True
+    ) -> str:
+        """Return the underlying mounted dev of the given mount_point.
 
-    @classmethod
-    def is_target_mounted(cls, target: Union[Path, str]) -> bool:
-        return cls._findmnt(f"{target}") != ""
-
-    @classmethod
-    def get_parent_dev(cls, child_device: str) -> str:
+        This is implemented by calling:
+            findmnt -no SOURCE <mount_point>
         """
+        cmd = ["findmnt", "-no", "SOURCE", mount_point]
+        return subprocess_check_output(cmd, raise_exception=raise_exception)
+
+    @classmethod
+    def is_target_mounted(
+        cls, target: Path | str, *, raise_exception: bool = True
+    ) -> bool:
+        """Check if <target> is mounted or not. <target> can be a dev or a mount point.
+
+        This is implemented by calling:
+            findmnt <target>
+
+            and see if there is any matching device.
+        """
+        cmd = ["findmnt", target]
+        return bool(subprocess_check_output(cmd, raise_exception=raise_exception))
+
+    @classmethod
+    def get_parent_dev(cls, child_device: str, *, raise_exception: bool = True) -> str:
+        """Get the parent devpath from <child_device>.
         When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
 
-        cmd params:
-            -d: print the result from specified dev only.
+        This function is implemented by calling:
+            lsblk -idpno PKNAME <child_device>
         """
-        cmd = f"-idpn -o PKNAME {child_device}"
-        if res := cls._lsblk(cmd):
-            return res
-        else:
-            raise ValueError(f"{child_device} not found or not a partition")
+        cmd = ["lsblk", "-idpno", "PKNAME", child_device]
+        return subprocess_check_output(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def get_dev_family(cls, parent_device: str, *, include_parent=True) -> List[str]:
-        """
-        When `/dev/nvme0n1` is specified as parent_device,
-        ["/dev/nvme0n1", "/dev/nvme0n1p1", "/dev/nvme0n1p2"...] will be return
-        """
-        cmd = f"-Pp -o NAME {parent_device}"
-        res = list(
-            map(
-                lambda line: line.split("=")[-1].strip('"'),
-                cls._lsblk(cmd).splitlines(),
-            )
-        )
-
-        # the first line is the parent of the dev family
-        if include_parent:
-            return res
-        else:
-            return res[1:]
+    def set_ext4_fslabel(cls, dev: str, fslabel: str, *, raise_exception: bool = True):
+        cmd = ["e2label", dev, fslabel]
+        subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def get_dev_size(cls, dev: str) -> int:
-        """Return the size of dev by bytes.
-
-        NOTE:
-            -d: print the result from specified dev only
-            -b: print size in bytes
-            -n: no headings
-        """
-        cmd = f"-dbn -o SIZE {dev}"
-        try:
-            return int(cls._lsblk(cmd))
-        except ValueError:
-            raise ValueError(f"failed to get size of {dev}") from None
-
-    @classmethod
-    def set_dev_fslabel(cls, dev: str, fslabel: str):
-        cmd = f"e2label {dev} {fslabel}"
-        try:
-            subprocess_call(cmd, raise_exception=True)
-        except Exception as e:
-            raise ValueError(f"failed to set {fslabel=} to {dev=}: {e!r}") from None
-
-    @classmethod
-    def mount_rw(cls, target: str, mount_point: Union[Path, str]):
+    def mount_rw(
+        cls, target: str, mount_point: Path | str, *, raise_exception: bool = True
+    ):
         """Mount the target to the mount_point read-write.
 
+        This is implemented by calling:
+            mount -o rw --make-private --make-unbindable <target> <mount_point>
+
         NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
               mount events propagation to/from this mount point.
 
         Raises:
-            MountError on failed mounting.
+            CalledProcessError on failed mount.
         """
-        options = ["rw"]
-        args = ["--make-private", "--make-unbindable"]
-        cls._mount(target, str(mount_point), options=options, args=args)
+        # fmt: off
+        cmd = [
+            "mount",
+            "-o", "rw",
+            "--make-private", "--make-unbindable",
+            target,
+            str(mount_point),
+        ]
+        # fmt: on
+        subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def bind_mount_ro(cls, target: str, mount_point: Union[Path, str]):
+    def bind_mount_ro(
+        cls, target: str, mount_point: Path | str, *, raise_exception: bool = True
+    ):
         """Bind mount the target to the mount_point read-only.
 
-        NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
-              mount events propagation to/from this mount point.
+        This is implemented by calling:
+            mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
 
         Raises:
-            MountError on failed mounting.
+            CalledProcessError on failed mount.
         """
-        options = ["bind", "ro"]
-        args = ["--make-private", "--make-unbindable"]
-        cls._mount(target, str(mount_point), options=options, args=args)
+        # fmt: off
+        cmd = [
+            "mount",
+            "-o", "bind,ro",
+            "--make-private", "--make-unbindable",
+            target,
+            str(mount_point)
+        ]
+        # fmt: on
+        subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def umount(cls, target: Union[Path, str], *, ignore_error=False):
+    def umount(cls, target: Path | str, *, raise_exception: bool = True):
         """Try to unmount the <target>.
 
-        Raises:
-            If ignore_error is False, raises MountError on failed unmounting.
+        This function will first check whether the <target> is mounted.
         """
         # first try to check whether the target(either a mount point or a dev)
         # is mounted
-        if not cls.is_target_mounted(target):
+        if not cls.is_target_mounted(target, raise_exception=False):
             return
 
         # if the target is mounted, try to unmount it.
-        try:
-            _cmd = f"umount -l {target}"
-            subprocess_call(_cmd, raise_exception=True)
-        except CalledProcessError as e:
-            _failure_msg = (
-                f"failed to umount {target}: {e.returncode=}, {e.stderr=}, {e.stdout=}"
-            )
-            logger.warning(_failure_msg)
-
-            if not ignore_error:
-                raise MountError(_failure_msg) from None
+        _cmd = ["umount", str(target)]
+        subprocess_call(_cmd, raise_exception=raise_exception)
 
     @classmethod
-    def mkfs_ext4(cls, dev: str, *, fslabel: Optional[str] = None):
+    def mkfs_ext4(
+        cls,
+        dev: str,
+        *,
+        fslabel: Optional[str] = None,
+        fsuuid: Optional[str] = None,
+        raise_exception: bool = True,
+    ):
         """Call mkfs.ext4 on <dev>.
 
-        Raises:
-            MkfsError on failed ext4 partition formatting.
-        """
-        # NOTE: preserve the UUID and FSLABEL(if set)
-        _specify_uuid = ""
-        try:
-            _specify_uuid = f"-U {cls.get_uuid_by_dev(dev)}"
-        except Exception:
-            pass
+        If fslabel and/or fsuuid provided, use them in prior, otherwise
+            try to preserve fsuuid and fslabel if possible.
 
-        # if fslabel is specified, then use it,
-        # otherwise try to detect the previously set one
-        _specify_fslabel = ""
+        NOTE: -F is used to bypass interactive confirmation.
+
+        Raises:
+            Original CalledProcessError from the failed command execution.
+        """
+        cmd = ["mkfs.ext4", "-F"]
+
+        if not fsuuid:
+            try:
+                fsuuid = cls.get_attrs_by_dev("UUID", dev)
+                assert fsuuid
+                logger.debug(f"reuse previous UUID: {fsuuid}")
+            except Exception:
+                pass
+        if fsuuid:
+            logger.debug(f"using UUID: {fsuuid}")
+            cmd.extend(["-U", fsuuid])
+
+        if not fslabel:
+            try:
+                fslabel = cls.get_attrs_by_dev("LABEL", dev)
+                assert fslabel
+                logger.debug(f"reuse previous fs LABEL: {fslabel}")
+            except Exception:
+                pass
         if fslabel:
-            _specify_fslabel = f"-L {fslabel}"
-        elif _fslabel := cls.get_fslabel_by_dev(dev):
-            _specify_fslabel = f"-L {_fslabel}"
+            logger.debug(f"using fs LABEL: {fslabel}")
+            cmd.extend(["-L", fslabel])
 
-        try:
-            logger.warning(f"format {dev} to ext4...")
-            _cmd = f"mkfs.ext4 {_specify_uuid} {_specify_fslabel} {dev}"
-            subprocess_call(_cmd, raise_exception=True)
-        except CalledProcessError as e:
-            _failure_msg = f"failed to apply mkfs.ext4 on {dev}: {e!r}"
-            logger.error(_failure_msg)
-            raise MkfsError(_failure_msg)
+        cmd.append(dev)
+        logger.warning(f"execute {cmd=}")
+        subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def mount_refroot(
-        cls,
-        standby_slot_dev: str,
-        active_slot_dev: str,
-        refroot_mount_point: str,
-        *,
-        standby_as_ref: bool,
+    def mount_ro(
+        cls, *, target: str, mount_point: str | Path, raise_exception: bool = True
     ):
-        """Mount reference rootfs that we copy files from to <refroot_mount_point>.
-
-        This method bind mount refroot as ro with make-private flag and make-unbindable flag,
-        to prevent ANY accidental writes/changes to the refroot.
-
-        Raises:
-            MountError on failed mounting.
-        """
-        _refroot_dev = standby_slot_dev if standby_as_ref else active_slot_dev
-
-        # NOTE: set raise_exception to false to allow not mounted
-        # not mounted dev will have empty return str
-        if _refroot_active_mount_point := CMDHelperFuncs.get_mount_point_by_dev(
-            _refroot_dev, raise_exception=False
-        ):
-            CMDHelperFuncs.bind_mount_ro(
-                _refroot_active_mount_point,
-                refroot_mount_point,
-            )
-        else:
-            # NOTE: refroot is expected to be mounted,
-            # if refroot is active rootfs, it is mounted as /;
-            # if refroot is standby rootfs(in-place update mode),
-            # it will be mounted to /mnt/standby(rw), so we still mount it as bind,ro
-            raise MountError("refroot is expected to be mounted")
-
-    @classmethod
-    def mount_ro(cls, *, target: str, mount_point: Union[str, Path]):
         """Mount target on mount_point read-only.
 
         If the target device is mounted, we bind mount the target device to mount_point,
@@ -384,7 +266,7 @@ class CMDHelperFuncs:
         to prevent ANY accidental writes/changes to the target.
 
         Raises:
-            MountError on failed mounting.
+            CalledProcessError on failed mounting.
         """
         # NOTE: set raise_exception to false to allow not mounted
         #       not mounted dev will have empty return str
@@ -394,22 +276,34 @@ class CMDHelperFuncs:
             CMDHelperFuncs.bind_mount_ro(
                 _active_mount_point,
                 mount_point,
+                raise_exception=raise_exception,
             )
         else:
             # target is not mounted, we mount it by ourself
-            options = ["ro"]
-            args = ["--make-private", "--make-unbindable"]
-            cls._mount(target, str(mount_point), options=options, args=args)
+            # fmt: off
+            cmd = [
+                "mount",
+                "-o", "ro",
+                "--make-private", "--make-unbindable",
+                target,
+                str(mount_point),
+            ]
+            # fmt: on
+            subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
-    def reboot(cls) -> NoReturn:
+    def reboot(cls, args: Optional[list[str]] = None) -> NoReturn:
         """Reboot the whole system otaclient running at and terminate otaclient.
 
         NOTE(20230614): this command MUST also make otaclient exit immediately.
+        NOTE(20240421): rpi_boot's reboot takes args.
         """
-        os.sync()
+        cmd = ["reboot"]
+        if args:
+            cmd.extend(args)
+
         try:
-            subprocess_call("reboot", raise_exception=True)
+            subprocess_call(cmd, raise_exception=True)
             sys.exit(0)
         except CalledProcessError:
             logger.exception("failed to reboot")
@@ -462,7 +356,7 @@ class OTAStatusFilesControl:
             _loaded_ota_status = None
 
         # initialize ota_status files if not presented/incompleted/invalid
-        if _loaded_ota_status is None:
+        if not _loaded_ota_status:
             logger.info(
                 "ota_status files incompleted/not presented, "
                 f"initializing and set/store status to {wrapper.StatusOta.INITIALIZED.name}..."
@@ -690,57 +584,27 @@ class SlotMountHelper:
             cfg.BOOT_DIR
         ).relative_to("/")
 
-    def mount_standby(self, *, raise_exc: bool = True) -> bool:
-        """Mount standby slot dev to <standby_slot_mount_point>.
-
-        Args:
-            erase_standby: whether to format standby slot dev to ext4 before mounting.
-            raise_exc: if exception occurs, raise it or not.
-
-        Return:
-            A bool indicates whether the mount succeeded or not.
-        """
+    def mount_standby(self) -> None:
+        """Mount standby slot dev to <standby_slot_mount_point>."""
         logger.debug("mount standby slot rootfs dev...")
-        try:
-            # first try umount mount point and dev
-            CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=True)
-            if CMDHelperFuncs.is_target_mounted(self.standby_slot_dev):
-                CMDHelperFuncs.umount(self.standby_slot_dev)
+        if CMDHelperFuncs.is_target_mounted(
+            self.standby_slot_dev, raise_exception=False
+        ):
+            logger.debug(f"{self.standby_slot_dev=} is mounted, try to umount it ...")
+            CMDHelperFuncs.umount(self.standby_slot_dev, raise_exception=False)
 
-            # try to mount the standby dev
-            CMDHelperFuncs.mount_rw(
-                target=self.standby_slot_dev,
-                mount_point=self.standby_slot_mount_point,
-            )
-            return True
-        except Exception:
-            if raise_exc:
-                raise
-            return False
+        CMDHelperFuncs.mount_rw(
+            target=self.standby_slot_dev,
+            mount_point=self.standby_slot_mount_point,
+        )
 
-    def mount_active(self, *, raise_exc: bool = True) -> bool:
-        """Mount active rootfs ready-only.
-
-        Args:
-            raise_exc: if exception occurs, raise it or not.
-
-        Return:
-            A bool indicates whether the mount succeeded or not.
-        """
-        # first try umount the mount_point
+    def mount_active(self) -> None:
+        """Mount active rootfs ready-only."""
         logger.debug("mount active slot rootfs dev...")
-        try:
-            CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=True)
-            # mount active slot ro, unpropagated
-            CMDHelperFuncs.mount_ro(
-                target=self.active_slot_dev,
-                mount_point=self.active_slot_mount_point,
-            )
-            return True
-        except Exception:
-            if raise_exc:
-                raise
-            return False
+        CMDHelperFuncs.mount_ro(
+            target=self.active_slot_dev,
+            mount_point=self.active_slot_mount_point,
+        )
 
     def preserve_ota_folder_to_standby(self):
         """Copy the /boot/ota folder to standby slot to preserve it.
@@ -756,10 +620,29 @@ class SlotMountHelper:
         except Exception as e:
             raise ValueError(f"failed to copy /boot/ota from active to standby: {e!r}")
 
+    def prepare_standby_dev(
+        self,
+        *,
+        erase_standby: bool = False,
+        fslabel: Optional[str] = None,
+    ) -> None:
+        CMDHelperFuncs.umount(self.standby_slot_dev, raise_exception=False)
+        if erase_standby:
+            return CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
+
+        # TODO: in the future if in-place update mode is implemented, do a
+        #   fschck over the standby slot file system.
+        if fslabel:
+            CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, fslabel=fslabel)
+
     def umount_all(self, *, ignore_error: bool = False):
         logger.debug("unmount standby slot and active slot mount point...")
-        CMDHelperFuncs.umount(self.standby_slot_mount_point, ignore_error=ignore_error)
-        CMDHelperFuncs.umount(self.active_slot_mount_point, ignore_error=ignore_error)
+        CMDHelperFuncs.umount(
+            self.standby_slot_mount_point, raise_exception=ignore_error
+        )
+        CMDHelperFuncs.umount(
+            self.active_slot_mount_point, raise_exception=ignore_error
+        )
 
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:

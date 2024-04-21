@@ -98,9 +98,17 @@ class _OTAProxyContext(OTAProxyContextProto):
 
     def _mount_external_cache_storage(self):
         # detect cache_dev on every startup
-        _cache_dev = CMDHelperFuncs._findfs("LABEL", self._external_cache_dev_fslabel)
+        _cache_dev = CMDHelperFuncs.get_dev_by_token(
+            "LABEL", self._external_cache_dev_fslabel
+        )
         if not _cache_dev:
             return
+
+        if len(_cache_dev) > 1:
+            logger.warning(
+                f"multiple external cache storage device found, use the first one: {_cache_dev[0]}"
+            )
+        _cache_dev = _cache_dev[0]
 
         self.logger.info(f"external cache dev detected at {_cache_dev}")
         self._external_cache_dev = _cache_dev
