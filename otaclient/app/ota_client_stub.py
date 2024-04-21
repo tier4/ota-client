@@ -524,11 +524,6 @@ class ECUStatusStorage:
         """Update the ECU status storage with child ECU's status report(StatusResponse)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
-            _subecu_available_ecu_ids = _OrderedSet(status_resp.available_ecu_ids)
-            # discover further child ECUs from directly connected sub ECUs.
-            self._tracked_active_ecus.update(_subecu_available_ecu_ids)
-            # merge available_ecu_ids from child ECUs resp to include further child ECUs
-            self._available_ecu_ids.update(_subecu_available_ecu_ids)
 
             # NOTE: use v2 if v2 is available, but explicitly support v1 format
             #       for backward-compatible with old otaclient
