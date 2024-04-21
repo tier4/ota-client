@@ -692,27 +692,6 @@ class _GrubControl:
 
     # API
 
-    def prepare_standby_dev(self, *, erase_standby: bool):
-        """
-        Args:
-            erase_standby: indicate boot_controller whether to format the
-                standby slot's file system or not. This value is indicated and
-                passed to boot controller by the standby slot creator.
-        """
-        try:
-            # try to unmount the standby root dev unconditionally
-            if CMDHelperFuncs.is_target_mounted(self.standby_root_dev):
-                CMDHelperFuncs.umount(self.standby_root_dev)
-
-            if erase_standby:
-                CMDHelperFuncs.mkfs_ext4(self.standby_root_dev)
-            # TODO: check the standby file system status
-            #       if not erase the standby slot
-        except Exception as e:
-            _err_msg = f"failed to prepare standby dev: {e!r}"
-            logger.error(_err_msg)
-            raise _GrubBootControllerError(_err_msg) from e
-
     def finalize_update_switch_boot(self):
         """Finalize switch boot and use boot files from current booted slot."""
         # NOTE: since we have not yet switched boot, the active/standby relationship is
@@ -904,7 +883,7 @@ class GrubController(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._boot_control.prepare_standby_dev(erase_standby=erase_standby)
+            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
 
