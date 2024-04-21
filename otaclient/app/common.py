@@ -30,7 +30,6 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 from typing import (
-    TYPE_CHECKING,
     Any,
     Callable,
     Generator,
@@ -124,7 +123,7 @@ def subprocess_run_wrapper(
     *,
     check: bool,
     check_output: bool,
-    timeout: Optional[float],
+    timeout: Optional[float] = None,
 ) -> subprocess.CompletedProcess[bytes]:
     if isinstance(cmd, str):
         cmd = shlex.split(cmd)
