@@ -41,6 +41,7 @@ from typing import (
     Iterable,
     TypeVar,
     Generic,
+    overload,
 )
 from urllib.parse import urljoin
 
@@ -155,6 +156,39 @@ def _subprocess_run_wrapper(
 
 
 if TYPE_CHECKING:
+
+    @overload
+    def subprocess_check_output(
+        cmd: str | list[str],
+        *,
+        timeout: Optional[float] = None,
+    ) -> Optional[str]: ...
+
+    @overload
+    def subprocess_check_output(
+        cmd: str | list[str],
+        *,
+        raise_exception: bool = True,
+        timeout: Optional[float] = None,
+    ) -> str: ...
+
+    @overload
+    def subprocess_check_output(
+        cmd: str | list[str],
+        *,
+        raise_exception: bool,
+        default: str,
+        timeout: Optional[float] = None,
+    ) -> str: ...
+
+    @overload
+    def subprocess_check_output(
+        cmd: str | list[str],
+        *,
+        raise_exception: bool = False,
+        default: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> Optional[str]: ...
 
     def subprocess_check_output(
         cmd: str | list[str],
