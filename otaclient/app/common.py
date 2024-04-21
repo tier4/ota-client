@@ -41,7 +41,6 @@ from typing import (
     Iterable,
     TypeVar,
     Generic,
-    overload,
 )
 from urllib.parse import urljoin
 
@@ -123,11 +122,11 @@ def write_str_to_file_sync(path: Union[Path, str], input: str):
 def _subprocess_run_wrapper(
     cmd: str | list[str],
     *,
-    check_output: bool = False,
-    raise_exception: bool = False,
-    default: Optional[str] = None,
+    check_output: bool,
+    raise_exception: bool,
+    default: str = "",
     timeout: Optional[float] = None,
-) -> Optional[str]:
+) -> str | None:
     """A wrapper of subprocess.run command."""
     if isinstance(cmd, str):
         cmd = shlex.split(cmd)
@@ -157,56 +156,21 @@ def _subprocess_run_wrapper(
 
 if TYPE_CHECKING:
 
-    @overload
-    def subprocess_check_output(
-        cmd: str | list[str],
-        *,
-        timeout: Optional[float] = None,
-    ) -> Optional[str]: ...
-
-    @overload
-    def subprocess_check_output(
-        cmd: str | list[str],
-        *,
-        raise_exception: bool = True,
-        timeout: Optional[float] = None,
-    ) -> str: ...
-
-    @overload
-    def subprocess_check_output(
-        cmd: str | list[str],
-        *,
-        raise_exception: bool,
-        default: str,
-        timeout: Optional[float] = None,
-    ) -> str: ...
-
-    @overload
     def subprocess_check_output(
         cmd: str | list[str],
         *,
         raise_exception: bool = False,
-        default: Optional[str] = None,
+        default: str = "",
         timeout: Optional[float] = None,
-    ) -> Optional[str]: ...
-
-    def subprocess_check_output(
-        cmd: str | list[str],
-        *,
-        raise_exception: bool = False,
-        default: Optional[str] = None,
-        timeout: Optional[float] = None,
-    ) -> Optional[str]:
+    ) -> str:  # type: ignore
         """Run the command and return its output if possible.
         NOTE: this method will call decode and strip on the raw output.
 
         Params:
             cmd: string or list of string of command to be called.
             raise_exception: Whether to raise the exception from
-                underlaying subprocess.check_output. If False, <defualt> will be
-                return instead.
-            default: The default value to return when <raise_exception> is False and
-                subprocess.check_output failed.
+                underlaying subprocess.check_output.
+            default: when <raise_exception> is True, return this <default>.
 
         Raises:
             The original CalledProcessError from calling subprocess.check_output if
@@ -218,7 +182,7 @@ if TYPE_CHECKING:
         *,
         raise_exception: bool = False,
         timeout: Optional[float] = None,
-    ):
+    ) -> None:
         """Run the <cmd> without checking its output.
 
         Raises:
@@ -227,7 +191,7 @@ if TYPE_CHECKING:
         """
 
 else:
-    subprocess_call = _subprocess_run_wrapper
+    subprocess_call = partial(_subprocess_run_wrapper, check_output=False)
     subprocess_check_output = partial(_subprocess_run_wrapper, check_output=True)
 
 
