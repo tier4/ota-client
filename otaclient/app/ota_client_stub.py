@@ -99,7 +99,9 @@ class _OTAProxyContext(OTAProxyContextProto):
     def _mount_external_cache_storage(self):
         # detect cache_dev on every startup
         _cache_dev = CMDHelperFuncs.get_dev_by_token(
-            "LABEL", self._external_cache_dev_fslabel
+            "LABEL",
+            self._external_cache_dev_fslabel,
+            raise_exception=False,
         )
         if not _cache_dev:
             return
