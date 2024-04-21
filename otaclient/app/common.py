@@ -119,80 +119,85 @@ def write_str_to_file_sync(path: Union[Path, str], input: str):
         os.fsync(f.fileno())
 
 
-def _subprocess_run_wrapper(
+def subprocess_run_wrapper(
     cmd: str | list[str],
     *,
+    check: bool,
     check_output: bool,
-    raise_exception: bool,
-    default: str = "",
-    timeout: Optional[float] = None,
-) -> str | None:
-    """A wrapper of subprocess.run command."""
+    timeout: Optional[float],
+) -> subprocess.CompletedProcess[bytes]:
     if isinstance(cmd, str):
         cmd = shlex.split(cmd)
 
+    return subprocess.run(
+        cmd,
+        check=check,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE if check_output else None,
+        timeout=timeout,
+    )
+
+
+def subprocess_check_output(
+    cmd: str | list[str],
+    *,
+    raise_exception: bool = False,
+    default: str = "",
+    timeout: Optional[float] = None,
+) -> str:
+    """Run the command and return its output if possible.
+    NOTE: this method will call decode and strip on the raw output.
+
+    Params:
+        cmd: string or list of string of command to be called.
+        raise_exception: Whether to raise the exception from
+            underlaying subprocess.check_output.
+        default: when <raise_exception> is True, return this <default>.
+
+    Raises:
+        The original CalledProcessError from calling subprocess.check_output if
+            the execution failed and <raise_exception> is True.
+    """
     try:
-        res = subprocess.run(
-            cmd,
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE if check_output else None,
-            timeout=timeout,
+        res = subprocess_run_wrapper(
+            cmd, check=True, check_output=True, timeout=timeout
         )
-        if check_output:
-            return res.stdout.decode().strip()
+        return res.stdout.decode().strip()
     except subprocess.CalledProcessError as e:
         _err_msg = (
             f"command({cmd=}) failed(retcode={e.returncode}: \n"
-            f"{e.stderr.decode()}\n"
-            f"{e.stdout.decode()}\n)"
+            f"stderr={e.stderr.decode()}"
         )
         logger.debug(_err_msg)
 
         if raise_exception:
             raise
-        if check_output:
-            return default
+        return default
 
 
-if TYPE_CHECKING:
+def subprocess_call(
+    cmd: str | list[str],
+    *,
+    raise_exception: bool = False,
+    timeout: Optional[float] = None,
+) -> None:
+    """Run the <cmd> without checking its output.
 
-    def subprocess_check_output(
-        cmd: str | list[str],
-        *,
-        raise_exception: bool = False,
-        default: str = "",
-        timeout: Optional[float] = None,
-    ) -> str:  # type: ignore
-        """Run the command and return its output if possible.
-        NOTE: this method will call decode and strip on the raw output.
+    Raises:
+        The original CalledProcessError from calling subprocess.check_output if
+            the execution failed and <raise_exception> is True.
+    """
+    try:
+        subprocess_run_wrapper(cmd, check=True, check_output=False, timeout=timeout)
+    except subprocess.CalledProcessError as e:
+        _err_msg = (
+            f"command({cmd=}) failed(retcode={e.returncode}: \n"
+            f"stderr={e.stderr.decode()}"
+        )
+        logger.debug(_err_msg)
 
-        Params:
-            cmd: string or list of string of command to be called.
-            raise_exception: Whether to raise the exception from
-                underlaying subprocess.check_output.
-            default: when <raise_exception> is True, return this <default>.
-
-        Raises:
-            The original CalledProcessError from calling subprocess.check_output if
-                the execution failed and <raise_exception> is True.
-        """
-
-    def subprocess_call(
-        cmd: str | list[str],
-        *,
-        raise_exception: bool = False,
-        timeout: Optional[float] = None,
-    ) -> None:
-        """Run the <cmd> without checking its output.
-
-        Raises:
-            The original CalledProcessError from calling subprocess.check_output if
-                the execution failed and <raise_exception> is True.
-        """
-
-else:
-    subprocess_call = partial(_subprocess_run_wrapper, check_output=False)
-    subprocess_check_output = partial(_subprocess_run_wrapper, check_output=True)
+        if raise_exception:
+            raise
 
 
 def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
