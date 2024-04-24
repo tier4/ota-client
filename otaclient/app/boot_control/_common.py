@@ -53,7 +53,19 @@ class CMDHelperFuncs:
         """Get <attr> from <dev>.
 
         This is implemented by calling:
-            lsblk -in -o <attr> <dev>
+            `lsblk -in -o <attr> <dev>`
+
+        Args:
+            attr (PartitionToken): the attribute to retrieve from the <dev>.
+            dev (Path | str): the target device path.
+            raise_exception (bool, optional): raise exception on subprocess call failed.
+                Defaults to True.
+
+        Raises:
+            subprocess.CalledProcessError on failed command call.
+
+        Returns:
+            str: <attr> of <dev>.
         """
         cmd = ["lsblk", "-ino", attr, str(dev)]
         return subprocess_check_output(cmd, raise_exception=raise_exception)
@@ -62,10 +74,23 @@ class CMDHelperFuncs:
     def get_dev_by_token(
         cls, token: PartitionToken, value: str, *, raise_exception: bool = True
     ) -> Optional[list[str]]:
-        """Get a list of device(s) that matches the token=value pair.
+        """Get a list of device(s) that matches the <token>=<value> pair.
 
         This is implemented by calling:
             blkid -o device -t <TOKEN>=<VALUE>
+
+        Args:
+            token (PartitionToken): which attribute of device to match.
+            value (str): the value of the attribute.
+            raise_exception (bool, optional): raise exception on subprocess call failed.
+                Defaults to True.
+
+        Raises:
+            subprocess.CalledProcessError on failed command call.
+
+        Returns:
+            Optional[list[str]]: If there is at least one device found, return a list
+                contains all found device(s), otherwise None.
         """
         cmd = ["blkid", "-o", "device", "-t", f"{token}={value}"]
         if res := subprocess_check_output(cmd, raise_exception=raise_exception):
@@ -76,13 +101,17 @@ class CMDHelperFuncs:
         """Get the devpath of current rootfs dev.
 
         This is implemented by calling
-            findmnt -nfc -o SOURCE /
+            findmnt -nfc -o SOURCE <ACTIVE_ROOTFS_PATH>
 
-        Returns:
-            full path to dev of the current rootfs.
+        Args:
+            raise_exception (bool, optional): raise exception on subprocess call failed.
+                Defaults to True.
 
         Raises:
             subprocess.CalledProcessError on failed command call.
+
+        Returns:
+            str: _description_
         """
         cmd = ["findmnt", "-nfco", "SOURCE", cfg.ACTIVE_ROOTFS_PATH]
         return subprocess_check_output(cmd, raise_exception=raise_exception)
