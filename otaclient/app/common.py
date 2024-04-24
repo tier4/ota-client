@@ -223,6 +223,8 @@ def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
 def copytree_identical(src: Path, dst: Path):
     """Recursively copy from the src folder to dst folder.
 
+    Source folder MUST be a dir.
+
     This function populate files/dirs from the src to the dst,
     and make sure the dst is identical to the src.
 
@@ -243,8 +245,13 @@ def copytree_identical(src: Path, dst: Path):
     NOTE: is_file/is_dir also returns True if it is a symlink and
     the link target is_file/is_dir
     """
+    if src.is_symlink() or not src.is_dir():
+        raise ValueError(f"{src} is not a dir")
+
     if dst.is_symlink() or not dst.is_dir():
-        raise FileNotFoundError(f"{dst} is not found or not a dir")
+        logger.info(f"{dst=} doesn't exist or not a dir, cleanup and mkdir")
+        dst.unlink(missing_ok=True)  # unlink doesn't follow the symlink
+        dst.mkdir(mode=src.stat().st_mode, parents=True)
 
     # phase1: populate files to the dst
     for cur_dir, dirs, files in os.walk(src, topdown=True, followlinks=False):
