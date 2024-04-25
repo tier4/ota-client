@@ -162,8 +162,8 @@ def subprocess_check_output(
 
     Args:
         cmd (str | list[str]): command to be executed.
-        raise_exception (bool, optional): raise the underlaying CalledProcessError. Defaults to False.
-        default (str, optional): if <raise_exception> is False, return <default> on underlaying
+        raise_exception (bool, optional): raise the underlying CalledProcessError. Defaults to False.
+        default (str, optional): if <raise_exception> is False, return <default> on underlying
             subprocess call failed. Defaults to "".
         timeout (Optional[float], optional): timeout for execution. Defaults to None.
 
@@ -197,7 +197,7 @@ def subprocess_call(
 
     Args:
         cmd (str | list[str]): command to be executed.
-        raise_exception (bool, optional): raise the underlaying CalledProcessError. Defaults to False.
+        raise_exception (bool, optional): raise the underlying CalledProcessError. Defaults to False.
         timeout (Optional[float], optional): timeout for execution. Defaults to None.
     """
     try:
@@ -563,7 +563,7 @@ class RetryTaskMap(Generic[T]):
             logger.debug("shutdown retry task map")
             if self._running_inst:
                 self._running_inst.shutdown(raise_last_exc=raise_last_exc)
-            # NOTE: passthrough the exception from underlaying running_inst
+            # NOTE: passthrough the exception from underlying running_inst
         finally:
             self._running_inst = None
             self._executor.shutdown(wait=True)

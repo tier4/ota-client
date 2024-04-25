@@ -143,7 +143,7 @@ After the compiled python code is ready, we can define the wrappers accordingly 
         #   type hints for each attributes when manually create instances
         #   of wrapper types.
         #   NOTE: this __init__ is just for typing use, it will not be
-        #         used by the underlaying MessageWrapper
+        #         used by the underlying MessageWrapper
         #   NOTE: if pyi file is also generated when compiling the proto file,
         #         the __init__ in pyi file can be used directly with little adjustment
         def __init__(
