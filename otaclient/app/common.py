@@ -118,45 +118,99 @@ def write_str_to_file_sync(path: Union[Path, str], input: str):
         os.fsync(f.fileno())
 
 
-# wrapped subprocess call
-def subprocess_call(cmd: str, *, raise_exception=False):
-    """
+def subprocess_run_wrapper(
+    cmd: str | list[str],
+    *,
+    check: bool,
+    check_output: bool,
+    timeout: Optional[float] = None,
+) -> subprocess.CompletedProcess[bytes]:
+    """A wrapper for subprocess.run method.
 
-    Raises:
-        a ValueError containing information about the failure.
+    NOTE: this is for the requirement of customized subprocess call
+        in the future, like chroot or nsenter before execution.
+
+    Args:
+        cmd (str | list[str]): command to be executed.
+        check (bool): if True, raise CalledProcessError on non 0 return code.
+        check_output (bool): if True, the UTF-8 decoded stdout will be returned.
+        timeout (Optional[float], optional): timeout for execution. Defaults to None.
+
+    Returns:
+        subprocess.CompletedProcess[bytes]: the result of the execution.
+    """
+    if isinstance(cmd, str):
+        cmd = shlex.split(cmd)
+
+    return subprocess.run(
+        cmd,
+        check=check,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE if check_output else None,
+        timeout=timeout,
+    )
+
+
+def subprocess_check_output(
+    cmd: str | list[str],
+    *,
+    raise_exception: bool = False,
+    default: str = "",
+    timeout: Optional[float] = None,
+) -> str:
+    """Run the <cmd> and return UTF-8 decoded stripped stdout.
+
+    Args:
+        cmd (str | list[str]): command to be executed.
+        raise_exception (bool, optional): raise the underlying CalledProcessError. Defaults to False.
+        default (str, optional): if <raise_exception> is False, return <default> on underlying
+            subprocess call failed. Defaults to "".
+        timeout (Optional[float], optional): timeout for execution. Defaults to None.
+
+    Returns:
+        str: UTF-8 decoded stripped stdout.
     """
     try:
-        # NOTE: we need to check the stderr and stdout when error occurs,
-        # so use subprocess.run here instead of subprocess.check_call
-        subprocess.run(
-            shlex.split(cmd),
-            check=True,
-            capture_output=True,
+        res = subprocess_run_wrapper(
+            cmd, check=True, check_output=True, timeout=timeout
         )
+        return res.stdout.decode().strip()
     except subprocess.CalledProcessError as e:
-        msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
-        logger.debug(msg)
-        if raise_exception:
-            raise
-
-
-def subprocess_check_output(cmd: str, *, raise_exception=False, default="") -> str:
-    """
-    Raises:
-        a ValueError containing information about the failure.
-    """
-    try:
-        return (
-            subprocess.check_output(shlex.split(cmd), stderr=subprocess.PIPE)
-            .decode()
-            .strip()
+        _err_msg = (
+            f"command({cmd=}) failed(retcode={e.returncode}: \n"
+            f"stderr={e.stderr.decode()}"
         )
-    except subprocess.CalledProcessError as e:
-        msg = f"command({cmd=}) failed({e.returncode=}, {e.stderr=}, {e.stdout=})"
-        logger.debug(msg)
+        logger.debug(_err_msg)
+
         if raise_exception:
             raise
         return default
+
+
+def subprocess_call(
+    cmd: str | list[str],
+    *,
+    raise_exception: bool = False,
+    timeout: Optional[float] = None,
+) -> None:
+    """Run the <cmd>.
+
+    Args:
+        cmd (str | list[str]): command to be executed.
+        raise_exception (bool, optional): raise the underlying CalledProcessError. Defaults to False.
+        timeout (Optional[float], optional): timeout for execution. Defaults to None.
+    """
+    try:
+        subprocess_run_wrapper(cmd, check=True, check_output=False, timeout=timeout)
+    except subprocess.CalledProcessError as e:
+        _err_msg = (
+            f"command({cmd=}) failed(retcode={e.returncode}: \n"
+            f"stderr={e.stderr.decode()}"
+        )
+        logger.debug(_err_msg)
+
+        if raise_exception:
+            raise
 
 
 def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
@@ -168,6 +222,8 @@ def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
 
 def copytree_identical(src: Path, dst: Path):
     """Recursively copy from the src folder to dst folder.
+
+    Source folder MUST be a dir.
 
     This function populate files/dirs from the src to the dst,
     and make sure the dst is identical to the src.
@@ -189,8 +245,13 @@ def copytree_identical(src: Path, dst: Path):
     NOTE: is_file/is_dir also returns True if it is a symlink and
     the link target is_file/is_dir
     """
+    if src.is_symlink() or not src.is_dir():
+        raise ValueError(f"{src} is not a dir")
+
     if dst.is_symlink() or not dst.is_dir():
-        raise FileNotFoundError(f"{dst} is not found or not a dir")
+        logger.info(f"{dst=} doesn't exist or not a dir, cleanup and mkdir")
+        dst.unlink(missing_ok=True)  # unlink doesn't follow the symlink
+        dst.mkdir(mode=src.stat().st_mode, parents=True)
 
     # phase1: populate files to the dst
     for cur_dir, dirs, files in os.walk(src, topdown=True, followlinks=False):
@@ -502,7 +563,7 @@ class RetryTaskMap(Generic[T]):
             logger.debug("shutdown retry task map")
             if self._running_inst:
                 self._running_inst.shutdown(raise_last_exc=raise_last_exc)
-            # NOTE: passthrough the exception from underlaying running_inst
+            # NOTE: passthrough the exception from underlying running_inst
         finally:
             self._running_inst = None
             self._executor.shutdown(wait=True)

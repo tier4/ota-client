@@ -20,7 +20,6 @@ from pathlib import Path
 from typing_extensions import deprecated
 
 from .configs import BootloaderType
-from ._errors import BootControlError
 from .protocol import BootControllerProtocol
 
 from ..common import read_str_from_file
@@ -82,13 +81,9 @@ def get_boot_controller(
         from ._grub import GrubController
 
         return GrubController
-    if bootloader_type == BootloaderType.CBOOT:
-        from ._cboot import CBootController
-
-        return CBootController
     if bootloader_type == BootloaderType.RPI_BOOT:
         from ._rpi_boot import RPIBootController
 
         return RPIBootController
 
-    raise BootControlError from NotImplementedError(f"unsupported: {bootloader_type=}")
+    raise NotImplementedError(f"unsupported: {bootloader_type=}")

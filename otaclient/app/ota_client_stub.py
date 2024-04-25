@@ -98,20 +98,27 @@ class _OTAProxyContext(OTAProxyContextProto):
 
     def _mount_external_cache_storage(self):
         # detect cache_dev on every startup
-        _cache_dev = CMDHelperFuncs._findfs("LABEL", self._external_cache_dev_fslabel)
+        _cache_dev = CMDHelperFuncs.get_dev_by_token(
+            "LABEL",
+            self._external_cache_dev_fslabel,
+            raise_exception=False,
+        )
         if not _cache_dev:
             return
+
+        if len(_cache_dev) > 1:
+            logger.warning(
+                f"multiple external cache storage device found, use the first one: {_cache_dev[0]}"
+            )
+        _cache_dev = _cache_dev[0]
 
         self.logger.info(f"external cache dev detected at {_cache_dev}")
         self._external_cache_dev = _cache_dev
 
         # try to unmount the mount_point and cache_dev unconditionally
         _mp = Path(self._external_cache_dev_mp)
-        CMDHelperFuncs.umount(_cache_dev, ignore_error=True)
-        if _mp.is_dir():
-            CMDHelperFuncs.umount(self._external_cache_dev_mp, ignore_error=True)
-        else:
-            _mp.mkdir(parents=True, exist_ok=True)
+        CMDHelperFuncs.umount(_cache_dev, raise_exception=False)
+        _mp.mkdir(parents=True, exist_ok=True)
 
         # try to mount cache_dev ro
         try:
