@@ -176,6 +176,7 @@ class CMDHelperFuncs:
     @classmethod
     def get_parent_dev(cls, child_device: str, *, raise_exception: bool = True) -> str:
         """Get the parent devpath from <child_device>.
+
         When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
 
         This function is implemented by calling:
