@@ -218,9 +218,6 @@ class CMDHelperFuncs:
         This is implemented by calling:
             mount -o rw --make-private --make-unbindable <target> <mount_point>
 
-        This is implemented by calling:
-            mount -o rw --make-private --make-unbindable <target> <mount_point>
-
         NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
               mount events propagation to/from this mount point.
 
