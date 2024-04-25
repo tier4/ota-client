@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, List
 
 from ..configs import BaseConfig
 
@@ -36,20 +36,25 @@ class GrubControlConfig(BaseConfig):
 
 
 @dataclass
-class CBootControlConfig(BaseConfig):
-    """arm platform, with cboot as bootloader.
+class JetsonCBootControlConfig(BaseConfig):
+    """Jetson device booted with cboot.
 
-    NOTE: only for tegraid:0x19, roscube-x platform(jetson-xavier-agx series)
+    Suuports BSP version < R34.
     """
 
     BOOTLOADER: BootloaderType = BootloaderType.CBOOT
     TEGRA_CHIP_ID_PATH: str = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
     CHIP_ID_MODEL_MAP: Dict[int, str] = field(default_factory=lambda: {0x19: "rqx_580"})
     OTA_STATUS_DIR: str = "/boot/ota-status"
+    FIRMWARE_BSP_VERSION_FNAME: str = "firmware_bsp_version"
     EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
     SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
     # refer to the standby slot
-    FIRMWARE_CONFIG: str = "/opt/ota/firmwares/firmware.yaml"
+    FIRMWARE_DPATH: str = "/opt/ota_package"
+    FIRMWARE_LIST: List[str] = field(
+        default_factory=lambda: ["bl_only_payload", "xusb_only_payload"]
+    )
+    NV_TEGRA_RELEASE_FPATH: str = "/etc/nv_tegra_release"
 
 
 @dataclass
@@ -77,5 +82,5 @@ class RPIBootControlConfig(BaseConfig):
 
 
 grub_cfg = GrubControlConfig()
-cboot_cfg = CBootControlConfig()
+cboot_cfg = JetsonCBootControlConfig()
 rpi_boot_cfg = RPIBootControlConfig()

@@ -81,6 +81,13 @@ def get_boot_controller(
         from ._grub import GrubController
 
         return GrubController
+    if (
+        bootloader_type == BootloaderType.CBOOT
+        or bootloader_type == BootloaderType.JETSON_CBOOT
+    ):
+        from ._jetson_cboot import JetsonCBootControl
+
+        return JetsonCBootControl
     if bootloader_type == BootloaderType.RPI_BOOT:
         from ._rpi_boot import RPIBootController
 
