@@ -19,7 +19,6 @@ import time
 import pytest
 import random
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
 from multiprocessing import Process
@@ -38,11 +37,10 @@ from otaclient.app.common import (
     subprocess_call,
     subprocess_check_output,
     verify_file,
-    wait_with_backoff,
     write_str_to_file_sync,
 )
 from tests.utils import compare_dir
-from tests.conftest import cfg, run_http_server
+from tests.conftest import run_http_server
 
 logger = logging.getLogger(__name__)
 
@@ -95,39 +93,6 @@ def test_write_to_file_sync(tmp_path: Path):
     _path = tmp_path / "write_to_file"
     write_str_to_file_sync(_path, _TEST_FILE_CONTENT)
     assert _path.read_text() == _TEST_FILE_CONTENT
-
-
-def test_subprocess_call():
-    with pytest.raises(subprocess.CalledProcessError) as e:
-        subprocess_call("ls /non-existed", raise_exception=True)
-    _origin_e = e.value
-    assert _origin_e.returncode == 2
-    assert (
-        _origin_e.stderr.decode().strip()
-        == "ls: cannot access '/non-existed': No such file or directory"
-    )
-
-    subprocess_call("ls /non-existed", raise_exception=False)
-
-
-def test_subprocess_check_output(file_t: Tuple[str, str, int]):
-    _path, _, _ = file_t
-    with pytest.raises(subprocess.CalledProcessError) as e:
-        subprocess_check_output("cat /non-existed", raise_exception=True)
-    _origin_e = e.value
-    assert _origin_e.returncode == 1
-    assert (
-        _origin_e.stderr.decode().strip()
-        == "cat: /non-existed: No such file or directory"
-    )
-
-    assert (
-        subprocess_check_output(
-            "cat /non-existed", raise_exception=False, default="abc"
-        )
-        == "abc"
-    )
-    assert subprocess_check_output(f"cat {_path}") == _TEST_FILE_CONTENT
 
 
 class Test_copytree_identical:
@@ -266,7 +231,7 @@ class Test_re_symlink_atomic:
 
 
 class _RetryTaskMapTestErr(Exception):
-    ...
+    """"""
 
 
 class TestRetryTaskMap:
@@ -445,3 +410,58 @@ class Test_ensure_otaproxy_start:
         )
         # probing should cost at least <LAUNCH_DELAY> seconds
         assert int(time.time()) >= start_time + self.LAUNCH_DELAY
+
+
+class TestSubprocessCall:
+    TEST_FILE_CONTENTS = "test file contents"
+
+    @pytest.fixture(autouse=True)
+    def setup_test(self, tmp_path: Path):
+        test_file = tmp_path / "test_file"
+        test_file.write_text(self.TEST_FILE_CONTENTS)
+        self.existed_file = test_file
+        self.non_existed_file = tmp_path / "non_existed_file"
+
+    def test_subprocess_call_failed(self):
+        cmd = ["ls", str(self.non_existed_file)]
+        with pytest.raises(subprocess.CalledProcessError) as e:
+            subprocess_call(cmd, raise_exception=True)
+        origin_exc: subprocess.CalledProcessError = e.value
+
+        assert origin_exc.returncode == 2
+        assert (
+            origin_exc.stderr.decode().strip()
+            == f"ls: cannot access '{self.non_existed_file}': No such file or directory"
+        )
+
+        # test exception supressed
+        subprocess_call(cmd, raise_exception=False)
+
+    def test_subprocess_call_succeeded(self):
+        cmd = ["ls", str(self.existed_file)]
+        subprocess_call(cmd, raise_exception=True)
+
+    def test_subprocess_check_output_failed(self):
+        cmd = ["cat", str(self.non_existed_file)]
+
+        with pytest.raises(subprocess.CalledProcessError) as e:
+            subprocess_check_output(cmd, raise_exception=True)
+        origin_exc: subprocess.CalledProcessError = e.value
+        assert origin_exc.returncode == 1
+        assert (
+            origin_exc.stderr.decode().strip()
+            == f"cat: {self.non_existed_file}: No such file or directory"
+        )
+
+        # test exception supressed
+        default_value = "test default_value"
+        output = subprocess_check_output(
+            cmd, default=default_value, raise_exception=False
+        )
+        assert output == default_value
+
+    def test_subprocess_check_output_succeeded(self):
+        cmd = ["cat", str(self.existed_file)]
+
+        output = subprocess_check_output(cmd, raise_exception=True)
+        assert output == self.TEST_FILE_CONTENTS
