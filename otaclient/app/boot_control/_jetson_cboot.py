@@ -15,29 +15,24 @@
 
 
 from __future__ import annotations
+
 import logging
 import os
 import re
 import subprocess
 from functools import partial
 from pathlib import Path
-from typing import Any, Generator, NamedTuple, Literal, Optional
+from typing import Any, Generator, Literal, NamedTuple, Optional
 
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Self
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import (
-    copytree_identical,
-    write_str_to_file_sync,
-    subprocess_run_wrapper,
-)
+from otaclient.app.common import (copytree_identical, subprocess_run_wrapper,
+                                  write_str_to_file_sync)
 from otaclient.app.proto import wrapper
-from ._common import (
-    OTAStatusFilesControl,
-    SlotMountHelper,
-    CMDHelperFuncs,
-)
+
+from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from .configs import cboot_cfg as cfg
 from .protocol import BootControllerProtocol
 
@@ -394,19 +389,19 @@ class _CBootControl:
             )
 
         # ------ check A/B slots ------ #
-        self.current_bootloader_slot = (
-            current_bootloader_slot
-        ) = _NVBootctrl.get_current_slot()
-        self.standby_bootloader_slot = (
-            standby_bootloader_slot
-        ) = _NVBootctrl.get_standby_slot()
+        self.current_bootloader_slot = current_bootloader_slot = (
+            _NVBootctrl.get_current_slot()
+        )
+        self.standby_bootloader_slot = standby_bootloader_slot = (
+            _NVBootctrl.get_standby_slot()
+        )
         if not unified_ab_enabled:
-            self.current_rootfs_slot = (
-                current_rootfs_slot
-            ) = _NVBootctrl.get_current_slot(target="rootfs")
-            self.standby_rootfs_slot = (
-                standby_rootfs_slot
-            ) = _NVBootctrl.get_standby_slot(target="rootfs")
+            self.current_rootfs_slot = current_rootfs_slot = (
+                _NVBootctrl.get_current_slot(target="rootfs")
+            )
+            self.standby_rootfs_slot = standby_rootfs_slot = (
+                _NVBootctrl.get_standby_slot(target="rootfs")
+            )
         else:
             self.current_rootfs_slot = current_rootfs_slot = current_bootloader_slot
             self.standby_rootfs_slot = standby_rootfs_slot = standby_bootloader_slot
@@ -421,9 +416,9 @@ class _CBootControl:
             logger.warning("this might indicates a failed previous firmware update")
 
         # ------ detect rootfs_dev and parent_dev ------ #
-        self.curent_rootfs_devpath = (
-            current_rootfs_devpath
-        ) = CMDHelperFuncs.get_current_rootfs_dev()
+        self.curent_rootfs_devpath = current_rootfs_devpath = (
+            CMDHelperFuncs.get_current_rootfs_dev()
+        )
         self.parent_devpath = parent_devpath = Path(
             CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
         )

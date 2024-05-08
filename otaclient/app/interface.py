@@ -28,8 +28,7 @@ class OTAClientProtocol(Protocol):
         boot_control_cls: Type[BootControllerProtocol],
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         my_ecu_id: str = "",
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
     def update(
@@ -39,13 +38,10 @@ class OTAClientProtocol(Protocol):
         cookies_json: str,
         *,
         fsm,  # OTAUpdateFSM
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
-    def rollback(self) -> None:
-        ...
+    def rollback(self) -> None: ...
 
     @abstractmethod
-    def status(self) -> v2.StatusResponseEcu:
-        ...
+    def status(self) -> v2.StatusResponseEcu: ...

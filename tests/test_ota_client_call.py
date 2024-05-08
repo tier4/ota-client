@@ -16,8 +16,8 @@
 import grpc
 import pytest
 import pytest_asyncio
-from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 
+from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 from otaclient.app.proto import v2, v2_grpc, wrapper
 from tests.utils import compare_message
 

@@ -148,7 +148,9 @@ class OTAErrorRecoverable(OTAError):
 
 class OTABusy(OTAErrorRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_BUSY
-    failure_description: str = "on-going OTA operation(update or rollback) detected, this request has been ignored"
+    failure_description: str = (
+        "on-going OTA operation(update or rollback) detected, this request has been ignored"
+    )
 
 
 class InvalidStatusForOTARollback(OTAErrorRecoverable):
@@ -229,22 +231,30 @@ class InvalidUpdateRequest(OTAErrorUnrecoverable):
 
 class MetadataJWTInvalid(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_INVALID
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: verfication for metadata.jwt is OK but metadata.jwt's content is invalid"
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: verfication for metadata.jwt is OK but metadata.jwt's content is invalid"
+    )
 
 
 class MetadataJWTVerficationFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_CERT_VERIFICATION_FAILED
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: certificate verification failed for OTA metadata.jwt"
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: certificate verification failed for OTA metadata.jwt"
+    )
 
 
 class OTAProxyFailedToStart(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTAPROXY_FAILED_TO_START
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: otaproxy is required for multiple ECU update but otaproxy failed to start"
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: otaproxy is required for multiple ECU update but otaproxy failed to start"
+    )
 
 
 class UpdateDeltaGenerationFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATEDELTA_GENERATION_FAILED
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to calculate and/or prepare update delta"
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to calculate and/or prepare update delta"
+    )
 
 
 class ApplyOTAUpdateFailed(OTAErrorUnrecoverable):

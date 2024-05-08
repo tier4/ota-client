@@ -1,6 +1,6 @@
 ## Description
 
-<!-- Summarize the change this PR wants to introduce. 
+<!-- Summarize the change this PR wants to introduce.
 
 For better understanding, adding reason/motivation of this PR are also recommended.
 
@@ -11,7 +11,7 @@ For better understanding, adding reason/motivation of this PR are also recommend
 <!-- A list of things needed to be done before set the PR as ready-for-review. -->
 
 - [ ] test file(s) that covers the change(s) is implemented.
-- [ ] local test is passed. 
+- [ ] local test is passed.
 - [ ] design docs/implementation docs are prepared.
 
 

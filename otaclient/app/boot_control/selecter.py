@@ -14,15 +14,16 @@
 
 
 from __future__ import annotations
+
 import logging
 import platform
 from pathlib import Path
+
 from typing_extensions import deprecated
 
+from ..common import read_str_from_file
 from .configs import BootloaderType
 from .protocol import BootControllerProtocol
-
-from ..common import read_str_from_file
 
 logger = logging.getLogger(__name__)
 

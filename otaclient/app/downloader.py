@@ -16,41 +16,32 @@
 import errno
 import logging
 import os
-import requests
 import threading
 import time
-import zstandard
-import requests.exceptions
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import wraps
 from hashlib import sha256
 from os import PathLike
+from typing import (IO, Any, ByteString, Callable, Dict, Iterator, Mapping,
+                    Optional, Protocol, Tuple, Union)
+from urllib.parse import urlsplit
+
+import requests
+import requests.exceptions
+import zstandard
 from requests.adapters import HTTPAdapter
 from requests.structures import CaseInsensitiveDict as CIDict
-from typing import (
-    IO,
-    Any,
-    ByteString,
-    Callable,
-    Dict,
-    Iterator,
-    Mapping,
-    Optional,
-    Protocol,
-    Tuple,
-    Union,
-)
 from typing_extensions import ParamSpec, TypeVar
-from urllib.parse import urlsplit
-from urllib3.util.retry import Retry
 from urllib3.response import HTTPResponse
+from urllib3.util.retry import Retry
 
 from otaclient._utils import copy_callable_typehint
 from otaclient.ota_proxy import OTAFileCacheControl
-from .configs import config as cfg
+
 from .common import wait_with_backoff
+from .configs import config as cfg
 
 logger = logging.getLogger(__name__)
 

@@ -15,9 +15,10 @@
 
 import argparse
 import asyncio
-import yaml
 import sys
 from pathlib import Path
+
+import yaml
 
 try:
     import otaclient  # noqa: F401

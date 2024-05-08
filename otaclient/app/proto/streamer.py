@@ -21,8 +21,9 @@ Which <len> will be 4 bytes unsigned int in big-endian layout.
 """
 
 
+from typing import BinaryIO, Generic, Iterable, Optional, Type
+
 from ._common import MessageType, MessageWrapperType
-from typing import Iterable, Optional, Type, Generic, BinaryIO
 
 UINT32_LEN = 4  # bytes
 

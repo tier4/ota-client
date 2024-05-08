@@ -14,32 +14,24 @@
 
 
 import asyncio
-import aiohttp
+import logging
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Dict, List, Mapping, Tuple, Union
 from urllib.parse import urlparse
 
+import aiohttp
+
 from otaclient._utils.logging import BurstSuppressFilter
-from ._consts import (
-    METHOD_GET,
-    REQ_TYPE_HTTP,
-    REQ_TYPE_LIFESPAN,
-    RESP_TYPE_BODY,
-    RESP_TYPE_START,
-    BHEADER_AUTHORIZATION,
-    BHEADER_COOKIE,
-    BHEADER_OTA_FILE_CACHE_CONTROL,
-    BHEADER_CONTENT_ENCODING,
-    HEADER_AUTHORIZATION,
-    HEADER_COOKIE,
-    HEADER_OTA_FILE_CACHE_CONTROL,
-    HEADER_CONTENT_ENCODING,
-)
+
+from ._consts import (BHEADER_AUTHORIZATION, BHEADER_CONTENT_ENCODING,
+                      BHEADER_COOKIE, BHEADER_OTA_FILE_CACHE_CONTROL,
+                      HEADER_AUTHORIZATION, HEADER_CONTENT_ENCODING,
+                      HEADER_COOKIE, HEADER_OTA_FILE_CACHE_CONTROL, METHOD_GET,
+                      REQ_TYPE_HTTP, REQ_TYPE_LIFESPAN, RESP_TYPE_BODY,
+                      RESP_TYPE_START)
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
-
-import logging
 
 logger = logging.getLogger(__name__)
 connection_err_logger = logging.getLogger(f"{__name__}.connection_err")

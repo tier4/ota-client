@@ -14,26 +14,19 @@
 
 
 import time
-import path_loader  # noqa
-
 from pathlib import Path
-import yaml
 
-from ota_client_stub import OtaClientStub
-from ota_client_service import (
-    OtaClientServiceV2,
-    service_start,
-    service_wait_for_termination,
-    service_stop,
-)
-import otaclient_v2_pb2_grpc as v2_grpc
+import log_setting
 import otaclient_v2_pb2 as v2
-
+import otaclient_v2_pb2_grpc as v2_grpc
+import path_loader  # noqa
+import yaml
 from configs import config as cfg
 from configs import server_cfg
-import log_setting
-
 from ecu import Ecu
+from ota_client_service import (OtaClientServiceV2, service_start,
+                                service_stop, service_wait_for_termination)
+from ota_client_stub import OtaClientStub
 
 logger = log_setting.get_logger(
     __name__, cfg.LOG_LEVEL_TABLE.get(__name__, cfg.DEFAULT_LOG_LEVEL)

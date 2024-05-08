@@ -17,6 +17,7 @@ import asyncio
 import threading
 from queue import Queue
 from typing import Dict, List, Optional
+
 from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 from otaclient.app.proto import wrapper as proto_wrapper
 

@@ -36,11 +36,11 @@ If we install the otaclient to custom directory instead of the default location,
 #### method 1: indicate path by **PYTHONPATH**
 
 ```bash
-# we have to append the /opt/ota to the PYTHONPATH, to tell the 
-# python interpreter to search otaclient package under /opt/ota, instead of 
+# we have to append the /opt/ota to the PYTHONPATH, to tell the
+# python interpreter to search otaclient package under /opt/ota, instead of
 # using the one install under <virtualenv>/lib/python3.8/site-packages
 
-# with venv activated: 
+# with venv activated:
 PYTHONPATH=/opt/ota python3 -m otaclient
 # or
 PYTHONPATH=/opt/ota python3 -m otaclient.app
@@ -55,7 +55,7 @@ cd /opt/ota
 # with venv activated:
 # NOTE:python will insert current working dir at index 0 in `sys.path`
 # under /opt/ota folder, so that python will first use otaclient under /opt/ota
-python3 -m otaclient 
+python3 -m otaclient
 # or
 python3 -m otaclient.app
 ```

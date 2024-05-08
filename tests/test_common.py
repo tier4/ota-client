@@ -13,34 +13,27 @@
 # limitations under the License.
 
 
+import logging
 import os
+import random
 import subprocess
 import time
-import pytest
-import random
-import logging
 from functools import partial
 from hashlib import sha256
 from multiprocessing import Process
 from pathlib import Path
 from typing import Tuple
 
-from otaclient.app.common import (
-    RetryTaskMap,
-    RetryTaskMapInterrupted,
-    copytree_identical,
-    ensure_otaproxy_start,
-    file_sha256,
-    get_backoff,
-    re_symlink_atomic,
-    read_str_from_file,
-    subprocess_call,
-    subprocess_check_output,
-    verify_file,
-    write_str_to_file_sync,
-)
-from tests.utils import compare_dir
+import pytest
+
+from otaclient.app.common import (RetryTaskMap, RetryTaskMapInterrupted,
+                                  copytree_identical, ensure_otaproxy_start,
+                                  file_sha256, get_backoff, re_symlink_atomic,
+                                  read_str_from_file, subprocess_call,
+                                  subprocess_check_output, verify_file,
+                                  write_str_to_file_sync)
 from tests.conftest import run_http_server
+from tests.utils import compare_dir
 
 logger = logging.getLogger(__name__)
 

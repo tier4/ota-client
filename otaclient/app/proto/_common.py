@@ -14,29 +14,18 @@
 
 
 from __future__ import annotations
-from abc import abstractmethod, ABC
+
+from abc import ABC, abstractmethod
 from copy import deepcopy
-from enum import IntEnum, EnumMeta
+from enum import EnumMeta, IntEnum
 from functools import update_wrapper
-from google.protobuf.message import Message as _pb_Message
 from io import StringIO
+from typing import (Any, Dict, Generic, Iterable, List, Mapping, Optional,
+                    Type, TypeVar, Union, get_args, get_origin, get_type_hints,
+                    overload)
+
 from google.protobuf.duration_pb2 import Duration as _Duration
-from typing import (
-    get_type_hints,
-    get_origin,
-    get_args,
-    overload,
-    Any,
-    Dict,
-    List,
-    Iterable,
-    Mapping,
-    Generic,
-    Optional,
-    Type,
-    TypeVar,
-    Union,
-)
+from google.protobuf.message import Message as _pb_Message
 from typing_extensions import Self, deprecated
 
 __all__ = [
@@ -226,8 +215,7 @@ class RepeatedScalarContainer(_ListLikeContainerBase[ScalarValueType]):
 _K = TypeVar("_K", int, str, bool)
 
 
-class _MappingLikeContainerBase(Dict[_K, _T], _ContainerBase):
-    ...
+class _MappingLikeContainerBase(Dict[_K, _T], _ContainerBase): ...
 
 
 class MessageMapContainer(_MappingLikeContainerBase[_K, MessageWrapperType]):
@@ -359,8 +347,7 @@ class _FieldBase(Generic[_T], ABC):
     """
 
     @abstractmethod
-    def __init__(self, field_annotation: Any) -> None:
-        ...
+    def __init__(self, field_annotation: Any) -> None: ...
 
     @overload
     def __get__(self, obj: None, objtype: type) -> Self:
@@ -376,8 +363,7 @@ class _FieldBase(Generic[_T], ABC):
         return self  # access via class, return the descriptor itself
 
     @abstractmethod
-    def __set__(self, obj, value: Any) -> None:
-        ...
+    def __set__(self, obj, value: Any) -> None: ...
 
     def __set_name__(self, owner: type, name: str):
         """Being called when bound to class."""
@@ -446,8 +432,7 @@ class _EnumField(_FieldBase[EnumWrapperType]):
         setattr(obj, self._attrn, value)
 
 
-class _ListLikeContainerField(_FieldBase[FieldContainerWrapperType]):
-    ...
+class _ListLikeContainerField(_FieldBase[FieldContainerWrapperType]): ...
 
 
 class _RepeatedCompositeField(_ListLikeContainerField):
@@ -513,8 +498,7 @@ class _RepeatedScalarField(_ListLikeContainerField):
         setattr(obj, self._attrn, value)
 
 
-class _MappingLikeContainerField(_FieldBase[FieldContainerWrapperType]):
-    ...
+class _MappingLikeContainerField(_FieldBase[FieldContainerWrapperType]): ...
 
 
 class _MessageMappingField(_MappingLikeContainerField):
@@ -647,8 +631,7 @@ class MessageWrapper(WrapperBase[MessageType]):
 
         # bypass user defined __init__ while preserving meta, including
         # function name, annotations, module, etc.
-        def _dummy_init(self, /, **_):
-            ...
+        def _dummy_init(self, /, **_): ...
 
         setattr(cls, "__init__", update_wrapper(_dummy_init, cls.__init__))
 
@@ -793,8 +776,7 @@ class Duration(MessageWrapper[_Duration]):
 
     def __init__(
         self, *, seconds: Optional[int] = ..., nanos: Optional[int] = ...
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @classmethod
     def from_nanoseconds(cls, _ns: int) -> Self:

@@ -16,8 +16,8 @@
 import logging
 from typing import Type
 
-from .interface import StandbySlotCreatorProtocol
 from ..configs import CreateStandbyMechanism
+from .interface import StandbySlotCreatorProtocol
 
 logger = logging.getLogger(__name__)
 

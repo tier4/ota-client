@@ -13,22 +13,17 @@
 # limitations under the License.
 
 
-from otaclient.app.proto.wrapper import (
-    calculate_slots,
-    EnumWrapper,
-    MessageWrapper,
-    Duration,
-    RepeatedCompositeContainer,
-    RepeatedScalarContainer,
-    ScalarMapContainer,
-    MessageMapContainer,
-)
-from typing import (
-    Optional as _Optional,
-    Union as _Union,
-    Mapping as _Mapping,
-    Iterable as _Iterable,
-)
+from typing import Iterable as _Iterable
+from typing import Mapping as _Mapping
+from typing import Optional as _Optional
+from typing import Union as _Union
+
+from otaclient.app.proto.wrapper import (Duration, EnumWrapper,
+                                         MessageMapContainer, MessageWrapper,
+                                         RepeatedCompositeContainer,
+                                         RepeatedScalarContainer,
+                                         ScalarMapContainer, calculate_slots)
+
 from . import example_pb2 as _pb2
 
 
@@ -53,8 +48,7 @@ class InnerMessage(MessageWrapper[_pb2.InnerMessage]):
         str_field: _Optional[str] = ...,
         duration_field: _Optional[_Union[Duration, _Mapping]] = ...,
         enum_field: _Optional[_Union[SampleEnum, str]] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class OuterMessage(MessageWrapper[_pb2.OuterMessage]):
@@ -74,5 +68,4 @@ class OuterMessage(MessageWrapper[_pb2.OuterMessage]):
         nested_msg: _Optional[_Union[InnerMessage, _Mapping]] = ...,
         mapping_scalar_field: _Optional[_Mapping[str, str]] = ...,
         mapping_composite_field: _Optional[_Mapping[int, InnerMessage]] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...

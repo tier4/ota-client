@@ -185,7 +185,7 @@ menuentry 'some title for ota.standby (recovery mode)' --class ubuntu --class gn
 	  search --no-floppy --fs-uuid --set=root ca573144-b0a4-44f6-a750-45a169c3c6e7
 	fi
 	echo	'Loading Linux ota.standby ...'
-	linux	/vmlinuz-ota.standby root=UUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb ro single nomodeset dis_ucode_ldr 
+	linux	/vmlinuz-ota.standby root=UUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb ro single nomodeset dis_ucode_ldr
 	echo	'Loading initial ramdisk ...'
 	initrd	/initrd.img-ota.standby
 }
@@ -222,7 +222,7 @@ menuentry 'some title for ota (recovery mode)' --class ubuntu --class gnu-linux 
 	  search --no-floppy --fs-uuid --set=root ca573144-b0a4-44f6-a750-45a169c3c6e7
 	fi
 	echo	'Loading Linux ota ...'
-	linux	/vmlinuz-ota root=UUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb ro single nomodeset dis_ucode_ldr 
+	linux	/vmlinuz-ota root=UUID=bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb ro single nomodeset dis_ucode_ldr
 	echo	'Loading initial ramdisk ...'
 	initrd	/initrd.img-ota
 }

@@ -185,7 +185,7 @@ menuentry 'Ubuntu, with Linux 5.8.0-53-generic (recovery mode)' --class ubuntu -
 	  search --no-floppy --fs-uuid --set=root ca573144-b0a4-44f6-a750-45a169c3c6e7
 	fi
 	echo	'Loading Linux 5.8.0-53-generic ...'
-	linux	/vmlinuz-5.8.0-53-generic root=UUID=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa ro single nomodeset dis_ucode_ldr 
+	linux	/vmlinuz-5.8.0-53-generic root=UUID=aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa ro single nomodeset dis_ucode_ldr
 	echo	'Loading initial ramdisk ...'
 	initrd	/initrd.img-5.8.0-53-generic
 }

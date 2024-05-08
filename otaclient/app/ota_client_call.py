@@ -15,8 +15,8 @@
 
 import grpc.aio
 
-from .proto import wrapper, v2_grpc
 from .configs import server_cfg
+from .proto import v2_grpc, wrapper
 
 
 class ECUNoResponse(Exception):

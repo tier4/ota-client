@@ -6,8 +6,8 @@ VENV="${OTA_CLIENT_DIR}/.venv"
 
 # setup certs
 echo "setup certificates for testing..."
-mkdir -p ${OTA_CLIENT_DIR}/certs && 
-    cp -av ${OTA_CLIENT_DIR}/tests/keys/root.pem ${OTA_CLIENT_DIR}/certs/1.root.pem && 
+mkdir -p ${OTA_CLIENT_DIR}/certs &&
+    cp -av ${OTA_CLIENT_DIR}/tests/keys/root.pem ${OTA_CLIENT_DIR}/certs/1.root.pem &&
     cp -av ${OTA_CLIENT_DIR}/tests/keys/interm.pem ${OTA_CLIENT_DIR}/certs/1.interm.pem
 
 # activate virtual env
@@ -24,5 +24,7 @@ TESTS_DEPENDENCIES="${OTA_CLIENT_DIR}/tests/requirements.txt"
     python3 -m pip install --no-cache-dir -q -r $TESTS_DEPENDENCIES
 
 # exec the input params
-echo "execute command..."
-exec "$@"
+echo "execute test with coverage"
+cd "${OTA_CLIENT_DIR}"
+coverage run -m pytest --junit-xml=test_result/pytest.xml "${@:-}"
+coverage xml -o test_result/coverage.xml

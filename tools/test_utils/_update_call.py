@@ -14,8 +14,10 @@
 
 
 import yaml
+
 from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
 from otaclient.app.proto import wrapper
+
 from . import _logutil
 
 logger = _logutil.get_logger(__name__)

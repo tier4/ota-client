@@ -15,14 +15,15 @@
 
 import asyncio
 import logging
-import pytest
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Coroutine
+from typing import Coroutine, Dict, List, Optional, Tuple
+
+import pytest
 
 from otaclient.ota_proxy import config as cfg
 from otaclient.ota_proxy.db import CacheMeta, OTACacheDB
-from otaclient.ota_proxy.ota_cache import LRUCacheHelper, CachingRegister
+from otaclient.ota_proxy.ota_cache import CachingRegister, LRUCacheHelper
 from otaclient.ota_proxy.utils import url_based_hash
 
 logger = logging.getLogger(__name__)

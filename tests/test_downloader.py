@@ -16,28 +16,22 @@
 import asyncio
 import logging
 import threading
+from pathlib import Path
+from urllib.parse import urljoin, urlsplit
+
 import pytest
 import pytest_mock
 import requests
 import requests_mock
-from pathlib import Path
-from urllib.parse import urlsplit, urljoin
-
 
 from otaclient.app.common import file_sha256, urljoin_ensure_base
-from otaclient.app.downloader import (
-    DownloadError,
-    Downloader,
-    DestinationNotAvailableError,
-    ChunkStreamingError,
-    ExceedMaxRetryError,
-    HashVerificaitonError,
-    UnhandledHTTPError,
-)
-
+from otaclient.app.downloader import (ChunkStreamingError,
+                                      DestinationNotAvailableError, Downloader,
+                                      DownloadError, ExceedMaxRetryError,
+                                      HashVerificaitonError,
+                                      UnhandledHTTPError)
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import zstd_compress_file
-
 
 logger = logging.getLogger(__name__)
 

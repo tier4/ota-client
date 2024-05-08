@@ -32,34 +32,24 @@ NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not
 
 
 from __future__ import annotations
+
 import logging
 import re
 import shutil
 from dataclasses import dataclass
-from subprocess import CalledProcessError
-from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 from pathlib import Path
 from pprint import pformat
+from subprocess import CalledProcessError
+from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from .. import errors as ota_errors
-from ..common import (
-    re_symlink_atomic,
-    read_str_from_file,
-    subprocess_call,
-    subprocess_check_output,
-    write_str_to_file_sync,
-)
+from ..common import (re_symlink_atomic, read_str_from_file, subprocess_call,
+                      subprocess_check_output, write_str_to_file_sync)
 from ..proto import wrapper
-
-from ._common import (
-    CMDHelperFuncs,
-    OTAStatusFilesControl,
-    SlotMountHelper,
-    cat_proc_cmdline,
-)
+from ._common import (CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper,
+                      cat_proc_cmdline)
 from .configs import grub_cfg as cfg
 from .protocol import BootControllerProtocol
-
 
 logger = logging.getLogger(__name__)
 

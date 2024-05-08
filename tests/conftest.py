@@ -14,14 +14,15 @@
 
 
 import logging
-import pytest
-import pytest_mock
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from multiprocessing import Process
 from pathlib import Path
+
+import pytest
+import pytest_mock
 
 from tests.utils import SlotMeta, run_http_server
 

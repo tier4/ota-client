@@ -15,42 +15,30 @@ r"""Utils that shared between modules are listed here."""
 
 
 from __future__ import annotations
+
 import itertools
 import logging
 import os
 import shlex
 import shutil
-import threading
-import requests
 import subprocess
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
-from functools import partial, lru_cache
+from functools import lru_cache, partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
-from typing import (
-    Any,
-    Callable,
-    Generator,
-    NamedTuple,
-    Optional,
-    Set,
-    Union,
-    Iterable,
-    TypeVar,
-    Generic,
-)
+from typing import (Any, Callable, Generator, Generic, Iterable, NamedTuple,
+                    Optional, Set, TypeVar, Union)
 from urllib.parse import urljoin
 
-from .configs import config as cfg
+import requests
 
-from otaclient._utils.linux import (
-    map_gid_by_grpnam,
-    map_uid_by_pwnam,
-    ParsedGroup,
-    ParsedPasswd,
-)
+from otaclient._utils.linux import (ParsedGroup, ParsedPasswd,
+                                    map_gid_by_grpnam, map_uid_by_pwnam)
+
+from .configs import config as cfg
 
 logger = logging.getLogger(__name__)
 

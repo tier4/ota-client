@@ -14,14 +14,15 @@
 
 
 from __future__ import annotations
+
 import os
 import shutil
-import ota_metafiles_pb2 as ota_metafiles
 from pathlib import Path
 from typing import Union
 
-from ._common import calculate_slots, MessageWrapper
+import ota_metafiles_pb2 as ota_metafiles
 
+from ._common import MessageWrapper, calculate_slots
 
 # helper mixin
 

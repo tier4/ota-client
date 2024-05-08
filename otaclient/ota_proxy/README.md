@@ -75,7 +75,7 @@ The ota-proxy is launched by ota-client as a separate process when doing ota upd
 # whether to use HTTPS to send request to remote.
 gateway: <true | false>
 
-# whether to enable the local ota-proxy, 
+# whether to enable the local ota-proxy,
 # if set to false, the ota-client will directly request to remote.
 enable_ota_proxy: <true | false>
 

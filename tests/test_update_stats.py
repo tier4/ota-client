@@ -13,16 +13,14 @@
 # limitations under the License.
 
 
-import pytest
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from otaclient.app.update_stats import (
-    OTAUpdateStatsCollector,
-    RegInfProcessedStats,
-    RegProcessOperation,
-)
+import pytest
 
-import logging
+from otaclient.app.update_stats import (OTAUpdateStatsCollector,
+                                        RegInfProcessedStats,
+                                        RegProcessOperation)
 
 logger = logging.getLogger(__name__)
 

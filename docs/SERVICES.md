@@ -8,7 +8,7 @@
     - [PersistentInf](#otaclient-PersistentInf)
     - [RegularInf](#otaclient-RegularInf)
     - [SymbolicLinkInf](#otaclient-SymbolicLinkInf)
-  
+
 - [otaclient_v2.proto](#otaclient_v2-proto)
     - [RollbackRequest](#OtaClientV2-RollbackRequest)
     - [RollbackRequestEcu](#OtaClientV2-RollbackRequestEcu)
@@ -25,14 +25,14 @@
     - [UpdateResponse](#OtaClientV2-UpdateResponse)
     - [UpdateResponseEcu](#OtaClientV2-UpdateResponseEcu)
     - [UpdateStatus](#OtaClientV2-UpdateStatus)
-  
+
     - [FailureType](#OtaClientV2-FailureType)
     - [StatusOta](#OtaClientV2-StatusOta)
     - [StatusProgressPhase](#OtaClientV2-StatusProgressPhase)
     - [UpdatePhase](#OtaClientV2-UpdatePhase)
-  
+
     - [OtaClientService](#OtaClientV2-OtaClientService)
-  
+
 - [Scalar Value Types](#scalar-value-types)
 
 
@@ -118,13 +118,13 @@
 
 
 
- 
 
- 
 
- 
 
- 
+
+
+
+
 
 
 
@@ -417,7 +417,7 @@ num of files processed to the standby slot during applying update |
 
 
 
- 
+
 
 
 <a name="OtaClientV2-FailureType"></a>
@@ -482,9 +482,9 @@ Response
 | FINALIZING_UPDATE | 6 | set during first reboot boot switch finalizing |
 
 
- 
 
- 
+
+
 
 
 <a name="OtaClientV2-OtaClientService"></a>
@@ -499,7 +499,7 @@ Style Guide: https://developers.google.com/protocol-buffers/docs/style#message_a
 | Rollback | [RollbackRequest](#OtaClientV2-RollbackRequest) | [RollbackResponse](#OtaClientV2-RollbackResponse) | NOT YET |
 | Status | [StatusRequest](#OtaClientV2-StatusRequest) | [StatusResponse](#OtaClientV2-StatusResponse) | `Status` service requests OTA client to retrieve OTA client status. Note that if the child ECU doesn&#39;t respond, the grandchild response is not contained by `StatusResponse`. |
 
- 
+
 
 
 
@@ -522,4 +522,3 @@ Style Guide: https://developers.google.com/protocol-buffers/docs/style#message_a
 | <a name="bool" /> bool |  | bool | boolean | boolean | bool | bool | boolean | TrueClass/FalseClass |
 | <a name="string" /> string | A string must always contain UTF-8 encoded or 7-bit ASCII text. | string | String | str/unicode | string | string | string | String (UTF-8) |
 | <a name="bytes" /> bytes | May contain any arbitrary sequence of bytes. | string | ByteString | str | []byte | ByteString | string | String (ASCII-8BIT) |
-

@@ -14,48 +14,34 @@
 
 
 from __future__ import annotations
+
 import asyncio
-import os
-import aiofiles
-import aiohttp
 import bisect
 import logging
+import os
 import shutil
-import time
 import threading
+import time
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
-from multidict import CIMultiDictProxy
 from pathlib import Path
-from typing import (
-    AsyncGenerator,
-    AsyncIterator,
-    Callable,
-    Coroutine,
-    Dict,
-    Generic,
-    List,
-    Mapping,
-    MutableMapping,
-    Optional,
-    Tuple,
-    TypeVar,
-    Union,
-)
+from typing import (AsyncGenerator, AsyncIterator, Callable, Coroutine, Dict,
+                    Generic, List, Mapping, MutableMapping, Optional, Tuple,
+                    TypeVar, Union)
 from urllib.parse import SplitResult, quote, urlsplit
 
-from ._consts import HEADER_OTA_FILE_CACHE_CONTROL, HEADER_CONTENT_ENCODING
+import aiofiles
+import aiohttp
+from multidict import CIMultiDictProxy
+
+from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control import OTAFileCacheControl
-from .db import CacheMeta, OTACacheDB, AIO_OTACacheDBProxy
-from .errors import (
-    BaseOTACacheError,
-    CacheStreamingFailed,
-    CacheMultiStreamingFailed,
-    CacheStreamingInterrupt,
-    StorageReachHardLimit,
-)
 from .config import config as cfg
-from .utils import url_based_hash, wait_with_backoff, read_file
+from .db import AIO_OTACacheDBProxy, CacheMeta, OTACacheDB
+from .errors import (BaseOTACacheError, CacheMultiStreamingFailed,
+                     CacheStreamingFailed, CacheStreamingInterrupt,
+                     StorageReachHardLimit)
+from .utils import read_file, url_based_hash, wait_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -408,9 +394,9 @@ class CachingRegister:
     def __init__(self, base_dir: Union[str, Path]):
         self._base_dir = Path(base_dir)
         self._id_ref_dict: MutableMapping[str, _Weakref] = weakref.WeakValueDictionary()
-        self._ref_tracker_dict: MutableMapping[
-            _Weakref, CacheTracker
-        ] = weakref.WeakKeyDictionary()
+        self._ref_tracker_dict: MutableMapping[_Weakref, CacheTracker] = (
+            weakref.WeakKeyDictionary()
+        )
 
     async def get_tracker(
         self,

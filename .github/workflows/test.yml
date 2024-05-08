@@ -11,11 +11,13 @@ jobs:
         uses: actions/checkout@v3
       - name: Build ota-test_base docker image
         run: |
-          docker-compose -f docker/docker-compose_tests.yml build
+          docker compose -f docker/docker-compose_tests.yml build
       - name: Execute pytest with coverage trace under ota-test_base container
         run: |
           set -o pipefail
-          docker-compose -f docker/docker-compose_tests.yml up --no-log-prefix --abort-on-container-exit | tee pytest-coverage.txt
+          mkdir -p test_result
+          docker compose -f docker/docker-compose_tests.yml up --abort-on-container-exit
+
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
@@ -34,11 +36,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
-        run: | 
+        run: |
           python -m pip install -q --upgrade pip
           python -m pip install -q -r tests/requirements.txt
       - name: Lint codes without modification
-        run: | 
+        run: |
           $pythonLocation/bin/python -m black ./otaclient --check
       - name: Lint codes for syntax check
         run: |
@@ -58,4 +60,3 @@ jobs:
           ignore_files: .markdownlintignore
           #ignore_path: examples/.markdownlintignore
           #rules: examples/rules/custom.js
-

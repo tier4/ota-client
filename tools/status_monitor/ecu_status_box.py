@@ -13,15 +13,16 @@
 # limitations under the License.
 
 
-import datetime
-import time
 import curses
+import datetime
 import threading
+import time
 from typing import Sequence, Tuple
+
 from otaclient.app.proto import wrapper as proto_wrapper
 
-from .utils import FormatValue, ScreenHandler
 from .configs import config
+from .utils import FormatValue, ScreenHandler
 
 
 class ECUStatusDisplayBox:

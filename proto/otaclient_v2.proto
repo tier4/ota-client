@@ -170,7 +170,7 @@ message StatusResponseEcu {
 }
 
 //
-// ------ status response format v2 ------ 
+// ------ status response format v2 ------
 //
 
 message StatusResponse {
@@ -195,7 +195,7 @@ message StatusResponseEcuV2 {
   string firmware_version = 2;
   string otaclient_version = 3;
   reserved 4 to 10;
-  
+
   // --- dynamic ECU status: 11~ --- //
   StatusOta ota_status = 11;
   // when ota_status is FAILURE/ROLLBACK_FAILURE,
@@ -207,7 +207,7 @@ message StatusResponseEcuV2 {
   // update status, set if ota_status is UPDATING
   optional UpdateStatus update_status = 15;
   // reserved for <rollback status> in the future
-  reserved 16; 
+  reserved 16;
 }
 
 message UpdateStatus {

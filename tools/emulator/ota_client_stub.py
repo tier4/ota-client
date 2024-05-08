@@ -13,14 +13,12 @@
 # limitations under the License.
 
 
-from threading import Timer, Thread
-
 from pathlib import Path
-import otaclient_v2_pb2 as v2
+from threading import Thread, Timer
 
-from configs import config as cfg
 import log_setting
-
+import otaclient_v2_pb2 as v2
+from configs import config as cfg
 from ecu import Ecu
 
 logger = log_setting.get_logger(
