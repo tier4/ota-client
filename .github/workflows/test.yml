@@ -11,12 +11,13 @@ jobs:
         uses: actions/checkout@v3
       - name: Build ota-test_base docker image
         run: |
-          docker-compose -f docker/docker-compose_tests.yml build
+          docker compose -f docker/docker-compose_tests.yml build
       - name: Execute pytest with coverage trace under ota-test_base container
         run: |
           set -o pipefail
           mkdir -p test_result
           docker compose -f docker/docker-compose_tests.yml up --abort-on-container-exit
+
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         continue-on-error: true
