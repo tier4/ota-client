@@ -166,3 +166,6 @@ build
 # local vscode configs
 .devcontainer
 .vscode
+
+# local test artifacts
+test_result/

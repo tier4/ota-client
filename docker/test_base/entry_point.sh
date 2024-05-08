@@ -24,5 +24,7 @@ TESTS_DEPENDENCIES="${OTA_CLIENT_DIR}/tests/requirements.txt"
     python3 -m pip install --no-cache-dir -q -r $TESTS_DEPENDENCIES
 
 # exec the input params
-echo "execute command..."
-exec "$@"
+echo "execute test with coverage"
+cd "${OTA_CLIENT_DIR}"
+coverage run -m pytest --junit-xml=test_result/pytest.xml "${@:-}"
+coverage xml -o test_result/coverage.xml
