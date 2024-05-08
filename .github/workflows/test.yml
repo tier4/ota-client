@@ -17,7 +17,7 @@ jobs:
           set -o pipefail
           mkdir -p test_result
           docker compose -f docker/docker-compose_tests.yml up --abort-on-container-exit
-      
+
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
