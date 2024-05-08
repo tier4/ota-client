@@ -18,10 +18,19 @@ jobs:
           mkdir -p test_result
           docker compose -f docker/docker-compose_tests.yml up --abort-on-container-exit
 
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
-        uses: MishaKav/pytest-coverage-comment@v1.1.40
+        uses: MishaKav/pytest-coverage-comment@v1.1.51
+        with:
+          pytest-xml-coverage-path: test_result/coverage.xml
+          junitxml-path: test_result/pytest.xml
+
   python_lint_check:
     runs-on: ubuntu-20.04
     timeout-minutes: 3
