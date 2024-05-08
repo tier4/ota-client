@@ -14,11 +14,13 @@
 
 
 from __future__ import annotations
+
 import os
 from math import ceil
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
-from typing_extensions import Literal, ParamSpec, Concatenate
+
+from typing_extensions import Concatenate, Literal, ParamSpec
 
 P = ParamSpec("P")
 

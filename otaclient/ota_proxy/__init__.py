@@ -21,12 +21,13 @@ from contextlib import AbstractContextManager
 from functools import partial
 from multiprocessing.context import SpawnProcess
 from typing import Any, Callable, Coroutine, Dict, Optional, Protocol
+
 from typing_extensions import ParamSpec, Self
 
 from .cache_control import OTAFileCacheControl
-from .server_app import App
-from .ota_cache import OTACache
 from .config import config
+from .ota_cache import OTACache
+from .server_app import App
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ async def run_otaproxy(
     external_cache: Optional[str] = None,
 ):
     import uvicorn
+
     from . import App, OTACache
 
     _ota_cache = OTACache(
@@ -82,16 +84,14 @@ async def run_otaproxy(
 
 class OTAProxyContextProto(AbstractContextManager, Protocol):
     @abstractmethod
-    def __init__(self, *args, **kwargs) -> None:
-        ...
+    def __init__(self, *args, **kwargs) -> None: ...
 
     @property
     def extra_kwargs(self) -> Dict[str, Any]:
         return {}
 
     @abstractmethod
-    def __enter__(self) -> Self:
-        ...
+    def __enter__(self) -> Self: ...
 
 
 def _subprocess_main(

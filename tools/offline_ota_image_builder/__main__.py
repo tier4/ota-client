@@ -44,8 +44,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .configs import cfg
 from .builder import build
+from .configs import cfg
 from .manifest import ImageMetadata
 
 logger = logging.getLogger(__name__)

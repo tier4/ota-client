@@ -14,9 +14,9 @@
 
 
 from __future__ import annotations
+
 from pydantic import BaseModel, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 # prefix for environmental vars name for configs.
 ENV_PREFIX = "OTA_"

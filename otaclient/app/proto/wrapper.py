@@ -14,6 +14,6 @@
 """Modules for registering wrapped compiled protobuf types."""
 
 
-from ._otaclient_v2_pb2_wrapper import *  # noqa: F403, F401
-from ._ota_metafiles_wrapper import *  # noqa: F403, F401
 from ._common import *  # noqa: F403, F401
+from ._ota_metafiles_wrapper import *  # noqa: F403, F401
+from ._otaclient_v2_pb2_wrapper import *  # noqa: F403, F401

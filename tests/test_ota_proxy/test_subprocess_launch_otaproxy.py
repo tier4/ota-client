@@ -17,7 +17,9 @@ import time
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict
-from otaclient.ota_proxy import subprocess_otaproxy_launcher, OTAProxyContextProto
+
+from otaclient.ota_proxy import (OTAProxyContextProto,
+                                 subprocess_otaproxy_launcher)
 
 
 class _DummyOTAProxyContext(OTAProxyContextProto):

@@ -14,11 +14,12 @@
 
 
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Any, Callable, TypeVar, Union
-from typing_extensions import Annotated, ParamSpec
 
 from pydantic import Field
+from typing_extensions import Annotated, ParamSpec
 
 P = ParamSpec("P")
 T = TypeVar("T")

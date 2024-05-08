@@ -13,8 +13,8 @@
 # limitations under the License.
 
 
-import logging
 import itertools
+import logging
 import time
 from typing import Optional
 

@@ -1,19 +1,30 @@
 [build-system]
-requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.4.0"]
 build-backend = "setuptools.build_meta"
+requires = [
+  "setuptools>=61",
+  "setuptools_scm[toml]>=6.4",
+]
 
 [project]
 name = "otaclient"
 readme = "README.md"
-requires-python = ">=3.8"
 license = {text = "LICENSE.md"}
+requires-python = ">=3.8"
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: Unix",
-  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
 ]
-dynamic = ["dependencies", "optional-dependencies", "version"]
-
+dynamic = [
+  "dependencies",
+  "optional-dependencies",
+  "version",
+]
 [project.urls]
 Source = "https://github.com/tier4/ota-client"
 
@@ -39,6 +50,16 @@ extend-exclude = '''(
   (_pb2.pyi?|_pb2_grpc.pyi?)$
 )'''
 
+[tool.pytest.ini_options]
+addopts = "--cov=otaclient.app --cov=otaclient.ota_proxy"
+asyncio_mode = "auto"
+log_auto_indent = true
+log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
+log_cli = true
+log_cli_level = "INFO"
+pythonpath = ["otaclient"]
+testpaths = ["./tests"]
+
 [tool.coverage.run]
 branch = false
 
@@ -50,13 +71,3 @@ show_missing = true
 exclude = ["**/__pycache__"]
 ignore = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
 pythonVersion = "3.8"
-
-[tool.pytest.ini_options]
-addopts = "--cov=otaclient.app --cov=otaclient.ota_proxy"
-asyncio_mode = "auto"
-log_auto_indent = true
-log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
-log_cli = true
-log_cli_level = "INFO"
-pythonpath = ["otaclient"]
-testpaths = ["./tests"]

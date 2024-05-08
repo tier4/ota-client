@@ -24,14 +24,10 @@ from typing import List, Set, Tuple
 from ..common import RetryTaskMap, get_backoff
 from ..configs import config as cfg
 from ..ota_metadata import MetafilesV1, OTAMetadata
-from ..update_stats import (
-    OTAUpdateStatsCollector,
-    RegInfProcessedStats,
-    RegProcessOperation,
-)
 from ..proto.wrapper import RegularInf
-
-from .common import HardlinkRegister, DeltaGenerator, DeltaBundle
+from ..update_stats import (OTAUpdateStatsCollector, RegInfProcessedStats,
+                            RegProcessOperation)
+from .common import DeltaBundle, DeltaGenerator, HardlinkRegister
 from .interface import StandbySlotCreatorProtocol
 
 logger = logging.getLogger(__name__)

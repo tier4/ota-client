@@ -13,11 +13,12 @@
 # limitations under the License.
 
 
-import pytest
-from google.protobuf.duration_pb2 import Duration as _Duration
 from typing import Type
 
-from otaclient.app.proto import wrapper, v2
+import pytest
+from google.protobuf.duration_pb2 import Duration as _Duration
+
+from otaclient.app.proto import v2, wrapper
 from tests.utils import compare_message
 
 

@@ -17,13 +17,16 @@ from __future__ import annotations
 
 import atexit
 import logging
-import requests
 from queue import Queue
 from threading import Event, Thread
 from urllib.parse import urljoin
 
+import requests
+
 import otaclient
-from .configs import config as cfg, ecu_info, proxy_info
+
+from .configs import config as cfg
+from .configs import ecu_info, proxy_info
 
 
 class _LogTeeHandler(logging.Handler):

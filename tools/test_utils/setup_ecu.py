@@ -15,11 +15,12 @@
 
 import argparse
 import asyncio
-import grpc
-import yaml
 import sys
 from pathlib import Path
 from typing import List
+
+import grpc
+import yaml
 
 try:
     import otaclient  # noqa: F401
@@ -27,7 +28,8 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from otaclient.app.ota_client_service import service_wait_for_termination
-from otaclient.app.proto import v2_grpc, v2
+from otaclient.app.proto import v2, v2_grpc
+
 from . import _logutil
 
 logger = _logutil.get_logger(__name__)

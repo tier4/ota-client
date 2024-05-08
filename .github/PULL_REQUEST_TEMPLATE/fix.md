@@ -7,7 +7,7 @@
 <!-- A list of things needed to be done before set the PR as ready-for-review. -->
 
 - [ ] test file that covers the bug case(s) is implemented.
-- [ ] local test is passed. 
+- [ ] local test is passed.
 
 ## Bug fix
 

@@ -14,16 +14,14 @@
 
 
 from __future__ import annotations
+
 import logging
-import pytest
 from pathlib import Path
 
-from otaclient.configs.proxy_info import (
-    parse_proxy_info,
-    DEFAULT_PROXY_INFO,
-    ProxyInfo,
-)
+import pytest
 
+from otaclient.configs.proxy_info import (DEFAULT_PROXY_INFO, ProxyInfo,
+                                          parse_proxy_info)
 
 logger = logging.getLogger(__name__)
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import asyncio
-import aiofiles
 from concurrent.futures import Executor
 from hashlib import sha256
 from os import PathLike
 from typing import AsyncIterator
+
+import aiofiles
 
 from .config import config as cfg
 

@@ -33,9 +33,9 @@ The flow of this package working is as follow:
 from abc import abstractmethod
 from typing import Protocol
 
-from .common import DeltaBundle
 from ..ota_metadata import OTAMetadata
 from ..update_stats import OTAUpdateStatsCollector
+from .common import DeltaBundle
 
 
 class StandbySlotCreatorProtocol(Protocol):
@@ -51,16 +51,13 @@ class StandbySlotCreatorProtocol(Protocol):
         standby_slot_mount_point: str,
         active_slot_mount_point: str,
         stats_collector: OTAUpdateStatsCollector,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
-    def create_standby_slot(self):
-        ...
+    def create_standby_slot(self): ...
 
     @abstractmethod
-    def calculate_and_prepare_delta(self) -> DeltaBundle:
-        ...
+    def calculate_and_prepare_delta(self) -> DeltaBundle: ...
 
     @classmethod
     @abstractmethod

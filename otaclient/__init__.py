@@ -13,7 +13,7 @@
 # limitations under the License.
 
 try:
-    from otaclient._version import version, __version__
+    from otaclient._version import __version__, version
 except ImportError:
     # unknown version
     version = __version__ = "0.0.0"

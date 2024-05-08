@@ -15,7 +15,7 @@
 
 import curses
 import time
-from typing import List, Callable, NamedTuple, Sequence, Tuple
+from typing import Callable, List, NamedTuple, Sequence, Tuple
 
 from .configs import config, key_mapping
 
