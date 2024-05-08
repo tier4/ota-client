@@ -14,22 +14,21 @@
 
 
 import asyncio
+import logging
 import os
 import time
-import zstandard
-from google.protobuf.message import Message as _Message
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Union
 from functools import partial
 from pathlib import Path
-
+from typing import Union
 
 import grpc
+import zstandard
+from google.protobuf.message import Message as _Message
+
 from otaclient.app.common import file_sha256
 from otaclient.app.proto import v2_grpc, wrapper
-
-import logging
 
 logger = logging.getLogger(__name__)
 

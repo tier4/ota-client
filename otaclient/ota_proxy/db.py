@@ -14,7 +14,9 @@
 
 
 from __future__ import annotations
+
 import asyncio
+import logging
 import sqlite3
 import threading
 import time
@@ -23,11 +25,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
+from .cache_control import OTAFileCacheControl
 from .config import config as cfg
 from .orm import FV, ColumnDescriptor, ORMBase
-from .cache_control import OTAFileCacheControl
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +78,11 @@ class CacheMeta(ORMBase):
         if self.file_sha256 and not self.file_sha256.startswith(
             cfg.URL_BASED_HASH_PREFIX
         ):
-            res[
-                HEADER_OTA_FILE_CACHE_CONTROL
-            ] = OTAFileCacheControl.export_kwargs_as_header(
-                file_sha256=self.file_sha256,
-                file_compression_alg=self.file_compression_alg,
+            res[HEADER_OTA_FILE_CACHE_CONTROL] = (
+                OTAFileCacheControl.export_kwargs_as_header(
+                    file_sha256=self.file_sha256,
+                    file_compression_alg=self.file_compression_alg,
+                )
             )
         return res
 

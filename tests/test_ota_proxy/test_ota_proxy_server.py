@@ -13,21 +13,22 @@
 # limitations under the License.
 
 
-import aiohttp
 import asyncio
 import logging
-import time
-import pytest
 import random
 import shutil
-import uvicorn
+import time
 from hashlib import sha256
-from urllib.parse import quote, unquote, urljoin
 from pathlib import Path
 from typing import List
+from urllib.parse import quote, unquote, urljoin
 
-from otaclient.app.proto.wrapper import RegularInf
+import aiohttp
+import pytest
+import uvicorn
+
 from otaclient.app.ota_metadata import parse_regulars_from_txt
+from otaclient.app.proto.wrapper import RegularInf
 from otaclient.ota_proxy.utils import url_based_hash
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
@@ -69,6 +70,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     )
     async def setup_ota_proxy_server(self, tmp_path: Path, request):
         import uvicorn
+
         from otaclient.ota_proxy import App, OTACache
 
         ota_cache_dir = tmp_path / "ota-cache"
@@ -170,6 +172,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             download and cache a file with special name
         """
         import sqlite3
+
         from otaclient.ota_proxy import config as cfg
 
         # ------ get the special file via otaproxy from the ota image server ------ #
@@ -291,6 +294,7 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
     @pytest.fixture(autouse=True)
     async def setup_ota_proxy_server(self, tmp_path: Path):
         import uvicorn
+
         from otaclient.ota_proxy import App, OTACache
 
         ota_cache_dir = tmp_path / "ota-cache"

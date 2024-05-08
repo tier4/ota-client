@@ -14,23 +14,13 @@
 
 
 from __future__ import annotations
+
 from abc import ABC
 from dataclasses import asdict, astuple, dataclass, fields
 from io import StringIO
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    Generic,
-    TypeVar,
-    Union,
-    overload,
-)
+from typing import (TYPE_CHECKING, Any, Callable, Dict, Generic, List,
+                    Optional, Tuple, Type, TypeVar, Union, overload)
+
 from typing_extensions import Self, dataclass_transform
 
 if TYPE_CHECKING:

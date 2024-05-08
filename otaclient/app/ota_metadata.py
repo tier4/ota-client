@@ -38,54 +38,35 @@ Version1 OTA metafiles list:
 
 
 from __future__ import annotations
+
 import base64
 import json
 import logging
 import re
 import shutil
 import time
-from enum import Enum
-from os import PathLike
 from dataclasses import dataclass, fields
-from urllib.parse import quote
-from OpenSSL import crypto
-from pathlib import Path
+from enum import Enum
 from functools import partial
+from os import PathLike
+from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
-from typing import (
-    Any,
-    Callable,
-    ClassVar,
-    Dict,
-    Generic,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
-    TypeVar,
-    Type,
-    Union,
-    overload,
-)
+from typing import (Any, Callable, ClassVar, Dict, Generic, Iterator, List,
+                    Optional, Tuple, Type, TypeVar, Union, overload)
+from urllib.parse import quote
+
+from OpenSSL import crypto
 from typing_extensions import Self
 
 from otaclient.ota_proxy import OTAFileCacheControl
 
+from .common import RetryTaskMap, get_backoff, urljoin_ensure_base
 from .configs import config as cfg
-from .common import (
-    RetryTaskMap,
-    get_backoff,
-    urljoin_ensure_base,
-)
 from .downloader import Downloader
-from .proto.wrapper import (
-    MessageWrapper,
-    RegularInf,
-    DirectoryInf,
-    PersistentInf,
-    SymbolicLinkInf,
-)
-from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
+from .proto.streamer import (Uint32LenDelimitedMsgReader,
+                             Uint32LenDelimitedMsgWriter)
+from .proto.wrapper import (DirectoryInf, MessageWrapper, PersistentInf,
+                            RegularInf, SymbolicLinkInf)
 
 logger = logging.getLogger(__name__)
 

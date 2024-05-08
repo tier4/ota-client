@@ -1,18 +1,18 @@
+import logging
 import os
-import pytest
-import pytest_mock
 import shutil
 import typing
 from pathlib import Path
 from string import Template
 
-from tests.utils import SlotMeta
-from tests.conftest import TestConfiguration as cfg
+import pytest
+import pytest_mock
+
 from otaclient.app.boot_control._rpi_boot import _FSTAB_TEMPLATE_STR
 from otaclient.app.boot_control.configs import rpi_boot_cfg
 from otaclient.app.proto import wrapper
-
-import logging
+from tests.conftest import TestConfiguration as cfg
+from tests.utils import SlotMeta
 
 logger = logging.getLogger(__name__)
 
@@ -156,8 +156,8 @@ class TestRPIBootControl:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, rpi_boot_ab_slot):
-        from otaclient.app.boot_control._rpi_boot import _RPIBootControl
         from otaclient.app.boot_control._common import CMDHelperFuncs
+        from otaclient.app.boot_control._rpi_boot import _RPIBootControl
 
         # start the test FSM
         self._fsm = RPIBootABPartitionFSM()

@@ -15,17 +15,18 @@
 
 
 from __future__ import annotations
+
 import logging
 import warnings
 from functools import cached_property
-from typing import Any, ClassVar, Optional
 from pathlib import Path
+from typing import Any, ClassVar, Optional
 
 import yaml
-from pydantic import AliasChoices, Field, IPvAnyAddress, AnyHttpUrl
+from pydantic import AliasChoices, AnyHttpUrl, Field, IPvAnyAddress
 from pydantic_core import Url
 
-from otaclient._utils.typing import StrOrPath, NetworkPort
+from otaclient._utils.typing import NetworkPort, StrOrPath
 from otaclient.configs._common import BaseFixedConfig
 
 logger = logging.getLogger(__name__)

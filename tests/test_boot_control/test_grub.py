@@ -17,14 +17,14 @@ import logging
 import os
 import shutil
 import typing
-import pytest
-import pytest_mock
 from pathlib import Path
 
-from otaclient.app.proto import wrapper
+import pytest
+import pytest_mock
 
-from tests.utils import SlotMeta
+from otaclient.app.proto import wrapper
 from tests.conftest import TestConfiguration as cfg
+from tests.utils import SlotMeta
 
 logger = logging.getLogger(__name__)
 
@@ -219,8 +219,9 @@ class TestGrubControl:
         mocker: pytest_mock.MockerFixture,
         grub_ab_slot,
     ):
+        from otaclient.app.boot_control._common import (CMDHelperFuncs,
+                                                        SlotMountHelper)
         from otaclient.app.boot_control._grub import GrubABPartitionDetector
-        from otaclient.app.boot_control._common import CMDHelperFuncs, SlotMountHelper
 
         # ------ start fsm ------ #
         self._fsm = GrubFSM(slot_a_mp=self.slot_a, slot_b_mp=self.slot_b)

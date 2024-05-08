@@ -15,33 +15,27 @@
 
 
 from __future__ import annotations
+
 from abc import abstractmethod
-from functools import cached_property
 from copy import deepcopy
-from typing import (
-    Any,
-    List as _List,
-    Iterable as _Iterable,
-    Iterator as _Iterator,
-    Mapping as _Mapping,
-    Optional as _Optional,
-    Protocol as _Protocol,
-    Set as _Set,
-    TypeVar as _TypeVar,
-    Union as _Union,
-)
-from typing_extensions import Self
+from functools import cached_property
+from typing import Any
+from typing import Iterable as _Iterable
+from typing import Iterator as _Iterator
+from typing import List as _List
+from typing import Mapping as _Mapping
+from typing import Optional as _Optional
+from typing import Protocol as _Protocol
+from typing import Set as _Set
+from typing import TypeVar as _TypeVar
+from typing import Union as _Union
 
 import otaclient_v2_pb2 as _v2
-from ._common import (
-    calculate_slots,
-    EnumWrapper,
-    MessageWrapper,
-    Duration,
-    RepeatedCompositeContainer,
-    RepeatedScalarContainer,
-)
+from typing_extensions import Self
 
+from ._common import (Duration, EnumWrapper, MessageWrapper,
+                      RepeatedCompositeContainer, RepeatedScalarContainer,
+                      calculate_slots)
 
 # protocols
 
@@ -171,16 +165,16 @@ class RollbackRequestEcu(MessageWrapper[_v2.RollbackRequestEcu]):
     __slots__ = calculate_slots(_v2.RollbackRequestEcu)
     ecu_id: str
 
-    def __init__(self, *, ecu_id: _Optional[str] = ...) -> None:
-        ...
+    def __init__(self, *, ecu_id: _Optional[str] = ...) -> None: ...
 
 
 class RollbackRequest(ECUList[RollbackRequestEcu], MessageWrapper[_v2.RollbackRequest]):
     __slots__ = calculate_slots(_v2.RollbackRequest)
     ecu: RepeatedCompositeContainer[RollbackRequestEcu]
 
-    def __init__(self, *, ecu: _Optional[_Iterable[RollbackRequestEcu]] = ...) -> None:
-        ...
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[RollbackRequestEcu]] = ...
+    ) -> None: ...
 
 
 class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
@@ -193,8 +187,7 @@ class RollbackResponseEcu(MessageWrapper[_v2.RollbackResponseEcu]):
         *,
         ecu_id: _Optional[str] = ...,
         result: _Optional[_Union[FailureType, str]] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class RollbackResponse(
@@ -203,8 +196,9 @@ class RollbackResponse(
     __slots__ = calculate_slots(_v2.RollbackResponse)
     ecu: RepeatedCompositeContainer[RollbackResponseEcu]
 
-    def __init__(self, *, ecu: _Optional[_Iterable[RollbackResponseEcu]] = ...) -> None:
-        ...
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[RollbackResponseEcu]] = ...
+    ) -> None: ...
 
     def merge_from(self, rollback_response: _Union[Self, _v2.RollbackResponse]):
         if isinstance(rollback_response, _v2.RollbackResponse):
@@ -254,8 +248,7 @@ class StatusProgress(MessageWrapper[_v2.StatusProgress]):
         total_regular_file_size: _Optional[int] = ...,
         total_elapsed_time: _Optional[Duration] = ...,
         download_bytes: _Optional[int] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def get_snapshot(self) -> Self:
         return deepcopy(self)
@@ -281,8 +274,7 @@ class Status(MessageWrapper[_v2.Status]):
         failure_reason: _Optional[str] = ...,
         version: _Optional[str] = ...,
         progress: _Optional[StatusProgress] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class StatusRequest(MessageWrapper[_v2.StatusRequest]):
@@ -301,8 +293,7 @@ class StatusResponseEcu(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcu])
         ecu_id: _Optional[str] = ...,
         result: _Optional[_Union[FailureType, str]] = ...,
         status: _Optional[Status] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @property
     def is_in_update(self) -> bool:
@@ -381,8 +372,7 @@ class UpdateStatus(MessageWrapper[_v2.UpdateStatus]):
         delta_generating_elapsed_time: _Optional[_Union[Duration, _Mapping]] = ...,
         downloading_elapsed_time: _Optional[_Union[Duration, _Mapping]] = ...,
         update_applying_elapsed_time: _Optional[_Union[Duration, _Mapping]] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def get_snapshot(self) -> Self:
         return deepcopy(self)
@@ -448,8 +438,7 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[_v2.StatusResponseEcu
         failure_reason: _Optional[str] = ...,
         failure_traceback: _Optional[str] = ...,
         update_status: _Optional[_Union[UpdateStatus, _Mapping]] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def convert_to_v1(self) -> StatusResponseEcu:
         """Convert and export as StatusResponseEcu(v1)."""
@@ -501,8 +490,7 @@ class StatusResponse(
         ecu: _Optional[_Iterable[_Union[StatusResponseEcu, _Mapping]]] = ...,
         available_ecu_ids: _Optional[_Iterable[str]] = ...,
         ecu_v2: _Optional[_Iterable[_Union[StatusResponseEcuV2, _Mapping]]] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def add_ecu(self, _response_ecu: Any):
         # v2
@@ -547,16 +535,16 @@ class UpdateRequestEcu(MessageWrapper[_v2.UpdateRequestEcu]):
         version: _Optional[str] = ...,
         url: _Optional[str] = ...,
         cookies: _Optional[str] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class UpdateRequest(ECUList[UpdateRequestEcu], MessageWrapper[_v2.UpdateRequest]):
     __slots__ = calculate_slots(_v2.UpdateRequest)
     ecu: RepeatedCompositeContainer[UpdateRequestEcu]
 
-    def __init__(self, *, ecu: _Optional[_Iterable[UpdateRequestEcu]] = ...) -> None:
-        ...
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[UpdateRequestEcu]] = ...
+    ) -> None: ...
 
 
 class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
@@ -569,16 +557,16 @@ class UpdateResponseEcu(MessageWrapper[_v2.UpdateResponseEcu]):
         *,
         ecu_id: _Optional[str] = ...,
         result: _Optional[_Union[FailureType, str]] = ...,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class UpdateResponse(ECUList[UpdateResponseEcu], MessageWrapper[_v2.UpdateResponse]):
     __slots__ = calculate_slots(_v2.UpdateResponse)
     ecu: RepeatedCompositeContainer[UpdateResponseEcu]
 
-    def __init__(self, *, ecu: _Optional[_Iterable[UpdateResponseEcu]] = ...) -> None:
-        ...
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[UpdateResponseEcu]] = ...
+    ) -> None: ...
 
     @cached_property
     def ecus_acked_update(self) -> _Set[str]:

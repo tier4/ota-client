@@ -15,16 +15,15 @@
 
 import logging
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-from contextlib import contextmanager
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Generator, List
 
 from .configs import config as cfg
 from .proto.wrapper import UpdateStatus
-
 
 logger = logging.getLogger(__name__)
 

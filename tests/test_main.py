@@ -15,11 +15,12 @@
 
 import os
 import time
-import pytest
 from multiprocessing import Process
 from pathlib import Path
-from pytest_mock import MockerFixture
+
+import pytest
 from pytest import LogCaptureFixture
+from pytest_mock import MockerFixture
 
 from otaclient.app.configs import config as otaclient_cfg
 from tests.conftest import TestConfiguration as cfg

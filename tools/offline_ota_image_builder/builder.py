@@ -23,11 +23,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
-from otaclient.app.common import subprocess_call
 from otaclient.app import ota_metadata
+from otaclient.app.common import subprocess_call
+
 from .configs import cfg
 from .manifest import ImageMetadata, Manifest
-from .utils import StrPath, InputImageProcessError, ExportError
+from .utils import ExportError, InputImageProcessError, StrPath
 
 logger = logging.getLogger(__name__)
 

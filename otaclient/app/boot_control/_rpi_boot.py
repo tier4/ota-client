@@ -15,23 +15,19 @@
 
 
 from __future__ import annotations
+
 import logging
 import os
 import re
-from string import Template
 from pathlib import Path
+from string import Template
 from typing import Generator
 
 from .. import errors as ota_errors
-from ..proto import wrapper
 from ..common import replace_atomic, subprocess_call, subprocess_check_output
-
-from ._common import (
-    OTAStatusFilesControl,
-    SlotMountHelper,
-    CMDHelperFuncs,
-    write_str_to_file_sync,
-)
+from ..proto import wrapper
+from ._common import (CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper,
+                      write_str_to_file_sync)
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
 

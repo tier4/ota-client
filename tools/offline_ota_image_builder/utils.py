@@ -16,14 +16,13 @@
 
 from os import PathLike
 from typing import Union
+
 from typing_extensions import TypeAlias
 
 StrPath: TypeAlias = Union[str, PathLike]
 
 
-class InputImageProcessError(Exception):
-    ...
+class InputImageProcessError(Exception): ...
 
 
-class ExportError(Exception):
-    ...
+class ExportError(Exception): ...

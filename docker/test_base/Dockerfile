@@ -79,7 +79,7 @@ RUN apt-get clean && \
         /tmp/* \
         /var/lib/apt/lists/* \
         /var/tmp/* \
-        ota-metadata 
+        ota-metadata
 
 # copy and setup the entry_point.sh
 COPY ./docker/test_base/entry_point.sh /entry_point.sh

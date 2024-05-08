@@ -14,30 +14,28 @@
 
 
 from __future__ import annotations
+
 import asyncio
 import logging
-import pytest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
+import pytest
 from pytest_mock import MockerFixture
 
 from otaclient.app.ota_client import OTAServicer
 from otaclient.app.ota_client_call import OtaClientCall
-from otaclient.app.ota_client_stub import (
-    ECUStatusStorage,
-    OTAClientServiceStub,
-    OTAProxyLauncher,
-)
+from otaclient.app.ota_client_stub import (ECUStatusStorage,
+                                           OTAClientServiceStub,
+                                           OTAProxyLauncher)
 from otaclient.app.proto import wrapper
 from otaclient.configs.ecu_info import ECUInfo, parse_ecu_info
 from otaclient.configs.proxy_info import ProxyInfo, parse_proxy_info
 from otaclient.ota_proxy import OTAProxyContextProto
 from otaclient.ota_proxy.config import Config as otaproxyConfig
-
-from tests.utils import compare_message
 from tests.conftest import cfg
+from tests.utils import compare_message
 
 logger = logging.getLogger(__name__)
 

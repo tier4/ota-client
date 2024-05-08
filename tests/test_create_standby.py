@@ -13,20 +13,19 @@
 # limitations under the License.
 
 
+import logging
 import shutil
 import time
 import typing
-import pytest
 from pathlib import Path
+
+import pytest
 from pytest_mock import MockerFixture
 
 from otaclient.app.boot_control import BootControllerProtocol
 from otaclient.app.configs import config as otaclient_cfg
-
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +81,8 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg", _cfg)
 
     def test_update_with_create_standby_RebuildMode(self, mocker: MockerFixture):
-        from otaclient.app.ota_client import _OTAUpdater, OTAClientControlFlags
         from otaclient.app.create_standby.rebuild_mode import RebuildMode
+        from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
 
         # ------ execution ------ #
         otaclient_control_flags = typing.cast(

@@ -16,8 +16,8 @@
 import grpc.aio
 
 from .configs import ecu_info, server_cfg
-from .proto import wrapper, v2, v2_grpc
 from .ota_client_stub import OTAClientServiceStub
+from .proto import v2, v2_grpc, wrapper
 
 
 class OtaClientServiceV2(v2_grpc.OtaClientServiceServicer):

@@ -18,37 +18,21 @@ import logging
 import os
 import random
 import time
-from concurrent.futures import (
-    Future,
-    ThreadPoolExecutor,
-    wait,
-)
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Lock
-from typing import (
-    Any,
-    Iterator,
-    List,
-    Dict,
-    Optional,
-    OrderedDict,
-    Set,
-    Tuple,
-    Union,
-)
+from typing import (Any, Dict, Iterator, List, Optional, OrderedDict, Set,
+                    Tuple, Union)
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ..common import create_tmp_fname
 from ..configs import config as cfg
-from ..ota_metadata import OTAMetadata, MetafilesV1
-from ..proto.wrapper import RegularInf, DirectoryInf
-from ..update_stats import (
-    OTAUpdateStatsCollector,
-    RegProcessOperation,
-    RegInfProcessedStats,
-)
+from ..ota_metadata import MetafilesV1, OTAMetadata
+from ..proto.wrapper import DirectoryInf, RegularInf
+from ..update_stats import (OTAUpdateStatsCollector, RegInfProcessedStats,
+                            RegProcessOperation)
 
 logger = logging.getLogger(__name__)
 

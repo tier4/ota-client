@@ -1,4 +1,5 @@
 import sys
+
 import semantic_version
 
 v = semantic_version.Version(sys.argv[1])

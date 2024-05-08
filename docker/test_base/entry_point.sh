@@ -6,8 +6,8 @@ VENV="${OTA_CLIENT_DIR}/.venv"
 
 # setup certs
 echo "setup certificates for testing..."
-mkdir -p ${OTA_CLIENT_DIR}/certs && 
-    cp -av ${OTA_CLIENT_DIR}/tests/keys/root.pem ${OTA_CLIENT_DIR}/certs/1.root.pem && 
+mkdir -p ${OTA_CLIENT_DIR}/certs &&
+    cp -av ${OTA_CLIENT_DIR}/tests/keys/root.pem ${OTA_CLIENT_DIR}/certs/1.root.pem &&
     cp -av ${OTA_CLIENT_DIR}/tests/keys/interm.pem ${OTA_CLIENT_DIR}/certs/1.interm.pem
 
 # activate virtual env

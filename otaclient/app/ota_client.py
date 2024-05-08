@@ -14,41 +14,39 @@
 
 
 from __future__ import annotations
+
 import asyncio
 import gc
 import json
 import logging
-import time
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Optional, Type, Iterator
+from typing import Iterator, Optional, Type
 from urllib.parse import urlparse
-
-from . import downloader, ota_metadata, errors as ota_errors
-from .boot_control import BootControllerProtocol, get_boot_controller
-from .common import (
-    get_backoff,
-    ensure_otaproxy_start,
-    PersistFilesHandler,
-    RetryTaskMap,
-    RetryTaskMapInterrupted,
-)
-from .configs import config as cfg, ecu_info
-from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
-from .interface import OTAClientProtocol
-from .ota_status import LiveOTAStatus
-from .proto import wrapper
-from .update_stats import (
-    OTAUpdateStatsCollector,
-    RegInfProcessedStats,
-    RegProcessOperation,
-)
 
 from otaclient._utils import get_file_size
 from otaclient._utils.linux import create_swapfile
+
+from . import downloader
+from . import errors as ota_errors
+from . import ota_metadata
+from .boot_control import BootControllerProtocol, get_boot_controller
+from .common import (PersistFilesHandler, RetryTaskMap,
+                     RetryTaskMapInterrupted, ensure_otaproxy_start,
+                     get_backoff)
+from .configs import config as cfg
+from .configs import ecu_info
+from .create_standby import (StandbySlotCreatorProtocol,
+                             get_standby_slot_creator)
+from .interface import OTAClientProtocol
+from .ota_status import LiveOTAStatus
+from .proto import wrapper
+from .update_stats import (OTAUpdateStatsCollector, RegInfProcessedStats,
+                           RegProcessOperation)
 
 try:
     from otaclient import __version__  # type: ignore

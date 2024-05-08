@@ -34,11 +34,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
-        run: | 
+        run: |
           python -m pip install -q --upgrade pip
           python -m pip install -q -r tests/requirements.txt
       - name: Lint codes without modification
-        run: | 
+        run: |
           $pythonLocation/bin/python -m black ./otaclient --check
       - name: Lint codes for syntax check
         run: |
@@ -58,4 +58,3 @@ jobs:
           ignore_files: .markdownlintignore
           #ignore_path: examples/.markdownlintignore
           #rules: examples/rules/custom.js
-

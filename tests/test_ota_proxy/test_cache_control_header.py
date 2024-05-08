@@ -14,7 +14,9 @@
 
 
 from typing import Any, Dict
+
 import pytest
+
 from otaclient.ota_proxy import OTAFileCacheControl
 
 

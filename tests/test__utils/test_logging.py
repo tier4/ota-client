@@ -15,6 +15,7 @@
 
 import logging
 import time
+
 from pytest import LogCaptureFixture
 
 from otaclient._utils import logging as _logging

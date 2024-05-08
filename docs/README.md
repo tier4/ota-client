@@ -3,7 +3,7 @@
 ## Overview
 
 This OTA client is a client software to perform over-the-air software updates for linux devices.
-To enable updating of software at any layer (kernel, kernel module, user library, user application), the OTA client targets the entire rootfs for updating.  
+To enable updating of software at any layer (kernel, kernel module, user library, user application), the OTA client targets the entire rootfs for updating.
 When the OTA client receives an update request, it downloads a list from the OTA server that contains the file paths and the hash values of the files, etc., to be updated, and compares them with the files in its own storage and if there is a match, that file is used to update the rootfs. By this delta mechanism, it is possible to reduce the download size even if the entire rootfs is targeted and this mechanism does not require any specific server implementation, nor does it require the server to keep a delta for each version of the rootfs.
 
 ## Feature
@@ -53,7 +53,7 @@ For the GRUB system, the disk is partitioned as follows:
 ```bash
 $ sudo fdisk -l /dev/sda
 Disk /dev/sda: 128 GiB, 137438953472 bytes, 268435456 sectors
-Disk model: VBOX HARDDISK   
+Disk model: VBOX HARDDISK
 Units: sectors of 1 * 512 = 512 bytes
 Sector size (logical/physical): 512 bytes / 512 bytes
 I/O size (minimum/optimal): 512 bytes / 512 bytes
@@ -67,10 +67,10 @@ Device     Boot     Start       End   Sectors  Size Id Type
 
 $ lsblk /dev/sda
 NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
-sda      8:0    0  128G  0 disk 
+sda      8:0    0  128G  0 disk
 ├─sda1   8:1    0  976M  0 part /boot
 ├─sda2   8:2    0 63.5G  0 part /
-└─sda3   8:3    0 63.5G  0 part 
+└─sda3   8:3    0 63.5G  0 part
 ```
 
 In this example, A(=active) partition is sda2 and B(=standby) partition is sda3.
@@ -86,12 +86,12 @@ The figure below shows an example ECU structure, that shows Main ECU and 6 Secon
 Secondary ECU A, B and C are connected to Main ECU, and D, E, F are connected to Secondary ECU A.
 
 ```text
-  +----------------+    
+  +----------------+
   |   OTA server   |
-  +----------------+    
+  +----------------+
            |
            |(internet)
-           |                
+           |
 +----------+-------------------------------------------------------+
 |          |(internal ECU-to-ECU network)                          |
 | +----------------+     +----------------+     +----------------+ |
@@ -118,7 +118,7 @@ ecu_info.yaml is the setting file for ECU configuration.
 
 - format_version (string, required)
 
-  This field specifies the ecu_info.yaml format.  
+  This field specifies the ecu_info.yaml format.
   Currently this field is not used but `1` should be specified for future use.
 
 - ecu_id (string, required)
@@ -127,13 +127,13 @@ ecu_info.yaml is the setting file for ECU configuration.
 
 - ip_addr (string, optional)
 
-  This field specifies this OTA client's IP address.  
-  If this field is not specified, "localhost" is used.  
+  This field specifies this OTA client's IP address.
+  If this field is not specified, "localhost" is used.
   NOTE: this IP address is used for the local server bind address.
 
 - secondaries (array, optional)
 
-  This field specifies list of **directly connected** secondary ECUs information.  
+  This field specifies list of **directly connected** secondary ECUs information.
   If this field is not specified, it is treated as if secondary ecu doesn't exist.
 
   - ecu_id (string, required)
@@ -144,8 +144,8 @@ ecu_info.yaml is the setting file for ECU configuration.
 
 - available_ecu_ids (optional)
 
-  This field specifies a list of all ECU ids to be updated.  
-  Only the main ECU should have this information.  
+  This field specifies a list of all ECU ids to be updated.
+  Only the main ECU should have this information.
 
   NOTE: For backward-compatibility, if this `available_ecu_ids` filed does not exist, the ecu_id of the main ecu is considered the entry for available_ecu_ids.
 
@@ -191,7 +191,7 @@ See [OTA proxy](../ota_proxy/README.md) more details.
 
 - gateway (boolean, default=**false**)
 
-  When the `enable_local_ota_proxy` field is true, this field specifies whether the **local OTA proxy** requests the remote OTA server directly with HTTPS or HTTP. If it is true or this config entry is not presented, HTTPS is used otherwise HTTP is used.  
+  When the `enable_local_ota_proxy` field is true, this field specifies whether the **local OTA proxy** requests the remote OTA server directly with HTTPS or HTTP. If it is true or this config entry is not presented, HTTPS is used otherwise HTTP is used.
   Note that if the ECU can't access to the remote OTA server directly, the value **MUST** be set to false, `enable_local_ota_proxy` **MUST** be set to true to enable local OTA proxy server, and a valid `upper_ota_proxy` **MUST** be set for local OTA proxy server to connect to parent ECU's OTA proxy server.
 
 - enable_local_ota_proxy_cache (boolean, default=**true**)
@@ -236,7 +236,7 @@ The sub ECU defines here is which has at least one parent ECU and cannot connect
 If this sub ECU also serves sub ECUs, the OTA proxy for this sub ECU MUST be enabled to provide OTA proxy for its sub ECUs(and subsub ECUs if any).
 
 ```yaml
-# local OTA proxy Must be enabled if the sub ECU also serves child ECUs, 
+# local OTA proxy Must be enabled if the sub ECU also serves child ECUs,
 # should be enabled if local OTA files cache is needed.
 enable_local_ota_proxy: true
 # a valid upper_ota_proxy MUST be set for local OTA proxy to connect to remote as sub ECU cannot
@@ -374,7 +374,7 @@ sudo python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
     --cert-file sign.pem \
     --persistent-file ota-metadata/metadata/persistents.txt \
     --rootfs-directory <rootfs_folder> \
-    --compressed-rootfs-directory  <rootfs_compressed> 
+    --compressed-rootfs-directory  <rootfs_compressed>
 
 sudo chown -R $(whoami) rootfs
 ```

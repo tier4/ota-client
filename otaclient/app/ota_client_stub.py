@@ -14,6 +14,7 @@
 
 
 from __future__ import annotations
+
 import asyncio
 import logging
 import shutil
@@ -23,24 +24,23 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Any, Iterable, Optional, Set, Dict, Type, TypeVar
+from typing import Any, Dict, Iterable, Optional, Set, Type, TypeVar
+
 from typing_extensions import Self
 
+from otaclient.configs.ecu_info import ECUContact
+from otaclient.ota_proxy import OTAProxyContextProto
+from otaclient.ota_proxy import config as local_otaproxy_cfg
+from otaclient.ota_proxy import subprocess_otaproxy_launcher
+
 from . import log_setting
-from .configs import config as cfg, server_cfg, ecu_info, proxy_info
-from .common import ensure_otaproxy_start
 from .boot_control._common import CMDHelperFuncs
+from .common import ensure_otaproxy_start
+from .configs import config as cfg
+from .configs import ecu_info, proxy_info, server_cfg
 from .ota_client import OTAClientControlFlags, OTAServicer
 from .ota_client_call import ECUNoResponse, OtaClientCall
 from .proto import wrapper
-
-from otaclient.configs.ecu_info import ECUContact
-from otaclient.ota_proxy import (
-    OTAProxyContextProto,
-    subprocess_otaproxy_launcher,
-    config as local_otaproxy_cfg,
-)
-
 
 logger = logging.getLogger(__name__)
 
