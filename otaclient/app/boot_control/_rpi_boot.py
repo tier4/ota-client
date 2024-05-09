@@ -122,12 +122,10 @@ class _RPIBootControl:
 
             try:
                 # NOTE: exclude the first 2 lines(parent and system-boot)
-                _child_partitions = list(
-                    map(
-                        lambda _raw: _raw.split("=")[-1].strip('"'),
-                        _raw_child_partitions.splitlines()[2:],
-                    )
-                )
+                _child_partitions = [
+                    raw.split("=")[-1].strip('"')
+                    for raw in _raw_child_partitions.splitlines()[2:]
+                ]
                 if (
                     len(_child_partitions) != 2
                     or self._active_slot_dev not in _child_partitions
