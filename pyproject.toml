@@ -76,3 +76,4 @@ pythonVersion = "3.8"
 
 [tool.isort]
 profile = "black"
+extend_skip_glob = ["*_pb2.py*", "_pb2_grpc.py*"]
