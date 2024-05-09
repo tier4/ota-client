@@ -649,7 +649,7 @@ class MessageWrapper(WrapperBase[MessageType]):
         # function name, annotations, module, etc.
         def _dummy_init(self, /, **_): ...
 
-        cls.__init__ = update_wrapper(_dummy_init, cls.__init__).__get__(cls) # noqa
+        cls.__init__ = update_wrapper(_dummy_init, cls.__init__).__get__(cls)  # noqa
 
     def __new__(cls, /, **kwargs) -> Self:
         _inst = super().__new__(cls)
