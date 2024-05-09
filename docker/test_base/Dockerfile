@@ -56,10 +56,13 @@ RUN set -eu; \
         -r /tmp/requirements-dev.txt
 
 # generate test certs and sign key
-COPY ./tests/keys/gen_certs.sh /tmp/certs/
+COPY --chmod=755 ./tests/keys/gen_certs.sh /tmp/certs/
 RUN set -eu; \
-    bash /tmp/certs/gen_certs.sh; \
-    cp -R /tmp/certs "${CERTS_DIR}"
+    mkdir -p "${CERTS_DIR}"; \
+    pushd /tmp/certs; \
+    ./gen_certs.sh; \
+    cp * "${CERTS_DIR}"; \
+    popd
 
 # build the test OTA image
 RUN set -eu; \
