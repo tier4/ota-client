@@ -56,15 +56,15 @@ RUN set -eu; \
         -r /tmp/requirements-dev.txt
 
 # generate test certs and sign key
+COPY ./tests/keys/gen_certs.sh /tmp/certs/
 RUN set -eu; \
-    bash ./tests/keys/gen_certs.sh; \
-    cp -R ./tests/keys "${CERTS_DIR}"
+    bash /tmp/certs/gen_certs.sh; \
+    cp -R /tmp/certs "${CERTS_DIR}"
 
-# prepare build environment
-COPY ./tests/keys/sign.key sign.key
-COPY ./tests/keys/sign.pem sign.pem
 # build the test OTA image
 RUN set -eu; \
+    cp "${CERTS_DIR}"/sign.key sign.key; \
+    cp "${CERTS_DIR}"/sign.pem sign.pem; \
     git clone ${OTA_METADATA_REPO}; \
     python3 -m venv ota-metadata/.venv; \
     source ota-metadata/.venv/bin/activate; \
