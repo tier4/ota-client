@@ -74,8 +74,8 @@ exclude_also = [
   "class .*\\bProtocol\\):",
   "@(abc\\.)?abstractmethod",
 ]
-show_missing = true
 skip_empty = true
+skip_covered = true
 
 [tool.pyright]
 exclude = ["**/__pycache__"]
