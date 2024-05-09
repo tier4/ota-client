@@ -7,12 +7,14 @@ ARG OTA_METADATA_REPO="https://github.com/tier4/ota-metadata"
 ENV OTA_CLIENT_DIR="/ota-client"
 ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
 ENV OTA_IMAGE_DIR="${OTA_IMAGE_SERVER_ROOT}/data"
+ENV CERTS_DIR="/certs"
 ENV VENV="${OTA_CLIENT_DIR}/.venv"
 ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 
 
 # install required packages
-RUN apt-get update -qq && \
+RUN set -eu; \
+    apt-get update -qq; \
     apt-get install -y -qq --no-install-recommends \
         python3-minimal \
         python3-pip \
@@ -22,15 +24,15 @@ RUN apt-get update -qq && \
 	    libssl-dev \
 	    gcc \
         wget \
-        git && \
-    apt-get install -y -qq \
-        linux-image-${KERNEL_VERSION}
+        git; \
+    apt-get install -y -qq linux-image-${KERNEL_VERSION}
 
 # prepare ubuntu base
 WORKDIR ${OTA_IMAGE_SERVER_ROOT}
-RUN wget -q -O /tmp/base_image.tar.gz ${BASE_IMG_URL} && \
-    mkdir -p ${OTA_IMAGE_DIR} && \
-    tar zxf /tmp/base_image.tar.gz -C ${OTA_IMAGE_DIR} && \
+RUN set -eu; \
+    wget -q -O /tmp/base_image.tar.gz ${BASE_IMG_URL}; \
+    mkdir -p ${OTA_IMAGE_DIR}; \
+    tar zxf /tmp/base_image.tar.gz -C ${OTA_IMAGE_DIR}; \
     cp -a \
         /boot/vmlinuz-${KERNEL_VERSION} \
         /boot/initrd.img-${KERNEL_VERSION} \
@@ -42,39 +44,47 @@ RUN wget -q -O /tmp/base_image.tar.gz ${BASE_IMG_URL} && \
 RUN echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"
 
 # install otaclient dependencies
-RUN python3 -m venv ${VENV}
 COPY ./otaclient/requirements.txt /tmp/requirements.txt
 COPY ./tests/requirements.txt /tmp/requirements-dev.txt
-RUN source ${VENV}/bin/activate && \
-    python3 -m pip install --no-cache-dir -q -U pip && \
+RUN set -eu; \
+    python3 -m venv ${VENV}; \
+    source ${VENV}/bin/activate; \
+    python3 -m pip install --no-cache-dir -q -U pip; \
     python3 -m pip install \
         --no-cache-dir -q \
         -r /tmp/requirements.txt \
         -r /tmp/requirements-dev.txt
 
+# generate test certs and sign key
+RUN set -eu; \
+    bash ./tests/keys/gen_certs.sh; \
+    cp -R ./tests/keys "${CERTS_DIR}"
+
 # prepare build environment
-RUN git clone ${OTA_METADATA_REPO}
 COPY ./tests/keys/sign.key sign.key
 COPY ./tests/keys/sign.pem sign.pem
-# build base image
-RUN python3 -m venv ota-metadata/.venv
-RUN source ota-metadata/.venv/bin/activate && \
+# build the test OTA image
+RUN set -eu; \
+    git clone ${OTA_METADATA_REPO}; \
+    python3 -m venv ota-metadata/.venv; \
+    source ota-metadata/.venv/bin/activate; \
     python3 -m pip install --no-cache-dir -q \
-        -r ota-metadata/metadata/ota_metadata/requirements.txt && \
+        -r ota-metadata/metadata/ota_metadata/requirements.txt; \
     python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
         --target-dir data \
         --compressed-dir data.zst \
-        --ignore-file ota-metadata/metadata/ignore.txt && \
+        --ignore-file ota-metadata/metadata/ignore.txt; \
     python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
         --sign-key sign.key \
         --cert-file sign.pem \
         --persistent-file ota-metadata/metadata/persistents.txt \
         --rootfs-directory data \
-        --compressed-rootfs-directory data.zst && \
+        --compressed-rootfs-directory data.zst; \
     cp ota-metadata/metadata/persistents.txt .
 
 # cleanup
-RUN apt-get clean && \
+RUN set -eu; \
+    apt-get clean; \
     rm -rf \
         /tmp/* \
         /var/lib/apt/lists/* \
