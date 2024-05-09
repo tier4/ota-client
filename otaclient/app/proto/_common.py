@@ -598,7 +598,10 @@ class MessageWrapper(WrapperBase[MessageType]):
         - Parse type annotations defined in wrapper class.
         - bypass the user defined __init__.
         """
-        if not (_orig_bases := getattr(cls, "__orig_bases__")) or len(_orig_bases) < 1:
+        if (
+            not (_orig_bases := getattr(cls, "__orig_bases__", None))
+            or len(_orig_bases) < 1
+        ):
             raise TypeError("MessageWrapper should have type arg")
         # MessageWrapper should be the last in __mro__
         _typed_msg_wrapper = _orig_bases[-1]
@@ -646,7 +649,7 @@ class MessageWrapper(WrapperBase[MessageType]):
         # function name, annotations, module, etc.
         def _dummy_init(self, /, **_): ...
 
-        setattr(cls, "__init__", update_wrapper(_dummy_init, cls.__init__))
+        cls.__init__ = update_wrapper(_dummy_init.__get__(cls), cls.__init__)
 
     def __new__(cls, /, **kwargs) -> Self:
         _inst = super().__new__(cls)
@@ -671,10 +674,10 @@ class MessageWrapper(WrapperBase[MessageType]):
     def __eq__(self, __o: object) -> bool:
         if self.__class__ != __o.__class__:
             return False
-        for _field_name in self._fields:
-            if getattr(self, _field_name) != getattr(__o, _field_name):
-                return False
-        return True
+        return all(
+            getattr(self, _field_name) == getattr(__o, _field_name)
+            for _field_name in self._fields
+        )
 
     def __str__(self) -> str:
         _buffer = StringIO()
