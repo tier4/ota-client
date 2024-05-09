@@ -27,13 +27,15 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from otaclient.app.ota_metadata import (MetadataJWTPayloadInvalid,
-                                        MetadataJWTVerificationFailed,
-                                        _MetadataJWTParser,
-                                        parse_dirs_from_txt,
-                                        parse_persistents_from_txt,
-                                        parse_regulars_from_txt,
-                                        parse_symlinks_from_txt)
+from otaclient.app.ota_metadata import (
+    MetadataJWTPayloadInvalid,
+    MetadataJWTVerificationFailed,
+    _MetadataJWTParser,
+    parse_dirs_from_txt,
+    parse_persistents_from_txt,
+    parse_regulars_from_txt,
+    parse_symlinks_from_txt,
+)
 
 HEADER = """\
 {"alg": "ES256"}\

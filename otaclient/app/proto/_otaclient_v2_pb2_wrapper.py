@@ -33,9 +33,14 @@ from typing import Union as _Union
 import otaclient_v2_pb2 as _v2
 from typing_extensions import Self
 
-from ._common import (Duration, EnumWrapper, MessageWrapper,
-                      RepeatedCompositeContainer, RepeatedScalarContainer,
-                      calculate_slots)
+from ._common import (
+    Duration,
+    EnumWrapper,
+    MessageWrapper,
+    RepeatedCompositeContainer,
+    RepeatedScalarContainer,
+    calculate_slots,
+)
 
 # protocols
 

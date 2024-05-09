@@ -1,6 +1,9 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = ["setuptools>=61", "setuptools_scm[toml]>=6.4"]
+requires = [
+  "setuptools>=61",
+  "setuptools_scm[toml]>=6.4",
+]
 
 [project]
 name = "otaclient"
@@ -17,7 +20,11 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-dynamic = ["dependencies", "optional-dependencies", "version"]
+dynamic = [
+  "dependencies",
+  "optional-dependencies",
+  "version",
+]
 [project.urls]
 Source = "https://github.com/tier4/ota-client"
 
@@ -42,6 +49,10 @@ target-version = ['py38']
 extend-exclude = '''(
   ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
 )'''
+
+[tool.isort]
+profile = "black"
+extend_skip_glob = ["*_pb2.py*", "_pb2_grpc.py*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -73,7 +84,3 @@ skip_covered = true
 exclude = ["**/__pycache__"]
 ignore = ["**/*_pb2.py*", "**/*_pb2_grpc.py*"]
 pythonVersion = "3.8"
-
-[tool.isort]
-profile = "black"
-extend_skip_glob = ["*_pb2.py*", "_pb2_grpc.py*"]

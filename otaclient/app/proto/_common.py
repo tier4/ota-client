@@ -20,9 +20,22 @@ from copy import deepcopy
 from enum import EnumMeta, IntEnum
 from functools import update_wrapper
 from io import StringIO
-from typing import (Any, Dict, Generic, Iterable, List, Mapping, Optional,
-                    Type, TypeVar, Union, get_args, get_origin, get_type_hints,
-                    overload)
+from typing import (
+    Any,
+    Dict,
+    Generic,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+    overload,
+)
 
 from google.protobuf.duration_pb2 import Duration as _Duration
 from google.protobuf.message import Message as _pb_Message

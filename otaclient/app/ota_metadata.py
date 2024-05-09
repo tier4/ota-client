@@ -51,8 +51,21 @@ from functools import partial
 from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
-from typing import (Any, Callable, ClassVar, Dict, Generic, Iterator, List,
-                    Optional, Tuple, Type, TypeVar, Union, overload)
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    Generic,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    overload,
+)
 from urllib.parse import quote
 
 from OpenSSL import crypto
@@ -63,10 +76,14 @@ from otaclient.ota_proxy import OTAFileCacheControl
 from .common import RetryTaskMap, get_backoff, urljoin_ensure_base
 from .configs import config as cfg
 from .downloader import Downloader
-from .proto.streamer import (Uint32LenDelimitedMsgReader,
-                             Uint32LenDelimitedMsgWriter)
-from .proto.wrapper import (DirectoryInf, MessageWrapper, PersistentInf,
-                            RegularInf, SymbolicLinkInf)
+from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
+from .proto.wrapper import (
+    DirectoryInf,
+    MessageWrapper,
+    PersistentInf,
+    RegularInf,
+    SymbolicLinkInf,
+)
 
 logger = logging.getLogger(__name__)
 

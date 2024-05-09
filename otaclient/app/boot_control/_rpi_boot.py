@@ -26,8 +26,12 @@ from typing import Generator
 from .. import errors as ota_errors
 from ..common import replace_atomic, subprocess_call, subprocess_check_output
 from ..proto import wrapper
-from ._common import (CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper,
-                      write_str_to_file_sync)
+from ._common import (
+    CMDHelperFuncs,
+    OTAStatusFilesControl,
+    SlotMountHelper,
+    write_str_to_file_sync,
+)
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
 

@@ -23,8 +23,12 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Callable, Literal, NoReturn, Optional, Union
 
-from ..common import (read_str_from_file, subprocess_call,
-                      subprocess_check_output, write_str_to_file_sync)
+from ..common import (
+    read_str_from_file,
+    subprocess_call,
+    subprocess_check_output,
+    write_str_to_file_sync,
+)
 from ..configs import config as cfg
 from ..proto import wrapper
 

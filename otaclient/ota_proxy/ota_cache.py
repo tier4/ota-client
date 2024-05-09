@@ -25,9 +25,21 @@ import time
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
 from pathlib import Path
-from typing import (AsyncGenerator, AsyncIterator, Callable, Coroutine, Dict,
-                    Generic, List, Mapping, MutableMapping, Optional, Tuple,
-                    TypeVar, Union)
+from typing import (
+    AsyncGenerator,
+    AsyncIterator,
+    Callable,
+    Coroutine,
+    Dict,
+    Generic,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 from urllib.parse import SplitResult, quote, urlsplit
 
 import aiofiles
@@ -38,9 +50,13 @@ from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control import OTAFileCacheControl
 from .config import config as cfg
 from .db import AIO_OTACacheDBProxy, CacheMeta, OTACacheDB
-from .errors import (BaseOTACacheError, CacheMultiStreamingFailed,
-                     CacheStreamingFailed, CacheStreamingInterrupt,
-                     StorageReachHardLimit)
+from .errors import (
+    BaseOTACacheError,
+    CacheMultiStreamingFailed,
+    CacheStreamingFailed,
+    CacheStreamingInterrupt,
+    StorageReachHardLimit,
+)
 from .utils import read_file, url_based_hash, wait_with_backoff
 
 logger = logging.getLogger(__name__)

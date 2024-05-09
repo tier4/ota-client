@@ -24,8 +24,12 @@ import yaml
 from configs import config as cfg
 from configs import server_cfg
 from ecu import Ecu
-from ota_client_service import (OtaClientServiceV2, service_start,
-                                service_stop, service_wait_for_termination)
+from ota_client_service import (
+    OtaClientServiceV2,
+    service_start,
+    service_stop,
+    service_wait_for_termination,
+)
 from ota_client_stub import OtaClientStub
 
 logger = log_setting.get_logger(

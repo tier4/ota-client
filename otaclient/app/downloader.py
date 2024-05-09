@@ -24,8 +24,19 @@ from contextlib import contextmanager
 from functools import wraps
 from hashlib import sha256
 from os import PathLike
-from typing import (IO, Any, ByteString, Callable, Dict, Iterator, Mapping,
-                    Optional, Protocol, Tuple, Union)
+from typing import (
+    IO,
+    Any,
+    ByteString,
+    Callable,
+    Dict,
+    Iterator,
+    Mapping,
+    Optional,
+    Protocol,
+    Tuple,
+    Union,
+)
 from urllib.parse import urlsplit
 
 import requests

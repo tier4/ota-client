@@ -29,14 +29,28 @@ from functools import lru_cache, partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
-from typing import (Any, Callable, Generator, Generic, Iterable, NamedTuple,
-                    Optional, Set, TypeVar, Union)
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Generic,
+    Iterable,
+    NamedTuple,
+    Optional,
+    Set,
+    TypeVar,
+    Union,
+)
 from urllib.parse import urljoin
 
 import requests
 
-from otaclient._utils.linux import (ParsedGroup, ParsedPasswd,
-                                    map_gid_by_grpnam, map_uid_by_pwnam)
+from otaclient._utils.linux import (
+    ParsedGroup,
+    ParsedPasswd,
+    map_gid_by_grpnam,
+    map_uid_by_pwnam,
+)
 
 from .configs import config as cfg
 

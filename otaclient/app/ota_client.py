@@ -35,18 +35,24 @@ from . import downloader
 from . import errors as ota_errors
 from . import ota_metadata
 from .boot_control import BootControllerProtocol, get_boot_controller
-from .common import (PersistFilesHandler, RetryTaskMap,
-                     RetryTaskMapInterrupted, ensure_otaproxy_start,
-                     get_backoff)
+from .common import (
+    PersistFilesHandler,
+    RetryTaskMap,
+    RetryTaskMapInterrupted,
+    ensure_otaproxy_start,
+    get_backoff,
+)
 from .configs import config as cfg
 from .configs import ecu_info
-from .create_standby import (StandbySlotCreatorProtocol,
-                             get_standby_slot_creator)
+from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .interface import OTAClientProtocol
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
-from .update_stats import (OTAUpdateStatsCollector, RegInfProcessedStats,
-                           RegProcessOperation)
+from .update_stats import (
+    OTAUpdateStatsCollector,
+    RegInfProcessedStats,
+    RegProcessOperation,
+)
 
 try:
     from otaclient import __version__  # type: ignore
