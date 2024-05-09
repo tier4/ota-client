@@ -44,7 +44,7 @@ class Uint32LenDelimitedReader:
             return
 
         _bin = self._stream.read(data_len)
-        if not len(_bin) == data_len:
+        if len(_bin) != data_len:
             return  # partial read detected, the stream is incompleted
         return _bin
 
