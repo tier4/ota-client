@@ -1,16 +1,18 @@
 #!/bin/bash
 set -eu
 
-OTA_CLIENT_DIR="/ota-client"
+OTA_CLIENT_DIR="${OTACLIENT_DIR:-/ota-client}"
+OUTPUT_DIR="${OUTPUT_DIR:-/test_result}"
+CERTS_DIR="${CERTS_DIR:-/certs}"
 VENV="${OTA_CLIENT_DIR}/.venv"
 
-# setup certs
+# copy the certs generated in the docker image to otaclient dir
 echo "setup certificates for testing..."
-mkdir -p ${OTA_CLIENT_DIR}/certs &&
-    cp -av ${OTA_CLIENT_DIR}/tests/keys/root.pem ${OTA_CLIENT_DIR}/certs/1.root.pem &&
-    cp -av ${OTA_CLIENT_DIR}/tests/keys/interm.pem ${OTA_CLIENT_DIR}/certs/1.interm.pem
+cd ${OTA_CLIENT_DIR}
+mkdir -p ./certs
+cp -av ${CERTS_DIR}/root.pem ./certs/1.root.pem
+cp -av ${CERTS_DIR}/interm.pem ./certs/1.interm.pem
 
-# activate virtual env
 source ${VENV}/bin/activate
 
 # setup dependencies unconditionally
@@ -25,6 +27,6 @@ TESTS_DEPENDENCIES="${OTA_CLIENT_DIR}/tests/requirements.txt"
 
 # exec the input params
 echo "execute test with coverage"
-cd "${OTA_CLIENT_DIR}"
-coverage run -m pytest --junit-xml=test_result/pytest.xml "${@:-}"
-coverage xml -o test_result/coverage.xml
+cd ${OTA_CLIENT_DIR}
+coverage run -m pytest --junit-xml=${OUTPUT_DIR}/pytest.xml ${@:-}
+coverage xml -o ${OUTPUT_DIR}/coverage.xml

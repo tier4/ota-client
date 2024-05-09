@@ -62,10 +62,20 @@ testpaths = ["./tests"]
 
 [tool.coverage.run]
 branch = false
+relative_files = true
+source = ["otaclient"]
 
 [tool.coverage.report]
 omit = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
-show_missing = true
+exclude_also = [
+  "def __repr__",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+  "class .*\\bProtocol\\):",
+  "@(abc\\.)?abstractmethod",
+]
+skip_empty = true
+skip_covered = true
 
 [tool.pyright]
 exclude = ["**/__pycache__"]
