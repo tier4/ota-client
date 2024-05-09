@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-from abc import ABC
 from dataclasses import asdict, astuple, dataclass, fields
 from io import StringIO
 from typing import (
@@ -39,7 +38,7 @@ if TYPE_CHECKING:
     import sqlite3
 
 
-class NULL_TYPE(ABC):
+class NULL_TYPE:
     """Singleton for NULL type."""
 
     def __new__(cls, *args, **kwargs) -> None:
@@ -54,7 +53,7 @@ SQLITE_DATATYPES = Union[
     bool,  # INTEGER 0, 1
     NULL_TYPE,  # NULL
 ]
-SQLITE_DATATYPES_SET = set([int, str, float, bytes, bool, NULL_TYPE])
+SQLITE_DATATYPES_SET = {int, str, float, bytes, bool, NULL_TYPE}
 FV = TypeVar("FV", bound=SQLITE_DATATYPES)  # field value type
 TYPE_CHECKER = Callable[[Any], bool]
 
@@ -85,7 +84,7 @@ class ColumnDescriptor(Generic[FV]):
 
         # init type checker callable
         # default to check over the specific field type
-        self.type_guard_enabled = False if type_guard is False else True
+        self.type_guard_enabled = bool(type_guard)
         self.type_checker = lambda x: isinstance(x, field_type)
         if isinstance(type_guard, tuple):  # check over a list of types
             self.type_checker = lambda x: isinstance(x, type_guard)

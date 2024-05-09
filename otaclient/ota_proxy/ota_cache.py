@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import bisect
+import contextlib
 import logging
 import os
 import shutil
@@ -348,10 +349,8 @@ class CacheTracker(Generic[_WEAKREF]):
 
     async def provider_on_finished(self):
         if not self.writer_finished and self._cache_write_gen:
-            try:
+            with contextlib.suppress(StopAsyncIteration):
                 await self._cache_write_gen.asend(b"")
-            except StopAsyncIteration:
-                pass
         self._writer_finished.set()
         self._ref = None
 
@@ -359,10 +358,8 @@ class CacheTracker(Generic[_WEAKREF]):
         """Manually fail and stop the caching."""
         if not self.writer_finished and self._cache_write_gen:
             logger.warning(f"interrupt writer coroutine for {self.meta=}")
-            try:
+            with contextlib.suppress(StopAsyncIteration, CacheStreamingInterrupt):
                 await self._cache_write_gen.athrow(CacheStreamingInterrupt)
-            except (StopAsyncIteration, CacheStreamingInterrupt):
-                pass
 
         self._writer_failed.set()
         self._writer_finished.set()
