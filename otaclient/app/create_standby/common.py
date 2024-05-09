@@ -14,6 +14,9 @@
 r"""Common used helpers, classes and functions for different bank creating methods."""
 
 
+from __future__ import annotations
+
+import contextlib
 import logging
 import os
 import random
@@ -69,12 +72,10 @@ class _HardlinkTracker:
 
             time.sleep(self.POLLINTERVAL)
 
-        try:
+        # it won't happen generally as this tracker will be gc
+        # after the ref holder holds no more ref.
+        with contextlib.suppress(IndexError):
             self._ref_holder.pop()
-        except IndexError:
-            # it won't happen generally as this tracker will be gc
-            # after the ref holder holds no more ref.
-            pass
 
         return self.first_copy_path
 
