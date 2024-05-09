@@ -67,7 +67,15 @@ source = ["otaclient"]
 
 [tool.coverage.report]
 omit = ["**/*_pb2.py*","**/*_pb2_grpc.py*"]
+exclude_also = [
+  "def __repr__",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+  "class .*\\bProtocol\\):",
+  "@(abc\\.)?abstractmethod",
+]
 show_missing = true
+skip_empty = true
 
 [tool.pyright]
 exclude = ["**/__pycache__"]
