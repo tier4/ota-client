@@ -212,15 +212,13 @@ class DeltaBundle:
 class DeltaGenerator:
     # entry under the following folders will be scanned
     # no matter it is existed in new image or not
-    FULL_SCAN_PATHS = set(
-        [
-            "/lib",
-            "/var/lib",
-            "/usr",
-            "/opt/nvidia",
-            "/home/autoware/autoware.proj",
-        ]
-    )
+    FULL_SCAN_PATHS = {
+        "/lib",
+        "/var/lib",
+        "/usr",
+        "/opt/nvidia",
+        "/home/autoware/autoware.proj",
+    }
 
     # introduce limitations here to prevent unexpected
     # scanning in unknown large, deep folders in full
@@ -378,10 +376,8 @@ class DeltaGenerator:
                         "exceeded files will be ignored silently"
                     )
                     self._rm.extend(
-                        map(
-                            lambda x: str(canonical_curdir_path / x),
-                            filenames[self.MAX_FILENUM_PER_FOLDER :],
-                        )
+                        str(canonical_curdir_path / x)
+                        for x in filenames[self.MAX_FILENUM_PER_FOLDER :]
                     )
 
                 # process the files under this dir
