@@ -1,6 +1,22 @@
 name: test CI
 
-on: [pull_request]
+on: 
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "otaclient/**"
+      - "tests/**"
+      - ".github/workflows/test.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "otaclient/**"
+      - "tests/**"
+      - ".github/workflows/test.yaml"
+  # allow the test CI to be manually triggerred
+  workflow_dispatch:
 
 jobs:
   pytest_with_coverage:
