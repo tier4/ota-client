@@ -19,26 +19,26 @@ repos:
     rev: 5.13.2
     hooks:
       - id: isort
-  # - repo: https://github.com/pycqa/flake8
-  #   rev: 7.0.0
-  #   hooks:
-  #     - id: flake8
-  #       additional_dependencies:
-  #         - flake8-bugbear==24.2.6
-  #         - flake8-comprehensions
-  #         - flake8-simplify
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        additional_dependencies:
+          - flake8-bugbear==24.2.6
+          - flake8-comprehensions
+          - flake8-simplify
   # - repo: https://github.com/tox-dev/pyproject-fmt
   #   rev: "1.8.0"
   #   hooks:
   #     - id: pyproject-fmt
   #       # https://pyproject-fmt.readthedocs.io/en/latest/#calculating-max-supported-python-version
   #       additional_dependencies: ["tox>=4.9"]
-  # - repo: https://github.com/PyCQA/docformatter
-  #   rev: v1.7.5
-  #   hooks:
-  #     - id: docformatter
-  #       additional_dependencies: [tomli]
-  #       args: [--in-place --config ./pyproject.toml]
+  - repo: https://github.com/PyCQA/docformatter
+    rev: v1.7.5
+    hooks:
+      - id: docformatter
+        additional_dependencies: [tomli]
+        args: [--in-place --config ./pyproject.toml]
 
 ci:
   autoupdate_schedule: monthly
