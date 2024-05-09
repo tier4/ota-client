@@ -425,7 +425,7 @@ class Downloader:
         Returns:
             A tuple of file_sha256 and file_compression_alg for the requested resources.
         """
-        if not (cache_policy_str := resp_headers.get(CACHE_CONTROL_HEADER, None)):
+        if not (cache_policy_str := resp_headers.get(CACHE_CONTROL_HEADER)):
             return digest, compression_alg
 
         cache_policy = OTAFileCacheControl.parse_header(cache_policy_str)
