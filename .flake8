@@ -7,5 +7,8 @@ max-line-length = 88
 #       this error conflicts with black linting
 #   E501(line is too long):
 #       TODO: deal with it in the future
-extend-ignore = E266, E501, E203
+#   E701(multiple statements on one line)
+extend-ignore = E266, E501, E203, E701
 extend-exclude = *_pb2.py*, *_pb2_grpc.py*
+# TODO: ignore tools and tests for now
+exclude = tools/**, tests/**
