@@ -51,7 +51,6 @@ extend-exclude = '''(
 )'''
 
 [tool.pytest.ini_options]
-addopts = "--cov=otaclient.app --cov=otaclient.ota_proxy"
 asyncio_mode = "auto"
 log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
