@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import json
 import logging
@@ -779,7 +780,8 @@ class OTAServicer:
             if self._otaclient_inst is None:
                 return
 
-            try:
+            # error should be collected by otaclient, not us
+            with contextlib.suppress(Exception):
                 await self._run_in_executor(
                     partial(
                         self._otaclient_inst.update,
@@ -788,11 +790,8 @@ class OTAServicer:
                         request.cookies,
                     )
                 )
-            except Exception:
-                pass  # error should be collected by otaclient, not us
-            finally:
-                self.last_operation = None
-                self._update_rollback_lock.release()
+            self.last_operation = None
+            self._update_rollback_lock.release()
 
         # dispatch update to background
         asyncio.create_task(_update_task())
@@ -827,13 +826,11 @@ class OTAServicer:
             if self._otaclient_inst is None:
                 return
 
-            try:
+            # error should be collected by otaclient, not us
+            with contextlib.suppress(Exception):
                 await self._run_in_executor(self._otaclient_inst.rollback)
-            except Exception:
-                pass  # error should be collected by otaclient, not us
-            finally:
-                self.last_operation = None
-                self._update_rollback_lock.release()
+            self.last_operation = None
+            self._update_rollback_lock.release()
 
         # dispatch to background
         asyncio.create_task(_rollback_task())
