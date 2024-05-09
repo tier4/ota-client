@@ -43,10 +43,6 @@ extend-exclude = '''(
   ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
 )'''
 
-[tool.docformatter]
-blank = true
-style = "google"
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 log_auto_indent = true
