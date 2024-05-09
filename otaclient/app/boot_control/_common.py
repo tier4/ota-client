@@ -16,6 +16,7 @@ r"""Shared utils for boot_controller."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
 import sys
@@ -558,10 +559,9 @@ class OTAStatusFilesControl:
         if _status_str := read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
         ).upper():
-            try:
+            with contextlib.suppress(KeyError):
+                # invalid status string
                 return wrapper.StatusOta[_status_str]
-            except KeyError:
-                pass  # invalid status string
 
     # version control
 

@@ -169,20 +169,19 @@ class GrubHelper:
             entry_l, entry_r = entry.span()
             entry_block = entry.group()
             # parse the entry block
-            if _linux := cls.linux_pa.search(entry_block):
-                if _linux.group("ver") == kernel_ver:
-                    linux_line_l, linux_line_r = _linux.span()
-                    _new_linux_line, _count = cls.rootfs_pa.subn(
-                        rootfs_str, _linux.group()
+            if (_linux := cls.linux_pa.search(entry_block)) and _linux.group(
+                "ver"
+            ) == kernel_ver:
+                linux_line_l, linux_line_r = _linux.span()
+                _new_linux_line, _count = cls.rootfs_pa.subn(rootfs_str, _linux.group())
+                if _count == 1:
+                    # replace rootfs string
+                    new_entry_block = (
+                        f"{entry_block[:linux_line_l]}"
+                        f"{_new_linux_line}"
+                        f"{entry_block[linux_line_r:]}"
                     )
-                    if _count == 1:
-                        # replace rootfs string
-                        new_entry_block = (
-                            f"{entry_block[:linux_line_l]}"
-                            f"{_new_linux_line}"
-                            f"{entry_block[linux_line_r:]}"
-                        )
-                        break
+                    break
 
         if new_entry_block is not None:
             updated_grub_cfg = (
@@ -209,9 +208,10 @@ class GrubHelper:
               recovery entry).
         """
         for index, entry_ma in enumerate(cls.menuentry_pa.finditer(grub_cfg)):
-            if _linux := cls.linux_pa.search(entry_ma.group()):
-                if kernel_ver == _linux.group("ver"):
-                    return index, _GrubMenuEntry(entry_ma)
+            if (
+                _linux := cls.linux_pa.search(entry_ma.group())
+            ) and kernel_ver == _linux.group("ver"):
+                return index, _GrubMenuEntry(entry_ma)
 
         raise ValueError(f"requested entry for {kernel_ver} not found")
 
@@ -340,13 +340,12 @@ class GrubABPartitionDetector:
         # FSTYPE="ext4" and
         # not (parent_device_file, root_device_file and boot_device_file)
         for blk in output:
-            if m := re.search(r'NAME="(.*)"\s+FSTYPE="(.*)"', blk):
-                if (
-                    m.group(1) != active_dev
-                    and m.group(1) != boot_dev
-                    and m.group(2) == "ext4"
-                ):
-                    return m.group(1)
+            if (m := re.search(r'NAME="(.*)"\s+FSTYPE="(.*)"', blk)) and (
+                m.group(1) != active_dev
+                and m.group(1) != boot_dev
+                and m.group(2) == "ext4"
+            ):
+                return m.group(1)
 
         _err_msg = f"{parent=} has unexpected partition layout: {output=}"
         logger.error(_err_msg)
