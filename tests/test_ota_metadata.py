@@ -20,6 +20,7 @@ import shutil
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
@@ -165,8 +166,14 @@ TEST_DIR = Path(__file__).parent
 GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"
 
 
+class CertsDirs(TypedDict):
+    multi_chain: Path
+    chain_a: Path
+    chain_b: Path
+
+
 @pytest.fixture
-def certs_dirs(tmp_path: Path) -> dict[str, Path]:
+def certs_dirs(tmp_path: Path) -> CertsDirs:
     """Create the certs dir and generate certs."""
     certs_dir = tmp_path / "certs"
     certs_dir.mkdir(parents=True, exist_ok=True)
@@ -200,13 +207,13 @@ def certs_dirs(tmp_path: Path) -> dict[str, Path]:
 
         res[chain] = chain_dir
 
-    return res
+    return CertsDirs(**res)
 
 
 @pytest.mark.parametrize(
     "payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE), (PAYLOAD_W_COMPRESSED_ROOTFS)]
 )
-def test_ota_metadata(payload_str: str, certs_dirs: dict[str, Path]):
+def test_ota_metadata(payload_str: str, certs_dirs: CertsDirs):
     """Verify against multiple chains."""
     certs_dir = certs_dirs["multi_chain"]
     chain_b = certs_dirs["chain_b"]
@@ -239,7 +246,7 @@ def test_ota_metadata(payload_str: str, certs_dirs: dict[str, Path]):
     "payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE), (PAYLOAD_W_COMPRESSED_ROOTFS)]
 )
 def test_ota_metadata_with_verify_certificate_exception(
-    payload_str: str, certs_dirs: dict[str, Path]
+    payload_str: str, certs_dirs: CertsDirs
 ):
     """Generate jwt using chain_a, but verify it using chain b."""
     chain_a, chain_b = certs_dirs["chain_a"], certs_dirs["chain_b"]
@@ -259,7 +266,7 @@ def test_ota_metadata_with_verify_certificate_exception(
         (PAYLOAD_MISSING_MUST_SET_FIELD_ROOTFS),
     ],
 )
-def test_invalid_metadata_jwt(payload_str: str, certs_dirs: dict[str, Path]):
+def test_invalid_metadata_jwt(payload_str: str, certs_dirs: CertsDirs):
     certs_dir = certs_dirs["chain_a"]
     sign_pem = certs_dir / "sign.pem"
     sign_key = certs_dir / "sign.key"
