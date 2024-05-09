@@ -73,3 +73,6 @@ skip_covered = true
 exclude = ["**/__pycache__"]
 ignore = ["**/*_pb2.py*", "**/*_pb2_grpc.py*"]
 pythonVersion = "3.8"
+
+[tool.isort]
+profile = "black"
