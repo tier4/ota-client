@@ -1,4 +1,3 @@
-version: "3"
 services:
   tester:
     build:
@@ -6,10 +5,14 @@ services:
       dockerfile: ./docker/test_base/Dockerfile
     image: ota-test_base
     network_mode: bridge
-    command: "python3 -m pytest"
     container_name: ota-test
+    environment:
+      OUTPUT_DIR: /test_result
+      OTACLIENT_DIR: /ota-client
+      CERTS_DIR: /certs
     volumes:
       - ../pyproject.toml:/ota-client/pyproject.toml:ro
       - ../.flake8:/ota-client/.flake8:ro
       - ../otaclient:/ota-client/otaclient:ro
       - ../tests:/ota-client/tests:ro
+      - ../test_result:/test_result:rw

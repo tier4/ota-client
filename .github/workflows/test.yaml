@@ -1,0 +1,45 @@
+name: test CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    paths:
+      - "otaclient/**"
+      - "tests/**"
+      - ".github/workflows/test.yaml"
+  # allow the test CI to be manually triggerred
+  workflow_dispatch:
+
+jobs:
+  pytest_with_coverage:
+    runs-on: ubuntu-20.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@v3
+        # sonarcloud needs full git histories
+        with:
+          fetch-depth: 0
+      - name: Build ota-test_base docker image
+        run: |
+          docker compose -f docker/docker-compose_tests.yml build
+      - name: Execute pytest with coverage trace under ota-test_base container
+        run: |
+          mkdir -p test_result
+          docker compose -f docker/docker-compose_tests.yml up --abort-on-container-exit
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # export the coverage report to the comment!
+      - name: Add coverage report to PR comment
+        continue-on-error: true
+        uses: MishaKav/pytest-coverage-comment@v1.1.51
+        with:
+          pytest-xml-coverage-path: test_result/coverage.xml
+          junitxml-path: test_result/pytest.xml

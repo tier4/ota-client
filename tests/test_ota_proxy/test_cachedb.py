@@ -33,8 +33,7 @@ logger = logging.getLogger(__name__)
 class TestORM:
     @pytest.fixture(autouse=True)
     def create_table_defs(self):
-        from otaclient.ota_proxy.orm import (NULL_TYPE, ColumnDescriptor,
-                                             ORMBase)
+        from otaclient.ota_proxy.orm import NULL_TYPE, ColumnDescriptor, ORMBase
 
         @dataclass
         class TableCls(ORMBase):

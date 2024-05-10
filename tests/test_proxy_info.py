@@ -20,8 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from otaclient.configs.proxy_info import (DEFAULT_PROXY_INFO, ProxyInfo,
-                                          parse_proxy_info)
+from otaclient.configs.proxy_info import DEFAULT_PROXY_INFO, ProxyInfo, parse_proxy_info
 
 logger = logging.getLogger(__name__)
 

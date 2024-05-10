@@ -18,9 +18,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from otaclient.app.update_stats import (OTAUpdateStatsCollector,
-                                        RegInfProcessedStats,
-                                        RegProcessOperation)
+from otaclient.app.update_stats import (
+    OTAUpdateStatsCollector,
+    RegInfProcessedStats,
+    RegProcessOperation,
+)
 
 logger = logging.getLogger(__name__)
 

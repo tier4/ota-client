@@ -13,21 +13,29 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import base64
+import os
+import shutil
+import subprocess
 from dataclasses import asdict
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from otaclient.app.ota_metadata import (MetadataJWTPayloadInvalid,
-                                        MetadataJWTVerificationFailed,
-                                        _MetadataJWTParser,
-                                        parse_dirs_from_txt,
-                                        parse_persistents_from_txt,
-                                        parse_regulars_from_txt,
-                                        parse_symlinks_from_txt)
+from otaclient.app.ota_metadata import (
+    MetadataJWTPayloadInvalid,
+    MetadataJWTVerificationFailed,
+    _MetadataJWTParser,
+    parse_dirs_from_txt,
+    parse_persistents_from_txt,
+    parse_regulars_from_txt,
+    parse_symlinks_from_txt,
+)
 
 HEADER = """\
 {"alg": "ES256"}\
@@ -147,28 +155,73 @@ def urlsafe_b64encode(data):
     return base64.urlsafe_b64encode(data).decode()
 
 
-def generate_jwt(payload_str: str, test_dir: Path):
-    sign_key_file = test_dir / "keys" / "sign.key"
-
+def generate_jwt(payload_str: str, sign_key_file: Path):
     header = urlsafe_b64encode(HEADER)
     payload = urlsafe_b64encode(payload_str)
     signature = sign(sign_key_file, f"{header}.{payload}")
     return f"{header}.{payload}.{signature}"
 
 
+TEST_DIR = Path(__file__).parent
+GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"
+
+
+class CertsDirs(TypedDict):
+    multi_chain: Path
+    chain_a: Path
+    chain_b: Path
+
+
 @pytest.fixture
-def dir_test() -> Path:
-    return Path(__file__).parent
+def certs_dirs(tmp_path: Path) -> CertsDirs:
+    """Create the certs dir and generate certs."""
+    certs_dir = tmp_path / "certs"
+    certs_dir.mkdir(parents=True, exist_ok=True)
+
+    shutil.copy(GEN_CERTS_SCRIPT, certs_dir)
+    gen_certs_script = certs_dir / GEN_CERTS_SCRIPT.name
+    os.chmod(gen_certs_script, 0o755)
+
+    multi_chain_dir = certs_dir / "multi_chain"
+    multi_chain_dir.mkdir(exist_ok=True, parents=True)
+
+    res = {"multi_chain": multi_chain_dir}
+
+    # generate certs chain a
+    for chain in ["chain_a", "chain_b"]:
+        chain_dir = certs_dir / chain
+        chain_dir.mkdir()
+        chain_interm_cert = chain_dir / f"{chain}.intermediate.pem"
+        chain_root_cert = chain_dir / f"{chain}.root.pem"
+
+        subprocess.run(
+            [str(gen_certs_script)],
+            cwd=chain_dir,
+        )
+        interm_cert = chain_dir / "interm.pem"
+        root_cert = chain_dir / "root.pem"
+        shutil.move(str(interm_cert), chain_interm_cert)
+        shutil.move(str(root_cert), chain_root_cert)
+        shutil.copy(chain_interm_cert, multi_chain_dir)
+        shutil.copy(chain_root_cert, multi_chain_dir)
+
+        res[chain] = chain_dir
+
+    return CertsDirs(**res)
 
 
 @pytest.mark.parametrize(
     "payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE), (PAYLOAD_W_COMPRESSED_ROOTFS)]
 )
-def test_ota_metadata(dir_test: Path, payload_str: str):
-    certs_dir = dir_test / "keys"
-    sign_pem = dir_test / "keys" / "sign.pem"
+def test_ota_metadata(payload_str: str, certs_dirs: CertsDirs):
+    """Verify against multiple chains."""
+    certs_dir = certs_dirs["multi_chain"]
+    chain_b = certs_dirs["chain_b"]
 
-    metadata_jwt = generate_jwt(payload_str, dir_test)
+    sign_pem = chain_b / "sign.pem"
+    sign_key = chain_b / "sign.key"
+
+    metadata_jwt = generate_jwt(payload_str, sign_key)
     parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
     metadata = parser.get_otametadata()
     assert asdict(metadata.directory) == DIR_INFO
@@ -182,49 +235,7 @@ def test_ota_metadata(dir_test: Path, payload_str: str):
     if "total_regular_size" in payload_str:
         assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
     else:
-        assert metadata.total_regular_size is 0
-    if "compressed_rootfs_directory" in payload_str:
-        assert metadata.compressed_rootfs_directory == COMPRESSED_ROOTFS_DIRECTORY
-    else:
-        assert metadata.compressed_rootfs_directory == ""
-
-
-@pytest.mark.parametrize(
-    "payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE), (PAYLOAD_W_COMPRESSED_ROOTFS)]
-)
-def test_ota_metadata_with_verify_certificate(
-    tmp_path: Path,
-    dir_test: Path,
-    payload_str: str,
-):
-    certs_dir = tmp_path / "certs"
-    certs_dir.mkdir()
-    cert_a_1 = certs_dir / "a.1.pem"
-    cert_a_2 = certs_dir / "a.2.pem"
-    cert_b_1 = certs_dir / "b.1.pem"
-    cert_b_2 = certs_dir / "b.2.pem"
-
-    # a.1.pem and a.2.pem is illegal
-    cert_a_1.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
-    cert_a_2.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
-    # b.1.pem and b.2.pem isillegal
-    cert_b_1.write_bytes(Path(dir_test / "keys" / "root.pem").read_bytes())
-    cert_b_2.write_bytes(Path(dir_test / "keys" / "interm.pem").read_bytes())
-
-    metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
-    metadata = parser.get_otametadata()
-    assert asdict(metadata.directory) == DIR_INFO
-    assert asdict(metadata.symboliclink) == SYMLINK_INFO
-    assert asdict(metadata.regular) == REGULAR_INFO
-    assert asdict(metadata.persistent) == PERSISTENT_INFO
-    assert asdict(metadata.certificate) == CERTIFICATE_INFO
-    assert metadata.rootfs_directory == ROOTFS_DIR_INFO
-    parser.verify_metadata(Path(dir_test / "keys" / "sign.pem").read_bytes())
-    if "total_regular_size" in payload_str:
-        assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
-    else:
-        assert metadata.total_regular_size is 0
+        assert metadata.total_regular_size == 0
     if "compressed_rootfs_directory" in payload_str:
         assert metadata.compressed_rootfs_directory == COMPRESSED_ROOTFS_DIRECTORY
     else:
@@ -235,25 +246,17 @@ def test_ota_metadata_with_verify_certificate(
     "payload_str", [(PAYLOAD), (PAYLOAD_W_TOTAL_SIZE), (PAYLOAD_W_COMPRESSED_ROOTFS)]
 )
 def test_ota_metadata_with_verify_certificate_exception(
-    dir_test: Path,
-    tmp_path: Path,
-    payload_str,
+    payload_str: str, certs_dirs: CertsDirs
 ):
-    certs_dir = tmp_path / "certs"
-    certs_dir.mkdir()
-    cert_a_1 = certs_dir / "a.1.pem"
-    cert_a_2 = certs_dir / "a.2.pem"
+    """Generate jwt using chain_a, but verify it using chain b."""
+    chain_a, chain_b = certs_dirs["chain_a"], certs_dirs["chain_b"]
+    chain_a_sign_key = chain_a / "sign.key"
 
-    # a.1.pem and a.2.pem is illegal
-    cert_a_1.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
-    cert_a_2.write_bytes(Path(dir_test / "keys" / "sign.pem").read_bytes())
-
-    metadata_jwt = generate_jwt(payload_str, dir_test)
-    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
+    metadata_jwt = generate_jwt(payload_str, chain_a_sign_key)
+    # use chain_b to verify chain_a's sign cert
     with pytest.raises(MetadataJWTVerificationFailed):
-        # NOTE: intentionally use sign.key as sign cert here,
-        #       to test verify against invalid cert
-        parser.verify_metadata(Path(dir_test / "keys" / "sign.key").read_bytes())
+        parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(chain_b))
+        parser.verify_metadata((chain_a / "sign.pem").read_bytes())
 
 
 @pytest.mark.parametrize(
@@ -263,12 +266,13 @@ def test_ota_metadata_with_verify_certificate_exception(
         (PAYLOAD_MISSING_MUST_SET_FIELD_ROOTFS),
     ],
 )
-def test_invalid_metadata_jwt(dir_test: Path, payload_str):
-    certs_dir = dir_test / "keys"
-    sign_pem = dir_test / "keys" / "sign.pem"
+def test_invalid_metadata_jwt(payload_str: str, certs_dirs: CertsDirs):
+    certs_dir = certs_dirs["chain_a"]
+    sign_pem = certs_dir / "sign.pem"
+    sign_key = certs_dir / "sign.key"
 
     with pytest.raises(MetadataJWTPayloadInvalid):
-        metadata_jwt = generate_jwt(payload_str, dir_test)
+        metadata_jwt = generate_jwt(payload_str, sign_key)
         parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
         parser.verify_metadata(sign_pem.read_bytes())
 

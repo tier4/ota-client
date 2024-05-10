@@ -26,8 +26,12 @@ from typing import Generator
 from .. import errors as ota_errors
 from ..common import replace_atomic, subprocess_call, subprocess_check_output
 from ..proto import wrapper
-from ._common import (CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper,
-                      write_str_to_file_sync)
+from ._common import (
+    CMDHelperFuncs,
+    OTAStatusFilesControl,
+    SlotMountHelper,
+    write_str_to_file_sync,
+)
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
 
@@ -118,12 +122,10 @@ class _RPIBootControl:
 
             try:
                 # NOTE: exclude the first 2 lines(parent and system-boot)
-                _child_partitions = list(
-                    map(
-                        lambda _raw: _raw.split("=")[-1].strip('"'),
-                        _raw_child_partitions.splitlines()[2:],
-                    )
-                )
+                _child_partitions = [
+                    raw.split("=")[-1].strip('"')
+                    for raw in _raw_child_partitions.splitlines()[2:]
+                ]
                 if (
                     len(_child_partitions) != 2
                     or self._active_slot_dev not in _child_partitions

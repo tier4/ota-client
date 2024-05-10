@@ -18,11 +18,16 @@ from typing import Mapping as _Mapping
 from typing import Optional as _Optional
 from typing import Union as _Union
 
-from otaclient.app.proto.wrapper import (Duration, EnumWrapper,
-                                         MessageMapContainer, MessageWrapper,
-                                         RepeatedCompositeContainer,
-                                         RepeatedScalarContainer,
-                                         ScalarMapContainer, calculate_slots)
+from otaclient.app.proto.wrapper import (
+    Duration,
+    EnumWrapper,
+    MessageMapContainer,
+    MessageWrapper,
+    RepeatedCompositeContainer,
+    RepeatedScalarContainer,
+    ScalarMapContainer,
+    calculate_slots,
+)
 
 from . import example_pb2 as _pb2
 

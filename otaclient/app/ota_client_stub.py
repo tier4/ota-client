@@ -397,13 +397,11 @@ class ECUStatusStorage:
         # NOTE(20230801): this property is calculated against all reachable ECUs,
         #                 including further child ECUs.
         _old_lost_ecus_id = self.lost_ecus_id
-        self.lost_ecus_id = lost_ecus = set(
-            (
-                ecu_id
-                for ecu_id in self._all_ecus_last_contact_timestamp
-                if self._is_ecu_lost(ecu_id, cur_timestamp)
-            )
-        )
+        self.lost_ecus_id = lost_ecus = {
+            ecu_id
+            for ecu_id in self._all_ecus_last_contact_timestamp
+            if self._is_ecu_lost(ecu_id, cur_timestamp)
+        }
         if _new_lost_ecus_id := lost_ecus.difference(_old_lost_ecus_id):
             logger.warning(f"new lost ecu(s) detected: {_new_lost_ecus_id}")
         if lost_ecus:
@@ -413,17 +411,15 @@ class ECUStatusStorage:
 
         # check ECUs in tracked active ECUs set that are updating
         _old_in_update_ecus_id = self.in_update_ecus_id
-        self.in_update_ecus_id = in_update_ecus_id = set(
-            (
-                status.ecu_id
-                for status in chain(
-                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
-                )
-                if status.ecu_id in self._tracked_active_ecus
-                and status.is_in_update
-                and status.ecu_id not in lost_ecus
+        self.in_update_ecus_id = in_update_ecus_id = {
+            status.ecu_id
+            for status in chain(
+                self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
             )
-        )
+            if status.ecu_id in self._tracked_active_ecus
+            and status.is_in_update
+            and status.ecu_id not in lost_ecus
+        }
         self.in_update_child_ecus_id = in_update_ecus_id - {self.my_ecu_id}
         if _new_in_update_ecu := in_update_ecus_id.difference(_old_in_update_ecus_id):
             logger.info(
@@ -437,17 +433,15 @@ class ECUStatusStorage:
 
         # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
-        self.failed_ecus_id = set(
-            (
-                status.ecu_id
-                for status in chain(
-                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
-                )
-                if status.ecu_id in self._tracked_active_ecus
-                and status.is_failed
-                and status.ecu_id not in lost_ecus
+        self.failed_ecus_id = {
+            status.ecu_id
+            for status in chain(
+                self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
             )
-        )
+            if status.ecu_id in self._tracked_active_ecus
+            and status.is_failed
+            and status.ecu_id not in lost_ecus
+        }
         if _new_failed_ecu := self.failed_ecus_id.difference(_old_failed_ecus_id):
             logger.warning(
                 f"new failed ECU(s) detected: {_new_failed_ecu}, current {self.failed_ecus_id=}"
@@ -467,17 +461,15 @@ class ECUStatusStorage:
 
         # check if all tracked active_ota_ecus are in SUCCESS ota_status
         _old_all_success, _old_success_ecus_id = self.all_success, self.success_ecus_id
-        self.success_ecus_id = set(
-            (
-                status.ecu_id
-                for status in chain(
-                    self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
-                )
-                if status.ecu_id in self._tracked_active_ecus
-                and status.is_success
-                and status.ecu_id not in lost_ecus
+        self.success_ecus_id = {
+            status.ecu_id
+            for status in chain(
+                self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
             )
-        )
+            if status.ecu_id in self._tracked_active_ecus
+            and status.is_success
+            and status.ecu_id not in lost_ecus
+        }
         # NOTE: all_success doesn't count the lost ECUs
         self.all_success = len(self.success_ecus_id) == len(self._tracked_active_ecus)
         if _new_success_ecu := self.success_ecus_id.difference(_old_success_ecus_id):
@@ -653,7 +645,7 @@ class ECUStatusStorage:
                     continue
 
                 _ecu_status_rep = self._all_ecus_status_v2.get(
-                    ecu_id, self._all_ecus_status_v1.get(ecu_id, None)
+                    ecu_id, self._all_ecus_status_v1.get(ecu_id)
                 )
                 if _ecu_status_rep:
                     res.add_ecu(_ecu_status_rep)

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import bisect
+import contextlib
 import logging
 import os
 import shutil
@@ -25,9 +26,21 @@ import time
 import weakref
 from concurrent.futures import Executor, ThreadPoolExecutor
 from pathlib import Path
-from typing import (AsyncGenerator, AsyncIterator, Callable, Coroutine, Dict,
-                    Generic, List, Mapping, MutableMapping, Optional, Tuple,
-                    TypeVar, Union)
+from typing import (
+    AsyncGenerator,
+    AsyncIterator,
+    Callable,
+    Coroutine,
+    Dict,
+    Generic,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 from urllib.parse import SplitResult, quote, urlsplit
 
 import aiofiles
@@ -38,9 +51,13 @@ from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control import OTAFileCacheControl
 from .config import config as cfg
 from .db import AIO_OTACacheDBProxy, CacheMeta, OTACacheDB
-from .errors import (BaseOTACacheError, CacheMultiStreamingFailed,
-                     CacheStreamingFailed, CacheStreamingInterrupt,
-                     StorageReachHardLimit)
+from .errors import (
+    BaseOTACacheError,
+    CacheMultiStreamingFailed,
+    CacheStreamingFailed,
+    CacheStreamingInterrupt,
+    StorageReachHardLimit,
+)
 from .utils import read_file, url_based_hash, wait_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -332,10 +349,8 @@ class CacheTracker(Generic[_WEAKREF]):
 
     async def provider_on_finished(self):
         if not self.writer_finished and self._cache_write_gen:
-            try:
+            with contextlib.suppress(StopAsyncIteration):
                 await self._cache_write_gen.asend(b"")
-            except StopAsyncIteration:
-                pass
         self._writer_finished.set()
         self._ref = None
 
@@ -343,10 +358,8 @@ class CacheTracker(Generic[_WEAKREF]):
         """Manually fail and stop the caching."""
         if not self.writer_finished and self._cache_write_gen:
             logger.warning(f"interrupt writer coroutine for {self.meta=}")
-            try:
+            with contextlib.suppress(StopAsyncIteration, CacheStreamingInterrupt):
                 await self._cache_write_gen.athrow(CacheStreamingInterrupt)
-            except (StopAsyncIteration, CacheStreamingInterrupt):
-                pass
 
         self._writer_failed.set()
         self._writer_finished.set()
