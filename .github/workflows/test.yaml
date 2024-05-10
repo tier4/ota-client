@@ -4,10 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "otaclient/**"
-      - "tests/**"
-      - ".github/workflows/test.yaml"
   push:
     branches:
       - main
