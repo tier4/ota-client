@@ -1,4 +1,4 @@
-pyOpenSSL==23.0.0
+pyOpenSSL==24.1.0
 cryptography>=42.0.4, <43.0.0
 grpcio>=1.53.2, <1.54.0
 protobuf==4.21.12
