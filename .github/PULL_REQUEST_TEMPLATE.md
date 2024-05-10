@@ -8,4 +8,4 @@ This is the main entry for selecting a template for your PR.
 
 If PR type is not in the above list, feel free to start from blank PR body.
 
-** DON'T INCLUDE THIS PAGE'S CONTENTS IN YOUR PR BODY. **
+**DON'T INCLUDE THIS PAGE'S CONTENTS IN YOUR PR BODY.**

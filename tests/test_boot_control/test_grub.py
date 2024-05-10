@@ -219,8 +219,7 @@ class TestGrubControl:
         mocker: pytest_mock.MockerFixture,
         grub_ab_slot,
     ):
-        from otaclient.app.boot_control._common import (CMDHelperFuncs,
-                                                        SlotMountHelper)
+        from otaclient.app.boot_control._common import CMDHelperFuncs, SlotMountHelper
         from otaclient.app.boot_control._grub import GrubABPartitionDetector
 
         # ------ start fsm ------ #

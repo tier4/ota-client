@@ -25,11 +25,15 @@ import requests
 import requests_mock
 
 from otaclient.app.common import file_sha256, urljoin_ensure_base
-from otaclient.app.downloader import (ChunkStreamingError,
-                                      DestinationNotAvailableError, Downloader,
-                                      DownloadError, ExceedMaxRetryError,
-                                      HashVerificaitonError,
-                                      UnhandledHTTPError)
+from otaclient.app.downloader import (
+    ChunkStreamingError,
+    DestinationNotAvailableError,
+    Downloader,
+    DownloadError,
+    ExceedMaxRetryError,
+    HashVerificaitonError,
+    UnhandledHTTPError,
+)
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import zstd_compress_file
 

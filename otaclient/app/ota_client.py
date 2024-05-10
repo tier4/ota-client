@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import json
 import logging
@@ -35,18 +36,24 @@ from . import downloader
 from . import errors as ota_errors
 from . import ota_metadata
 from .boot_control import BootControllerProtocol, get_boot_controller
-from .common import (PersistFilesHandler, RetryTaskMap,
-                     RetryTaskMapInterrupted, ensure_otaproxy_start,
-                     get_backoff)
+from .common import (
+    PersistFilesHandler,
+    RetryTaskMap,
+    RetryTaskMapInterrupted,
+    ensure_otaproxy_start,
+    get_backoff,
+)
 from .configs import config as cfg
 from .configs import ecu_info
-from .create_standby import (StandbySlotCreatorProtocol,
-                             get_standby_slot_creator)
+from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .interface import OTAClientProtocol
 from .ota_status import LiveOTAStatus
 from .proto import wrapper
-from .update_stats import (OTAUpdateStatsCollector, RegInfProcessedStats,
-                           RegProcessOperation)
+from .update_stats import (
+    OTAUpdateStatsCollector,
+    RegInfProcessedStats,
+    RegProcessOperation,
+)
 
 try:
     from otaclient import __version__  # type: ignore
@@ -773,7 +780,8 @@ class OTAServicer:
             if self._otaclient_inst is None:
                 return
 
-            try:
+            # error should be collected by otaclient, not us
+            with contextlib.suppress(Exception):
                 await self._run_in_executor(
                     partial(
                         self._otaclient_inst.update,
@@ -782,11 +790,8 @@ class OTAServicer:
                         request.cookies,
                     )
                 )
-            except Exception:
-                pass  # error should be collected by otaclient, not us
-            finally:
-                self.last_operation = None
-                self._update_rollback_lock.release()
+            self.last_operation = None
+            self._update_rollback_lock.release()
 
         # dispatch update to background
         asyncio.create_task(_update_task())
@@ -821,13 +826,11 @@ class OTAServicer:
             if self._otaclient_inst is None:
                 return
 
-            try:
+            # error should be collected by otaclient, not us
+            with contextlib.suppress(Exception):
                 await self._run_in_executor(self._otaclient_inst.rollback)
-            except Exception:
-                pass  # error should be collected by otaclient, not us
-            finally:
-                self.last_operation = None
-                self._update_rollback_lock.release()
+            self.last_operation = None
+            self._update_rollback_lock.release()
 
         # dispatch to background
         asyncio.create_task(_rollback_task())

@@ -26,9 +26,11 @@ from pytest_mock import MockerFixture
 
 from otaclient.app.ota_client import OTAServicer
 from otaclient.app.ota_client_call import OtaClientCall
-from otaclient.app.ota_client_stub import (ECUStatusStorage,
-                                           OTAClientServiceStub,
-                                           OTAProxyLauncher)
+from otaclient.app.ota_client_stub import (
+    ECUStatusStorage,
+    OTAClientServiceStub,
+    OTAProxyLauncher,
+)
 from otaclient.app.proto import wrapper
 from otaclient.configs.ecu_info import ECUInfo, parse_ecu_info
 from otaclient.configs.proxy_info import ProxyInfo, parse_proxy_info

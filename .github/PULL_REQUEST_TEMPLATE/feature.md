@@ -14,7 +14,6 @@ For better understanding, adding reason/motivation of this PR are also recommend
 - [ ] local test is passed.
 - [ ] design docs/implementation docs are prepared.
 
-
 ## Documents
 
 <!-- For feature PR, design document is required. -->
@@ -42,6 +41,7 @@ Does this PR introduce behavior change(s)?
 ## Breaking change
 
 Does this PR introduce breaking change?
+
 - [ ] Yes.
 - [ ] No.
 

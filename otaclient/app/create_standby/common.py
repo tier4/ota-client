@@ -14,6 +14,9 @@
 r"""Common used helpers, classes and functions for different bank creating methods."""
 
 
+from __future__ import annotations
+
+import contextlib
 import logging
 import os
 import random
@@ -23,16 +26,18 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Lock
-from typing import (Any, Dict, Iterator, List, Optional, OrderedDict, Set,
-                    Tuple, Union)
+from typing import Any, Dict, Iterator, List, Optional, OrderedDict, Set, Tuple, Union
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ..common import create_tmp_fname
 from ..configs import config as cfg
 from ..ota_metadata import MetafilesV1, OTAMetadata
 from ..proto.wrapper import DirectoryInf, RegularInf
-from ..update_stats import (OTAUpdateStatsCollector, RegInfProcessedStats,
-                            RegProcessOperation)
+from ..update_stats import (
+    OTAUpdateStatsCollector,
+    RegInfProcessedStats,
+    RegProcessOperation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +72,10 @@ class _HardlinkTracker:
 
             time.sleep(self.POLLINTERVAL)
 
-        try:
+        # it won't happen generally as this tracker will be gc
+        # after the ref holder holds no more ref.
+        with contextlib.suppress(IndexError):
             self._ref_holder.pop()
-        except IndexError:
-            # it won't happen generally as this tracker will be gc
-            # after the ref holder holds no more ref.
-            pass
 
         return self.first_copy_path
 
@@ -210,15 +213,13 @@ class DeltaBundle:
 class DeltaGenerator:
     # entry under the following folders will be scanned
     # no matter it is existed in new image or not
-    FULL_SCAN_PATHS = set(
-        [
-            "/lib",
-            "/var/lib",
-            "/usr",
-            "/opt/nvidia",
-            "/home/autoware/autoware.proj",
-        ]
-    )
+    FULL_SCAN_PATHS = {
+        "/lib",
+        "/var/lib",
+        "/usr",
+        "/opt/nvidia",
+        "/home/autoware/autoware.proj",
+    }
 
     # introduce limitations here to prevent unexpected
     # scanning in unknown large, deep folders in full
@@ -376,10 +377,8 @@ class DeltaGenerator:
                         "exceeded files will be ignored silently"
                     )
                     self._rm.extend(
-                        map(
-                            lambda x: str(canonical_curdir_path / x),
-                            filenames[self.MAX_FILENUM_PER_FOLDER :],
-                        )
+                        str(canonical_curdir_path / x)
+                        for x in filenames[self.MAX_FILENUM_PER_FOLDER :]
                     )
 
                 # process the files under this dir

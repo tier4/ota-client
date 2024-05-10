@@ -33,9 +33,14 @@ from typing import Union as _Union
 import otaclient_v2_pb2 as _v2
 from typing_extensions import Self
 
-from ._common import (Duration, EnumWrapper, MessageWrapper,
-                      RepeatedCompositeContainer, RepeatedScalarContainer,
-                      calculate_slots)
+from ._common import (
+    Duration,
+    EnumWrapper,
+    MessageWrapper,
+    RepeatedCompositeContainer,
+    RepeatedScalarContainer,
+    calculate_slots,
+)
 
 # protocols
 
@@ -570,13 +575,11 @@ class UpdateResponse(ECUList[UpdateResponseEcu], MessageWrapper[_v2.UpdateRespon
 
     @cached_property
     def ecus_acked_update(self) -> _Set[str]:
-        return set(
-            [
-                ecu_resp.ecu_id
-                for ecu_resp in self.ecu
-                if ecu_resp.result is FailureType.NO_FAILURE
-            ]
-        )
+        return {
+            ecu_resp.ecu_id
+            for ecu_resp in self.ecu
+            if ecu_resp.result is FailureType.NO_FAILURE
+        }
 
     def merge_from(self, update_response: _Union[Self, _v2.UpdateResponse]):
         if isinstance(update_response, _v2.UpdateResponse):

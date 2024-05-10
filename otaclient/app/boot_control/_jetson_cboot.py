@@ -28,8 +28,11 @@ from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Self
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import (copytree_identical, subprocess_run_wrapper,
-                                  write_str_to_file_sync)
+from otaclient.app.common import (
+    copytree_identical,
+    subprocess_run_wrapper,
+    write_str_to_file_sync,
+)
 from otaclient.app.proto import wrapper
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper

@@ -12,8 +12,7 @@ from google.protobuf.internal import builder as _builder
 _sym_db = _symbol_database.Default()
 
 
-from google.protobuf import \
-    duration_pb2 as google_dot_protobuf_dot_duration__pb2
+from google.protobuf import duration_pb2 as google_dot_protobuf_dot_duration__pb2
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
     b'\n\rexample.proto\x1a\x1egoogle/protobuf/duration.proto"\x9e\x01\n\x0cInnerMessage\x12\x11\n\tint_field\x18\x01 \x01(\r\x12\x14\n\x0c\x64ouble_field\x18\x02 \x01(\x01\x12\x11\n\tstr_field\x18\x03 \x01(\t\x12\x31\n\x0e\x64uration_field\x18\x04 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x1f\n\nenum_field\x18\x05 \x01(\x0e\x32\x0b.SampleEnum"\x99\x03\n\x0cOuterMessage\x12\x1d\n\x15repeated_scalar_field\x18\x01 \x03(\t\x12/\n\x18repeated_composite_field\x18\x02 \x03(\x0b\x32\r.InnerMessage\x12!\n\nnested_msg\x18\x03 \x01(\x0b\x32\r.InnerMessage\x12\x43\n\x14mapping_scalar_field\x18\x04 \x03(\x0b\x32%.OuterMessage.MappingScalarFieldEntry\x12I\n\x17mapping_composite_field\x18\x05 \x03(\x0b\x32(.OuterMessage.MappingCompositeFieldEntry\x1a\x39\n\x17MappingScalarFieldEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x1aK\n\x1aMappingCompositeFieldEntry\x12\x0b\n\x03key\x18\x01 \x01(\r\x12\x1c\n\x05value\x18\x02 \x01(\x0b\x32\r.InnerMessage:\x02\x38\x01*3\n\nSampleEnum\x12\x0b\n\x07VALUE_0\x10\x00\x12\x0b\n\x07VALUE_1\x10\x01\x12\x0b\n\x07VALUE_2\x10\x02\x62\x06proto3'

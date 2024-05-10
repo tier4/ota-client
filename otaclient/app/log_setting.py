@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import logging
 from queue import Queue
 from threading import Event, Thread
@@ -37,10 +38,8 @@ class _LogTeeHandler(logging.Handler):
         self._queue: Queue[str | None] = Queue(maxsize=max_backlog)
 
     def emit(self, record: logging.LogRecord) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._queue.put_nowait(self.format(record))
-        except Exception:
-            pass
 
     def start_upload_thread(self, endpoint_url: str):
         log_queue = self._queue
@@ -56,10 +55,8 @@ class _LogTeeHandler(logging.Handler):
                 if not entry:
                     continue  # skip uploading empty log line
 
-                try:
+                with contextlib.suppress(Exception):
                     _session.post(endpoint_url, data=entry, timeout=3)
-                except Exception:
-                    pass
 
         log_upload_thread = Thread(target=_thread_main, daemon=True)
         log_upload_thread.start()
