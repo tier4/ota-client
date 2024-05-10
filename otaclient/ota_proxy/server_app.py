@@ -24,12 +24,21 @@ import aiohttp
 
 from otaclient._utils.logging import BurstSuppressFilter
 
-from ._consts import (BHEADER_AUTHORIZATION, BHEADER_CONTENT_ENCODING,
-                      BHEADER_COOKIE, BHEADER_OTA_FILE_CACHE_CONTROL,
-                      HEADER_AUTHORIZATION, HEADER_CONTENT_ENCODING,
-                      HEADER_COOKIE, HEADER_OTA_FILE_CACHE_CONTROL, METHOD_GET,
-                      REQ_TYPE_HTTP, REQ_TYPE_LIFESPAN, RESP_TYPE_BODY,
-                      RESP_TYPE_START)
+from ._consts import (
+    BHEADER_AUTHORIZATION,
+    BHEADER_CONTENT_ENCODING,
+    BHEADER_COOKIE,
+    BHEADER_OTA_FILE_CACHE_CONTROL,
+    HEADER_AUTHORIZATION,
+    HEADER_CONTENT_ENCODING,
+    HEADER_COOKIE,
+    HEADER_OTA_FILE_CACHE_CONTROL,
+    METHOD_GET,
+    REQ_TYPE_HTTP,
+    REQ_TYPE_LIFESPAN,
+    RESP_TYPE_BODY,
+    RESP_TYPE_START,
+)
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 

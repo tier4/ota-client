@@ -25,10 +25,13 @@ from typing import Any
 import pytest
 
 from otaclient.app.boot_control import _jetson_cboot
-from otaclient.app.boot_control._jetson_cboot import (BSPVersion,
-                                                      FirmwareBSPVersion,
-                                                      SlotID, _CBootControl,
-                                                      parse_bsp_version)
+from otaclient.app.boot_control._jetson_cboot import (
+    BSPVersion,
+    FirmwareBSPVersion,
+    SlotID,
+    _CBootControl,
+    parse_bsp_version,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -31,10 +31,13 @@ from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.create_standby import StandbySlotCreatorProtocol
 from otaclient.app.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.app.errors import OTAErrorRecoverable
-from otaclient.app.ota_client import (OTAClient, OTAClientControlFlags,
-                                      OTAServicer, _OTAUpdater)
-from otaclient.app.ota_metadata import (parse_dirs_from_txt,
-                                        parse_regulars_from_txt)
+from otaclient.app.ota_client import (
+    OTAClient,
+    OTAClientControlFlags,
+    OTAServicer,
+    _OTAUpdater,
+)
+from otaclient.app.ota_metadata import parse_dirs_from_txt, parse_regulars_from_txt
 from otaclient.app.proto import wrapper
 from otaclient.app.proto.wrapper import DirectoryInf, RegularInf
 from otaclient.configs.ecu_info import ECUInfo

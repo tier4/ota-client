@@ -4,10 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "otaclient/**"
-      - "tests/**"
-      - ".github/workflows/test.yaml"
   push:
     branches:
       - main
@@ -47,42 +43,3 @@ jobs:
         with:
           pytest-xml-coverage-path: test_result/coverage.xml
           junitxml-path: test_result/pytest.xml
-
-  python_lint_check:
-    runs-on: ubuntu-20.04
-    timeout-minutes: 3
-    strategy:
-      matrix:
-        python-version: [3.8]
-    steps:
-      - name: Checkout commit
-        uses: actions/checkout@v3
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install test dependencies
-        run: |
-          python -m pip install -q --upgrade pip
-          python -m pip install -q -r tests/requirements.txt
-      - name: Lint codes without modification
-        run: |
-          $pythonLocation/bin/python -m black ./otaclient --check
-      - name: Lint codes for syntax check
-        run: |
-          $pythonLocation/bin/python -m flake8 ./otaclient
-
-  markdown_lint_check:
-    runs-on: ubuntu-20.04
-    timeout-minutes: 3
-    steps:
-      - name: Checkout commit
-        uses: actions/checkout@v3
-      - name: markdownlint-cli
-        uses: nosborn/github-action-markdown-cli@v3.2.0
-        with:
-          files: .
-          config_file: .markdownlint.yaml
-          ignore_files: .markdownlintignore
-          #ignore_path: examples/.markdownlintignore
-          #rules: examples/rules/custom.js

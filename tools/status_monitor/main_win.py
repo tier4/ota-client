@@ -19,8 +19,13 @@ from typing import Callable, List
 
 from .configs import config, key_mapping
 from .ecu_status_box import ECUStatusDisplayBox
-from .utils import (ASCII_NUM_MAPPING, PAGE_SCROLL_KEYS, init_pad,
-                    page_scroll_key_handler, reset_scr)
+from .utils import (
+    ASCII_NUM_MAPPING,
+    PAGE_SCROLL_KEYS,
+    init_pad,
+    page_scroll_key_handler,
+    reset_scr,
+)
 
 
 class MainScreen:

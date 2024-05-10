@@ -16,6 +16,7 @@ r"""Shared utils for boot_controller."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
 import sys
@@ -23,8 +24,12 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Callable, Literal, NoReturn, Optional, Union
 
-from ..common import (read_str_from_file, subprocess_call,
-                      subprocess_check_output, write_str_to_file_sync)
+from ..common import (
+    read_str_from_file,
+    subprocess_call,
+    subprocess_check_output,
+    write_str_to_file_sync,
+)
 from ..configs import config as cfg
 from ..proto import wrapper
 
@@ -554,10 +559,9 @@ class OTAStatusFilesControl:
         if _status_str := read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
         ).upper():
-            try:
+            with contextlib.suppress(KeyError):
+                # invalid status string
                 return wrapper.StatusOta[_status_str]
-            except KeyError:
-                pass  # invalid status string
 
     # version control
 
