@@ -25,7 +25,7 @@ import re
 import subprocess
 from functools import partial
 from pathlib import Path
-from subprocess import CompletedProcess, run, CalledProcessError
+from subprocess import CalledProcessError, CompletedProcess, run
 from typing import Generator, Literal, Optional
 
 from otaclient.app import errors as ota_errors
@@ -37,7 +37,6 @@ from otaclient.app.common import (
 from otaclient.app.proto import wrapper
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
-from .configs import cboot_cfg as cfg
 from ._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
@@ -45,6 +44,7 @@ from ._jetson_common import (
     parse_bsp_version,
     update_extlinux_cfg,
 )
+from .configs import cboot_cfg as cfg
 from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)

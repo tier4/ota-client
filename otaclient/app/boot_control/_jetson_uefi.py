@@ -19,6 +19,7 @@ NOTE: R34~R35.1 is not supported as Capsule update is only available after R35.2
 
 
 from __future__ import annotations
+
 import logging
 import os
 import re
@@ -27,15 +28,11 @@ from pathlib import Path
 from typing import Generator
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.configs import config as cfg
 from otaclient.app.common import copytree_identical, write_str_to_file_sync
+from otaclient.app.configs import config as cfg
 from otaclient.app.proto import wrapper
-from ._common import (
-    OTAStatusFilesControl,
-    SlotMountHelper,
-    CMDHelperFuncs,
-)
-from .configs import jetson_uefi_cfg as boot_cfg
+
+from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
@@ -43,6 +40,7 @@ from ._jetson_common import (
     parse_bsp_version,
     update_extlinux_cfg,
 )
+from .configs import jetson_uefi_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)

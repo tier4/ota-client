@@ -18,6 +18,7 @@ This module is shared by jetson-cboot and jetson-uefi bootloader type.
 
 
 from __future__ import annotations
+
 import logging
 import re
 import subprocess
