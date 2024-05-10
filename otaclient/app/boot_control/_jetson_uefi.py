@@ -28,7 +28,11 @@ from pathlib import Path
 from typing import Generator
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import copytree_identical, write_str_to_file_sync
+from otaclient.app.common import (
+    copytree_identical,
+    subprocess_call,
+    write_str_to_file_sync,
+)
 from otaclient.app.configs import config as cfg
 from otaclient.app.proto import wrapper
 
@@ -107,6 +111,9 @@ class CapsuleUpdate:
         esp_parts = CMDHelperFuncs.get_dev_by_token(
             token="PARTLABEL", value=boot_cfg.ESP_PARTLABEL
         )
+        if not esp_parts:
+            raise JetsonUEFIBootControlError("no ESP partition presented")
+
         for _esp_part in esp_parts:
             if _esp_part.find(boot_parent_devpath) != -1:
                 logger.info(f"find esp partition at {_esp_part}")
@@ -120,19 +127,25 @@ class CapsuleUpdate:
 
     @classmethod
     def _ensure_efivarfs_mounted(cls) -> None:
+        # TODO: remount if efivarfs is mounted as read-only
         if CMDHelperFuncs.is_target_mounted(boot_cfg.EFIVARS_DPATH):
             return
 
         logger.warning(
             f"efivars is not mounted! try to mount it at {boot_cfg.EFIVARS_DPATH}"
         )
+        # fmt: off
+        cmd = [
+            "mount",
+            "-t", cls.EFIVARS_FSTYPE,
+            "-o", "rw,nosuid,nodev,noexec,relatime",
+            cls.EFIVARS_FSTYPE,
+            boot_cfg.EFIVARS_DPATH
+        ]
+        # fmt: on
+
         try:
-            CMDHelperFuncs._mount(
-                cls.EFIVARS_FSTYPE,
-                boot_cfg.EFIVARS_DPATH,
-                fstype=cls.EFIVARS_FSTYPE,
-                options=["rw", "nosuid", "nodev", "noexec", "relatime"],
-            )
+            subprocess_call(cmd, raise_exception=True)
         except Exception as e:
             raise JetsonUEFIBootControlError(
                 f"failed to mount {cls.EFIVARS_FSTYPE} on {boot_cfg.EFIVARS_DPATH}: {e!r}"
@@ -157,7 +170,7 @@ class CapsuleUpdate:
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg) from e
         finally:
-            CMDHelperFuncs.umount(self.esp_mp, ignore_error=True)
+            CMDHelperFuncs.umount(self.esp_mp, raise_exception=False)
 
     def _write_efivar(self) -> None:
         """Write magic efivar to trigger firmware Capsule update in next boot.
@@ -382,7 +395,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         internal_emmc_devpath = self._uefi_control.standby_internal_emmc_devpath
 
         try:
-            CMDHelperFuncs.umount(internal_emmc_devpath, ignore_error=True)
+            CMDHelperFuncs.umount(internal_emmc_devpath, raise_exception=False)
             CMDHelperFuncs.mount_rw(internal_emmc_devpath, internal_emmc_mp)
         except Exception as e:
             _msg = f"failed to mount standby internal emmc dev: {e!r}"
@@ -399,7 +412,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             logger.error(_msg)
             raise JetsonUEFIBootControlError(_msg) from e
         finally:
-            CMDHelperFuncs.umount(internal_emmc_mp, ignore_error=True)
+            CMDHelperFuncs.umount(internal_emmc_mp, raise_exception=False)
 
     def _preserve_ota_config_files_to_standby(self):
         """Preserve /boot/ota to standby /boot folder."""
