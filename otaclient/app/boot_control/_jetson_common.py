@@ -78,20 +78,24 @@ class BSPVersion(NamedTuple):
         return f"R{to_export.major_ver}.{to_export.major_rev}.{to_export.minor_rev}"
 
 
+BSPVersionStr = Annotated[
+    BSPVersion,
+    BeforeValidator(BSPVersion.parse),
+    PlainSerializer(BSPVersion.dump, return_type=str),
+]
+"""BSPVersion in string representation, used by FirmwareBSPVersion model."""
+
+
 class FirmwareBSPVersion(BaseModel):
     """
     BSP version string schema: Rxx.yy.z
     """
 
-    BSPVersionStr = Annotated[
-        BSPVersion,
-        BeforeValidator(BSPVersion.parse),
-        PlainSerializer(BSPVersion.dump, return_type=str),
-    ]
-    """BSPVersion in string representation, used by FirmwareBSPVersion model."""
-
     slot_a: Optional[BSPVersionStr] = None
     slot_b: Optional[BSPVersionStr] = None
+
+
+NVBootctrlTarget = Literal["bootloader", "rootfs"]
 
 
 class NVBootctrlCommon:
@@ -111,7 +115,6 @@ class NVBootctrlCommon:
     """
 
     NVBOOTCTRL = "nvbootctrl"
-    NVBootctrlTarget = Literal["bootloader", "rootfs"]
 
     @classmethod
     def _nvbootctrl(

@@ -25,8 +25,7 @@ import re
 import subprocess
 from functools import partial
 from pathlib import Path
-from subprocess import CalledProcessError, CompletedProcess, run
-from typing import Generator, Literal, Optional
+from typing import Generator, Optional
 
 from otaclient.app import errors as ota_errors
 from otaclient.app.common import (
@@ -36,15 +35,17 @@ from otaclient.app.common import (
 )
 from otaclient.app.proto import wrapper
 
+from ..configs import config as cfg
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
+    NVBootctrlTarget,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     SlotID,
     parse_bsp_version,
     update_extlinux_cfg,
 )
-from .configs import cboot_cfg as cfg
+from .configs import cboot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
@@ -60,8 +61,6 @@ class _NVBootctrl(NVBootctrlCommon):
     For BSP version < R34.
     Without -t option, the target will be bootloader by default.
     """
-
-    NVBootctrlTarget = Literal["bootloader", "rootfs"]
 
     @classmethod
     def mark_boot_successful(
