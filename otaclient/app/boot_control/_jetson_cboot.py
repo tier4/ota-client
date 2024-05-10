@@ -38,9 +38,9 @@ from otaclient.app.proto import wrapper
 from ..configs import config as cfg
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
-    NVBootctrlTarget,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
+    NVBootctrlTarget,
     SlotID,
     parse_bsp_version,
     update_extlinux_cfg,
