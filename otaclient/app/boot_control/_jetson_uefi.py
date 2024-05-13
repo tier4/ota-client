@@ -151,7 +151,7 @@ class CapsuleUpdate:
             ) from e
 
     def _prepare_payload(self) -> None:
-        """Copy the Capsule update payload to the specified location."""
+        """Copy the Capsule update payloads to specific location at esp partition."""
         try:
             CMDHelperFuncs.mount_rw(self.esp_part, self.esp_mp)
         except Exception as e:
@@ -159,17 +159,22 @@ class CapsuleUpdate:
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg) from e
 
-        capsule_payload_location = Path(self.esp_mp) / boot_cfg.CAPSULE_PAYLOAD_LOCATION
-        try:
-            for capsule_fname in boot_cfg.FIRMWARE_LIST:
-                capsule_payload_fpath = self.standby_slot_mp / capsule_fname
-                shutil.copy(capsule_payload_fpath, capsule_payload_location)
-        except Exception as e:
-            _err_msg = f"failed to copy update Capsule from {capsule_payload_fpath} to {capsule_payload_location}: {e!r}"
-            logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg) from e
-        finally:
-            CMDHelperFuncs.umount(self.esp_mp, raise_exception=False)
+        capsule_at_esp = Path(self.esp_mp) / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
+        capsule_at_standby_slot = self.standby_slot_mp / Path(
+            boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS
+        ).relative_to("/")
+        for capsule_fname in boot_cfg.FIRMWARE_LIST:
+            try:
+                shutil.copy(
+                    src=capsule_at_standby_slot / capsule_fname,
+                    dst=capsule_at_esp / capsule_fname,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"failed to copy {capsule_fname} from {capsule_at_standby_slot} to {capsule_at_esp}: {e!r}"
+                )
+                logger.warning(f"skip {capsule_fname}")
+        CMDHelperFuncs.umount(self.esp_mp, raise_exception=False)
 
     def _write_efivar(self) -> None:
         """Write magic efivar to trigger firmware Capsule update in next boot.

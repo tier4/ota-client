@@ -69,7 +69,8 @@ class JetsonUEFIBootControlConfig(JetsonBootCommon):
     EFIVARS_DPATH = "/sys/firmware/efi/efivars/"
     UPDATE_TRIGGER_EFIVAR = "OsIndications-8be4df61-93ca-11d2-aa0d-00e098032b8c"
     MAGIC_BYTES = b"\x07\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00"
-    CAPSULE_PAYLOAD_LOCATION = "EFI/UpdateCapsule"
+    CAPSULE_PAYLOAD_AT_ESP = "EFI/UpdateCapsule"
+    CAPSULE_PAYLOAD_AT_ROOTFS = "/opt/ota_package/"
 
 
 @dataclass
