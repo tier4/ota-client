@@ -15,8 +15,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, List
+from dataclasses import dataclass
 
 from otaclient.configs.ecu_info import BootloaderType
 
@@ -36,26 +35,30 @@ class GrubControlConfig(BaseConfig):
     BOOT_OTA_PARTITION_FILE: str = "ota-partition"
 
 
-@dataclass
-class JetsonCBootControlConfig(BaseConfig):
+class JetsonBootCommon:
+    TEGRA_CHIP_ID_PATH = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
+    OTA_STATUS_DIR = "/boot/ota-status"
+    FIRMWARE_BSP_VERSION_FNAME = "firmware_bsp_version"
+    EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
+    FIRMWARE_DPATH = "/opt/ota_package"
+    """Refer to standby slot rootfs."""
+
+    NV_TEGRA_RELEASE_FPATH = "/etc/nv_tegra_release"
+    SEPARATE_BOOT_MOUNT_POINT = "/mnt/standby_boot"
+
+    MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
+    NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
+    INTERNAL_EMMC_DEVNAME = "mmcblk0"
+
+
+class JetsonCBootControlConfig(JetsonBootCommon):
     """Jetson device booted with cboot.
 
     Suuports BSP version < R34.
     """
 
-    BOOTLOADER: BootloaderType = BootloaderType.CBOOT
-    TEGRA_CHIP_ID_PATH: str = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
-    CHIP_ID_MODEL_MAP: Dict[int, str] = field(default_factory=lambda: {0x19: "rqx_580"})
-    OTA_STATUS_DIR: str = "/boot/ota-status"
-    FIRMWARE_BSP_VERSION_FNAME: str = "firmware_bsp_version"
-    EXTLINUX_FILE: str = "/boot/extlinux/extlinux.conf"
-    SEPARATE_BOOT_MOUNT_POINT: str = "/mnt/standby_boot"
-    # refer to the standby slot
-    FIRMWARE_DPATH: str = "/opt/ota_package"
-    FIRMWARE_LIST: List[str] = field(
-        default_factory=lambda: ["bl_only_payload", "xusb_only_payload"]
-    )
-    NV_TEGRA_RELEASE_FPATH: str = "/etc/nv_tegra_release"
+    BOOTLOADER = BootloaderType.JETSON_CBOOT
+    FIRMWARE_LIST = ["bl_only_payload", "xusb_only_payload"]
 
 
 @dataclass
