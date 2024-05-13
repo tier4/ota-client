@@ -30,6 +30,8 @@ from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
 from otaclient.app.common import write_str_to_file_sync
+from ..common import copytree_identical
+from ._common import CMDHelperFuncs
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +252,6 @@ def parse_bsp_version(nv_tegra_release: str) -> BSPVersion:
 
 def update_extlinux_cfg(_input: str, partuuid: str) -> str:
     """Update input exlinux text with input rootfs <partuuid_str>."""
-
     partuuid_str = f"PARTUUID={partuuid}"
 
     def _replace(ma: re.Match, repl: str):
@@ -265,3 +266,82 @@ def update_extlinux_cfg(_input: str, partuuid: str) -> str:
 
     _repl_func = partial(_replace, repl=f"root={partuuid_str}")
     return re.compile(r"\n\s*APPEND.*").sub(_repl_func, _input)
+
+
+def copy_standby_slot_boot_to_internal_emmc(
+    *,
+    internal_emmc_mp: Path | str,
+    internal_emmc_devpath: Path | str,
+    standby_slot_boot_dirpath: Path | str,
+) -> None:
+    """Copy the standby slot's /boot to internal emmc dev.
+
+    This method is involved when external rootfs is enabled, aligning with
+        the behavior of the NVIDIA flashing script.
+
+    WARNING: DO NOT call this method if we are not booted from external rootfs!
+    NOTE: at the time this method is called, the /boot folder at
+        standby slot rootfs MUST be fully setup!
+    """
+    internal_emmc_mp = Path(internal_emmc_mp)
+    internal_emmc_mp.mkdir(exist_ok=True, parents=True)
+
+    try:
+        CMDHelperFuncs.umount(internal_emmc_devpath, raise_exception=False)
+        CMDHelperFuncs.mount_rw(
+            target=str(internal_emmc_devpath),
+            mount_point=internal_emmc_mp,
+        )
+    except Exception as e:
+        _msg = f"failed to mount standby internal emmc dev: {e!r}"
+        logger.error(_msg)
+        raise ValueError(_msg) from e
+
+    try:
+        dst = internal_emmc_mp / "boot"
+        # copy the standby slot's boot folder to emmc boot dev
+        copytree_identical(Path(standby_slot_boot_dirpath), dst)
+    except Exception as e:
+        _msg = f"failed to populate standby slot's /boot folder to standby internal emmc dev: {e!r}"
+        logger.error(_msg)
+        raise ValueError(_msg) from e
+    finally:
+        CMDHelperFuncs.umount(internal_emmc_mp, raise_exception=False)
+
+
+def preserve_ota_config_files_to_standby(
+    *, active_slot_ota_dirpath: Path, standby_slot_ota_dirpath: Path
+) -> None:
+    """Preserve /boot/ota to standby /boot folder."""
+    if not active_slot_ota_dirpath.is_dir():  # basically this should not happen
+        logger.warning(
+            f"{active_slot_ota_dirpath} doesn't exist, skip preserve /boot/ota folder."
+        )
+        return
+    # TODO: (20240411) reconsidering should we preserve /boot/ota?
+    copytree_identical(active_slot_ota_dirpath, standby_slot_ota_dirpath)
+
+
+def update_standby_slot_extlinux_cfg(
+    *,
+    active_slot_extlinux_fpath: Path,
+    standby_slot_extlinux_fpath: Path,
+    standby_slot_partuuid: str,
+):
+    """update standby slot's /boot/extlinux/extlinux.conf to update root indicator."""
+    src = standby_slot_extlinux_fpath
+    # if standby slot doesn't have extlinux.conf installed, use current booted
+    #   extlinux.conf as template source.
+    if not standby_slot_extlinux_fpath.is_file():
+        logger.warning(
+            f"{standby_slot_extlinux_fpath} doesn't exist, use active slot's extlinux file as template"
+        )
+        src = active_slot_extlinux_fpath
+
+    write_str_to_file_sync(
+        standby_slot_extlinux_fpath,
+        update_extlinux_cfg(
+            src.read_text(),
+            standby_slot_partuuid,
+        ),
+    )
