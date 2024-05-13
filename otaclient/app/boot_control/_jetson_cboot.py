@@ -21,18 +21,12 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import subprocess
-from functools import partial
 from pathlib import Path
 from typing import Generator, Optional
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import (
-    copytree_identical,
-    subprocess_run_wrapper,
-    write_str_to_file_sync,
-)
+from otaclient.app.common import subprocess_run_wrapper
 from otaclient.app.proto import wrapper
 
 from ..configs import config as cfg
@@ -43,7 +37,9 @@ from ._jetson_common import (
     NVBootctrlTarget,
     SlotID,
     parse_bsp_version,
-    update_extlinux_cfg,
+    copy_standby_slot_boot_to_internal_emmc,
+    preserve_ota_config_files_to_standby,
+    update_standby_slot_extlinux_cfg,
 )
 from .configs import cboot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
@@ -332,25 +328,6 @@ class _CBootControl:
         #   the rootfs slot.
         _NVBootctrl.set_active_boot_slot(target_slot)
 
-    @staticmethod
-    def update_extlinux_cfg(_input: str, partuuid: str) -> str:
-        """Update input exlinux text with input rootfs <partuuid_str>."""
-
-        partuuid_str = f"PARTUUID={partuuid}"
-
-        def _replace(ma: re.Match, repl: str):
-            append_l: str = ma.group(0)
-            if append_l.startswith("#"):
-                return append_l
-            res, n = re.compile(r"root=[\w\-=]*").subn(repl, append_l)
-            if not n:  # this APPEND line doesn't contain root= placeholder
-                res = f"{append_l} {repl}"
-
-            return res
-
-        _repl_func = partial(_replace, repl=f"root={partuuid_str}")
-        return re.compile(r"\n\s*APPEND.*").sub(_repl_func, _input)
-
 
 class JetsonCBootControl(BootControllerProtocol):
     """BootControllerProtocol implementation for jetson-cboot."""
@@ -427,75 +404,6 @@ class JetsonCBootControl(BootControllerProtocol):
             f"nv_update_engine verify succeeded: \n{update_result.stdout.decode()}"
         )
         return True
-
-    def _copy_standby_slot_boot_to_internal_emmc(self):
-        """Copy the standby slot's /boot to internal emmc dev.
-
-        This method is involved when external rootfs is enabled, aligning with
-            the behavior of the NVIDIA flashing script.
-
-        WARNING: DO NOT call this method if we are not booted from external rootfs!
-        NOTE: at the time this method is called, the /boot folder at
-            standby slot rootfs MUST be fully setup!
-        """
-        # mount corresponding internal emmc device
-        internal_emmc_mp = Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT)
-        internal_emmc_mp.mkdir(exist_ok=True, parents=True)
-        internal_emmc_devpath = self._cboot_control.standby_internal_emmc_devpath
-
-        try:
-            if CMDHelperFuncs.is_target_mounted(
-                internal_emmc_devpath, raise_exception=False
-            ):
-                logger.debug("internal emmc device is mounted, try to unmount ...")
-                CMDHelperFuncs.umount(internal_emmc_devpath, raise_exception=False)
-            CMDHelperFuncs.mount_rw(internal_emmc_devpath, internal_emmc_mp)
-        except Exception as e:
-            _msg = f"failed to mount standby internal emmc dev: {e!r}"
-            logger.error(_msg)
-            raise JetsonCBootContrlError(_msg) from e
-
-        try:
-            dst = internal_emmc_mp / "boot"
-            src = self._mp_control.standby_slot_mount_point / "boot"
-            # copy the standby slot's boot folder to emmc boot dev
-            copytree_identical(src, dst)
-        except Exception as e:
-            _msg = f"failed to populate standby slot's /boot folder to standby internal emmc dev: {e!r}"
-            logger.error(_msg)
-            raise JetsonCBootContrlError(_msg) from e
-        finally:
-            CMDHelperFuncs.umount(internal_emmc_mp, raise_exception=False)
-
-    def _preserve_ota_config_files_to_standby(self):
-        """Preserve /boot/ota to standby /boot folder."""
-        src = self._mp_control.active_slot_mount_point / "boot" / "ota"
-        if not src.is_dir():  # basically this should not happen
-            logger.warning(f"{src} doesn't exist, skip preserve /boot/ota folder.")
-            return
-
-        dst = self._mp_control.standby_slot_mount_point / "boot" / "ota"
-        # TODO: (20240411) reconsidering should we preserve /boot/ota?
-        copytree_identical(src, dst)
-
-    def _update_standby_slot_extlinux_cfg(self):
-        """update standby slot's /boot/extlinux/extlinux.conf to update root indicator."""
-        src = standby_slot_extlinux = self._mp_control.standby_slot_mount_point / Path(
-            boot_cfg.EXTLINUX_FILE
-        ).relative_to("/")
-        # if standby slot doesn't have extlinux.conf installed, use current booted
-        #   extlinux.conf as template source.
-        if not standby_slot_extlinux.is_file():
-            src = Path(boot_cfg.EXTLINUX_FILE)
-
-        # update the extlinux.conf with standby slot rootfs' partuuid
-        write_str_to_file_sync(
-            standby_slot_extlinux,
-            update_extlinux_cfg(
-                src.read_text(),
-                self._cboot_control.standby_rootfs_dev_partuuid,
-            ),
-        )
 
     def _nv_firmware_update(self) -> Optional[bool]:
         """Perform firmware update with nv_update_engine.
@@ -613,7 +521,12 @@ class JetsonCBootControl(BootControllerProtocol):
         try:
             logger.info("jetson-cboot: post-update ...")
             # ------ update extlinux.conf ------ #
-            self._update_standby_slot_extlinux_cfg()
+            update_standby_slot_extlinux_cfg(
+                active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
+                standby_slot_extlinux_fpath=self._mp_control.standby_slot_mount_point
+                / Path(boot_cfg.EXTLINUX_FILE).relative_to("/"),
+                standby_slot_partuuid=self._cboot_control.standby_rootfs_dev_partuuid,
+            )
 
             # ------ firmware update ------ #
             _fw_update_result = self._nv_firmware_update()
@@ -625,7 +538,14 @@ class JetsonCBootControl(BootControllerProtocol):
                 raise JetsonCBootContrlError("firmware update failed")
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
-            self._preserve_ota_config_files_to_standby()
+            preserve_ota_config_files_to_standby(
+                active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
+                / "boot"
+                / "ota",
+                standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
+                / "boot"
+                / "ota",
+            )
 
             # ------ for external rootfs, preserve /boot folder to internal ------ #
             if self._cboot_control._external_rootfs:
@@ -634,7 +554,14 @@ class JetsonCBootControl(BootControllerProtocol):
                     "copy standby slot rootfs' /boot folder "
                     "to corresponding internal emmc dev ..."
                 )
-                self._copy_standby_slot_boot_to_internal_emmc()
+                copy_standby_slot_boot_to_internal_emmc(
+                    internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
+                    internal_emmc_devpath=Path(
+                        self._cboot_control.standby_internal_emmc_devpath
+                    ),
+                    standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
+                    / "boot",
+                )
 
             # ------ switch boot to standby ------ #
             self._cboot_control.switch_boot_to_standby()
