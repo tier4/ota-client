@@ -31,6 +31,7 @@ from otaclient.app.boot_control._jetson_common import (
     FirmwareBSPVersion,
     SlotID,
     parse_bsp_version,
+    update_extlinux_cfg,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,4 +141,4 @@ def test_parse_bsp_version(_in: str, expected: BSPVersion):
 def test_update_extlinux_conf(_template_f: Path, _updated_f: Path, partuuid: str):
     _in = (TEST_DIR / _template_f).read_text()
     _expected = (TEST_DIR / _updated_f).read_text()
-    assert _CBootControl.update_extlinux_cfg(_in, partuuid) == _expected
+    assert update_extlinux_cfg(_in, partuuid) == _expected

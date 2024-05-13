@@ -231,12 +231,13 @@ class _UEFIBoot:
         logger.info(f"{bsp_version=}")
 
         # ------ sanity check, currently jetson-uefi only supports >= R35.2 ----- #
+        # only after R35.2, the Capsule Firmware update is available.
         if not bsp_version >= (35, 2, 0):
             _err_msg = f"jetson-uefi only supports BSP version >= R35.2, but get {bsp_version=}. "
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
 
-        # NOTE: unified A/B is enabled by default and cannot be disabled after BSP R34.
+        # unified A/B is enabled by default and cannot be disabled after BSP R34.
         logger.info("unified A/B is enabled")
 
         # ------ check A/B slots ------ #
@@ -252,6 +253,7 @@ class _UEFIBoot:
             CMDHelperFuncs.get_parent_dev(current_rootfs_devpath).strip()
         )
 
+        # --- detect boot device --- #
         self._external_rootfs = False
         parent_devname = parent_devpath.name
         if parent_devname.startswith(boot_cfg.MMCBLK_DEV_PREFIX):
@@ -270,7 +272,7 @@ class _UEFIBoot:
             f"/dev/{parent_devname}p{self._slot_id_partid[standby_slot]}"
         )
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
-            "PARTUUID", f"{self.standby_rootfs_devpath}"
+            "PARTUUID", self.standby_rootfs_devpath
         ).strip()
         current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
             "PARTUUID", current_rootfs_devpath
@@ -282,7 +284,6 @@ class _UEFIBoot:
             f"standby_rootfs(slot {standby_slot}): {self.standby_rootfs_devpath=}, {self.standby_rootfs_dev_partuuid=}"
         )
 
-        # internal emmc partition
         self.standby_internal_emmc_devpath = f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_slot]}"
 
         logger.info("finished jetson-uefi boot control startup")
@@ -323,6 +324,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 active_slot_dev=self._uefi_control.curent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
+
             current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
             standby_ota_status_dir = self._mp_control.standby_slot_mount_point / Path(
                 boot_cfg.OTA_STATUS_DIR
@@ -332,6 +334,8 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             self._firmware_ver_control = FirmwareBSPVersionControl(
                 current_firmware_bsp_vf=current_ota_status_dir
                 / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
+                # NOTE: standby slot's bsp version file might be not yet
+                #   available before an OTA.
                 standby_firmware_bsp_vf=standby_ota_status_dir
                 / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
             )
