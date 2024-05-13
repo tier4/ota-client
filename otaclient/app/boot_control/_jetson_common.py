@@ -30,6 +30,7 @@ from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
 from otaclient.app.common import write_str_to_file_sync
+
 from ..common import copytree_identical
 from ._common import CMDHelperFuncs
 
