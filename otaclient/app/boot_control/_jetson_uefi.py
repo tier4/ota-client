@@ -125,23 +125,24 @@ class CapsuleUpdate:
 
     @classmethod
     def _ensure_efivarfs_mounted(cls) -> None:
-        # TODO: remount if efivarfs is mounted as read-only
+        """Ensure the efivarfs is mounted as rw."""
         if CMDHelperFuncs.is_target_mounted(boot_cfg.EFIVARS_DPATH):
-            return
+            options = "remount,rw,nosuid,nodev,noexec,relatime"
+        else:
+            logger.warning(
+                f"efivars is not mounted! try to mount it at {boot_cfg.EFIVARS_DPATH}"
+            )
+            options = "rw,nosuid,nodev,noexec,relatime"
 
-        logger.warning(
-            f"efivars is not mounted! try to mount it at {boot_cfg.EFIVARS_DPATH}"
-        )
         # fmt: off
         cmd = [
             "mount",
             "-t", cls.EFIVARS_FSTYPE,
-            "-o", "rw,nosuid,nodev,noexec,relatime",
+            "-o", options,
             cls.EFIVARS_FSTYPE,
             boot_cfg.EFIVARS_DPATH
         ]
         # fmt: on
-
         try:
             subprocess_call(cmd, raise_exception=True)
         except Exception as e:
