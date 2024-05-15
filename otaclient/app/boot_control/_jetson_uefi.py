@@ -20,11 +20,13 @@ NOTE: R34~R35.1 is not supported as Capsule update is only available after R35.2
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import re
 import shutil
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
 from otaclient.app import errors as ota_errors
 from otaclient.app.common import subprocess_call
@@ -123,7 +125,8 @@ class CapsuleUpdate:
         self.esp_part = esp_part
 
     @classmethod
-    def _ensure_efivarfs_mounted(cls) -> None:
+    @contextlib.contextmanager
+    def _ensure_efivarfs_mounted(cls) -> Generator[None, Any, None]:
         """Ensure the efivarfs is mounted as rw."""
         if CMDHelperFuncs.is_target_mounted(boot_cfg.EFIVARS_DPATH):
             options = "remount,rw,nosuid,nodev,noexec,relatime"
@@ -144,13 +147,19 @@ class CapsuleUpdate:
         # fmt: on
         try:
             subprocess_call(cmd, raise_exception=True)
+            yield
         except Exception as e:
             raise JetsonUEFIBootControlError(
                 f"failed to mount {cls.EFIVARS_FSTYPE} on {boot_cfg.EFIVARS_DPATH}: {e!r}"
             ) from e
 
-    def _prepare_payload(self) -> None:
-        """Copy the Capsule update payloads to specific location at esp partition."""
+    def _prepare_payload(self) -> bool:
+        """Copy the Capsule update payloads to specific location at esp partition.
+
+        Returns:
+            True if at least one of the update capsule is prepared, False if no update
+                capsule is available and configured.
+        """
         esp_mp = Path(self.esp_mp)
         esp_mp.mkdir(exist_ok=True, parents=True)
 
@@ -165,18 +174,23 @@ class CapsuleUpdate:
         capsule_at_standby_slot = self.standby_slot_mp / Path(
             boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS
         ).relative_to("/")
+
+        firmware_package_configured = False
         for capsule_fname in boot_cfg.FIRMWARE_LIST:
             try:
                 shutil.copy(
                     src=capsule_at_standby_slot / capsule_fname,
                     dst=capsule_at_esp / capsule_fname,
                 )
+                firmware_package_configured = True
             except Exception as e:
                 logger.warning(
                     f"failed to copy {capsule_fname} from {capsule_at_standby_slot} to {capsule_at_esp}: {e!r}"
                 )
                 logger.warning(f"skip {capsule_fname}")
         CMDHelperFuncs.umount(esp_mp, raise_exception=False)
+
+        return firmware_package_configured
 
     def _write_efivar(self) -> None:
         """Write magic efivar to trigger firmware Capsule update in next boot.
@@ -189,20 +203,26 @@ class CapsuleUpdate:
         )
         try:
             magic_efivar_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
+            os.sync()
         except Exception as e:
             _err_msg = f"failed to write magic bytes into {magic_efivar_fpath}: {e!r}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg) from e
 
-    def firmware_update(self) -> None:
-        """Trigger firmware update in next boot."""
-        logger.info("prepare for firmware Capsule update ...")
-        self._ensure_efivarfs_mounted()
-        self._prepare_payload()
-        self._write_efivar()
-        logger.info(
-            "firmware Capsule update is configured and will be triggerred in next boot"
-        )
+    def firmware_update(self) -> bool:
+        """Trigger firmware update in next boot.
+
+        Returns:
+            True if firmware update is configured, False if there is no firmware update.
+        """
+        if not self._prepare_payload():
+            logger.info("no firmware file is prepared, skip firmware update")
+            return False
+
+        with self._ensure_efivarfs_mounted():
+            self._write_efivar()
+        logger.info("firmware update package prepare finished")
+        return True
 
 
 class _UEFIBoot:
@@ -395,6 +415,42 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
         return False
 
+    def _capsule_firmware_update(self) -> None:
+        """Perform firmware update with UEFI Capsule update."""
+        logger.info("jetson-uefi: checking if we need to do firmware update ...")
+        standby_bootloader_slot = self._uefi_control.standby_slot
+        standby_firmware_bsp_ver = self._firmware_ver_control.get_version_by_slot(
+            standby_bootloader_slot
+        )
+        logger.info(f"{standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}")
+
+        # ------ check if we need to do firmware update ------ #
+        _new_bsp_v_fpath = self._mp_control.standby_slot_mount_point / Path(
+            boot_cfg.NV_TEGRA_RELEASE_FPATH
+        ).relative_to("/")
+        try:
+            new_bsp_v = parse_bsp_version(_new_bsp_v_fpath.read_text())
+        except Exception as e:
+            logger.warning(f"failed to detect new image's BSP version: {e!r}")
+            logger.info("skip firmware update due to new image BSP version unknown")
+            return
+
+        if standby_firmware_bsp_ver and standby_firmware_bsp_ver >= new_bsp_v:
+            logger.info(
+                f"{standby_bootloader_slot=} has newer or equal ver of firmware, skip firmware update"
+            )
+            return
+
+        # ------ prepare firmware update ------ #
+        firmware_updater = CapsuleUpdate(
+            boot_parent_devpath=self._uefi_control.parent_devpath,
+            standby_slot_mp=self._mp_control.standby_slot_mount_point,
+        )
+        if firmware_updater.firmware_update():
+            logger.info(
+                f"will update to new firmware version in next reboot: {new_bsp_v=}"
+            )
+
     # APIs
 
     def get_standby_slot_path(self) -> Path:
@@ -436,11 +492,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             )
 
             # ------ firmware update ------ #
-            firmware_updater = CapsuleUpdate(
-                boot_parent_devpath=self._uefi_control.parent_devpath,
-                standby_slot_mp=self._mp_control.standby_slot_mount_point,
-            )
-            firmware_updater.firmware_update()
+            self._capsule_firmware_update()
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             preserve_ota_config_files_to_standby(
