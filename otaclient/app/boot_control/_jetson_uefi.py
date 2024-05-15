@@ -152,14 +152,17 @@ class CapsuleUpdate:
 
     def _prepare_payload(self) -> None:
         """Copy the Capsule update payloads to specific location at esp partition."""
+        esp_mp = Path(self.esp_mp)
+        esp_mp.mkdir(exist_ok=True, parents=True)
+
         try:
-            CMDHelperFuncs.mount_rw(self.esp_part, self.esp_mp)
+            CMDHelperFuncs.mount_rw(self.esp_part, esp_mp)
         except Exception as e:
-            _err_msg = f"failed to mount {self.esp_part=} to {self.esp_mp}: {e!r}"
+            _err_msg = f"failed to mount {self.esp_part=} to {esp_mp}: {e!r}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg) from e
 
-        capsule_at_esp = Path(self.esp_mp) / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
+        capsule_at_esp = esp_mp / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
         capsule_at_standby_slot = self.standby_slot_mp / Path(
             boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS
         ).relative_to("/")
@@ -174,7 +177,7 @@ class CapsuleUpdate:
                     f"failed to copy {capsule_fname} from {capsule_at_standby_slot} to {capsule_at_esp}: {e!r}"
                 )
                 logger.warning(f"skip {capsule_fname}")
-        CMDHelperFuncs.umount(self.esp_mp, raise_exception=False)
+        CMDHelperFuncs.umount(esp_mp, raise_exception=False)
 
     def _write_efivar(self) -> None:
         """Write magic efivar to trigger firmware Capsule update in next boot.
