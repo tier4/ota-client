@@ -422,7 +422,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         standby_firmware_bsp_ver = self._firmware_ver_control.get_version_by_slot(
             standby_bootloader_slot
         )
-        logger.info(f"{standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}")
+        logger.info(
+            f"standby slot current firmware ver: {standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}"
+        )
 
         # ------ check if we need to do firmware update ------ #
         _new_bsp_v_fpath = self._mp_control.standby_slot_mount_point / Path(
@@ -449,6 +451,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         if firmware_updater.firmware_update():
             logger.info(
                 f"will update to new firmware version in next reboot: {new_bsp_v=}"
+            )
+            logger.info(
+                f"will switch to Slot({standby_bootloader_slot}) on successful firmware update"
             )
             return True
         return False
@@ -493,6 +498,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
             )
 
+            # ------ write BSP version file ------ #
+            self._firmware_ver_control.write_standby_firmware_bsp_version()
+
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             preserve_ota_config_files_to_standby(
                 active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
@@ -504,6 +512,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             )
 
             # ------ for external rootfs, preserve /boot folder to internal ------ #
+            # NOTE: the copy should happen AFTER the changes to /boot folder at active slot.
             if self._uefi_control._external_rootfs:
                 logger.info(
                     "rootfs on external storage enabled: "
@@ -521,12 +530,13 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             firmware_update_triggered = self._capsule_firmware_update()
             # NOTE: manual switch boot will cancel the firmware update and cancel the switch boot itself!
             if not firmware_update_triggered:
-                logger.info("no firmware update configured, manually switch slot")
                 self._uefi_control.switch_boot_to_standby()
+                logger.info(
+                    f"no firmware update configured, manually switch slot: \n{_NVBootctrl.dump_slots_info()}"
+                )
 
             # ------ prepare to reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
-            logger.info(f"[post-update]: \n{_NVBootctrl.dump_slots_info()}")
             logger.info("post update finished, wait for reboot ...")
             yield  # hand over control back to otaclient
             CMDHelperFuncs.reboot()
