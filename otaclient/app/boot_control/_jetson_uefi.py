@@ -189,7 +189,7 @@ class CapsuleUpdate:
             Path(boot_cfg.EFIVARS_DPATH) / boot_cfg.UPDATE_TRIGGER_EFIVAR
         )
         try:
-            with open(magic_efivar_fpath, "rb") as f:
+            with open(magic_efivar_fpath, "wb") as f:
                 f.write(boot_cfg.MAGIC_BYTES)
                 os.fsync(f.fileno())
         except Exception as e:
