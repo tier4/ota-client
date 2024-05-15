@@ -498,7 +498,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
             )
 
-            # ------ write BSP version file ------ #
+            # ------ preserve BSP version file to standby slot ------ #
             self._firmware_ver_control.write_standby_firmware_bsp_version()
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
@@ -510,6 +510,15 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 / "boot"
                 / "ota",
             )
+
+            # ------ switch boot to standby ------ #
+            firmware_update_triggered = self._capsule_firmware_update()
+            # NOTE: manual switch boot will cancel the firmware update and cancel the switch boot itself!
+            if not firmware_update_triggered:
+                self._uefi_control.switch_boot_to_standby()
+                logger.info(
+                    f"no firmware update configured, manually switch slot: \n{_NVBootctrl.dump_slots_info()}"
+                )
 
             # ------ for external rootfs, preserve /boot folder to internal ------ #
             # NOTE: the copy should happen AFTER the changes to /boot folder at active slot.
@@ -524,15 +533,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                     internal_emmc_devpath=self._uefi_control.standby_internal_emmc_devpath,
                     standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
                     / "boot",
-                )
-
-            # ------ switch boot to standby ------ #
-            firmware_update_triggered = self._capsule_firmware_update()
-            # NOTE: manual switch boot will cancel the firmware update and cancel the switch boot itself!
-            if not firmware_update_triggered:
-                self._uefi_control.switch_boot_to_standby()
-                logger.info(
-                    f"no firmware update configured, manually switch slot: \n{_NVBootctrl.dump_slots_info()}"
                 )
 
             # ------ prepare to reboot ------ #
