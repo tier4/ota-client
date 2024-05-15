@@ -212,12 +212,20 @@ class _UEFIBoot:
 
     def __init__(self):
         # ------ sanity check, confirm we are at jetson device ------ #
-        if not os.path.exists(boot_cfg.TEGRA_CHIP_ID_PATH):
-            _err_msg = (
-                f"not a jetson device, {boot_cfg.TEGRA_CHIP_ID_PATH} doesn't exist"
-            )
+        tegra_compat_info_fpath = Path(boot_cfg.TEGRA_COMPAT_PATH)
+        if not tegra_compat_info_fpath.is_file():
+            _err_msg = f"not a jetson device, {tegra_compat_info_fpath} doesn't exist"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
+
+        compat_info = tegra_compat_info_fpath.read_text()
+        # example compatible string:
+        #   nvidia,p3737-0000+p3701-0000nvidia,tegra234nvidia,tegra23x
+        if compat_info.find("tegra") == -1:
+            _err_msg = f"uncompatible device: {compat_info=}"
+            logger.error(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg)
+        logger.info(f"dev compatibility: {compat_info}")
 
         # ------ check BSP version ------ #
         try:

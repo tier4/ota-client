@@ -64,6 +64,7 @@ class JetsonCBootControlConfig(JetsonBootCommon):
 
 class JetsonUEFIBootControlConfig(JetsonBootCommon):
     BOOTLOADER = BootloaderType.JETSON_UEFI
+    TEGRA_COMPAT_PATH = "/sys/firmware/devicetree/base/compatible"
     FIRMWARE_LIST = ["bl_only_payload.Cap"]
     ESP_MOUNTPOINT = "/mnt/esp"
     ESP_PARTLABEL = "esp"
