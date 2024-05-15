@@ -415,7 +415,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
         return False
 
-    def _capsule_firmware_update(self) -> None:
+    def _capsule_firmware_update(self) -> bool:
         """Perform firmware update with UEFI Capsule update."""
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
         standby_bootloader_slot = self._uefi_control.standby_slot
@@ -433,13 +433,13 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         except Exception as e:
             logger.warning(f"failed to detect new image's BSP version: {e!r}")
             logger.info("skip firmware update due to new image BSP version unknown")
-            return
+            return False
 
         if standby_firmware_bsp_ver and standby_firmware_bsp_ver >= new_bsp_v:
             logger.info(
                 f"{standby_bootloader_slot=} has newer or equal ver of firmware, skip firmware update"
             )
-            return
+            return False
 
         # ------ prepare firmware update ------ #
         firmware_updater = CapsuleUpdate(
@@ -450,6 +450,8 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             logger.info(
                 f"will update to new firmware version in next reboot: {new_bsp_v=}"
             )
+            return True
+        return False
 
     # APIs
 
@@ -491,9 +493,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
             )
 
-            # ------ firmware update ------ #
-            self._capsule_firmware_update()
-
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             preserve_ota_config_files_to_standby(
                 active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
@@ -519,7 +518,11 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 )
 
             # ------ switch boot to standby ------ #
-            self._uefi_control.switch_boot_to_standby()
+            firmware_update_triggered = self._capsule_firmware_update()
+            # NOTE: manual switch boot will cancel the firmware update and cancel the switch boot itself!
+            if not firmware_update_triggered:
+                logger.info("no firmware update configured, manually switch slot")
+                self._uefi_control.switch_boot_to_standby()
 
             # ------ prepare to reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
