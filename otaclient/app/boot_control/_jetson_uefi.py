@@ -21,7 +21,6 @@ NOTE: R34~R35.1 is not supported as Capsule update is only available after R35.2
 from __future__ import annotations
 
 import logging
-import os
 import re
 import shutil
 from pathlib import Path
@@ -189,9 +188,7 @@ class CapsuleUpdate:
             Path(boot_cfg.EFIVARS_DPATH) / boot_cfg.UPDATE_TRIGGER_EFIVAR
         )
         try:
-            with open(magic_efivar_fpath, "wb") as f:
-                f.write(boot_cfg.MAGIC_BYTES)
-                os.fsync(f.fileno())
+            magic_efivar_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
         except Exception as e:
             _err_msg = f"failed to write magic bytes into {magic_efivar_fpath}: {e!r}"
             logger.error(_err_msg)
