@@ -36,7 +36,6 @@ class GrubControlConfig(BaseConfig):
 
 
 class JetsonBootCommon:
-    TEGRA_CHIP_ID_PATH = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
     OTA_STATUS_DIR = "/boot/ota-status"
     FIRMWARE_BSP_VERSION_FNAME = "firmware_bsp_version"
     EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
@@ -58,6 +57,8 @@ class JetsonCBootControlConfig(JetsonBootCommon):
     """
 
     BOOTLOADER = BootloaderType.JETSON_CBOOT
+    # this path only exists on xavier
+    TEGRA_CHIP_ID_PATH = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
     FIRMWARE_LIST = ["bl_only_payload", "xusb_only_payload"]
 
 
