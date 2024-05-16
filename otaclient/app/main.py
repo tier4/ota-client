@@ -22,7 +22,8 @@ from pathlib import Path
 from otaclient import __version__  # type: ignore
 
 from .common import read_str_from_file, write_str_to_file_sync
-from .configs import config as cfg, ecu_info
+from .configs import config as cfg
+from .configs import ecu_info
 from .log_setting import configure_logging
 from .ota_client_service import launch_otaclient_grpc_server
 from .proto import ota_metafiles, v2, v2_grpc, wrapper  # noqa: F401
