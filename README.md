@@ -24,7 +24,3 @@ When the OTA client receives an update request, it downloads a list from the OTA
 ## License
 
 OTA client is licensed under the Apache License, Version 2.0.
-
-## Document
-
-See [OTA client document](docs/README.md)
