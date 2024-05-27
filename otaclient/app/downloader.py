@@ -279,11 +279,9 @@ class Downloader:
         # ------ compression support ------ #
         self._thread_local._compression_support_matrix = {}
         # zstd decompression adapter
-        self._thread_local._zstd = ZstdDecompressionAdapter()
-        self._thread_local._compression_support_matrix["zst"] = self._thread_local._zstd
-        self._thread_local._compression_support_matrix["zstd"] = (
-            self._thread_local._zstd
-        )
+        self._thread_local._zstd = zstd_adapter = ZstdDecompressionAdapter()
+        self._thread_local._compression_support_matrix["zst"] = zstd_adapter
+        self._thread_local._compression_support_matrix["zstd"] = zstd_adapter
 
         # ------ setup buffer ------ #
         self._thread_local.buffer = buffer = bytearray(self.CHUNK_SIZE)
