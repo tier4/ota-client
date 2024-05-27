@@ -20,8 +20,9 @@ import contextlib
 import logging
 import os
 import random
+import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -257,8 +258,10 @@ class DeltaGenerator:
         fpath: Path,
         *,
         expected_hash: Optional[str] = None,
+        thread_local,
     ) -> None:
         """Hash(and verify the file) and prepare a copy for it in standby slot.
+        This is the task entry being executed by each ONE of the pool worker.
 
         Params:
             fpath: the path to the file to be verified
@@ -284,17 +287,20 @@ class DeltaGenerator:
 
         start_time = time.thread_time_ns()
         tmp_f = self._local_copy_dir / create_tmp_fname()
+        hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
             hash_f = sha256()
             with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
-                while chunk := src.read(cfg.LOCAL_CHUNK_SIZE):
-                    hash_f.update(chunk)
-                    tmp_dst.write(chunk)
+                while read_size := src.readinto(hash_buffer):
+                    hash_f.update(hash_bufferview[:read_size])
+                    tmp_dst.write(hash_bufferview[:read_size])
             hash_value = hash_f.hexdigest()
             if expected_hash and expected_hash != hash_value:
                 return  # skip invalid file
 
             # this tmp is valid, use it as local copy
+            # NOTE(20240527): the following code depends on CPython's GIL to
+            #   work as expected. dict.pop is atomic ensured by GIL.
             try:  # remove from new_hash_list to mark this hash as prepared
                 self._new_hash_size_dict.pop(hash_f.digest())
             except KeyError:
@@ -316,100 +322,108 @@ class DeltaGenerator:
         logger.debug("process delta src, generate delta and prepare local copy...")
         _canonical_root = Path("/")
 
+        # ------ create the threadpool executor ------ #
+        thread_local = threading.local()
+
+        def _initializer():
+            thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
+            thread_local.view = memoryview(buffer)
+
+        pool = ThreadPoolExecutor(
+            thread_name_prefix="scan_slot", initializer=_initializer
+        )
+
         # scan old slot and generate delta based on path,
         # group files into many hash group,
         # each hash group is a set contains RegularInf(s) with path as key.
         #
         # if the scanned file's hash existed in _new,
         # collect this file to the recycle folder if not yet being collected.
-        with ThreadPoolExecutor(thread_name_prefix="scan_slot") as pool:
-            for curdir, dirnames, filenames in os.walk(
-                self._delta_src_mount_point, topdown=True, followlinks=False
+        for curdir, dirnames, filenames in os.walk(
+            self._delta_src_mount_point, topdown=True, followlinks=False
+        ):
+            delta_src_curdir_path = Path(curdir)
+            canonical_curdir_path = _canonical_root / delta_src_curdir_path.relative_to(
+                self._delta_src_mount_point
+            )
+            logger.debug(f"{delta_src_curdir_path=}, {canonical_curdir_path=}")
+
+            # skip folder that exceeds max_folder_deepth,
+            # also add these folders to remove list
+            if len(delta_src_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
+                logger.warning(
+                    f"reach max_folder_deepth on {delta_src_curdir_path!r}, skip"
+                )
+                self._rm.append(str(canonical_curdir_path))
+                dirnames.clear()
+                continue
+
+            # skip this folder if it doesn't exist on new image,
+            # or also not meant to be fully scanned.
+            # NOTE: the root folder must be fully scanned
+            # NOTE: DirectoryInf can only be compared with str, not Path
+            dir_should_skip = True
+            if (
+                canonical_curdir_path == _canonical_root
+                or str(canonical_curdir_path) in self._new_dirs
             ):
-                delta_src_curdir_path = Path(curdir)
-                canonical_curdir_path = (
-                    _canonical_root
-                    / delta_src_curdir_path.relative_to(self._delta_src_mount_point)
+                dir_should_skip = False
+            # check if we neede to fully scan this folder
+            dir_should_fully_scan = False
+            for parent in reversed(canonical_curdir_path.parents):
+                if str(parent) in self.FULL_SCAN_PATHS:
+                    dir_should_fully_scan = True
+                    break
+            logger.debug(
+                f"{dir_should_skip=}, {dir_should_fully_scan=}: {delta_src_curdir_path=}"
+            )
+            # should we totally skip folder and all its child folders?
+            # if so, discard it and add it to the remove list.
+            if dir_should_skip and not dir_should_fully_scan:
+                self._rm.append(str(canonical_curdir_path))
+                dirnames.clear()  # prune the search on all its subfolders
+                continue
+
+            # skip files that over the max_filenum_per_folder,
+            # and add these files to remove list
+            if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
+                logger.warning(
+                    f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
+                    "exceeded files will be ignored silently"
                 )
-                logger.debug(f"{delta_src_curdir_path=}, {canonical_curdir_path=}")
+                self._rm.extend(
+                    str(canonical_curdir_path / x)
+                    for x in filenames[self.MAX_FILENUM_PER_FOLDER :]
+                )
 
-                # skip folder that exceeds max_folder_deepth,
-                # also add these folders to remove list
-                if len(delta_src_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
-                    logger.warning(
-                        f"reach max_folder_deepth on {delta_src_curdir_path!r}, skip"
-                    )
-                    self._rm.append(str(canonical_curdir_path))
-                    dirnames.clear()
+            # process the files under this dir
+            for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
+                delta_src_fpath = delta_src_curdir_path / fname
+                logger.debug(f"[process_delta_src] process {delta_src_fpath}")
+                # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
+                canonical_fpath = canonical_curdir_path / fname
+
+                # ignore non-file file(include symlink)
+                # NOTE: for in-place update, we will recreate all the symlinks,
+                #       so we first remove all the symlinks
+                if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
+                    self._rm.append(str(canonical_fpath))
                     continue
-
-                # skip this folder if it doesn't exist on new image,
-                # or also not meant to be fully scanned.
-                # NOTE: the root folder must be fully scanned
-                # NOTE: DirectoryInf can only be compared with str, not Path
-                dir_should_skip = True
-                if (
-                    canonical_curdir_path == _canonical_root
-                    or str(canonical_curdir_path) in self._new_dirs
+                # in default match_only mode, if the path doesn't exist in new, ignore
+                if not dir_should_fully_scan and not self._new.contains_path(
+                    canonical_fpath
                 ):
-                    dir_should_skip = False
-                # check if we neede to fully scan this folder
-                dir_should_fully_scan = False
-                for parent in reversed(canonical_curdir_path.parents):
-                    if str(parent) in self.FULL_SCAN_PATHS:
-                        dir_should_fully_scan = True
-                        break
-                logger.debug(
-                    f"{dir_should_skip=}, {dir_should_fully_scan=}: {delta_src_curdir_path=}"
-                )
-                # should we totally skip folder and all its child folders?
-                # if so, discard it and add it to the remove list.
-                if dir_should_skip and not dir_should_fully_scan:
-                    self._rm.append(str(canonical_curdir_path))
-                    dirnames.clear()  # prune the search on all its subfolders
+                    self._rm.append(str(canonical_fpath))
                     continue
 
-                # skip files that over the max_filenum_per_folder,
-                # and add these files to remove list
-                if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
-                    logger.warning(
-                        f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
-                        "exceeded files will be ignored silently"
-                    )
-                    self._rm.extend(
-                        str(canonical_curdir_path / x)
-                        for x in filenames[self.MAX_FILENUM_PER_FOLDER :]
-                    )
+                pool.submit(
+                    self._prepare_local_copy_from_active_slot,
+                    delta_src_fpath,
+                    thread_local=thread_local,
+                )
 
-                # process the files under this dir
-                futs: List[Future] = []
-                for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
-                    delta_src_fpath = delta_src_curdir_path / fname
-                    logger.debug(f"[process_delta_src] process {delta_src_fpath}")
-                    # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
-                    canonical_fpath = canonical_curdir_path / fname
-
-                    # ignore non-file file(include symlink)
-                    # NOTE: for in-place update, we will recreate all the symlinks,
-                    #       so we first remove all the symlinks
-                    if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
-                        self._rm.append(str(canonical_fpath))
-                        continue
-                    # in default match_only mode, if the path doesn't exist in new, ignore
-                    if not dir_should_fully_scan and not self._new.contains_path(
-                        canonical_fpath
-                    ):
-                        self._rm.append(str(canonical_fpath))
-                        continue
-
-                    futs.append(
-                        pool.submit(
-                            self._prepare_local_copy_from_active_slot, delta_src_fpath
-                        )
-                    )
-                # wait for all files under this dir to be finished
-                logger.debug(f"{delta_src_curdir_path=} done")
-                wait(futs)
+        # wait for all files being processed
+        pool.shutdown(wait=True)
 
         # calculate the files list that we should download from remote
         # the hash in the self._hash_set after local delta preparation representing
