@@ -427,7 +427,7 @@ class JetsonCBootControl(BootControllerProtocol):
             new_bsp_v = parse_bsp_version(_new_bsp_v_fpath.read_text())
         except Exception as e:
             logger.warning(f"failed to detect new image's BSP version: {e!r}")
-            logger.info("skip firmware update due to new image BSP version unknown")
+            logger.warning("skip firmware update due to new image BSP version unknown")
             return
 
         logger.info(f"BUP package version: {new_bsp_v=}")
@@ -481,7 +481,6 @@ class JetsonCBootControl(BootControllerProtocol):
                 standby_bootloader_slot, new_bsp_v
             )
             return True
-        logger.info("no firmware payload BUP available, skip firmware update")
 
     # APIs
 
@@ -529,13 +528,16 @@ class JetsonCBootControl(BootControllerProtocol):
             )
 
             # ------ firmware update ------ #
-            _fw_update_result = self._nv_firmware_update()
-            if _fw_update_result:
-                # update the firmware_bsp_version file on firmware update applied
-                self._firmware_ver_control.write_standby_firmware_bsp_version()
+            firmware_update_result = self._nv_firmware_update()
+            if firmware_update_result:
                 self._firmware_ver_control.write_current_firmware_bsp_version()
-            elif _fw_update_result is not None:
+            elif firmware_update_result is None:
+                logger.info("no firmware update occurs")
+            else:
                 raise JetsonCBootContrlError("firmware update failed")
+
+            # ------ preserve BSP version files to standby slot ------ #
+            self._firmware_ver_control.write_standby_firmware_bsp_version()
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             preserve_ota_config_files_to_standby(
@@ -548,6 +550,7 @@ class JetsonCBootControl(BootControllerProtocol):
             )
 
             # ------ for external rootfs, preserve /boot folder to internal ------ #
+            # NOTE: the copy must happen AFTER all the changes to active slot's /boot done.
             if self._cboot_control._external_rootfs:
                 logger.info(
                     "rootfs on external storage enabled: "

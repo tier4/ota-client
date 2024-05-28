@@ -29,9 +29,6 @@ from pathlib import Path
 from typing import Iterator, Optional, Type
 from urllib.parse import urlparse
 
-from otaclient._utils import get_file_size
-from otaclient._utils.linux import create_swapfile
-
 from . import downloader
 from . import errors as ota_errors
 from . import ota_metadata
@@ -311,22 +308,19 @@ class _OTAUpdater:
         ):
             _per_fpath = Path(_perinf.path)
 
-            # NOTE(20240220): fast fix for handling swapfile
+            # NOTE(20240520): with update_swapfile ansible role being used wildly,
+            #   now we just ignore the swapfile entries in the persistents.txt if any,
+            #   and issue a warning about it.
             if str(_per_fpath) in ["/swapfile", "/swap.img"]:
-                # NOTE: here we probe the current running system's swapfile at /.
-                if not _per_fpath.is_file():
-                    continue
-
-                _new_swapfile = standby_slot_mp / _per_fpath.relative_to("/")
-                try:
-                    _swapfile_size = get_file_size(_per_fpath, units="MiB")
-                    assert _swapfile_size is not None, f"{_per_fpath} doesn't exist"
-                    create_swapfile(_new_swapfile, _swapfile_size)
-                    logger.warning(f"create {_new_swapfile} with {_swapfile_size=}")
-                except Exception as e:
-                    logger.warning(
-                        f"failed to create swapfile {_per_fpath} to standby slot, skip: {e!r}"
+                logger.warning(
+                    f"swapfile entry {_per_fpath} is listed in persistents.txt, ignored"
+                )
+                logger.warning(
+                    (
+                        "using persis file feature to preserve swapfile is MISUSE of persist file handling feature!"
+                        "please change your OTA image build setting and remove swapfile entries from persistents.txt!"
                     )
+                )
                 continue
 
             if (

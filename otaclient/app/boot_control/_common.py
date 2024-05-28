@@ -726,7 +726,7 @@ class SlotMountHelper:
         if fslabel:
             CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, fslabel=fslabel)
 
-    def umount_all(self, *, ignore_error: bool = False):
+    def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")
         CMDHelperFuncs.umount(
             self.standby_slot_mount_point, raise_exception=ignore_error
