@@ -405,8 +405,12 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             logger.info("no firmware update occurs")
             return True
 
-        if update_result_status == "1":
-            logger.info("firmware successfully updated")
+        # NOTE(20240528): seems like if there is a firmware update ever occurs,
+        #   the Capsule update status will always be 1. So by just looking at
+        #   the Capsule update status we cannot tell if previous OTA contains
+        #   firmware update.
+        if update_result_status == "1" and current_slot_bsp_ver is not None:
+            logger.info("the previous firmware update is successful")
             self._firmware_ver_control.set_version_by_slot(
                 current_slot, current_slot_bsp_ver
             )
