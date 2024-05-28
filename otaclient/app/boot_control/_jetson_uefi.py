@@ -38,8 +38,8 @@ from ._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     SlotID,
-    parse_bsp_version,
     copy_standby_slot_boot_to_internal_emmc,
+    parse_bsp_version,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
