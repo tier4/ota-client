@@ -28,13 +28,15 @@ import shutil
 from pathlib import Path
 from typing import Any, Generator
 
+from otaclient._utils.typing import StrOrPath
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import subprocess_call
+from otaclient.app.common import subprocess_call, write_str_to_file_sync
 from otaclient.app.configs import config as cfg
 from otaclient.app.proto import wrapper
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
+    BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     SlotID,
@@ -94,7 +96,7 @@ class CapsuleUpdate:
     EFIVARS_FSTYPE = "efivarfs"
 
     def __init__(
-        self, boot_parent_devpath: Path | str, standby_slot_mp: Path | str
+        self, boot_parent_devpath: StrOrPath, standby_slot_mp: StrOrPath
     ) -> None:
         # NOTE: use the esp partition at the current booted device
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
@@ -223,6 +225,30 @@ class CapsuleUpdate:
             self._write_efivar()
         logger.info("firmware update package prepare finished")
         return True
+
+    @staticmethod
+    def write_firmware_update_hint_file(
+        hint_fpath: StrOrPath, slot_id: SlotID, bsp_version: BSPVersion
+    ) -> None:
+        """When capsule firmware update is scheduled, write this file to
+        hint the otaclient in the new slot.
+
+        Schema: <slot_id>,<bsp_version>
+        """
+        write_str_to_file_sync(hint_fpath, f"{slot_id},{BSPVersion.dump(bsp_version)}")
+
+    @staticmethod
+    def parse_firmware_update_hint_file(
+        hint_fpath: StrOrPath,
+    ) -> tuple[SlotID, BSPVersion]:
+        """Parse the slot_id and firmware bsp_version from firmware update hint file."""
+        _raw = Path(hint_fpath).read_text()
+
+        try:
+            _slot_id, _bsp_v = _raw.split(",")
+            return SlotID(_slot_id), BSPVersion.parse(_bsp_v)
+        except Exception as e:
+            raise ValueError(f"invalid hint file content: {_raw}: {e!r}") from e
 
 
 class _UEFIBoot:
@@ -358,6 +384,11 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 boot_cfg.OTA_STATUS_DIR
             ).relative_to("/")
 
+            # NOTE: this hint file is referred by finalize_switching_boot
+            self.firmware_update_hint_fpath = (
+                standby_ota_status_dir / boot_cfg.FIRMWARE_UPDATE_HINT_FNAME
+            )
+
             # load firmware BSP version from current rootfs slot
             self._firmware_ver_control = FirmwareBSPVersionControl(
                 current_firmware_bsp_vf=current_ota_status_dir
@@ -377,6 +408,11 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_ota_status_dir=standby_ota_status_dir,
                 finalize_switching_boot=self._finalize_switching_boot,
             )
+
+            # NOTE: the hint file is checked during OTAStatusFilesControl __init__,
+            #   by finalize_switching_boot if we are in first reboot after OTA.
+            #   once we have done parsing the hint file, we must remove it immediately.
+            self.firmware_update_hint_fpath.unlink(missing_ok=True)
         except Exception as e:
             _err_msg = f"failed to start jetson-uefi controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
@@ -393,35 +429,44 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         current_slot_bsp_ver = self._uefi_control.bsp_version
 
         try:
-            update_result_status = _NVBootctrl.get_capsule_update_result()
-        except Exception as e:
-            _err_msg = (
-                f"failed to get the Capsule update result status, assume failed: {e!r}"
+            slot_id, bsp_v = CapsuleUpdate.parse_firmware_update_hint_file(
+                self.firmware_update_hint_fpath
             )
-            logger.error(_err_msg)
+        except FileNotFoundError:
+            logger.info("no firmware update occurs in previous OTA")
+            return True
+        except Exception as e:
+            logger.error(
+                (
+                    f"firmware update hint file presented but invalid: {e!r}"
+                    "assuming firmware update failed"
+                )
+            )
             return False
 
-        if update_result_status == "0":
-            logger.info("no firmware update occurs")
-            return True
-
-        # NOTE(20240528): seems like if there is a firmware update ever occurs,
-        #   the Capsule update status will always be 1. So by just looking at
-        #   the Capsule update status we cannot tell if previous OTA contains
-        #   firmware update.
-        if update_result_status == "1" and current_slot_bsp_ver is not None:
-            logger.info("the previous firmware update is successful")
-            self._firmware_ver_control.set_version_by_slot(
-                current_slot, current_slot_bsp_ver
+        if slot_id != current_slot:
+            logger.error(
+                (
+                    "firmware update hint file indicates firmware update occurs on "
+                    f"slot {slot_id}, but expects slot {current_slot}"
+                )
             )
-            self._firmware_ver_control.write_current_firmware_bsp_version()
-            return True
+            return False
 
-        return False
+        if bsp_v != current_slot_bsp_ver:
+            logger.error(
+                (
+                    f"firmware update hint file indicates the firmware on slot {slot_id} is "
+                    f"updated to {bsp_v}, but current slot's BSP version is {current_slot_bsp_ver}"
+                )
+            )
+            return False
+        return True
 
     def _capsule_firmware_update(self) -> bool:
         """Perform firmware update with UEFI Capsule update."""
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
+
         standby_bootloader_slot = self._uefi_control.standby_slot
         standby_firmware_bsp_ver = self._firmware_ver_control.get_version_by_slot(
             standby_bootloader_slot
@@ -453,6 +498,12 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             standby_slot_mp=self._mp_control.standby_slot_mount_point,
         )
         if firmware_updater.firmware_update():
+            CapsuleUpdate.write_firmware_update_hint_file(
+                self.firmware_update_hint_fpath,
+                slot_id=self._uefi_control.standby_slot,
+                bsp_version=new_bsp_v,
+            )
+
             logger.info(
                 f"will update to new firmware version in next reboot: {new_bsp_v=}"
             )
