@@ -73,6 +73,7 @@ class JetsonUEFIBootControlConfig(JetsonBootCommon):
     MAGIC_BYTES = b"\x07\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00"
     CAPSULE_PAYLOAD_AT_ESP = "EFI/UpdateCapsule"
     CAPSULE_PAYLOAD_AT_ROOTFS = "/opt/ota_package/"
+    FIRMWARE_UPDATE_HINT_FNAME = ".firmware_update"
 
 
 @dataclass
