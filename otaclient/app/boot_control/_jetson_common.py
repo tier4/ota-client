@@ -70,8 +70,8 @@ class BSPVersion(NamedTuple):
         """Parse "Rxx.yy.z string into BSPVersion."""
         if isinstance(_in, cls):
             return _in
-        if isinstance(_in, str):
-            major_ver, major_rev, minor_rev = _in[1:].split(".")
+        if isinstance(_in, str) and len(_split := _in[1:].split(".")) == 3:
+            major_ver, major_rev, minor_rev = _split
             return cls(int(major_ver), int(major_rev), int(minor_rev))
         raise ValueError(f"expect str or BSPVersion instance, get {type(_in)}")
 
