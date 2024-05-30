@@ -1,9 +1,6 @@
 [build-system]
-build-backend = "setuptools.build_meta"
-requires = [
-  "setuptools>=61",
-  "setuptools_scm[toml]>=6.4",
-]
+build-backend = "hatchling.build"
+requires = ["hatchling>=1.20.0", "hatch-vcs"]
 
 [project]
 name = "otaclient"
@@ -20,28 +17,54 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-dynamic = [
-  "dependencies",
-  "optional-dependencies",
-  "version",
+dependencies = [
+  "pyOpenSSL==24.1.0",
+  "cryptography>=42.0.4, <43.0.0",
+  "grpcio>=1.53.2, <1.54.0",
+  "protobuf>=4.21.12, <4.22.0",
+  "PyYAML>=3.12",
+  "requests>=2.31.0, <2.32.0",
+  "urllib3>=1.26.8, <2.0.0",
+  "uvicorn[standard]==0.20.0",
+  "aiohttp>=3.9.5, <3.10.0",
+  "aiofiles==22.1.0",
+  "zstandard==0.18.0",
+  "typing_extensions>=4.6.3; python_version < '3.11'",
+  "pydantic==2.7.0",
+  "pydantic-settings==2.2.1",
 ]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = [
+  "black",
+  "coverage",
+  "flake8",
+  "isort",
+  "pytest",
+  "pytest-asyncio",
+  "pytest-mock",
+]
+
 [project.urls]
 Source = "https://github.com/tier4/ota-client"
 
-[tool.setuptools.dynamic]
-dependencies = { file = ["otaclient/requirements.txt"] }
+[tool.hatch.version]
+source = "vcs"
 
-[tool.setuptools.dynamic.optional-dependencies]
-test = { file = ["tests/requirements.txt"] }
+[tool.hatch.build.hooks.vcs]
+version-file = "src/_otaclient_version.py"
 
-[tool.setuptools.packages.find]
-include = ["otaclient*"]
-namespaces = false
+[tool.hatch.build.targets.sdist]
+exclude = ["/tools"]
 
-[tool.setuptools_scm]
-write_to = "otaclient/_version.py"
-version_scheme = "post-release"
-local_scheme = "no-local-version"
+[tool.hatch.build.targets.wheel]
+only-include = ["src"]
+sources = ["src"]
+
+[tool.hatch.envs.dev]
+type = "virtual"
+features = ["dev"]
 
 [tool.black]
 line-length = 88
