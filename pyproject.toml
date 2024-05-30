@@ -41,9 +41,9 @@ dev = [
   "coverage",
   "flake8",
   "isort",
-  "pytest",
-  "pytest-asyncio",
-  "pytest-mock",
+  "pytest==7.1.2",
+  "pytest-asyncio==0.21.0",
+  "pytest-mock==3.8.2",
   "requests-mock",
 ]
 
