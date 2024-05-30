@@ -65,7 +65,7 @@ class _OTAProxyContext(OTAProxyContextProto):
         self._external_cache_dev_mp = external_cache_dev_mp
         self._external_cache_data_dir = external_cache_path
 
-        self.logger = logging.getLogger("otaclient.ota_proxy")
+        self.logger = logging.getLogger("ota_proxy")
 
     @property
     def extra_kwargs(self) -> Dict[str, Any]:
@@ -85,9 +85,9 @@ class _OTAProxyContext(OTAProxyContextProto):
         # configure logging for otaproxy subprocess
         # NOTE: on otaproxy subprocess, we first set log level of the root logger
         #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
-        #       and then set the otaclient.ota_proxy logger to DEFAULT_LOG_LEVEL
+        #       and then set the ota_proxy logger to DEFAULT_LOG_LEVEL
         log_setting.configure_logging()
-        otaproxy_logger = logging.getLogger("otaclient.ota_proxy")
+        otaproxy_logger = logging.getLogger("ota_proxy")
         otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
         self.logger = otaproxy_logger
 
