@@ -8,11 +8,7 @@ services:
     container_name: ota-test
     environment:
       OUTPUT_DIR: /test_result
-      OTACLIENT_DIR: /ota-client
       CERTS_DIR: /certs
     volumes:
-      - ../pyproject.toml:/ota-client/pyproject.toml:ro
-      - ../.flake8:/ota-client/.flake8:ro
-      - ../otaclient:/ota-client/otaclient:ro
-      - ../tests:/ota-client/tests:ro
+      - ..:/otaclient_src:ro
       - ../test_result:/test_result:rw
