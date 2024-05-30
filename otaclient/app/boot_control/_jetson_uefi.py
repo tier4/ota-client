@@ -428,6 +428,10 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         current_slot = self._uefi_control.current_slot
         current_slot_bsp_ver = self._uefi_control.bsp_version
 
+        if current_slot_bsp_ver is None:
+            logger.warning("current slot BSP version is unknown, skip")
+            return True
+
         try:
             slot_id, bsp_v = CapsuleUpdate.parse_firmware_update_hint_file(
                 self.firmware_update_hint_fpath
@@ -443,6 +447,8 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 )
             )
             return False
+
+        # ------ firmware update occurs, check hints ------ #
 
         if slot_id != current_slot:
             logger.error(
@@ -461,6 +467,12 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 )
             )
             return False
+
+        # ------ firmware update succeeded, write firmware version file ------ #
+        self._firmware_ver_control.set_version_by_slot(
+            current_slot, current_slot_bsp_ver
+        )
+        self._firmware_ver_control.write_current_firmware_bsp_version()
         return True
 
     def _capsule_firmware_update(self) -> bool:
