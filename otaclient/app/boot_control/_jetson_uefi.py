@@ -418,13 +418,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _finalize_switching_boot(self) -> bool:
-        """Verify firmware update result and write firmware BSP version file.
-
-        NOTE: due to unified A/B is enabled, actually it is impossible to boot to
-            a firmware updated failed slot.
-            Since finalize_switching_boot is only called when first reboot succeeds,
-            we can only observe result status 0 or 1 here.
-        """
+        """Verify firmware update result and write firmware BSP version file."""
         current_slot = self._uefi_control.current_slot
         current_slot_bsp_ver = self._uefi_control.bsp_version
 
