@@ -1,6 +1,9 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling>=1.20.0", "hatch-vcs"]
+requires = [
+  "hatch-vcs",
+  "hatchling>=1.20",
+]
 
 [project]
 name = "otaclient"
@@ -17,24 +20,25 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-dependencies = [
-  "pyOpenSSL==24.1.0",
-  "cryptography>=42.0.4, <43.0.0",
-  "grpcio>=1.53.2, <1.54.0",
-  "protobuf>=4.21.12, <4.22.0",
-  "PyYAML>=3.12",
-  "requests>=2.31.0, <2.32.0",
-  "urllib3>=1.26.8, <2.0.0",
-  "uvicorn[standard]==0.20.0",
-  "aiohttp>=3.9.5, <3.10.0",
-  "aiofiles==22.1.0",
-  "zstandard==0.18.0",
-  "typing_extensions>=4.6.3; python_version < '3.11'",
-  "pydantic==2.7.0",
-  "pydantic-settings==2.2.1",
+dynamic = [
+  "version",
 ]
-dynamic = ["version"]
-
+dependencies = [
+  "aiofiles==22.1",
+  "aiohttp<3.10.0,>=3.9.5",
+  "cryptography<43.0.0,>=42.0.4",
+  "grpcio<1.54.0,>=1.53.2",
+  "protobuf<4.22.0,>=4.21.12",
+  "pydantic==2.7",
+  "pydantic-settings==2.2.1",
+  "pyOpenSSL==24.1",
+  "PyYAML>=3.12",
+  "requests<2.32.0,>=2.31",
+  'typing_extensions>=4.6.3; python_version < "3.11"',
+  "urllib3<2.0.0,>=1.26.8",
+  "uvicorn[standard]==0.20",
+  "zstandard==0.18",
+]
 [project.optional-dependencies]
 dev = [
   "black",
@@ -42,11 +46,10 @@ dev = [
   "flake8",
   "isort",
   "pytest==7.1.2",
-  "pytest-asyncio==0.21.0",
+  "pytest-asyncio==0.21",
   "pytest-mock==3.8.2",
   "requests-mock",
 ]
-
 [project.urls]
 Source = "https://github.com/tier4/ota-client"
 

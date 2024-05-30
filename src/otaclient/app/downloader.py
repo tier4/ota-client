@@ -48,8 +48,8 @@ from typing_extensions import ParamSpec, TypeVar
 from urllib3.response import HTTPResponse
 from urllib3.util.retry import Retry
 
-from otaclient._utils import copy_callable_typehint
 from ota_proxy import OTAFileCacheControl
+from otaclient._utils import copy_callable_typehint
 
 from .common import wait_with_backoff
 from .configs import config as cfg

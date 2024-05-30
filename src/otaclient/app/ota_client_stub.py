@@ -28,10 +28,10 @@ from typing import Any, Dict, Iterable, Optional, Set, Type, TypeVar
 
 from typing_extensions import Self
 
-from otaclient.configs.ecu_info import ECUContact
 from ota_proxy import OTAProxyContextProto
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import subprocess_otaproxy_launcher
+from otaclient.configs.ecu_info import ECUContact
 
 from . import log_setting
 from .boot_control._common import CMDHelperFuncs
