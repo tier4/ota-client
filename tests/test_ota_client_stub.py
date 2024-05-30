@@ -34,8 +34,8 @@ from otaclient.app.ota_client_stub import (
 from otaclient.app.proto import wrapper
 from otaclient.configs.ecu_info import ECUInfo, parse_ecu_info
 from otaclient.configs.proxy_info import ProxyInfo, parse_proxy_info
-from otaclient.ota_proxy import OTAProxyContextProto
-from otaclient.ota_proxy.config import Config as otaproxyConfig
+from ota_proxy import OTAProxyContextProto
+from ota_proxy.config import Config as otaproxyConfig
 from tests.conftest import cfg
 from tests.utils import compare_message
 

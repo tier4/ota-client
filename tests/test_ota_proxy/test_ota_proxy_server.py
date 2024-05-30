@@ -29,7 +29,7 @@ import uvicorn
 
 from otaclient.app.ota_metadata import parse_regulars_from_txt
 from otaclient.app.proto.wrapper import RegularInf
-from otaclient.ota_proxy.utils import url_based_hash
+from ota_proxy.utils import url_based_hash
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     async def setup_ota_proxy_server(self, tmp_path: Path, request):
         import uvicorn
 
-        from otaclient.ota_proxy import App, OTACache
+        from ota_proxy import App, OTACache
 
         ota_cache_dir = tmp_path / "ota-cache"
         ota_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -173,7 +173,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         """
         import sqlite3
 
-        from otaclient.ota_proxy import config as cfg
+        from ota_proxy import config as cfg
 
         # ------ get the special file via otaproxy from the ota image server ------ #
         # --- execution --- #
@@ -295,7 +295,7 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
     async def setup_ota_proxy_server(self, tmp_path: Path):
         import uvicorn
 
-        from otaclient.ota_proxy import App, OTACache
+        from ota_proxy import App, OTACache
 
         ota_cache_dir = tmp_path / "ota-cache"
         ota_cache_dir.mkdir(parents=True, exist_ok=True)

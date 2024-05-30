@@ -22,10 +22,10 @@ from typing import Any, Dict, Tuple
 
 import pytest
 
-from otaclient.ota_proxy import config as cfg
-from otaclient.ota_proxy.orm import NULL_TYPE
-from otaclient.ota_proxy.ota_cache import CacheMeta, OTACacheDB
-from otaclient.ota_proxy.utils import url_based_hash
+from ota_proxy import config as cfg
+from ota_proxy.orm import NULL_TYPE
+from ota_proxy.ota_cache import CacheMeta, OTACacheDB
+from ota_proxy.utils import url_based_hash
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class TestORM:
     @pytest.fixture(autouse=True)
     def create_table_defs(self):
-        from otaclient.ota_proxy.orm import NULL_TYPE, ColumnDescriptor, ORMBase
+        from ota_proxy.orm import NULL_TYPE, ColumnDescriptor, ORMBase
 
         @dataclass
         class TableCls(ORMBase):
