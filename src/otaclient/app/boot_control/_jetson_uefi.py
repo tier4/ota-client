@@ -369,6 +369,16 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     """BootControllerProtocol implementation for jetson-uefi."""
 
     def __init__(self) -> None:
+        current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
+        standby_ota_status_dir = Path(cfg.MOUNT_POINT) / Path(
+            boot_cfg.OTA_STATUS_DIR
+        ).relative_to("/")
+
+        # NOTE: this hint file is referred by finalize_switching_boot
+        self.firmware_update_hint_fpath = (
+            standby_ota_status_dir / boot_cfg.FIRMWARE_UPDATE_HINT_FNAME
+        )
+
         try:
             # startup boot controller
             self._uefi_control = _UEFIBoot()
@@ -379,16 +389,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_slot_mount_point=cfg.MOUNT_POINT,
                 active_slot_dev=self._uefi_control.curent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
-            )
-
-            current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
-            standby_ota_status_dir = self._mp_control.standby_slot_mount_point / Path(
-                boot_cfg.OTA_STATUS_DIR
-            ).relative_to("/")
-
-            # NOTE: this hint file is referred by finalize_switching_boot
-            self.firmware_update_hint_fpath = (
-                standby_ota_status_dir / boot_cfg.FIRMWARE_UPDATE_HINT_FNAME
             )
 
             # load firmware BSP version from current rootfs slot
@@ -410,14 +410,14 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_ota_status_dir=standby_ota_status_dir,
                 finalize_switching_boot=self._finalize_switching_boot,
             )
-
+        except Exception as e:
+            _err_msg = f"failed to start jetson-uefi controller: {e!r}"
+            raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
+        finally:
             # NOTE: the hint file is checked during OTAStatusFilesControl __init__,
             #   by finalize_switching_boot if we are in first reboot after OTA.
             #   once we have done parsing the hint file, we must remove it immediately.
             self.firmware_update_hint_fpath.unlink(missing_ok=True)
-        except Exception as e:
-            _err_msg = f"failed to start jetson-uefi controller: {e!r}"
-            raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _finalize_switching_boot(self) -> bool:
         """Verify firmware update result and write firmware BSP version file."""
