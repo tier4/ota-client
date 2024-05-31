@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, TypeVar, Union
 
@@ -22,7 +23,7 @@ from pydantic import Field
 from typing_extensions import Annotated, ParamSpec
 
 P = ParamSpec("P")
-T = TypeVar("T")
+T = TypeVar("T", bound=Enum)
 RT = TypeVar("RT")
 
 StrOrPath = Union[str, Path]

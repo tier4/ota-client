@@ -100,5 +100,5 @@ def configure_logging():
         # NOTE: "otaclient" logger will be the root logger for all loggers name
         #       starts with "otaclient.", and the settings will affect its child loggers.
         #       For example, settings for "otaclient" logger will also be effective to
-        #       "otaclient.app.*" logger and "otaclient.ota_proxy.*" logger.
+        #       "otaclient.app.*" logger and "ota_proxy.*" logger.
         _otaclient_logger.addHandler(ch)
