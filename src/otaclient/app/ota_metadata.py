@@ -71,7 +71,7 @@ from urllib.parse import quote
 from OpenSSL import crypto
 from typing_extensions import Self
 
-from otaclient.ota_proxy import OTAFileCacheControl
+from ota_proxy import OTAFileCacheControl
 
 from .common import RetryTaskMap, get_backoff, urljoin_ensure_base
 from .configs import config as cfg

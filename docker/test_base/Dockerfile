@@ -4,11 +4,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG KERNEL_VERSION="5.8.0-53-generic"
 ARG BASE_IMG_URL="http://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.1-base-amd64.tar.gz"
 ARG OTA_METADATA_REPO="https://github.com/tier4/ota-metadata"
-ENV OTA_CLIENT_DIR="/ota-client"
 ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
 ENV OTA_IMAGE_DIR="${OTA_IMAGE_SERVER_ROOT}/data"
 ENV CERTS_DIR="/certs"
-ENV VENV="${OTA_CLIENT_DIR}/.venv"
 ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 
 
@@ -43,17 +41,10 @@ RUN set -eu; \
 # NOTE: include special identifiers #?; into the pathname
 RUN echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"
 
-# install otaclient dependencies
-COPY ./otaclient/requirements.txt /tmp/requirements.txt
-COPY ./tests/requirements.txt /tmp/requirements-dev.txt
+# install hatch
 RUN set -eu; \
-    python3 -m venv ${VENV}; \
-    source ${VENV}/bin/activate; \
     python3 -m pip install --no-cache-dir -q -U pip; \
-    python3 -m pip install \
-        --no-cache-dir -q \
-        -r /tmp/requirements.txt \
-        -r /tmp/requirements-dev.txt
+    python3 -m pip install --no-cache-dir -U hatch
 
 # generate test certs and sign key
 COPY --chmod=755 ./tests/keys/gen_certs.sh /tmp/certs/
@@ -98,5 +89,4 @@ RUN set -eu; \
 COPY ./docker/test_base/entry_point.sh /entry_point.sh
 RUN chmod +x /entry_point.sh
 
-WORKDIR ${OTA_CLIENT_DIR}
 ENTRYPOINT [ "/entry_point.sh" ]

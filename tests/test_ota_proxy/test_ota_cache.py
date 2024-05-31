@@ -21,10 +21,10 @@ from typing import Coroutine, Dict, List, Optional, Tuple
 
 import pytest
 
-from otaclient.ota_proxy import config as cfg
-from otaclient.ota_proxy.db import CacheMeta, OTACacheDB
-from otaclient.ota_proxy.ota_cache import CachingRegister, LRUCacheHelper
-from otaclient.ota_proxy.utils import url_based_hash
+from ota_proxy import config as cfg
+from ota_proxy.db import CacheMeta, OTACacheDB
+from ota_proxy.ota_cache import CachingRegister, LRUCacheHelper
+from ota_proxy.utils import url_based_hash
 
 logger = logging.getLogger(__name__)
 
