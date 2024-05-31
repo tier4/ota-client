@@ -375,7 +375,10 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         ).relative_to("/")
 
         # NOTE: this hint file is referred by finalize_switching_boot
-        self.firmware_update_hint_fpath = (
+        self.current_fwupdate_hint_fpath = (
+            current_ota_status_dir / boot_cfg.FIRMWARE_UPDATE_HINT_FNAME
+        )
+        self.standby_fwupdate_hint_fpath = (
             standby_ota_status_dir / boot_cfg.FIRMWARE_UPDATE_HINT_FNAME
         )
 
@@ -417,7 +420,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             # NOTE: the hint file is checked during OTAStatusFilesControl __init__,
             #   by finalize_switching_boot if we are in first reboot after OTA.
             #   once we have done parsing the hint file, we must remove it immediately.
-            self.firmware_update_hint_fpath.unlink(missing_ok=True)
+            self.current_fwupdate_hint_fpath.unlink(missing_ok=True)
 
     def _finalize_switching_boot(self) -> bool:
         """Verify firmware update result and write firmware BSP version file."""
@@ -430,7 +433,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
         try:
             slot_id, bsp_v = CapsuleUpdate.parse_firmware_update_hint_file(
-                self.firmware_update_hint_fpath
+                self.current_fwupdate_hint_fpath
             )
         except FileNotFoundError:
             logger.info("no firmware update occurs in previous OTA")
@@ -507,7 +510,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         )
         if firmware_updater.firmware_update():
             CapsuleUpdate.write_firmware_update_hint_file(
-                self.firmware_update_hint_fpath,
+                self.standby_fwupdate_hint_fpath,
                 slot_id=self._uefi_control.standby_slot,
                 bsp_version=new_bsp_v,
             )
