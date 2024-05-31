@@ -173,6 +173,8 @@ class CapsuleUpdate:
             raise JetsonUEFIBootControlError(_err_msg) from e
 
         capsule_at_esp = esp_mp / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
+        capsule_at_esp.mkdir(parents=True, exist_ok=True)
+
         capsule_at_standby_slot = self.standby_slot_mp / Path(
             boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS
         ).relative_to("/")
