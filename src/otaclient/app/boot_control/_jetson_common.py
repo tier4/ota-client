@@ -197,7 +197,7 @@ class FirmwareBSPVersionControl:
             self._version = _version = FirmwareBSPVersion.model_validate_json(
                 self._current_fw_bsp_vf.read_text()
             )
-            logger.info(f"firmware_version: {_version}")
+            logger.info(f"loaded firmware_version from version file: {_version}")
         except Exception as e:
             logger.warning(
                 f"invalid or missing firmware_bsp_verion file, removed: {e!r}"

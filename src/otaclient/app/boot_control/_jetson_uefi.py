@@ -468,6 +468,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             return False
 
         # ------ firmware update succeeded, write firmware version file ------ #
+        logger.info(
+            f"successfully update {current_slot=} firmware version to {current_slot_bsp_ver}"
+        )
         self._firmware_ver_control.set_version_by_slot(
             current_slot, current_slot_bsp_ver
         )
