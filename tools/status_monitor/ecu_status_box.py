@@ -13,13 +13,15 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import curses
 import datetime
 import threading
 import time
 from typing import Sequence, Tuple
 
-from otaclient.app.proto import wrapper as proto_wrapper
+from otaclient_api.v2 import types as api_types
 
 from .configs import config
 from .utils import FormatValue, ScreenHandler
@@ -47,7 +49,7 @@ class ECUStatusDisplayBox:
         # contents for raw ecu status info sub window
         self.raw_ecu_status_contents = []
 
-        self._last_status = proto_wrapper.StatusResponseEcuV2()
+        self._last_status = api_types.StatusResponseEcuV2()
         # prevent conflicts between status update and pad update
         self._lock = threading.Lock()
         self.last_updated = 0
@@ -60,9 +62,7 @@ class ECUStatusDisplayBox:
         """Getter for raw_ecu_status_contents."""
         return self.raw_ecu_status_contents, self.last_updated
 
-    def update_ecu_status(
-        self, ecu_status: proto_wrapper.StatusResponseEcuV2, index: int
-    ):
+    def update_ecu_status(self, ecu_status: api_types.StatusResponseEcuV2, index: int):
         """Update internal contents storage with input <ecu_status>.
 
         This method is called by tracker module to update the contents within
@@ -80,7 +80,7 @@ class ECUStatusDisplayBox:
                 "-" * (self.DISPLAY_BOX_HCOLS - 2),
             ]
 
-            if ecu_status.ota_status is proto_wrapper.StatusOta.UPDATING:
+            if ecu_status.ota_status is api_types.StatusOta.UPDATING:
                 update_status = ecu_status.update_status
                 # TODO: render a progress bar according to ECU status V2's specification
                 self.contents.extend(
@@ -114,7 +114,7 @@ class ECUStatusDisplayBox:
                     "No detailed failure information.",
                 ]
 
-            elif ecu_status.ota_status is proto_wrapper.StatusOta.FAILURE:
+            elif ecu_status.ota_status is api_types.StatusOta.FAILURE:
                 self.contents.extend(
                     [
                         f"ota_status: {ecu_status.ota_status.name}",
