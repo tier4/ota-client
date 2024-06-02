@@ -60,7 +60,7 @@ source = "vcs"
 version-file = "src/_otaclient_version.py"
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/tools"]
+exclude = ["/tools", ".github"]
 
 [tool.hatch.build.targets.wheel]
 exclude = ["**/.gitignore"]
