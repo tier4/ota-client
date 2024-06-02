@@ -18,7 +18,7 @@ import time
 
 from pytest import LogCaptureFixture
 
-from otaclient._utils import logging as _logging
+from otaclient_common import logging as _logging
 
 
 def test_BurstSuppressFilter(caplog: LogCaptureFixture):
