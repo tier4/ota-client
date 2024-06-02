@@ -29,7 +29,7 @@ from otaclient_common.common import (
     subprocess_call,
     subprocess_check_output,
 )
-from otaclient_api.v2 import wrapper_types as wrapper
+from otaclient_api.v2 import types as api_types
 from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
@@ -379,8 +379,8 @@ class RPIBootController(BootControllerProtocol):
 
             # 20230613: remove any leftover flag file if ota_status is not UPDATING/ROLLBACKING
             if self._ota_status_control.booted_ota_status not in (
-                wrapper.StatusOta.UPDATING,
-                wrapper.StatusOta.ROLLBACKING,
+                api_types.StatusOta.UPDATING,
+                api_types.StatusOta.ROLLBACKING,
             ):
                 _flag_file = (
                     self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
@@ -550,5 +550,5 @@ class RPIBootController(BootControllerProtocol):
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> wrapper.StatusOta:
+    def get_booted_ota_status(self) -> api_types.StatusOta:
         return self._ota_status_control.booted_ota_status

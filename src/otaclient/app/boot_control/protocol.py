@@ -17,14 +17,14 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Generator, Protocol
 
-from otaclient_api.v2 import wrapper_types as wrapper
+from otaclient_api.v2 import types as api_types
 
 
 class BootControllerProtocol(Protocol):
     """Boot controller protocol for otaclient."""
 
     @abstractmethod
-    def get_booted_ota_status(self) -> wrapper.StatusOta:
+    def get_booted_ota_status(self) -> api_types.StatusOta:
         """Get the ota_status loaded from status file during otaclient starts up.
 
         This value is meant to be used only once during otaclient starts up,
