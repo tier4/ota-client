@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import threading
@@ -24,8 +26,8 @@ import pytest_mock
 import requests
 import requests_mock
 
-from otaclient.app.common import file_sha256, urljoin_ensure_base
-from otaclient.app.downloader import (
+from otaclient_common.common import file_sha256, urljoin_ensure_base
+from otaclient_common.downloader import (
     ChunkStreamingError,
     DestinationNotAvailableError,
     Downloader,

@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import logging
 import os
 import random
@@ -26,7 +28,7 @@ from typing import Tuple
 
 import pytest
 
-from otaclient.app.common import (
+from otaclient_common.common import (
     RetryTaskMap,
     RetryTaskMapInterrupted,
     copytree_identical,
