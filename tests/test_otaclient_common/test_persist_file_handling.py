@@ -19,8 +19,8 @@ import os
 import stat
 from pathlib import Path
 
-from otaclient._utils import replace_root
-from otaclient.app.ota_client import PersistFilesHandler
+from otaclient_common import replace_root
+from otaclient_common.persist_file_handling import PersistFilesHandler
 
 
 def create_files(tmp_path: Path):

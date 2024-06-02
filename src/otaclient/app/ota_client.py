@@ -34,13 +34,9 @@ from ota_metadata.legacy import types as ota_metadata_types
 from otaclient import __version__
 from otaclient_api.v2 import types as api_types
 from otaclient_common import downloader
-from otaclient_common.common import (
-    PersistFilesHandler,
-    RetryTaskMap,
-    RetryTaskMapInterrupted,
-    ensure_otaproxy_start,
-    get_backoff,
-)
+from otaclient_common.common import ensure_otaproxy_start, get_backoff
+from otaclient_common.persist_file_handling import PersistFilesHandler
+from otaclient_common.retry_task_map import RetryTaskMap, RetryTaskMapInterrupted
 
 from . import errors as ota_errors
 from .boot_control import BootControllerProtocol, get_boot_controller

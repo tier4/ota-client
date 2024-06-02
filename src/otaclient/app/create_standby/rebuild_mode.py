@@ -23,7 +23,8 @@ from typing import List, Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
-from otaclient_common.common import RetryTaskMap, get_backoff
+from otaclient_common.common import get_backoff
+from otaclient_common.retry_task_map import RetryTaskMap
 
 from ..configs import config as cfg
 from ..update_stats import (

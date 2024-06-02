@@ -18,7 +18,7 @@ from typing import ClassVar, Dict, List
 
 from typing_extensions import Self
 
-from otaclient._utils import copy_callable_typehint_to_method
+from otaclient_common import copy_callable_typehint_to_method
 
 _FIELDS = "_fields"
 
