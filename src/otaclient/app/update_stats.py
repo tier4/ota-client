@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import logging
 import time
 from contextlib import contextmanager
@@ -20,10 +22,10 @@ from dataclasses import dataclass
 from enum import Enum
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
-from typing import Generator, List
+from typing import Generator
 
+from otaclient_api.v2.types import UpdateStatus
 from .configs import config as cfg
-from .proto.wrapper import UpdateStatus
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +62,7 @@ class OTAUpdateStatsCollector:
         self.collect_interval = cfg.STATS_COLLECT_INTERVAL
         self.terminated = Event()
         self._que: Queue[RegInfProcessedStats] = Queue()
-        self._staging: List[RegInfProcessedStats] = []
+        self._staging: list[RegInfProcessedStats] = []
         self._collector_thread = None
 
     @contextmanager
@@ -111,7 +113,7 @@ class OTAUpdateStatsCollector:
     report_download_ota_files = _report
     report_prepare_local_copy = _report
 
-    def report_apply_delta(self, stats_list: List[RegInfProcessedStats]):
+    def report_apply_delta(self, stats_list: list[RegInfProcessedStats]):
         """Stats report for APPLY_DELTA operation.
 
         Params:
