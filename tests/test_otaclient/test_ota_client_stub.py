@@ -26,14 +26,14 @@ from pytest_mock import MockerFixture
 
 from ota_proxy import OTAProxyContextProto
 from ota_proxy.config import Config as otaproxyConfig
+from otaclient_api.v2.api_caller import OTAClientCall
+from otaclient_api.v2 import types as api_types
 from otaclient.app.ota_client import OTAServicer
-from otaclient.app.ota_client_call import OtaClientCall
 from otaclient.app.ota_client_stub import (
     ECUStatusStorage,
     OTAClientServiceStub,
     OTAProxyLauncher,
 )
-from otaclient.app.proto import wrapper
 from otaclient.configs.ecu_info import ECUInfo, parse_ecu_info
 from otaclient.configs.proxy_info import ProxyInfo, parse_proxy_info
 from tests.conftest import cfg
@@ -184,33 +184,33 @@ class TestECUStatusStorage:
             # case 1
             (
                 # local ECU's status report
-                wrapper.StatusResponseEcuV2(
+                api_types.StatusResponseEcuV2(
                     ecu_id="autoware",
-                    ota_status=wrapper.StatusOta.SUCCESS,
+                    ota_status=api_types.StatusOta.SUCCESS,
                     firmware_version="123.x",
-                    failure_type=wrapper.FailureType.NO_FAILURE,
+                    failure_type=api_types.FailureType.NO_FAILURE,
                 ),
                 # sub ECU's status report
                 [
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p1"],
                         ecu_v2=[
-                            wrapper.StatusResponseEcuV2(
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p1",
-                                ota_status=wrapper.StatusOta.SUCCESS,
+                                ota_status=api_types.StatusOta.SUCCESS,
                                 firmware_version="123.x",
-                                failure_type=wrapper.FailureType.NO_FAILURE,
+                                failure_type=api_types.FailureType.NO_FAILURE,
                             )
                         ],
                     ),
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p2"],
                         ecu=[
-                            wrapper.StatusResponseEcu(
+                            api_types.StatusResponseEcu(
                                 ecu_id="p2",
-                                result=wrapper.FailureType.NO_FAILURE,
-                                status=wrapper.Status(
-                                    status=wrapper.StatusOta.SUCCESS,
+                                result=api_types.FailureType.NO_FAILURE,
+                                status=api_types.Status(
+                                    status=api_types.StatusOta.SUCCESS,
                                     version="123.x",
                                 ),
                             ),
@@ -218,46 +218,46 @@ class TestECUStatusStorage:
                     ),
                 ],
                 # expected export
-                wrapper.StatusResponse(
+                api_types.StatusResponse(
                     available_ecu_ids=["autoware", "p1", "p2"],
                     # explicitly v1 format compatibility
                     ecu=[
-                        wrapper.StatusResponseEcu(
+                        api_types.StatusResponseEcu(
                             ecu_id="autoware",
-                            result=wrapper.FailureType.NO_FAILURE,
-                            status=wrapper.Status(
-                                status=wrapper.StatusOta.SUCCESS,
+                            result=api_types.FailureType.NO_FAILURE,
+                            status=api_types.Status(
+                                status=api_types.StatusOta.SUCCESS,
                                 version="123.x",
                             ),
                         ),
-                        wrapper.StatusResponseEcu(
+                        api_types.StatusResponseEcu(
                             ecu_id="p1",
-                            result=wrapper.FailureType.NO_FAILURE,
-                            status=wrapper.Status(
-                                status=wrapper.StatusOta.SUCCESS,
+                            result=api_types.FailureType.NO_FAILURE,
+                            status=api_types.Status(
+                                status=api_types.StatusOta.SUCCESS,
                                 version="123.x",
                             ),
                         ),
-                        wrapper.StatusResponseEcu(
+                        api_types.StatusResponseEcu(
                             ecu_id="p2",
-                            result=wrapper.FailureType.NO_FAILURE,
-                            status=wrapper.Status(
-                                status=wrapper.StatusOta.SUCCESS,
+                            result=api_types.FailureType.NO_FAILURE,
+                            status=api_types.Status(
+                                status=api_types.StatusOta.SUCCESS,
                                 version="123.x",
                             ),
                         ),
                     ],
                     ecu_v2=[
-                        wrapper.StatusResponseEcuV2(
+                        api_types.StatusResponseEcuV2(
                             ecu_id="autoware",
-                            ota_status=wrapper.StatusOta.SUCCESS,
-                            failure_type=wrapper.FailureType.NO_FAILURE,
+                            ota_status=api_types.StatusOta.SUCCESS,
+                            failure_type=api_types.FailureType.NO_FAILURE,
                             firmware_version="123.x",
                         ),
-                        wrapper.StatusResponseEcuV2(
+                        api_types.StatusResponseEcuV2(
                             ecu_id="p1",
-                            ota_status=wrapper.StatusOta.SUCCESS,
-                            failure_type=wrapper.FailureType.NO_FAILURE,
+                            ota_status=api_types.StatusOta.SUCCESS,
+                            failure_type=api_types.FailureType.NO_FAILURE,
                             firmware_version="123.x",
                         ),
                     ],
@@ -266,15 +266,15 @@ class TestECUStatusStorage:
             # case 2
             (
                 # local ecu status report
-                wrapper.StatusResponseEcuV2(
+                api_types.StatusResponseEcuV2(
                     ecu_id="autoware",
-                    ota_status=wrapper.StatusOta.UPDATING,
+                    ota_status=api_types.StatusOta.UPDATING,
                     firmware_version="123.x",
-                    failure_type=wrapper.FailureType.NO_FAILURE,
-                    update_status=wrapper.UpdateStatus(
+                    failure_type=api_types.FailureType.NO_FAILURE,
+                    update_status=api_types.UpdateStatus(
                         update_firmware_version="789.x",
-                        phase=wrapper.UpdatePhase.DOWNLOADING_OTA_FILES,
-                        total_elapsed_time=wrapper.Duration(seconds=123),
+                        phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
+                        total_elapsed_time=api_types.Duration(seconds=123),
                         total_files_num=123456,
                         processed_files_num=123,
                         processed_files_size=456,
@@ -285,18 +285,18 @@ class TestECUStatusStorage:
                 ),
                 # sub ECUs' status report
                 [
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p1"],
                         ecu_v2=[
-                            wrapper.StatusResponseEcuV2(
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p1",
-                                ota_status=wrapper.StatusOta.UPDATING,
+                                ota_status=api_types.StatusOta.UPDATING,
                                 firmware_version="123.x",
-                                failure_type=wrapper.FailureType.NO_FAILURE,
-                                update_status=wrapper.UpdateStatus(
+                                failure_type=api_types.FailureType.NO_FAILURE,
+                                update_status=api_types.UpdateStatus(
                                     update_firmware_version="789.x",
-                                    phase=wrapper.UpdatePhase.DOWNLOADING_OTA_FILES,
-                                    total_elapsed_time=wrapper.Duration(seconds=123),
+                                    phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
+                                    total_elapsed_time=api_types.Duration(seconds=123),
                                     total_files_num=123456,
                                     processed_files_num=123,
                                     processed_files_size=456,
@@ -307,14 +307,14 @@ class TestECUStatusStorage:
                             )
                         ],
                     ),
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p2"],
                         ecu=[
-                            wrapper.StatusResponseEcu(
+                            api_types.StatusResponseEcu(
                                 ecu_id="p2",
-                                result=wrapper.FailureType.NO_FAILURE,
-                                status=wrapper.Status(
-                                    status=wrapper.StatusOta.SUCCESS,
+                                result=api_types.FailureType.NO_FAILURE,
+                                status=api_types.Status(
+                                    status=api_types.StatusOta.SUCCESS,
                                     version="123.x",
                                 ),
                             ),
@@ -322,20 +322,20 @@ class TestECUStatusStorage:
                     ),
                 ],
                 # expected export result
-                wrapper.StatusResponse(
+                api_types.StatusResponse(
                     available_ecu_ids=["autoware", "p1", "p2"],
                     # explicitly v1 format compatibility
                     # NOTE: processed_files_num(v2) = files_processed_download(v1) + files_processed_copy(v1)
-                    # check wrapper.UpdateStatus.convert_to_v1_StatusProgress for more details.
+                    # check api_types.UpdateStatus.convert_to_v1_StatusProgress for more details.
                     ecu=[
-                        wrapper.StatusResponseEcu(
+                        api_types.StatusResponseEcu(
                             ecu_id="autoware",
-                            result=wrapper.FailureType.NO_FAILURE,
-                            status=wrapper.Status(
-                                status=wrapper.StatusOta.UPDATING,
+                            result=api_types.FailureType.NO_FAILURE,
+                            status=api_types.Status(
+                                status=api_types.StatusOta.UPDATING,
                                 version="123.x",
-                                progress=wrapper.StatusProgress(
-                                    phase=wrapper.StatusProgressPhase.REGULAR,
+                                progress=api_types.StatusProgress(
+                                    phase=api_types.StatusProgressPhase.REGULAR,
                                     total_regular_files=123456,
                                     files_processed_download=100,
                                     file_size_processed_download=400,
@@ -343,18 +343,18 @@ class TestECUStatusStorage:
                                     file_size_processed_copy=56,
                                     download_bytes=789,
                                     regular_files_processed=123,
-                                    total_elapsed_time=wrapper.Duration(seconds=123),
+                                    total_elapsed_time=api_types.Duration(seconds=123),
                                 ),
                             ),
                         ),
-                        wrapper.StatusResponseEcu(
+                        api_types.StatusResponseEcu(
                             ecu_id="p1",
-                            result=wrapper.FailureType.NO_FAILURE,
-                            status=wrapper.Status(
-                                status=wrapper.StatusOta.UPDATING,
+                            result=api_types.FailureType.NO_FAILURE,
+                            status=api_types.Status(
+                                status=api_types.StatusOta.UPDATING,
                                 version="123.x",
-                                progress=wrapper.StatusProgress(
-                                    phase=wrapper.StatusProgressPhase.REGULAR,
+                                progress=api_types.StatusProgress(
+                                    phase=api_types.StatusProgressPhase.REGULAR,
                                     total_regular_files=123456,
                                     files_processed_download=100,
                                     file_size_processed_download=400,
@@ -362,29 +362,29 @@ class TestECUStatusStorage:
                                     file_size_processed_copy=56,
                                     download_bytes=789,
                                     regular_files_processed=123,
-                                    total_elapsed_time=wrapper.Duration(seconds=123),
+                                    total_elapsed_time=api_types.Duration(seconds=123),
                                 ),
                             ),
                         ),
-                        wrapper.StatusResponseEcu(
+                        api_types.StatusResponseEcu(
                             ecu_id="p2",
-                            result=wrapper.FailureType.NO_FAILURE,
-                            status=wrapper.Status(
+                            result=api_types.FailureType.NO_FAILURE,
+                            status=api_types.Status(
                                 version="123.x",
-                                status=wrapper.StatusOta.SUCCESS,
+                                status=api_types.StatusOta.SUCCESS,
                             ),
                         ),
                     ],
                     ecu_v2=[
-                        wrapper.StatusResponseEcuV2(
+                        api_types.StatusResponseEcuV2(
                             ecu_id="autoware",
-                            ota_status=wrapper.StatusOta.UPDATING,
-                            failure_type=wrapper.FailureType.NO_FAILURE,
+                            ota_status=api_types.StatusOta.UPDATING,
+                            failure_type=api_types.FailureType.NO_FAILURE,
                             firmware_version="123.x",
-                            update_status=wrapper.UpdateStatus(
+                            update_status=api_types.UpdateStatus(
                                 update_firmware_version="789.x",
-                                phase=wrapper.UpdatePhase.DOWNLOADING_OTA_FILES,
-                                total_elapsed_time=wrapper.Duration(seconds=123),
+                                phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
+                                total_elapsed_time=api_types.Duration(seconds=123),
                                 total_files_num=123456,
                                 processed_files_num=123,
                                 processed_files_size=456,
@@ -393,15 +393,15 @@ class TestECUStatusStorage:
                                 downloaded_files_size=400,
                             ),
                         ),
-                        wrapper.StatusResponseEcuV2(
+                        api_types.StatusResponseEcuV2(
                             ecu_id="p1",
-                            ota_status=wrapper.StatusOta.UPDATING,
-                            failure_type=wrapper.FailureType.NO_FAILURE,
+                            ota_status=api_types.StatusOta.UPDATING,
+                            failure_type=api_types.FailureType.NO_FAILURE,
                             firmware_version="123.x",
-                            update_status=wrapper.UpdateStatus(
+                            update_status=api_types.UpdateStatus(
                                 update_firmware_version="789.x",
-                                phase=wrapper.UpdatePhase.DOWNLOADING_OTA_FILES,
-                                total_elapsed_time=wrapper.Duration(seconds=123),
+                                phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
+                                total_elapsed_time=api_types.Duration(seconds=123),
                                 total_files_num=123456,
                                 processed_files_num=123,
                                 processed_files_size=456,
@@ -417,9 +417,9 @@ class TestECUStatusStorage:
     )
     async def test_export(
         self,
-        local_ecu_status: wrapper.StatusResponseEcuV2,
-        sub_ecus_status: List[wrapper.StatusResponse],
-        expected: wrapper.StatusResponse,
+        local_ecu_status: api_types.StatusResponseEcuV2,
+        sub_ecus_status: List[api_types.StatusResponse],
+        expected: api_types.StatusResponse,
     ):
         # --- prepare --- #
         await self.ecu_storage.update_from_local_ecu(local_ecu_status)
@@ -438,34 +438,34 @@ class TestECUStatusStorage:
             # case 1:
             (
                 # local ECU status: UPDATING, requires network
-                wrapper.StatusResponseEcuV2(
+                api_types.StatusResponseEcuV2(
                     ecu_id="autoware",
-                    ota_status=wrapper.StatusOta.UPDATING,
-                    update_status=wrapper.UpdateStatus(
-                        phase=wrapper.UpdatePhase.DOWNLOADING_OTA_FILES
+                    ota_status=api_types.StatusOta.UPDATING,
+                    update_status=api_types.UpdateStatus(
+                        phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES
                     ),
                 ),
                 # sub ECUs status
                 [
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p1"],
                         ecu_v2=[
-                            wrapper.StatusResponseEcuV2(
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p1",
-                                ota_status=wrapper.StatusOta.FAILURE,
+                                ota_status=api_types.StatusOta.FAILURE,
                             ),
                         ],
                     ),
                     # p2: updating, doesn't require network
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p2"],
                         ecu=[
-                            wrapper.StatusResponseEcu(
+                            api_types.StatusResponseEcu(
                                 ecu_id="p2",
-                                status=wrapper.Status(
-                                    status=wrapper.StatusOta.UPDATING,
-                                    progress=wrapper.StatusProgress(
-                                        phase=wrapper.StatusProgressPhase.POST_PROCESSING,
+                                status=api_types.Status(
+                                    status=api_types.StatusOta.UPDATING,
+                                    progress=api_types.StatusProgress(
+                                        phase=api_types.StatusProgressPhase.POST_PROCESSING,
                                     ),
                                 ),
                             )
@@ -486,32 +486,32 @@ class TestECUStatusStorage:
             # case 2:
             (
                 # local ECU status: SUCCESS
-                wrapper.StatusResponseEcuV2(
+                api_types.StatusResponseEcuV2(
                     ecu_id="autoware",
-                    ota_status=wrapper.StatusOta.SUCCESS,
+                    ota_status=api_types.StatusOta.SUCCESS,
                 ),
                 # sub ECUs status
                 [
                     # p1: FAILURE
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p1"],
                         ecu_v2=[
-                            wrapper.StatusResponseEcuV2(
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p1",
-                                ota_status=wrapper.StatusOta.FAILURE,
+                                ota_status=api_types.StatusOta.FAILURE,
                             ),
                         ],
                     ),
                     # p2: updating, requires network
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p2"],
                         ecu=[
-                            wrapper.StatusResponseEcu(
+                            api_types.StatusResponseEcu(
                                 ecu_id="p2",
-                                status=wrapper.Status(
-                                    status=wrapper.StatusOta.UPDATING,
-                                    progress=wrapper.StatusProgress(
-                                        phase=wrapper.StatusProgressPhase.REGULAR,
+                                status=api_types.Status(
+                                    status=api_types.StatusOta.UPDATING,
+                                    progress=api_types.StatusProgress(
+                                        phase=api_types.StatusProgressPhase.REGULAR,
                                     ),
                                 ),
                             )
@@ -533,8 +533,8 @@ class TestECUStatusStorage:
     )
     async def test_overall_ecu_status_report_generation(
         self,
-        local_ecu_status: wrapper.StatusResponseEcuV2,
-        sub_ecus_status: List[wrapper.StatusResponse],
+        local_ecu_status: api_types.StatusResponseEcuV2,
+        sub_ecus_status: List[api_types.StatusResponse],
         properties_dict: Dict[str, Any],
     ):
         # --- prepare --- #
@@ -559,32 +559,32 @@ class TestECUStatusStorage:
             #   based on the status change of ECUs that accept update request.
             (
                 # local ECU status: FAILED
-                wrapper.StatusResponseEcuV2(
+                api_types.StatusResponseEcuV2(
                     ecu_id="autoware",
-                    ota_status=wrapper.StatusOta.FAILURE,
+                    ota_status=api_types.StatusOta.FAILURE,
                 ),
                 # sub ECUs status
                 [
                     # p1: FAILED
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p1"],
                         ecu_v2=[
-                            wrapper.StatusResponseEcuV2(
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p1",
-                                ota_status=wrapper.StatusOta.FAILURE,
+                                ota_status=api_types.StatusOta.FAILURE,
                             ),
                         ],
                     ),
                     # p2: UPDATING
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p2"],
                         ecu=[
-                            wrapper.StatusResponseEcu(
+                            api_types.StatusResponseEcu(
                                 ecu_id="p2",
-                                status=wrapper.Status(
-                                    status=wrapper.StatusOta.UPDATING,
-                                    progress=wrapper.StatusProgress(
-                                        phase=wrapper.StatusProgressPhase.REGULAR,
+                                status=api_types.Status(
+                                    status=api_types.StatusOta.UPDATING,
+                                    progress=api_types.StatusProgress(
+                                        phase=api_types.StatusProgressPhase.REGULAR,
                                     ),
                                 ),
                             )
@@ -610,33 +610,33 @@ class TestECUStatusStorage:
             #   based on the status change of ECUs that accept update request.
             (
                 # local ECU status: UPDATING
-                wrapper.StatusResponseEcuV2(
+                api_types.StatusResponseEcuV2(
                     ecu_id="autoware",
-                    ota_status=wrapper.StatusOta.UPDATING,
-                    update_status=wrapper.UpdateStatus(
-                        phase=wrapper.UpdatePhase.DOWNLOADING_OTA_FILES,
+                    ota_status=api_types.StatusOta.UPDATING,
+                    update_status=api_types.UpdateStatus(
+                        phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
                     ),
                 ),
                 # sub ECUs status
                 [
                     # p1: FAILED
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p1"],
                         ecu_v2=[
-                            wrapper.StatusResponseEcuV2(
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p1",
-                                ota_status=wrapper.StatusOta.FAILURE,
+                                ota_status=api_types.StatusOta.FAILURE,
                             ),
                         ],
                     ),
                     # p2: SUCCESS
-                    wrapper.StatusResponse(
+                    api_types.StatusResponse(
                         available_ecu_ids=["p2"],
                         ecu=[
-                            wrapper.StatusResponseEcu(
+                            api_types.StatusResponseEcu(
                                 ecu_id="p2",
-                                status=wrapper.Status(
-                                    status=wrapper.StatusOta.SUCCESS,
+                                status=api_types.Status(
+                                    status=api_types.StatusOta.SUCCESS,
                                 ),
                             )
                         ],
@@ -658,8 +658,8 @@ class TestECUStatusStorage:
     )
     async def test_on_receive_update_request(
         self,
-        local_ecu_status: wrapper.StatusResponseEcuV2,
-        sub_ecus_status: List[wrapper.StatusResponse],
+        local_ecu_status: api_types.StatusResponseEcuV2,
+        sub_ecus_status: List[api_types.StatusResponse],
         ecus_accept_update_request: List[str],
         properties_dict: Dict[str, Any],
     ):
@@ -710,10 +710,10 @@ class TestOTAClientServiceStub:
 
     @staticmethod
     async def _subecu_accept_update_request(ecu_id, *args, **kwargs):
-        return wrapper.UpdateResponse(
+        return api_types.UpdateResponse(
             ecu=[
-                wrapper.UpdateResponseEcu(
-                    ecu_id=ecu_id, result=wrapper.FailureType.NO_FAILURE
+                api_types.UpdateResponseEcu(
+                    ecu_id=ecu_id, result=api_types.FailureType.NO_FAILURE
                 )
             ]
         )
@@ -741,11 +741,11 @@ class TestOTAClientServiceStub:
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)  # ensure the task stopping
 
         # --- mocker --- #
-        self.otaclient_wrapper = mocker.MagicMock(spec=OTAServicer)
+        self.otaclient_api_types = mocker.MagicMock(spec=OTAServicer)
         self.ecu_status_tracker = mocker.MagicMock()
         self.otaproxy_launcher = mocker.MagicMock(spec=OTAProxyLauncher)
         # mock OTAClientCall, make update_call return success on any update dispatches to subECUs
-        self.otaclient_call = mocker.AsyncMock(spec=OtaClientCall)
+        self.otaclient_call = mocker.AsyncMock(spec=OTAClientCall)
         self.otaclient_call.update_call = mocker.AsyncMock(
             wraps=self._subecu_accept_update_request
         )
@@ -761,7 +761,7 @@ class TestOTAClientServiceStub:
         )
         mocker.patch(
             f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAServicer",
-            mocker.MagicMock(return_value=self.otaclient_wrapper),
+            mocker.MagicMock(return_value=self.otaclient_api_types),
         )
         mocker.patch(
             f"{cfg.OTACLIENT_STUB_MODULE_PATH}._ECUTracker",
@@ -845,15 +845,15 @@ class TestOTAClientServiceStub:
         (
             # update request for autoware, p1 ecus
             (
-                wrapper.UpdateRequest(
+                api_types.UpdateRequest(
                     ecu=[
-                        wrapper.UpdateRequestEcu(
+                        api_types.UpdateRequestEcu(
                             ecu_id="autoware",
                             version="789.x",
                             url="url",
                             cookies="cookies",
                         ),
-                        wrapper.UpdateRequestEcu(
+                        api_types.UpdateRequestEcu(
                             ecu_id="p1",
                             version="789.x",
                             url="url",
@@ -865,24 +865,24 @@ class TestOTAClientServiceStub:
                 # NOTE: order matters!
                 #       update request dispatching to subECUs happens first,
                 #       and then to the local ECU.
-                wrapper.UpdateResponse(
+                api_types.UpdateResponse(
                     ecu=[
-                        wrapper.UpdateResponseEcu(
+                        api_types.UpdateResponseEcu(
                             ecu_id="p1",
-                            result=wrapper.FailureType.NO_FAILURE,
+                            result=api_types.FailureType.NO_FAILURE,
                         ),
-                        wrapper.UpdateResponseEcu(
+                        api_types.UpdateResponseEcu(
                             ecu_id="autoware",
-                            result=wrapper.FailureType.NO_FAILURE,
+                            result=api_types.FailureType.NO_FAILURE,
                         ),
                     ]
                 ),
             ),
             # update only p2
             (
-                wrapper.UpdateRequest(
+                api_types.UpdateRequest(
                     ecu=[
-                        wrapper.UpdateRequestEcu(
+                        api_types.UpdateRequestEcu(
                             ecu_id="p2",
                             version="789.x",
                             url="url",
@@ -891,11 +891,11 @@ class TestOTAClientServiceStub:
                     ]
                 ),
                 {"p2"},
-                wrapper.UpdateResponse(
+                api_types.UpdateResponse(
                     ecu=[
-                        wrapper.UpdateResponseEcu(
+                        api_types.UpdateResponseEcu(
                             ecu_id="p2",
-                            result=wrapper.FailureType.NO_FAILURE,
+                            result=api_types.FailureType.NO_FAILURE,
                         ),
                     ]
                 ),
@@ -904,13 +904,15 @@ class TestOTAClientServiceStub:
     )
     async def test_update_normal(
         self,
-        update_request: wrapper.UpdateRequest,
+        update_request: api_types.UpdateRequest,
         update_target_ids: Set[str],
-        expected: wrapper.UpdateResponse,
+        expected: api_types.UpdateResponse,
     ):
         # --- setup --- #
-        self.otaclient_wrapper.dispatch_update.return_value = wrapper.UpdateResponseEcu(
-            ecu_id=self.ecu_info.ecu_id, result=wrapper.FailureType.NO_FAILURE
+        self.otaclient_api_types.dispatch_update.return_value = (
+            api_types.UpdateResponseEcu(
+                ecu_id=self.ecu_info.ecu_id, result=api_types.FailureType.NO_FAILURE
+            )
         )
 
         # --- execution --- #
@@ -925,27 +927,29 @@ class TestOTAClientServiceStub:
 
     async def test_update_local_ecu_busy(self):
         # --- preparation --- #
-        self.otaclient_wrapper.dispatch_update.return_value = wrapper.UpdateResponseEcu(
-            ecu_id="autoware", result=wrapper.FailureType.RECOVERABLE
+        self.otaclient_api_types.dispatch_update.return_value = (
+            api_types.UpdateResponseEcu(
+                ecu_id="autoware", result=api_types.FailureType.RECOVERABLE
+            )
         )
-        update_request_ecu = wrapper.UpdateRequestEcu(
+        update_request_ecu = api_types.UpdateRequestEcu(
             ecu_id="autoware", version="version", url="url", cookies="cookies"
         )
 
         # --- execution --- #
         resp = await self.otaclient_service_stub.update(
-            wrapper.UpdateRequest(ecu=[update_request_ecu])
+            api_types.UpdateRequest(ecu=[update_request_ecu])
         )
 
         # --- assertion --- #
-        assert resp == wrapper.UpdateResponse(
+        assert resp == api_types.UpdateResponse(
             ecu=[
-                wrapper.UpdateResponseEcu(
+                api_types.UpdateResponseEcu(
                     ecu_id="autoware",
-                    result=wrapper.FailureType.RECOVERABLE,
+                    result=api_types.FailureType.RECOVERABLE,
                 )
             ]
         )
-        self.otaclient_wrapper.dispatch_update.assert_called_once_with(
+        self.otaclient_api_types.dispatch_update.assert_called_once_with(
             update_request_ecu
         )
