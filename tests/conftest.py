@@ -28,6 +28,8 @@ from tests.utils import SlotMeta, run_http_server
 
 logger = logging.getLogger(__name__)
 
+TEST_DIR = Path(__file__).parent
+
 
 @dataclass
 class TestConfiguration:
@@ -40,7 +42,7 @@ class TestConfiguration:
     RPI_BOOT_MODULE_PATH = "otaclient.app.boot_control._rpi_boot"
     OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
-    OTAMETA_MODULE_PATH = "ota_metadata.legacy"
+    OTAMETA_MODULE_PATH = "ota_metadata.legacy.parser"
     OTAPROXY_MODULE_PATH = "ota_proxy"
     CREATE_STANDBY_MODULE_PATH = "otaclient.app.create_standby"
     MAIN_MODULE_PATH = "otaclient.app.main"

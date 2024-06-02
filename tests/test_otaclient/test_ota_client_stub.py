@@ -772,7 +772,7 @@ class TestOTAClientServiceStub:
             mocker.MagicMock(return_value=self.otaproxy_launcher),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OtaClientCall", self.otaclient_call
+            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAClientCall", self.otaclient_call
         )
 
         # --- start the OTAClientServiceStub --- #

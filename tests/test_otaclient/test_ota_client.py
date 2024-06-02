@@ -150,7 +150,6 @@ class Test_OTAUpdater:
         _cfg.ACTIVE_ROOTFS_PATH = str(self.slot_a)  # type: ignore
         _cfg.RUN_DIR = str(self.otaclient_run_dir)  # type: ignore
         mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
-        mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg", _cfg)
 
         # ------ mock stats collector ------ #
         mocker.patch(

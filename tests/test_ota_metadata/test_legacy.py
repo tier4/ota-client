@@ -37,7 +37,8 @@ from ota_metadata.legacy.parser import (
     parse_symlinks_from_txt,
 )
 
-TEST_DIR = Path(__file__).parent.parent
+from tests.conftest import TEST_DIR
+
 GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"
 
 HEADER = """\

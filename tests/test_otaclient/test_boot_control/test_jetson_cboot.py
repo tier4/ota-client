@@ -34,10 +34,12 @@ from otaclient.app.boot_control._jetson_common import (
     update_extlinux_cfg,
 )
 
+from tests.conftest import TEST_DIR
+
 logger = logging.getLogger(__name__)
 
 MODULE_NAME = _jetson_cboot.__name__
-TEST_DIR = Path(__file__).parent.parent / "data"
+TEST_DATA_DIR = TEST_DIR / "data"
 
 
 def test_SlotID():
@@ -139,6 +141,6 @@ def test_parse_bsp_version(_in: str, expected: BSPVersion):
     ),
 )
 def test_update_extlinux_conf(_template_f: Path, _updated_f: Path, partuuid: str):
-    _in = (TEST_DIR / _template_f).read_text()
-    _expected = (TEST_DIR / _updated_f).read_text()
+    _in = (TEST_DATA_DIR / _template_f).read_text()
+    _expected = (TEST_DATA_DIR / _updated_f).read_text()
     assert update_extlinux_cfg(_in, partuuid) == _expected

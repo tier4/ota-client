@@ -28,6 +28,8 @@ from otaclient_api.v2.api_caller import OTAClientCall
 from tests.conftest import cfg
 from tests.utils import compare_message
 
+OTACLIENT_APP_MAIN = "otaclient.app.main"
+
 
 class _MockedOTAClientServiceStub:
     MY_ECU_ID = "autoware"
@@ -71,7 +73,7 @@ class Test_ota_client_service:
     def setup_test(self, mocker: pytest_mock.MockerFixture):
         self.otaclient_service_stub = _MockedOTAClientServiceStub()
         mocker.patch(
-            f"{cfg.OTACLIENT_SERVICE_MODULE_PATH}.OTAClientServiceStub",
+            f"{OTACLIENT_APP_MAIN}.OTAClientServiceStub",
             return_value=self.otaclient_service_stub,
         )
 
@@ -79,7 +81,7 @@ class Test_ota_client_service:
             ecu_id=self.otaclient_service_stub.MY_ECU_ID,
             ip_addr=self.LISTEN_ADDR,  # type: ignore
         )
-        mocker.patch(f"{cfg.OTACLIENT_SERVICE_MODULE_PATH}.ecu_info", ecu_info_mock)
+        mocker.patch(f"{OTACLIENT_APP_MAIN}.ecu_info", ecu_info_mock)
 
     @pytest.fixture(autouse=True)
     async def launch_otaclient_server(self, setup_test):

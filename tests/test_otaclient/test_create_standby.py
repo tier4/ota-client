@@ -78,7 +78,6 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         _cfg.RUN_DIR = str(self.otaclient_run_dir)  # type: ignore
         mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
         mocker.patch(f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.cfg", _cfg)
-        mocker.patch(f"{cfg.OTAMETA_MODULE_PATH}.cfg", _cfg)
 
     def test_update_with_create_standby_RebuildMode(self, mocker: MockerFixture):
         from otaclient.app.create_standby.rebuild_mode import RebuildMode
