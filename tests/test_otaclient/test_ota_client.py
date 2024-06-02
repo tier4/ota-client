@@ -41,8 +41,8 @@ from otaclient.app.ota_client import (
     OTAServicer,
     _OTAUpdater,
 )
-from otaclient_api.v2 import types as api_types
 from otaclient.configs.ecu_info import ECUInfo
+from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 

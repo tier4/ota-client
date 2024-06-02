@@ -11,7 +11,6 @@ import pytest_mock
 from otaclient.app.boot_control._rpi_boot import _FSTAB_TEMPLATE_STR
 from otaclient.app.boot_control.configs import rpi_boot_cfg
 from otaclient_api.v2 import types as api_types
-
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 

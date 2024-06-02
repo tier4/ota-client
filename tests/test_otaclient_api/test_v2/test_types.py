@@ -18,7 +18,8 @@ from typing import Type
 import pytest
 from google.protobuf.duration_pb2 import Duration as _Duration
 
-from otaclient_api.v2 import otaclient_v2_pb2 as v2, types as api_types
+from otaclient_api.v2 import otaclient_v2_pb2 as v2
+from otaclient_api.v2 import types as api_types
 from tests.utils import compare_message
 
 

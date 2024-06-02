@@ -26,8 +26,6 @@ from pytest_mock import MockerFixture
 
 from ota_proxy import OTAProxyContextProto
 from ota_proxy.config import Config as otaproxyConfig
-from otaclient_api.v2.api_caller import OTAClientCall
-from otaclient_api.v2 import types as api_types
 from otaclient.app.ota_client import OTAServicer
 from otaclient.app.ota_client_stub import (
     ECUStatusStorage,
@@ -36,6 +34,8 @@ from otaclient.app.ota_client_stub import (
 )
 from otaclient.configs.ecu_info import ECUInfo, parse_ecu_info
 from otaclient.configs.proxy_info import ProxyInfo, parse_proxy_info
+from otaclient_api.v2 import types as api_types
+from otaclient_api.v2.api_caller import OTAClientCall
 from tests.conftest import cfg
 from tests.utils import compare_message
 

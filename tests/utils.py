@@ -29,8 +29,9 @@ import grpc
 import zstandard
 from google.protobuf.message import Message as _Message
 
+from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
+from otaclient_api.v2 import types as api_types
 from otaclient_common.common import file_sha256
-from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc, types as api_types
 
 logger = logging.getLogger(__name__)
 
