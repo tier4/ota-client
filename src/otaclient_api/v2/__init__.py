@@ -29,7 +29,6 @@ _FILES_TO_LOAD = [
     for _fname in [
         "otaclient_v2_pb2.py",
         "otaclient_v2_pb2_grpc.py",
-        "ota_metafiles_pb2.py",
     ]
 ]
 PACKAGE_PREFIX = "otaclient_api.v2"
