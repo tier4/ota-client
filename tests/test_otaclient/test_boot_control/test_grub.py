@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 import pytest_mock
 
-from otaclient.app.proto import wrapper
+from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
@@ -323,7 +323,7 @@ class TestGrubControl:
         grub_controller = GrubController()
         assert (
             self.slot_a_ota_partition_dir / "status"
-        ).read_text() == wrapper.StatusOta.INITIALIZED.name
+        ).read_text() == api_types.StatusOta.INITIALIZED.name
         # assert ota-partition file points to slot_a ota-partition folder
         assert (
             os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
@@ -342,10 +342,10 @@ class TestGrubControl:
         # update slot_b, slot_a_ota_status->FAILURE, slot_b_ota_status->UPDATING
         assert (
             self.slot_a_ota_partition_dir / "status"
-        ).read_text() == wrapper.StatusOta.FAILURE.name
+        ).read_text() == api_types.StatusOta.FAILURE.name
         assert (
             self.slot_b_ota_partition_dir / "status"
-        ).read_text() == wrapper.StatusOta.UPDATING.name
+        ).read_text() == api_types.StatusOta.UPDATING.name
         # NOTE: we have to copy the new kernel files to the slot_b's boot dir
         #       this is done by the create_standby module
         _kernel = f"{cfg.KERNEL_PREFIX}-{cfg.KERNEL_VERSION}"
@@ -385,7 +385,7 @@ class TestGrubControl:
         assert self._fsm.is_boot_switched
         assert (
             self.slot_b_ota_partition_dir / "status"
-        ).read_text() == wrapper.StatusOta.UPDATING.name
+        ).read_text() == api_types.StatusOta.UPDATING.name
         # assert ota-partition file is not yet switched before first reboot init
         assert (
             os.readlink(self.boot_dir / cfg.OTA_PARTITION_DIRNAME)
@@ -401,7 +401,7 @@ class TestGrubControl:
         )
         assert (
             self.slot_b_ota_partition_dir / "status"
-        ).read_text() == wrapper.StatusOta.SUCCESS.name
+        ).read_text() == api_types.StatusOta.SUCCESS.name
         assert (
             self.slot_b_ota_partition_dir / "version"
         ).read_text() == cfg.UPDATE_VERSION

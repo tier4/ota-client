@@ -10,7 +10,8 @@ import pytest_mock
 
 from otaclient.app.boot_control._rpi_boot import _FSTAB_TEMPLATE_STR
 from otaclient.app.boot_control.configs import rpi_boot_cfg
-from otaclient.app.proto import wrapper
+from otaclient_api.v2 import types as api_types
+
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
@@ -223,10 +224,10 @@ class TestRPIBootControl:
         # 2. make sure the mount points are prepared
         assert (
             self.slot_a_ota_status_dir / "status"
-        ).read_text() == wrapper.StatusOta.FAILURE.name
+        ).read_text() == api_types.StatusOta.FAILURE.name
         assert (
             self.slot_b_ota_status_dir / "status"
-        ).read_text() == wrapper.StatusOta.UPDATING.name
+        ).read_text() == api_types.StatusOta.UPDATING.name
         assert (
             (self.slot_a_ota_status_dir / "slot_in_use").read_text()
             == (self.slot_b_ota_status_dir / "slot_in_use").read_text()
@@ -309,7 +310,7 @@ class TestRPIBootControl:
         assert (self.system_boot / rpi_boot_cfg.SWITCH_BOOT_FLAG_FILE).is_file()
         assert (
             self.slot_b_ota_status_dir / rpi_boot_cfg.OTA_STATUS_FNAME
-        ).read_text() == wrapper.StatusOta.UPDATING.name
+        ).read_text() == api_types.StatusOta.UPDATING.name
 
         # ------ boot_controller_inst3.stage1: second reboot, apply updated firmware and finish up ota update ------ #
         logger.info("2nd reboot: finish up ota update....")
@@ -320,11 +321,12 @@ class TestRPIBootControl:
         # 2. make sure the flag file is cleared
         # 3. make sure the config.txt is still for slot_b
         assert (
-            rpi_boot_controller4_2.get_booted_ota_status() == wrapper.StatusOta.SUCCESS
+            rpi_boot_controller4_2.get_booted_ota_status()
+            == api_types.StatusOta.SUCCESS
         )
         assert (
             self.slot_b_ota_status_dir / rpi_boot_cfg.OTA_STATUS_FNAME
-        ).read_text() == wrapper.StatusOta.SUCCESS.name
+        ).read_text() == api_types.StatusOta.SUCCESS.name
         assert not (self.system_boot / rpi_boot_cfg.SWITCH_BOOT_FLAG_FILE).is_file()
         assert (
             rpi_boot_controller4_2._ota_status_control._load_current_slot_in_use()

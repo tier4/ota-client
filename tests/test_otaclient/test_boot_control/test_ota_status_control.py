@@ -23,8 +23,8 @@ import pytest
 
 from otaclient.app.boot_control._common import OTAStatusFilesControl
 from otaclient.app.boot_control.configs import BaseConfig as cfg
-from otaclient.app.common import read_str_from_file, write_str_to_file
-from otaclient.app.proto import wrapper
+from otaclient_api.v2 import types as api_types
+from otaclient_common.common import read_str_from_file, write_str_to_file
 
 logger = logging.getLogger(__name__)
 
@@ -74,27 +74,27 @@ class TestOTAStatusFilesControl:
                 "",
                 False,
                 # output
-                wrapper.StatusOta.INITIALIZED,
+                api_types.StatusOta.INITIALIZED,
                 SLOT_A_ID,
             ),
             (
                 "test_force_initialize",
                 # input
-                wrapper.StatusOta.SUCCESS,
+                api_types.StatusOta.SUCCESS,
                 SLOT_A_ID,
                 True,
                 # output
-                wrapper.StatusOta.INITIALIZED,
+                api_types.StatusOta.INITIALIZED,
                 SLOT_A_ID,
             ),
             (
                 "test_normal_boot",
                 # input
-                wrapper.StatusOta.SUCCESS,
+                api_types.StatusOta.SUCCESS,
                 SLOT_A_ID,
                 False,
                 # output
-                wrapper.StatusOta.SUCCESS,
+                api_types.StatusOta.SUCCESS,
                 SLOT_A_ID,
             ),
         ),
@@ -102,10 +102,10 @@ class TestOTAStatusFilesControl:
     def test_ota_status_files_loading(
         self,
         test_case: str,
-        input_slot_a_status: Optional[wrapper.StatusOta],
+        input_slot_a_status: Optional[api_types.StatusOta],
         input_slot_a_slot_in_use: str,
         force_initialize: bool,
-        output_slot_a_status: wrapper.StatusOta,
+        output_slot_a_status: api_types.StatusOta,
         output_slot_a_slot_in_use: str,
     ):
         logger.info(f"{test_case=}")
@@ -158,7 +158,7 @@ class TestOTAStatusFilesControl:
         # slot_a: current slot
         assert (
             read_str_from_file(self.slot_a_status_file)
-            == wrapper.StatusOta.FAILURE.name
+            == api_types.StatusOta.FAILURE.name
         )
         assert (
             read_str_from_file(self.slot_a_slot_in_use_file)
@@ -168,7 +168,7 @@ class TestOTAStatusFilesControl:
         # slot_b: standby slot
         assert (
             read_str_from_file(self.slot_b_status_file)
-            == wrapper.StatusOta.UPDATING.name
+            == api_types.StatusOta.UPDATING.name
         )
         assert read_str_from_file(self.slot_b_slot_in_use_file) == self.slot_b
 
@@ -193,9 +193,9 @@ class TestOTAStatusFilesControl:
         """First reboot after OTA from slot_a to slot_b."""
         logger.info(f"{test_case=}")
         # ------ setup ------ #
-        write_str_to_file(self.slot_a_status_file, wrapper.StatusOta.FAILURE.name)
+        write_str_to_file(self.slot_a_status_file, api_types.StatusOta.FAILURE.name)
         write_str_to_file(self.slot_a_slot_in_use_file, self.slot_b)
-        write_str_to_file(self.slot_b_status_file, wrapper.StatusOta.UPDATING.name)
+        write_str_to_file(self.slot_b_status_file, api_types.StatusOta.UPDATING.name)
         write_str_to_file(self.slot_b_slot_in_use_file, self.slot_b)
 
         # ------ execution ------ #
@@ -218,7 +218,7 @@ class TestOTAStatusFilesControl:
         # check slot a
         assert (
             read_str_from_file(self.slot_a_status_file)
-            == wrapper.StatusOta.FAILURE.name
+            == api_types.StatusOta.FAILURE.name
         )
         assert (
             read_str_from_file(self.slot_a_slot_in_use_file)
@@ -233,25 +233,25 @@ class TestOTAStatusFilesControl:
 
         # finalizing succeeded
         if finalizing_result:
-            assert status_control.booted_ota_status == wrapper.StatusOta.SUCCESS
+            assert status_control.booted_ota_status == api_types.StatusOta.SUCCESS
             assert (
                 read_str_from_file(self.slot_b_status_file)
-                == wrapper.StatusOta.SUCCESS.name
+                == api_types.StatusOta.SUCCESS.name
             )
 
         else:
-            assert status_control.booted_ota_status == wrapper.StatusOta.FAILURE
+            assert status_control.booted_ota_status == api_types.StatusOta.FAILURE
             assert (
                 read_str_from_file(self.slot_b_status_file)
-                == wrapper.StatusOta.FAILURE.name
+                == api_types.StatusOta.FAILURE.name
             )
 
     def test_accidentally_boots_back_to_standby(self):
         """slot_a should be active slot but boots back to slot_b."""
         # ------ setup ------ #
-        write_str_to_file(self.slot_a_status_file, wrapper.StatusOta.SUCCESS.name)
+        write_str_to_file(self.slot_a_status_file, api_types.StatusOta.SUCCESS.name)
         write_str_to_file(self.slot_a_slot_in_use_file, self.slot_a)
-        write_str_to_file(self.slot_b_status_file, wrapper.StatusOta.FAILURE.name)
+        write_str_to_file(self.slot_b_status_file, api_types.StatusOta.FAILURE.name)
         write_str_to_file(self.slot_b_slot_in_use_file, self.slot_a)
 
         # ------ execution ------ #
@@ -268,4 +268,4 @@ class TestOTAStatusFilesControl:
         # ------ assertion ------ #
         assert not self.finalize_switch_boot_flag.is_set()
         # slot_b's status is read
-        assert status_control.booted_ota_status == wrapper.StatusOta.FAILURE
+        assert status_control.booted_ota_status == api_types.StatusOta.FAILURE
