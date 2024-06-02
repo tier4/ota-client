@@ -37,6 +37,9 @@ from ota_metadata.legacy.parser import (
     parse_symlinks_from_txt,
 )
 
+TEST_DIR = Path(__file__).parent.parent
+GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"
+
 HEADER = """\
 {"alg": "ES256"}\
 """
@@ -160,10 +163,6 @@ def generate_jwt(payload_str: str, sign_key_file: Path):
     payload = urlsafe_b64encode(payload_str)
     signature = sign(sign_key_file, f"{header}.{payload}")
     return f"{header}.{payload}.{signature}"
-
-
-TEST_DIR = Path(__file__).parent
-GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"
 
 
 class CertsDirs(TypedDict):
