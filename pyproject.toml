@@ -63,6 +63,7 @@ version-file = "src/_otaclient_version.py"
 exclude = ["/tools"]
 
 [tool.hatch.build.targets.wheel]
+exclude = ["**/.gitignore"]
 only-include = ["src"]
 sources = ["src"]
 
