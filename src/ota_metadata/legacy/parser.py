@@ -73,13 +73,17 @@ from typing_extensions import Self
 
 from ota_proxy import OTAFileCacheControl
 
-from .common import RetryTaskMap, get_backoff, urljoin_ensure_base
-from .configs import config as cfg
-from .downloader import Downloader
-from .proto.streamer import Uint32LenDelimitedMsgReader, Uint32LenDelimitedMsgWriter
-from .proto.wrapper import (
+from otaclient_common.common import RetryTaskMap, get_backoff, urljoin_ensure_base
+from otaclient_common.downloader import Downloader
+from otaclient_common.proto_streamer import (
+    Uint32LenDelimitedMsgReader,
+    Uint32LenDelimitedMsgWriter,
+)
+from otaclient_common.proto_wrapper import MessageWrapper
+
+from . import SUPORTED_COMPRESSION_TYPES
+from .types import (
     DirectoryInf,
-    MessageWrapper,
     PersistentInf,
     RegularInf,
     SymbolicLinkInf,
@@ -592,10 +596,25 @@ class OTAMetadata:
         ),
     }
 
-    def __init__(self, *, url_base: str, downloader: Downloader) -> None:
+    MAX_COCURRENT = 2
+    BACKOFF_FACTOR = 1
+    BACKOFF_MAX = 6
+
+    def __init__(
+        self,
+        *,
+        url_base: str,
+        downloader: Downloader,
+        run_dir: Path,
+        certs_dir: Path,
+        download_max_idle_time: int,
+    ) -> None:
         self.url_base = url_base
         self._downloader = downloader
-        self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=cfg.RUN_DIR)
+        self.run_dir = run_dir
+        self.certs_dir = certs_dir
+        self.download_max_idle_time = download_max_idle_time
+        self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=run_dir)
         self._tmp_dir_path = Path(self._tmp_dir.name)
 
         # download and parse the metadata.jwt
@@ -622,7 +641,7 @@ class OTAMetadata:
         """Download, loading and parsing metadata.jwt."""
         logger.debug("process metadata.jwt...")
         # download and parse metadata.jwt
-        with NamedTemporaryFile(prefix="metadata_jwt", dir=cfg.RUN_DIR) as meta_f:
+        with NamedTemporaryFile(prefix="metadata_jwt", dir=self.run_dir) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
             self._downloader.download_retry_inf(
                 urljoin_ensure_base(self.url_base, self.METADATA_JWT),
@@ -636,13 +655,13 @@ class OTAMetadata:
             )
 
             _parser = _MetadataJWTParser(
-                _downloaded_meta_f.read_text(), certs_dir=cfg.CERTS_DIR
+                _downloaded_meta_f.read_text(), certs_dir=self.certs_dir
             )
         # get not yet verified parsed ota_metadata
         _ota_metadata = _parser.get_otametadata()
 
         # download certificate and verify metadata against this certificate
-        with NamedTemporaryFile(prefix="metadata_cert", dir=cfg.RUN_DIR) as cert_f:
+        with NamedTemporaryFile(prefix="metadata_cert", dir=self.run_dir) as cert_f:
             cert_info = _ota_metadata.certificate
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
@@ -696,11 +715,11 @@ class OTAMetadata:
 
         last_active_timestamp = int(time.time())
         _mapper = RetryTaskMap(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            max_concurrent=self.MAX_COCURRENT,
             backoff_func=partial(
                 get_backoff,
-                factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
-                _max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
+                factor=self.BACKOFF_FACTOR,
+                _max=self.BACKOFF_MAX,
             ),
             max_retry=0,  # NOTE: we use another strategy below
         )
@@ -718,12 +737,9 @@ class OTAMetadata:
             last_active_timestamp = max(
                 last_active_timestamp, self._downloader.last_active_timestamp
             )
-            if (
-                int(time.time()) - last_active_timestamp
-                > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
-            ):
+            if int(time.time()) - last_active_timestamp > self.download_max_idle_time:
                 logger.error(
-                    f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
+                    f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
                 )
                 _mapper.shutdown(raise_last_exc=True)
 
@@ -753,7 +769,7 @@ class OTAMetadata:
         if (
             self.image_compressed_rootfs_url
             and reg_inf.compressed_alg
-            and reg_inf.compressed_alg in cfg.SUPPORTED_COMPRESS_ALG
+            and reg_inf.compressed_alg in SUPORTED_COMPRESSION_TYPES
         ):
             return (
                 urljoin_ensure_base(

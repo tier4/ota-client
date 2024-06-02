@@ -42,3 +42,6 @@ def _import_from_file(path: Path) -> tuple[str, ModuleType]:
 _module_name, _module = _import_from_file(_PB2_FPATH)  # noqa: F821
 sys.modules[_module_name] = _module
 sys.modules[f"{_PACKAGE_PREFIX}.{_module_name}"] = _module
+
+# For OTA image format legacy, we support zst,zstd compression.
+SUPORTED_COMPRESSION_TYPES = ("zst", "zstd")
