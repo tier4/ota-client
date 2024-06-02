@@ -32,7 +32,7 @@ from ota_proxy import OTAProxyContextProto
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import subprocess_otaproxy_launcher
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
-from otaclient_api.v2 import wrapper_types as wrapper
+from otaclient_api.v2 import types as api_types
 from otaclient.app import log_setting
 from otaclient.configs.ecu_info import ECUContact
 from otaclient_common.common import ensure_otaproxy_start
@@ -348,8 +348,8 @@ class ECUStatusStorage:
             ecu_info.get_available_ecu_ids()
         )
 
-        self._all_ecus_status_v2: Dict[str, wrapper.StatusResponseEcuV2] = {}
-        self._all_ecus_status_v1: Dict[str, wrapper.StatusResponseEcu] = {}
+        self._all_ecus_status_v2: Dict[str, api_types.StatusResponseEcuV2] = {}
+        self._all_ecus_status_v1: Dict[str, api_types.StatusResponseEcu] = {}
         self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
 
         # overall ECU status report
@@ -511,7 +511,7 @@ class ECUStatusStorage:
 
     # API
 
-    async def update_from_child_ecu(self, status_resp: wrapper.StatusResponse):
+    async def update_from_child_ecu(self, status_resp: api_types.StatusResponse):
         """Update the ECU status storage with child ECU's status report(StatusResponse)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
@@ -537,7 +537,7 @@ class ECUStatusStorage:
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
                 self._all_ecus_status_v2.pop(ecu_id, None)
 
-    async def update_from_local_ecu(self, ecu_status: wrapper.StatusResponseEcuV2):
+    async def update_from_local_ecu(self, ecu_status: api_types.StatusResponseEcuV2):
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
@@ -615,7 +615,7 @@ class ECUStatusStorage:
 
         return _waiter
 
-    async def export(self) -> wrapper.StatusResponse:
+    async def export(self) -> api_types.StatusResponse:
         """Export the contents of this storage to an instance of StatusResponse.
 
         NOTE: wrapper.StatusResponse's add_ecu method already takes care of
@@ -625,7 +625,7 @@ class ECUStatusStorage:
               entry in status API response, simulate this behavior by skipping
               disconnected ECU's status report entry.
         """
-        res = wrapper.StatusResponse()
+        res = api_types.StatusResponse()
 
         async with self._writer_lock:
             res.available_ecu_ids.extend(self._available_ecu_ids)
@@ -683,7 +683,7 @@ class _ECUTracker:
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
                     timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
-                    request=wrapper.StatusRequest(),
+                    request=api_types.StatusRequest(),
                 )
                 await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)
             except ECUNoResponse as e:
@@ -810,10 +810,12 @@ class OTAClientServiceStub:
 
     # API stub
 
-    async def update(self, request: wrapper.UpdateRequest) -> wrapper.UpdateResponse:
+    async def update(
+        self, request: api_types.UpdateRequest
+    ) -> api_types.UpdateResponse:
         logger.info(f"receive update request: {request}")
         update_acked_ecus = set()
-        response = wrapper.UpdateResponse()
+        response = api_types.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs
         tasks: Dict[asyncio.Task, ECUContact] = {}
@@ -834,7 +836,7 @@ class OTAClientServiceStub:
             done, _ = await asyncio.wait(tasks)
             for _task in done:
                 try:
-                    _ecu_resp: wrapper.UpdateResponse = _task.result()
+                    _ecu_resp: api_types.UpdateResponse = _task.result()
                     update_acked_ecus.update(_ecu_resp.ecus_acked_update)
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
@@ -847,9 +849,9 @@ class OTAClientServiceStub:
                     #                 response with RECOVERABLE OTA error for unresponsive
                     #                 ECU.
                     response.add_ecu(
-                        wrapper.UpdateResponseEcu(
+                        api_types.UpdateResponseEcu(
                             ecu_id=_ecu_contact.ecu_id,
-                            result=wrapper.FailureType.RECOVERABLE,
+                            result=api_types.FailureType.RECOVERABLE,
                         )
                     )
             tasks.clear()
@@ -858,7 +860,7 @@ class OTAClientServiceStub:
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
             _resp_ecu = await self._otaclient_wrapper.dispatch_update(update_req_ecu)
             # local otaclient accepts the update request
-            if _resp_ecu.result == wrapper.FailureType.NO_FAILURE:
+            if _resp_ecu.result == api_types.FailureType.NO_FAILURE:
                 update_acked_ecus.add(self.my_ecu_id)
             response.add_ecu(_resp_ecu)
 
@@ -874,10 +876,10 @@ class OTAClientServiceStub:
         return response
 
     async def rollback(
-        self, request: wrapper.RollbackRequest
-    ) -> wrapper.RollbackResponse:
+        self, request: api_types.RollbackRequest
+    ) -> api_types.RollbackResponse:
         logger.info(f"receive rollback request: {request}")
-        response = wrapper.RollbackResponse()
+        response = api_types.RollbackResponse()
 
         # first: dispatch rollback request to all directly connected subECUs
         tasks: Dict[asyncio.Task, ECUContact] = {}
@@ -898,7 +900,7 @@ class OTAClientServiceStub:
             done, _ = await asyncio.wait(tasks)
             for _task in done:
                 try:
-                    _ecu_resp: wrapper.RollbackResponse = _task.result()
+                    _ecu_resp: api_types.RollbackResponse = _task.result()
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
                     _ecu_contact = tasks[_task]
@@ -910,9 +912,9 @@ class OTAClientServiceStub:
                     #                 response with RECOVERABLE OTA error for unresponsive
                     #                 ECU.
                     response.add_ecu(
-                        wrapper.RollbackResponseEcu(
+                        api_types.RollbackResponseEcu(
                             ecu_id=_ecu_contact.ecu_id,
-                            result=wrapper.FailureType.RECOVERABLE,
+                            result=api_types.FailureType.RECOVERABLE,
                         )
                     )
             tasks.clear()
@@ -925,5 +927,5 @@ class OTAClientServiceStub:
 
         return response
 
-    async def status(self, _=None) -> wrapper.StatusResponse:
+    async def status(self, _=None) -> api_types.StatusResponse:
         return await self._ecu_status_storage.export()
