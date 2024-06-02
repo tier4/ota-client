@@ -1,0 +1,13 @@
+[Unit]
+Description=OTA Client
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/ota/client/venv/bin/python3 -m otaclient
+Restart=always
+RestartSec=16
+
+[Install]
+WantedBy=multi-user.target
