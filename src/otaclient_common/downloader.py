@@ -11,7 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""A common used downloader implementation for otaclient."""
 
+
+from __future__ import annotations
 
 import errno
 import logging
@@ -52,7 +55,7 @@ from ota_proxy import OTAFileCacheControl
 from otaclient._utils import copy_callable_typehint
 
 from .common import wait_with_backoff
-from .configs import config as cfg
+from ..otaclient.app.configs import config as cfg
 
 logger = logging.getLogger(__name__)
 
