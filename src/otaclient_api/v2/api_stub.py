@@ -20,7 +20,7 @@ from typing import Any
 from otaclient_api.v2 import (
     otaclient_v2_pb2_grpc as pb2_grpc,
     otaclient_v2_pb2 as pb2,
-    wrapper_types as pb2_wrapper,
+    types,
 )
 
 
@@ -29,17 +29,15 @@ class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):
         self._stub = ota_client_stub
 
     async def Update(self, request: pb2.UpdateRequest, context) -> pb2.UpdateResponse:
-        response = await self._stub.update(pb2_wrapper.UpdateRequest.convert(request))
+        response = await self._stub.update(types.UpdateRequest.convert(request))
         return response.export_pb()
 
     async def Rollback(
         self, request: pb2.RollbackRequest, context
     ) -> pb2.RollbackResponse:
-        response = await self._stub.rollback(
-            pb2_wrapper.RollbackRequest.convert(request)
-        )
+        response = await self._stub.rollback(types.RollbackRequest.convert(request))
         return response.export_pb()
 
     async def Status(self, request: pb2.StatusRequest, context) -> pb2.StatusResponse:
-        response = await self._stub.status(pb2_wrapper.StatusRequest.convert(request))
+        response = await self._stub.status(types.StatusRequest.convert(request))
         return response.export_pb()
