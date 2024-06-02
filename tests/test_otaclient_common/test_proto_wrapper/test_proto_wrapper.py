@@ -13,12 +13,14 @@
 # limitations under the License.
 
 
-from typing import Any, Dict
+from __future__ import annotations
+
+from typing import Any
 
 import pytest
 from google.protobuf.duration_pb2 import Duration as _pb2_Duration
 
-from otaclient.app.proto import wrapper as proto_wrapper
+from otaclient_common import proto_wrapper
 from tests.utils import compare_message
 
 from . import example_pb2 as pb2
@@ -61,7 +63,7 @@ from . import example_pb2_wrapper as wrapper
     ),
 )
 def test_default_value_behavior(
-    input_wrapper_inst: proto_wrapper.MessageWrapper, expected_dict: Dict[str, Any]
+    input_wrapper_inst: proto_wrapper.MessageWrapper, expected_dict: dict[str, Any]
 ):
     for _field_name in input_wrapper_inst._fields:
         _value = getattr(input_wrapper_inst, _field_name)

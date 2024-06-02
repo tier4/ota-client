@@ -13,12 +13,14 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 from typing import Iterable as _Iterable
 from typing import Mapping as _Mapping
 from typing import Optional as _Optional
 from typing import Union as _Union
 
-from otaclient.app.proto.wrapper import (
+from otaclient_common.proto_wrapper import (
     Duration,
     EnumWrapper,
     MessageMapContainer,
