@@ -31,16 +31,16 @@ from typing_extensions import Self
 from ota_proxy import OTAProxyContextProto
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import subprocess_otaproxy_launcher
+from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
+from otaclient_api.v2 import wrapper_types as wrapper
+from otaclient.app import log_setting
 from otaclient.configs.ecu_info import ECUContact
+from otaclient_common.common import ensure_otaproxy_start
 
-from . import log_setting
 from .boot_control._common import CMDHelperFuncs
-from .common import ensure_otaproxy_start
 from .configs import config as cfg
 from .configs import ecu_info, proxy_info, server_cfg
 from .ota_client import OTAClientControlFlags, OTAServicer
-from .ota_client_call import ECUNoResponse, OtaClientCall
-from .proto import wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -678,7 +678,7 @@ class _ECUTracker:
         """Task entry for loop polling one subECU's status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
             try:
-                _ecu_resp = await OtaClientCall.status_call(
+                _ecu_resp = await OTAClientCall.status_call(
                     ecu_contact.ecu_id,
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
@@ -821,7 +821,7 @@ class OTAClientServiceStub:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
             _task = asyncio.create_task(
-                OtaClientCall.update_call(
+                OTAClientCall.update_call(
                     ecu_contact.ecu_id,
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
@@ -885,7 +885,7 @@ class OTAClientServiceStub:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
             _task = asyncio.create_task(
-                OtaClientCall.rollback_call(
+                OTAClientCall.rollback_call(
                     ecu_contact.ecu_id,
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
