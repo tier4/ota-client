@@ -43,14 +43,14 @@ from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from .. import errors as ota_errors
-from ..common import (
+from otaclient_common.common import (
     re_symlink_atomic,
     read_str_from_file,
     subprocess_call,
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from ..proto import wrapper
+from otaclient_api.v2 import wrapper_types as wrapper
 from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,

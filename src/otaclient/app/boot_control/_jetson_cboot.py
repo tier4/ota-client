@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import subprocess_run_wrapper
-from otaclient.app.proto import wrapper
+from otaclient_common.common import subprocess_run_wrapper
+from otaclient_api.v2 import wrapper_types as wrapper
 
 from ..configs import config as cfg
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper

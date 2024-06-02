@@ -17,7 +17,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Generator, Protocol
 
-from ..proto import wrapper
+from otaclient_api.v2 import wrapper_types as wrapper
 
 
 class BootControllerProtocol(Protocol):

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from typing_extensions import deprecated
 
-from ..common import read_str_from_file
+from otaclient_common.common import read_str_from_file
 from .configs import BootloaderType
 from .protocol import BootControllerProtocol
 

@@ -24,8 +24,12 @@ from string import Template
 from typing import Generator
 
 from .. import errors as ota_errors
-from ..common import replace_atomic, subprocess_call, subprocess_check_output
-from ..proto import wrapper
+from otaclient_common.common import (
+    replace_atomic,
+    subprocess_call,
+    subprocess_check_output,
+)
+from otaclient_api.v2 import wrapper_types as wrapper
 from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
