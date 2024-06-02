@@ -49,7 +49,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from otaclient._utils.linux import (
+from otaclient_common.linux import (
     ParsedGroup,
     ParsedPasswd,
     map_gid_by_grpnam,
