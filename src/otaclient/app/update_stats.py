@@ -25,6 +25,7 @@ from threading import Event, Lock, Thread
 from typing import Generator
 
 from otaclient_api.v2.types import UpdateStatus
+
 from .configs import config as cfg
 
 logger = logging.getLogger(__name__)

@@ -21,10 +21,11 @@ from functools import partial
 from pathlib import Path
 from typing import List, Set, Tuple
 
-from otaclient_common.common import RetryTaskMap, get_backoff
-from ..configs import config as cfg
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
+from otaclient_common.common import RetryTaskMap, get_backoff
+
+from ..configs import config as cfg
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,

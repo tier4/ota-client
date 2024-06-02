@@ -42,7 +42,7 @@ from pprint import pformat
 from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
-from .. import errors as ota_errors
+from otaclient_api.v2 import types as api_types
 from otaclient_common.common import (
     re_symlink_atomic,
     read_str_from_file,
@@ -50,7 +50,8 @@ from otaclient_common.common import (
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from otaclient_api.v2 import types as api_types
+
+from .. import errors as ota_errors
 from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,

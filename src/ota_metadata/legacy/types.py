@@ -23,7 +23,6 @@ from typing import Union
 from ota_metadata.legacy import ota_metafiles_pb2 as ota_metafiles
 from otaclient_common.proto_wrapper import MessageWrapper, calculate_slots
 
-
 # helper mixin
 
 

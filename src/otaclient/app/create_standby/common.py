@@ -30,10 +30,11 @@ from threading import Event, Lock
 from typing import Any, Dict, Iterator, List, Optional, OrderedDict, Set, Tuple, Union
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
-from otaclient_common.common import create_tmp_fname
-from ..configs import config as cfg
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
+from otaclient_common.common import create_tmp_fname
+
+from ..configs import config as cfg
 from ..update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,

@@ -21,7 +21,6 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-
 _PROTO_DIR = Path(__file__).parent
 # NOTE: order matters here! v2_pb2_grpc depends on v2_pb2
 _FILES_TO_LOAD = [

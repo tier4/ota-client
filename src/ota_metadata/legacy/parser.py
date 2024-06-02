@@ -72,7 +72,6 @@ from OpenSSL import crypto
 from typing_extensions import Self
 
 from ota_proxy import OTAFileCacheControl
-
 from otaclient_common.common import RetryTaskMap, get_backoff, urljoin_ensure_base
 from otaclient_common.downloader import Downloader
 from otaclient_common.proto_streamer import (
@@ -82,12 +81,7 @@ from otaclient_common.proto_streamer import (
 from otaclient_common.proto_wrapper import MessageWrapper
 
 from . import SUPORTED_COMPRESSION_TYPES
-from .types import (
-    DirectoryInf,
-    PersistentInf,
-    RegularInf,
-    SymbolicLinkInf,
-)
+from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
 
 logger = logging.getLogger(__name__)
 

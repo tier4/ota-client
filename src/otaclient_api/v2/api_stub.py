@@ -17,11 +17,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from otaclient_api.v2 import (
-    otaclient_v2_pb2_grpc as pb2_grpc,
-    otaclient_v2_pb2 as pb2,
-    types,
-)
+from otaclient_api.v2 import otaclient_v2_pb2 as pb2
+from otaclient_api.v2 import otaclient_v2_pb2_grpc as pb2_grpc
+from otaclient_api.v2 import types
 
 
 class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):

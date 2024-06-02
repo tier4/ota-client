@@ -23,13 +23,14 @@ from pathlib import Path
 from string import Template
 from typing import Generator
 
-from .. import errors as ota_errors
+from otaclient_api.v2 import types as api_types
 from otaclient_common.common import (
     replace_atomic,
     subprocess_call,
     subprocess_check_output,
 )
-from otaclient_api.v2 import types as api_types
+
+from .. import errors as ota_errors
 from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,

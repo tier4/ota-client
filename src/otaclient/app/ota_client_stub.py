@@ -31,10 +31,10 @@ from typing_extensions import Self
 from ota_proxy import OTAProxyContextProto
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import subprocess_otaproxy_launcher
-from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
-from otaclient_api.v2 import types as api_types
 from otaclient.app import log_setting
 from otaclient.configs.ecu_info import ECUContact
+from otaclient_api.v2 import types as api_types
+from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from otaclient_common.common import ensure_otaproxy_start
 
 from .boot_control._common import CMDHelperFuncs
