@@ -18,7 +18,7 @@ from typing import Type
 import pytest
 from google.protobuf.duration_pb2 import Duration as _Duration
 
-from otaclient.app.proto import v2, wrapper
+from otaclient_api.v2 import otaclient_v2_pb2 as v2, types as api_types
 from tests.utils import compare_message
 
 
@@ -32,12 +32,14 @@ from tests.utils import compare_message
                 total_regular_files=123456,
                 elapsed_time_download=_Duration(seconds=1, nanos=5678),
             ),
-            wrapper.StatusProgress(
-                phase=wrapper.StatusProgressPhase.REGULAR,
+            api_types.StatusProgress(
+                phase=api_types.StatusProgressPhase.REGULAR,
                 total_regular_files=123456,
-                elapsed_time_download=wrapper.Duration.from_nanoseconds(1_000_005_678),
+                elapsed_time_download=api_types.Duration.from_nanoseconds(
+                    1_000_005_678
+                ),
             ),
-            wrapper.StatusProgress,
+            api_types.StatusProgress,
         ),
         # UpdateRequest: with protobuf repeated composite field
         (
@@ -47,13 +49,13 @@ from tests.utils import compare_message
                     v2.UpdateRequestEcu(ecu_id="ecu_2"),
                 ]
             ),
-            wrapper.UpdateRequest(
+            api_types.UpdateRequest(
                 ecu=[
-                    wrapper.UpdateRequestEcu(ecu_id="ecu_1"),
-                    wrapper.UpdateRequestEcu(ecu_id="ecu_2"),
+                    api_types.UpdateRequestEcu(ecu_id="ecu_1"),
+                    api_types.UpdateRequestEcu(ecu_id="ecu_2"),
                 ]
             ),
-            wrapper.UpdateRequest,
+            api_types.UpdateRequest,
         ),
         # UpdateRequest: with protobuf repeated composite field,
         (
@@ -63,13 +65,13 @@ from tests.utils import compare_message
                     v2.UpdateRequestEcu(ecu_id="ecu_2"),
                 ]
             ),
-            wrapper.UpdateRequest(
+            api_types.UpdateRequest(
                 ecu=[
-                    wrapper.UpdateRequestEcu(ecu_id="ecu_1"),
-                    wrapper.UpdateRequestEcu(ecu_id="ecu_2"),
+                    api_types.UpdateRequestEcu(ecu_id="ecu_1"),
+                    api_types.UpdateRequestEcu(ecu_id="ecu_2"),
                 ]
             ),
-            wrapper.UpdateRequest,
+            api_types.UpdateRequest,
         ),
         # StatusResponse: multiple layer nested message, multiple protobuf message types
         (
@@ -100,29 +102,29 @@ from tests.utils import compare_message
                 ],
                 available_ecu_ids=["ecu_1", "ecu_2"],
             ),
-            wrapper.StatusResponse(
+            api_types.StatusResponse(
                 ecu=[
-                    wrapper.StatusResponseEcu(
+                    api_types.StatusResponseEcu(
                         ecu_id="ecu_1",
-                        status=wrapper.Status(
-                            status=wrapper.StatusOta.UPDATING,
-                            progress=wrapper.StatusProgress(
-                                phase=wrapper.StatusProgressPhase.REGULAR,
+                        status=api_types.Status(
+                            status=api_types.StatusOta.UPDATING,
+                            progress=api_types.StatusProgress(
+                                phase=api_types.StatusProgressPhase.REGULAR,
                                 total_regular_files=123456,
-                                elapsed_time_copy=wrapper.Duration.from_nanoseconds(
+                                elapsed_time_copy=api_types.Duration.from_nanoseconds(
                                     1_000_056_789
                                 ),
                             ),
                         ),
                     ),
-                    wrapper.StatusResponseEcu(
+                    api_types.StatusResponseEcu(
                         ecu_id="ecu_2",
-                        status=wrapper.Status(
-                            status=wrapper.StatusOta.UPDATING,
-                            progress=wrapper.StatusProgress(
-                                phase=wrapper.StatusProgressPhase.REGULAR,
+                        status=api_types.Status(
+                            status=api_types.StatusOta.UPDATING,
+                            progress=api_types.StatusProgress(
+                                phase=api_types.StatusProgressPhase.REGULAR,
                                 total_regular_files=456789,
-                                elapsed_time_copy=wrapper.Duration.from_nanoseconds(
+                                elapsed_time_copy=api_types.Duration.from_nanoseconds(
                                     1_000_012_345
                                 ),
                             ),
@@ -131,14 +133,14 @@ from tests.utils import compare_message
                 ],
                 available_ecu_ids=["ecu_1", "ecu_2"],
             ),
-            wrapper.StatusResponse,
+            api_types.StatusResponse,
         ),
     ),
 )
 def test_convert_message(
     origin_msg,
-    converted_msg: wrapper.MessageWrapper,
-    wrapper_type: Type[wrapper.MessageWrapper],
+    converted_msg: api_types.MessageWrapper,
+    wrapper_type: Type[api_types.MessageWrapper],
 ):
     # ------ converting message ------ #
     _converted = wrapper_type.convert(origin_msg)
@@ -155,13 +157,13 @@ class Test_enum_wrapper_cooperate:
     def test_direct_compare(self):
         """protobuf enum and wrapper enum can compare directly."""
         _protobuf_enum = v2.UPDATING
-        _wrapped = wrapper.StatusOta.UPDATING
+        _wrapped = api_types.StatusOta.UPDATING
         assert _protobuf_enum == _wrapped
 
     def test_assign_to_protobuf_message(self):
         """wrapper enum can be directly assigned in protobuf message."""
         l, r = v2.StatusProgress(phase=v2.REGULAR), v2.StatusProgress(
-            phase=wrapper.StatusProgressPhase.REGULAR.value,
+            phase=api_types.StatusProgressPhase.REGULAR.value,  # type: ignore
         )
         compare_message(l, r)
 
@@ -169,8 +171,8 @@ class Test_enum_wrapper_cooperate:
         """wrapper enum can be exported."""
         l, r = (
             v2.StatusProgress(phase=v2.REGULAR),
-            wrapper.StatusProgress(
-                phase=wrapper.StatusProgressPhase.REGULAR
+            api_types.StatusProgress(
+                phase=api_types.StatusProgressPhase.REGULAR
             ).export_pb(),
         )
         compare_message(l, r)
@@ -178,6 +180,6 @@ class Test_enum_wrapper_cooperate:
     def test_converted_from_protobuf_enum(self):
         """wrapper enum can be converted from and to protobuf enum."""
         _protobuf_enum = v2.REGULAR
-        _converted = wrapper.StatusProgressPhase(_protobuf_enum)
+        _converted = api_types.StatusProgressPhase(_protobuf_enum)
         assert _protobuf_enum == _converted
-        assert _converted == wrapper.StatusProgressPhase.REGULAR
+        assert _converted == api_types.StatusProgressPhase.REGULAR
