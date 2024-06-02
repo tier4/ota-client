@@ -52,8 +52,6 @@ from otaclient._utils.linux import (
     map_uid_by_pwnam,
 )
 
-from ..otaclient.app.configs import config as cfg
-
 logger = logging.getLogger(__name__)
 
 
@@ -72,11 +70,13 @@ def wait_with_backoff(_retry_cnt: int, *, _backoff_factor: float, _backoff_max: 
 
 
 # file verification
-def file_sha256(filename: Union[Path, str]) -> str:
+def file_sha256(
+    filename: Union[Path, str], *, chunk_size: int = 1 * 1024 * 1024
+) -> str:
     with open(filename, "rb") as f:
         m = sha256()
         while True:
-            d = f.read(cfg.LOCAL_CHUNK_SIZE)
+            d = f.read(chunk_size)
             if len(d) == 0:
                 break
             m.update(d)
