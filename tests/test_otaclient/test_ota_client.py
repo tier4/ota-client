@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import asyncio
 import shutil
 import threading
@@ -25,6 +27,8 @@ from typing import Dict
 import pytest
 import pytest_mock
 
+from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_txt
+from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from otaclient.app.boot_control import BootControllerProtocol
 from otaclient.app.boot_control.configs import BootloaderType
 from otaclient.app.configs import config as otaclient_cfg
@@ -37,9 +41,7 @@ from otaclient.app.ota_client import (
     OTAServicer,
     _OTAUpdater,
 )
-from otaclient.app.ota_metadata import parse_dirs_from_txt, parse_regulars_from_txt
-from otaclient.app.proto import wrapper
-from otaclient.app.proto.wrapper import DirectoryInf, RegularInf
+from otaclient_api.v2 import types as api_types
 from otaclient.configs.ecu_info import ECUInfo
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
@@ -201,7 +203,7 @@ class Test_OTAClient:
     CURRENT_FIRMWARE_VERSION = "firmware_version"
     UPDATE_FIRMWARE_VERSION = "update_firmware_version"
 
-    MOCKED_STATUS_PROGRESS = wrapper.UpdateStatus(
+    MOCKED_STATUS_PROGRESS = api_types.UpdateStatus(
         update_firmware_version=UPDATE_FIRMWARE_VERSION,
         downloaded_bytes=456789,
         downloaded_files_num=567,
@@ -233,7 +235,7 @@ class Test_OTAClient:
         # patch boot_controller for otaclient initializing
         self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
         self.boot_controller.get_booted_ota_status.return_value = (
-            wrapper.StatusOta.SUCCESS
+            api_types.StatusOta.SUCCESS
         )
 
         self.ota_client = OTAClient(
@@ -270,7 +272,7 @@ class Test_OTAClient:
         self.ota_lock.release.assert_called_once()
         assert (
             self.ota_client.live_ota_status.get_ota_status()
-            == wrapper.StatusOta.UPDATING
+            == api_types.StatusOta.UPDATING
         )
 
     def test_update_interrupted(self):
@@ -296,9 +298,9 @@ class Test_OTAClient:
 
         assert (
             self.ota_client.live_ota_status.get_ota_status()
-            == wrapper.StatusOta.FAILURE
+            == api_types.StatusOta.FAILURE
         )
-        assert self.ota_client.last_failure_type == wrapper.FailureType.RECOVERABLE
+        assert self.ota_client.last_failure_type == api_types.FailureType.RECOVERABLE
 
     def test_rollback(self):
         # TODO
@@ -309,49 +311,49 @@ class Test_OTAClient:
         _status = self.ota_client.status()
 
         # assert v2 to v1 conversion
-        assert _status.convert_to_v1() == wrapper.StatusResponseEcu(
+        assert _status.convert_to_v1() == api_types.StatusResponseEcu(
             ecu_id=self.MY_ECU_ID,
-            result=wrapper.FailureType.NO_FAILURE,
-            status=wrapper.Status(
+            result=api_types.FailureType.NO_FAILURE,
+            status=api_types.Status(
                 version=self.CURRENT_FIRMWARE_VERSION,
-                status=wrapper.StatusOta.SUCCESS,
+                status=api_types.StatusOta.SUCCESS,
             ),
         )
         # assert to v2
-        assert _status == wrapper.StatusResponseEcuV2(
+        assert _status == api_types.StatusResponseEcuV2(
             ecu_id=self.MY_ECU_ID,
             otaclient_version=self.OTACLIENT_VERSION,
             firmware_version=self.CURRENT_FIRMWARE_VERSION,
-            failure_type=wrapper.FailureType.NO_FAILURE,
-            ota_status=wrapper.StatusOta.SUCCESS,
+            failure_type=api_types.FailureType.NO_FAILURE,
+            ota_status=api_types.StatusOta.SUCCESS,
         )
 
     def test_status_in_update(self):
         # --- mock setup --- #
         # inject ota_updater and set ota_status to UPDATING to simulate ota updating
         self.ota_client._update_executor = self.ota_updater
-        self.ota_client.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
+        self.ota_client.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
         # let mocked updater return mocked_status_progress
         self.ota_updater.get_update_status.return_value = self.MOCKED_STATUS_PROGRESS
 
         # --- assertion --- #
         _status = self.ota_client.status()
         # test v2 to v1 conversion
-        assert _status.convert_to_v1() == wrapper.StatusResponseEcu(
+        assert _status.convert_to_v1() == api_types.StatusResponseEcu(
             ecu_id=self.MY_ECU_ID,
-            result=wrapper.FailureType.NO_FAILURE,
-            status=wrapper.Status(
+            result=api_types.FailureType.NO_FAILURE,
+            status=api_types.Status(
                 version=self.CURRENT_FIRMWARE_VERSION,
-                status=wrapper.StatusOta.UPDATING,
+                status=api_types.StatusOta.UPDATING,
                 progress=self.MOCKED_STATUS_PROGRESS_V1,
             ),
         )
         # assert to v2
-        assert _status == wrapper.StatusResponseEcuV2(
+        assert _status == api_types.StatusResponseEcuV2(
             ecu_id=self.MY_ECU_ID,
             otaclient_version=self.OTACLIENT_VERSION,
-            failure_type=wrapper.FailureType.NO_FAILURE,
-            ota_status=wrapper.StatusOta.UPDATING,
+            failure_type=api_types.FailureType.NO_FAILURE,
+            ota_status=api_types.StatusOta.UPDATING,
             firmware_version=self.CURRENT_FIRMWARE_VERSION,
             update_status=self.MOCKED_STATUS_PROGRESS,
         )
@@ -423,7 +425,7 @@ class TestOTAServicer:
         assert self.otaclient_stub.local_used_proxy_url is self.local_use_proxy
 
     async def test_dispatch_update(self):
-        update_request_ecu = wrapper.UpdateRequestEcu(
+        update_request_ecu = api_types.UpdateRequestEcu(
             ecu_id=self.ECU_INFO.ecu_id,
             version="version",
             url="url",
@@ -442,11 +444,11 @@ class TestOTAServicer:
         await self.otaclient_stub.dispatch_update(update_request_ecu)
         await asyncio.sleep(0.1)  # wait for inner async closure to run
 
-        assert self.otaclient_stub.last_operation is wrapper.StatusOta.UPDATING
+        assert self.otaclient_stub.last_operation is api_types.StatusOta.UPDATING
         assert self.otaclient_stub.is_busy
         # test ota update/rollback exclusive lock,
         resp = await self.otaclient_stub.dispatch_update(update_request_ecu)
-        assert resp.result == wrapper.FailureType.RECOVERABLE
+        assert resp.result == api_types.FailureType.RECOVERABLE
 
         # finish up update
         _updating_event.set()
@@ -469,14 +471,16 @@ class TestOTAServicer:
         self.otaclient.rollback.side_effect = _rollbacking
 
         # dispatch rollback
-        await self.otaclient_stub.dispatch_rollback(wrapper.RollbackRequestEcu())
+        await self.otaclient_stub.dispatch_rollback(api_types.RollbackRequestEcu())
         await asyncio.sleep(0.1)  # wait for inner async closure to run
 
-        assert self.otaclient_stub.last_operation is wrapper.StatusOta.ROLLBACKING
+        assert self.otaclient_stub.last_operation is api_types.StatusOta.ROLLBACKING
         assert self.otaclient_stub.is_busy
         # test ota update/rollback exclusive lock,
-        resp = await self.otaclient_stub.dispatch_rollback(wrapper.RollbackRequestEcu())
-        assert resp.result == wrapper.FailureType.RECOVERABLE
+        resp = await self.otaclient_stub.dispatch_rollback(
+            api_types.RollbackRequestEcu()
+        )
+        assert resp.result == api_types.FailureType.RECOVERABLE
 
         # finish up rollback
         _rollbacking_event.set()
