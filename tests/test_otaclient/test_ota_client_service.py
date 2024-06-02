@@ -20,10 +20,10 @@ import asyncio
 import pytest
 import pytest_mock
 
+from otaclient_api.v2 import types as api_types
+from otaclient_api.v2.api_caller import OTAClientCall
 from otaclient.app.configs import server_cfg
-from otaclient.app.ota_client_call import OtaClientCall
-from otaclient.app.ota_client_service import create_otaclient_grpc_server
-from otaclient.app.proto import wrapper
+from otaclient.app.main import create_otaclient_grpc_server
 from otaclient.configs.ecu_info import ECUInfo
 from tests.conftest import cfg
 from tests.utils import compare_message
@@ -31,24 +31,24 @@ from tests.utils import compare_message
 
 class _MockedOTAClientServiceStub:
     MY_ECU_ID = "autoware"
-    UPDATE_RESP_ECU = wrapper.UpdateResponseEcu(
+    UPDATE_RESP_ECU = api_types.UpdateResponseEcu(
         ecu_id=MY_ECU_ID,
-        result=wrapper.FailureType.NO_FAILURE,
+        result=api_types.FailureType.NO_FAILURE,
     )
-    UPDATE_RESP = wrapper.UpdateResponse(ecu=[UPDATE_RESP_ECU])
-    ROLLBACK_RESP_ECU = wrapper.RollbackResponseEcu(
+    UPDATE_RESP = api_types.UpdateResponse(ecu=[UPDATE_RESP_ECU])
+    ROLLBACK_RESP_ECU = api_types.RollbackResponseEcu(
         ecu_id=MY_ECU_ID,
-        result=wrapper.FailureType.NO_FAILURE,
+        result=api_types.FailureType.NO_FAILURE,
     )
-    ROLLBACK_RESP = wrapper.RollbackResponse(ecu=[ROLLBACK_RESP_ECU])
-    STATUS_RESP_ECU = wrapper.StatusResponseEcuV2(
+    ROLLBACK_RESP = api_types.RollbackResponse(ecu=[ROLLBACK_RESP_ECU])
+    STATUS_RESP_ECU = api_types.StatusResponseEcuV2(
         ecu_id=MY_ECU_ID,
         otaclient_version="mocked_otaclient",
         firmware_version="firmware",
-        ota_status=wrapper.StatusOta.SUCCESS,
-        failure_type=wrapper.FailureType.NO_FAILURE,
+        ota_status=api_types.StatusOta.SUCCESS,
+        failure_type=api_types.FailureType.NO_FAILURE,
     )
-    STATUS_RESP = wrapper.StatusResponse(
+    STATUS_RESP = api_types.StatusResponse(
         available_ecu_ids=[MY_ECU_ID], ecu_v2=[STATUS_RESP_ECU]
     )
 
@@ -93,28 +93,28 @@ class Test_ota_client_service:
 
     async def test_otaclient_service(self):
         # --- test update call --- #
-        update_resp = await OtaClientCall.update_call(
+        update_resp = await OTAClientCall.update_call(
             ecu_id=self.MY_ECU_ID,
             ecu_ipaddr=self.LISTEN_ADDR,
             ecu_port=self.LISTEN_PORT,
-            request=wrapper.UpdateRequest(),
+            request=api_types.UpdateRequest(),
         )
         compare_message(update_resp, self.otaclient_service_stub.UPDATE_RESP)
 
         # --- test rollback call --- #
-        rollback_resp = await OtaClientCall.rollback_call(
+        rollback_resp = await OTAClientCall.rollback_call(
             ecu_id=self.MY_ECU_ID,
             ecu_ipaddr=self.LISTEN_ADDR,
             ecu_port=self.LISTEN_PORT,
-            request=wrapper.RollbackRequest(),
+            request=api_types.RollbackRequest(),
         )
         compare_message(rollback_resp, self.otaclient_service_stub.ROLLBACK_RESP)
 
         # --- test status call --- #
-        status_resp = await OtaClientCall.status_call(
+        status_resp = await OTAClientCall.status_call(
             ecu_id=self.MY_ECU_ID,
             ecu_ipaddr=self.LISTEN_ADDR,
             ecu_port=self.LISTEN_PORT,
-            request=wrapper.StatusRequest(),
+            request=api_types.StatusRequest(),
         )
         compare_message(status_resp, self.otaclient_service_stub.STATUS_RESP)

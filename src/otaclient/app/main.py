@@ -60,7 +60,7 @@ def _check_other_otaclient():
     write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
 
 
-async def launch_otaclient_grpc_server():
+def create_otaclient_grpc_server():
     service_stub = OTAClientServiceStub()
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
@@ -69,7 +69,11 @@ async def launch_otaclient_grpc_server():
         server=server, servicer=ota_client_service_v2
     )
     server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
+    return server
 
+
+async def launch_otaclient_grpc_server():
+    server = create_otaclient_grpc_server()
     await server.start()
     await server.wait_for_termination()
 
