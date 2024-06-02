@@ -72,13 +72,14 @@ from OpenSSL import crypto
 from typing_extensions import Self
 
 from ota_proxy import OTAFileCacheControl
-from otaclient_common.common import RetryTaskMap, get_backoff, urljoin_ensure_base
+from otaclient_common.common import get_backoff, urljoin_ensure_base
 from otaclient_common.downloader import Downloader
 from otaclient_common.proto_streamer import (
     Uint32LenDelimitedMsgReader,
     Uint32LenDelimitedMsgWriter,
 )
 from otaclient_common.proto_wrapper import MessageWrapper
+from otaclient_common.retry_task_map import RetryTaskMap
 
 from . import SUPORTED_COMPRESSION_TYPES
 from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
