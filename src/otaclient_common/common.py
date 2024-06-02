@@ -11,7 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-r"""Utils that shared between modules are listed here."""
+"""Utils that shared between modules are listed here.
+
+TODO(20240603): the old otaclient.app.common, split it by functionalities in
+    the future.
+"""
 
 
 from __future__ import annotations
