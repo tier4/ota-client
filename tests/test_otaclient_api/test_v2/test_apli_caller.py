@@ -17,8 +17,12 @@ import grpc
 import pytest
 import pytest_asyncio
 
-from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
-from otaclient.app.proto import v2, v2_grpc, wrapper
+from otaclient_api.v2 import (
+    otaclient_v2_pb2 as v2,
+    otaclient_v2_pb2_grpc as v2_grpc,
+    types as api_types,
+)
+from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from tests.utils import compare_message
 
 
@@ -133,10 +137,10 @@ class TestOTAClientCall:
             await server.stop(None)
 
     async def test_update_call(self, dummy_ota_client_service):
-        _req = wrapper.UpdateRequest.convert(
+        _req = api_types.UpdateRequest.convert(
             _DummyOTAClientService.DUMMY_UPDATE_REQUEST
         )
-        _response = await OtaClientCall.update_call(
+        _response = await OTAClientCall.update_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
             ecu_port=self.OTA_CLIENT_SERVICE_PORT,
@@ -147,10 +151,10 @@ class TestOTAClientCall:
         )
 
     async def test_rollback_call(self, dummy_ota_client_service):
-        _req = wrapper.RollbackRequest.convert(
+        _req = api_types.RollbackRequest.convert(
             _DummyOTAClientService.DUMMY_ROLLBACK_REQUEST
         )
-        _response = await OtaClientCall.rollback_call(
+        _response = await OTAClientCall.rollback_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
             ecu_port=self.OTA_CLIENT_SERVICE_PORT,
@@ -161,22 +165,22 @@ class TestOTAClientCall:
         )
 
     async def test_status_call(self, dummy_ota_client_service):
-        _response = await OtaClientCall.status_call(
+        _response = await OTAClientCall.status_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
             ecu_port=self.OTA_CLIENT_SERVICE_PORT,
-            request=wrapper.StatusRequest(),
+            request=api_types.StatusRequest(),
         )
 
         assert _response is not None
         compare_message(_response.export_pb(), _DummyOTAClientService.DUMMY_STATUS)
 
     async def test_update_call_no_response(self):
-        _req = wrapper.UpdateRequest.convert(
+        _req = api_types.UpdateRequest.convert(
             _DummyOTAClientService.DUMMY_UPDATE_REQUEST
         )
         with pytest.raises(ECUNoResponse):
-            await OtaClientCall.update_call(
+            await OTAClientCall.update_call(
                 ecu_id=self.DUMMY_ECU_ID,
                 ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
                 ecu_port=self.OTA_CLIENT_SERVICE_PORT,
