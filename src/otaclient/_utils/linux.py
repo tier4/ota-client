@@ -164,6 +164,7 @@ def subprocess_run_wrapper(
     check: bool,
     check_output: bool,
     chroot: Optional[StrOrPath] = None,
+    env: Optional[dict[str, str]] = None,
     timeout: Optional[float] = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """A wrapper for subprocess.run method.
@@ -198,4 +199,5 @@ def subprocess_run_wrapper(
         stdout=subprocess.PIPE if check_output else None,
         timeout=timeout,
         preexec_fn=preexec_fn,
+        env=env,
     )
