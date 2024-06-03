@@ -1,9 +1,6 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = [
-  "hatch-vcs",
-  "hatchling>=1.20",
-]
+requires = ["hatch-vcs", "hatchling>=1.20"]
 
 [project]
 name = "otaclient"
@@ -20,9 +17,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-dynamic = [
-  "version",
-]
+dynamic = ["version"]
 dependencies = [
   "aiofiles==22.1",
   "aiohttp<3.10.0,>=3.9.5",
@@ -34,7 +29,7 @@ dependencies = [
   "pyOpenSSL==24.1",
   "PyYAML>=3.12",
   "requests<2.32.0,>=2.31",
-  'typing_extensions>=4.6.3; python_version < "3.11"',
+  "typing_extensions>=4.6.3",
   "urllib3<2.0.0,>=1.26.8",
   "uvicorn[standard]==0.20",
   "zstandard==0.18",
