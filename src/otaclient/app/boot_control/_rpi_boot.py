@@ -16,15 +16,21 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
+import subprocess
 from pathlib import Path
 from string import Template
-from typing import Generator
+from typing import Any, Generator, Literal, Optional
+
+from typing_extensions import Self
+
+from otaclient._utils.typing import StrOrPath
 
 from .. import errors as ota_errors
-from ..common import replace_atomic, subprocess_call, subprocess_check_output
+from ..common import replace_atomic, subprocess_check_output
 from ..proto import wrapper
 from ._common import (
     CMDHelperFuncs,
@@ -247,44 +253,112 @@ class _RPIBootControl:
             cfg.INITRD_IMG, standby_slot, parent_dir=self.system_boot_path
         )
 
-    def _update_firmware(self):
-        """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
-        from current rootfs to system-boot partition.
+    @staticmethod
+    @contextlib.contextmanager
+    def _prepare_flash_kernel(target_slot_mp: StrOrPath) -> Generator[None, Any, None]:
+        """Do a bind mount of /boot/firmware and /proc to the standby slot,
+        preparing for calling flash-kernel with chroot.
+
+        flash-kernel requires at least these mounts to work properly.
         """
-        logger.info("update firmware with flash-kernel...")
+        target_slot_mp = Path(target_slot_mp)
+
+        # fmt: off
+        system_boot_mp = target_slot_mp / Path(cfg.SYSTEM_BOOT_MOUNT_POINT).relative_to("/")
+        system_boot_mount = [
+            "mount",
+            "-o", "bind",
+            "--make-unbindable",
+            cfg.SYSTEM_BOOT_MOUNT_POINT,
+            str(system_boot_mp)
+        ]
+        # fmt: on
+
+        # fmt: off
+        proc_mp = target_slot_mp / "proc"
+        proc_mount = [
+            "mount",
+            "-o", "bind",
+            "--make-unbindable",
+            "/proc",
+            str(proc_mp)
+        ]
+        # fmt: on
+
         try:
-            subprocess_call("flash-kernel", raise_exception=True)
-            os.sync()
-        except Exception as e:
-            _err_msg = f"flash-kernel failed: {e!r}"
+            subprocess_run_wrapper(system_boot_mount, check=True, check_output=True)
+            subprocess_run_wrapper(proc_mount, check=True, check_output=True)
+            yield
+            # NOTE: passthrough the mount failure to caller
+        finally:
+            CMDHelperFuncs.umount(proc_mp, raise_exception=False)
+            CMDHelperFuncs.umount(system_boot_mp, raise_exception=False)
+
+    def update_firmware(self, target_slot: SlotID, target_slot_mp: StrOrPath):
+        """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
+        from target slot.
+
+        The following things will be done:
+        1. bind mount the /boot/firmware and /proc into the target slot.
+        2. chroot into the target slot's rootfs, execute flash-kernel
+        """
+        logger.info(f"try to flash-kernel from {target_slot}...")
+        sysboot_at_target_slot = Path(target_slot_mp) / Path(
+            cfg.SYSTEM_BOOT_MOUNT_POINT
+        ).relative_to("/")
+
+        try:
+            with self._prepare_flash_kernel(sysboot_at_target_slot):
+                subprocess_run_wrapper(
+                    ["flash-kernel"],
+                    check=True,
+                    check_output=True,
+                    chroot=target_slot_mp,
+                    # must set this env variable to make flash-kernel work under chroot
+                    env={"FK_FORCE": "yes"},
+                )
+                os.sync()
+        except subprocess.CalledProcessError as e:
+            _err_msg = f"flash-kernel failed: {e!r}\nstderr: {e.stderr.decode()}\nstdout: {e.stdout.decode()}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
+
+        sys_boot_mp = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+        vmlinuz = sys_boot_mp / cfg.VMLINUZ
+        initrd_img = sys_boot_mp / cfg.INITRD_IMG
 
         try:
             # check if the vmlinuz and initrd.img presented in /boot/firmware(system-boot),
             # if so, it means that flash-kernel works and copies the kernel, inird.img from /boot,
             # then we rename vmlinuz and initrd.img to vmlinuz_<current_slot> and initrd.img_<current_slot>
-            if (_vmlinuz := Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.VMLINUZ).is_file():
-                os.replace(_vmlinuz, self.vmlinuz_active_slot)
-            if (
-                _initrd_img := Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.INITRD_IMG
-            ).is_file():
-                os.replace(_initrd_img, self.initrd_img_active_slot)
+            if vmlinuz.is_file():
+                os.replace(
+                    vmlinuz,
+                    get_boot_files_fpath(
+                        cfg.VMLINUZ, target_slot, parent_dir=sys_boot_mp
+                    ),
+                )
+
+            if initrd_img.is_file():
+                os.replace(
+                    initrd_img,
+                    get_boot_files_fpath(
+                        cfg.INITRD_IMG, target_slot, parent_dir=sys_boot_mp
+                    ),
+                )
             os.sync()
         except Exception as e:
-            _err_msg = (
-                f"apply new kernel,initrd.img for {self.active_slot} failed: {e!r}"
-            )
+            _err_msg = f"failed to apply new kernel,initrd.img for {target_slot}: {e!r}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
 
     # exposed API methods/properties
     @property
-    def active_slot(self) -> str:
+    def active_slot(self) -> SlotID:
         return self._active_slot
 
     @property
-    def standby_slot(self) -> str:
+    def standby_slot(self) -> SlotID:
         return self._standby_slot
 
     @property
@@ -302,57 +376,20 @@ class _RPIBootControl:
             1. atomically replace tryboot.txt with tryboot.txt_standby_slot
             2. atomically replace config.txt with config.txt_active_slot
 
-        Two-stage reboot:
-            In the first reboot after ota update applied, finalize_switching_boot will try
-            to update the firmware by calling external flash-kernel system script, finalize
-            the switch boot and then reboot again to apply the new firmware.
-            In the second reboot, finalize_switching_boot will do nothing but just return True.
-
-        NOTE: we use a SWITCH_BOOT_FLAG_FILE to distinguish which reboot we are right now.
-              If SWITCH_BOOT_FLAG_FILE presented, we know that we are second reboot,
-              Otherwise, we know that we are at first reboot after switching boot.
-
         Returns:
             A bool indicates whether the switch boot succeeded or not. Note that no exception
                 will be raised if finalizing failed.
         """
         logger.info("finalizing switch boot...")
         try:
-            _flag_file = self.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
-            if _flag_file.is_file():
-                # we are just after second reboot, after firmware_update,
-                # finalize the switch boot and then return True
-                logger.info("[rpi-boot]: just after 2nd reboot, finish up OTA")
-
-                # cleanup bak files generated by flash-kernel script as
-                # we actually don't use those files
-                for _bak_file in self.system_boot_path.glob("**/*.bak"):
-                    _bak_file.unlink(missing_ok=True)
-                _flag_file.unlink(missing_ok=True)
-                os.sync()
-                return True
-
-            else:
-                # we are just after first reboot after ota update applied,
-                # finalize the switch boot, install the new firmware and then reboot again
-                logger.info(
-                    "[rpi-boot]: just after 1st reboot, update firmware and finalizing boot files"
-                )
-
-                replace_atomic(self.config_txt_active_slot, self.config_txt)
-                replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
-                logger.info(
-                    "finalizing boot configuration,"
-                    f"replace {self.config_txt=} with {self.config_txt_active_slot=}, "
-                    f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot=}"
-                )
-                self._update_firmware()
-                # set the flag file
-                write_str_to_file_sync(_flag_file, "")
-                # reboot to the same slot to apply the new firmware
-
-                logger.info("reboot to apply new firmware...")
-                CMDHelperFuncs.reboot()  # this function will make otaclient exit immediately
+            replace_atomic(self.config_txt_active_slot, self.config_txt)
+            replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
+            logger.info(
+                "finalizing boot configuration,"
+                f"replace {self.config_txt=} with {self.config_txt_active_slot=}, "
+                f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot=}"
+            )
+            return True
         except Exception as e:
             _err_msg = f"failed to finalize boot switching: {e!r}"
             logger.error(_err_msg)
@@ -406,17 +443,6 @@ class RPIBootController(BootControllerProtocol):
                 / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
                 finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
             )
-
-            # 20230613: remove any leftover flag file if ota_status is not UPDATING/ROLLBACKING
-            if self._ota_status_control.booted_ota_status not in (
-                wrapper.StatusOta.UPDATING,
-                wrapper.StatusOta.ROLLBACKING,
-            ):
-                _flag_file = (
-                    self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
-                )
-                _flag_file.unlink(missing_ok=True)
-
             logger.debug("rpi_boot initialization finished")
         except Exception as e:
             _err_msg = f"failed to start rpi boot controller: {e!r}"
@@ -515,12 +541,6 @@ class RPIBootController(BootControllerProtocol):
 
             ### update standby slot's ota_status files ###
             self._ota_status_control.pre_update_standby(version=version)
-
-            # 20230613: remove any leftover flag file if presented
-            _flag_file = (
-                self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
-            )
-            _flag_file.unlink(missing_ok=True)
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
@@ -561,6 +581,12 @@ class RPIBootController(BootControllerProtocol):
             self._mp_control.preserve_ota_folder_to_standby()
             self._write_standby_fstab()
             self._rpiboot_control.prepare_tryboot_txt()
+            # NOTE(20240603): we assume that raspberry pi's firmware is backward-compatible,
+            #   which old system rootfs can be booted by new firmware.
+            self._rpiboot_control.update_firmware(
+                target_slot=self._rpiboot_control.standby_slot,
+                target_slot_mp=self._mp_control.standby_slot_mount_point,
+            )
             self._mp_control.umount_all(ignore_error=True)
             yield  # hand over control back to otaclient
             self._rpiboot_control.reboot_tryboot()
