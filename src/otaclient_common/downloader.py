@@ -52,8 +52,8 @@ from urllib3.response import HTTPResponse
 from urllib3.util.retry import Retry
 
 from ota_proxy import OTAFileCacheControl
-from otaclient_common import copy_callable_typehint
 from otaclient.app.configs import config as cfg
+from otaclient_common import copy_callable_typehint
 from otaclient_common.common import wait_with_backoff
 
 logger = logging.getLogger(__name__)

@@ -26,8 +26,8 @@ import yaml
 from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
 from typing_extensions import Annotated
 
-from otaclient_common.typing import NetworkPort, StrOrPath, gen_strenum_validator
 from otaclient.configs._common import BaseFixedConfig
+from otaclient_common.typing import NetworkPort, StrOrPath, gen_strenum_validator
 
 logger = logging.getLogger(__name__)
 

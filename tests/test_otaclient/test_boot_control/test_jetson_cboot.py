@@ -33,7 +33,6 @@ from otaclient.app.boot_control._jetson_common import (
     parse_bsp_version,
     update_extlinux_cfg,
 )
-
 from tests.conftest import TEST_DIR
 
 logger = logging.getLogger(__name__)

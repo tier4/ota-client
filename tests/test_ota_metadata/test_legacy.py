@@ -36,7 +36,6 @@ from ota_metadata.legacy.parser import (
     parse_regulars_from_txt,
     parse_symlinks_from_txt,
 )
-
 from tests.conftest import TEST_DIR
 
 GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"

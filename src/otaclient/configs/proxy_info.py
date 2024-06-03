@@ -26,8 +26,8 @@ import yaml
 from pydantic import AliasChoices, AnyHttpUrl, Field, IPvAnyAddress
 from pydantic_core import Url
 
-from otaclient_common.typing import NetworkPort, StrOrPath
 from otaclient.configs._common import BaseFixedConfig
+from otaclient_common.typing import NetworkPort, StrOrPath
 
 logger = logging.getLogger(__name__)
 
