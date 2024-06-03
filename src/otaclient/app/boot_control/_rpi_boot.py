@@ -47,6 +47,25 @@ class _RPIBootControllerError(Exception):
     """rpi_boot module internal used exception."""
 
 
+SlotID = Literal["slot_a", "slot_b"]
+SLOT_A: SlotID = cfg.SLOT_A_FSLABEL
+SLOT_B: SlotID = cfg.SLOT_B_FSLABEL
+SEP_CHAR = "_"
+
+
+def get_boot_files_fpath(
+    boot_fname: Literal["vmlinuz", "initrd.img"],
+    slot: SlotID,
+    *,
+    parent_dir: Optional[StrOrPath] = None,
+) -> Path:
+    """Get the boot files fpath for specific slot."""
+    fname = f"{boot_fname}{SEP_CHAR}{slot}"
+    if parent_dir:
+        return Path(parent_dir) / fname
+    return Path(fname)
+
+
 class _RPIBootControl:
     """Boot control helper for rpi4 support.
 
