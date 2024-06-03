@@ -19,7 +19,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import re
 import subprocess
 from pathlib import Path
 from string import Template
@@ -244,22 +243,16 @@ class _RPIBootControl:
         )
         # fmt: off
         system_boot_mount = [
-            "mount",
-            "-o", "bind",
-            "--make-unbindable",
-            cfg.SYSTEM_BOOT_MOUNT_POINT,
-            str(system_boot_mp)
+            "mount", "-o", "bind", "--make-unbindable",
+            cfg.SYSTEM_BOOT_MOUNT_POINT, str(system_boot_mp)
         ]
         # fmt: on
 
         proc_mp = target_slot_mp / "proc"
         # fmt: off
         proc_mount = [
-            "mount",
-            "-o", "bind",
-            "--make-unbindable",
-            "/proc",
-            str(proc_mp)
+            "mount", "-o", "bind", "--make-unbindable",
+            "/proc", str(proc_mp)
         ]
         # fmt: on
 
@@ -272,7 +265,7 @@ class _RPIBootControl:
             CMDHelperFuncs.umount(proc_mp, raise_exception=False)
             CMDHelperFuncs.umount(system_boot_mp, raise_exception=False)
 
-    def update_firmware(self, target_slot: SlotID, target_slot_mp: StrOrPath):
+    def update_firmware(self, *, target_slot: SlotID, target_slot_mp: StrOrPath):
         """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
         from target slot.
 
@@ -418,52 +411,6 @@ class RPIBootController(BootControllerProtocol):
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
-    def _copy_kernel_for_standby_slot(self):
-        """Copy the kernel and initrd_img files from current slot /boot
-        to system-boot for standby slot.
-
-        This method will checkout the vmlinuz-<kernel_ver> and initrd.img-<kernel_ver>
-        under /boot, and copy them to /boot/firmware(system-boot partition) under the name
-        vmlinuz_<slot> and initrd.img_<slot>.
-        """
-        logger.debug(
-            "prepare standby slot's kernel/initrd.img to system-boot partition..."
-        )
-        try:
-            # search for kernel
-            _kernel_pa, _kernel_ver = (
-                re.compile(rf"{VMLINUZ}-(?P<kernel_ver>.*)"),
-                None,
-            )
-            # NOTE: if there is multiple kernel, pick the first one we encounted
-            # NOTE 2: according to ota-image specification, it should only be one
-            #         version of kernel and initrd.img
-            for _candidate in self._mp_control.standby_boot_dir.glob(f"{VMLINUZ}-*"):
-                if _ma := _kernel_pa.match(_candidate.name):
-                    _kernel_ver = _ma.group("kernel_ver")
-                    break
-
-            standby_boot_dir = self._mp_control.standby_slot_mount_point / "boot"
-            if _kernel_ver is not None:
-                replace_atomic(
-                    standby_boot_dir / f"{VMLINUZ}-{_kernel_ver}",
-                    get_sysboot_files_fpath(
-                        VMLINUZ, self._rpiboot_control.standby_slot
-                    ),
-                )
-                replace_atomic(
-                    standby_boot_dir / f"{INITRD_IMG}-{_kernel_ver}",
-                    get_sysboot_files_fpath(
-                        INITRD_IMG, self._rpiboot_control.standby_slot
-                    ),
-                )
-            else:
-                raise ValueError("failed to kernel in /boot folder at standby slot")
-        except Exception as e:
-            _err_msg = "failed to copy kernel/initrd_img for standby slot"
-            logger.error(_err_msg)
-            raise _RPIBootControllerError(f"{e!r}")
-
     def _write_standby_fstab(self):
         """Override the standby's fstab file.
 
@@ -546,16 +493,15 @@ class RPIBootController(BootControllerProtocol):
     def post_update(self) -> Generator[None, None, None]:
         try:
             logger.info("rpi_boot: post-update setup...")
-            self._copy_kernel_for_standby_slot()
             self._mp_control.preserve_ota_folder_to_standby()
             self._write_standby_fstab()
-            self._rpiboot_control.prepare_tryboot_txt()
             # NOTE(20240603): we assume that raspberry pi's firmware is backward-compatible,
             #   which old system rootfs can be booted by new firmware.
             self._rpiboot_control.update_firmware(
                 target_slot=self._rpiboot_control.standby_slot,
                 target_slot_mp=self._mp_control.standby_slot_mount_point,
             )
+            self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
             yield  # hand over control back to otaclient
             self._rpiboot_control.reboot_tryboot()
