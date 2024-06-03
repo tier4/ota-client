@@ -70,6 +70,7 @@ class RPIBootControlConfig(BaseConfig):
     # boot folders
     SYSTEM_BOOT_MOUNT_POINT = "/boot/firmware"
     OTA_STATUS_DIR = "/boot/ota-status"
+    SWITCH_BOOT_FLAG_FILE = "._ota_switch_boot_finalized"
 
 
 grub_cfg = GrubControlConfig()
