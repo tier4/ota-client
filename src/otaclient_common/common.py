@@ -26,20 +26,12 @@ import shlex
 import shutil
 import subprocess
 import time
-from functools import lru_cache, partial
 from hashlib import sha256
 from pathlib import Path
 from typing import Optional, Union
 from urllib.parse import urljoin
 
 import requests
-
-from otaclient_common.linux import (
-    ParsedGroup,
-    ParsedPasswd,
-    map_gid_by_grpnam,
-    map_uid_by_pwnam,
-)
 
 logger = logging.getLogger(__name__)
 
