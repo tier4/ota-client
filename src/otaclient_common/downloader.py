@@ -57,7 +57,6 @@ from otaclient_common import copy_callable_typehint
 from otaclient_common.common import wait_with_backoff
 from otaclient_common.typing import copy_callable_typehint
 
-
 logger = logging.getLogger(__name__)
 
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"

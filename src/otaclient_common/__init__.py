@@ -23,7 +23,6 @@ from typing import Optional
 
 from typing_extensions import Literal
 
-
 _MultiUnits = Literal["GiB", "MiB", "KiB", "Bytes", "KB", "MB", "GB"]
 # fmt: off
 _multiplier: dict[_MultiUnits, int] = {
