@@ -35,6 +35,8 @@ from ._common import (
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
 
+from otaclient._utils.linux import subprocess_run_wrapper
+
 logger = logging.getLogger(__name__)
 
 _FSTAB_TEMPLATE_STR = (
@@ -47,14 +49,32 @@ class _RPIBootControllerError(Exception):
     """rpi_boot module internal used exception."""
 
 
-SlotID = Literal["slot_a", "slot_b"]
-SLOT_A: SlotID = cfg.SLOT_A_FSLABEL
-SLOT_B: SlotID = cfg.SLOT_B_FSLABEL
+class SlotID(str):
+    """slot_id for A/B slots."""
+
+    VALID_SLOTS = ["slot_a", "slot_b"]
+
+    def __new__(cls, _in: str | Self) -> Self:
+        if isinstance(_in, cls):
+            return _in
+        if _in in cls.VALID_SLOTS:
+            return str.__new__(cls, _in)
+        raise ValueError(f"{_in=} is not valid slot num, should be '0' or '1'.")
+
+
+SLOT_A = SlotID(cfg.SLOT_A_FSLABEL)
+SLOT_B = SlotID(cfg.SLOT_B_FSLABEL)
 SEP_CHAR = "_"
+
+AB_FLIPS = {
+    SLOT_A: SLOT_B,
+    SLOT_B: SLOT_A,
+}
+BOOTFILES = Literal["vmlinuz", "initrd.img", "config.txt", "tryboot.txt", "cmdline.txt"]
 
 
 def get_boot_files_fpath(
-    boot_fname: Literal["vmlinuz", "initrd.img"],
+    boot_fname: BOOTFILES,
     slot: SlotID,
     *,
     parent_dir: Optional[StrOrPath] = None,
@@ -87,14 +107,6 @@ class _RPIBootControl:
     i.e., config.txt for slot_a will be config.txt_slot_a
     """
 
-    SLOT_A = cfg.SLOT_A_FSLABEL
-    SLOT_B = cfg.SLOT_B_FSLABEL
-    AB_FLIPS = {
-        SLOT_A: SLOT_B,
-        SLOT_B: SLOT_A,
-    }
-    SEP_CHAR = "_"
-
     def __init__(self) -> None:
         self.system_boot_path = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
         if not CMDHelperFuncs.is_target_mounted(
@@ -119,7 +131,7 @@ class _RPIBootControl:
                 "LABEL", str(self._active_slot_dev)
             )
             assert _active_slot
-            self._active_slot = _active_slot
+            self._active_slot = SlotID(_active_slot)
 
             # detect standby slot
             # NOTE: using the similar logic like grub, detect the silibing dev
@@ -157,7 +169,7 @@ class _RPIBootControl:
                 ) from None
             # it is OK if standby_slot dev doesn't have fslabel or fslabel != standby_slot_id
             # we will always set the fslabel
-            self._standby_slot = self.AB_FLIPS[self._active_slot]
+            self._standby_slot = AB_FLIPS[self._active_slot]
             self._standby_slot_dev = _child_partitions[0]
             logger.info(
                 f"rpi_boot: active_slot: {self._active_slot}({self._active_slot_dev}), "
@@ -181,55 +193,58 @@ class _RPIBootControl:
         In such case, a reinstall/setup of AB partition boot files is required.
         """
         logger.debug("checking boot files...")
+        active_slot, standby_slot = self.active_slot, self.standby_slot
+
         # boot file
         self.config_txt = self.system_boot_path / cfg.CONFIG_TXT
         self.tryboot_txt = self.system_boot_path / cfg.TRYBOOT_TXT
 
-        # active slot
-        self.config_txt_active_slot = (
-            self.system_boot_path / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.active_slot}"
+        # ------ active slot boot files ------ #
+        self.config_txt_active_slot = get_boot_files_fpath(
+            cfg.CONFIG_TXT, active_slot, parent_dir=self.system_boot_path
         )
         if not self.config_txt_active_slot.is_file():
             _err_msg = f"missing {self.config_txt_active_slot=}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
-        self.cmdline_txt_active_slot = (
-            self.system_boot_path
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.active_slot}"
+
+        self.cmdline_txt_active_slot = get_boot_files_fpath(
+            cfg.CMDLINE_TXT, active_slot, parent_dir=self.system_boot_path
         )
         if not self.cmdline_txt_active_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_active_slot=}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
-        self.vmlinuz_active_slot = (
-            self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.active_slot}"
+
+        self.vmlinuz_active_slot = get_boot_files_fpath(
+            cfg.VMLINUZ, active_slot, parent_dir=self.system_boot_path
         )
-        self.initrd_img_active_slot = (
-            self.system_boot_path / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.active_slot}"
+        self.initrd_img_active_slot = get_boot_files_fpath(
+            cfg.INITRD_IMG, active_slot, parent_dir=self.system_boot_path
         )
-        # standby slot
-        self.config_txt_standby_slot = (
-            self.system_boot_path
-            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.standby_slot}"
+
+        # ------ standby slot boot files ------ #
+        self.config_txt_standby_slot = get_boot_files_fpath(
+            cfg.CONFIG_TXT, standby_slot, parent_dir=self.system_boot_path
         )
         if not self.config_txt_standby_slot.is_file():
             _err_msg = f"missing {self.config_txt_standby_slot=}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
-        self.cmdline_txt_standby_slot = (
-            self.system_boot_path
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.standby_slot}"
+
+        self.cmdline_txt_standby_slot = get_boot_files_fpath(
+            cfg.CMDLINE_TXT, standby_slot, parent_dir=self.system_boot_path
         )
         if not self.cmdline_txt_standby_slot.is_file():
             _err_msg = f"missing {self.cmdline_txt_standby_slot=}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
-        self.vmlinuz_standby_slot = (
-            self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.standby_slot}"
+
+        self.vmlinuz_standby_slot = get_boot_files_fpath(
+            cfg.VMLINUZ, standby_slot, parent_dir=self.system_boot_path
         )
-        self.initrd_img_standby_slot = (
-            self.system_boot_path
-            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
+        self.initrd_img_standby_slot = get_boot_files_fpath(
+            cfg.INITRD_IMG, standby_slot, parent_dir=self.system_boot_path
         )
 
     def _update_firmware(self):
