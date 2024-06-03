@@ -20,12 +20,13 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar, Union
 
 from pydantic import Field
-from typing_extensions import Annotated, ParamSpec
+from typing_extensions import Annotated, Concatenate, ParamSpec
 
 P = ParamSpec("P")
-T = TypeVar("T", bound=Enum)
 RT = TypeVar("RT")
+T = TypeVar("T")
 
+EnumT = TypeVar("EnumT", bound=Enum)
 StrOrPath = Union[str, Path]
 
 # pydantic helpers
@@ -33,7 +34,9 @@ StrOrPath = Union[str, Path]
 NetworkPort = Annotated[int, Field(ge=1, le=65535)]
 
 
-def gen_strenum_validator(enum_type: type[T]) -> Callable[[T | str | Any], T]:
+def gen_strenum_validator(
+    enum_type: type[EnumT],
+) -> Callable[[EnumT | str | Any], EnumT]:
     """A before validator generator that converts input value into enum
     before passing it to pydantic validator.
 
@@ -41,10 +44,34 @@ def gen_strenum_validator(enum_type: type[T]) -> Callable[[T | str | Any], T]:
                     pass strict validation if input is str.
     """
 
-    def _inner(value: T | str | Any) -> T:
+    def _inner(value: EnumT | str | Any) -> EnumT:
         assert isinstance(
             value, (enum_type, str)
         ), f"{value=} should be {enum_type} or str type"
         return enum_type(value)
 
     return _inner
+
+
+def copy_callable_typehint(_source: Callable[P, Any]):
+    """This helper function return a decorator that can type hint the target
+    function as the _source function.
+
+    At runtime, this decorator actually does nothing, but just return the input function as it.
+    But the returned function will have the same type hint as the source function in ide.
+    It will not impact the runtime behavior of the decorated function.
+    """
+
+    def _decorator(target) -> Callable[P, Any]:
+        return target
+
+    return _decorator
+
+
+def copy_callable_typehint_to_method(_source: Callable[P, Any]):
+    """Works the same as copy_callable_typehint, but omit the first arg."""
+
+    def _decorator(target: Callable[..., RT]) -> Callable[Concatenate[Any, P], RT]:
+        return target  # type: ignore
+
+    return _decorator
