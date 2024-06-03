@@ -301,21 +301,15 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
 
-        sys_boot_mp = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-        vmlinuz = sys_boot_mp / VMLINUZ
-        initrd_img = sys_boot_mp / INITRD_IMG
-
         try:
-            # check if the vmlinuz and initrd.img presented in /boot/firmware(system-boot),
-            # if so, it means that flash-kernel works and copies the kernel, inird.img from /boot,
-            # then we rename vmlinuz and initrd.img to vmlinuz_<current_slot> and initrd.img_<current_slot>
-            if vmlinuz.is_file():
+            # flash-kernel will install the kernel and initrd.img files from /boot to /boot/firmware
+            if (vmlinuz := self.system_boot_mp / VMLINUZ).is_file():
                 os.replace(
                     vmlinuz,
                     get_sysboot_files_fpath(VMLINUZ, target_slot),
                 )
 
-            if initrd_img.is_file():
+            if (initrd_img := self.system_boot_mp / INITRD_IMG).is_file():
                 os.replace(
                     initrd_img,
                     get_sysboot_files_fpath(INITRD_IMG, target_slot),
@@ -356,6 +350,10 @@ class _RPIBootControl:
                 f"replace {CONFIG_TXT} with {config_txt_current=}, "
                 f"replace {TRYBOOT_TXT} with {config_txt_standby=}"
             )
+
+            # on success switching boot, cleanup the bak files created by flash-kernel
+            for _bak_file in self.system_boot_mp.glob("**/*.bak"):
+                _bak_file.unlink(missing_ok=True)
             return True
         except Exception as e:
             _err_msg = f"failed to finalize boot switching: {e!r}"
