@@ -8,7 +8,7 @@ from string import Template
 import pytest
 import pytest_mock
 
-from otaclient.app.boot_control._rpi_boot import _FSTAB_TEMPLATE_STR
+from otaclient.app.boot_control import _rpi_boot
 from otaclient.app.boot_control.configs import rpi_boot_cfg
 from otaclient.app.proto import wrapper
 from tests.conftest import TestConfiguration as cfg
@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 class _RPIBootTestCfg:
     # slot config
-    SLOT_A = rpi_boot_cfg.SLOT_A_FSLABEL
-    SLOT_B = rpi_boot_cfg.SLOT_B_FSLABEL
+    SLOT_A = "slot_a"
+    SLOT_B = "slot_b"
     SLOT_A_DEV = "slot_a_dev"
     SLOT_B_DEV = "slot_b_dev"
     SEP_CHAR = "_"
@@ -100,7 +100,7 @@ class TestRPIBootControl:
         slot_a_version = self.slot_a_ota_status_dir / "version"
         slot_a_version.write_text(cfg.CURRENT_VERSION)
         slot_a_slot_in_use = self.slot_a_ota_status_dir / "slot_in_use"
-        slot_a_slot_in_use.write_text(rpi_boot_cfg.SLOT_A_FSLABEL)
+        slot_a_slot_in_use.write_text(_RPIBootTestCfg.SLOT_A)
         # setup ota dir for slot_a
         slot_a_ota_dir = self.slot_a_mp / "boot" / "ota"
         slot_a_ota_dir.mkdir(parents=True, exist_ok=True)
@@ -117,41 +117,41 @@ class TestRPIBootControl:
         self.system_boot = tmp_path / "system-boot"
         self.system_boot.mkdir(parents=True, exist_ok=True)
         # NOTE: primary config.txt is for slot_a at the beginning
-        (self.system_boot / f"{rpi_boot_cfg.CONFIG_TXT}").write_text(
+        (self.system_boot / f"{_rpi_boot.CONFIG_TXT}").write_text(
             _RPIBootTestCfg.CONFIG_TXT_SLOT_A
         )
         # NOTE: rpi_boot controller now doesn't check the content of boot files, but only ensure the existence
         (
             self.system_boot
-            / f"{rpi_boot_cfg.CONFIG_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+            / f"{_rpi_boot.CONFIG_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text(_RPIBootTestCfg.CONFIG_TXT_SLOT_A)
         (
             self.system_boot
-            / f"{rpi_boot_cfg.CONFIG_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+            / f"{_rpi_boot.CONFIG_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
         ).write_text(_RPIBootTestCfg.CONFIG_TXT_SLOT_B)
         (
             self.system_boot
-            / f"{rpi_boot_cfg.CMDLINE_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+            / f"{_rpi_boot.CMDLINE_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text(_RPIBootTestCfg.CMDLINE_TXT_SLOT_A)
         (
             self.system_boot
-            / f"{rpi_boot_cfg.CMDLINE_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+            / f"{_rpi_boot.CMDLINE_TXT}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
         ).write_text(_RPIBootTestCfg.CMDLINE_TXT_SLOT_B)
         (
             self.system_boot
-            / f"{rpi_boot_cfg.VMLINUZ}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+            / f"{_rpi_boot.VMLINUZ}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text("slot_a_vmlinux")
         (
             self.system_boot
-            / f"{rpi_boot_cfg.INITRD_IMG}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
+            / f"{_rpi_boot.INITRD_IMG}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_A}"
         ).write_text("slot_a_initrdimg")
         self.vmlinuz_slot_b = (
             self.system_boot
-            / f"{rpi_boot_cfg.VMLINUZ}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+            / f"{_rpi_boot.VMLINUZ}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
         )
         self.initrd_img_slot_b = (
             self.system_boot
-            / f"{rpi_boot_cfg.INITRD_IMG}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
+            / f"{_rpi_boot.INITRD_IMG}{_RPIBootTestCfg.SEP_CHAR}{_RPIBootTestCfg.SLOT_B}"
         )
 
     @pytest.fixture(autouse=True)
@@ -171,7 +171,7 @@ class TestRPIBootControl:
         _RPIBootControl.reboot_tryboot = mocker.Mock(
             side_effect=self._fsm.reboot_tryboot
         )
-        _RPIBootControl._update_firmware = mocker.Mock()
+        _RPIBootControl.update_firmware = mocker.Mock()
 
         # patch boot_control module
         self._mocked__rpiboot_control = _RPIBootControl
@@ -259,14 +259,15 @@ class TestRPIBootControl:
         # --- assertions: --- #
         # 1. make sure that retry boot is called
         # 2. make sure that fstab file is updated for slot_b
-        # 3. assert kernel and initrd.img are copied to system-boot
+        # 3. make sure flash-kernel is called
         # 4. make sure tryboot.txt is presented and correct
         # 5. make sure config.txt is untouched
         self._mocked__rpiboot_control.reboot_tryboot.assert_called_once()
+        self._mocked__rpiboot_control.update_firmware.assert_called_once()
         assert self._fsm.is_switched_boot
         assert (
             self.slot_b_mp / Path(rpi_boot_cfg.FSTAB_FPATH).relative_to("/")
-        ).read_text() == Template(_FSTAB_TEMPLATE_STR).substitute(
+        ).read_text() == Template(_rpi_boot._FSTAB_TEMPLATE_STR).substitute(
             rootfs_fslabel=_RPIBootTestCfg.SLOT_B
         )
         assert self.initrd_img_slot_b.is_file()
@@ -298,7 +299,6 @@ class TestRPIBootControl:
         # 5. assert slot_in_use is slot_b
         # 6. make sure the SWITCH_BOOT_FLAG_FILE file is created
         # 7. make sure ota_status is still UPDATING
-        self._mocked__rpiboot_control._update_firmware.assert_called_once()
         self._CMDHelper_mock.reboot.assert_called_once()
         assert (
             self.system_boot / "config.txt"
