@@ -34,9 +34,9 @@ from ota_metadata.legacy import types as ota_metadata_types
 from otaclient import __version__
 from otaclient_api.v2 import types as api_types
 from otaclient_common import downloader
-from otaclient_common.common import ensure_otaproxy_start, get_backoff
+from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.persist_file_handling import PersistFilesHandler
-from otaclient_common.retry_task_map import RetryTaskMap, RetryTaskMapInterrupted
+from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 from . import errors as ota_errors
 from .boot_control import BootControllerProtocol, get_boot_controller
@@ -166,13 +166,17 @@ class _OTAUpdater:
 
             _local_copy = self._ota_tmp_on_standby / _fhash_str
             entry_url, compression_alg = self._otameta.get_download_url(entry)
-            cur_stat.download_errors, _, _ = self._downloader.download(
-                entry_url,
-                _local_copy,
-                digest=_fhash_str,
-                size=entry.size,
-                compression_alg=compression_alg,
-            )
+            try:
+                cur_stat.download_errors, _, _ = self._downloader.download(
+                    entry_url,
+                    _local_copy,
+                    digest=_fhash_str,
+                    size=entry.size,
+                    compression_alg=compression_alg,
+                )
+            except Exception as e:
+                logger.warning(f"failed to download {entry=}: {e!r}")
+                raise
             cur_stat.size = _local_copy.stat().st_size
             return cur_stat
 
@@ -182,50 +186,44 @@ class _OTAUpdater:
         _empty_file.touch()
 
         last_active_timestamp = int(time.time())
-        _mapper = RetryTaskMap(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            backoff_func=partial(
-                get_backoff,
-                factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
-                _max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
-            ),
-            max_retry=0,  # NOTE: we use another strategy below
-        )
-        for task_result in _mapper.map(_download_file, download_list):
-            _fut, _entry = task_result
-            if not _fut.exception():
-                self._update_stats_collector.report_download_ota_files(_fut.result())
-                last_active_timestamp = int(time.time())
-                continue
+        with ThreadPoolExecutorWithRetry(
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
+        ) as _mapper:
+            for _fut in _mapper.ensure_tasks(_download_file, download_list):
+                if not _fut.exception():
+                    self._update_stats_collector.report_download_ota_files(
+                        _fut.result()
+                    )
+                    last_active_timestamp = int(time.time())
+                    continue
 
-            # on failed task
-            # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
-            #       time, so we manually create one download report
-            logger.debug(f"failed to download {_entry=}: {_fut}")
-            self._update_stats_collector.report_download_ota_files(
-                RegInfProcessedStats(
-                    op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
-                    download_errors=cfg.DOWNLOAD_RETRY,
-                ),
-            )
-            # if the download group becomes inactive longer than <limit>,
-            # force shutdown and breakout.
-            # NOTE: considering the edge condition that all downloading threads
-            #       are downloading large file, resulting time cost longer than
-            #       timeout limit, and one task is interrupted and yielded,
-            #       we should not breakout on this situation as other threads are
-            #       still downloading.
-            last_active_timestamp = max(
-                last_active_timestamp, self._downloader.last_active_timestamp
-            )
-            if (
-                int(time.time()) - last_active_timestamp
-                > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
-            ):
-                logger.error(
-                    f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
+                # on failed task
+                # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
+                #       time, so we manually create one download report
+                self._update_stats_collector.report_download_ota_files(
+                    RegInfProcessedStats(
+                        op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
+                        download_errors=cfg.DOWNLOAD_RETRY,
+                    ),
                 )
-                _mapper.shutdown(raise_last_exc=True)
+                # if the download group becomes inactive longer than <limit>,
+                # force shutdown and breakout.
+                # NOTE: considering the edge condition that all downloading threads
+                #       are downloading large file, resulting time cost longer than
+                #       timeout limit, and one task is interrupted and yielded,
+                #       we should not breakout on this situation as other threads are
+                #       still downloading.
+                last_active_timestamp = max(
+                    last_active_timestamp, self._downloader.last_active_timestamp
+                )
+                if (
+                    int(time.time()) - last_active_timestamp
+                    > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
+                ):
+                    _err_msg = f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
+                    logger.error(_err_msg)
+                    _mapper.shutdown(wait=True)
+                    raise ValueError(_err_msg)
 
         # all tasks are finished, waif for stats collector to finish processing
         # all the reported stats
@@ -283,15 +281,8 @@ class _OTAUpdater:
             raise ota_errors.StandbySlotInsufficientSpace(
                 _err_msg, module=__name__
             ) from None
-        except RetryTaskMapInterrupted as e:
-            _err_msg = (
-                f"downloading group keeps failing for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT}s, "
-                f"last_error: {e!r}"
-            )
-            logger.error(_err_msg)
-            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
         except Exception as e:
-            _err_msg = f"unspecific error, failed to finish downloading files: {e!r}"
+            _err_msg = f"failed to finish downloading files: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.NetworkError(_err_msg, module=__name__) from e
 
