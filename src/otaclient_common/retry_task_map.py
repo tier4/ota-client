@@ -23,7 +23,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures.thread import BrokenThreadPool
 from typing import Callable, Generator, Iterable, Optional
 
-from otaclient_common.typing import T, RT
+from otaclient_common.typing import RT, T
 
 logger = logging.getLogger(__name__)
 
