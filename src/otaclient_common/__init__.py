@@ -16,9 +16,12 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
+import sys
 from math import ceil
 from pathlib import Path
+from types import ModuleType
 from typing import Optional
 
 from typing_extensions import Literal
@@ -58,3 +61,16 @@ def replace_root(path: str | Path, old_root: str | Path, new_root: str | Path) -
     if os.path.commonpath([path, old_root]) != old_root:
         raise ValueError(f"{old_root=} is not the root of {path=}")
     return os.path.join(new_root, os.path.relpath(path, old_root))
+
+
+def import_from_file(path: Path) -> tuple[str, ModuleType]:
+    if not path.is_file():
+        raise ValueError(f"{path} is not a valid module file")
+    try:
+        _module_name = path.stem
+        _spec = importlib.util.spec_from_file_location(_module_name, path)
+        _module = importlib.util.module_from_spec(_spec)  # type: ignore
+        _spec.loader.exec_module(_module)  # type: ignore
+        return _module_name, _module
+    except Exception:
+        raise ImportError(f"failed to import module from {path=}.")

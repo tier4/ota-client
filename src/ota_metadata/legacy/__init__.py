@@ -16,32 +16,19 @@
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 from pathlib import Path
-from types import ModuleType
+
+from otaclient_common import import_from_file
+
+SUPORTED_COMPRESSION_TYPES = ("zst", "zstd")
+
+# ------ dynamically import pb2 generated code ------ #
 
 _PROTO_DIR = Path(__file__).parent
 _PB2_FPATH = _PROTO_DIR / "ota_metafiles_pb2.py"
-_PACKAGE_PREFIX = "ota_metadata.legacy"
+_PACKAGE_PREFIX = ".".join(__name__.split(".")[:-1])
 
-
-def _import_from_file(path: Path) -> tuple[str, ModuleType]:
-    if not path.is_file():
-        raise ValueError(f"{path} is not a valid module file")
-    try:
-        _module_name = path.stem
-        _spec = importlib.util.spec_from_file_location(_module_name, path)
-        _module = importlib.util.module_from_spec(_spec)  # type: ignore
-        _spec.loader.exec_module(_module)  # type: ignore
-        return _module_name, _module
-    except Exception:
-        raise ImportError(f"failed to import module from {path=}.")
-
-
-_module_name, _module = _import_from_file(_PB2_FPATH)  # noqa: F821
+_module_name, _module = import_from_file(_PB2_FPATH)
 sys.modules[_module_name] = _module
 sys.modules[f"{_PACKAGE_PREFIX}.{_module_name}"] = _module
-
-# For OTA image format legacy, we support zst,zstd compression.
-SUPORTED_COMPRESSION_TYPES = ("zst", "zstd")

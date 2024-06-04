@@ -16,34 +16,20 @@
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 from pathlib import Path
-from types import ModuleType
+
+from otaclient_common import import_from_file
+
+# ------ dynamically import pb2 generated code ------ #
 
 _PROTO_DIR = Path(__file__).parent
-# NOTE: order matters here! v2_pb2_grpc depends on v2_pb2
+# NOTE: order matters here! pb2_grpc depends on pb2
 _FILES_TO_LOAD = [
-    _PROTO_DIR / _fname
-    for _fname in [
-        "otaclient_v2_pb2.py",
-        "otaclient_v2_pb2_grpc.py",
-    ]
+    _PROTO_DIR / "otaclient_v2_pb2.py",
+    _PROTO_DIR / "otaclient_v2_pb2_grpc.py",
 ]
-PACKAGE_PREFIX = "otaclient_api.v2"
-
-
-def _import_from_file(path: Path) -> tuple[str, ModuleType]:
-    if not path.is_file():
-        raise ValueError(f"{path} is not a valid module file")
-    try:
-        _module_name = path.stem
-        _spec = importlib.util.spec_from_file_location(_module_name, path)
-        _module = importlib.util.module_from_spec(_spec)  # type: ignore
-        _spec.loader.exec_module(_module)  # type: ignore
-        return _module_name, _module
-    except Exception:
-        raise ImportError(f"failed to import module from {path=}.")
+PACKAGE_PREFIX = ".".join(__name__.split(".")[:-1])
 
 
 def _import_pb2_proto(*module_fpaths: Path):
@@ -53,12 +39,10 @@ def _import_pb2_proto(*module_fpaths: Path):
     imported as modules to the global namespace.
     """
     for _fpath in module_fpaths:
-        _module_name, _module = _import_from_file(_fpath)  # noqa: F821
-        # add the module under the otaclient_api.v2 package
+        _module_name, _module = import_from_file(_fpath)
         sys.modules[f"{PACKAGE_PREFIX}.{_module_name}"] = _module
-        # add the module to the global module namespace
         sys.modules[_module_name] = _module
 
 
 _import_pb2_proto(*_FILES_TO_LOAD)
-del _import_pb2_proto, _import_from_file
+del _import_pb2_proto
