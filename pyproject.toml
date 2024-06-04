@@ -63,7 +63,7 @@ version-file = "src/_otaclient_version.py"
 exclude = ["/tools", ".github"]
 
 [tool.hatch.build.targets.wheel]
-exclude = ["**/.gitignore"]
+exclude = ["**/.gitignore", "**/*README.md"]
 only-include = ["src"]
 sources = ["src"]
 
@@ -88,13 +88,12 @@ log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
 log_cli = true
 log_cli_level = "INFO"
-pythonpath = ["otaclient"]
 testpaths = ["./tests"]
 
 [tool.coverage.run]
 branch = false
 relative_files = true
-source = ["otaclient"]
+source = ["otaclient", "otaclient_api", "otaclient_common", "ota_metadata", "ota_proxy"]
 
 [tool.coverage.report]
 omit = ["**/*_pb2.py*", "**/*_pb2_grpc.py*"]
