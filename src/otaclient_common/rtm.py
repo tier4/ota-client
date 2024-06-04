@@ -6,7 +6,7 @@ import time
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Empty, SimpleQueue
-from typing import Callable, Generator, Iterable, Optional
+from typing import Any, Callable, Generator, Iterable, Optional
 
 from otaclient_common.typing import T, RT
 
@@ -28,10 +28,14 @@ class ThreadPoolExecutorWithRetry:
         self.max_total_retry = max_total_retry
         self.no_progress_timeout = no_progress_timeout
 
+        self._queue: SimpleQueue[Any] = SimpleQueue()
         self._finished_task_counter = itertools.count(start=1)
         self._finished_task = 0
         self._last_success_timestamp = 0
+
+        self._lock = threading.Lock()
         self._executor_interrupted = False
+        self._started = False
         self._shutdown = False
 
         self._executer = ThreadPoolExecutor(
@@ -61,10 +65,24 @@ class ThreadPoolExecutorWithRetry:
                 return
             time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
 
+    def _task_wrapper(self, func: Callable[[T], RT]) -> Callable[[T], RT]:
+        def _task(_item: T) -> RT:
+            try:
+                res = func(_item)
+                self._last_success_timestamp = int(time.time())
+                self._finished_task = next(self._finished_task_counter)
+                return res
+            except Exception:
+                self._queue.put_nowait(_item)
+                raise  # still raise the exception to upper caller
+
+        return _task
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self._shutdown = True
         self._executer.shutdown(wait=True)
         return False
 
@@ -77,27 +95,22 @@ class ThreadPoolExecutorWithRetry:
     def ensure_tasks(
         self, func: Callable[[T], RT], iterable: Iterable[T]
     ) -> Generator[Future[RT], None, None]:
-        queue: SimpleQueue[T] = SimpleQueue()
+        with self._lock:
+            if self._started or self._shutdown:
+                self._shutdown = True
+                raise ValueError("ensure_tasks cannot be called more than once")
+            self._started = True
 
-        def _task(_item: T) -> RT:
-            try:
-                res = func(_item)
-                self._last_success_timestamp = int(time.time())
-                self._finished_task = next(self._finished_task_counter)
-                return res
-            except Exception:
-                queue.put_nowait(_item)
-                raise  # still raise the exception to upper caller
-
+        task = self._task_wrapper(func)
         # ------ dispatch tasks from iterable ------ #
         for tasks_count, item in enumerate(iterable, start=1):
-            yield self._executer.submit(_task, item)
+            yield self._executer.submit(task, item)
 
         # ------ ensure all tasks are finished ------ #
         retry_count = 0
         while self._finished_task != tasks_count:
             try:
-                item = queue.get_nowait()
+                item = self._queue.get_nowait()
             except Empty:
                 time.sleep(self.ENSURE_TASKS_PULL_INTERVAL)
                 continue
@@ -106,4 +119,4 @@ class ThreadPoolExecutorWithRetry:
             if self.max_total_retry and retry_count > self.max_total_retry:
                 self._executor_interrupted = True
                 return self._executer.shutdown(wait=True)
-            yield self._executer.submit(_task, item)
+            yield self._executer.submit(task, item)
