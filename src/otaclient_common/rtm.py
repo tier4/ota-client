@@ -24,10 +24,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         max_workers: Optional[int] = None,
         thread_name_prefix: str = "",
         max_total_retry: Optional[int] = None,
-        no_progress_timeout: Optional[int] = None,
     ) -> None:
         self.max_total_retry = max_total_retry
-        self.no_progress_timeout = no_progress_timeout
 
         self._start_lock, self._started = threading.Lock(), False
         self._finished_task_counter = itertools.count(start=1)
@@ -44,19 +42,11 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self.submit(self._watchdog)
 
     def _watchdog(self) -> None:
-        if self.no_progress_timeout is None:
-            return
-
+        """Watchdog watches exceeding of max_retry and max no_progress_timeout."""
         while not self._shutdown:
-            if (
-                int(time.time()) - self._last_success_timestamp
-                > self.no_progress_timeout
-            ):
-                logger.warning(f"exceed {self.no_progress_timeout=}, abort")
+            if self.max_total_retry and self._retry_count > self.max_total_retry:
+                logger.warning(f"exceed {self.max_total_retry=}, abort")
                 self._executor_interrupted = True
-                return self.shutdown(wait=True)
-            if self.executor_interrupted:
-                logger.warning("execution is interrupted, abort")
                 return self.shutdown(wait=True)
             time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
 
@@ -85,35 +75,24 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def ensure_tasks(
         self, func: Callable[[T], RT], iterable: Iterable[T]
     ) -> Generator[Future[RT], None, None]:
-        _pool_closed_err_msg = "threadpool is broken or shutdown, abort"
         with self._start_lock:
             if self._started:
                 raise ValueError("ensure_tasks cannot be started more than once")
             if self._shutdown or self._broken:
-                raise ValueError(_pool_closed_err_msg)
+                raise ValueError("threadpool is shutdown or broken, abort")
             self._started = True
 
         task = self._task_wrapper(func)
-
         # ------ dispatch tasks from iterable ------ #
         for tasks_count, item in enumerate(iterable, start=1):
             try:
                 with self._concurrent_semaphore:
                     yield self.submit(task, item)
             except (RuntimeError, BrokenThreadPool):
-                self._executor_interrupted = True
-                logger.warning(_pool_closed_err_msg)
                 return
 
         # ------ ensure all tasks are finished ------ #
         while self._finished_task != tasks_count:
             if self._shutdown or self._broken:
-                logger.warning(_pool_closed_err_msg)
-                self._executor_interrupted = True
-                return
-
-            if self.max_total_retry and self._retry_count > self.max_total_retry:
-                logger.warning(f"exceed {self.max_total_retry=}, abort")
-                self._executor_interrupted = True
                 return
             time.sleep(self.ENSURE_TASKS_PULL_INTERVAL)
