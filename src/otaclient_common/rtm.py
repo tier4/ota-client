@@ -20,6 +20,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
     def __init__(
         self,
+        max_concurrent: int = 128,
         max_workers: Optional[int] = None,
         thread_name_prefix: str = "",
         max_total_retry: Optional[int] = None,
@@ -34,6 +35,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._retry_counter = itertools.count(start=1)
         self._retry_count = 0
         self._last_success_timestamp = int(time.time())
+        self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._executor_interrupted = False
 
         if max_workers:
@@ -69,6 +71,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 self._retry_count = next(self._retry_counter)
                 self.submit(_task, _item)
                 raise  # still raise the exception to upper caller
+            finally:
+                self._concurrent_semaphore.release()
 
         return _task
 
@@ -94,7 +98,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         # ------ dispatch tasks from iterable ------ #
         for tasks_count, item in enumerate(iterable, start=1):
             try:
-                yield self.submit(task, item)
+                with self._concurrent_semaphore:
+                    yield self.submit(task, item)
             except (RuntimeError, BrokenThreadPool):
                 self._executor_interrupted = True
                 logger.warning(_pool_closed_err_msg)
