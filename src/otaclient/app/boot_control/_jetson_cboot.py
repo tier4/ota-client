@@ -50,9 +50,6 @@ from otaclient_common.common import subprocess_run_wrapper
 logger = logging.getLogger(__name__)
 
 
-logger = logging.getLogger(__name__)
-
-
 class JetsonCBootContrlError(Exception):
     """Exception types for covering jetson-cboot related errors."""
 
