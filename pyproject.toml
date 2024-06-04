@@ -25,22 +25,21 @@ dynamic = [
 ]
 dependencies = [
   "aiofiles==22.1",
-  "aiohttp<3.10.0,>=3.9.5",
-  "cryptography<43.0.0,>=42.0.4",
-  "grpcio<1.54.0,>=1.53.2",
-  "protobuf<4.22.0,>=4.21.12",
+  "aiohttp<3.10,>=3.9.5",
+  "cryptography<43,>=42.0.4",
+  "grpcio<1.54,>=1.53.2",
+  "protobuf<4.22,>=4.21.12",
   "pydantic==2.7",
   "pydantic-settings==2.2.1",
-  "pyOpenSSL==24.1",
-  "PyYAML>=3.12",
-  "requests<2.32.0,>=2.31",
-  'typing_extensions>=4.6.3; python_version < "3.11"',
-  "urllib3<2.0.0,>=1.26.8",
+  "pyopenssl==24.1",
+  "pyyaml>=3.12",
+  "requests<2.32,>=2.31",
+  "typing-extensions>=4.6.3; python_version<'3.11'",
+  "urllib3<2,>=1.26.8",
   "uvicorn[standard]==0.20",
   "zstandard==0.18",
 ]
-[project.optional-dependencies]
-dev = [
+optional-dependencies.dev = [
   "black",
   "coverage",
   "flake8",
@@ -50,8 +49,7 @@ dev = [
   "pytest-mock==3.8.2",
   "requests-mock",
 ]
-[project.urls]
-Source = "https://github.com/tier4/ota-client"
+urls.Source = "https://github.com/tier4/ota-client"
 
 [tool.hatch.version]
 source = "vcs"
@@ -60,26 +58,39 @@ source = "vcs"
 version-file = "src/_otaclient_version.py"
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/tools"]
+exclude = [
+  "/tools",
+]
 
 [tool.hatch.build.targets.wheel]
-only-include = ["src"]
-sources = ["src"]
+only-include = [
+  "src",
+]
+sources = [
+  "src",
+]
 
 [tool.hatch.envs.dev]
 type = "virtual"
-features = ["dev"]
+features = [
+  "dev",
+]
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = [
+  'py38',
+]
 extend-exclude = '''(
   ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
 )'''
 
 [tool.isort]
 profile = "black"
-extend_skip_glob = ["*_pb2.py*", "_pb2_grpc.py*"]
+extend_skip_glob = [
+  "*_pb2.py*",
+  "_pb2_grpc.py*",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -87,16 +98,25 @@ log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
 log_cli = true
 log_cli_level = "INFO"
-pythonpath = ["otaclient"]
-testpaths = ["./tests"]
+pythonpath = [
+  "otaclient",
+]
+testpaths = [
+  "./tests",
+]
 
 [tool.coverage.run]
 branch = false
 relative_files = true
-source = ["otaclient"]
+source = [
+  "otaclient",
+]
 
 [tool.coverage.report]
-omit = ["**/*_pb2.py*", "**/*_pb2_grpc.py*"]
+omit = [
+  "**/*_pb2.py*",
+  "**/*_pb2_grpc.py*",
+]
 exclude_also = [
   "def __repr__",
   "if __name__ == .__main__.:",
@@ -108,6 +128,11 @@ skip_empty = true
 skip_covered = true
 
 [tool.pyright]
-exclude = ["**/__pycache__"]
-ignore = ["**/*_pb2.py*", "**/*_pb2_grpc.py*"]
+exclude = [
+  "**/__pycache__",
+]
+ignore = [
+  "**/*_pb2.py*",
+  "**/*_pb2_grpc.py*",
+]
 pythonVersion = "3.8"
