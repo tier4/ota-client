@@ -32,7 +32,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._finished_task = 0
         self._retry_counter = itertools.count(start=1)
         self._retry_count = 0
-        self._last_success_timestamp = int(time.time())
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._executor_interrupted = False
 
@@ -54,15 +53,13 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         def _task(_item: T) -> RT:
             try:
                 res = func(_item)
-                self._last_success_timestamp = int(time.time())
                 self._finished_task = next(self._finished_task_counter)
+                self._concurrent_semaphore.release()
                 return res
             except Exception:
                 self._retry_count = next(self._retry_counter)
                 self.submit(_task, _item)
                 raise  # still raise the exception to upper caller
-            finally:
-                self._concurrent_semaphore.release()
 
         return _task
 
