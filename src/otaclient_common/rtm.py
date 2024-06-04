@@ -31,7 +31,7 @@ class ThreadPoolExecutorWithRetry:
         self._queue: SimpleQueue[Any] = SimpleQueue()
         self._finished_task_counter = itertools.count(start=1)
         self._finished_task = 0
-        self._last_success_timestamp = 0
+        self._last_success_timestamp = int(time.time())
 
         self._lock = threading.Lock()
         self._executor_interrupted = False
@@ -50,8 +50,7 @@ class ThreadPoolExecutorWithRetry:
 
         while not (self._shutdown or self._executer._shutdown):
             if (
-                self._last_success_timestamp > 0
-                and int(time.time()) - self._last_success_timestamp
+                int(time.time()) - self._last_success_timestamp
                 > self.no_progress_timeout
             ):
                 logger.warning(
@@ -117,6 +116,9 @@ class ThreadPoolExecutorWithRetry:
 
             retry_count += 1
             if self.max_total_retry and retry_count > self.max_total_retry:
+                logger.warning(
+                    f"reach maximum retry {self.max_total_retry}, shutdown..."
+                )
                 self._executor_interrupted = True
                 return self._executer.shutdown(wait=True)
             yield self._executer.submit(task, item)
