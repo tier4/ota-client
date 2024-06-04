@@ -31,11 +31,11 @@ dependencies = [
   "protobuf<4.22,>=4.21.12",
   "pydantic==2.7",
   "pydantic-settings==2.2.1",
-  "pyOpenSSL==24.1",
-  "PyYAML>=3.12",
-  "requests<2.32.0,>=2.31",
-  "typing_extensions>=4.6.3",
-  "urllib3<2.0.0,>=1.26.8",
+  "pyopenssl==24.1",
+  "pyyaml>=3.12",
+  "requests<2.32,>=2.31",
+  "typing-extensions>=4.6.3",
+  "urllib3<2,>=1.26.8",
   "uvicorn[standard]==0.20",
   "zstandard==0.18",
 ]
@@ -58,12 +58,22 @@ source = "vcs"
 version-file = "src/_otaclient_version.py"
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/tools", ".github"]
+exclude = [
+  "/tools",
+  ".github",
+]
 
 [tool.hatch.build.targets.wheel]
-exclude = ["**/.gitignore", "**/*README.md"]
-only-include = ["src"]
-sources = ["src"]
+exclude = [
+  "**/.gitignore",
+  "**/*README.md",
+]
+only-include = [
+  "src",
+]
+sources = [
+  "src",
+]
 
 [tool.hatch.envs.dev]
 type = "virtual"
@@ -93,12 +103,20 @@ log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
 log_cli = true
 log_cli_level = "INFO"
-testpaths = ["./tests"]
+testpaths = [
+  "./tests",
+]
 
 [tool.coverage.run]
 branch = false
 relative_files = true
-source = ["otaclient", "otaclient_api", "otaclient_common", "ota_metadata", "ota_proxy"]
+source = [
+  "otaclient",
+  "otaclient_api",
+  "otaclient_common",
+  "ota_metadata",
+  "ota_proxy",
+]
 
 [tool.coverage.report]
 omit = [
