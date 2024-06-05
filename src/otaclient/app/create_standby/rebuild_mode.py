@@ -22,7 +22,10 @@ from typing import List, Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
+from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
+    ThreadPoolExecutorWithRetry,
+)
 
 from ..configs import config as cfg
 from ..update_stats import (
@@ -96,11 +99,18 @@ class RebuildMode(StandbySlotCreatorProtocol):
             max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
         ) as _mapper:
-            for _ in _mapper.ensure_tasks(
-                _task,
-                self.delta_bundle.new_delta.items(),
-            ):
-                pass
+            try:
+                for _ in _mapper.ensure_tasks(
+                    _task,
+                    self.delta_bundle.new_delta.items(),
+                ):
+                    pass
+            except ValueError as e:
+                logger.error(f"failed to start file process threadpool: {e!r}")
+                raise
+            except TasksEnsureFailed as e:
+                logger.error(f"failed to finish up file processing: {e!r}")
+                raise
             self.stats_collector.wait_staging()
 
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
