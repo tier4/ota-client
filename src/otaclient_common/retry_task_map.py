@@ -47,7 +47,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         """Initialize a ThreadPoolExecutorWithRetry instance.
 
         Args:
-            max_concurrent (int, optional): How many tasks should be kept in the memory. Defaults to 128.
+            max_concurrent (int, optional): How many tasks should be kept in the memory.
             max_workers (Optional[int], optional): Max number of worker threads in the pool. Defaults to None.
             thread_name_prefix (str, optional): Defaults to "".
             max_total_retry (Optional[int], optional): Max total retry counts before abort. Defaults to None.
