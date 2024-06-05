@@ -62,20 +62,22 @@ class TestRetryTaskMap:
         return idx
 
     def test_retry_custom_breakout(self):
-        MAX_RETRY = 200
+        MAX_RETRY, failure_count = 200, 0
+
+        def _exit_on_exceed_max_count():
+            if failure_count > MAX_RETRY:
+                raise ValueError(f"{failure_count=} > {MAX_RETRY=}")
+
         with retry_task_map.ThreadPoolExecutorWithRetry(
-            max_concurrent=self.MAX_CONCURRENT
+            max_concurrent=self.MAX_CONCURRENT,
+            watchdog_func=_exit_on_exceed_max_count,
         ) as executor:
             with pytest.raises(retry_task_map.TasksEnsureFailed):
-                failed_count = 0
                 for _fut in executor.ensure_tasks(
                     self.workload_aways_failed, range(self.TASKS_COUNT)
                 ):
                     if _fut.exception():
-                        failed_count += 1
-                    if failed_count > MAX_RETRY:
-                        logger.info(f"custom breakout on retrying {MAX_RETRY} times")
-                        executor.shutdown(wait=True)
+                        failure_count += 1
 
     def test_retry_exceed_retry_limit(self):
         with retry_task_map.ThreadPoolExecutorWithRetry(
