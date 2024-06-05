@@ -61,18 +61,36 @@ class TestRetryTaskMap:
         self._succeeded_tasks[idx] = True
         return idx
 
+    def test_retry_custom_breakout(self):
+        MAX_RETRY = 200
+        with retry_task_map.ThreadPoolExecutorWithRetry(
+            max_concurrent=self.MAX_CONCURRENT
+        ) as executor:
+            with pytest.raises(retry_task_map.TasksEnsureFailed):
+                failed_count = 0
+                for _fut in executor.ensure_tasks(
+                    self.workload_aways_failed, range(self.TASKS_COUNT)
+                ):
+                    if _fut.exception():
+                        failed_count += 1
+                    if failed_count > MAX_RETRY:
+                        logger.info(f"custom breakout on retrying {MAX_RETRY} times")
+                        executor.shutdown(wait=True)
+
     def test_retry_exceed_retry_limit(self):
         with retry_task_map.ThreadPoolExecutorWithRetry(
-            max_total_retry=200
+            max_concurrent=self.MAX_CONCURRENT, max_total_retry=200
         ) as executor:
-            for _ in executor.ensure_tasks(
-                self.workload_aways_failed, range(self.TASKS_COUNT)
-            ):
-                pass
-        assert executor.executor_interrupted
+            with pytest.raises(retry_task_map.TasksEnsureFailed):
+                for _ in executor.ensure_tasks(
+                    self.workload_aways_failed, range(self.TASKS_COUNT)
+                ):
+                    pass
 
     def test_retry_finally_succeeded(self):
-        with retry_task_map.ThreadPoolExecutorWithRetry() as executor:
+        with retry_task_map.ThreadPoolExecutorWithRetry(
+            max_concurrent=self.MAX_CONCURRENT
+        ) as executor:
             for _ in executor.ensure_tasks(
                 self.workload_failed_and_then_succeed, range(self.TASKS_COUNT)
             ):
@@ -80,7 +98,9 @@ class TestRetryTaskMap:
         assert all(self._succeeded_tasks)
 
     def test_succeeded_in_one_try(self):
-        with retry_task_map.ThreadPoolExecutorWithRetry() as executor:
+        with retry_task_map.ThreadPoolExecutorWithRetry(
+            max_concurrent=self.MAX_CONCURRENT
+        ) as executor:
             for _ in executor.ensure_tasks(
                 self.workload_succeed, range(self.TASKS_COUNT)
             ):
