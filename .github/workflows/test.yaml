@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         # sonarcloud needs full git histories
         with:
           fetch-depth: 0
