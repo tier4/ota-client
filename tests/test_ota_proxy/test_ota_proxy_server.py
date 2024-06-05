@@ -27,9 +27,9 @@ import aiohttp
 import pytest
 import uvicorn
 
+from ota_metadata.legacy.parser import parse_regulars_from_txt
+from ota_metadata.legacy.types import RegularInf
 from ota_proxy.utils import url_based_hash
-from otaclient.app.ota_metadata import parse_regulars_from_txt
-from otaclient.app.proto.wrapper import RegularInf
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
 logger = logging.getLogger(__name__)

@@ -23,17 +23,21 @@ from pathlib import Path
 from string import Template
 from typing import Generator
 
-from .. import errors as ota_errors
-from ..common import replace_atomic, subprocess_call, subprocess_check_output
-from ..proto import wrapper
-from ._common import (
+import otaclient.app.errors as ota_errors
+from otaclient.app.boot_control._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
     SlotMountHelper,
     write_str_to_file_sync,
 )
-from .configs import rpi_boot_cfg as cfg
-from .protocol import BootControllerProtocol
+from otaclient.app.boot_control.configs import rpi_boot_cfg as cfg
+from otaclient.app.boot_control.protocol import BootControllerProtocol
+from otaclient_api.v2 import types as api_types
+from otaclient_common.common import (
+    replace_atomic,
+    subprocess_call,
+    subprocess_check_output,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -375,8 +379,8 @@ class RPIBootController(BootControllerProtocol):
 
             # 20230613: remove any leftover flag file if ota_status is not UPDATING/ROLLBACKING
             if self._ota_status_control.booted_ota_status not in (
-                wrapper.StatusOta.UPDATING,
-                wrapper.StatusOta.ROLLBACKING,
+                api_types.StatusOta.UPDATING,
+                api_types.StatusOta.ROLLBACKING,
             ):
                 _flag_file = (
                     self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
@@ -546,5 +550,5 @@ class RPIBootController(BootControllerProtocol):
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> wrapper.StatusOta:
+    def get_booted_ota_status(self) -> api_types.StatusOta:
         return self._ota_status_control.booted_ota_status

@@ -1,0 +1,9 @@
+# This is the sample proxy_info.yaml for a single ECU setup.
+# Please check proxy_info.yaml spec for more details: https://tier4.atlassian.net/l/cp/qT4N4K0X.
+format_version: 1
+enable_local_ota_proxy: true
+enable_local_ota_proxy_cache: true
+local_ota_proxy_listen_addr: 127.0.0.1
+local_ota_proxy_listen_port: 8082
+# if otaclient-logger is installed locally
+logging_server: "http://127.0.0.1:8083"
