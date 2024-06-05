@@ -712,10 +712,11 @@ class OTAMetadata:
                     self.total_files_num = _count
 
         def _watchdog_abort_on_no_progress():
-            if (
-                int(time.time()) - self._downloader.last_active_timestamp
-                > self.download_max_idle_time
-            ):
+            last_active_time = self._downloader.last_active_timestamp
+            if last_active_time == 0:
+                return  # no download task is scheduled yet
+
+            if int(time.time()) - last_active_time > self.download_max_idle_time:
                 logger.error(
                     f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
                 )
