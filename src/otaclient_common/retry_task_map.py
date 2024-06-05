@@ -23,7 +23,7 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
-from queue import SimpleQueue
+from queue import Empty, SimpleQueue
 from typing import Any, Callable, Generator, Iterable, Optional
 
 from otaclient_common.typing import RT, T
@@ -160,7 +160,12 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         # ------ ensure all tasks are finished ------ #
         while self._total_task_num == 0 or self._finished_task != self._total_task_num:
-            _fut = self._fut_queue.get()
+            try:
+                _fut = self._fut_queue.get_nowait()
+            except Empty:
+                time.sleep(self.ENSURE_TASKS_PULL_INTERVAL)
+                continue
+
             if self._shutdown or self._broken or _fut is None:
                 logger.warning(
                     f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
