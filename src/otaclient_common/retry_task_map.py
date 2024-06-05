@@ -84,7 +84,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     logger.warning(f"custom watchdog func failed: {e!r}, abort")
 
                     # prevent possible ref cycle
-                    del self.watchdog_func
+                    self.watchdog_func = None
                     return self.shutdown(wait=True)
 
             time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
