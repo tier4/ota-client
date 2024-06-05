@@ -23,22 +23,21 @@ from pathlib import Path
 from string import Template
 from typing import Generator
 
+import otaclient.app.errors as ota_errors
+from otaclient.app.boot_control._common import (
+    CMDHelperFuncs,
+    OTAStatusFilesControl,
+    SlotMountHelper,
+    write_str_to_file_sync,
+)
+from otaclient.app.boot_control.configs import rpi_boot_cfg as cfg
+from otaclient.app.boot_control.protocol import BootControllerProtocol
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import (
     replace_atomic,
     subprocess_call,
     subprocess_check_output,
 )
-
-from .. import errors as ota_errors
-from ._common import (
-    CMDHelperFuncs,
-    OTAStatusFilesControl,
-    SlotMountHelper,
-    write_str_to_file_sync,
-)
-from .configs import rpi_boot_cfg as cfg
-from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 

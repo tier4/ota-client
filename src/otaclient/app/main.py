@@ -27,14 +27,13 @@ import grpc.aio
 #   we need to import them before any other otaclient modules.
 import ota_metadata.legacy  # noqa: F401
 from otaclient import __version__
+from otaclient.app.configs import config as cfg
+from otaclient.app.configs import ecu_info, server_cfg
+from otaclient.app.log_setting import configure_logging
 from otaclient.app.ota_client_stub import OTAClientServiceStub
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2
 from otaclient_common.common import read_str_from_file, write_str_to_file_sync
-
-from .configs import config as cfg
-from .configs import ecu_info, server_cfg
-from .log_setting import configure_logging
 
 # configure logging before any code being executed
 configure_logging()
