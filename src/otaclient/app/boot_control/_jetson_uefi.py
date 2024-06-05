@@ -28,11 +28,11 @@ import shutil
 from pathlib import Path
 from typing import Any, Generator
 
-from otaclient._utils.typing import StrOrPath
+from otaclient_common.typing import StrOrPath
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import subprocess_call, write_str_to_file_sync
+from otaclient_common.common import subprocess_call, write_str_to_file_sync
 from otaclient.app.configs import config as cfg
-from otaclient.app.proto import wrapper
+from otaclient_api.v2 import types as api_types
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
@@ -651,5 +651,5 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> wrapper.StatusOta:
+    def get_booted_ota_status(self) -> api_types.StatusOta:
         return self._ota_status_control.booted_ota_status
