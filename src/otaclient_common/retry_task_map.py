@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import logging
 import os
@@ -103,11 +104,12 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 self._concurrent_semaphore.release()
             else:
                 self._retry_count = next(self._retry_counter)
-                self.submit(func, item).add_done_callback(
-                    partial(self._task_done_cb, item=item, func=func)
-                )
-                # NOTE: not return the new fut!
-                self._fut_queue.put_nowait(fut)
+                with contextlib.suppress(Exception):
+                    self.submit(func, item).add_done_callback(
+                        partial(self._task_done_cb, item=item, func=func)
+                    )
+                    # NOTE: not return the new fut!
+                    self._fut_queue.put_nowait(fut)
         except BaseException as e:
             logger.exception(f"cb failed, {item}, {e!r}")
 
