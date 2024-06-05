@@ -23,7 +23,7 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
-from queue import Empty, SimpleQueue
+from queue import SimpleQueue
 from typing import Any, Callable, Generator, Iterable, Optional
 
 from otaclient_common.typing import RT, T
@@ -67,7 +67,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._retry_counter = itertools.count(start=1)
         self._retry_count = 0
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
-        self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
+        self._fut_queue: SimpleQueue[Future[Any] | None] = SimpleQueue()
 
         # NOTE: leave two threads each for watchdog and dispatcher
         max_workers = (
@@ -77,41 +77,49 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         def _watchdog() -> None:
             """Watchdog watches exceeding of max_retry and max no_progress_timeout."""
-            while not self._shutdown:
-                if self.max_total_retry and self._retry_count > self.max_total_retry:
-                    logger.warning(f"exceed {self.max_total_retry=}, abort")
-                    return self.shutdown(wait=True)
-
-                if callable(watchdog_func):
-                    try:
-                        watchdog_func()
-                    except Exception as e:
-                        logger.warning(f"custom watchdog func failed: {e!r}, abort")
+            try:
+                while not self._shutdown:
+                    if (
+                        self.max_total_retry
+                        and self._retry_count > self.max_total_retry
+                    ):
+                        logger.warning(f"exceed {self.max_total_retry=}, abort")
                         return self.shutdown(wait=True)
-                time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
+
+                    if callable(watchdog_func):
+                        try:
+                            watchdog_func()
+                        except Exception as e:
+                            logger.warning(f"custom watchdog func failed: {e!r}, abort")
+                            return self.shutdown(wait=True)
+                    time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
+            finally:
+                self._fut_queue.put_nowait(None)  # always wakeup ensure_task
 
         self.submit(_watchdog)
 
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
-        try:
-            if not fut.exception():
-                self._concurrent_semaphore.release()
-                self._finished_task = next(self._finished_task_counter)
-            elif self._shutdown or self._broken:
-                # wakeup dispatcher
-                self._concurrent_semaphore.release()
-            else:
-                self._retry_count = next(self._retry_counter)
-                with contextlib.suppress(Exception):
-                    self.submit(func, item).add_done_callback(
-                        partial(self._task_done_cb, item=item, func=func)
-                    )
-                    # NOTE: not return the new fut!
-                    self._fut_queue.put_nowait(fut)
-        except BaseException as e:
-            logger.exception(f"cb failed, {item}, {e!r}")
+        if not fut.exception():
+            self._concurrent_semaphore.release()
+            self._finished_task = next(self._finished_task_counter)
+            return
+
+        if self._shutdown or self._broken:
+            # wakeup dispatcher
+            self._concurrent_semaphore.release()
+            return
+
+        # ------ on task failed ------ #
+        self._retry_count = next(self._retry_counter)
+        # NOTE: not return the new fut!
+        self._fut_queue.put_nowait(fut)
+
+        with contextlib.suppress(Exception):
+            self.submit(func, item).add_done_callback(
+                partial(self._task_done_cb, item=item, func=func)
+            )
 
     def ensure_tasks(
         self, func: Callable[[T], RT], iterable: Iterable[T]
@@ -152,13 +160,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         # ------ ensure all tasks are finished ------ #
         while self._total_task_num == 0 or self._finished_task != self._total_task_num:
-            if self._shutdown or self._broken:
+            _fut = self._fut_queue.get()
+            if self._shutdown or self._broken or _fut is None:
                 logger.warning(
                     f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
                 )
                 raise TasksEnsureFailed
-
-            try:
-                yield self._fut_queue.get_nowait()
-            except Empty:
-                time.sleep(self.ENSURE_TASKS_PULL_INTERVAL)
+            yield _fut
