@@ -166,17 +166,13 @@ class _OTAUpdater:
 
             _local_copy = self._ota_tmp_on_standby / _fhash_str
             entry_url, compression_alg = self._otameta.get_download_url(entry)
-            try:
-                cur_stat.download_errors, _, _ = self._downloader.download(
-                    entry_url,
-                    _local_copy,
-                    digest=_fhash_str,
-                    size=entry.size,
-                    compression_alg=compression_alg,
-                )
-            except Exception as e:
-                logger.warning(f"failed to download {entry=}: {e!r}")
-                raise
+            cur_stat.download_errors, _, _ = self._downloader.download(
+                entry_url,
+                _local_copy,
+                digest=_fhash_str,
+                size=entry.size,
+                compression_alg=compression_alg,
+            )
             cur_stat.size = _local_copy.stat().st_size
             return cur_stat
 
