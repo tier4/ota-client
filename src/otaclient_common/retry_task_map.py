@@ -119,7 +119,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 with self._concurrent_semaphore:
                     yield self.submit(task, item)
             except (RuntimeError, BrokenThreadPool):
-                return
+                raise TasksEnsureFailed
 
         # ------ ensure all tasks are finished ------ #
         while self._finished_task != tasks_count:
