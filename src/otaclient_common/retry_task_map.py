@@ -114,7 +114,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         task = self._task_wrapper(func)
         # ------ dispatch tasks from iterable ------ #
-        for tasks_count, item in enumerate(iterable, start=1):
+        for _tasks_count, item in enumerate(iterable, start=1):
             try:
                 with self._concurrent_semaphore:
                     yield self.submit(task, item)
@@ -122,10 +122,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 raise TasksEnsureFailed
 
         # ------ ensure all tasks are finished ------ #
-        while self._finished_task != tasks_count:
+        while self._finished_task != _tasks_count:
             if self._shutdown or self._broken:
                 logger.warning(
-                    f"failed to ensure all tasks, {self._finished_task=}, {tasks_count=}"
+                    f"failed to ensure all tasks, {self._finished_task=}, {_tasks_count=}"
                 )
                 raise TasksEnsureFailed
             time.sleep(self.ENSURE_TASKS_PULL_INTERVAL)
