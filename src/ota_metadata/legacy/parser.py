@@ -711,12 +711,12 @@ class OTAMetadata:
                 if _metafile.file == MetafilesV1.REGULAR_FNAME:
                     self.total_files_num = _count
 
-        def _watchdog_abort_on_no_progress():
-            last_active_time = self._downloader.last_active_timestamp
-            if last_active_time == 0:
-                return  # no download task is scheduled yet
+        # ------ start downloading ota_metadata files ------ #
+        start_time = int(time.time())
 
-            if int(time.time()) - last_active_time > self.download_max_idle_time:
+        def _watchdog_abort_on_no_progress():
+            _last_active_time = max(start_time, self._downloader.last_active_timestamp)
+            if int(time.time()) - _last_active_time > self.download_max_idle_time:
                 logger.error(
                     f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
                 )

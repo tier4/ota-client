@@ -186,11 +186,10 @@ class _OTAUpdater:
         _empty_file.touch()
 
         # ------ start the downloading ------ #
+        start_time = int(time.time())
 
         def _watchdog_abort_on_no_progress():
-            last_active_time = self._downloader.last_active_timestamp
-            if last_active_time == 0:
-                return  # no download task is scheduled yet
+            _last_active_time = max(start_time, self._downloader.last_active_timestamp)
 
             # if the download group becomes inactive longer than <limit>,
             # force shutdown and breakout.
@@ -200,7 +199,7 @@ class _OTAUpdater:
             #       we should not breakout on this situation as other threads are
             #       still downloading.
             if (
-                int(time.time()) - last_active_time
+                int(time.time()) - _last_active_time
                 > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
             ):
                 _err_msg = f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
