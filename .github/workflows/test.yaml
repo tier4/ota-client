@@ -8,7 +8,7 @@ on:
     branches:
       - main
     paths:
-      - "otaclient/**"
+      - "src/**"
       - "tests/**"
       - ".github/workflows/test.yaml"
   # allow the test CI to be manually triggerred
