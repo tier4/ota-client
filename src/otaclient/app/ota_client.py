@@ -431,7 +431,7 @@ class _OTAUpdater:
             logger.error(_err_msg)
             raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
         except Exception as e:
-            _err_msg = f"unspecific error, failed to prepare ota metafiles: {e!r}"
+            _err_msg = f"failed to prepare ota metafiles: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
 

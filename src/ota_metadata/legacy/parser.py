@@ -79,7 +79,10 @@ from otaclient_common.proto_streamer import (
     Uint32LenDelimitedMsgWriter,
 )
 from otaclient_common.proto_wrapper import MessageWrapper
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
+from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
+    ThreadPoolExecutorWithRetry,
+)
 
 from . import SUPORTED_COMPRESSION_TYPES
 from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
@@ -710,26 +713,33 @@ class OTAMetadata:
 
         last_active_timestamp = int(time.time())
         with ThreadPoolExecutorWithRetry(max_concurrent=self.MAX_COCURRENT) as _mapper:
-            for _fut in _mapper.ensure_tasks(
-                _process_text_base_otameta_file,
-                self._ota_metadata.get_img_metafiles(),
-            ):
-                if not _fut.exception():
-                    last_active_timestamp = int(time.time())
-                    continue
-
-                # on task failed
-                last_active_timestamp = max(
-                    last_active_timestamp, self._downloader.last_active_timestamp
-                )
-                if (
-                    int(time.time()) - last_active_timestamp
-                    > self.download_max_idle_time
+            try:
+                for _fut in _mapper.ensure_tasks(
+                    _process_text_base_otameta_file,
+                    self._ota_metadata.get_img_metafiles(),
                 ):
-                    logger.error(
-                        f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
+                    if not _fut.exception():
+                        last_active_timestamp = int(time.time())
+                        continue
+
+                    # on task failed
+                    last_active_timestamp = max(
+                        last_active_timestamp, self._downloader.last_active_timestamp
                     )
-                    _mapper.shutdown(wait=True)
+                    if (
+                        int(time.time()) - last_active_timestamp
+                        > self.download_max_idle_time
+                    ):
+                        logger.error(
+                            f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
+                        )
+                        _mapper.shutdown(wait=True)
+            except ValueError as e:
+                logger.error(f"failed to start threadpool: {e!r}")
+                raise
+            except TasksEnsureFailed as e:
+                logger.error(f"faild to finish download all ota metadata files: {e!r}")
+                raise
 
     # APIs
 
