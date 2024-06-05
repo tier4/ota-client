@@ -56,7 +56,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 this func raises exception. Defaults to None.
         """
         self.max_total_retry = max_total_retry
-        self.watchdog_func = watchdog_func
 
         self._start_lock, self._started = threading.Lock(), False
         self._finished_task_counter = itertools.count(start=1)
@@ -68,26 +67,23 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         if max_workers:
             max_workers += 1  # one extra thread for watchdog
         super().__init__(max_workers=max_workers, thread_name_prefix=thread_name_prefix)
-        self.submit(self._watchdog)
 
-    def _watchdog(self) -> None:
-        """Watchdog watches exceeding of max_retry and max no_progress_timeout."""
-        while not self._shutdown:
-            if self.max_total_retry and self._retry_count > self.max_total_retry:
-                logger.warning(f"exceed {self.max_total_retry=}, abort")
-                return self.shutdown(wait=True)
-
-            if callable(self.watchdog_func):
-                try:
-                    self.watchdog_func()
-                except Exception as e:
-                    logger.warning(f"custom watchdog func failed: {e!r}, abort")
-
-                    # prevent possible ref cycle
-                    self.watchdog_func = None
+        def _watchdog() -> None:
+            """Watchdog watches exceeding of max_retry and max no_progress_timeout."""
+            while not self._shutdown:
+                if self.max_total_retry and self._retry_count > self.max_total_retry:
+                    logger.warning(f"exceed {self.max_total_retry=}, abort")
                     return self.shutdown(wait=True)
 
-            time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
+                if callable(watchdog_func):
+                    try:
+                        watchdog_func()
+                    except Exception as e:
+                        logger.warning(f"custom watchdog func failed: {e!r}, abort")
+                        return self.shutdown(wait=True)
+                time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
+
+        self.submit(_watchdog)
 
     def _task_wrapper(self, func: Callable[[T], RT]) -> Callable[[T], RT]:
         def _task(_item: T) -> RT:
