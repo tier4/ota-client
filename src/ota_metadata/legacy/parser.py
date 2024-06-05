@@ -711,29 +711,26 @@ class OTAMetadata:
                 if _metafile.file == MetafilesV1.REGULAR_FNAME:
                     self.total_files_num = _count
 
-        last_active_timestamp = int(time.time())
-        with ThreadPoolExecutorWithRetry(max_concurrent=self.MAX_COCURRENT) as _mapper:
+        def _watchdog_abort_on_no_progress():
+            if (
+                int(time.time()) - self._downloader.last_active_timestamp
+                > self.download_max_idle_time
+            ):
+                logger.error(
+                    f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
+                )
+                raise ValueError
+
+        with ThreadPoolExecutorWithRetry(
+            max_concurrent=self.MAX_COCURRENT,
+            watchdog_func=_watchdog_abort_on_no_progress,
+        ) as _mapper:
             try:
-                for _fut in _mapper.ensure_tasks(
+                for _ in _mapper.ensure_tasks(
                     _process_text_base_otameta_file,
                     self._ota_metadata.get_img_metafiles(),
                 ):
-                    if not _fut.exception():
-                        last_active_timestamp = int(time.time())
-                        continue
-
-                    # on task failed
-                    last_active_timestamp = max(
-                        last_active_timestamp, self._downloader.last_active_timestamp
-                    )
-                    if (
-                        int(time.time()) - last_active_timestamp
-                        > self.download_max_idle_time
-                    ):
-                        logger.error(
-                            f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
-                        )
-                        _mapper.shutdown(wait=True)
+                    pass
             except ValueError as e:
                 logger.error(f"failed to start threadpool: {e!r}")
                 raise
