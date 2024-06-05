@@ -121,7 +121,7 @@ class BaseConfig(_InternalSettings):
     # if retry keeps failing without any success in
     # DOWNLOAD_GROUP_NO_SUCCESS_RETRY_TIMEOUT time, failed the whole
     # download task group and raise NETWORK OTA error.
-    MAX_CONCURRENT_DOWNLOAD_TASKS = 1024
+    MAX_CONCURRENT_DOWNLOAD_TASKS = 128
     DOWNLOAD_GROUP_INACTIVE_TIMEOUT = 5 * 60  # seconds
     DOWNLOAD_GROUP_BACKOFF_MAX = 12  # seconds
     DOWNLOAD_GROUP_BACKOFF_FACTOR = 1  # seconds
@@ -132,7 +132,7 @@ class BaseConfig(_InternalSettings):
     # --- create standby setting --- #
     # now only REBUILD mode is available
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
-    MAX_CONCURRENT_PROCESS_FILE_TASKS = 1024
+    MAX_CONCURRENT_PROCESS_FILE_TASKS = 512
     CREATE_STANDBY_RETRY_MAX = 1024
     CREATE_STANDBY_BACKOFF_FACTOR = 1
     CREATE_STANDBY_BACKOFF_MAX = 6
