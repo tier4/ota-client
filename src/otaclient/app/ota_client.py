@@ -207,6 +207,7 @@ class _OTAUpdater:
                 raise ValueError
 
         with ThreadPoolExecutorWithRetry(
+            max_workers=cfg.MAX_DOWNLOAD_THREAD,
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             watchdog_func=_watchdog_abort_on_no_progress,
         ) as _mapper:
