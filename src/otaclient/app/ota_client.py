@@ -220,6 +220,10 @@ class _OTAUpdater:
                             download_errors=cfg.DOWNLOAD_RETRY,
                         ),
                     )
+                else:
+                    self._update_stats_collector.report_download_ota_files(
+                        _fut.result()
+                    )
 
         # all tasks are finished, waif for stats collector to finish processing
         # all the reported stats
