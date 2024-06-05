@@ -97,6 +97,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
+        self._fut_queue.put_nowait(fut)
+
         # ------ on task succeeded ------ #
         if not fut.exception():
             self._concurrent_semaphore.release()
@@ -111,8 +113,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         # ------ on task failed ------ #
         self._retry_count = next(self._retry_counter)
-        self._fut_queue.put_nowait(fut)
-
         with contextlib.suppress(Exception):  # on threadpool shutdown
             self.submit(func, item).add_done_callback(
                 partial(self._task_done_cb, item=item, func=func)
@@ -144,7 +144,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         # ------ dispatch tasks from iterable ------ #
         def _dispatcher() -> None:
-            _fut_queue = self._fut_queue
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
                     self._concurrent_semaphore.acquire()
@@ -152,7 +151,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     fut.add_done_callback(
                         partial(self._task_done_cb, item=item, func=func)
                     )
-                    _fut_queue.put_nowait(fut)
             except Exception as e:
                 logger.error(f"tasks dispatcher failed: {e!r}, abort")
                 self.shutdown(wait=True)
@@ -164,7 +162,11 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self.submit(_dispatcher)
 
         # ------ ensure all tasks are finished ------ #
-        while self._total_task_num == 0 or self._finished_task != self._total_task_num:
+        while (
+            self._total_task_num == 0
+            or self._finished_task != self._total_task_num
+            or not self._fut_queue.empty()
+        ):
             try:
                 yield self._fut_queue.get_nowait()
             except Empty:
