@@ -163,11 +163,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self.submit(_dispatcher)
 
         # ------ ensure all tasks are finished ------ #
-        while (
-            self._total_task_num == 0
-            or self._finished_task != self._total_task_num
-            or not self._fut_queue.empty()
-        ):
+        while True:
             if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
                 logger.warning(
                     f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
@@ -177,5 +173,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             try:
                 yield self._fut_queue.get_nowait()
             except Empty:
-                time.sleep(self.ensure_tasks_pull_interval)
-                continue
+                if (
+                    self._total_task_num == 0
+                    or self._finished_task != self._total_task_num
+                ):
+                    time.sleep(self.ensure_tasks_pull_interval)
+                    continue
+                return
