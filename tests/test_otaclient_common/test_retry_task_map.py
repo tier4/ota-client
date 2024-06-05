@@ -90,21 +90,27 @@ class TestRetryTaskMap:
                     pass
 
     def test_retry_finally_succeeded(self):
+        count = 0
         with retry_task_map.ThreadPoolExecutorWithRetry(
             max_concurrent=self.MAX_CONCURRENT
         ) as executor:
-            for _ in executor.ensure_tasks(
+            for _fut in executor.ensure_tasks(
                 self.workload_failed_and_then_succeed, range(self.TASKS_COUNT)
             ):
-                pass
+                if not _fut.exception():
+                    count += 1
         assert all(self._succeeded_tasks)
+        assert self.TASKS_COUNT == count
 
     def test_succeeded_in_one_try(self):
+        count = 0
         with retry_task_map.ThreadPoolExecutorWithRetry(
             max_concurrent=self.MAX_CONCURRENT
         ) as executor:
-            for _ in executor.ensure_tasks(
+            for _fut in executor.ensure_tasks(
                 self.workload_succeed, range(self.TASKS_COUNT)
             ):
-                pass
+                if not _fut.exception():
+                    count += 1
         assert all(self._succeeded_tasks)
+        assert self.TASKS_COUNT == count
