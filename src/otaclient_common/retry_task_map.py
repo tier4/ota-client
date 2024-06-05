@@ -167,14 +167,14 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             or self._finished_task != self._total_task_num
             or not self._fut_queue.empty()
         ):
-            try:
-                yield self._fut_queue.get_nowait()
-            except Empty:
-                time.sleep(self.ensure_tasks_pull_interval)
-                continue
-
             if self._shutdown or self._broken:
                 logger.warning(
                     f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
                 )
                 raise TasksEnsureFailed
+
+            try:
+                yield self._fut_queue.get_nowait()
+            except Empty:
+                time.sleep(self.ensure_tasks_pull_interval)
+                continue
