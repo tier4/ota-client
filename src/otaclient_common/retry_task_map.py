@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import itertools
 import logging
+import os
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
-from concurrent.futures.thread import BrokenThreadPool
-from typing import Callable, Generator, Iterable, Optional
+from functools import partial
+from queue import Empty, SimpleQueue
+from typing import Any, Callable, Generator, Iterable, Optional
 
 from otaclient_common.typing import RT, T
 
@@ -58,14 +60,18 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self.max_total_retry = max_total_retry
 
         self._start_lock, self._started = threading.Lock(), False
+        self._total_task_num = 0
         self._finished_task_counter = itertools.count(start=1)
         self._finished_task = 0
         self._retry_counter = itertools.count(start=1)
         self._retry_count = 0
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
+        self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
 
-        if max_workers:
-            max_workers += 1  # one extra thread for watchdog
+        # NOTE: leave two threads each for watchdog and dispatcher
+        max_workers = (
+            max_workers + 2 if max_workers else min(32, (os.cpu_count() or 1) + 4)
+        )
         super().__init__(max_workers=max_workers, thread_name_prefix=thread_name_prefix)
 
         def _watchdog() -> None:
@@ -85,19 +91,25 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         self.submit(_watchdog)
 
-    def _task_wrapper(self, func: Callable[[T], RT]) -> Callable[[T], RT]:
-        def _task(_item: T) -> RT:
-            try:
-                res = func(_item)
+    def _task_done_cb(
+        self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
+    ) -> None:
+        try:
+            if not fut.exception():
+                self._concurrent_semaphore.release()
                 self._finished_task = next(self._finished_task_counter)
-                self._concurrent_semaphore.release()  # only release on success
-                return res
-            except Exception:
+            elif self._shutdown or self._broken:
+                # wakeup dispatcher
+                self._concurrent_semaphore.release()
+            else:
                 self._retry_count = next(self._retry_counter)
-                self.submit(_task, _item)
-                raise  # still raise the exception to upper caller
-
-        return _task
+                self.submit(func, item).add_done_callback(
+                    partial(self._task_done_cb, item=item, func=func)
+                )
+                # NOTE: not return the new fut!
+                self._fut_queue.put_nowait(fut)
+        except BaseException as e:
+            logger.exception(f"cb failed, {item}, {e!r}")
 
     def ensure_tasks(
         self, func: Callable[[T], RT], iterable: Iterable[T]
@@ -123,20 +135,28 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 raise ValueError("threadpool is shutdown or broken, abort")
             self._started = True
 
-        task = self._task_wrapper(func)
         # ------ dispatch tasks from iterable ------ #
-        for _tasks_count, item in enumerate(iterable, start=1):
-            try:
-                with self._concurrent_semaphore:
-                    yield self.submit(task, item)
-            except (RuntimeError, BrokenThreadPool):
-                raise TasksEnsureFailed
+        def _dispatcher():
+            _fut_queue = self._fut_queue
+            for _tasks_count, item in enumerate(iterable, start=1):
+                self._concurrent_semaphore.acquire()
+                fut = self.submit(func, item)
+                fut.add_done_callback(partial(self._task_done_cb, item=item, func=func))
+                _fut_queue.put_nowait(fut)
+            self._total_task_num = _tasks_count
+            logger.info(f"finish dispatch {_tasks_count} of tasks")
+
+        self.submit(_dispatcher)
 
         # ------ ensure all tasks are finished ------ #
-        while self._finished_task != _tasks_count:
+        while self._total_task_num == 0 or self._finished_task != self._total_task_num:
             if self._shutdown or self._broken:
                 logger.warning(
-                    f"failed to ensure all tasks, {self._finished_task=}, {_tasks_count=}"
+                    f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
                 )
                 raise TasksEnsureFailed
-            time.sleep(self.ENSURE_TASKS_PULL_INTERVAL)
+
+            try:
+                yield self._fut_queue.get_nowait()
+            except Empty:
+                time.sleep(self.ENSURE_TASKS_PULL_INTERVAL)
