@@ -39,7 +39,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
     def __init__(
         self,
-        max_concurrent: int = 128,
+        max_concurrent: int,
         max_workers: Optional[int] = None,
         thread_name_prefix: str = "",
         max_total_retry: Optional[int] = None,
@@ -60,7 +60,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._retry_counter = itertools.count(start=1)
         self._retry_count = 0
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
-        self._executor_interrupted = False
 
         if max_workers:
             max_workers += 1  # one extra thread for watchdog
@@ -72,7 +71,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         while not self._shutdown:
             if self.max_total_retry and self._retry_count > self.max_total_retry:
                 logger.warning(f"exceed {self.max_total_retry=}, abort")
-                self._executor_interrupted = True
                 return self.shutdown(wait=True)
             time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
 
@@ -81,7 +79,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             try:
                 res = func(_item)
                 self._finished_task = next(self._finished_task_counter)
-                self._concurrent_semaphore.release()
+                self._concurrent_semaphore.release()  # only release on success
                 return res
             except Exception:
                 self._retry_count = next(self._retry_counter)
@@ -89,10 +87,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 raise  # still raise the exception to upper caller
 
         return _task
-
-    @property
-    def executor_interrupted(self) -> bool:
-        return self._executor_interrupted
 
     def ensure_tasks(
         self, func: Callable[[T], RT], iterable: Iterable[T]
