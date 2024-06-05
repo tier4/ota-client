@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures.thread as concurrent_fut_thread
 import contextlib
 import itertools
 import logging
@@ -79,7 +80,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         def _watchdog() -> None:
             """Watchdog watches exceeding of max_retry and max no_progress_timeout."""
-            while not self._shutdown:
+            while not self._shutdown and not concurrent_fut_thread._shutdown:
                 if self.max_total_retry and self._retry_count > self.max_total_retry:
                     logger.warning(f"exceed {self.max_total_retry=}, abort")
                     return self.shutdown(wait=True)
@@ -167,7 +168,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             or self._finished_task != self._total_task_num
             or not self._fut_queue.empty()
         ):
-            if self._shutdown or self._broken:
+            if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
                 logger.warning(
                     f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
                 )
