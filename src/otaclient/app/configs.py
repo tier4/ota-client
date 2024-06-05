@@ -93,14 +93,10 @@ class BaseConfig(_InternalSettings):
     # ------ otaclient logging setting ------ #
     DEFAULT_LOG_LEVEL = INFO
     LOG_LEVEL_TABLE: Dict[str, int] = {
-        "otaclient.app.boot_control.cboot": INFO,
-        "otaclient.app.boot_control.grub": INFO,
-        "otaclient.app.ota_client": INFO,
-        "otaclient.app.ota_client_service": INFO,
-        "otaclient.app.ota_client_stub": INFO,
-        "otaclient.app.ota_metadata": INFO,
-        "otaclient.app.downloader": INFO,
-        "otaclient.app.main": INFO,
+        "ota_metadata": INFO,
+        "otaclient": INFO,
+        "otaclient_api": INFO,
+        "otaclient_common": INFO,
     }
     LOG_FORMAT = (
         "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
