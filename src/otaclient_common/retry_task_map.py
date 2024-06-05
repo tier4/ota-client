@@ -41,18 +41,22 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self,
         max_concurrent: int,
         max_workers: Optional[int] = None,
-        thread_name_prefix: str = "",
         max_total_retry: Optional[int] = None,
+        thread_name_prefix: str = "",
+        watchdog_func: Optional[Callable] = None,
     ) -> None:
         """Initialize a ThreadPoolExecutorWithRetry instance.
 
         Args:
             max_concurrent (int, optional): How many tasks should be kept in the memory.
             max_workers (Optional[int], optional): Max number of worker threads in the pool. Defaults to None.
-            thread_name_prefix (str, optional): Defaults to "".
             max_total_retry (Optional[int], optional): Max total retry counts before abort. Defaults to None.
+            thread_name_prefix (str, optional): Defaults to "".
+            watchdog_func (Optional[Callable]): A custom func to be called on watchdog thread, break threadpool when
+                this func raises exception. Defaults to None.
         """
         self.max_total_retry = max_total_retry
+        self.watchdog_func = watchdog_func
 
         self._start_lock, self._started = threading.Lock(), False
         self._finished_task_counter = itertools.count(start=1)
@@ -72,6 +76,17 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             if self.max_total_retry and self._retry_count > self.max_total_retry:
                 logger.warning(f"exceed {self.max_total_retry=}, abort")
                 return self.shutdown(wait=True)
+
+            if callable(self.watchdog_func):
+                try:
+                    self.watchdog_func()
+                except Exception as e:
+                    logger.warning(f"custom watchdog func failed: {e!r}, abort")
+
+                    # prevent possible ref cycle
+                    del self.watchdog_func
+                    return self.shutdown(wait=True)
+
             time.sleep(self.WATCH_DOG_CHECK_INTERVAL)
 
     def _task_wrapper(self, func: Callable[[T], RT]) -> Callable[[T], RT]:
