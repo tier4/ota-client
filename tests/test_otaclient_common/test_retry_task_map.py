@@ -61,7 +61,7 @@ class TestRetryTaskMap:
         self._succeeded_tasks[idx] = True
         return idx
 
-    def test_retry_custom_breakout(self):
+    def test_watchdog_breakout(self):
         MAX_RETRY, failure_count = 200, 0
 
         def _exit_on_exceed_max_count():
