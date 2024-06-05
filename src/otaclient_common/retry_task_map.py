@@ -28,6 +28,10 @@ from otaclient_common.typing import RT, T
 logger = logging.getLogger(__name__)
 
 
+class TasksEnsureFailed(Exception):
+    pass
+
+
 class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
     WATCH_DOG_CHECK_INTERVAL = 3
@@ -102,6 +106,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         Raises:
             ValueError: If the pool is shutdown or broken, or this method has already
                 being called once.
+            TasksEnsureFailed: If failed to ensure all the tasks are finished.
 
         Yields:
             The Future instance of each processed tasks.
@@ -125,5 +130,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         # ------ ensure all tasks are finished ------ #
         while self._finished_task != tasks_count:
             if self._shutdown or self._broken:
-                return
+                logger.warning(
+                    f"failed to ensure all tasks, {self._finished_task=}, {tasks_count=}"
+                )
+                raise TasksEnsureFailed
             time.sleep(self.ENSURE_TASKS_PULL_INTERVAL)
