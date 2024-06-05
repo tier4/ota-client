@@ -42,23 +42,23 @@ from pprint import pformat
 from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
-from .. import errors as ota_errors
-from ..common import (
+from otaclient.app import errors as ota_errors
+from otaclient.app.boot_control._common import (
+    CMDHelperFuncs,
+    OTAStatusFilesControl,
+    SlotMountHelper,
+    cat_proc_cmdline,
+)
+from otaclient.app.boot_control.configs import grub_cfg as cfg
+from otaclient.app.boot_control.protocol import BootControllerProtocol
+from otaclient_api.v2 import types as api_types
+from otaclient_common.common import (
     re_symlink_atomic,
     read_str_from_file,
     subprocess_call,
     subprocess_check_output,
     write_str_to_file_sync,
 )
-from ..proto import wrapper
-from ._common import (
-    CMDHelperFuncs,
-    OTAStatusFilesControl,
-    SlotMountHelper,
-    cat_proc_cmdline,
-)
-from .configs import grub_cfg as cfg
-from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -865,7 +865,7 @@ class GrubController(BootControllerProtocol):
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> wrapper.StatusOta:
+    def get_booted_ota_status(self) -> api_types.StatusOta:
         return self._ota_status_control.booted_ota_status
 
     def on_operation_failure(self):

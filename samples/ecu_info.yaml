@@ -1,0 +1,7 @@
+# This is the sample ecu_info.yaml for a single x86_64 ECU setup.
+# Please check ecu_info.yaml spec for more details: https://tier4.atlassian.net/l/cp/AGmpqFFc.
+format_version: 1
+ecu_id: autoware
+bootloader: grub
+available_ecu_ids:
+  - autoware

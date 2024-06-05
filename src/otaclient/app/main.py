@@ -13,20 +13,27 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
 import sys
 from pathlib import Path
 
-from otaclient import __version__  # type: ignore
+import grpc.aio
 
-from .common import read_str_from_file, write_str_to_file_sync
-from .configs import config as cfg
-from .configs import ecu_info
-from .log_setting import configure_logging
-from .ota_client_service import launch_otaclient_grpc_server
-from .proto import ota_metafiles, v2, v2_grpc, wrapper  # noqa: F401
+# NOTE: as otaclient_api and ota_metadata are using dynamic module import,
+#   we need to import them before any other otaclient modules.
+import ota_metadata.legacy  # noqa: F401
+from otaclient import __version__
+from otaclient.app.configs import config as cfg
+from otaclient.app.configs import ecu_info, server_cfg
+from otaclient.app.log_setting import configure_logging
+from otaclient.app.ota_client_stub import OTAClientServiceStub
+from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
+from otaclient_api.v2.api_stub import OtaClientServiceV2
+from otaclient_common.common import read_str_from_file, write_str_to_file_sync
 
 # configure logging before any code being executed
 configure_logging()
@@ -50,6 +57,24 @@ def _check_other_otaclient():
     os.chmod(_run_dir, 0o550)
     # write our pid to the lock file
     write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
+
+
+def create_otaclient_grpc_server():
+    service_stub = OTAClientServiceStub()
+    ota_client_service_v2 = OtaClientServiceV2(service_stub)
+
+    server = grpc.aio.server()
+    v2_grpc.add_OtaClientServiceServicer_to_server(
+        server=server, servicer=ota_client_service_v2
+    )
+    server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
+    return server
+
+
+async def launch_otaclient_grpc_server():
+    server = create_otaclient_grpc_server()
+    await server.start()
+    await server.wait_for_termination()
 
 
 def main():

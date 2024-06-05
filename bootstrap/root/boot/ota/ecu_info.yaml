@@ -1,7 +1,0 @@
-format_version: 1
-ecu_id: "autoware"
-#secondaries:
-# - ecu_id: "perception1"
-#   ip_addr: "192.168.0.11"
-# - ecu_id: "perception2"
-#   ip_addr: "192.168.0.12"

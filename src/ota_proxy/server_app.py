@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 
-from otaclient._utils.logging import BurstSuppressFilter
+from otaclient_common.logging import BurstSuppressFilter
 
 from ._consts import (
     BHEADER_AUTHORIZATION,

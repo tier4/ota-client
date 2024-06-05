@@ -23,8 +23,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
-from otaclient.app import ota_metadata
-from otaclient.app.common import subprocess_call
+from ota_metadata.legacy import parser as ota_metadata_parser
+from otaclient_common.common import subprocess_call
 
 from .configs import cfg
 from .manifest import ImageMetadata, Manifest
@@ -70,9 +70,9 @@ def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: S
     ota_image_dir = Path(ota_image_dir)
 
     # ------ process OTA image metadata ------ #
-    metadata_jwt_fpath = ota_image_dir / ota_metadata.OTAMetadata.METADATA_JWT
+    metadata_jwt_fpath = ota_image_dir / ota_metadata_parser.OTAMetadata.METADATA_JWT
     # NOTE: we don't need to do certificate verification here, so set certs_dir to empty
-    metadata_jwt = ota_metadata._MetadataJWTParser(
+    metadata_jwt = ota_metadata_parser._MetadataJWTParser(
         metadata_jwt_fpath.read_text(), certs_dir=""
     ).get_otametadata()
 
@@ -82,7 +82,7 @@ def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: S
     # ------ update data_dir with the contents of this OTA image ------ #
     with open(ota_image_dir / metadata_jwt.regular.file, "r") as f:
         for line in f:
-            reg_inf = ota_metadata.parse_regulars_from_txt(line)
+            reg_inf = ota_metadata_parser.parse_regulars_from_txt(line)
             ota_file_sha256 = reg_inf.sha256hash.hex()
 
             if reg_inf.compressed_alg == cfg.OTA_IMAGE_COMPRESSION_ALG:
@@ -108,7 +108,7 @@ def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: S
 
     # ------ update meta_dir with the OTA meta files in this image ------ #
     # copy OTA metafiles to image specific meta folder
-    for _metaf in ota_metadata.MetafilesV1:
+    for _metaf in ota_metadata_parser.MetafilesV1:
         shutil.move(str(ota_image_dir / _metaf.value), meta_dir)
     # copy certificate and metadata.jwt
     shutil.move(str(ota_image_dir / metadata_jwt.certificate.file), meta_dir)

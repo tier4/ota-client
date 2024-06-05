@@ -26,12 +26,12 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.common import subprocess_run_wrapper
-from otaclient.app.proto import wrapper
-
-from ..configs import config as cfg
-from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
-from ._jetson_common import (
+from otaclient.app.boot_control._common import (
+    CMDHelperFuncs,
+    OTAStatusFilesControl,
+    SlotMountHelper,
+)
+from otaclient.app.boot_control._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     NVBootctrlTarget,
@@ -41,8 +41,14 @@ from ._jetson_common import (
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
-from .configs import cboot_cfg as boot_cfg
-from .protocol import BootControllerProtocol
+from otaclient.app.boot_control.configs import cboot_cfg as boot_cfg
+from otaclient.app.boot_control.protocol import BootControllerProtocol
+from otaclient.app.configs import config as cfg
+from otaclient_api.v2 import types as api_types
+from otaclient_common.common import subprocess_run_wrapper
+
+logger = logging.getLogger(__name__)
+
 
 logger = logging.getLogger(__name__)
 
@@ -617,5 +623,5 @@ class JetsonCBootControl(BootControllerProtocol):
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> wrapper.StatusOta:
+    def get_booted_ota_status(self) -> api_types.StatusOta:
         return self._ota_status_control.booted_ota_status

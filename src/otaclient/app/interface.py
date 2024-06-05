@@ -16,9 +16,10 @@
 from abc import abstractmethod
 from typing import Protocol, Type
 
+from otaclient_api.v2 import otaclient_v2_pb2 as pb2
+
 from .boot_control.protocol import BootControllerProtocol
 from .create_standby.interface import StandbySlotCreatorProtocol
-from .proto import v2
 
 
 class OTAClientProtocol(Protocol):
@@ -44,4 +45,4 @@ class OTAClientProtocol(Protocol):
     def rollback(self) -> None: ...
 
     @abstractmethod
-    def status(self) -> v2.StatusResponseEcu: ...
+    def status(self) -> pb2.StatusResponseEcu: ...
