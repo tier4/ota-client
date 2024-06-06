@@ -79,7 +79,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         super().__init__(max_workers=max_workers, thread_name_prefix=thread_name_prefix)
 
         def _watchdog() -> None:
-            """Watchdog watches exceeding of max_retry and max no_progress_timeout."""
+            """Watchdog will shutdown the threadpool on certain conditions being met."""
             while not self._shutdown and not concurrent_fut_thread._shutdown:
                 if self.max_total_retry and self._retry_count > self.max_total_retry:
                     logger.warning(f"exceed {self.max_total_retry=}, abort")
