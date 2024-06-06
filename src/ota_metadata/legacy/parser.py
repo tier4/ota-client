@@ -72,14 +72,17 @@ from OpenSSL import crypto
 from typing_extensions import Self
 
 from ota_proxy import OTAFileCacheControl
-from otaclient_common.common import get_backoff, urljoin_ensure_base
+from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader
 from otaclient_common.proto_streamer import (
     Uint32LenDelimitedMsgReader,
     Uint32LenDelimitedMsgWriter,
 )
 from otaclient_common.proto_wrapper import MessageWrapper
-from otaclient_common.retry_task_map import RetryTaskMap
+from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
+    ThreadPoolExecutorWithRetry,
+)
 
 from . import SUPORTED_COMPRESSION_TYPES
 from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
@@ -708,35 +711,33 @@ class OTAMetadata:
                 if _metafile.file == MetafilesV1.REGULAR_FNAME:
                     self.total_files_num = _count
 
-        last_active_timestamp = int(time.time())
-        _mapper = RetryTaskMap(
-            max_concurrent=self.MAX_COCURRENT,
-            backoff_func=partial(
-                get_backoff,
-                factor=self.BACKOFF_FACTOR,
-                _max=self.BACKOFF_MAX,
-            ),
-            max_retry=0,  # NOTE: we use another strategy below
-        )
-        for task_result in _mapper.map(
-            _process_text_base_otameta_file,
-            self._ota_metadata.get_img_metafiles(),
-        ):
-            _fut, _entry = task_result
-            if not _fut.exception():
-                last_active_timestamp = int(time.time())
-                continue
+        # ------ start downloading ota_metadata files ------ #
+        start_time = int(time.time())
 
-            # on task failed
-            logger.debug(f"metafile downloading failed: {_entry=}, {_fut=}")
-            last_active_timestamp = max(
-                last_active_timestamp, self._downloader.last_active_timestamp
-            )
-            if int(time.time()) - last_active_timestamp > self.download_max_idle_time:
+        def _watchdog_abort_on_no_progress():
+            _last_active_time = max(start_time, self._downloader.last_active_timestamp)
+            if int(time.time()) - _last_active_time > self.download_max_idle_time:
                 logger.error(
                     f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
                 )
-                _mapper.shutdown(raise_last_exc=True)
+                raise ValueError
+
+        with ThreadPoolExecutorWithRetry(
+            max_concurrent=self.MAX_COCURRENT,
+            watchdog_func=_watchdog_abort_on_no_progress,
+        ) as _mapper:
+            try:
+                for _ in _mapper.ensure_tasks(
+                    _process_text_base_otameta_file,
+                    self._ota_metadata.get_img_metafiles(),
+                ):
+                    pass
+            except ValueError as e:
+                logger.error(f"failed to start threadpool: {e!r}")
+                raise
+            except TasksEnsureFailed as e:
+                logger.error(f"faild to finish download all ota metadata files: {e!r}")
+                raise
 
     # APIs
 
