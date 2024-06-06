@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Configure the logging for otaclient."""
 
 
 from __future__ import annotations
@@ -24,10 +25,7 @@ from urllib.parse import urljoin
 
 import requests
 
-import otaclient
-
-from .configs import config as cfg
-from .configs import ecu_info, proxy_info
+from otaclient.app.configs import config as cfg, ecu_info, proxy_info
 
 
 class _LogTeeHandler(logging.Handler):
@@ -69,36 +67,30 @@ class _LogTeeHandler(logging.Handler):
         atexit.register(_thread_exit)
 
 
-def configure_logging():
+def configure_logging() -> None:
     """Configure logging with http handler."""
-    # configure the root logger
+    # ------ suppress logging from non-first-party modules ------ #
     # NOTE: force to reload the basicConfig, this is for overriding setting
     #       when launching subprocess.
     # NOTE: for the root logger, set to CRITICAL to filter away logs from other
     #       external modules unless reached CRITICAL level.
     logging.basicConfig(level=logging.CRITICAL, format=cfg.LOG_FORMAT, force=True)
-    # NOTE: set the <loglevel> to the otaclient package root logger
-    _otaclient_logger = logging.getLogger(otaclient.__name__)
-    _otaclient_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
 
-    # configure each sub loggers
-    for _module_name, _log_level in cfg.LOG_LEVEL_TABLE.items():
-        _logger = logging.getLogger(_module_name)
-        _logger.setLevel(_log_level)
+    # ------ configure each sub loggers and attach ota logging handler ------ #
+    log_upload_handler = None
+    if logging_upload_endpoint := proxy_info.logging_server:
+        logging_upload_endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
 
-    if iot_logger_url := proxy_info.logging_server:
-        iot_logger_url = f"{str(iot_logger_url).strip('/')}/"
-
-        ch = _LogTeeHandler()
+        log_upload_handler = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
-        ch.setFormatter(fmt)
+        log_upload_handler.setFormatter(fmt)
 
         # star the logging thread
-        log_upload_endpoint = urljoin(iot_logger_url, ecu_info.ecu_id)
-        ch.start_upload_thread(log_upload_endpoint)
+        log_upload_endpoint = urljoin(logging_upload_endpoint, ecu_info.ecu_id)
+        log_upload_handler.start_upload_thread(log_upload_endpoint)
 
-        # NOTE: "otaclient" logger will be the root logger for all loggers name
-        #       starts with "otaclient.", and the settings will affect its child loggers.
-        #       For example, settings for "otaclient" logger will also be effective to
-        #       "otaclient.app.*" logger and "ota_proxy.*" logger.
-        _otaclient_logger.addHandler(ch)
+    for logger_name, loglevel in cfg.LOG_LEVEL_TABLE.items():
+        _logger = logging.getLogger(logger_name)
+        _logger.setLevel(loglevel)
+        if log_upload_handler:
+            _logger.addHandler(log_upload_handler)

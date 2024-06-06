@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 
-from otaclient.app import log_setting
+from otaclient import log_setting
 
 MODULE = log_setting.__name__
 logger = logging.getLogger(__name__)
