@@ -17,14 +17,15 @@ import logging
 import os
 import shutil
 import time
-from functools import partial
 from pathlib import Path
 from typing import List, Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
-from otaclient_common.common import get_backoff
-from otaclient_common.retry_task_map import RetryTaskMap
+from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
+    ThreadPoolExecutorWithRetry,
+)
 
 from ..configs import config as cfg
 from ..update_stats import (
@@ -84,26 +85,33 @@ class RebuildMode(StandbySlotCreatorProtocol):
             _symlink.link_at_mount_point(self.standby_slot_mp)
 
     def _process_regulars(self):
+        logger.info("start applying delta...")
         self._hardlink_register = HardlinkRegister()
 
-        logger.info("start applying delta...")
-        _mapper = RetryTaskMap(
+        def _task(_item):
+            try:
+                return self._process_regular(_item)
+            except Exception as e:
+                logger.error(f"failed to process {_item}: {e!r}")
+                raise
+
+        with ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
-            max_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-            backoff_func=partial(
-                get_backoff,
-                factor=cfg.CREATE_STANDBY_BACKOFF_FACTOR,
-                _max=cfg.CREATE_STANDBY_BACKOFF_MAX,
-            ),
-        )
-        for task_result in _mapper.map(
-            self._process_regular,
-            self.delta_bundle.new_delta.items(),
-        ):
-            _fut, _entry = task_result
-            if task_result.fut.exception():
-                logger.error(f"[process_regular] failed to process {_entry=}: {_fut=}")
-        self.stats_collector.wait_staging()
+            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+        ) as _mapper:
+            try:
+                for _ in _mapper.ensure_tasks(
+                    _task,
+                    self.delta_bundle.new_delta.items(),
+                ):
+                    pass
+            except ValueError as e:
+                logger.error(f"failed to start file process threadpool: {e!r}")
+                raise
+            except TasksEnsureFailed as e:
+                logger.error(f"failed to finish up file processing: {e!r}")
+                raise
+            self.stats_collector.wait_staging()
 
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
         _hash, _regs_set = _input
