@@ -445,26 +445,23 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                     "assuming firmware update failed"
                 )
             )
+            self.current_fwupdate_hint_fpath.unlink(missing_ok=True)
             return False
 
         # ------ firmware update occurs, check hints ------ #
 
-        if slot_id != current_slot:
+        if slot_id != current_slot or bsp_v != current_slot_bsp_ver:
             logger.error(
                 (
                     "firmware update hint file indicates firmware update occurs on "
-                    f"slot {slot_id}, but expects slot {current_slot}"
+                    f"slot {slot_id} with version {bsp_v}, "
+                    f"but expects slot {current_slot} with version {current_slot_bsp_ver}"
                 )
             )
-            return False
-
-        if bsp_v != current_slot_bsp_ver:
-            logger.error(
-                (
-                    f"firmware update hint file indicates the firmware on slot {slot_id} is "
-                    f"updated to {bsp_v}, but current slot's BSP version is {current_slot_bsp_ver}"
-                )
-            )
+            # NOTE(20240610): on a failed OTA with firmware update, we always assume a failed
+            #   firmware update(even the failure might be caused by rootfs update failed).
+            self._firmware_ver_control.set_version_by_slot(current_slot, None)
+            self._firmware_ver_control.write_current_firmware_bsp_version()
             return False
 
         # ------ firmware update succeeded, write firmware version file ------ #
