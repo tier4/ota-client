@@ -22,7 +22,7 @@ from pathlib import Path
 from subprocess import check_call
 from typing import Any, Callable, Optional
 
-from otaclient._utils.typing import StrOrPath
+from otaclient_common.typing import StrOrPath
 
 #
 # ------ swapfile handling ------ #
@@ -156,6 +156,11 @@ def map_gid_by_grpnam(*, src_db: ParsedGroup, dst_db: ParsedGroup, gid: int) -> 
         return dst_db._by_name[src_db._by_gid[gid]]
     except KeyError:
         raise ValueError(f"failed to find mapping for {gid}")
+
+
+#
+# ------ subprocess call ------ #
+#
 
 
 def subprocess_run_wrapper(
