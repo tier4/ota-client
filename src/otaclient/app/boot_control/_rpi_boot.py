@@ -36,10 +36,7 @@ from otaclient.app.boot_control._common import (
 from otaclient.app.boot_control.configs import rpi_boot_cfg as cfg
 from otaclient.app.boot_control.protocol import BootControllerProtocol
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import (
-    replace_atomic,
-    subprocess_check_output,
-)
+from otaclient_common.common import replace_atomic, subprocess_check_output
 from otaclient_common.linux import subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath
 
