@@ -229,39 +229,36 @@ class _RPIBootControl:
     @staticmethod
     @contextlib.contextmanager
     def _prepare_flash_kernel(target_slot_mp: StrOrPath) -> Generator[None, Any, None]:
-        """Do a bind mount of /boot/firmware and /proc to the standby slot,
+        """Do a bind mount of /boot/firmware, /proc and /sys to the standby slot,
         preparing for calling flash-kernel with chroot.
 
         flash-kernel requires at least these mounts to work properly.
         """
         target_slot_mp = Path(target_slot_mp)
+        mounts: dict[str, str] = {}
 
+        # we need to mount /proc, /sys and /boot/firmware to make flash-kernel works
         system_boot_mp = target_slot_mp / Path(cfg.SYSTEM_BOOT_MOUNT_POINT).relative_to(
             "/"
         )
-        # fmt: off
-        system_boot_mount = [
-            "mount", "-o", "bind", "--make-unbindable",
-            cfg.SYSTEM_BOOT_MOUNT_POINT, str(system_boot_mp)
-        ]
-        # fmt: on
+        mounts[str(system_boot_mp)] = cfg.SYSTEM_BOOT_MOUNT_POINT
 
         proc_mp = target_slot_mp / "proc"
-        # fmt: off
-        proc_mount = [
-            "mount", "-o", "bind", "--make-unbindable",
-            "/proc", str(proc_mp)
-        ]
-        # fmt: on
+        mounts[str(proc_mp)] = "/proc"
 
+        sys_mp = target_slot_mp / "sys"
+        mounts[str(sys_mp)] = "/sys"
+
+        mount_cmd = ["mount", "-o", "bind", "--make-unbindable"]
         try:
-            subprocess_run_wrapper(system_boot_mount, check=True, check_output=True)
-            subprocess_run_wrapper(proc_mount, check=True, check_output=True)
+            for _mp, _src in mounts.items():
+                _mount_cmd = [*mount_cmd, _src, _mp]
+                subprocess_run_wrapper(_mount_cmd, check=True, check_output=True)
             yield
             # NOTE: passthrough the mount failure to caller
         finally:
-            CMDHelperFuncs.umount(proc_mp, raise_exception=False)
-            CMDHelperFuncs.umount(system_boot_mp, raise_exception=False)
+            for _mp in mounts:
+                CMDHelperFuncs.umount(_mp, raise_exception=False)
 
     def update_firmware(self, *, target_slot: SlotID, target_slot_mp: StrOrPath):
         """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
