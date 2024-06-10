@@ -13,13 +13,15 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import asyncio
 import threading
 from queue import Queue
 from typing import Dict, List, Optional
 
-from otaclient.app.ota_client_call import ECUNoResponse, OtaClientCall
-from otaclient.app.proto import wrapper as proto_wrapper
+from otaclient_api.v2 import types as api_types
+from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 from .configs import config as cfg
 from .ecu_status_box import ECUStatusDisplayBox
@@ -36,8 +38,11 @@ async def status_polling_thread(
 ):
     while not stop_event.is_set():
         try:
-            resp = await OtaClientCall.status_call(
-                ecu_id, host, port, request=proto_wrapper.StatusRequest()
+            resp = await OTAClientCall.status_call(
+                ecu_id,
+                host,
+                port,
+                request=api_types.StatusRequest(),
             )
             que.put_nowait(resp)
         except ECUNoResponse:
@@ -84,7 +89,7 @@ class Tracker:
 
         def _update_thread():
             while not self._stop_event.is_set():
-                _ecu_status: proto_wrapper.StatusResponse = self._que.get()
+                _ecu_status: api_types.StatusResponse = self._que.get()
                 if _ecu_status is self._END_SENTINEL:
                     return
 

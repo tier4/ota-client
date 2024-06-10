@@ -33,7 +33,8 @@ The flow of this package working is as follow:
 from abc import abstractmethod
 from typing import Protocol
 
-from ..ota_metadata import OTAMetadata
+from ota_metadata.legacy.parser import OTAMetadata
+
 from ..update_stats import OTAUpdateStatsCollector
 from .common import DeltaBundle
 

@@ -93,14 +93,11 @@ class BaseConfig(_InternalSettings):
     # ------ otaclient logging setting ------ #
     DEFAULT_LOG_LEVEL = INFO
     LOG_LEVEL_TABLE: Dict[str, int] = {
-        "otaclient.app.boot_control.cboot": INFO,
-        "otaclient.app.boot_control.grub": INFO,
-        "otaclient.app.ota_client": INFO,
-        "otaclient.app.ota_client_service": INFO,
-        "otaclient.app.ota_client_stub": INFO,
-        "otaclient.app.ota_metadata": INFO,
-        "otaclient.app.downloader": INFO,
-        "otaclient.app.main": INFO,
+        "ota_metadata": INFO,
+        "otaclient": INFO,
+        "otaclient_api": INFO,
+        "otaclient_common": INFO,
+        "otaproxy": INFO,
     }
     LOG_FORMAT = (
         "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
@@ -136,8 +133,8 @@ class BaseConfig(_InternalSettings):
     # --- create standby setting --- #
     # now only REBUILD mode is available
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
-    MAX_CONCURRENT_PROCESS_FILE_TASKS = 256
-    CREATE_STANDBY_RETRY_MAX = 3
+    MAX_CONCURRENT_PROCESS_FILE_TASKS = 512
+    CREATE_STANDBY_RETRY_MAX = 1024
     CREATE_STANDBY_BACKOFF_FACTOR = 1
     CREATE_STANDBY_BACKOFF_MAX = 6
 

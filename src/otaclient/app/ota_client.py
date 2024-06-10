@@ -29,35 +29,53 @@ from pathlib import Path
 from typing import Iterator, Optional, Type
 from urllib.parse import urlparse
 
-from . import downloader
+from ota_metadata.legacy import parser as ota_metadata_parser
+from ota_metadata.legacy import types as ota_metadata_types
+from otaclient import __version__
+from otaclient_api.v2 import types as api_types
+from otaclient_common import downloader
+from otaclient_common.common import ensure_otaproxy_start
+from otaclient_common.persist_file_handling import PersistFilesHandler
+from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
+
 from . import errors as ota_errors
-from . import ota_metadata
 from .boot_control import BootControllerProtocol, get_boot_controller
-from .common import (
-    PersistFilesHandler,
-    RetryTaskMap,
-    RetryTaskMapInterrupted,
-    ensure_otaproxy_start,
-    get_backoff,
-)
 from .configs import config as cfg
 from .configs import ecu_info
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .interface import OTAClientProtocol
-from .ota_status import LiveOTAStatus
-from .proto import wrapper
 from .update_stats import (
     OTAUpdateStatsCollector,
     RegInfProcessedStats,
     RegProcessOperation,
 )
 
-try:
-    from otaclient import __version__  # type: ignore
-except ImportError:
-    __version__ = "unknown"
-
 logger = logging.getLogger(__name__)
+
+
+class LiveOTAStatus:
+    def __init__(self, ota_status: api_types.StatusOta) -> None:
+        self.live_ota_status = ota_status
+
+    def get_ota_status(self) -> api_types.StatusOta:
+        return self.live_ota_status
+
+    def set_ota_status(self, _status: api_types.StatusOta):
+        self.live_ota_status = _status
+
+    def request_update(self) -> bool:
+        return self.live_ota_status in [
+            api_types.StatusOta.INITIALIZED,
+            api_types.StatusOta.SUCCESS,
+            api_types.StatusOta.FAILURE,
+            api_types.StatusOta.ROLLBACK_FAILURE,
+        ]
+
+    def request_rollback(self) -> bool:
+        return self.live_ota_status in [
+            api_types.StatusOta.SUCCESS,
+            api_types.StatusOta.ROLLBACK_FAILURE,
+        ]
 
 
 class OTAClientControlFlags:
@@ -100,12 +118,12 @@ class _OTAUpdater:
         self._create_standby_cls = create_standby_cls
 
         # init update status
-        self.update_phase = wrapper.UpdatePhase.INITIALIZING
+        self.update_phase = api_types.UpdatePhase.INITIALIZING
         self.update_start_time = 0
         self.updating_version: str = ""
         self.failure_reason = ""
         # init variables needed for update
-        self._otameta: ota_metadata.OTAMetadata = None  # type: ignore
+        self._otameta: ota_metadata_parser.OTAMetadata = None  # type: ignore
         self._url_base: str = None  # type: ignore
 
         # dynamic update status
@@ -132,10 +150,12 @@ class _OTAUpdater:
 
     # helper methods
 
-    def _download_files(self, download_list: Iterator[wrapper.RegularInf]):
+    def _download_files(self, download_list: Iterator[ota_metadata_types.RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
 
-        def _download_file(entry: wrapper.RegularInf) -> RegInfProcessedStats:
+        def _download_file(
+            entry: ota_metadata_types.RegularInf,
+        ) -> RegInfProcessedStats:
             """Download single OTA image file."""
             cur_stat = RegInfProcessedStats(op=RegProcessOperation.DOWNLOAD_REMOTE_COPY)
 
@@ -161,33 +181,12 @@ class _OTAUpdater:
         _empty_file = self._ota_tmp_on_standby / downloader.EMPTY_FILE_SHA256
         _empty_file.touch()
 
-        last_active_timestamp = int(time.time())
-        _mapper = RetryTaskMap(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            backoff_func=partial(
-                get_backoff,
-                factor=cfg.DOWNLOAD_GROUP_BACKOFF_FACTOR,
-                _max=cfg.DOWNLOAD_GROUP_BACKOFF_MAX,
-            ),
-            max_retry=0,  # NOTE: we use another strategy below
-        )
-        for task_result in _mapper.map(_download_file, download_list):
-            _fut, _entry = task_result
-            if not _fut.exception():
-                self._update_stats_collector.report_download_ota_files(_fut.result())
-                last_active_timestamp = int(time.time())
-                continue
+        # ------ start the downloading ------ #
+        start_time = int(time.time())
 
-            # on failed task
-            # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
-            #       time, so we manually create one download report
-            logger.debug(f"failed to download {_entry=}: {_fut}")
-            self._update_stats_collector.report_download_ota_files(
-                RegInfProcessedStats(
-                    op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
-                    download_errors=cfg.DOWNLOAD_RETRY,
-                ),
-            )
+        def _watchdog_abort_on_no_progress():
+            _last_active_time = max(start_time, self._downloader.last_active_timestamp)
+
             # if the download group becomes inactive longer than <limit>,
             # force shutdown and breakout.
             # NOTE: considering the edge condition that all downloading threads
@@ -195,17 +194,33 @@ class _OTAUpdater:
             #       timeout limit, and one task is interrupted and yielded,
             #       we should not breakout on this situation as other threads are
             #       still downloading.
-            last_active_timestamp = max(
-                last_active_timestamp, self._downloader.last_active_timestamp
-            )
             if (
-                int(time.time()) - last_active_timestamp
+                int(time.time()) - _last_active_time
                 > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
             ):
-                logger.error(
-                    f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
-                )
-                _mapper.shutdown(raise_last_exc=True)
+                _err_msg = f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
+                logger.error(_err_msg)
+                raise ValueError
+
+        with ThreadPoolExecutorWithRetry(
+            max_workers=cfg.MAX_DOWNLOAD_THREAD,
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            watchdog_func=_watchdog_abort_on_no_progress,
+        ) as _mapper:
+            for _fut in _mapper.ensure_tasks(_download_file, download_list):
+                if _fut.exception():
+                    # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
+                    #       time, so we manually create one download report
+                    self._update_stats_collector.report_download_ota_files(
+                        RegInfProcessedStats(
+                            op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
+                            download_errors=cfg.DOWNLOAD_RETRY,
+                        ),
+                    )
+                else:
+                    self._update_stats_collector.report_download_ota_files(
+                        _fut.result()
+                    )
 
         # all tasks are finished, waif for stats collector to finish processing
         # all the reported stats
@@ -228,7 +243,7 @@ class _OTAUpdater:
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
-        self.update_phase = wrapper.UpdatePhase.CALCULATING_DELTA
+        self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
         self._standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
@@ -254,7 +269,7 @@ class _OTAUpdater:
             "start to download needed files..."
             f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
         )
-        self.update_phase = wrapper.UpdatePhase.DOWNLOADING_OTA_FILES
+        self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
         try:
             self._download_files(_delta_bundle.get_download_list())
         except downloader.DownloadFailedSpaceNotEnough:
@@ -263,15 +278,8 @@ class _OTAUpdater:
             raise ota_errors.StandbySlotInsufficientSpace(
                 _err_msg, module=__name__
             ) from None
-        except RetryTaskMapInterrupted as e:
-            _err_msg = (
-                f"downloading group keeps failing for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT}s, "
-                f"last_error: {e!r}"
-            )
-            logger.error(_err_msg)
-            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
         except Exception as e:
-            _err_msg = f"unspecific error, failed to finish downloading files: {e!r}"
+            _err_msg = f"failed to finish downloading files: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.NetworkError(_err_msg, module=__name__) from e
 
@@ -280,7 +288,7 @@ class _OTAUpdater:
 
         # ------ in_update ------ #
         logger.info("start to apply changes to standby slot...")
-        self.update_phase = wrapper.UpdatePhase.APPLYING_UPDATE
+        self.update_phase = api_types.UpdatePhase.APPLYING_UPDATE
         try:
             self._standby_slot_creator.create_standby_slot()
         except Exception as e:
@@ -304,7 +312,7 @@ class _OTAUpdater:
         )
 
         for _perinf in self._otameta.iter_metafile(
-            ota_metadata.MetafilesV1.PERSISTENT_FNAME
+            ota_metadata_parser.MetafilesV1.PERSISTENT_FNAME
         ):
             _per_fpath = Path(_perinf.path)
 
@@ -353,7 +361,7 @@ class _OTAUpdater:
         self._update_stats_collector.start()
 
         # ------ init, processing metadata ------ #
-        self.update_phase = wrapper.UpdatePhase.PROCESSING_METADATA
+        self.update_phase = api_types.UpdatePhase.PROCESSING_METADATA
         # parse url_base
         # unconditionally regulate the url_base
         _url_base = urlparse(raw_url_base)
@@ -388,9 +396,12 @@ class _OTAUpdater:
         # process metadata.jwt and ota metafiles
         logger.debug("process metadata.jwt...")
         try:
-            self._otameta = ota_metadata.OTAMetadata(
+            self._otameta = ota_metadata_parser.OTAMetadata(
                 url_base=self._url_base,
                 downloader=self._downloader,
+                run_dir=Path(cfg.RUN_DIR),
+                certs_dir=Path(cfg.CERTS_DIR),
+                download_max_idle_time=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
             )
             self.total_files_num = self._otameta.total_files_num
             self.total_files_size_uncompressed = (
@@ -406,18 +417,18 @@ class _OTAUpdater:
             _err_msg = f"downloader: failed to save ota metafiles: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.OTAErrorUnrecoverable(_err_msg, module=__name__) from e
-        except ota_metadata.MetadataJWTVerificationFailed as e:
+        except ota_metadata_parser.MetadataJWTVerificationFailed as e:
             _err_msg = f"failed to verify metadata.jwt: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.MetadataJWTVerficationFailed(
                 _err_msg, module=__name__
             ) from e
-        except ota_metadata.MetadataJWTPayloadInvalid as e:
+        except ota_metadata_parser.MetadataJWTPayloadInvalid as e:
             _err_msg = f"metadata.jwt is invalid: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
         except Exception as e:
-            _err_msg = f"unspecific error, failed to prepare ota metafiles: {e!r}"
+            _err_msg = f"failed to prepare ota metafiles: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
 
@@ -434,7 +445,7 @@ class _OTAUpdater:
 
         # ------ post update ------ #
         logger.info("enter post update phase...")
-        self.update_phase = wrapper.UpdatePhase.PROCESSING_POSTUPDATE
+        self.update_phase = api_types.UpdatePhase.PROCESSING_POSTUPDATE
         # NOTE(20240219): move persist file handling here
         self._process_persistents()
 
@@ -448,11 +459,11 @@ class _OTAUpdater:
     # API
 
     def shutdown(self):
-        self.update_phase = wrapper.UpdatePhase.INITIALIZING
+        self.update_phase = api_types.UpdatePhase.INITIALIZING
         self._downloader.shutdown()
         self._update_stats_collector.stop()
 
-    def get_update_status(self) -> wrapper.UpdateStatus:
+    def get_update_status(self) -> api_types.UpdateStatus:
         """
         Returns:
             A tuple contains the version and the update_progress.
@@ -472,13 +483,13 @@ class _OTAUpdater:
         update_progress.total_remove_files_num = self.total_remove_files_num
         # downloading stats
         update_progress.downloaded_bytes = self._downloader.downloaded_bytes
-        update_progress.downloading_elapsed_time = wrapper.Duration(
+        update_progress.downloading_elapsed_time = api_types.Duration(
             seconds=self._downloader.downloader_active_seconds
         )
 
         # update other information
         update_progress.phase = self.update_phase
-        update_progress.total_elapsed_time = wrapper.Duration.from_nanoseconds(
+        update_progress.total_elapsed_time = api_types.Duration.from_nanoseconds(
             time.time_ns() - self.update_start_time
         )
         return update_progress
@@ -562,7 +573,7 @@ class OTAClient(OTAClientProtocol):
             self._rollback_executor: _OTARollbacker = None  # type: ignore
 
             # err record
-            self.last_failure_type = wrapper.FailureType.NO_FAILURE
+            self.last_failure_type = api_types.FailureType.NO_FAILURE
             self.last_failure_reason = ""
             self.last_failure_traceback = ""
         except Exception as e:
@@ -570,7 +581,7 @@ class OTAClient(OTAClientProtocol):
             logger.error(_err_msg)
             raise ota_errors.OTAClientStartupFailed(_err_msg, module=__name__) from e
 
-    def _on_failure(self, exc: ota_errors.OTAError, ota_status: wrapper.StatusOta):
+    def _on_failure(self, exc: ota_errors.OTAError, ota_status: api_types.StatusOta):
         self.live_ota_status.set_ota_status(ota_status)
         try:
             self.last_failure_type = exc.failure_type
@@ -598,15 +609,15 @@ class OTAClient(OTAClientProtocol):
                 )
 
                 # reset failure information on handling new update request
-                self.last_failure_type = wrapper.FailureType.NO_FAILURE
+                self.last_failure_type = api_types.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
 
                 # enter update
-                self.live_ota_status.set_ota_status(wrapper.StatusOta.UPDATING)
+                self.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
                 self._update_executor.execute(version, url_base, cookies_json)
             except ota_errors.OTAError as e:
-                self._on_failure(e, wrapper.StatusOta.FAILURE)
+                self._on_failure(e, api_types.StatusOta.FAILURE)
             finally:
                 self._update_executor = None  # type: ignore
                 gc.collect()  # trigger a forced gc
@@ -625,16 +636,16 @@ class OTAClient(OTAClientProtocol):
                 )
 
                 # clear failure information on handling new rollback request
-                self.last_failure_type = wrapper.FailureType.NO_FAILURE
+                self.last_failure_type = api_types.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
 
                 # entering rollback
-                self.live_ota_status.set_ota_status(wrapper.StatusOta.ROLLBACKING)
+                self.live_ota_status.set_ota_status(api_types.StatusOta.ROLLBACKING)
                 self._rollback_executor.execute()
             # silently ignore overlapping request
             except ota_errors.OTAError as e:
-                self._on_failure(e, wrapper.StatusOta.ROLLBACK_FAILURE)
+                self._on_failure(e, api_types.StatusOta.ROLLBACK_FAILURE)
             finally:
                 self._rollback_executor = None  # type: ignore
                 self._lock.release()
@@ -643,9 +654,9 @@ class OTAClient(OTAClientProtocol):
                 "ignore incoming rollback request as local update/rollback is ongoing"
             )
 
-    def status(self) -> wrapper.StatusResponseEcuV2:
+    def status(self) -> api_types.StatusResponseEcuV2:
         live_ota_status = self.live_ota_status.get_ota_status()
-        status_report = wrapper.StatusResponseEcuV2(
+        status_report = api_types.StatusResponseEcuV2(
             ecu_id=self.my_ecu_id,
             firmware_version=self.current_version,
             otaclient_version=self.OTACLIENT_VERSION,
@@ -654,7 +665,7 @@ class OTAClient(OTAClientProtocol):
             failure_reason=self.last_failure_reason,
             failure_traceback=self.last_failure_traceback,
         )
-        if live_ota_status == wrapper.StatusOta.UPDATING and self._update_executor:
+        if live_ota_status == api_types.StatusOta.UPDATING and self._update_executor:
             status_report.update_status = self._update_executor.get_update_status()
         return status_report
 
@@ -671,15 +682,15 @@ class OTAServicer:
         self.ecu_id = ecu_info.ecu_id
         self.otaclient_version = otaclient_version
         self.local_used_proxy_url = proxy
-        self.last_operation: Optional[wrapper.StatusOta] = None
+        self.last_operation: Optional[api_types.StatusOta] = None
 
         # default boot startup failure if boot_controller/otaclient_core crashed without
         # raising specific error
-        self._otaclient_startup_failed_status = wrapper.StatusResponseEcuV2(
+        self._otaclient_startup_failed_status = api_types.StatusResponseEcuV2(
             ecu_id=ecu_info.ecu_id,
             otaclient_version=otaclient_version,
-            ota_status=wrapper.StatusOta.FAILURE,
-            failure_type=wrapper.FailureType.UNRECOVERABLE,
+            ota_status=api_types.StatusOta.FAILURE,
+            failure_type=api_types.FailureType.UNRECOVERABLE,
             failure_reason="unspecific error",
         )
         self._update_rollback_lock = asyncio.Lock()
@@ -703,11 +714,11 @@ class OTAServicer:
             logger.error(
                 e.get_error_report(title=f"boot controller startup failed: {e!r}")
             )
-            self._otaclient_startup_failed_status = wrapper.StatusResponseEcuV2(
+            self._otaclient_startup_failed_status = api_types.StatusResponseEcuV2(
                 ecu_id=ecu_info.ecu_id,
                 otaclient_version=otaclient_version,
-                ota_status=wrapper.StatusOta.FAILURE,
-                failure_type=wrapper.FailureType.UNRECOVERABLE,
+                ota_status=api_types.StatusOta.FAILURE,
+                failure_type=api_types.FailureType.UNRECOVERABLE,
                 failure_reason=e.get_failure_reason(),
             )
 
@@ -730,11 +741,11 @@ class OTAServicer:
             logger.error(
                 e.get_error_report(title=f"otaclient core startup failed: {e!r}")
             )
-            self._otaclient_startup_failed_status = wrapper.StatusResponseEcuV2(
+            self._otaclient_startup_failed_status = api_types.StatusResponseEcuV2(
                 ecu_id=ecu_info.ecu_id,
                 otaclient_version=otaclient_version,
-                ota_status=wrapper.StatusOta.FAILURE,
-                failure_type=wrapper.FailureType.UNRECOVERABLE,
+                ota_status=api_types.StatusOta.FAILURE,
+                failure_type=api_types.FailureType.UNRECOVERABLE,
                 failure_reason=e.get_failure_reason(),
             )
 
@@ -749,12 +760,12 @@ class OTAServicer:
         return self._update_rollback_lock.locked()
 
     async def dispatch_update(
-        self, request: wrapper.UpdateRequestEcu
-    ) -> wrapper.UpdateResponseEcu:
+        self, request: api_types.UpdateRequestEcu
+    ) -> api_types.UpdateResponseEcu:
         # prevent update operation if otaclient is not started
         if self._otaclient_inst is None:
-            return wrapper.UpdateResponseEcu(
-                ecu_id=self.ecu_id, result=wrapper.FailureType.UNRECOVERABLE
+            return api_types.UpdateResponseEcu(
+                ecu_id=self.ecu_id, result=api_types.FailureType.UNRECOVERABLE
             )
 
         # check and acquire lock
@@ -762,13 +773,13 @@ class OTAServicer:
             logger.warning(
                 f"ongoing operation: {self.last_operation=}, ignore incoming {request=}"
             )
-            return wrapper.UpdateResponseEcu(
-                ecu_id=self.ecu_id, result=wrapper.FailureType.RECOVERABLE
+            return api_types.UpdateResponseEcu(
+                ecu_id=self.ecu_id, result=api_types.FailureType.RECOVERABLE
             )
 
         # immediately take the lock if not locked
         await self._update_rollback_lock.acquire()
-        self.last_operation = wrapper.StatusOta.UPDATING
+        self.last_operation = api_types.StatusOta.UPDATING
 
         async def _update_task():
             if self._otaclient_inst is None:
@@ -790,17 +801,17 @@ class OTAServicer:
         # dispatch update to background
         asyncio.create_task(_update_task())
 
-        return wrapper.UpdateResponseEcu(
-            ecu_id=self.ecu_id, result=wrapper.FailureType.NO_FAILURE
+        return api_types.UpdateResponseEcu(
+            ecu_id=self.ecu_id, result=api_types.FailureType.NO_FAILURE
         )
 
     async def dispatch_rollback(
-        self, request: wrapper.RollbackRequestEcu
-    ) -> wrapper.RollbackResponseEcu:
+        self, request: api_types.RollbackRequestEcu
+    ) -> api_types.RollbackResponseEcu:
         # prevent rollback operation if otaclient is not started
         if self._otaclient_inst is None:
-            return wrapper.RollbackResponseEcu(
-                ecu_id=self.ecu_id, result=wrapper.FailureType.UNRECOVERABLE
+            return api_types.RollbackResponseEcu(
+                ecu_id=self.ecu_id, result=api_types.FailureType.UNRECOVERABLE
             )
 
         # check and acquire lock
@@ -808,13 +819,13 @@ class OTAServicer:
             logger.warning(
                 f"ongoing operation: {self.last_operation=}, ignore incoming {request=}"
             )
-            return wrapper.RollbackResponseEcu(
-                ecu_id=self.ecu_id, result=wrapper.FailureType.RECOVERABLE
+            return api_types.RollbackResponseEcu(
+                ecu_id=self.ecu_id, result=api_types.FailureType.RECOVERABLE
             )
 
         # immediately take the lock if not locked
         await self._update_rollback_lock.acquire()
-        self.last_operation = wrapper.StatusOta.ROLLBACKING
+        self.last_operation = api_types.StatusOta.ROLLBACKING
 
         async def _rollback_task():
             if self._otaclient_inst is None:
@@ -829,11 +840,11 @@ class OTAServicer:
         # dispatch to background
         asyncio.create_task(_rollback_task())
 
-        return wrapper.RollbackResponseEcu(
-            ecu_id=self.ecu_id, result=wrapper.FailureType.NO_FAILURE
+        return api_types.RollbackResponseEcu(
+            ecu_id=self.ecu_id, result=api_types.FailureType.NO_FAILURE
         )
 
-    async def get_status(self) -> wrapper.StatusResponseEcuV2:
+    async def get_status(self) -> api_types.StatusResponseEcuV2:
         # otaclient is not started due to boot control startup failed
         if self._otaclient_inst is None:
             return self._otaclient_startup_failed_status
