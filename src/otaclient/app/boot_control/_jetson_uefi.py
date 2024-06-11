@@ -247,11 +247,12 @@ class _UEFIBoot:
             raise JetsonUEFIBootControlError(_err_msg)
         logger.info(f"dev compatibility: {compat_info}")
 
-        # ------ check BSP version ------ #
+        # ------ check firmware BSP version ------ #
         try:
-            self.bsp_version = bsp_version = parse_bsp_version(
-                Path(boot_cfg.NV_TEGRA_RELEASE_FPATH).read_text()
+            self.bsp_version = bsp_version = (
+                NVBootctrlCommon.get_current_fw_bsp_version()
             )
+            assert bsp_version, "bsp version information not available"
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
             logger.error(_err_msg)
