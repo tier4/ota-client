@@ -468,7 +468,11 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         return True
 
     def _capsule_firmware_update(self) -> bool:
-        """Perform firmware update with UEFI Capsule update."""
+        """Perform firmware update with UEFI Capsule update.
+
+        Returns:
+            True if there is firmware update configured, False for no firmware update.
+        """
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
 
         standby_bootloader_slot = self._uefi_control.standby_slot
@@ -480,6 +484,17 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         )
 
         # ------ check if we need to do firmware update ------ #
+        skip_firmware_update_hint_file = (
+            self._mp_control.standby_slot_mount_point
+            / Path(boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS).relative_to("/")
+            / Path(boot_cfg.NO_FIRMWARE_UPDATE_HINT_FNAME)
+        )
+        if skip_firmware_update_hint_file.is_file():
+            logger.warning(
+                "target image is configured to not doing firmware update, skip"
+            )
+            return False
+
         _new_bsp_v_fpath = self._mp_control.standby_slot_mount_point / Path(
             boot_cfg.NV_TEGRA_RELEASE_FPATH
         ).relative_to("/")
