@@ -23,7 +23,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import re
 import shutil
 from pathlib import Path
 from typing import Any, Generator
@@ -61,33 +60,6 @@ class _NVBootctrl(NVBootctrlCommon):
     For BSP version >= R34 with UEFI boot.
     Without -t option, the target will be bootloader by default.
     """
-
-    CAPSULE_UPDATE_PATTERN = re.compile(r"Capsule update status: (?P<status>\d+)")
-
-    @classmethod
-    def get_capsule_update_result(cls) -> str:
-        """Check the Capsule update status.
-
-        NOTE: this is NOT a nvbootctrl command, but implemented by parsing
-            the result of calling nvbootctrl dump-slots-info.
-
-        The output value of Capsule update status can be following:
-            0 - No Capsule update
-            1 - Capsule update successfully
-            2 - Capsule install successfully but boot new firmware failed
-            3 - Capsule install failed
-
-        Returns:
-            The Capsulte update result status.
-        """
-        slots_info = cls.dump_slots_info()
-        logger.info(f"checking Capsule update result: \n{slots_info}")
-
-        ma = cls.CAPSULE_UPDATE_PATTERN.search(slots_info)
-        assert ma, "failed to get Capsule update result"
-
-        update_result = ma.group("status")
-        return update_result
 
 
 class CapsuleUpdate:
