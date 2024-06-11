@@ -247,17 +247,37 @@ class _UEFIBoot:
             raise JetsonUEFIBootControlError(_err_msg)
         logger.info(f"dev compatibility: {compat_info}")
 
-        # ------ check firmware BSP version ------ #
+        # ------ check BSP version ------ #
+        # check firmware BSP version
         try:
             self.bsp_version = bsp_version = (
                 NVBootctrlCommon.get_current_fw_bsp_version()
             )
             assert bsp_version, "bsp version information not available"
+            logger.info(f"current slot firmware BSP version: {bsp_version}")
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
         logger.info(f"{bsp_version=}")
+
+        # check rootfs BSP version
+        try:
+            self.rootfs_bsp_verion = rootfs_bsp_version = parse_bsp_version(
+                Path(boot_cfg.NV_TEGRA_RELEASE_FPATH).read_text()
+            )
+            logger.info(f"current slot rootfs BSP version: {rootfs_bsp_version}")
+        except Exception as e:
+            logger.warning(f"failed to detect rootfs BSP version: {e!r}")
+            self.rootfs_bsp_verion = rootfs_bsp_version = None
+
+        if rootfs_bsp_version and rootfs_bsp_version >= bsp_version:
+            logger.warning(
+                (
+                    "current slot's rootfs bsp version is newer than the firmware bsp version, "
+                    "this indicates the device previously only receive rootfs update, this is unexpected"
+                )
+            )
 
         # ------ sanity check, currently jetson-uefi only supports >= R35.2 ----- #
         # only after R35.2, the Capsule Firmware update is available.
