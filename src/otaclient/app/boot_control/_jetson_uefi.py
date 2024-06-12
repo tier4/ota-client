@@ -299,7 +299,7 @@ class _UEFIBoot:
             logger.warning(f"failed to detect rootfs BSP version: {e!r}")
             self.rootfs_bsp_verion = rootfs_bsp_version = None
 
-        if rootfs_bsp_version and rootfs_bsp_version >= bsp_version:
+        if rootfs_bsp_version and rootfs_bsp_version > bsp_version:
             logger.warning(
                 (
                     "current slot's rootfs bsp version is newer than the firmware bsp version, "
