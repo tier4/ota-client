@@ -74,7 +74,7 @@ class CapsuleUpdate:
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
         #   we use the esp at nvme0n1.
         boot_parent_devpath = str(boot_parent_devpath)
-        self.esp_mp = boot_cfg.ESP_MOUNTPOINT
+        self.esp_mp = Path(boot_cfg.ESP_MOUNTPOINT)
 
         # NOTE: we get the update capsule from the standby slot
         self.standby_slot_mp = Path(standby_slot_mp)
@@ -127,6 +127,19 @@ class CapsuleUpdate:
                 f"failed to mount {cls.EFIVARS_FSTYPE} on {boot_cfg.EFIVARS_DPATH}: {e!r}"
             ) from e
 
+    @contextlib.contextmanager
+    def _ensure_esp_mounted(self) -> Generator[None, Any, None]:
+        """Mount the esp partition and then umount it."""
+        self.esp_mp.mkdir(exist_ok=True, parents=True)
+        try:
+            CMDHelperFuncs.mount_rw(self.esp_part, self.esp_mp)
+            yield
+            CMDHelperFuncs.umount(self.esp_mp, raise_exception=False)
+        except Exception as e:
+            _err_msg = f"failed to mount {self.esp_part=} to {self.esp_mp}: {e!r}"
+            logger.error(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg) from e
+
     def _prepare_payload(self) -> bool:
         """Copy the Capsule update payloads to specific location at esp partition.
 
@@ -134,38 +147,47 @@ class CapsuleUpdate:
             True if at least one of the update capsule is prepared, False if no update
                 capsule is available and configured.
         """
-        esp_mp = Path(self.esp_mp)
-        esp_mp.mkdir(exist_ok=True, parents=True)
-
-        try:
-            CMDHelperFuncs.mount_rw(self.esp_part, esp_mp)
-        except Exception as e:
-            _err_msg = f"failed to mount {self.esp_part=} to {esp_mp}: {e!r}"
-            logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg) from e
-
-        capsule_at_esp = esp_mp / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
+        capsule_at_esp = self.esp_mp / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
         capsule_at_esp.mkdir(parents=True, exist_ok=True)
 
-        capsule_at_standby_slot = self.standby_slot_mp / Path(
+        # where the fw update capsule and l4tlauncher bin located
+        fw_loc_at_standby_slot = self.standby_slot_mp / Path(
             boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS
         ).relative_to("/")
 
+        # ------ prepare capsule update payload ------ #
         firmware_package_configured = False
         for capsule_fname in boot_cfg.FIRMWARE_LIST:
             try:
                 shutil.copy(
-                    src=capsule_at_standby_slot / capsule_fname,
+                    src=fw_loc_at_standby_slot / capsule_fname,
                     dst=capsule_at_esp / capsule_fname,
                 )
                 firmware_package_configured = True
+                logger.info(f"copy {capsule_fname} to {capsule_at_esp}")
             except Exception as e:
                 logger.warning(
-                    f"failed to copy {capsule_fname} from {capsule_at_standby_slot} to {capsule_at_esp}: {e!r}"
+                    f"failed to copy {capsule_fname} from {fw_loc_at_standby_slot} to {capsule_at_esp}: {e!r}"
                 )
                 logger.warning(f"skip {capsule_fname}")
-        CMDHelperFuncs.umount(esp_mp, raise_exception=False)
 
+        # ------ prepare L4TLauncher update ------ #
+        # NOTE(20240611): Assume that the new L4TLauncher always keeps backward compatibility to
+        #   work with old firmware. This assumption MUST be confirmed on the real ECU.
+        if firmware_package_configured:
+            logger.info("capsule update is scheduled, also update L4TLauncher")
+            esp_boot_dir = self.esp_mp / "EFI" / "BOOT"
+
+            # the canonical boot entry used by UEFI
+            bootaa64_at_esp = esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
+
+            bootaa64_at_esp_bak = esp_boot_dir / f"{boot_cfg.L4TLAUNCHER_FNAME}_bak"
+            # l4tlauncher is stored as <standby_fw_loc>/BOOTAA64.efi
+            bootaa64_at_standby = fw_loc_at_standby_slot / boot_cfg.L4TLAUNCHER_FNAME
+
+            shutil.copy(bootaa64_at_esp, bootaa64_at_esp_bak)
+            shutil.copy(bootaa64_at_standby, bootaa64_at_esp)
+            os.sync()
         return firmware_package_configured
 
     def _write_efivar(self) -> None:
@@ -177,13 +199,8 @@ class CapsuleUpdate:
         magic_efivar_fpath = (
             Path(boot_cfg.EFIVARS_DPATH) / boot_cfg.UPDATE_TRIGGER_EFIVAR
         )
-        try:
-            magic_efivar_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
-            os.sync()
-        except Exception as e:
-            _err_msg = f"failed to write magic bytes into {magic_efivar_fpath}: {e!r}"
-            logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg) from e
+        magic_efivar_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
+        os.sync()
 
     def firmware_update(self) -> bool:
         """Trigger firmware update in next boot.
@@ -191,12 +208,23 @@ class CapsuleUpdate:
         Returns:
             True if firmware update is configured, False if there is no firmware update.
         """
-        if not self._prepare_payload():
-            logger.info("no firmware file is prepared, skip firmware update")
-            return False
+        with self._ensure_esp_mounted():
+            if not self._prepare_payload():
+                logger.info("no firmware file is prepared, skip firmware update")
+                return False
 
         with self._ensure_efivarfs_mounted():
-            self._write_efivar()
+            try:
+                self._write_efivar()
+            except Exception as e:
+                logger.warning(
+                    (
+                        f"failed to configure capsule update by write magic value: {e!r}\n"
+                        "firmware update might be skipped!"
+                    )
+                )
+                return False
+
         logger.info("firmware update package prepare finished")
         return True
 
