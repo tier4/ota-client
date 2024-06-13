@@ -33,7 +33,7 @@ dependencies = [
   "pydantic-settings==2.2.1",
   "pyopenssl==24.1",
   "pyyaml>=3.12",
-  "requests<2.32,>=2.31",
+  "requests<2.33,>=2.32",
   "typing-extensions>=4.6.3",
   "urllib3<2,>=1.26.8",
   "uvicorn[standard]==0.20",
