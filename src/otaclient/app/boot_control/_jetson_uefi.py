@@ -391,6 +391,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
     def __init__(self) -> None:
         current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
+        current_ota_status_dir.mkdir(exist_ok=True, parents=True)
         standby_ota_status_dir = Path(cfg.MOUNT_POINT) / Path(
             boot_cfg.OTA_STATUS_DIR
         ).relative_to("/")
