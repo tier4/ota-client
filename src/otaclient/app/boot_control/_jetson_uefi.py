@@ -237,7 +237,7 @@ class CapsuleUpdate:
 
         Schema: <slot_id>,<bsp_version>
         """
-        write_str_to_file_sync(hint_fpath, f"{slot_id},{BSPVersion.dump(bsp_version)}")
+        write_str_to_file_sync(hint_fpath, f"{slot_id},{bsp_version.dump()}")
 
     @staticmethod
     def parse_firmware_update_hint_file(

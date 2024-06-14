@@ -73,10 +73,9 @@ class BSPVersion(NamedTuple):
             return cls(int(major_ver), int(major_rev), int(minor_rev))
         raise ValueError(f"expect str or BSPVersion instance, get {type(_in)}")
 
-    @staticmethod
-    def dump(to_export: BSPVersion) -> str:
+    def dump(self) -> str:
         """Dump BSPVersion to string as "Rxx.yy.z"."""
-        return f"R{to_export.major_ver}.{to_export.major_rev}.{to_export.minor_rev}"
+        return f"R{self.major_ver}.{self.major_rev}.{self.minor_rev}"
 
 
 BSPVersionStr = Annotated[

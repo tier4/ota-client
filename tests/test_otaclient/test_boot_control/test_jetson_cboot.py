@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 
 from otaclient.app.boot_control import _jetson_cboot
-from otaclient.app.boot_control._jetson_cboot import _CBootControl
 from otaclient.app.boot_control._jetson_common import (
     BSPVersion,
     FirmwareBSPVersion,
@@ -70,7 +69,7 @@ class TestBSPVersion:
         ),
     )
     def test_dump(self, _in: BSPVersion, expected: str):
-        assert BSPVersion.dump(_in) == expected
+        assert _in.dump() == expected
 
 
 @pytest.mark.parametrize(
