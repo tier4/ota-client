@@ -11,7 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""A common used downloader implementation for otaclient."""
+"""A common used downloader implementation for otaclient.
+
+This downloader implements the OTA-Cache-File-Control protocol.
+
+NOTE: This downloader cannot be used multi-threaded.
+"""
 
 
 from __future__ import annotations
@@ -22,17 +27,7 @@ import logging
 from abc import abstractmethod
 from functools import wraps
 from http import HTTPStatus
-from typing import (
-    IO,
-    Any,
-    ByteString,
-    Callable,
-    Iterator,
-    Mapping,
-    Optional,
-    Protocol,
-    Union,
-)
+from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol
 from urllib.parse import urlsplit
 
 import requests
@@ -41,8 +36,7 @@ import zstandard
 from requests.structures import CaseInsensitiveDict as CIDict
 
 from ota_proxy import OTAFileCacheControl
-from otaclient.app.ota_client_stub import T
-from otaclient_common.typing import P, StrOrPath
+from otaclient_common.typing import T, P, StrOrPath
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +58,7 @@ class DownloadError(Exception):
     """
 
 
-class PartialDownloaded(Exception):
+class PartialDownloaded(DownloadError):
     """Download is not completed."""
 
 
@@ -75,16 +69,12 @@ class UnhandledHTTPError(DownloadError):
     """
 
 
-class SaveFileFailed(DownloadError):
-    pass
-
-
 class HashVerificaitonError(DownloadError):
-    pass
+    """Hash verification failed for the downloaded file."""
 
 
 class SpaceNotEnough(DownloadError):
-    pass
+    """Save destination disk is full."""
 
 
 # ------ decompression support ------ #
@@ -95,10 +85,10 @@ class DecompressionAdapterProtocol(Protocol):
     """DecompressionAdapter protocol for Downloader."""
 
     @abstractmethod
-    def iter_chunk(self, src_stream: Union[IO[bytes], ByteString]) -> Iterator[bytes]:
+    def iter_chunk(self, src_stream: IO[bytes] | ByteString) -> Iterator[bytes]:
         """Decompresses the source stream.
 
-        This Method take a src_stream of compressed file and
+        This method takes a src_stream of compressed file and
         return another stream that yields decompressed data chunks.
         """
 
@@ -109,54 +99,128 @@ class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
     def __init__(self) -> None:
         self._dctx = zstandard.ZstdDecompressor()
 
-    def iter_chunk(self, src_stream: Union[IO[bytes], ByteString]) -> Iterator[bytes]:
+    def iter_chunk(self, src_stream: IO[bytes] | ByteString) -> Iterator[bytes]:
         yield from self._dctx.read_to_iter(src_stream)
 
 
-# ------ OTA cache control implementation ------ #
+# ------ OTA-Cache-File-Control protocol implementation ------ #
+
+
+def inject_cache_retry_directory(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Inject a OTA-File-Cache-Control header to kwargs.
+
+    This will indicate ota_proxy to re-cache the possible corrupted file.
+    """
+    parsed_header: dict[str, str] = {}
+
+    input_headers = kwargs.pop("headers", None)
+    if isinstance(input_headers, Mapping):
+        parsed_header.update(input_headers)
+
+    # preserve the already set policies, while add retry_caching policy
+    cache_policy = parsed_header.pop(CACHE_CONTROL_HEADER, "")
+    cache_policy = OTAFileCacheControl.update_header_str(
+        cache_policy, retry_caching=True
+    )
+    parsed_header[CACHE_CONTROL_HEADER] = cache_policy
+
+    kwargs["headers"] = parsed_header
+    return kwargs
+
+
+def inject_cache_control_header_in_req(
+    *,
+    digest: str,
+    input_header: Mapping[str, str] | None = None,
+    compression_alg: str | None = None,
+) -> Mapping[str, str] | None:
+    """Inject ota-file-cache-control header if digest is available.
+
+    Currently this method preserves the input_header, while
+        updating/injecting Ota-File-Cache-Control header.
+    """
+    prepared_headers = CIDict()
+    if isinstance(input_header, Mapping):
+        prepared_headers.update(input_header)
+
+    # inject digest and compression_alg into ota-file-cache-control-header
+    cache_policy = prepared_headers.pop(CACHE_CONTROL_HEADER, "")
+    cache_policy = OTAFileCacheControl.update_header_str(
+        cache_policy,
+        file_sha256=digest,
+        file_compression_alg=compression_alg,
+    )
+    prepared_headers[CACHE_CONTROL_HEADER] = cache_policy
+    return prepared_headers
+
+
+def check_cache_policy_in_resp(
+    url: str,
+    *,
+    compression_alg: str | None = None,
+    digest: str | None = None,
+    resp_headers: CIDict,
+) -> tuple[str | None, str | None]:
+    """Checking digest and compression_alg against cache_policy from resp headers.
+
+    If upper responds with file_sha256 and file_compression_alg by ota-file-cache-control header,
+        use these information, otherwise use the information provided by client.
+
+    Returns:
+        A tuple of file_sha256 and file_compression_alg for the requested resources.
+    """
+    if not (cache_policy_str := resp_headers.get(CACHE_CONTROL_HEADER)):
+        return digest, compression_alg
+
+    cache_policy = OTAFileCacheControl.parse_header(cache_policy_str)
+    if not cache_policy.file_sha256 or not cache_policy.file_compression_alg:
+        return digest, compression_alg
+
+    if digest and digest != cache_policy.file_sha256:
+        _msg = (
+            f"digest({cache_policy.file_sha256}) in cache_policy"
+            f"doesn't match value({digest}) from regulars.txt: {url=}"
+        )
+        logger.warning(_msg)
+        raise HashVerificaitonError(_msg)
+
+    # compression_alg from image meta is set, but resp_headers indicates different
+    # compression_alg.
+    if compression_alg and compression_alg != cache_policy.file_compression_alg:
+        logger.info(
+            f"upper serves different cache file for this OTA file: {url=}, "
+            f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
+        )
+    return cache_policy.file_sha256, cache_policy.file_compression_alg
+
+
+# ------ downloader implementation ------ #
 
 
 def _exception_handler(func: Callable[P, T]) -> Callable[P, T]:
+    """A decorator to the download API that translate internal exceptions to
+    downloader exception.
+
+    It also implements the OTA-Cache-File-Control protocol on hash verification error.
+    """
+
     @wraps(func)
     def _wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         try:
             return func(*args, **kwargs)
         except HashVerificaitonError:
-            # inject a OTA-File-Cache-Control header to indicate ota_proxy
-            # to re-cache the possible corrupted file.
-            # modify header if needed and inject it into kwargs
-            parsed_header: dict[str, str] = {}
-
-            prepared_headers = kwargs.pop("headers", {})
-            if isinstance(prepared_headers, Mapping):
-                parsed_header.update(prepared_headers)
-
-            # preserve the already set policies, while add retry_caching policy
-            _cache_policy = parsed_header.pop(CACHE_CONTROL_HEADER, "")
-            _cache_policy = OTAFileCacheControl.update_header_str(
-                _cache_policy, retry_caching=True
-            )
-            parsed_header[CACHE_CONTROL_HEADER] = _cache_policy
-
-            # replace with updated header
-            kwargs["headers"] = parsed_header
-
             # try ONCE with headers included OTA cache control retry_caching directory,
             # if still failed, let the outer retrier does its job.
-            return func(*args, **kwargs)
+            return func(*args, **inject_cache_retry_directory(kwargs))
         except requests.exceptions.HTTPError as e:
-            http_errcode = e.errno
-            if (
-                http_errcode == HTTPStatus.FORBIDDEN
-                or http_errcode == HTTPStatus.NOT_FOUND
-                or http_errcode == HTTPStatus.UNAUTHORIZED
-            ):
+            # 401, 403, 404 are critical unhandled errors
+            if e.errno in [
+                HTTPStatus.FORBIDDEN,
+                HTTPStatus.NOT_FOUND,
+                HTTPStatus.UNAUTHORIZED,
+            ]:
                 raise UnhandledHTTPError from e
             raise  # re-raise to upper caller for other exceptions
-        # exception group 5: file saving location not available
-        except FileNotFoundError as e:
-            raise SaveFileFailed from e
-        # exception group 6: Disk out-of-space
         except OSError as e:
             if e.errno == errno.ENOSPC:
                 raise SpaceNotEnough from e
@@ -165,24 +229,25 @@ def _exception_handler(func: Callable[P, T]) -> Callable[P, T]:
     return _wrapper
 
 
-# ------ downloader implementation ------ #
-
-
 class Downloader:
-    """A downloader implementation with requests.
-
-    NOTE: this Downloader can not be used in multi-thread!
-    """
 
     def __init__(
         self,
         *,
-        chunk_size: int,
         hash_func: Callable[..., hashlib._Hash],
+        chunk_size: int = 1 * 1024 * 1024,  # 1MiB
         use_http_if_http_proxy_set: bool = True,
         cookies: dict[str, str] | None = None,
         proxies: dict[str, str] | None = None,
     ) -> None:
+        """Init an downloader instance for single thread use.
+
+        Args:
+            hash_func (Callable[..., hashlib._Hash]): The hash algorithm used to verify downloaded files.
+            chunk_size (int, optional): Chunk size of chunk streaming and file writing. Defaults to 1*1024*1024.
+            cookies (dict[str, str] | None, optional): Session global cookies. Defaults to None.
+            proxies (dict[str, str] | None, optional): Session global proxies. Defaults to None.
+        """
         self.chunk_size = chunk_size
         self.hash_func = hash_func
 
@@ -204,87 +269,8 @@ class Downloader:
 
     def _get_decompressor(
         self, compression_alg: Any
-    ) -> Optional[DecompressionAdapterProtocol]:
-        """Get thread-local private decompressor adapter accordingly."""
+    ) -> DecompressionAdapterProtocol | None:
         return self._compression_support_matrix.get(compression_alg)
-
-    @staticmethod
-    def _prepare_header(
-        input_header: Optional[Mapping[str, str]] = None,
-        digest: Optional[str] = None,
-        compression_alg: Optional[str] = None,
-        proxies: Optional[Mapping[str, str]] = None,
-    ) -> Optional[Mapping[str, str]]:
-        """Inject ota-file-cache-control header if digest is available.
-
-        Currently this method preserves the input_header, while
-            updating/injecting Ota-File-Cache-Control header.
-        """
-        # NOTE: only inject ota-file-cache-control-header if we have upper otaproxy,
-        #       or we have information to inject
-        if not digest or not proxies:
-            return input_header
-
-        res = CIDict()
-        if isinstance(input_header, Mapping):
-            res.update(input_header)
-
-        # inject digest and compression_alg into ota-file-cache-control-header
-        _cache_policy = res.pop(CACHE_CONTROL_HEADER, "")
-        _cache_policy = OTAFileCacheControl.update_header_str(
-            _cache_policy, file_sha256=digest, file_compression_alg=compression_alg
-        )
-        res[CACHE_CONTROL_HEADER] = _cache_policy
-        return res
-
-    def _check_against_cache_policy_in_resp(
-        self,
-        url: str,
-        dst: StrOrPath,
-        digest: Optional[str],
-        compression_alg: Optional[str],
-        resp_headers: CIDict,
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Checking digest and compression_alg against cache_policy from resp headers.
-
-        If upper responds with file_sha256 and file_compression_alg by ota-file-cache-control header,
-            use these information, otherwise use the information provided by client.
-
-        Returns:
-            A tuple of file_sha256 and file_compression_alg for the requested resources.
-        """
-        if not (cache_policy_str := resp_headers.get(CACHE_CONTROL_HEADER)):
-            return digest, compression_alg
-
-        cache_policy = OTAFileCacheControl.parse_header(cache_policy_str)
-        if cache_policy.file_sha256:
-            if digest and digest != cache_policy.file_sha256:
-                _msg = (
-                    f"digest({cache_policy.file_sha256}) in cache_policy"
-                    f"doesn't match value({digest}) from regulars.txt: {url=}"
-                )
-                logger.warning(_msg)
-                raise HashVerificaitonError(url, dst, _msg)
-
-            # compression_alg from regulars.txt is set, but resp_headers indicates different
-            # compression_alg.
-            if compression_alg and compression_alg != cache_policy.file_compression_alg:
-                logger.info(
-                    f"upper serves different cache file for this OTA file: {url=}, "
-                    f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
-                )
-            return cache_policy.file_sha256, cache_policy.file_compression_alg
-        return digest, compression_alg
-
-    def _prepare_url(self, url: str, proxies: Optional[dict[str, str]] = None) -> str:
-        """Force changing URL scheme to HTTP if required.
-
-        When upper otaproxy is set and use_http_if_http_proxy_set is True,
-            Force changing the URL scheme to HTTP.
-        """
-        if self.use_http_if_http_proxy_set and proxies and "http" in proxies:
-            return urlsplit(url)._replace(scheme="http").geturl()
-        return url
 
     # API
 
@@ -320,17 +306,22 @@ class Downloader:
         Returns:
             Download error, downloaded file size, traffic on wire.
         """
-        proxies = self._proxies
-        cookies = self._cookies
+        proxies, cookies = self._proxies, self._cookies
 
-        prepared_url = self._prepare_url(url, proxies)
-        # NOTE: process headers AFTER proxies setting is parsed
-        prepared_headers = self._prepare_header(
-            headers,
-            digest=digest,
-            compression_alg=compression_alg,
-            proxies=proxies,
-        )
+        prepared_url = url
+        if self.use_http_if_http_proxy_set and proxies and "http" in proxies:
+            prepared_url = urlsplit(url)._replace(scheme="http").geturl()
+
+        # NOTE: only inject ota-file-cache-control-header if we have upper otaproxy,
+        #       or we have information to inject
+        if digest and proxies:
+            # NOTE: process headers AFTER proxies setting is parsed
+            prepared_headers = inject_cache_control_header_in_req(
+                digest=digest,
+                input_header=headers,
+                compression_alg=compression_alg,
+            )
+
         digestobj = self.hash_func()
         downloaded_file_size, traffic_on_wire = 0, 0
 
@@ -343,12 +334,11 @@ class Downloader:
         ) as resp, open(dst, "wb") as dst_fp:
             resp.raise_for_status()
 
-            digest, compression_alg = self._check_against_cache_policy_in_resp(
+            digest, compression_alg = check_cache_policy_in_resp(
                 url,
-                dst,
-                digest,
-                compression_alg,
-                resp.headers,
+                compression_alg=compression_alg,
+                digest=digest,
+                resp_headers=resp.headers,
             )
 
             raw_resp = resp.raw  # the underlaying urllib3 Response object
@@ -367,7 +357,6 @@ class Downloader:
                     self._downloaded_bytes += increased_traffic
                 traffic_on_wire = new_traffic_on_wire
 
-        # checking the download result
         if size and size != downloaded_file_size:
             _err_msg = (
                 f"detect partial downloading: {size=} != {downloaded_file_size=} for "
