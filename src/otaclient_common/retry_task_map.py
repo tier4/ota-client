@@ -47,6 +47,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         watchdog_func: Optional[Callable] = None,
         watchdog_check_interval: int = 3,  # seconds
         ensure_tasks_pull_interval: int = 1,  # second
+        initializer: Callable[..., Any] | None = None,
     ) -> None:
         """Initialize a ThreadPoolExecutorWithRetry instance.
 
@@ -76,7 +77,11 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         max_workers = (
             max_workers + 2 if max_workers else min(32, (os.cpu_count() or 1) + 4)
         )
-        super().__init__(max_workers=max_workers, thread_name_prefix=thread_name_prefix)
+        super().__init__(
+            max_workers=max_workers,
+            thread_name_prefix=thread_name_prefix,
+            initializer=initializer,
+        )
 
         def _watchdog() -> None:
             """Watchdog will shutdown the threadpool on certain conditions being met."""
