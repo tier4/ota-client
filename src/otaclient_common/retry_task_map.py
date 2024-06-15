@@ -19,7 +19,6 @@ import concurrent.futures.thread as concurrent_fut_thread
 import contextlib
 import itertools
 import logging
-import os
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -73,32 +72,34 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
 
-        # NOTE: leave two threads each for watchdog and dispatcher
-        max_workers = (
-            max_workers + 2 if max_workers else min(32, (os.cpu_count() or 1) + 4)
-        )
         super().__init__(
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix,
             initializer=initializer,
         )
 
-        def _watchdog() -> None:
-            """Watchdog will shutdown the threadpool on certain conditions being met."""
-            while not self._shutdown and not concurrent_fut_thread._shutdown:
-                if self.max_total_retry and self._retry_count > self.max_total_retry:
-                    logger.warning(f"exceed {self.max_total_retry=}, abort")
+        threading.Thread(
+            target=self._watchdog,
+            args=(watchdog_func, watchdog_check_interval),
+            daemon=True,
+        )
+
+    def _watchdog(
+        self, watchdog_func: Callable[..., Any], watchdog_check_interval: int
+    ) -> None:
+        """Watchdog will shutdown the threadpool on certain conditions being met."""
+        while not self._shutdown and not concurrent_fut_thread._shutdown:
+            if self.max_total_retry and self._retry_count > self.max_total_retry:
+                logger.warning(f"exceed {self.max_total_retry=}, abort")
+                return self.shutdown(wait=True)
+
+            if callable(watchdog_func):
+                try:
+                    watchdog_func()
+                except Exception as e:
+                    logger.warning(f"custom watchdog func failed: {e!r}, abort")
                     return self.shutdown(wait=True)
-
-                if callable(watchdog_func):
-                    try:
-                        watchdog_func()
-                    except Exception as e:
-                        logger.warning(f"custom watchdog func failed: {e!r}, abort")
-                        return self.shutdown(wait=True)
-                time.sleep(watchdog_check_interval)
-
-        self.submit(_watchdog)
+            time.sleep(watchdog_check_interval)
 
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
@@ -112,9 +113,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             return
 
         # ------ on threadpool shutdown(by watchdog) ------ #
-        if self._shutdown or self._broken:
-            # wakeup dispatcher
-            self._concurrent_semaphore.release()
+        if self._shutdown:
+            self._concurrent_semaphore.release()  # wakeup dispatcher
             return
 
         # ------ on task failed ------ #
@@ -123,6 +123,23 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             self.submit(func, item).add_done_callback(
                 partial(self._task_done_cb, item=item, func=func)
             )
+
+    def _dispatcher(self, func: Callable[[T], RT], iterable: Iterable[T]) -> None:
+        try:
+            for _tasks_count, item in enumerate(iterable, start=1):
+                if self._shutdown and not concurrent_fut_thread._shutdown:
+                    return
+
+                self._concurrent_semaphore.acquire()
+                fut = self.submit(func, item)
+                fut.add_done_callback(partial(self._task_done_cb, item=item, func=func))
+        except Exception as e:
+            logger.error(f"tasks dispatcher failed: {e!r}, abort")
+            self.shutdown(wait=True)
+            return
+
+        self._total_task_num = _tasks_count
+        logger.info(f"finish dispatch {_tasks_count} tasks")
 
     def ensure_tasks(
         self, func: Callable[[T], RT], iterable: Iterable[T]
@@ -144,32 +161,16 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         with self._start_lock:
             if self._started:
                 raise ValueError("ensure_tasks cannot be started more than once")
-            if self._shutdown or self._broken:
+            if self._shutdown:
                 raise ValueError("threadpool is shutdown or broken, abort")
             self._started = True
 
         # ------ dispatch tasks from iterable ------ #
-        def _dispatcher() -> None:
-            try:
-                for _tasks_count, item in enumerate(iterable, start=1):
-                    self._concurrent_semaphore.acquire()
-                    fut = self.submit(func, item)
-                    fut.add_done_callback(
-                        partial(self._task_done_cb, item=item, func=func)
-                    )
-            except Exception as e:
-                logger.error(f"tasks dispatcher failed: {e!r}, abort")
-                self.shutdown(wait=True)
-                return
-
-            self._total_task_num = _tasks_count
-            logger.info(f"finish dispatch {_tasks_count} tasks")
-
-        self.submit(_dispatcher)
+        threading.Thread(target=self._dispatcher, args=(func, iterable), daemon=True)
 
         # ------ ensure all tasks are finished ------ #
         while True:
-            if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
+            if self._shutdown or concurrent_fut_thread._shutdown:
                 logger.warning(
                     f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
                 )
