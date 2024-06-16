@@ -21,12 +21,10 @@ NOTE: This downloader cannot be used multi-threaded.
 
 from __future__ import annotations
 
-import errno
 import hashlib
 import logging
 from abc import abstractmethod
 from functools import wraps
-from http import HTTPStatus
 from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol
 from urllib.parse import urlsplit
 
@@ -46,10 +44,6 @@ CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 # ------ errors definition ------ #
 
 
-class DownloaderShutdownedError(Exception):
-    """Raised when try to use closed downloader."""
-
-
 class DownloadError(Exception):
     """Basic Download error.
 
@@ -58,27 +52,19 @@ class DownloadError(Exception):
     """
 
 
+class DownloaderShutdownedError(DownloadError):
+    """Raised when try to use closed downloader."""
+
+
 class PartialDownloaded(DownloadError):
     """Download is not completed."""
-
-
-class UnhandledHTTPError(DownloadError):
-    """HTTPErrors that cannot be handled by us.
-
-    Currently include 401, 403 and 404.
-    """
 
 
 class HashVerificaitonError(DownloadError):
     """Hash verification failed for the downloaded file."""
 
 
-class SpaceNotEnough(DownloadError):
-    """Save destination disk is full."""
-
-
 # ------ decompression support ------ #
-# Currently we support zstd compression.
 
 
 class DecompressionAdapterProtocol(Protocol):
@@ -107,10 +93,7 @@ class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
 
 
 def inject_cache_retry_directory(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Inject a OTA-File-Cache-Control header to kwargs.
-
-    This will indicate ota_proxy to re-cache the possible corrupted file.
-    """
+    """Inject a OTA-File-Cache-Control header to kwargs on hash verification failed."""
     parsed_header: dict[str, str] = {}
 
     input_headers = kwargs.pop("headers", None)
@@ -194,10 +177,7 @@ def check_cache_policy_in_resp(
     return cache_policy.file_sha256, cache_policy.file_compression_alg
 
 
-# ------ downloader implementation ------ #
-
-
-def _exception_handler(func: Callable[P, T]) -> Callable[P, T]:
+def cache_retry_decorator(func: Callable[P, T]) -> Callable[P, T]:
     """A decorator to the download API that translate internal exceptions to
     downloader exception.
 
@@ -212,19 +192,6 @@ def _exception_handler(func: Callable[P, T]) -> Callable[P, T]:
             # try ONCE with headers included OTA cache control retry_caching directory,
             # if still failed, let the outer retrier does its job.
             return func(*args, **inject_cache_retry_directory(kwargs))
-        except requests.exceptions.HTTPError as e:
-            # 401, 403, 404 are critical unhandled errors
-            if e.errno in [
-                HTTPStatus.FORBIDDEN,
-                HTTPStatus.NOT_FOUND,
-                HTTPStatus.UNAUTHORIZED,
-            ]:
-                raise UnhandledHTTPError from e
-            raise  # re-raise to upper caller for other exceptions
-        except OSError as e:
-            if e.errno == errno.ENOSPC:
-                raise SpaceNotEnough from e
-            raise  # re-raise to upper caller for other exceptions
 
     return _wrapper
 
@@ -278,7 +245,7 @@ class Downloader:
     def downloaded_bytes(self) -> int:
         return self._downloaded_bytes
 
-    @_exception_handler
+    @cache_retry_decorator
     def download(
         self,
         url: str,
