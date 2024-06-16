@@ -47,6 +47,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         watchdog_check_interval: int = 3,  # seconds
         ensure_tasks_pull_interval: int = 1,  # second
         initializer: Callable[..., Any] | None = None,
+        initargs: tuple = (),
     ) -> None:
         """Initialize a ThreadPoolExecutorWithRetry instance.
 
@@ -76,6 +77,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix,
             initializer=initializer,
+            initargs=initargs,
         )
 
         threading.Thread(
