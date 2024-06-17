@@ -269,12 +269,8 @@ class _RPIBootControl:
         2. chroot into the target slot's rootfs, execute flash-kernel
         """
         logger.info(f"try to flash-kernel from {target_slot}...")
-        sysboot_at_target_slot = Path(target_slot_mp) / Path(
-            cfg.SYSTEM_BOOT_MOUNT_POINT
-        ).relative_to("/")
-
         try:
-            with self._prepare_flash_kernel(sysboot_at_target_slot):
+            with self._prepare_flash_kernel(target_slot_mp):
                 subprocess_run_wrapper(
                     ["flash-kernel"],
                     check=True,
