@@ -25,6 +25,7 @@ import hashlib
 import logging
 from abc import abstractmethod
 from functools import wraps
+import threading
 from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol
 from urllib.parse import urlsplit
 
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
+DEFAULT_CHUNK_SIZE = 1024**2  # 1MiB
 
 # ------ errors definition ------ #
 
@@ -202,7 +204,7 @@ class Downloader:
         self,
         *,
         hash_func: Callable[..., hashlib._Hash],
-        chunk_size: int = 1 * 1024 * 1024,  # 1MiB
+        chunk_size: int,
         use_http_if_http_proxy_set: bool = True,
         cookies: dict[str, str] | None = None,
         proxies: dict[str, str] | None = None,
@@ -244,6 +246,13 @@ class Downloader:
     @property
     def downloaded_bytes(self) -> int:
         return self._downloaded_bytes
+
+    def close(self) -> None:
+        """Close the underlaying session object.
+
+        It is OK to call this method multiple times.
+        """
+        self._session.close()
 
     @cache_retry_decorator
     def download(
@@ -336,3 +345,83 @@ class Downloader:
             raise HashVerificaitonError(_err_msg)
 
         return downloaded_file_size, traffic_on_wire
+
+
+class DownloaderPool:
+    """A pool of downloader instances for multi-threading.
+
+    Each worker thread can get a thread-local instance of downloader.
+    """
+
+    INSTANCE_AVAILABLE_ID = 0
+
+    def __init__(
+        self,
+        instance_num: int,
+        hash_func: Callable[..., hashlib._Hash],
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+        cookies: dict[str, str] | None = None,
+        proxies: dict[str, str] | None = None,
+    ) -> None:
+        self._instances: list[Downloader] = [
+            Downloader(
+                hash_func=hash_func,
+                chunk_size=chunk_size,
+                cookies=cookies,
+                proxies=proxies,
+            )
+            for _ in range(instance_num)
+        ]
+
+        self._instance_map_lock = threading.Lock()
+        self._instance_mapping: list[int] = [
+            self.INSTANCE_AVAILABLE_ID for _ in range(instance_num)
+        ]
+
+    @property
+    def total_downloaded_bytes(self) -> int:
+        return sum(downloader.downloaded_bytes for downloader in self._instances)
+
+    def get_instance(self) -> Downloader:
+        """Get a weakref to the thread-specific downloader instance.
+
+        NOTE: this method is thread-specific, and will return the same instance
+            for multiple calls from the same thread.
+
+        Raises:
+            ValueError if no available idle instance for caller thread.
+        """
+        native_thread_id = threading.get_native_id()
+        with self._instance_map_lock:
+            first_available = -1
+            for idx, _thread_id in enumerate(self._instance_mapping):
+                if first_available == -1 and _thread_id == self.INSTANCE_AVAILABLE_ID:
+                    first_available = idx
+                if _thread_id == native_thread_id:
+                    return self._instances[idx]
+            if first_available != -1:
+                self._instance_mapping[first_available] = native_thread_id
+                return self._instances[first_available]
+            raise ValueError("no idle downloader instance available")
+
+    def release_instance(self) -> None:
+        native_thread_id = threading.get_native_id()
+        with self._instance_map_lock:
+            for idx, _thread_id in enumerate(self._instance_mapping):
+                if _thread_id == native_thread_id:
+                    self._instance_mapping[idx] = self.INSTANCE_AVAILABLE_ID
+
+    def release_all_instances(self) -> None:
+        """Clear the instances-thread mapping.
+
+        This method should be called at the main thread.
+        """
+        with self._instance_map_lock:
+            self._instance_mapping = [self.INSTANCE_AVAILABLE_ID] * len(
+                self._instance_mapping
+            )
+
+    def shutdown(self) -> None:
+        """Close the downloader instances."""
+        for _instance in self._instances:
+            _instance.close()
