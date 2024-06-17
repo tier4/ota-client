@@ -748,7 +748,7 @@ class SlotMountHelper:
         # TODO: in the future if in-place update mode is implemented, do a
         #   fschck over the standby slot file system.
         if fslabel:
-            CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, fslabel=fslabel)
+            CMDHelperFuncs.set_ext4_fslabel(self.standby_slot_dev, fslabel=fslabel)
 
     def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")
