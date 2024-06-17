@@ -374,9 +374,10 @@ class DownloaderPool:
         ]
 
         self._instance_map_lock = threading.Lock()
-        self._instance_mapping: list[int] = [
+        self._idx_thread_mapping: list[int] = [
             self.INSTANCE_AVAILABLE_ID for _ in range(instance_num)
         ]
+        self._thread_idx_mapping: dict[int, int] = {}
 
     @property
     def total_downloaded_bytes(self) -> int:
@@ -393,23 +394,27 @@ class DownloaderPool:
         """
         native_thread_id = threading.get_native_id()
         with self._instance_map_lock:
-            first_available = -1
-            for idx, _thread_id in enumerate(self._instance_mapping):
-                if first_available == -1 and _thread_id == self.INSTANCE_AVAILABLE_ID:
-                    first_available = idx
-                if _thread_id == native_thread_id:
-                    return self._instances[idx]
-            if first_available != -1:
-                self._instance_mapping[first_available] = native_thread_id
-                return self._instances[first_available]
-            raise ValueError("no idle downloader instance available")
+            if native_thread_id in self._thread_idx_mapping:
+                idx = self._thread_idx_mapping[native_thread_id]
+                return self._instances[idx]
+
+            for idx, _thread_id in enumerate(self._idx_thread_mapping):
+                if _thread_id == self.INSTANCE_AVAILABLE_ID:
+                    first_available_idx = _thread_id
+                    break
+            else:
+                raise ValueError("no idle downloader instance available")
+
+            self._idx_thread_mapping[first_available_idx] = native_thread_id
+            self._thread_idx_mapping[native_thread_id] = first_available_idx
+            return self._instances[first_available_idx]
 
     def release_instance(self) -> None:
         native_thread_id = threading.get_native_id()
         with self._instance_map_lock:
-            for idx, _thread_id in enumerate(self._instance_mapping):
-                if _thread_id == native_thread_id:
-                    self._instance_mapping[idx] = self.INSTANCE_AVAILABLE_ID
+            idx = self._thread_idx_mapping.pop(native_thread_id, None)
+            if idx is not None:
+                self._idx_thread_mapping[idx] = self.INSTANCE_AVAILABLE_ID
 
     def release_all_instances(self) -> None:
         """Clear the instances-thread mapping.
@@ -417,11 +422,13 @@ class DownloaderPool:
         This method should be called at the main thread.
         """
         with self._instance_map_lock:
-            self._instance_mapping = [self.INSTANCE_AVAILABLE_ID] * len(
-                self._instance_mapping
+            self._idx_thread_mapping = [self.INSTANCE_AVAILABLE_ID] * len(
+                self._idx_thread_mapping
             )
+            self._thread_idx_mapping = {}
 
     def shutdown(self) -> None:
         """Close the downloader instances."""
         for _instance in self._instances:
             _instance.close()
+        self._instances = []
