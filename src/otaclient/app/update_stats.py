@@ -162,9 +162,10 @@ class OTAUpdateStatsCollector:
                             staging_storage.downloading_errors += st.download_errors
                         elif _op == RegProcessOperation.PREPARE_LOCAL_COPY:
                             # update delta generating specific fields
-                            staging_storage.delta_generating_elapsed_time.add_nanoseconds(
-                                st.elapsed_ns
-                            )
+                            # NOTE: delta_generating_elapsed_time is calculated by OTAClient class now
+                            # staging_storage.delta_generating_elapsed_time.add_nanoseconds(
+                            # st.elapsed_ns
+                            # )
                             # as keep_delta, update processed_files_*
                             staging_storage.processed_files_size += st.size
                             staging_storage.processed_files_num += 1
