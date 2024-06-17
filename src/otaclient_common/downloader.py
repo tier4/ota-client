@@ -23,9 +23,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from abc import abstractmethod
 from functools import wraps
-import threading
 from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol
 from urllib.parse import urlsplit
 
@@ -35,7 +35,7 @@ import zstandard
 from requests.structures import CaseInsensitiveDict as CIDict
 
 from ota_proxy import OTAFileCacheControl
-from otaclient_common.typing import T, P, StrOrPath
+from otaclient_common.typing import P, StrOrPath, T
 
 logger = logging.getLogger(__name__)
 
@@ -400,7 +400,7 @@ class DownloaderPool:
 
             for idx, _thread_id in enumerate(self._idx_thread_mapping):
                 if _thread_id == self.INSTANCE_AVAILABLE_ID:
-                    first_available_idx = _thread_id
+                    first_available_idx = idx
                     break
             else:
                 raise ValueError("no idle downloader instance available")
