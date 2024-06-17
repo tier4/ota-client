@@ -36,7 +36,6 @@ from otaclient_api.v2 import types as api_types
 from otaclient_common.common import (
     replace_atomic,
     subprocess_call,
-    subprocess_check_output,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,12 +53,13 @@ class _RPIBootControllerError(Exception):
 class _RPIBootControl:
     """Boot control helper for rpi4 support.
 
-    Expected partition layout:
-        /dev/sda:
-            - sda1: fat32, fslabel=systemb-boot
-            - sda2: ext4, fslabel=slot_a
-            - sda3: ext4, fslabel=slot_b
+    Supported partition layout:
+        /dev/sd<x>:
+            - sd<x>1: fat32, fslabel=systemb-boot
+            - sd<x>2: ext4, fslabel=slot_a
+            - sd<x>3: ext4, fslabel=slot_b
     slot is the fslabel for each AB rootfs.
+    NOTE that we allow extra partitions with ID after 3.
 
     This class provides the following features:
     1. AB partition detection,
@@ -95,55 +95,46 @@ class _RPIBootControl:
         """Get current/standby slots info."""
         logger.debug("checking and initializing slots info...")
         try:
-            # detect active slot
-            _active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
-            assert _active_slot_dev
-            self._active_slot_dev = _active_slot_dev
+            # ------ detect active slot ------ #
+            active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+            assert active_slot_dev
+            self._active_slot_dev = active_slot_dev
 
-            _active_slot = CMDHelperFuncs.get_attrs_by_dev(
-                "LABEL", str(self._active_slot_dev)
-            )
-            assert _active_slot
-            self._active_slot = _active_slot
+            # detect the parent device of boot device
+            #   i.e., for /dev/sda2 here we get /dev/sda
+            parent_dev = CMDHelperFuncs.get_parent_dev(str(self._active_slot_dev))
+            assert parent_dev
 
-            # detect standby slot
-            # NOTE: using the similar logic like grub, detect the silibing dev
-            #       of the active slot as standby slot
-            _parent = CMDHelperFuncs.get_parent_dev(str(self._active_slot_dev))
-            assert _parent
+            # get device tree, for /dev/sda device, we will get:
+            #   ["/dev/sda", "/dev/sda1", "/dev/sda2", "/dev/sda3"]
+            _device_tree = CMDHelperFuncs.get_device_tree(parent_dev)
+            # remove the parent dev itself and system-boot partition
+            device_tree = _device_tree[2:]
 
-            # list children device file from parent device
-            # exclude parent dev(always in the front)
-            # expected raw result from lsblk:
-            # NAME="/dev/sdx"
-            # NAME="/dev/sdx1" # system-boot
-            # NAME="/dev/sdx2" # slot_a
-            # NAME="/dev/sdx3" # slot_b
-            _check_dev_family_cmd = ["lsblk", "-Ppo", "NAME", _parent]
-            _raw_child_partitions = subprocess_check_output(
-                _check_dev_family_cmd, raise_exception=True
-            )
+            # Now we should only have two partitions in the device_tree list:
+            #   /dev/sda2, /dev/sda3
+            # NOTE that we allow extra partitions presented after sd<x>3.
+            assert (
+                len(device_tree) >= 2
+            ), f"unexpected partition layout: {_device_tree=}"
 
+            # get the active slot ID by its position in the disk
             try:
-                # NOTE: exclude the first 2 lines(parent and system-boot)
-                _child_partitions = [
-                    raw.split("=")[-1].strip('"')
-                    for raw in _raw_child_partitions.splitlines()[2:]
-                ]
-                if (
-                    len(_child_partitions) != 2
-                    or self._active_slot_dev not in _child_partitions
-                ):
-                    raise ValueError
-                _child_partitions.remove(self._active_slot_dev)
-            except Exception:
+                idx = device_tree.index(active_slot_dev)
+            except ValueError:
                 raise ValueError(
-                    f"unexpected partition layout: {_raw_child_partitions}"
-                ) from None
-            # it is OK if standby_slot dev doesn't have fslabel or fslabel != standby_slot_id
-            # we will always set the fslabel
-            self._standby_slot = self.AB_FLIPS[self._active_slot]
-            self._standby_slot_dev = _child_partitions[0]
+                    f"active lost is not in the device tree: {active_slot_dev=}, {device_tree=}"
+                )
+
+            if idx == 0:  # slot_a
+                self._active_slot = self.SLOT_A
+                self._standby_slot = self.SLOT_B
+                self._standby_slot_dev = device_tree[1]
+            elif idx == 1:  # slot_b
+                self._active_slot = self.SLOT_B
+                self._standby_slot = self.SLOT_A
+                self._standby_slot_dev = device_tree[0]
+
             logger.info(
                 f"rpi_boot: active_slot: {self._active_slot}({self._active_slot_dev}), "
                 f"standby_slot: {self._standby_slot}({self._standby_slot_dev})"
