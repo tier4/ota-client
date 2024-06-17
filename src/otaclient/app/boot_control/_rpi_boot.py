@@ -301,7 +301,8 @@ class _RPIBootControl:
 
             # NOTE(20240603): for backward compatibility(downgrade), still create the flag file.
             #   The present of flag files means the firmware is updated.
-            Path(cfg.SWITCH_BOOT_FLAG_FILE).write_text("")
+            flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
+            flag_file.write_text("")
             os.sync()
         except Exception as e:
             _err_msg = f"failed to apply new kernel,initrd.img for {target_slot}: {e!r}"
@@ -395,7 +396,8 @@ class RPIBootController(BootControllerProtocol):
             )
 
             # NOTE(20240604): for backward compatibility, always remove flag file
-            Path(cfg.SWITCH_BOOT_FLAG_FILE).unlink(missing_ok=True)
+            flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
+            flag_file.unlink(missing_ok=True)
             logger.info("rpi_boot starting finished")
         except Exception as e:
             _err_msg = f"failed to start rpi boot controller: {e!r}"
