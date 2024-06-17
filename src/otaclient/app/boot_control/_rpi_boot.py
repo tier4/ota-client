@@ -272,7 +272,7 @@ class _RPIBootControl:
         try:
             with self._prepare_flash_kernel(target_slot_mp):
                 subprocess_run_wrapper(
-                    ["flash-kernel"],
+                    ["/usr/sbin/flash-kernel"],
                     check=True,
                     check_output=True,
                     chroot=target_slot_mp,
