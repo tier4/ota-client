@@ -112,6 +112,7 @@ class _RPIBootControl:
 
     def __init__(self) -> None:
         self.system_boot_mp = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+        self.system_boot_mp.mkdir(exist_ok=True)
 
         try:
             # ------ detect active slot ------ #
@@ -228,8 +229,6 @@ class _RPIBootControl:
         The following boot files will be checked:
         1. config.txt_<slot_suffix> (required)
         2. cmdline.txt_<slot_suffix> (required)
-        3. vmlinuz_<slot_suffix>
-        4. initrd.img_<slot_suffix>
 
         If any of the required files are missing, BootControlInitError will be raised.
         In such case, a reinstall/setup of AB partition boot files is required.
@@ -352,8 +351,8 @@ class _RPIBootControl:
         """Finalize switching boot by swapping config.txt and tryboot.txt if we should.
 
         Finalize switch boot:
-            1. atomically replace tryboot.txt with tryboot.txt_standby_slot
-            2. atomically replace config.txt with config.txt_active_slot
+            1. atomically replace tryboot.txt with tryboot.txt_<standby_slot_id>
+            2. atomically replace config.txt with config.txt_<active_slot_id>
 
         Returns:
             A bool indicates whether the switch boot succeeded or not. Note that no exception
@@ -521,8 +520,6 @@ class RPIBootController(BootControllerProtocol):
             logger.info("rpi_boot: post-update setup...")
             self._mp_control.preserve_ota_folder_to_standby()
             self._write_standby_fstab()
-            # NOTE(20240603): we assume that raspberry pi's firmware is backward-compatible,
-            #   which old system rootfs can be booted by new firmware.
             self._rpiboot_control.update_firmware(
                 target_slot=self._rpiboot_control.standby_slot,
                 target_slot_mp=self._mp_control.standby_slot_mount_point,
