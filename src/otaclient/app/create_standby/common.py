@@ -22,7 +22,7 @@ import os
 import random
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -325,13 +325,23 @@ class DeltaGenerator:
 
         # ------ create the threadpool executor ------ #
         thread_local = threading.local()
+        max_pending_tasks = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
 
         def _initializer():
             thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
             thread_local.view = memoryview(buffer)
 
+        def _task_done_callback(fut: Future[Any]):
+            if exc := fut.exception():
+                logger.warning(
+                    f"detect error during file preparing, still continue: {exc!r}"
+                )
+            max_pending_tasks.release()
+
         pool = ThreadPoolExecutor(
-            thread_name_prefix="scan_slot", initializer=_initializer
+            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
+            thread_name_prefix="scan_slot",
+            initializer=_initializer,
         )
 
         # scan old slot and generate delta based on path,
@@ -417,11 +427,12 @@ class DeltaGenerator:
                     self._rm.append(str(canonical_fpath))
                     continue
 
+                max_pending_tasks.acquire()
                 pool.submit(
                     self._prepare_local_copy_from_active_slot,
                     delta_src_fpath,
                     thread_local=thread_local,
-                )
+                ).add_done_callback(_task_done_callback)
 
         # wait for all files being processed
         pool.shutdown(wait=True)

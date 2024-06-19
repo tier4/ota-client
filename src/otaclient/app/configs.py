@@ -133,7 +133,8 @@ class BaseConfig(_InternalSettings):
     # --- create standby setting --- #
     # now only REBUILD mode is available
     STANDBY_CREATION_MODE = CreateStandbyMechanism.REBUILD
-    MAX_CONCURRENT_PROCESS_FILE_TASKS = 512
+    MAX_CONCURRENT_PROCESS_FILE_TASKS = 256
+    MAX_PROCESS_FILE_THREAD = 6
     CREATE_STANDBY_RETRY_MAX = 1024
     CREATE_STANDBY_BACKOFF_FACTOR = 1
     CREATE_STANDBY_BACKOFF_MAX = 6
