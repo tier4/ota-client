@@ -296,6 +296,8 @@ class Downloader:
                 input_header=headers,
                 compression_alg=compression_alg,
             )
+        else:
+            prepared_headers = headers
 
         digestobj = self.hash_func()
         downloaded_file_size, traffic_on_wire = 0, 0
