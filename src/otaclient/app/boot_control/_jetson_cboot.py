@@ -25,7 +25,6 @@ import subprocess
 from pathlib import Path
 from typing import Generator, Optional
 
-from otaclient_common import cmdhelper
 from otaclient.app import errors as ota_errors
 from otaclient.app.boot_control._common import OTAStatusFilesControl, SlotMountHelper
 from otaclient.app.boot_control._jetson_common import (
@@ -42,6 +41,7 @@ from otaclient.app.boot_control.configs import cboot_cfg as boot_cfg
 from otaclient.app.boot_control.protocol import BootControllerProtocol
 from otaclient.app.configs import config as cfg
 from otaclient_api.v2 import types as api_types
+from otaclient_common import cmdhelper
 from otaclient_common.common import subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)

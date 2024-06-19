@@ -27,7 +27,6 @@ from typing import Any, Generator, Literal
 from typing_extensions import Self
 
 import otaclient.app.errors as ota_errors
-from otaclient_common import cmdhelper
 from otaclient.app.boot_control._common import (
     OTAStatusFilesControl,
     SlotMountHelper,
@@ -36,6 +35,7 @@ from otaclient.app.boot_control._common import (
 from otaclient.app.boot_control.configs import rpi_boot_cfg as cfg
 from otaclient.app.boot_control.protocol import BootControllerProtocol
 from otaclient_api.v2 import types as api_types
+from otaclient_common import cmdhelper
 from otaclient_common.common import replace_atomic
 from otaclient_common.linux import subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath

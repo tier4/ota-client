@@ -42,7 +42,6 @@ from pprint import pformat
 from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
-from otaclient_common import cmdhelper
 from otaclient.app import errors as ota_errors
 from otaclient.app.boot_control._common import (
     OTAStatusFilesControl,
@@ -52,6 +51,7 @@ from otaclient.app.boot_control._common import (
 from otaclient.app.boot_control.configs import grub_cfg as cfg
 from otaclient.app.boot_control.protocol import BootControllerProtocol
 from otaclient_api.v2 import types as api_types
+from otaclient_common import cmdhelper
 from otaclient_common.common import (
     re_symlink_atomic,
     read_str_from_file,
