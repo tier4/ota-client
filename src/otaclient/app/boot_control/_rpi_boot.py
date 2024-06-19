@@ -27,7 +27,7 @@ from typing import Any, Generator, Literal
 from typing_extensions import Self
 
 import otaclient.app.errors as ota_errors
-from otaclient import cmdhelper
+from otaclient_common import cmdhelper
 from otaclient.app.boot_control._common import (
     OTAStatusFilesControl,
     SlotMountHelper,

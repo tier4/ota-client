@@ -37,7 +37,7 @@ from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from otaclient_common.common import ensure_otaproxy_start
 
-from .. import cmdhelper
+from ...otaclient_common import cmdhelper
 from .configs import config as cfg
 from .configs import ecu_info, proxy_info, server_cfg
 from .ota_client import OTAClientControlFlags, OTAServicer
