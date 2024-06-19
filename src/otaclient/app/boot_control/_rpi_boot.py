@@ -178,6 +178,10 @@ class _RPIBootControl:
         self._check_boot_files()
         self._check_active_slot_id()
 
+        # NOTE(20240604): for backward compatibility, always remove flag file
+        flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
+        flag_file.unlink(missing_ok=True)
+
     def _check_active_slot_id(self):
         """Check whether the active slot fslabel is matching the slot id.
 
@@ -414,10 +418,6 @@ class RPIBootController(BootControllerProtocol):
                 / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
                 finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
             )
-
-            # NOTE(20240604): for backward compatibility, always remove flag file
-            flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
-            flag_file.unlink(missing_ok=True)
             logger.info("rpi_boot starting finished")
         except Exception as e:
             _err_msg = f"failed to start rpi boot controller: {e!r}"
