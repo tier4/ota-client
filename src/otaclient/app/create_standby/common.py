@@ -339,7 +339,9 @@ class DeltaGenerator:
             max_pending_tasks.release()
 
         pool = ThreadPoolExecutor(
-            thread_name_prefix="scan_slot", initializer=_initializer
+            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
+            thread_name_prefix="scan_slot",
+            initializer=_initializer,
         )
 
         # scan old slot and generate delta based on path,
