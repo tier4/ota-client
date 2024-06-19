@@ -219,8 +219,8 @@ class Downloader:
         self.chunk_size = chunk_size
         self.hash_func = hash_func
 
-        self._proxies: dict[str, str] = cookies.copy() if cookies else {}
-        self._cookies: dict[str, str] = proxies.copy() if proxies else {}
+        self._cookies: dict[str, str] = cookies.copy() if cookies else {}
+        self._proxies: dict[str, str] = proxies.copy() if proxies else {}
         self.use_http_if_http_proxy_set = use_http_if_http_proxy_set
 
         # downloading stats collecting
