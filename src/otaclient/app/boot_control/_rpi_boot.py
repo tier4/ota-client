@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
 from pathlib import Path
 from string import Template
 from typing import Generator
@@ -87,6 +88,34 @@ class _RPIBootControl:
             raise ValueError(_err_msg)
         self._init_slots_info()
         self._init_boot_files()
+        self._check_active_slot_id()
+
+    def _check_active_slot_id(self):
+        """Check whether the active slot fslabel is matching the slot id.
+
+        If mismatched, try to correct the problem.
+        """
+        fslabel = self.active_slot
+        actual_fslabel = CMDHelperFuncs.get_attrs_by_dev(
+            "LABEL", self.active_slot_dev, raise_exception=False
+        )
+        if actual_fslabel == fslabel:
+            return
+
+        logger.warning(
+            (
+                f"current active slot is {fslabel}, but its fslabel is {actual_fslabel}, "
+                f"try to correct the fslabel with slot id {fslabel}..."
+            )
+        )
+        try:
+            CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, fslabel)
+            os.sync()
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"failed to correct the fslabel mismatched: {e!r}, {e.stderr.decode()}"
+            )
+            logger.error("this might cause problem on future OTA update!")
 
     def _init_slots_info(self):
         """Get current/standby slots info."""
