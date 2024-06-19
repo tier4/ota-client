@@ -195,6 +195,30 @@ class CMDHelperFuncs:
         return subprocess_check_output(cmd, raise_exception=raise_exception)
 
     @classmethod
+    def get_device_tree(
+        cls, parent_dev: str, *, raise_exception: bool = True
+    ) -> list[str]:
+        """Get the device tree of a parent device.
+
+        For example, for sda with 3 partitions, we will get:
+        ["/dev/sda", "/dev/sda1", "/dev/sda2", "/dev/sda3"]
+
+        This function is implemented by calling:
+            lsblk -lnpo NAME <parent_dev>
+
+        Args:
+            parent_dev (str): The parent device to be checked.
+            raise_exception (bool, optional): raise exception on subprocess call failed.
+                Defaults to True.
+
+        Returns:
+            str: _description_
+        """
+        cmd = ["lsblk", "-lnpo", "NAME", parent_dev]
+        raw_res = subprocess_check_output(cmd, raise_exception=raise_exception)
+        return raw_res.splitlines()
+
+    @classmethod
     def set_ext4_fslabel(cls, dev: str, fslabel: str, *, raise_exception: bool = True):
         """Set <fslabel> to ext4 formatted <dev>.
 
@@ -724,7 +748,7 @@ class SlotMountHelper:
         # TODO: in the future if in-place update mode is implemented, do a
         #   fschck over the standby slot file system.
         if fslabel:
-            CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, fslabel=fslabel)
+            CMDHelperFuncs.set_ext4_fslabel(self.standby_slot_dev, fslabel=fslabel)
 
     def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")
