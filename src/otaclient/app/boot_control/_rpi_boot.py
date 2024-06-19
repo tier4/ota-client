@@ -114,6 +114,18 @@ class _RPIBootControl:
         self.system_boot_mp = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
         self.system_boot_mp.mkdir(exist_ok=True)
 
+        # sanity check, ensure we are running at raspberry pi device
+        model_fpath = Path(cfg.RPI_MODEL_FILE)
+        err_not_rpi_device = f"{cfg.RPI_MODEL_FILE} doesn't exist! Are we running at raspberry pi device?"
+        if not model_fpath.is_file():
+            logger.error(err_not_rpi_device)
+            raise _RPIBootControllerError(err_not_rpi_device)
+
+        model_info = model_fpath.read_text()
+        if model_info.find("Pi") == -1:
+            raise _RPIBootControllerError(err_not_rpi_device)
+        logger.info(f"{model_info=}")
+
         try:
             # ------ detect active slot ------ #
             active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
