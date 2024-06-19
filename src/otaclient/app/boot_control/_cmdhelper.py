@@ -18,9 +18,8 @@ from __future__ import annotations
 
 import logging
 import sys
-from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Literal, NoReturn, Optional
+from typing import Literal, NoReturn
 
 from otaclient.app.configs import config as cfg
 from otaclient_common.common import subprocess_call, subprocess_check_output
@@ -39,7 +38,7 @@ PartitionToken = Literal[
 
 
 def get_attrs_by_dev(
-    attr: PartitionToken, dev: Path | str, *, raise_exception: bool = True
+    attr: PartitionToken, dev: StrOrPath, *, raise_exception: bool = True
 ) -> str:
     """Get <attr> from <dev>.
 
@@ -48,7 +47,7 @@ def get_attrs_by_dev(
 
     Args:
         attr (PartitionToken): the attribute to retrieve from the <dev>.
-        dev (Path | str): the target device path.
+        dev (StrOrPath): the target device path.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
 
@@ -61,7 +60,7 @@ def get_attrs_by_dev(
 
 def get_dev_by_token(
     token: PartitionToken, value: str, *, raise_exception: bool = True
-) -> Optional[list[str]]:
+) -> list[str] | None:
     """Get a list of device(s) that matches the <token>=<value> pair.
 
     This is implemented by calling:
@@ -138,14 +137,14 @@ def get_dev_by_mount_point(mount_point: str, *, raise_exception: bool = True) ->
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
-def is_target_mounted(target: Path | str, *, raise_exception: bool = True) -> bool:
+def is_target_mounted(target: StrOrPath, *, raise_exception: bool = True) -> bool:
     """Check if <target> is mounted or not. <target> can be a dev or a mount point.
 
     This is implemented by calling:
         findmnt <target>
 
     Args:
-        target (Path | str): the target to check against. Could be a device or a mount point.
+        target (StrOrPath): the target to check against. Could be a device or a mount point.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
 
@@ -244,7 +243,7 @@ def mount(
 
 
 def mount_rw(
-    target: str, mount_point: Path | str, *, raise_exception: bool = True
+    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:
     """Mount the <target> to <mount_point> read-write privately.
 
@@ -256,7 +255,7 @@ def mount_rw(
 
     Args:
         target (str): target to be mounted.
-        mount_point (Path | str): mount point to mount to.
+        mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
@@ -270,7 +269,7 @@ def mount_rw(
 
 
 def bind_mount_ro(
-    target: str, mount_point: Path | str, *, raise_exception: bool = True
+    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:
     """Bind mount the <target> to <mount_point> read-only privately.
 
@@ -279,7 +278,7 @@ def bind_mount_ro(
 
     Args:
         target (str): target to be mounted.
-        mount_point (Path | str): mount point to mount to.
+        mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
@@ -292,7 +291,7 @@ def bind_mount_ro(
     )
 
 
-def umount(target: Path | str, *, raise_exception: bool = True):
+def umount(target: StrOrPath, *, raise_exception: bool = True):
     """Try to umount the <target>.
 
     This is implemented by calling:
@@ -302,7 +301,7 @@ def umount(target: Path | str, *, raise_exception: bool = True):
         if it is not mounted, this function will return directly.
 
     Args:
-        target (Path | str): target to be umounted.
+        target (StrOrPath): target to be umounted.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
@@ -319,8 +318,8 @@ def umount(target: Path | str, *, raise_exception: bool = True):
 def mkfs_ext4(
     dev: str,
     *,
-    fslabel: Optional[str] = None,
-    fsuuid: Optional[str] = None,
+    fslabel: str | None = None,
+    fsuuid: str | None = None,
     raise_exception: bool = True,
 ):
     """Create new ext4 formatted filesystem on <dev>, optionally with <fslabel>
@@ -364,7 +363,7 @@ def mkfs_ext4(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def mount_ro(*, target: str, mount_point: str | Path, raise_exception: bool = True):
+def mount_ro(*, target: str, mount_point: StrOrPath, raise_exception: bool = True):
     """Mount <target> to <mount_point> read-only privately.
 
     If the target device is mounted, we bind mount the target device to mount_point.
@@ -372,7 +371,7 @@ def mount_ro(*, target: str, mount_point: str | Path, raise_exception: bool = Tr
 
     Args:
         target (str): target to be mounted.
-        mount_point (str | Path): mount point to mount to.
+        mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
@@ -395,7 +394,7 @@ def mount_ro(*, target: str, mount_point: str | Path, raise_exception: bool = Tr
         )
 
 
-def reboot(args: Optional[list[str]] = None) -> NoReturn:
+def reboot(args: list[str] | None = None) -> NoReturn:
     """Reboot the system, with optional args passed to reboot command.
 
     This is implemented by calling:
