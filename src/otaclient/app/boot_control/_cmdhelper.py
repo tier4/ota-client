@@ -21,7 +21,6 @@ import sys
 from subprocess import CalledProcessError
 from typing import Literal, NoReturn
 
-from otaclient.app.configs import config as cfg
 from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common.typing import StrOrPath
 
@@ -81,7 +80,11 @@ def get_dev_by_token(
         return res.splitlines()
 
 
-def get_current_rootfs_dev(*, raise_exception: bool = True) -> str:
+def get_current_rootfs_dev(
+    rootfs_mp: str = "/",
+    *,
+    raise_exception: bool = True,
+) -> str:
     """Get the devpath of current rootfs dev.
 
     This is implemented by calling
@@ -94,7 +97,7 @@ def get_current_rootfs_dev(*, raise_exception: bool = True) -> str:
     Returns:
         str: the devpath of current rootfs device.
     """
-    cmd = ["findmnt", "-nfco", "SOURCE", cfg.ACTIVE_ROOTFS_PATH]
+    cmd = ["findmnt", "-nfco", "SOURCE", rootfs_mp]
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
