@@ -92,6 +92,9 @@ class TestRPIBootControl:
 
     @pytest.fixture
     def rpi_boot_ab_slot(self, tmp_path: Path, ab_slots: SlotMeta):
+        self.model_file = tmp_path / "model"
+        self.model_file.write_text(rpi_boot_cfg.RPI_MODEL_HINT)
+
         self.slot_a_mp = Path(ab_slots.slot_a)
         self.slot_b_mp = Path(ab_slots.slot_b)
 
@@ -239,15 +242,16 @@ class TestRPIBootControl:
         from otaclient.app.boot_control._rpi_boot import RPIBootController
 
         # ------ patch rpi_boot_cfg for boot_controller_inst1.stage 1~3 ------#
-        _rpi_boot_cfg_path = f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.rpi_boot_cfg"
+        rpi_boot_cfg_path = f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.rpi_boot_cfg"
         mocker.patch(
-            f"{_rpi_boot_cfg_path}.SYSTEM_BOOT_MOUNT_POINT", str(self.system_boot)
+            f"{rpi_boot_cfg_path}.SYSTEM_BOOT_MOUNT_POINT", str(self.system_boot)
         )
-        mocker.patch(f"{_rpi_boot_cfg_path}.ACTIVE_ROOTFS_PATH", str(self.slot_a_mp))
-        mocker.patch(f"{_rpi_boot_cfg_path}.MOUNT_POINT", str(self.slot_b_mp))
+        mocker.patch(f"{rpi_boot_cfg_path}.ACTIVE_ROOTFS_PATH", str(self.slot_a_mp))
+        mocker.patch(f"{rpi_boot_cfg_path}.MOUNT_POINT", str(self.slot_b_mp))
         mocker.patch(
-            f"{_rpi_boot_cfg_path}.ACTIVE_ROOT_MOUNT_POINT", str(self.slot_a_mp)
+            f"{rpi_boot_cfg_path}.ACTIVE_ROOT_MOUNT_POINT", str(self.slot_a_mp)
         )
+        mocker.patch(f"{rpi_boot_cfg_path}.RPI_MODEL_FILE", str(self.model_file))
 
         # ------ boot_controller_inst1.stage1: init ------ #
         rpi_boot_controller1 = RPIBootController()
@@ -312,13 +316,8 @@ class TestRPIBootControl:
         assert not (self.system_boot / rpi_boot_cfg.SWITCH_BOOT_FLAG_FILE).is_file()
 
         # ------ boot_controller_inst2: first reboot ------ #
-        # patch rpi_boot_cfg for boot_controller_inst2
-        _rpi_boot_cfg_path = f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.rpi_boot_cfg"
-        mocker.patch(
-            f"{_rpi_boot_cfg_path}.SYSTEM_BOOT_MOUNT_POINT", str(self.system_boot)
-        )
-        mocker.patch(f"{_rpi_boot_cfg_path}.ACTIVE_ROOTFS_PATH", str(self.slot_b_mp))
-        mocker.patch(f"{_rpi_boot_cfg_path}.MOUNT_POINT", str(self.slot_a_mp))
+        mocker.patch(f"{rpi_boot_cfg_path}.ACTIVE_ROOTFS_PATH", str(self.slot_b_mp))
+        mocker.patch(f"{rpi_boot_cfg_path}.MOUNT_POINT", str(self.slot_a_mp))
 
         # ------ boot_controller_inst2.stage1: finalize switchboot ------ #
         logger.info("1st reboot: finalize switch boot and update firmware....")
