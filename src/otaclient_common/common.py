@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shlex
 import shutil
 import subprocess
 import time
@@ -32,6 +31,8 @@ from typing import Optional, Union
 from urllib.parse import urljoin
 
 import requests
+
+from otaclient_common.linux import subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -99,39 +100,6 @@ def write_str_to_file_sync(path: Union[Path, str], input: str):
         f.write(input)
         f.flush()
         os.fsync(f.fileno())
-
-
-def subprocess_run_wrapper(
-    cmd: str | list[str],
-    *,
-    check: bool,
-    check_output: bool,
-    timeout: Optional[float] = None,
-) -> subprocess.CompletedProcess[bytes]:
-    """A wrapper for subprocess.run method.
-
-    NOTE: this is for the requirement of customized subprocess call
-        in the future, like chroot or nsenter before execution.
-
-    Args:
-        cmd (str | list[str]): command to be executed.
-        check (bool): if True, raise CalledProcessError on non 0 return code.
-        check_output (bool): if True, the UTF-8 decoded stdout will be returned.
-        timeout (Optional[float], optional): timeout for execution. Defaults to None.
-
-    Returns:
-        subprocess.CompletedProcess[bytes]: the result of the execution.
-    """
-    if isinstance(cmd, str):
-        cmd = shlex.split(cmd)
-
-    return subprocess.run(
-        cmd,
-        check=check,
-        stderr=subprocess.PIPE,
-        stdout=subprocess.PIPE if check_output else None,
-        timeout=timeout,
-    )
 
 
 def subprocess_check_output(

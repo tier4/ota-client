@@ -15,8 +15,14 @@
 
 from __future__ import annotations
 
+import os
+import shlex
+import subprocess
 from pathlib import Path
 from subprocess import check_call
+from typing import Any, Callable, Optional
+
+from otaclient_common.typing import StrOrPath
 
 #
 # ------ swapfile handling ------ #
@@ -150,3 +156,53 @@ def map_gid_by_grpnam(*, src_db: ParsedGroup, dst_db: ParsedGroup, gid: int) -> 
         return dst_db._by_name[src_db._by_gid[gid]]
     except KeyError:
         raise ValueError(f"failed to find mapping for {gid}")
+
+
+#
+# ------ subprocess call ------ #
+#
+
+
+def subprocess_run_wrapper(
+    cmd: str | list[str],
+    *,
+    check: bool,
+    check_output: bool,
+    chroot: Optional[StrOrPath] = None,
+    env: Optional[dict[str, str]] = None,
+    timeout: Optional[float] = None,
+) -> subprocess.CompletedProcess[bytes]:
+    """A wrapper for subprocess.run method.
+
+    NOTE: this is for the requirement of customized subprocess call
+        in the future, like chroot or nsenter before execution.
+
+    Args:
+        cmd (str | list[str]): command to be executed.
+        check (bool): if True, raise CalledProcessError on non 0 return code.
+        check_output (bool): if True, the UTF-8 decoded stdout will be returned.
+        timeout (Optional[float], optional): timeout for execution. Defaults to None.
+
+    Returns:
+        subprocess.CompletedProcess[bytes]: the result of the execution.
+    """
+    if isinstance(cmd, str):
+        cmd = shlex.split(cmd)
+
+    preexec_fn: Optional[Callable[..., Any]] = None
+    if chroot:
+
+        def _chroot():
+            os.chroot(chroot)
+
+        preexec_fn = _chroot
+
+    return subprocess.run(
+        cmd,
+        check=check,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE if check_output else None,
+        timeout=timeout,
+        preexec_fn=preexec_fn,
+        env=env,
+    )

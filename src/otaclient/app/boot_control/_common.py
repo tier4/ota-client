@@ -32,6 +32,7 @@ from otaclient_common.common import (
     subprocess_check_output,
     write_str_to_file_sync,
 )
+from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,36 @@ class CMDHelperFuncs:
                 Defaults to True.
         """
         cmd = ["e2label", dev, fslabel]
+        subprocess_call(cmd, raise_exception=raise_exception)
+
+    @classmethod
+    def mount(
+        cls,
+        target: StrOrPath,
+        mount_point: StrOrPath,
+        *,
+        options: list[str] | None = None,
+        params: list[str] | None = None,
+        raise_exception: bool = True,
+    ) -> None:
+        """Thin wrapper to call mount using subprocess.
+
+        This will call the following:
+            mount [-o <option1>,[<option2>[,...]] [<param1> [<param2>[...]]] <target> <mount_point>
+
+        Args:
+            target (StrOrPath): The target device to mount.
+            mount_point (StrOrPath): The mount point to mount to.
+            options (list[str] | None, optional): A list of options, append after -o. Defaults to None.
+            params (list[str] | None, optional): A list of params. Defaults to None.
+            raise_exception (bool, optional): Whether to raise exception on failed call. Defaults to True.
+        """
+        cmd = ["mount"]
+        if options:
+            cmd.extend(["-o", ",".join(options)])
+        if params:
+            cmd.extend(params)
+        cmd = [*cmd, str(target), str(mount_point)]
         subprocess_call(cmd, raise_exception=raise_exception)
 
     @classmethod
