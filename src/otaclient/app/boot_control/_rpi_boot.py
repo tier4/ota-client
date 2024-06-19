@@ -161,12 +161,10 @@ class _RPIBootControl:
             _err_msg = f"system-boot is not mounted at {self.system_boot_mp}, try to mount it..."
             logger.warning(_err_msg)
 
+            mount_cmd = ["mount", "-o", "defaults"]
             try:
-                CMDHelperFuncs.mount_rw(
-                    system_boot_partition,
-                    self.system_boot_mp,
-                    raise_exception=True,
-                )
+                _mount_cmd = [*mount_cmd, system_boot_partition, self.system_boot_mp]
+                subprocess_run_wrapper(_mount_cmd, check=True, check_output=True)
             except subprocess.CalledProcessError as e:
                 _err_msg = (
                     f"failed to mount system-boot partition: {e!r}, {e.stderr.decode()}"
