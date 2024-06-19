@@ -120,62 +120,90 @@ class _RPIBootControl:
         ):
             _err_msg = "system-boot is not presented or not mounted!"
             logger.error(_err_msg)
-            raise ValueError(_err_msg)
-        self._init_slots_info()
-        self._check_boot_files()
+            raise _RPIBootControllerError(_err_msg)
 
-    def _init_slots_info(self) -> None:
-        """Get current/standby slots info."""
-        logger.debug("checking and initializing slots info...")
         try:
             # ------ detect active slot ------ #
             active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
             assert active_slot_dev
             self.active_slot_dev = active_slot_dev
+        except Exception as e:
+            _err_msg = f"failed to detect current rootfs device: {e!r}"
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg) from e
 
+        try:
             # detect the parent device of boot device
             #   i.e., for /dev/sda2 here we get /dev/sda
             parent_dev = CMDHelperFuncs.get_parent_dev(str(self.active_slot_dev))
-            assert parent_dev
 
             # get device tree, for /dev/sda device, we will get:
             #   ["/dev/sda", "/dev/sda1", "/dev/sda2", "/dev/sda3"]
             _device_tree = CMDHelperFuncs.get_device_tree(parent_dev)
-            # remove the parent dev itself and system-boot partition
-            device_tree = _device_tree[2:]
+            logger.info(_device_tree)
 
-            # Now we should only have two partitions in the device_tree list:
-            #   /dev/sda2, /dev/sda3
             # NOTE that we allow extra partitions presented after sd<x>3.
-            assert (
-                len(device_tree) >= 2
-            ), f"unexpected partition layout: {_device_tree=}"
-
-            # get the active slot ID by its position in the disk
-            try:
-                idx = device_tree.index(active_slot_dev)
-            except ValueError:
-                raise ValueError(
-                    f"active lost is not in the device tree: {active_slot_dev=}, {device_tree=}"
-                )
-
-            if idx == 0:  # slot_a
-                self.active_slot = SLOT_A
-                self.standby_slot = SLOT_B
-                self.standby_slot_dev = device_tree[1]
-            elif idx == 1:  # slot_b
-                self.active_slot = SLOT_B
-                self.standby_slot = SLOT_A
-                self.standby_slot_dev = device_tree[0]
-
-            logger.info(
-                f"rpi_boot: active_slot: {self.active_slot}({self.active_slot_dev}), "
-                f"standby_slot: {self.standby_slot}({self.standby_slot_dev})"
-            )
+            assert len(_device_tree) >= 4, "need at least 3 partitions"
         except Exception as e:
-            _err_msg = f"failed to detect AB partition: {e!r}"
+            _err_msg = f"failed to detect partition layout: {e!r}"
             logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg) from e
+            raise _RPIBootControllerError(_err_msg)
+
+        # sd<x>2 and sd<x>3
+        rootfs_partitions = _device_tree[2:4]
+
+        # get the active slot ID by its position in the disk
+        try:
+            idx = rootfs_partitions.index(active_slot_dev)
+        except ValueError:
+            raise _RPIBootControllerError(
+                f"active slot dev not found: {active_slot_dev=}, {rootfs_partitions=}"
+            )
+
+        if idx == 0:  # slot_a
+            self.active_slot = SLOT_A
+            self.standby_slot = SLOT_B
+            self.standby_slot_dev = rootfs_partitions[1]
+        elif idx == 1:  # slot_b
+            self.active_slot = SLOT_B
+            self.standby_slot = SLOT_A
+            self.standby_slot_dev = rootfs_partitions[0]
+
+        logger.info(
+            f"rpi_boot: active_slot: {self.active_slot}({self.active_slot_dev}), "
+            f"standby_slot: {self.standby_slot}({self.standby_slot_dev})"
+        )
+
+        # ------ continue rpi_boot starts up ------ #
+        self._check_boot_files()
+        self._check_active_slot_id()
+
+    def _check_active_slot_id(self):
+        """Check whether the active slot fslabel is matching the slot id.
+
+        If mismatched, try to correct the problem.
+        """
+        fslabel = self.active_slot
+        actual_fslabel = CMDHelperFuncs.get_attrs_by_dev(
+            "LABEL", self.active_slot_dev, raise_exception=False
+        )
+        if actual_fslabel == fslabel:
+            return
+
+        logger.warning(
+            (
+                f"current active slot is {fslabel}, but its fslabel is {actual_fslabel}, "
+                f"try to correct the fslabel with slot id {fslabel}..."
+            )
+        )
+        try:
+            CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, fslabel)
+            os.sync()
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"failed to correct the fslabel mismatched: {e!r}, {e.stderr.decode()}"
+            )
+            logger.error("this might cause problem on future OTA update!")
 
     def _check_boot_files(self):
         """Check the availability of boot files.
