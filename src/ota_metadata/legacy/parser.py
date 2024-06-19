@@ -653,7 +653,6 @@ class OTAMetadata:
         with NamedTemporaryFile(prefix="metadata_jwt", dir=self.run_dir) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
 
-            global _shutdown
             while not _shutdown:
                 try:
                     self._downloader.download(
@@ -685,7 +684,6 @@ class OTAMetadata:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
 
-            global _shutdown
             while not _shutdown:
                 try:
                     self._downloader.download(
