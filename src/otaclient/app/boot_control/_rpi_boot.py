@@ -16,12 +16,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-import re
+import subprocess
 from pathlib import Path
 from string import Template
-from typing import Generator
+from typing import Any, Generator, Literal
+
+from typing_extensions import Self
 
 import otaclient.app.errors as ota_errors
 from otaclient.app.boot_control._common import (
@@ -33,13 +36,44 @@ from otaclient.app.boot_control._common import (
 from otaclient.app.boot_control.configs import rpi_boot_cfg as cfg
 from otaclient.app.boot_control.protocol import BootControllerProtocol
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import (
-    replace_atomic,
-    subprocess_call,
-    subprocess_check_output,
-)
+from otaclient_common.common import replace_atomic
+from otaclient_common.linux import subprocess_run_wrapper
+from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
+
+
+# ------ types ------ #
+class SlotID(str):
+    """slot_id for A/B slots."""
+
+    VALID_SLOTS = ["slot_a", "slot_b"]
+
+    def __new__(cls, _in: str | Self) -> Self:
+        if isinstance(_in, cls):
+            return _in
+        if _in in cls.VALID_SLOTS:
+            return str.__new__(cls, _in)
+        raise ValueError(f"{_in=} is not valid slot num, should be {cls.VALID_SLOTS=}")
+
+
+class _RPIBootControllerError(Exception):
+    """rpi_boot module internal used exception."""
+
+
+# ------ consts ------ #
+CONFIG_TXT = "config.txt"  # primary boot cfg
+TRYBOOT_TXT = "tryboot.txt"  # tryboot boot cfg
+VMLINUZ = "vmlinuz"
+INITRD_IMG = "initrd.img"
+CMDLINE_TXT = "cmdline.txt"
+
+SYSTEM_BOOT_FSLABEL = "system-boot"
+SLOT_A = SlotID("slot_a")
+SLOT_B = SlotID("slot_b")
+AB_FLIPS = {SLOT_A: SLOT_B, SLOT_B: SLOT_A}
+SEP_CHAR = "_"
+"""separator between boot files name and slot suffix."""
 
 _FSTAB_TEMPLATE_STR = (
     "LABEL=${rootfs_fslabel}\t/\text4\tdiscard,x-systemd.growfs\t0\t1\n"
@@ -47,282 +81,316 @@ _FSTAB_TEMPLATE_STR = (
 )
 
 
-class _RPIBootControllerError(Exception):
-    """rpi_boot module internal used exception."""
+# ------ helper functions ------ #
+BOOTFILES = Literal["vmlinuz", "initrd.img", "config.txt", "tryboot.txt", "cmdline.txt"]
+
+
+def get_sysboot_files_fpath(boot_fname: BOOTFILES, slot: SlotID) -> Path:
+    """Get the boot files fpath for specific slot from /boot/firmware.
+
+    For example, for vmlinuz for slot_a, we get /boot/firmware/vmlinuz_slot_a
+    """
+    fname = f"{boot_fname}{SEP_CHAR}{slot}"
+    return Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / fname
 
 
 class _RPIBootControl:
     """Boot control helper for rpi4 support.
 
-    Expected partition layout:
-        /dev/sda:
-            - sda1: fat32, fslabel=systemb-boot
-            - sda2: ext4, fslabel=slot_a
-            - sda3: ext4, fslabel=slot_b
-    slot is the fslabel for each AB rootfs.
-
-    This class provides the following features:
-    1. AB partition detection,
-    2. boot files checking,
-    3. switch boot(tryboot.txt setup and tryboot reboot),
-    4. finalize switching boot.
+    Supported partition layout:
+        /dev/sd<x>:
+            - sd<x>1: fat32, fslabel=systemb-boot
+            - sd<x>2: ext4, fslabel=slot_a
+            - sd<x>3: ext4, fslabel=slot_b
+    slot_id is also the fslabel for each AB rootfs.
+    NOTE that we allow extra partitions with ID after 3.
 
     Boot files for each slot have the following naming format:
-        <boot_file_fname>_<slot>
-    i.e., config.txt for slot_a will be config.txt_slot_a
+        <boot_file_fname><sep_char><slot>
+    For example, config.txt for slot_a will be config.txt_slot_a
     """
 
-    SLOT_A = cfg.SLOT_A_FSLABEL
-    SLOT_B = cfg.SLOT_B_FSLABEL
-    AB_FLIPS = {
-        SLOT_A: SLOT_B,
-        SLOT_B: SLOT_A,
-    }
-    SEP_CHAR = "_"
-
     def __init__(self) -> None:
-        self.system_boot_path = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-        if not CMDHelperFuncs.is_target_mounted(
-            self.system_boot_path, raise_exception=False
-        ):
-            _err_msg = "system-boot is not presented or not mounted!"
-            logger.error(_err_msg)
-            raise ValueError(_err_msg)
-        self._init_slots_info()
-        self._init_boot_files()
+        self.system_boot_mp = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+        self.system_boot_mp.mkdir(exist_ok=True)
 
-    def _init_slots_info(self):
-        """Get current/standby slots info."""
-        logger.debug("checking and initializing slots info...")
+        # sanity check, ensure we are running at raspberry pi device
+        model_fpath = Path(cfg.RPI_MODEL_FILE)
+        err_not_rpi_device = f"{cfg.RPI_MODEL_FILE} doesn't exist! Are we running at raspberry pi device?"
+        if not model_fpath.is_file():
+            logger.error(err_not_rpi_device)
+            raise _RPIBootControllerError(err_not_rpi_device)
+
+        model_info = model_fpath.read_text()
+        if model_info.find("Pi") == -1:
+            raise _RPIBootControllerError(err_not_rpi_device)
+        logger.info(f"{model_info=}")
+
         try:
-            # detect active slot
-            _active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
-            assert _active_slot_dev
-            self._active_slot_dev = _active_slot_dev
-
-            _active_slot = CMDHelperFuncs.get_attrs_by_dev(
-                "LABEL", str(self._active_slot_dev)
-            )
-            assert _active_slot
-            self._active_slot = _active_slot
-
-            # detect standby slot
-            # NOTE: using the similar logic like grub, detect the silibing dev
-            #       of the active slot as standby slot
-            _parent = CMDHelperFuncs.get_parent_dev(str(self._active_slot_dev))
-            assert _parent
-
-            # list children device file from parent device
-            # exclude parent dev(always in the front)
-            # expected raw result from lsblk:
-            # NAME="/dev/sdx"
-            # NAME="/dev/sdx1" # system-boot
-            # NAME="/dev/sdx2" # slot_a
-            # NAME="/dev/sdx3" # slot_b
-            _check_dev_family_cmd = ["lsblk", "-Ppo", "NAME", _parent]
-            _raw_child_partitions = subprocess_check_output(
-                _check_dev_family_cmd, raise_exception=True
-            )
-
-            try:
-                # NOTE: exclude the first 2 lines(parent and system-boot)
-                _child_partitions = [
-                    raw.split("=")[-1].strip('"')
-                    for raw in _raw_child_partitions.splitlines()[2:]
-                ]
-                if (
-                    len(_child_partitions) != 2
-                    or self._active_slot_dev not in _child_partitions
-                ):
-                    raise ValueError
-                _child_partitions.remove(self._active_slot_dev)
-            except Exception:
-                raise ValueError(
-                    f"unexpected partition layout: {_raw_child_partitions}"
-                ) from None
-            # it is OK if standby_slot dev doesn't have fslabel or fslabel != standby_slot_id
-            # we will always set the fslabel
-            self._standby_slot = self.AB_FLIPS[self._active_slot]
-            self._standby_slot_dev = _child_partitions[0]
-            logger.info(
-                f"rpi_boot: active_slot: {self._active_slot}({self._active_slot_dev}), "
-                f"standby_slot: {self._standby_slot}({self._standby_slot_dev})"
-            )
+            # ------ detect active slot ------ #
+            active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+            assert active_slot_dev
+            self.active_slot_dev = active_slot_dev
         except Exception as e:
-            _err_msg = f"failed to detect AB partition: {e!r}"
+            _err_msg = f"failed to detect current rootfs device: {e!r}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
-    def _init_boot_files(self):
+        try:
+            # detect the parent device of boot device
+            #   i.e., for /dev/sda2 here we get /dev/sda
+            parent_dev = CMDHelperFuncs.get_parent_dev(str(self.active_slot_dev))
+
+            # get device tree, for /dev/sda device, we will get:
+            #   ["/dev/sda", "/dev/sda1", "/dev/sda2", "/dev/sda3"]
+            device_tree = CMDHelperFuncs.get_device_tree(parent_dev)
+            logger.info(device_tree)
+
+            # NOTE that we allow extra partitions presented after sd<x>3.
+            assert len(device_tree) >= 4, "need at least 3 partitions"
+        except Exception as e:
+            _err_msg = f"failed to detect partition layout: {e!r}"
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
+
+        # check system-boot partition mount
+        system_boot_partition = device_tree[1]
+        if not CMDHelperFuncs.is_target_mounted(
+            self.system_boot_mp, raise_exception=False
+        ):
+            _err_msg = f"system-boot is not mounted at {self.system_boot_mp}, try to mount it..."
+            logger.warning(_err_msg)
+
+            try:
+                CMDHelperFuncs.mount(
+                    system_boot_partition,
+                    self.system_boot_mp,
+                    options=["defaults"],
+                )
+            except subprocess.CalledProcessError as e:
+                _err_msg = (
+                    f"failed to mount system-boot partition: {e!r}, {e.stderr.decode()}"
+                )
+                logger.error(_err_msg)
+                raise _RPIBootControllerError(_err_msg) from e
+
+        # check slots
+        # sd<x>2 and sd<x>3
+        rootfs_partitions = device_tree[2:4]
+
+        # get the active slot ID by its position in the disk
+        try:
+            idx = rootfs_partitions.index(active_slot_dev)
+        except ValueError:
+            raise _RPIBootControllerError(
+                f"active slot dev not found: {active_slot_dev=}, {rootfs_partitions=}"
+            )
+
+        if idx == 0:  # slot_a
+            self.active_slot = SLOT_A
+            self.standby_slot = SLOT_B
+            self.standby_slot_dev = rootfs_partitions[1]
+        elif idx == 1:  # slot_b
+            self.active_slot = SLOT_B
+            self.standby_slot = SLOT_A
+            self.standby_slot_dev = rootfs_partitions[0]
+
+        logger.info(
+            f"rpi_boot: active_slot: {self.active_slot}({self.active_slot_dev}), "
+            f"standby_slot: {self.standby_slot}({self.standby_slot_dev})"
+        )
+
+        # ------ continue rpi_boot starts up ------ #
+        self._check_boot_files()
+        self._check_active_slot_id()
+
+        # NOTE(20240604): for backward compatibility, always remove flag file
+        flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
+        flag_file.unlink(missing_ok=True)
+
+    def _check_active_slot_id(self):
+        """Check whether the active slot fslabel is matching the slot id.
+
+        If mismatched, try to correct the problem.
+        """
+        fslabel = self.active_slot
+        actual_fslabel = CMDHelperFuncs.get_attrs_by_dev(
+            "LABEL", self.active_slot_dev, raise_exception=False
+        )
+        if actual_fslabel == fslabel:
+            return
+
+        logger.warning(
+            (
+                f"current active slot is {fslabel}, but its fslabel is {actual_fslabel}, "
+                f"try to correct the fslabel with slot id {fslabel}..."
+            )
+        )
+        try:
+            CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, fslabel)
+            os.sync()
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"failed to correct the fslabel mismatched: {e!r}, {e.stderr.decode()}"
+            )
+            logger.error("this might cause problem on future OTA update!")
+
+    def _check_boot_files(self):
         """Check the availability of boot files.
 
         The following boot files will be checked:
         1. config.txt_<slot_suffix> (required)
         2. cmdline.txt_<slot_suffix> (required)
-        3. vmlinuz_<slot_suffix>
-        4. initrd.img_<slot_suffix>
 
         If any of the required files are missing, BootControlInitError will be raised.
         In such case, a reinstall/setup of AB partition boot files is required.
         """
         logger.debug("checking boot files...")
-        # boot file
-        self.config_txt = self.system_boot_path / cfg.CONFIG_TXT
-        self.tryboot_txt = self.system_boot_path / cfg.TRYBOOT_TXT
+        active_slot, standby_slot = self.active_slot, self.standby_slot
 
-        # active slot
-        self.config_txt_active_slot = (
-            self.system_boot_path / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.active_slot}"
-        )
-        if not self.config_txt_active_slot.is_file():
-            _err_msg = f"missing {self.config_txt_active_slot=}"
+        # ------ check active slot boot files ------ #
+        config_txt_active_slot = get_sysboot_files_fpath(CONFIG_TXT, active_slot)
+        if not config_txt_active_slot.is_file():
+            _err_msg = f"missing {config_txt_active_slot=}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
-        self.cmdline_txt_active_slot = (
-            self.system_boot_path
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.active_slot}"
-        )
-        if not self.cmdline_txt_active_slot.is_file():
-            _err_msg = f"missing {self.cmdline_txt_active_slot=}"
-            logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg)
-        self.vmlinuz_active_slot = (
-            self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.active_slot}"
-        )
-        self.initrd_img_active_slot = (
-            self.system_boot_path / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.active_slot}"
-        )
-        # standby slot
-        self.config_txt_standby_slot = (
-            self.system_boot_path
-            / f"{cfg.CONFIG_TXT}{self.SEP_CHAR}{self.standby_slot}"
-        )
-        if not self.config_txt_standby_slot.is_file():
-            _err_msg = f"missing {self.config_txt_standby_slot=}"
-            logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg)
-        self.cmdline_txt_standby_slot = (
-            self.system_boot_path
-            / f"{cfg.CMDLINE_TXT}{self.SEP_CHAR}{self.standby_slot}"
-        )
-        if not self.cmdline_txt_standby_slot.is_file():
-            _err_msg = f"missing {self.cmdline_txt_standby_slot=}"
-            logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg)
-        self.vmlinuz_standby_slot = (
-            self.system_boot_path / f"{cfg.VMLINUZ}{self.SEP_CHAR}{self.standby_slot}"
-        )
-        self.initrd_img_standby_slot = (
-            self.system_boot_path
-            / f"{cfg.INITRD_IMG}{self.SEP_CHAR}{self.standby_slot}"
-        )
 
-    def _update_firmware(self):
-        """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
-        from current rootfs to system-boot partition.
+        cmdline_txt_active_slot = get_sysboot_files_fpath(CMDLINE_TXT, active_slot)
+        if not cmdline_txt_active_slot.is_file():
+            _err_msg = f"missing {cmdline_txt_active_slot=}"
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
+
+        # ------ check standby slot boot files ------ #
+        config_txt_standby_slot = get_sysboot_files_fpath(CONFIG_TXT, standby_slot)
+        if not config_txt_standby_slot.is_file():
+            _err_msg = f"missing {config_txt_standby_slot=}"
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
+
+        cmdline_txt_standby_slot = get_sysboot_files_fpath(CMDLINE_TXT, standby_slot)
+        if not cmdline_txt_standby_slot.is_file():
+            _err_msg = f"missing {cmdline_txt_standby_slot=}"
+            logger.error(_err_msg)
+            raise _RPIBootControllerError(_err_msg)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _prepare_flash_kernel(target_slot_mp: StrOrPath) -> Generator[None, Any, None]:
+        """Do a bind mount of /boot/firmware, /proc and /sys to the standby slot,
+        preparing for calling flash-kernel with chroot.
+
+        flash-kernel requires at least these mounts to work properly.
         """
-        logger.info("update firmware with flash-kernel...")
+        target_slot_mp = Path(target_slot_mp)
+        mounts: dict[str, str] = {}
+
+        # we need to mount /proc, /sys and /boot/firmware to make flash-kernel works
+        system_boot_mp = target_slot_mp / Path(cfg.SYSTEM_BOOT_MOUNT_POINT).relative_to(
+            "/"
+        )
+        mounts[str(system_boot_mp)] = cfg.SYSTEM_BOOT_MOUNT_POINT
+
+        proc_mp = target_slot_mp / "proc"
+        mounts[str(proc_mp)] = "/proc"
+
+        sys_mp = target_slot_mp / "sys"
+        mounts[str(sys_mp)] = "/sys"
+
         try:
-            subprocess_call("flash-kernel", raise_exception=True)
-            os.sync()
-        except Exception as e:
-            _err_msg = f"flash-kernel failed: {e!r}"
+            for _mp, _src in mounts.items():
+                CMDHelperFuncs.mount(
+                    _src,
+                    _mp,
+                    options=["bind"],
+                    params=["--make-unbindable"],
+                )
+            yield
+            # NOTE: passthrough the mount failure to caller
+        finally:
+            for _mp in mounts:
+                CMDHelperFuncs.umount(_mp, raise_exception=False)
+
+    def update_firmware(self, *, target_slot: SlotID, target_slot_mp: StrOrPath):
+        """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
+        from target slot.
+
+        The following things will be done:
+        1. bind mount the /boot/firmware and /proc into the target slot.
+        2. chroot into the target slot's rootfs, execute flash-kernel
+        """
+        logger.info(f"try to flash-kernel from {target_slot}...")
+        try:
+            with self._prepare_flash_kernel(target_slot_mp):
+                subprocess_run_wrapper(
+                    ["/usr/sbin/flash-kernel"],
+                    check=True,
+                    check_output=True,
+                    chroot=target_slot_mp,
+                    # must set this env variable to make flash-kernel work under chroot
+                    env={"FK_FORCE": "yes"},
+                )
+                os.sync()
+        except subprocess.CalledProcessError as e:
+            _err_msg = f"flash-kernel failed: {e!r}\nstderr: {e.stderr.decode()}\nstdout: {e.stdout.decode()}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
 
         try:
-            # check if the vmlinuz and initrd.img presented in /boot/firmware(system-boot),
-            # if so, it means that flash-kernel works and copies the kernel, inird.img from /boot,
-            # then we rename vmlinuz and initrd.img to vmlinuz_<current_slot> and initrd.img_<current_slot>
-            if (_vmlinuz := Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.VMLINUZ).is_file():
-                os.replace(_vmlinuz, self.vmlinuz_active_slot)
-            if (
-                _initrd_img := Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.INITRD_IMG
-            ).is_file():
-                os.replace(_initrd_img, self.initrd_img_active_slot)
+            # flash-kernel will install the kernel and initrd.img files from /boot to /boot/firmware
+            if (vmlinuz := self.system_boot_mp / VMLINUZ).is_file():
+                os.replace(
+                    vmlinuz,
+                    get_sysboot_files_fpath(VMLINUZ, target_slot),
+                )
+
+            if (initrd_img := self.system_boot_mp / INITRD_IMG).is_file():
+                os.replace(
+                    initrd_img,
+                    get_sysboot_files_fpath(INITRD_IMG, target_slot),
+                )
+
+            # NOTE(20240603): for backward compatibility(downgrade), still create the flag file.
+            #   The present of flag files means the firmware is updated.
+            flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
+            flag_file.write_text("")
             os.sync()
         except Exception as e:
-            _err_msg = (
-                f"apply new kernel,initrd.img for {self.active_slot} failed: {e!r}"
-            )
+            _err_msg = f"failed to apply new kernel,initrd.img for {target_slot}: {e!r}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
 
     # exposed API methods/properties
-    @property
-    def active_slot(self) -> str:
-        return self._active_slot
-
-    @property
-    def standby_slot(self) -> str:
-        return self._standby_slot
-
-    @property
-    def standby_slot_dev(self) -> str:
-        return self._standby_slot_dev
-
-    @property
-    def active_slot_dev(self) -> str:
-        return self._active_slot_dev
 
     def finalize_switching_boot(self) -> bool:
         """Finalize switching boot by swapping config.txt and tryboot.txt if we should.
 
         Finalize switch boot:
-            1. atomically replace tryboot.txt with tryboot.txt_standby_slot
-            2. atomically replace config.txt with config.txt_active_slot
-
-        Two-stage reboot:
-            In the first reboot after ota update applied, finalize_switching_boot will try
-            to update the firmware by calling external flash-kernel system script, finalize
-            the switch boot and then reboot again to apply the new firmware.
-            In the second reboot, finalize_switching_boot will do nothing but just return True.
-
-        NOTE: we use a SWITCH_BOOT_FLAG_FILE to distinguish which reboot we are right now.
-              If SWITCH_BOOT_FLAG_FILE presented, we know that we are second reboot,
-              Otherwise, we know that we are at first reboot after switching boot.
+            1. atomically replace tryboot.txt with tryboot.txt_<standby_slot_id>
+            2. atomically replace config.txt with config.txt_<active_slot_id>
 
         Returns:
             A bool indicates whether the switch boot succeeded or not. Note that no exception
                 will be raised if finalizing failed.
         """
         logger.info("finalizing switch boot...")
+        current_slot, standby_slot = self.active_slot, self.standby_slot
+        config_txt_current = get_sysboot_files_fpath(CONFIG_TXT, current_slot)
+        config_txt_standby = get_sysboot_files_fpath(CONFIG_TXT, standby_slot)
+
         try:
-            _flag_file = self.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
-            if _flag_file.is_file():
-                # we are just after second reboot, after firmware_update,
-                # finalize the switch boot and then return True
-                logger.info("[rpi-boot]: just after 2nd reboot, finish up OTA")
+            replace_atomic(config_txt_current, self.system_boot_mp / CONFIG_TXT)
+            replace_atomic(config_txt_standby, self.system_boot_mp / TRYBOOT_TXT)
+            logger.info(
+                "finalizing boot configuration,"
+                f"replace {CONFIG_TXT} with {config_txt_current=}, "
+                f"replace {TRYBOOT_TXT} with {config_txt_standby=}"
+            )
 
-                # cleanup bak files generated by flash-kernel script as
-                # we actually don't use those files
-                for _bak_file in self.system_boot_path.glob("**/*.bak"):
-                    _bak_file.unlink(missing_ok=True)
-                _flag_file.unlink(missing_ok=True)
-                os.sync()
-                return True
-
-            else:
-                # we are just after first reboot after ota update applied,
-                # finalize the switch boot, install the new firmware and then reboot again
-                logger.info(
-                    "[rpi-boot]: just after 1st reboot, update firmware and finalizing boot files"
-                )
-
-                replace_atomic(self.config_txt_active_slot, self.config_txt)
-                replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
-                logger.info(
-                    "finalizing boot configuration,"
-                    f"replace {self.config_txt=} with {self.config_txt_active_slot=}, "
-                    f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot=}"
-                )
-                self._update_firmware()
-                # set the flag file
-                write_str_to_file_sync(_flag_file, "")
-                # reboot to the same slot to apply the new firmware
-
-                logger.info("reboot to apply new firmware...")
-                CMDHelperFuncs.reboot()  # this function will make otaclient exit immediately
+            # on success switching boot, cleanup the bak files created by flash-kernel
+            for _bak_file in self.system_boot_mp.glob("**/*.bak"):
+                _bak_file.unlink(missing_ok=True)
+            return True
         except Exception as e:
             _err_msg = f"failed to finalize boot switching: {e!r}"
             logger.error(_err_msg)
@@ -330,14 +398,14 @@ class _RPIBootControl:
 
     def prepare_tryboot_txt(self):
         """Copy the standby slot's config.txt as tryboot.txt."""
-        logger.debug("prepare tryboot.txt...")
         try:
-            replace_atomic(self.config_txt_standby_slot, self.tryboot_txt)
-            logger.info(
-                f"replace {self.tryboot_txt=} with {self.config_txt_standby_slot=}"
+            replace_atomic(
+                get_sysboot_files_fpath(CONFIG_TXT, self.standby_slot),
+                self.system_boot_mp / TRYBOOT_TXT,
             )
+            logger.info(f"set {TRYBOOT_TXT} as {self.standby_slot}'s one")
         except Exception as e:
-            _err_msg = f"failed to prepare tryboot.txt for {self._standby_slot}"
+            _err_msg = f"failed to prepare tryboot.txt for {self.standby_slot}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
@@ -345,6 +413,7 @@ class _RPIBootControl:
         """Reboot with tryboot flag."""
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
+            # NOTE: "0 tryboot" is a single param.
             CMDHelperFuncs.reboot(args=["0 tryboot"])
         except Exception as e:
             _err_msg = "failed to reboot"
@@ -376,68 +445,11 @@ class RPIBootController(BootControllerProtocol):
                 / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
                 finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
             )
-
-            # 20230613: remove any leftover flag file if ota_status is not UPDATING/ROLLBACKING
-            if self._ota_status_control.booted_ota_status not in (
-                api_types.StatusOta.UPDATING,
-                api_types.StatusOta.ROLLBACKING,
-            ):
-                _flag_file = (
-                    self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
-                )
-                _flag_file.unlink(missing_ok=True)
-
-            logger.debug("rpi_boot initialization finished")
+            logger.info("rpi_boot starting finished")
         except Exception as e:
             _err_msg = f"failed to start rpi boot controller: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
-
-    def _copy_kernel_for_standby_slot(self):
-        """Copy the kernel and initrd_img files from current slot /boot
-        to system-boot for standby slot.
-
-        This method will checkout the vmlinuz-<kernel_ver> and initrd.img-<kernel_ver>
-        under /boot, and copy them to /boot/firmware(system-boot partition) under the name
-        vmlinuz_<slot> and initrd.img_<slot>.
-        """
-        logger.debug(
-            "prepare standby slot's kernel/initrd.img to system-boot partition..."
-        )
-        try:
-            # search for kernel
-            _kernel_pa, _kernel_ver = (
-                re.compile(rf"{cfg.VMLINUZ}-(?P<kernel_ver>.*)"),
-                None,
-            )
-            # NOTE: if there is multiple kernel, pick the first one we encounted
-            # NOTE 2: according to ota-image specification, it should only be one
-            #         version of kernel and initrd.img
-            for _candidate in self._mp_control.standby_boot_dir.glob(
-                f"{cfg.VMLINUZ}-*"
-            ):
-                if _ma := _kernel_pa.match(_candidate.name):
-                    _kernel_ver = _ma.group("kernel_ver")
-                    break
-
-            if _kernel_ver is not None:
-                _kernel, _initrd_img = (
-                    self._mp_control.standby_boot_dir / f"{cfg.VMLINUZ}-{_kernel_ver}",
-                    self._mp_control.standby_boot_dir
-                    / f"{cfg.INITRD_IMG}-{_kernel_ver}",
-                )
-                _kernel_sysboot, _initrd_img_sysboot = (
-                    self._rpiboot_control.vmlinuz_standby_slot,
-                    self._rpiboot_control.initrd_img_standby_slot,
-                )
-                replace_atomic(_kernel, _kernel_sysboot)
-                replace_atomic(_initrd_img, _initrd_img_sysboot)
-            else:
-                raise ValueError("failed to kernel in /boot folder at standby slot")
-        except Exception as e:
-            _err_msg = "failed to copy kernel/initrd_img for standby slot"
-            logger.error(_err_msg)
-            raise _RPIBootControllerError(f"{e!r}")
 
     def _write_standby_fstab(self):
         """Override the standby's fstab file.
@@ -485,12 +497,6 @@ class RPIBootController(BootControllerProtocol):
 
             ### update standby slot's ota_status files ###
             self._ota_status_control.pre_update_standby(version=version)
-
-            # 20230613: remove any leftover flag file if presented
-            _flag_file = (
-                self._rpiboot_control.system_boot_path / cfg.SWITCH_BOOT_FLAG_FILE
-            )
-            _flag_file.unlink(missing_ok=True)
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
@@ -527,9 +533,12 @@ class RPIBootController(BootControllerProtocol):
     def post_update(self) -> Generator[None, None, None]:
         try:
             logger.info("rpi_boot: post-update setup...")
-            self._copy_kernel_for_standby_slot()
             self._mp_control.preserve_ota_folder_to_standby()
             self._write_standby_fstab()
+            self._rpiboot_control.update_firmware(
+                target_slot=self._rpiboot_control.standby_slot,
+                target_slot_mp=self._mp_control.standby_slot_mount_point,
+            )
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
             yield  # hand over control back to otaclient

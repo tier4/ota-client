@@ -86,21 +86,9 @@ class RPIBootControlConfig(BaseConfig):
     RPI_MODEL_FILE = "/proc/device-tree/model"
     RPI_MODEL_HINT = "Raspberry Pi 4 Model B"
 
-    # slot configuration
-    SLOT_A_FSLABEL = "slot_a"
-    SLOT_B_FSLABEL = "slot_b"
-    SYSTEM_BOOT_FSLABEL = "system-boot"
-
     # boot folders
     SYSTEM_BOOT_MOUNT_POINT = "/boot/firmware"
     OTA_STATUS_DIR = "/boot/ota-status"
-
-    # boot related files
-    CONFIG_TXT = "config.txt"  # primary boot cfg
-    TRYBOOT_TXT = "tryboot.txt"  # tryboot boot cfg
-    VMLINUZ = "vmlinuz"
-    INITRD_IMG = "initrd.img"
-    CMDLINE_TXT = "cmdline.txt"
     SWITCH_BOOT_FLAG_FILE = "._ota_switch_boot_finalized"
 
 
