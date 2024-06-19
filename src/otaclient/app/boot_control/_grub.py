@@ -43,7 +43,7 @@ from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.boot_control import _cmdhelper as cmdhelper
+from otaclient import cmdhelper
 from otaclient.app.boot_control._common import (
     OTAStatusFilesControl,
     SlotMountHelper,
