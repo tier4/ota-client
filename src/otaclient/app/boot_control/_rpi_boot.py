@@ -54,14 +54,11 @@ class SlotID(str):
             return _in
         if _in in cls.VALID_SLOTS:
             return str.__new__(cls, _in)
-        raise ValueError(f"{_in=} is not valid slot num, should be '0' or '1'.")
+        raise ValueError(f"{_in=} is not valid slot num, should be {cls.VALID_SLOTS=}")
 
 
 class _RPIBootControllerError(Exception):
     """rpi_boot module internal used exception."""
-
-
-BOOTFILES = Literal["vmlinuz", "initrd.img", "config.txt", "tryboot.txt", "cmdline.txt"]
 
 
 # ------ consts ------ #
@@ -85,8 +82,14 @@ _FSTAB_TEMPLATE_STR = (
 
 
 # ------ helper functions ------ #
+BOOTFILES = Literal["vmlinuz", "initrd.img", "config.txt", "tryboot.txt", "cmdline.txt"]
+
+
 def get_sysboot_files_fpath(boot_fname: BOOTFILES, slot: SlotID) -> Path:
-    """Get the boot files fpath for specific slot from /boot/firmware."""
+    """Get the boot files fpath for specific slot from /boot/firmware.
+
+    For example, for vmlinuz for slot_a, we get /boot/firmware/vmlinuz_slot_a
+    """
     fname = f"{boot_fname}{SEP_CHAR}{slot}"
     return Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / fname
 
@@ -99,28 +102,16 @@ class _RPIBootControl:
             - sd<x>1: fat32, fslabel=systemb-boot
             - sd<x>2: ext4, fslabel=slot_a
             - sd<x>3: ext4, fslabel=slot_b
-    slot is the fslabel for each AB rootfs.
+    slot_id is also the fslabel for each AB rootfs.
     NOTE that we allow extra partitions with ID after 3.
 
-    This class provides the following features:
-    1. AB partition detection,
-    2. boot files checking,
-    3. switch boot(tryboot.txt setup and tryboot reboot),
-    4. finalize switching boot.
-
     Boot files for each slot have the following naming format:
-        <boot_file_fname>_<slot>
-    i.e., config.txt for slot_a will be config.txt_slot_a
+        <boot_file_fname><sep_char><slot>
+    For example, config.txt for slot_a will be config.txt_slot_a
     """
 
     def __init__(self) -> None:
         self.system_boot_mp = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
-        if not CMDHelperFuncs.is_target_mounted(
-            self.system_boot_mp, raise_exception=False
-        ):
-            _err_msg = "system-boot is not presented or not mounted!"
-            logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg)
 
         try:
             # ------ detect active slot ------ #
@@ -139,18 +130,40 @@ class _RPIBootControl:
 
             # get device tree, for /dev/sda device, we will get:
             #   ["/dev/sda", "/dev/sda1", "/dev/sda2", "/dev/sda3"]
-            _device_tree = CMDHelperFuncs.get_device_tree(parent_dev)
-            logger.info(_device_tree)
+            device_tree = CMDHelperFuncs.get_device_tree(parent_dev)
+            logger.info(device_tree)
 
             # NOTE that we allow extra partitions presented after sd<x>3.
-            assert len(_device_tree) >= 4, "need at least 3 partitions"
+            assert len(device_tree) >= 4, "need at least 3 partitions"
         except Exception as e:
             _err_msg = f"failed to detect partition layout: {e!r}"
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg)
 
+        # check system-boot partition mount
+        system_boot_partition = device_tree[1]
+        if not CMDHelperFuncs.is_target_mounted(
+            self.system_boot_mp, raise_exception=False
+        ):
+            _err_msg = f"system-boot is not mounted at {self.system_boot_mp}, try to mount it..."
+            logger.warning(_err_msg)
+
+            try:
+                CMDHelperFuncs.mount_rw(
+                    system_boot_partition,
+                    self.system_boot_mp,
+                    raise_exception=True,
+                )
+            except subprocess.CalledProcessError as e:
+                _err_msg = (
+                    f"failed to mount system-boot partition: {e!r}, {e.stderr.decode()}"
+                )
+                logger.error(_err_msg)
+                raise _RPIBootControllerError(_err_msg) from e
+
+        # check slots
         # sd<x>2 and sd<x>3
-        rootfs_partitions = _device_tree[2:4]
+        rootfs_partitions = device_tree[2:4]
 
         # get the active slot ID by its position in the disk
         try:
