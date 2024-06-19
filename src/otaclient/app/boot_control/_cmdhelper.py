@@ -23,10 +23,7 @@ from subprocess import CalledProcessError
 from typing import Literal, NoReturn, Optional
 
 from otaclient.app.configs import config as cfg
-from otaclient_common.common import (
-    subprocess_call,
-    subprocess_check_output,
-)
+from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -246,8 +243,10 @@ def mount(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def mount_rw(target: str, mount_point: Path | str, *, raise_exception: bool = True):
-    """Mount the <target> to <mount_point> read-write.
+def mount_rw(
+    target: str, mount_point: Path | str, *, raise_exception: bool = True
+) -> None:
+    """Mount the <target> to <mount_point> read-write privately.
 
     This is implemented by calling:
         mount -o rw --make-private --make-unbindable <target> <mount_point>
@@ -261,22 +260,19 @@ def mount_rw(target: str, mount_point: Path | str, *, raise_exception: bool = Tr
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
-    # fmt: off
-    cmd = [
-        "mount",
-        "-o", "rw",
-        "--make-private", "--make-unbindable",
+    mount(
         target,
         str(mount_point),
-    ]
-    # fmt: on
-    subprocess_call(cmd, raise_exception=raise_exception)
+        options=["rw"],
+        params=["--make-private", "--make-unbindable"],
+        raise_exception=raise_exception,
+    )
 
 
 def bind_mount_ro(
     target: str, mount_point: Path | str, *, raise_exception: bool = True
-):
-    """Bind mount the <target> to <mount_point> read-only.
+) -> None:
+    """Bind mount the <target> to <mount_point> read-only privately.
 
     This is implemented by calling:
         mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
@@ -287,16 +283,13 @@ def bind_mount_ro(
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
-    # fmt: off
-    cmd = [
-        "mount",
-        "-o", "bind,ro",
-        "--make-private", "--make-unbindable",
+    mount(
         target,
-        str(mount_point)
-    ]
-    # fmt: on
-    subprocess_call(cmd, raise_exception=raise_exception)
+        str(mount_point),
+        options=["bind", "ro"],
+        params=["--make-private", "--make-unbindable"],
+        raise_exception=raise_exception,
+    )
 
 
 def umount(target: Path | str, *, raise_exception: bool = True):
@@ -372,7 +365,7 @@ def mkfs_ext4(
 
 
 def mount_ro(*, target: str, mount_point: str | Path, raise_exception: bool = True):
-    """Mount <target> to <mount_point> read-only.
+    """Mount <target> to <mount_point> read-only privately.
 
     If the target device is mounted, we bind mount the target device to mount_point.
     if the target device is not mounted, we directly mount it to the mount_point.
@@ -393,16 +386,13 @@ def mount_ro(*, target: str, mount_point: str | Path, raise_exception: bool = Tr
         )
     else:
         # target is not mounted, we mount it by ourself
-        # fmt: off
-        cmd = [
-            "mount",
-            "-o", "ro",
-            "--make-private", "--make-unbindable",
+        mount(
             target,
             str(mount_point),
-        ]
-        # fmt: on
-        subprocess_call(cmd, raise_exception=raise_exception)
+            options=["ro"],
+            params=["--make-private", "--make-unbindable"],
+            raise_exception=raise_exception,
+        )
 
 
 def reboot(args: Optional[list[str]] = None) -> NoReturn:
