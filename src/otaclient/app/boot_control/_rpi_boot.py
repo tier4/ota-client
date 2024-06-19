@@ -161,10 +161,12 @@ class _RPIBootControl:
             _err_msg = f"system-boot is not mounted at {self.system_boot_mp}, try to mount it..."
             logger.warning(_err_msg)
 
-            mount_cmd = ["mount", "-o", "defaults"]
             try:
-                _mount_cmd = [*mount_cmd, system_boot_partition, self.system_boot_mp]
-                subprocess_run_wrapper(_mount_cmd, check=True, check_output=True)
+                CMDHelperFuncs.mount(
+                    system_boot_partition,
+                    self.system_boot_mp,
+                    options=["defaults"],
+                )
             except subprocess.CalledProcessError as e:
                 _err_msg = (
                     f"failed to mount system-boot partition: {e!r}, {e.stderr.decode()}"
@@ -295,11 +297,14 @@ class _RPIBootControl:
         sys_mp = target_slot_mp / "sys"
         mounts[str(sys_mp)] = "/sys"
 
-        mount_cmd = ["mount", "-o", "bind", "--make-unbindable"]
         try:
             for _mp, _src in mounts.items():
-                _mount_cmd = [*mount_cmd, _src, _mp]
-                subprocess_run_wrapper(_mount_cmd, check=True, check_output=True)
+                CMDHelperFuncs.mount(
+                    _src,
+                    _mp,
+                    options=["bind"],
+                    params=["--make-unbindable"],
+                )
             yield
             # NOTE: passthrough the mount failure to caller
         finally:
