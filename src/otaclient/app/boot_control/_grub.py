@@ -43,8 +43,8 @@ from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from otaclient.app import errors as ota_errors
+from otaclient.app.boot_control import _cmdhelper as cmdhelper
 from otaclient.app.boot_control._common import (
-    CMDHelperFuncs,
     OTAStatusFilesControl,
     SlotMountHelper,
     cat_proc_cmdline,
@@ -319,8 +319,8 @@ class GrubABPartitionDetector:
         NOTE: revert to use previous detection mechanism.
         TODO: refine this method.
         """
-        parent = CMDHelperFuncs.get_parent_dev(active_dev)
-        boot_dev = CMDHelperFuncs.get_dev_by_mount_point("/boot")
+        parent = cmdhelper.get_parent_dev(active_dev)
+        boot_dev = cmdhelper.get_dev_by_mount_point("/boot")
         if not boot_dev:
             _err_msg = "/boot is not mounted"
             logger.error(_err_msg)
@@ -359,7 +359,7 @@ class GrubABPartitionDetector:
             of the active slot.
         """
         try:
-            dev_path = CMDHelperFuncs.get_current_rootfs_dev()
+            dev_path = cmdhelper.get_current_rootfs_dev()
             assert dev_path
         except Exception as e:
             _err_msg = f"failed to detect current rootfs dev: {e!r}"
@@ -619,9 +619,7 @@ class _GrubControl:
 
         grub_cfg_content = GrubHelper.grub_mkconfig()
         try:
-            standby_uuid = CMDHelperFuncs.get_attrs_by_dev(
-                "UUID", self.standby_root_dev
-            )
+            standby_uuid = cmdhelper.get_attrs_by_dev("UUID", self.standby_root_dev)
             assert standby_uuid
         except Exception as e:
             _err_msg = f"failed to get UUID of {self.standby_root_dev}: {e!r}"
@@ -772,7 +770,7 @@ class GrubController(BootControllerProtocol):
         Override existed entries in standby fstab, merge new entries from active fstab.
         """
         try:
-            standby_uuid = CMDHelperFuncs.get_attrs_by_dev(
+            standby_uuid = cmdhelper.get_attrs_by_dev(
                 "UUID", self._boot_control.standby_root_dev
             )
             assert standby_uuid
@@ -920,7 +918,7 @@ class GrubController(BootControllerProtocol):
             self._boot_control.grub_reboot_to_standby()
 
             yield  # hand over control to otaclient
-            CMDHelperFuncs.reboot()
+            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)
@@ -946,7 +944,7 @@ class GrubController(BootControllerProtocol):
             logger.info("grub_boot: post-rollback setup...")
             self._boot_control.grub_reboot_to_standby()
             self._mp_control.umount_all(ignore_error=True)
-            CMDHelperFuncs.reboot()
+            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)

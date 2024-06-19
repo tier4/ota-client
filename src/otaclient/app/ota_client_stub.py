@@ -37,7 +37,7 @@ from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from otaclient_common.common import ensure_otaproxy_start
 
-from .boot_control._common import CMDHelperFuncs
+from .boot_control import _cmdhelper as cmdhelper
 from .configs import config as cfg
 from .configs import ecu_info, proxy_info, server_cfg
 from .ota_client import OTAClientControlFlags, OTAServicer
@@ -98,7 +98,7 @@ class _OTAProxyContext(OTAProxyContextProto):
 
     def _mount_external_cache_storage(self):
         # detect cache_dev on every startup
-        _cache_dev = CMDHelperFuncs.get_dev_by_token(
+        _cache_dev = cmdhelper.get_dev_by_token(
             "LABEL",
             self._external_cache_dev_fslabel,
             raise_exception=False,
@@ -117,12 +117,12 @@ class _OTAProxyContext(OTAProxyContextProto):
 
         # try to unmount the mount_point and cache_dev unconditionally
         _mp = Path(self._external_cache_dev_mp)
-        CMDHelperFuncs.umount(_cache_dev, raise_exception=False)
+        cmdhelper.umount(_cache_dev, raise_exception=False)
         _mp.mkdir(parents=True, exist_ok=True)
 
         # try to mount cache_dev ro
         try:
-            CMDHelperFuncs.mount_ro(
+            cmdhelper.mount_ro(
                 target=_cache_dev, mount_point=self._external_cache_dev_mp
             )
             self._external_cache_activated = True
@@ -135,7 +135,7 @@ class _OTAProxyContext(OTAProxyContextProto):
         if not self._external_cache_activated or not self._external_cache_dev:
             return
         try:
-            CMDHelperFuncs.umount(self._external_cache_dev)
+            cmdhelper.umount(self._external_cache_dev)
         except Exception as e:
             logger.warning(
                 f"failed to unmount external cache_dev {self._external_cache_dev}: {e!r}"

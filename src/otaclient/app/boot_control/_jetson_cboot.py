@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from otaclient.app import errors as ota_errors
+from otaclient.app.boot_control import _cmdhelper as cmdhelper
 from otaclient.app.boot_control._common import (
-    CMDHelperFuncs,
     OTAStatusFilesControl,
     SlotMountHelper,
 )
@@ -258,10 +258,10 @@ class _CBootControl:
 
         # ------ detect rootfs_dev and parent_dev ------ #
         self.curent_rootfs_devpath = current_rootfs_devpath = (
-            CMDHelperFuncs.get_current_rootfs_dev()
+            cmdhelper.get_current_rootfs_dev()
         )
         self.parent_devpath = parent_devpath = Path(
-            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
+            cmdhelper.get_parent_dev(current_rootfs_devpath)
         )
 
         self._external_rootfs = False
@@ -282,10 +282,10 @@ class _CBootControl:
         self.standby_rootfs_devpath = (
             f"/dev/{parent_devname}p{self._slot_id_partid[standby_rootfs_slot]}"
         )
-        self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+        self.standby_rootfs_dev_partuuid = cmdhelper.get_attrs_by_dev(
             "PARTUUID", f"{self.standby_rootfs_devpath}"
         )
-        current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+        current_rootfs_dev_partuuid = cmdhelper.get_attrs_by_dev(
             "PARTUUID", current_rootfs_devpath
         )
 
@@ -577,7 +577,7 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.info(f"[post-update]: \n{_NVBootctrl.dump_slots_info()}")
             logger.info("post update finished, wait for reboot ...")
             yield  # hand over control back to otaclient
-            CMDHelperFuncs.reboot()
+            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)
@@ -603,7 +603,7 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.info("jetson-cboot: post-rollback setup...")
             self._mp_control.umount_all(ignore_error=True)
             self._cboot_control.switch_boot_to_standby()
-            CMDHelperFuncs.reboot()
+            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on post_rollback: {e!r}"
             logger.error(_err_msg)
