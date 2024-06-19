@@ -25,12 +25,9 @@ import subprocess
 from pathlib import Path
 from typing import Generator, Optional
 
-from otaclient.app import errors as ota_errors
 from otaclient import cmdhelper
-from otaclient.app.boot_control._common import (
-    OTAStatusFilesControl,
-    SlotMountHelper,
-)
+from otaclient.app import errors as ota_errors
+from otaclient.app.boot_control._common import OTAStatusFilesControl, SlotMountHelper
 from otaclient.app.boot_control._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,

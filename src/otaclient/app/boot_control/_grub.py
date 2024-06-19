@@ -42,8 +42,8 @@ from pprint import pformat
 from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
-from otaclient.app import errors as ota_errors
 from otaclient import cmdhelper
+from otaclient.app import errors as ota_errors
 from otaclient.app.boot_control._common import (
     OTAStatusFilesControl,
     SlotMountHelper,

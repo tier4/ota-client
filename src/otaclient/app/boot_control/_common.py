@@ -22,13 +22,10 @@ import shutil
 from pathlib import Path
 from typing import Callable, Literal, Optional, Union
 
-from otaclient.app.configs import config as cfg
 from otaclient import cmdhelper
+from otaclient.app.configs import config as cfg
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import (
-    read_str_from_file,
-    write_str_to_file_sync,
-)
+from otaclient_common.common import read_str_from_file, write_str_to_file_sync
 
 logger = logging.getLogger(__name__)
 
