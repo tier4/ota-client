@@ -30,7 +30,6 @@ from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol
 from urllib.parse import urlsplit
 
 import requests
-import requests.exceptions
 import zstandard
 from requests.structures import CaseInsensitiveDict as CIDict
 
