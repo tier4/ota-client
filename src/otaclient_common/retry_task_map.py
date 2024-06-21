@@ -189,7 +189,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         ).start()
 
         # ------ ensure all tasks are finished ------ #
-        while self._total_task_num != 0 and self._finished_task == self._total_task_num:
+        while self._total_task_num == 0 or self._finished_task != self._total_task_num:
             # shutdown by upper caller or interpreter exits
             if self._shutdown or _retry_task_map_global_shutdown:
                 _err_msg = f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
