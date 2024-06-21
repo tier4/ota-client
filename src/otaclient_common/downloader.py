@@ -379,10 +379,13 @@ class DownloaderPool:
             self.INSTANCE_AVAILABLE_ID for _ in range(instance_num)
         ]
         self._thread_idx_mapping: dict[int, int] = {}
+        self._total_downloaded_bytes = 0
 
     @property
     def total_downloaded_bytes(self) -> int:
-        return sum(downloader.downloaded_bytes for downloader in self._instances)
+        if _res := sum(downloader.downloaded_bytes for downloader in self._instances):
+            self._total_downloaded_bytes = _res
+        return self._total_downloaded_bytes
 
     def get_instance(self) -> Downloader:
         """Get a weakref to the thread-specific downloader instance.
