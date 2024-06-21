@@ -196,7 +196,7 @@ class _OTAUpdater:
             cookies=cookies,
             proxies=proxies,
         )
-        self._downloader_thread_local = threading.local()
+        self._downloader_mapper: dict[int, Downloader] = {}
         self._download_watchdog_previous_active_timestamp = 0
         self._download_watchdog_previous_downloaded_bytes = 0
 
@@ -237,7 +237,7 @@ class _OTAUpdater:
             return 0, 0
 
         entry_url, compression_alg = self._otameta.get_download_url(entry)
-        downloader: Downloader = self._downloader_thread_local.downloader
+        downloader = self._downloader_mapper[threading.get_native_id()]
         return downloader.download(
             entry_url,
             self._ota_tmp_on_standby / _fhash_str,
@@ -255,10 +255,10 @@ class _OTAUpdater:
         _empty_file.touch()
 
         # ------ start the downloading ------ #
-
         def _thread_initializer():
-            downloader_instance = self._downloader_pool.get_instance()
-            self._downloader_thread_local.downloader = downloader_instance
+            self._downloader_mapper[threading.get_native_id()] = (
+                self._downloader_pool.get_instance()
+            )
 
         with ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
