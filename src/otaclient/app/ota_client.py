@@ -651,7 +651,7 @@ class OTAClient(OTAClientProtocol):
         if self._lock.acquire(blocking=False):
             try:
                 logger.info("[update] entering local update...")
-                update_executor = _OTAUpdater(
+                self._update_executor = _OTAUpdater(
                     version,
                     url_base,
                     cookies_json,
@@ -661,18 +661,16 @@ class OTAClient(OTAClientProtocol):
                     upper_otaproxy=self.proxy,
                 )
 
-                # reset failure information on handling new update request
                 self.last_failure_type = api_types.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
 
-                # enter update
                 self.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
-                update_executor.execute()
+                self._update_executor.execute()
             except ota_errors.OTAError as e:
                 self._on_failure(e, api_types.StatusOta.FAILURE)
             finally:
-                del update_executor
+                self._update_executor = None
                 gc.collect()  # trigger a forced gc
                 self._lock.release()
         else:
