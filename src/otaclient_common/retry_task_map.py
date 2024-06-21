@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-import concurrent.futures.thread as concurrent_fut_thread
+import atexit
 import contextlib
 import itertools
 import logging
@@ -29,6 +29,16 @@ from typing import Any, Callable, Generator, Iterable, Optional
 from otaclient_common.typing import RT, T
 
 logger = logging.getLogger(__name__)
+
+_retry_task_map_global_shutdown = False
+
+
+def _python_exit():
+    global _retry_task_map_global_shutdown
+    _retry_task_map_global_shutdown = True
+
+
+atexit.register(_python_exit)
 
 
 class TasksEnsureFailed(Exception):
@@ -84,13 +94,13 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             target=self._watchdog,
             args=(watchdog_func, watchdog_check_interval),
             daemon=True,
-        )
+        ).start()
 
     def _watchdog(
         self, watchdog_func: Callable[..., Any], watchdog_check_interval: int
     ) -> None:
         """Watchdog will shutdown the threadpool on certain conditions being met."""
-        while not self._shutdown and not concurrent_fut_thread._shutdown:
+        while not self._shutdown and not _retry_task_map_global_shutdown:
             if self.max_total_retry and self._retry_count > self.max_total_retry:
                 logger.warning(f"exceed {self.max_total_retry=}, abort")
                 return self.shutdown(wait=True)
@@ -115,7 +125,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             return
 
         # ------ on threadpool shutdown(by watchdog) ------ #
-        if self._shutdown:
+        if self._shutdown or _retry_task_map_global_shutdown:
             self._concurrent_semaphore.release()  # wakeup dispatcher
             return
 
@@ -129,7 +139,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def _dispatcher(self, func: Callable[[T], RT], iterable: Iterable[T]) -> None:
         try:
             for _tasks_count, item in enumerate(iterable, start=1):
-                if self._shutdown and not concurrent_fut_thread._shutdown:
+                if self._shutdown or _retry_task_map_global_shutdown:
                     return
 
                 self._concurrent_semaphore.acquire()
@@ -160,19 +170,22 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         Yields:
             The Future instance of each processed tasks.
         """
+        if self._shutdown or _retry_task_map_global_shutdown:
+            raise ValueError("threadpool is shutdown or broken, abort")
+
         with self._start_lock:
             if self._started:
                 raise ValueError("ensure_tasks cannot be started more than once")
-            if self._shutdown:
-                raise ValueError("threadpool is shutdown or broken, abort")
             self._started = True
 
         # ------ dispatch tasks from iterable ------ #
-        threading.Thread(target=self._dispatcher, args=(func, iterable), daemon=True)
+        threading.Thread(
+            target=self._dispatcher, args=(func, iterable), daemon=True
+        ).start()
 
         # ------ ensure all tasks are finished ------ #
         while True:
-            if self._shutdown or concurrent_fut_thread._shutdown:
+            if self._shutdown or _retry_task_map_global_shutdown:
                 logger.warning(
                     f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
                 )
