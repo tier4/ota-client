@@ -100,6 +100,9 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self, watchdog_func: Callable[..., Any], watchdog_check_interval: int
     ) -> None:
         """Watchdog will shutdown the threadpool on certain conditions being met."""
+        if not self.max_total_retry and not callable(watchdog_func):
+            return  # no need to run watchdog thread if not checks are performed
+
         while not self._shutdown and not _retry_task_map_global_shutdown:
             if self.max_total_retry and self._retry_count > self.max_total_retry:
                 logger.warning(f"exceed {self.max_total_retry=}, abort")
@@ -170,12 +173,14 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         Yields:
             The Future instance of each processed tasks.
         """
-        if self._shutdown or _retry_task_map_global_shutdown:
-            raise ValueError("threadpool is shutdown or broken, abort")
-
         with self._start_lock:
-            if self._started:
-                raise ValueError("ensure_tasks cannot be started more than once")
+            if self._started or self._shutdown or _retry_task_map_global_shutdown:
+                try:
+                    raise ValueError(
+                        "pool shutdowned or ensure_tasks cannot be started more than once"
+                    )
+                finally:  # do not hold refs to input params
+                    del self, func, iterable
             self._started = True
 
         # ------ dispatch tasks from iterable ------ #
@@ -184,20 +189,18 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         ).start()
 
         # ------ ensure all tasks are finished ------ #
-        while True:
+        while self._total_task_num != 0 and self._finished_task == self._total_task_num:
+            # shutdown by upper caller or interpreter exits
             if self._shutdown or _retry_task_map_global_shutdown:
-                logger.warning(
-                    f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
-                )
-                raise TasksEnsureFailed
+                _err_msg = f"failed to ensure all tasks, {self._finished_task=}, {self._total_task_num=}"
+                logger.warning(_err_msg)
+
+                try:
+                    raise TasksEnsureFailed(_err_msg)
+                finally:
+                    del self, func, iterable
 
             try:
                 yield self._fut_queue.get_nowait()
             except Empty:
-                if (
-                    self._total_task_num == 0
-                    or self._finished_task != self._total_task_num
-                ):
-                    time.sleep(self.ensure_tasks_pull_interval)
-                    continue
-                return
+                time.sleep(self.ensure_tasks_pull_interval)
