@@ -307,7 +307,7 @@ class Downloader:
         Returns:
             Download error, downloaded file size, traffic on wire.
         """
-        proxies, cookies = self._proxies, self._cookies
+        proxies = self._proxies
 
         prepared_url = url
         if self.use_http_if_http_proxy_set and proxies and "http" in proxies:
@@ -331,8 +331,6 @@ class Downloader:
         with self._session.get(
             prepared_url,
             stream=True,
-            proxies=proxies,
-            cookies=cookies,
             headers=prepared_headers,
         ) as resp, open(dst, "wb") as dst_fp:
             resp.raise_for_status()
