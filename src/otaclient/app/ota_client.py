@@ -223,18 +223,20 @@ class _OTAUpdater:
             logger.error(_err_msg)
             raise ValueError(_err_msg)
 
-    def _download_file(self, entry: ota_metadata_types.RegularInf) -> tuple[int, int]:
+    def _download_file(
+        self, entry: ota_metadata_types.RegularInf
+    ) -> tuple[int, int, int]:
         """Download a single OTA image file.
 
         This is the single task being executed in the downloader pool.
 
         Returns:
-            Downloaded files size and traffic on wire.
+            Retry counts, downloaded files size and traffic on wire.
         """
         _fhash_str = entry.get_hash()
         # special treatment to empty file
         if _fhash_str == EMPTY_FILE_SHA256:
-            return 0, 0
+            return 0, 0, 0
 
         entry_url, compression_alg = self._otameta.get_download_url(entry)
         downloader = self._downloader_mapper[threading.get_native_id()]
@@ -269,11 +271,11 @@ class _OTAUpdater:
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(self._download_file, download_list):
                 if not (exp := _fut.exception()):
-                    file_size, _ = _fut.result()
+                    err_count, file_size, _ = _fut.result()
                     self._update_stats_collector.report_download_ota_files(
                         RegInfProcessedStats(
                             op=RegProcessOperation.DOWNLOAD_REMOTE_COPY,
-                            download_errors=0,
+                            download_errors=err_count,
                             size=file_size,
                         )
                     )
