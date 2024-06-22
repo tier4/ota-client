@@ -119,17 +119,16 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
+        self._concurrent_semaphore.release()  # NOTE: always release se first
         self._fut_queue.put_nowait(fut)
 
         # ------ on task succeeded ------ #
         if not fut.exception():
-            self._concurrent_semaphore.release()
             self._finished_task = next(self._finished_task_counter)
             return
 
         # ------ on threadpool shutdown(by watchdog) ------ #
         if self._shutdown or _retry_task_map_global_shutdown:
-            self._concurrent_semaphore.release()  # wakeup dispatcher
             return
 
         # ------ on task failed ------ #
@@ -142,10 +141,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def _dispatcher(self, func: Callable[[T], RT], iterable: Iterable[T]) -> None:
         try:
             for _tasks_count, item in enumerate(iterable, start=1):
-                if self._shutdown or _retry_task_map_global_shutdown:
-                    return
-
                 self._concurrent_semaphore.acquire()
+                # NOTE: on pool shutdown, the submit method will throw exceptions
                 fut = self.submit(func, item)
                 fut.add_done_callback(partial(self._task_done_cb, item=item, func=func))
         except Exception as e:
