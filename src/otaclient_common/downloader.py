@@ -26,12 +26,16 @@ import logging
 import threading
 from abc import abstractmethod
 from functools import wraps
+from io import IOBase
 from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol
 from urllib.parse import urlsplit
 
 import requests
 import zstandard
+from requests.adapters import HTTPAdapter
 from requests.structures import CaseInsensitiveDict as CIDict
+from urllib3.response import HTTPResponse
+from urllib3.util.retry import Retry
 
 from ota_proxy import OTAFileCacheControl
 from otaclient_common.typing import P, StrOrPath, T
@@ -72,7 +76,9 @@ class DecompressionAdapterProtocol(Protocol):
     """DecompressionAdapter protocol for Downloader."""
 
     @abstractmethod
-    def iter_chunk(self, src_stream: IO[bytes] | ByteString) -> Iterator[bytes]:
+    def iter_chunk(
+        self, src_stream: IO[bytes] | IOBase | ByteString
+    ) -> Iterator[bytes]:
         """Decompresses the source stream.
 
         This method takes a src_stream of compressed file and
@@ -197,6 +203,12 @@ def cache_retry_decorator(func: Callable[P, T]) -> Callable[P, T]:
     return _wrapper
 
 
+DEFAULT_CONNECTION_POOL_SIZE = 20
+DEFAULT_RETRY_COUNT = 7
+# retry on common serverside errors and clientside errors
+DEFAULT_RETRY_STATUS = frozenset([413, 429, 500, 502, 503, 504])
+
+
 class Downloader:
 
     def __init__(
@@ -207,6 +219,9 @@ class Downloader:
         use_http_if_http_proxy_set: bool = True,
         cookies: dict[str, str] | None = None,
         proxies: dict[str, str] | None = None,
+        connection_pool_size: int = DEFAULT_CONNECTION_POOL_SIZE,
+        retry_on_status: frozenset[int] = DEFAULT_RETRY_STATUS,
+        retry_count: int = DEFAULT_RETRY_COUNT,
     ) -> None:
         """Init an downloader instance for single thread use.
 
@@ -226,7 +241,18 @@ class Downloader:
         # downloading stats collecting
         self._downloaded_bytes = 0
         # ------ setup the requests.Session ------ #
-        self._session = requests.Session()
+        self._session = session = requests.Session()
+        http_adapter = HTTPAdapter(
+            pool_connections=connection_pool_size,
+            pool_maxsize=connection_pool_size,
+            max_retries=Retry(
+                total=retry_count,
+                status_forcelist=retry_on_status,
+                allowed_methods=["GET"],
+            ),
+        )
+        session.mount("https://", http_adapter)
+        session.mount("http://", http_adapter)
 
         # ------ compression support ------ #
         self._compression_support_matrix = {}
@@ -263,7 +289,7 @@ class Downloader:
         digest: str | None = None,
         headers: dict[str, str] | None = None,
         compression_alg: str | None = None,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         """_summary_
 
         Args:
@@ -300,7 +326,7 @@ class Downloader:
             prepared_headers = headers
 
         digestobj = self.hash_func()
-        downloaded_file_size, traffic_on_wire = 0, 0
+        err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
         with self._session.get(
             prepared_url,
@@ -318,7 +344,10 @@ class Downloader:
                 resp_headers=resp.headers,
             )
 
-            raw_resp = resp.raw  # the underlaying urllib3 Response object
+            raw_resp: HTTPResponse = resp.raw
+            if _retries := raw_resp.retries:
+                err_count = len(_retries)
+
             if decompressor := self._get_decompressor(compression_alg):
                 data_iter = decompressor.iter_chunk(raw_resp)
             else:
@@ -345,7 +374,7 @@ class Downloader:
             _err_msg = f"hash verification failed: {digest=} != {calc_digest=} for {prepared_url}"
             raise HashVerificaitonError(_err_msg)
 
-        return downloaded_file_size, traffic_on_wire
+        return err_count, downloaded_file_size, traffic_on_wire
 
 
 class DownloaderPool:
