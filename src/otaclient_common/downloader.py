@@ -34,6 +34,7 @@ import requests
 import zstandard
 from requests.adapters import HTTPAdapter
 from requests.structures import CaseInsensitiveDict as CIDict
+from requests.utils import add_dict_to_cookiejar
 from urllib3.response import HTTPResponse
 from urllib3.util.retry import Retry
 
@@ -234,14 +235,22 @@ class Downloader:
         self.chunk_size = chunk_size
         self.hash_func = hash_func
 
-        self._cookies: dict[str, str] = cookies.copy() if cookies else {}
-        self._proxies: dict[str, str] = proxies.copy() if proxies else {}
-        self.use_http_if_http_proxy_set = use_http_if_http_proxy_set
+        parsed_cookies = cookies.copy() if cookies else {}
+        self._proxies = parsed_proxies = proxies.copy() if proxies else {}
+        self._force_http = use_http_if_http_proxy_set and "http" in parsed_proxies
 
         # downloading stats collecting
         self._downloaded_bytes = 0
         # ------ setup the requests.Session ------ #
         self._session = session = requests.Session()
+
+        # configure cookies and proxies
+        # NOTE that proxie setting here will be overwritten by environmental variables
+        #   if proxies are also set by environmental variables.
+        session.proxies.update(parsed_proxies)
+        session.cookies = add_dict_to_cookiejar(session.cookies, parsed_cookies)
+
+        # configure retry strategy
         http_adapter = HTTPAdapter(
             pool_connections=connection_pool_size,
             pool_maxsize=connection_pool_size,
@@ -310,7 +319,7 @@ class Downloader:
         proxies = self._proxies
 
         prepared_url = url
-        if self.use_http_if_http_proxy_set and proxies and "http" in proxies:
+        if self._force_http:
             prepared_url = urlsplit(url)._replace(scheme="http").geturl()
 
         # NOTE: only inject ota-file-cache-control-header if we have upper otaproxy,
@@ -329,9 +338,7 @@ class Downloader:
         err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
         with self._session.get(
-            prepared_url,
-            stream=True,
-            headers=prepared_headers,
+            prepared_url, stream=True, headers=prepared_headers
         ) as resp, open(dst, "wb") as dst_fp:
             resp.raise_for_status()
 
