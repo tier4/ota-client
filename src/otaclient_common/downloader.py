@@ -351,7 +351,7 @@ class Downloader:
 
             raw_resp: HTTPResponse = resp.raw
             if _retries := raw_resp.retries:
-                err_count = len(_retries)
+                err_count = len(_retries.history)
 
             if decompressor := self._get_decompressor(compression_alg):
                 data_iter = decompressor.iter_chunk(raw_resp)
