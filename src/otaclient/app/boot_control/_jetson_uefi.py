@@ -78,19 +78,18 @@ class _NVBootctrl(NVBootctrlCommon):
         pa = re.compile(r"\s*Current version:\s(?P<bsp_ver>[\.\d]+)\s*")
 
         if not (ma := pa.search(_raw)):
-            logger.warning("nvbootctrl failed to report BSP version")
-            return
+            _err_msg = "nvbootctrl failed to report BSP version"
+            logger.error(_err_msg)
+            raise ValueError(_err_msg)
 
         bsp_ver_str = (
             f"r{ma.group('bsp_ver')}"  # NOTE: need to add 'r' prefix back here
         )
         bsp_ver = BSPVersion.parse(bsp_ver_str)
         if bsp_ver.major_rev == 0:
-            logger.warning(
-                f"invalid BSP version: {bsp_ver_str}, this might indicate broken firmware"
-            )
-            logger.warning("return empty bsp version")
-            return
+            _err_msg = f"invalid BSP version: {bsp_ver_str}, this might indicate broken firmware!"
+            logger.warning(_err_msg)
+            raise ValueError(_err_msg)
         return bsp_ver
 
 
