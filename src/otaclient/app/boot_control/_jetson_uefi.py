@@ -513,14 +513,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             boot_cfg.OTA_STATUS_DIR
         ).relative_to("/")
 
-        # NOTE: this hint file is referred by finalize_switching_boot
-        self.current_fwupdate_hint_fpath = (
-            current_ota_status_dir / boot_cfg.FIRMWARE_UPDATE_HINT_FNAME
-        )
-        self.standby_fwupdate_hint_fpath = (
-            standby_ota_status_dir / boot_cfg.FIRMWARE_UPDATE_HINT_FNAME
-        )
-
         try:
             # startup boot controller
             self._uefi_control = uefi_control = _UEFIBoot()
@@ -569,11 +561,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         except Exception as e:
             _err_msg = f"failed to start jetson-uefi controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
-        finally:
-            # NOTE: the hint file is checked during OTAStatusFilesControl __init__,
-            #   by finalize_switching_boot if we are in first reboot after OTA.
-            #   once we have done parsing the hint file, we must remove it immediately.
-            self.current_fwupdate_hint_fpath.unlink(missing_ok=True)
 
     def _finalize_switching_boot(self) -> bool:
         """Verify firmware update result and write firmware BSP version file.
