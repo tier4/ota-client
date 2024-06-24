@@ -95,6 +95,11 @@ class _NVBootctrl(NVBootctrlCommon):
             raise ValueError(_err_msg)
         return bsp_ver
 
+    @classmethod
+    def verify(cls) -> str:
+        """Verify the bootloader and rootfs boot."""
+        return cls._nvbootctrl("verify", check_output=True)
+
 
 EFIVARS_FSTYPE = "efivarfs"
 EFIVARS_DPATH = "/sys/firmware/efi/efivars/"
@@ -568,6 +573,11 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         NOTE that if capsule firmware update failed, we must be booted back to the
             previous slot, so actually we don't need to do any checks here.
         """
+        try:
+            fw_update_verify = _NVBootctrl.verify()
+            logger.info(f"nvbootctrl verify: {fw_update_verify}")
+        except Exception as e:
+            logger.warning(f"nvbootctrl verify failed: {e!r}")
         return True
 
     def _capsule_firmware_update(self) -> bool:
