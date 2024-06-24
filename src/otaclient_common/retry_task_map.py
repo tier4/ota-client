@@ -109,8 +109,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
+        self._concurrent_semaphore.release()  # always release se first
         self._fut_queue.put_nowait(fut)
-        self._concurrent_semaphore.release()
 
         # ------ on task succeeded ------ #
         if not fut.exception():
