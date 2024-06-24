@@ -210,6 +210,8 @@ class FirmwareBSPVersionControl:
         *,
         current_firmware_bsp_vf: Path,
     ) -> None:
+        self.current_slot, self.standby_slot = current_slot, SLOT_FLIP[current_slot]
+
         self._version = FirmwareBSPVersion()
         try:
             self._version = FirmwareBSPVersion.model_validate_json(
@@ -228,12 +230,21 @@ class FirmwareBSPVersionControl:
         """Write firmware_bsp_version from memory to firmware_bsp_version file."""
         write_str_to_file_sync(fw_bsp_fpath, self._version.model_dump_json())
 
-    def __getitem__(self, slot_id: SlotID) -> BSPVersion | None:
-        return self._version.get_by_slot(slot_id)
+    @property
+    def current_slot_fw_ver(self) -> BSPVersion | None:
+        return self._version.get_by_slot(self.current_slot)
 
-    def __setitem__(self, slot_id: SlotID, version: BSPVersion | None) -> None:
-        """Set <slot_id> slot's firmware version into memory."""
-        self._version.set_by_slot(slot_id, version)
+    @current_slot_fw_ver.setter
+    def current_slot_fw_ver(self, bsp_ver: BSPVersion | None):
+        self._version.set_by_slot(self.current_slot, bsp_ver)
+
+    @property
+    def standby_slot_fw_ver(self) -> BSPVersion | None:
+        return self._version.get_by_slot(self.standby_slot)
+
+    @standby_slot_fw_ver.setter
+    def standby_slot_fw_ver(self, bsp_ver: BSPVersion | None):
+        self._version.set_by_slot(self.standby_slot, bsp_ver)
 
 
 BSP_VER_PA = re.compile(
