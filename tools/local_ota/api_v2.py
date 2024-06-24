@@ -89,7 +89,7 @@ async def main(
         )
         logger.info(f"update response: {resp}")
     except ECUNoResponse as e:
-        _err_msg = f"ECU doesn't response to the {req}: {e}"
+        _err_msg = f"ECU doesn't response to the request on-time({timeout=}): {e}"
         logger.error(_err_msg)
 
 
