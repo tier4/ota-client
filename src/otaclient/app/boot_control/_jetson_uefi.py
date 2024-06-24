@@ -31,7 +31,7 @@ from typing import Any, Generator
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import subprocess_call, write_str_to_file_sync
+from otaclient_common.common import subprocess_call, write_str_to_file_sync, file_sha256
 from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
@@ -50,6 +50,9 @@ from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 
+# TODO: calculate this table
+L4TLAUNCHER_BSP_VER_SHA256_MAP: dict[str, BSPVersion] = {}
+
 
 class JetsonUEFIBootControlError(Exception):
     """Exception type for covering jetson-uefi related errors."""
@@ -63,7 +66,7 @@ class _NVBootctrl(NVBootctrlCommon):
     """
 
     @classmethod
-    def get_current_fw_bsp_version(cls) -> BSPVersion | None:
+    def get_current_fw_bsp_version(cls) -> BSPVersion:
         """Get current boot chain's firmware BSP version with nvbootctrl."""
         _raw = cls.dump_slots_info()
         """Example:
@@ -93,61 +96,58 @@ class _NVBootctrl(NVBootctrlCommon):
         return bsp_ver
 
 
+EFIVARS_FSTYPE = "efivarfs"
+EFIVARS_DPATH = "/sys/firmware/efi/efivars/"
+
+
 class CapsuleUpdate:
     """Firmware update implementation using Capsule update."""
 
-    EFIVARS_FSTYPE = "efivarfs"
-
     def __init__(
-        self, boot_parent_devpath: StrOrPath, standby_slot_mp: StrOrPath
+        self,
+        boot_parent_devpath: StrOrPath,
+        standby_slot_mp: StrOrPath,
+        *,
+        ota_image_bsp_ver: BSPVersion,
+        fw_bsp_ver_control: FirmwareBSPVersionControl,
     ) -> None:
+        self.fw_bsp_ver_control = fw_bsp_ver_control
+        self.ota_image_bsp_ver = ota_image_bsp_ver
+
         # NOTE: use the esp partition at the current booted device
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
         #   we use the esp at nvme0n1.
-        boot_parent_devpath = str(boot_parent_devpath)
         self.esp_mp = Path(boot_cfg.ESP_MOUNTPOINT)
+        self.esp_boot_dir = self.esp_mp / "EFI" / "BOOT"
+        self.l4tlauncher_ver_fpath = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_VER_FNAME
+        self.bootaa64_at_esp = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
+        self.bootaa64_at_esp_bak = (
+            self.esp_boot_dir / f"{boot_cfg.L4TLAUNCHER_FNAME}_bak"
+        )
 
         # NOTE: we get the update capsule from the standby slot
         self.standby_slot_mp = Path(standby_slot_mp)
+        self.esp_part = self._detect_esp_dev(boot_parent_devpath)
 
-        # NOTE: if boots from external, expects to have multiple esp parts,
-        #   we need to get the one at our booted parent dev.
-        esp_parts = CMDHelperFuncs.get_dev_by_token(
-            token="PARTLABEL", value=boot_cfg.ESP_PARTLABEL
-        )
-        if not esp_parts:
-            raise JetsonUEFIBootControlError("no ESP partition presented")
-
-        for _esp_part in esp_parts:
-            if _esp_part.find(boot_parent_devpath) != -1:
-                logger.info(f"find esp partition at {_esp_part}")
-                esp_part = _esp_part
-                break
-        else:
-            _err_msg = f"failed to find esp partition on {boot_parent_devpath}"
-            logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg)
-        self.esp_part = esp_part
-
-    @classmethod
+    @staticmethod
     @contextlib.contextmanager
-    def _ensure_efivarfs_mounted(cls) -> Generator[None, Any, None]:
+    def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:
         """Ensure the efivarfs is mounted as rw."""
-        if CMDHelperFuncs.is_target_mounted(boot_cfg.EFIVARS_DPATH):
+        if CMDHelperFuncs.is_target_mounted(EFIVARS_DPATH):
             options = "remount,rw,nosuid,nodev,noexec,relatime"
         else:
             logger.warning(
-                f"efivars is not mounted! try to mount it at {boot_cfg.EFIVARS_DPATH}"
+                f"efivars is not mounted! try to mount it at {EFIVARS_DPATH}"
             )
             options = "rw,nosuid,nodev,noexec,relatime"
 
         # fmt: off
         cmd = [
             "mount",
-            "-t", cls.EFIVARS_FSTYPE,
+            "-t", EFIVARS_FSTYPE,
             "-o", options,
-            cls.EFIVARS_FSTYPE,
-            boot_cfg.EFIVARS_DPATH
+            EFIVARS_FSTYPE,
+            EFIVARS_DPATH
         ]
         # fmt: on
         try:
@@ -155,23 +155,28 @@ class CapsuleUpdate:
             yield
         except Exception as e:
             raise JetsonUEFIBootControlError(
-                f"failed to mount {cls.EFIVARS_FSTYPE} on {boot_cfg.EFIVARS_DPATH}: {e!r}"
+                f"failed to mount {EFIVARS_FSTYPE} on {EFIVARS_DPATH}: {e!r}"
             ) from e
 
+    @staticmethod
     @contextlib.contextmanager
-    def _ensure_esp_mounted(self) -> Generator[None, Any, None]:
+    def _ensure_esp_mounted(
+        esp_dev: StrOrPath, mount_point: StrOrPath
+    ) -> Generator[None, Any, None]:
         """Mount the esp partition and then umount it."""
-        self.esp_mp.mkdir(exist_ok=True, parents=True)
+        mount_point = Path(mount_point)
+        mount_point.mkdir(exist_ok=True, parents=True)
+
         try:
-            CMDHelperFuncs.mount_rw(self.esp_part, self.esp_mp)
+            CMDHelperFuncs.mount_rw(str(esp_dev), mount_point)
             yield
-            CMDHelperFuncs.umount(self.esp_mp, raise_exception=False)
+            CMDHelperFuncs.umount(mount_point, raise_exception=False)
         except Exception as e:
-            _err_msg = f"failed to mount {self.esp_part=} to {self.esp_mp}: {e!r}"
+            _err_msg = f"failed to mount {esp_dev} to {mount_point}: {e!r}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg) from e
 
-    def _prepare_payload(self) -> bool:
+    def _prepare_fwupdate_capsule(self) -> bool:
         """Copy the Capsule update payloads to specific location at esp partition.
 
         Returns:
@@ -201,37 +206,104 @@ class CapsuleUpdate:
                     f"failed to copy {capsule_fname} from {fw_loc_at_standby_slot} to {capsule_at_esp}: {e!r}"
                 )
                 logger.warning(f"skip {capsule_fname}")
-
-        # ------ prepare L4TLauncher update ------ #
-        # NOTE(20240611): Assume that the new L4TLauncher always keeps backward compatibility to
-        #   work with old firmware. This assumption MUST be confirmed on the real ECU.
-        if firmware_package_configured:
-            logger.info("capsule update is scheduled, also update L4TLauncher")
-            esp_boot_dir = self.esp_mp / "EFI" / "BOOT"
-
-            # the canonical boot entry used by UEFI
-            bootaa64_at_esp = esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
-
-            bootaa64_at_esp_bak = esp_boot_dir / f"{boot_cfg.L4TLAUNCHER_FNAME}_bak"
-            # l4tlauncher is stored as <standby_fw_loc>/BOOTAA64.efi
-            bootaa64_at_standby = fw_loc_at_standby_slot / boot_cfg.L4TLAUNCHER_FNAME
-
-            shutil.copy(bootaa64_at_esp, bootaa64_at_esp_bak)
-            shutil.copy(bootaa64_at_standby, bootaa64_at_esp)
-            os.sync()
         return firmware_package_configured
 
-    def _write_efivar(self) -> None:
+    def _update_l4tlauncher(self) -> bool:
+        """update L4TLauncher with OTA image's one."""
+        ota_image_l4tlauncher_ver = self.ota_image_bsp_ver
+        logger.warning(f"update the l4tlauncher to version {ota_image_l4tlauncher_ver}")
+
+        # new BOOTAA64.efi is located at /opt/ota_package/BOOTAA64.efi
+        ota_image_bootaa64 = (
+            self.standby_slot_mp
+            / Path(boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS).relative_to("/")
+            / boot_cfg.L4TLAUNCHER_FNAME
+        )
+        if not ota_image_bootaa64.is_file():
+            logger.warning(f"{ota_image_bootaa64} not found, skip update l4tlauncher")
+            return False
+
+        shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
+        shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
+        write_str_to_file_sync(
+            self.l4tlauncher_ver_fpath, ota_image_l4tlauncher_ver.dump()
+        )
+        os.sync()
+        return True
+
+    @staticmethod
+    def _write_magic_efivar() -> None:
         """Write magic efivar to trigger firmware Capsule update in next boot.
 
         Raises:
             JetsonUEFIBootControlError on failed Capsule update preparing.
         """
-        magic_efivar_fpath = (
-            Path(boot_cfg.EFIVARS_DPATH) / boot_cfg.UPDATE_TRIGGER_EFIVAR
-        )
+        magic_efivar_fpath = Path(EFIVARS_DPATH) / boot_cfg.UPDATE_TRIGGER_EFIVAR
         magic_efivar_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
         os.sync()
+
+    def _detect_l4tlauncher_version(self) -> BSPVersion:
+        l4tlauncher_bsp_ver = None
+        try:
+            l4tlauncher_bsp_ver = BSPVersion.parse(
+                self.l4tlauncher_ver_fpath.read_text()
+            )
+        except Exception as e:
+            logger.warning(f"missing or invalid l4tlauncher version file: {e!r}")
+            self.l4tlauncher_ver_fpath.unlink(missing_ok=True)
+
+        bootaa64_at_esp = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
+        # NOTE(20240624): since the number of l4tlauncher version is limited,
+        #   we can lookup against a pre-calculated sha256 digest map.
+        if l4tlauncher_bsp_ver is None:
+            _l4tlauncher_sha256_digest = file_sha256(bootaa64_at_esp)
+            logger.info(
+                f"try to determine the l4tlauncher verison by hash: {_l4tlauncher_sha256_digest}"
+            )
+            l4tlauncher_bsp_ver = L4TLAUNCHER_BSP_VER_SHA256_MAP.get(
+                _l4tlauncher_sha256_digest
+            )
+
+        current_slot_fw_bsp_ver = self.fw_bsp_ver_control.current_slot_fw_ver
+        # NOTE(20240624): if we failed to detect the l4tlauncher's version,
+        #   we assume that the launcher is the same version as current slot's fw.
+        #   This is typically case for a newly OTA inital setup ECU.
+        if l4tlauncher_bsp_ver is None:
+            logger.warning(
+                (
+                    "failed to determine the l4tlauncher's version, assuming "
+                    f"version is the same as current slot's fw version: {current_slot_fw_bsp_ver}"
+                )
+            )
+            l4tlauncher_bsp_ver = current_slot_fw_bsp_ver
+            write_str_to_file_sync(
+                self.l4tlauncher_ver_fpath, l4tlauncher_bsp_ver.dump()
+            )
+        logger.info(f"finish detecting l4tlauncher version: {l4tlauncher_bsp_ver}")
+        return l4tlauncher_bsp_ver
+
+    @staticmethod
+    def _detect_esp_dev(boot_parent_devpath: StrOrPath) -> str:
+        # NOTE: if boots from external, expects to have multiple esp parts,
+        #   we need to get the one at our booted parent dev.
+        esp_parts = CMDHelperFuncs.get_dev_by_token(
+            token="PARTLABEL", value=boot_cfg.ESP_PARTLABEL
+        )
+        if not esp_parts:
+            raise JetsonUEFIBootControlError("no ESP partition presented")
+
+        for _esp_part in esp_parts:
+            if _esp_part.find(str(boot_parent_devpath)) != -1:
+                logger.info(f"find esp partition at {_esp_part}")
+                esp_part = _esp_part
+                break
+        else:
+            _err_msg = f"failed to find esp partition on {boot_parent_devpath}"
+            logger.error(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg)
+        return esp_part
+
+    # APIs
 
     def firmware_update(self) -> bool:
         """Trigger firmware update in next boot.
@@ -239,14 +311,27 @@ class CapsuleUpdate:
         Returns:
             True if firmware update is configured, False if there is no firmware update.
         """
-        with self._ensure_esp_mounted():
-            if not self._prepare_payload():
+        standby_slot_fw_bsp_ver = self.fw_bsp_ver_control.standby_slot_fw_ver
+        if (
+            standby_slot_fw_bsp_ver
+            and standby_slot_fw_bsp_ver >= self.ota_image_bsp_ver
+        ):
+            logger.info(
+                (
+                    "standby slot has newer or equal ver of firmware, skip firmware update: "
+                    f"{standby_slot_fw_bsp_ver=}, {self.ota_image_bsp_ver=}"
+                )
+            )
+            return False
+
+        with self._ensure_esp_mounted(self.esp_part, self.esp_mp):
+            if not self._prepare_fwupdate_capsule():
                 logger.info("no firmware file is prepared, skip firmware update")
                 return False
 
         with self._ensure_efivarfs_mounted():
             try:
-                self._write_efivar()
+                self._write_magic_efivar()
             except Exception as e:
                 logger.warning(
                     (
@@ -259,29 +344,30 @@ class CapsuleUpdate:
         logger.info("firmware update package prepare finished")
         return True
 
-    @staticmethod
-    def write_firmware_update_hint_file(
-        hint_fpath: StrOrPath, slot_id: SlotID, bsp_version: BSPVersion
-    ) -> None:
-        """When capsule firmware update is scheduled, write this file to
-        hint the otaclient in the new slot.
+    def l4tlauncher_update(self) -> bool:
+        """Update l4tlauncher if needed.
 
-        Schema: <slot_id>,<bsp_version>
+        NOTE(20240611): Assume that the new L4TLauncher always keeps backward compatibility to
+           work with old firmware. This assumption MUST be confirmed on the real ECU.
+        NOTE(20240611): Only update l4tlauncher but never downgrade it.
+
+        Returns:
+            True if l4tlauncher is updated, else if there is no l4tlauncher update.
         """
-        write_str_to_file_sync(hint_fpath, f"{slot_id},{bsp_version.dump()}")
+        l4tlauncher_bsp_ver = self._detect_l4tlauncher_version()
+        ota_image_l4tlauncher_ver = self.ota_image_bsp_ver
+        if l4tlauncher_bsp_ver >= ota_image_l4tlauncher_ver:
+            logger.info(
+                (
+                    "installed l4tlauncher has newer or equal version of l4tlauncher to OTA image's one, "
+                    f"{l4tlauncher_bsp_ver=}, {ota_image_l4tlauncher_ver=}, "
+                    "skip l4tlauncher update"
+                )
+            )
+            return False
 
-    @staticmethod
-    def parse_firmware_update_hint_file(
-        hint_fpath: StrOrPath,
-    ) -> tuple[SlotID, BSPVersion]:
-        """Parse the slot_id and firmware bsp_version from firmware update hint file."""
-        _raw = Path(hint_fpath).read_text()
-
-        try:
-            _slot_id, _bsp_v = _raw.split(",")
-            return SlotID(_slot_id), BSPVersion.parse(_bsp_v)
-        except Exception as e:
-            raise ValueError(f"invalid hint file content: {_raw}: {e!r}") from e
+        with self._ensure_esp_mounted(self.esp_part, self.esp_mp):
+            return self._update_l4tlauncher()
 
 
 class _UEFIBoot:
@@ -456,7 +542,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             self._standby_fw_bsp_ver_fpath = (
                 standby_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
             )
-            self._firmware_ver_control = fw_ver_control = FirmwareBSPVersionControl(
+            self._firmware_ver_control = fw_bsp_ver = FirmwareBSPVersionControl(
                 current_slot=uefi_control.current_slot,
                 current_slot_firmware_bsp_ver=uefi_control.fw_bsp_version,
                 current_firmware_bsp_vf=self._current_fw_bsp_ver_fpath,
@@ -477,9 +563,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             # NOTE 2: if OTA status is failure, always assume the firmware update on standby slot failed,
             #   and clear the standby slot's fw bsp version record.
             if self._ota_status_control._ota_status == api_types.StatusOta.FAILURE:
-                fw_ver_control[uefi_control.standby_slot] = None
-            fw_ver_control[uefi_control.current_slot] = uefi_control.fw_bsp_version
-            fw_ver_control.write_to_file(self._current_fw_bsp_ver_fpath)
+                fw_bsp_ver.standby_slot_fw_ver = None
+            fw_bsp_ver.current_slot_fw_ver = uefi_control.fw_bsp_version
+            fw_bsp_ver.write_to_file(self._current_fw_bsp_ver_fpath)
         except Exception as e:
             _err_msg = f"failed to start jetson-uefi controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
@@ -490,51 +576,17 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             self.current_fwupdate_hint_fpath.unlink(missing_ok=True)
 
     def _finalize_switching_boot(self) -> bool:
-        """Verify firmware update result and write firmware BSP version file."""
-        current_slot = self._uefi_control.current_slot
-        current_slot_bsp_ver = self._uefi_control.fw_bsp_version
+        """Verify firmware update result and write firmware BSP version file.
 
-        if current_slot_bsp_ver is None:
-            logger.warning("current slot BSP version is unknown, skip")
-            return True
-
-        try:
-            slot_id, bsp_v = CapsuleUpdate.parse_firmware_update_hint_file(
-                self.current_fwupdate_hint_fpath
-            )
-        except FileNotFoundError:
-            logger.info("no firmware update occurs in previous OTA")
-            return True
-        except Exception as e:
-            logger.error(
-                (
-                    f"firmware update hint file presented but invalid: {e!r}"
-                    "assuming firmware update failed"
-                )
-            )
-            self.current_fwupdate_hint_fpath.unlink(missing_ok=True)
-            return False
-
-        # ------ firmware update occurs, check hints ------ #
-
-        if slot_id != current_slot or bsp_v != current_slot_bsp_ver:
-            logger.error(
-                (
-                    "firmware update hint file indicates firmware update occurs on "
-                    f"slot {slot_id} with version {bsp_v}, "
-                    f"but expects slot {current_slot} with version {current_slot_bsp_ver}"
-                )
-            )
-            return False
-
-        # ------ firmware update succeeded, write firmware version file ------ #
-        logger.info(
-            f"successfully update {current_slot=} firmware version to {current_slot_bsp_ver}"
-        )
+        NOTE that if capsule firmware update failed, we must be booted back to the
+            previous slot, so actually we don't need to do any checks here.
+        """
         return True
 
     def _capsule_firmware_update(self) -> bool:
-        """Perform firmware update with UEFI Capsule update.
+        """Perform firmware update with UEFI Capsule update if needed.
+
+        If standby slot is known to have newer bootable firmware, skip firmware update.
 
         Returns:
             True if there is firmware update configured, False for no firmware update.
@@ -542,10 +594,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
 
         standby_bootloader_slot = self._uefi_control.standby_slot
-        standby_firmware_bsp_ver = self._firmware_ver_control[standby_bootloader_slot]
-        logger.info(
-            f"standby slot current firmware ver: {standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}"
-        )
 
         # ------ check if we need to do firmware update ------ #
         skip_firmware_update_hint_file = (
@@ -569,6 +617,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             logger.info("skip firmware update due to new image BSP version unknown")
             return False
 
+        standby_firmware_bsp_ver = self._firmware_ver_control.standby_slot_fw_ver
         if standby_firmware_bsp_ver and standby_firmware_bsp_ver >= new_bsp_v:
             logger.info(
                 f"{standby_bootloader_slot=} has newer or equal ver of firmware, skip firmware update"
@@ -579,19 +628,17 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         firmware_updater = CapsuleUpdate(
             boot_parent_devpath=self._uefi_control.parent_devpath,
             standby_slot_mp=self._mp_control.standby_slot_mount_point,
+            ota_image_bsp_ver=new_bsp_v,
+            fw_bsp_ver_control=self._firmware_ver_control,
         )
         if firmware_updater.firmware_update():
-            CapsuleUpdate.write_firmware_update_hint_file(
-                self.standby_fwupdate_hint_fpath,
-                slot_id=self._uefi_control.standby_slot,
-                bsp_version=new_bsp_v,
-            )
+            firmware_updater.l4tlauncher_update()
 
             logger.info(
-                f"will update to new firmware version in next reboot: {new_bsp_v=}"
-            )
-            logger.info(
-                f"will switch to Slot({standby_bootloader_slot}) on successful firmware update"
+                (
+                    f"will update to new firmware version in next reboot: {new_bsp_v=}, \n"
+                    f"will switch to Slot({standby_bootloader_slot}) on successful firmware update"
+                )
             )
             return True
         return False

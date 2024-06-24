@@ -69,12 +69,11 @@ class JetsonUEFIBootControlConfig(JetsonBootCommon):
     L4TLAUNCHER_FNAME = "BOOTAA64.efi"
     ESP_MOUNTPOINT = "/mnt/esp"
     ESP_PARTLABEL = "esp"
-    EFIVARS_DPATH = "/sys/firmware/efi/efivars/"
     UPDATE_TRIGGER_EFIVAR = "OsIndications-8be4df61-93ca-11d2-aa0d-00e098032b8c"
     MAGIC_BYTES = b"\x07\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00"
     CAPSULE_PAYLOAD_AT_ESP = "EFI/UpdateCapsule"
     CAPSULE_PAYLOAD_AT_ROOTFS = "/opt/ota_package/"
-    FIRMWARE_UPDATE_HINT_FNAME = ".firmware_update"
+    L4TLAUNCHER_VER_FNAME = "l4tlauncher_version.json"
 
     NO_FIRMWARE_UPDATE_HINT_FNAME = ".otaclient_no_firmware_update"
     """Skip firmware update if this file is presented."""
