@@ -200,6 +200,9 @@ class FirmwareBSPVersionControl:
 
     def __init__(
         self,
+        current_slot: SlotID,
+        current_slot_firmware_bsp_ver: BSPVersion | None = None,
+        *,
         current_firmware_bsp_vf: Path,
         standby_firmware_bsp_vf: Path,
     ) -> None:
@@ -208,34 +211,23 @@ class FirmwareBSPVersionControl:
 
         self._version = FirmwareBSPVersion()
         try:
-            self._version = version_from_file = FirmwareBSPVersion.model_validate_json(
+            self._version = FirmwareBSPVersion.model_validate_json(
                 self._current_fw_bsp_vf.read_text()
             )
-            logger.info(
-                f"loaded firmware_version from version file: {version_from_file}"
-            )
         except Exception as e:
-            logger.warning(
-                f"invalid or missing firmware_bsp_verion file, removed: {e!r}"
-            )
+            logger.warning(f"invalid or missing firmware_bsp_verion file: {e!r}")
             self._current_fw_bsp_vf.unlink(missing_ok=True)
 
-        current_slot_bsp_ver = NVBootctrlCommon.get_current_fw_bsp_version()
-        logger.info(
-            f"query current slot bsp ver from nvbootctrl: {current_slot_bsp_ver}"
-        )
-        self._version.set_by_slot(
-            NVBootctrlCommon.get_current_slot(),
-            current_slot_bsp_ver,
-        )
-        self.write_current_firmware_bsp_version()
-        logger.info("write current slot's firmware_bsp_version file")
+        # NOTE: only check the standby slot's firmware BSP version info from file,
+        #   for current slot, always trust the value from nvbootctrl.
+        self._version.set_by_slot(current_slot, current_slot_firmware_bsp_ver)
+        logger.info(f"loading firmware bsp version completed: {self._version}")
 
-    def write_current_firmware_bsp_version(self) -> None:
+    def write_to_currnet_slot(self) -> None:
         """Write firmware_bsp_version from memory to firmware_bsp_version file."""
         write_str_to_file_sync(self._current_fw_bsp_vf, self._version.model_dump_json())
 
-    def write_standby_firmware_bsp_version(self) -> None:
+    def write_to_standby_slot(self) -> None:
         """Write firmware_bsp_version from memory to firmware_bsp_version file."""
         write_str_to_file_sync(self._standby_fw_bsp_vf, self._version.model_dump_json())
 
