@@ -54,6 +54,10 @@ class SlotID(str):
         raise ValueError(f"{_in=} is not valid slot num, should be '0' or '1'.")
 
 
+SLOT_A, SLOT_B = SlotID("0"), SlotID("1")
+SLOT_FLIP = {SLOT_A: SLOT_B, SLOT_B: SLOT_A}
+
+
 class BSPVersion(NamedTuple):
     """BSP version in NamedTuple representation.
 
@@ -96,17 +100,17 @@ class FirmwareBSPVersion(BaseModel):
     slot_b: Optional[BSPVersionStr] = None
 
     def set_by_slot(self, slot_id: SlotID, ver: BSPVersion | None) -> None:
-        if slot_id == SlotID("0"):
+        if slot_id == SLOT_A:
             self.slot_a = ver
-        elif slot_id == SlotID("1"):
+        elif slot_id == SLOT_B:
             self.slot_b = ver
         else:
             raise ValueError(f"invalid slot_id: {slot_id}")
 
     def get_by_slot(self, slot_id: SlotID) -> BSPVersion | None:
-        if slot_id == SlotID("0"):
+        if slot_id == SLOT_A:
             return self.slot_a
-        elif slot_id == SlotID("1"):
+        elif slot_id == SLOT_B:
             return self.slot_b
         else:
             raise ValueError(f"invalid slot_id: {slot_id}")
@@ -172,7 +176,7 @@ class NVBootctrlCommon:
         NOTE: this method is implemented with nvbootctrl get-current-slot.
         """
         current_slot = cls.get_current_slot(target=target)
-        return SlotID("0") if current_slot == "1" else SlotID("1")
+        return SLOT_FLIP[current_slot]
 
     @classmethod
     def set_active_boot_slot(
