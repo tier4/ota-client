@@ -206,7 +206,7 @@ class FirmwareBSPVersionControl:
     def __init__(
         self,
         current_slot: SlotID,
-        current_slot_firmware_bsp_ver: BSPVersion | None = None,
+        current_slot_firmware_bsp_ver: BSPVersion,
         *,
         current_firmware_bsp_vf: Path,
     ) -> None:
@@ -231,8 +231,9 @@ class FirmwareBSPVersionControl:
         write_str_to_file_sync(fw_bsp_fpath, self._version.model_dump_json())
 
     @property
-    def current_slot_fw_ver(self) -> BSPVersion | None:
-        return self._version.get_by_slot(self.current_slot)
+    def current_slot_fw_ver(self) -> BSPVersion:
+        assert (res := self._version.get_by_slot(self.current_slot))
+        return res
 
     @current_slot_fw_ver.setter
     def current_slot_fw_ver(self, bsp_ver: BSPVersion | None):
