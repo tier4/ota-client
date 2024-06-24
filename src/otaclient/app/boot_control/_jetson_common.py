@@ -155,7 +155,6 @@ class NVBootctrlCommon:
         )
         if check_output:
             return res.stdout.decode()
-        return
 
     @classmethod
     def get_current_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
@@ -187,37 +186,6 @@ class NVBootctrlCommon:
         """Prints info for slots."""
         cmd = "dump-slots-info"
         return cls._nvbootctrl(cmd, target=target, check_output=True)
-
-    @classmethod
-    def get_current_fw_bsp_version(cls) -> BSPVersion | None:
-        """Get current boot chain's firmware BSP version with nvbootctrl."""
-        _raw = cls.dump_slots_info()
-        """Example:
-            Current version: 35.4.1
-            Capsule update status: 1
-            Current bootloader slot: A
-            Active bootloader slot: A
-            num_slots: 2
-            slot: 0,             status: normal
-            slot: 1,             status: normal
-        """
-        pa = re.compile(r"\s*Current version:\s(?P<bsp_ver>[\.\d]+)\s*")
-
-        if not (ma := pa.search(_raw)):
-            logger.warning("nvbootctrl failed to report BSP version")
-            return
-
-        bsp_ver_str = (
-            f"r{ma.group('bsp_ver')}"  # NOTE: need to add 'r' prefix back here
-        )
-        bsp_ver = BSPVersion.parse(bsp_ver_str)
-        if bsp_ver.major_rev == 0:
-            logger.warning(
-                f"invalid BSP version: {bsp_ver_str}, this might indicate broken firmware"
-            )
-            logger.warning("return empty bsp version")
-            return
-        return bsp_ver
 
 
 class FirmwareBSPVersionControl:
