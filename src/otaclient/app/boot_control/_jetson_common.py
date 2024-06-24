@@ -31,6 +31,7 @@ from typing_extensions import Annotated, Literal, Self
 
 from otaclient.app.boot_control._common import CMDHelperFuncs
 from otaclient_common.common import copytree_identical, write_str_to_file_sync
+from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
@@ -204,40 +205,29 @@ class FirmwareBSPVersionControl:
         current_slot_firmware_bsp_ver: BSPVersion | None = None,
         *,
         current_firmware_bsp_vf: Path,
-        standby_firmware_bsp_vf: Path,
     ) -> None:
-        self._current_fw_bsp_vf = current_firmware_bsp_vf
-        self._standby_fw_bsp_vf = standby_firmware_bsp_vf
-
         self._version = FirmwareBSPVersion()
         try:
             self._version = FirmwareBSPVersion.model_validate_json(
-                self._current_fw_bsp_vf.read_text()
+                current_firmware_bsp_vf.read_text()
             )
         except Exception as e:
             logger.warning(f"invalid or missing firmware_bsp_verion file: {e!r}")
-            self._current_fw_bsp_vf.unlink(missing_ok=True)
+            current_firmware_bsp_vf.unlink(missing_ok=True)
 
         # NOTE: only check the standby slot's firmware BSP version info from file,
         #   for current slot, always trust the value from nvbootctrl.
         self._version.set_by_slot(current_slot, current_slot_firmware_bsp_ver)
         logger.info(f"loading firmware bsp version completed: {self._version}")
 
-    def write_to_currnet_slot(self) -> None:
+    def write_to_file(self, fw_bsp_fpath: StrOrPath) -> None:
         """Write firmware_bsp_version from memory to firmware_bsp_version file."""
-        write_str_to_file_sync(self._current_fw_bsp_vf, self._version.model_dump_json())
+        write_str_to_file_sync(fw_bsp_fpath, self._version.model_dump_json())
 
-    def write_to_standby_slot(self) -> None:
-        """Write firmware_bsp_version from memory to firmware_bsp_version file."""
-        write_str_to_file_sync(self._standby_fw_bsp_vf, self._version.model_dump_json())
-
-    def get_version_by_slot(self, slot_id: SlotID) -> Optional[BSPVersion]:
-        """Get <slot_id> slot's firmware version from memory."""
+    def __getitem__(self, slot_id: SlotID) -> BSPVersion | None:
         return self._version.get_by_slot(slot_id)
 
-    def set_version_by_slot(
-        self, slot_id: SlotID, version: Optional[BSPVersion]
-    ) -> None:
+    def __setitem__(self, slot_id: SlotID, version: BSPVersion | None) -> None:
         """Set <slot_id> slot's firmware version into memory."""
         self._version.set_by_slot(slot_id, version)
 
