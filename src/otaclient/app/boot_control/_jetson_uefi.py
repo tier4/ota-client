@@ -310,16 +310,16 @@ class _UEFIBoot:
         # ------ check BSP version ------ #
         # check firmware BSP version
         try:
-            self.bsp_version = bsp_version = (
-                NVBootctrlCommon.get_current_fw_bsp_version()
+            self.fw_bsp_version = fw_bsp_version = (
+                _NVBootctrl.get_current_fw_bsp_version()
             )
-            assert bsp_version, "bsp version information not available"
-            logger.info(f"current slot firmware BSP version: {bsp_version}")
+            assert fw_bsp_version, "bsp version information not available"
+            logger.info(f"current slot firmware BSP version: {fw_bsp_version}")
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
-        logger.info(f"{bsp_version=}")
+        logger.info(f"{fw_bsp_version=}")
 
         # check rootfs BSP version
         try:
@@ -331,7 +331,7 @@ class _UEFIBoot:
             logger.warning(f"failed to detect rootfs BSP version: {e!r}")
             self.rootfs_bsp_verion = rootfs_bsp_version = None
 
-        if rootfs_bsp_version and rootfs_bsp_version > bsp_version:
+        if rootfs_bsp_version and rootfs_bsp_version > fw_bsp_version:
             logger.warning(
                 (
                     "current slot's rootfs bsp version is newer than the firmware bsp version, "
@@ -341,8 +341,8 @@ class _UEFIBoot:
 
         # ------ sanity check, currently jetson-uefi only supports >= R35.2 ----- #
         # only after R35.2, the Capsule Firmware update is available.
-        if not bsp_version >= (35, 2, 0):
-            _err_msg = f"jetson-uefi only supports BSP version >= R35.2, but get {bsp_version=}. "
+        if fw_bsp_version < (35, 2, 0):
+            _err_msg = f"jetson-uefi only supports BSP version >= R35.2, but get {fw_bsp_version=}. "
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
 
@@ -438,24 +438,29 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
         try:
             # startup boot controller
-            self._uefi_control = _UEFIBoot()
+            self._uefi_control = uefi_control = _UEFIBoot()
 
             # mount point prepare
             self._mp_control = SlotMountHelper(
-                standby_slot_dev=self._uefi_control.standby_rootfs_devpath,
+                standby_slot_dev=uefi_control.standby_rootfs_devpath,
                 standby_slot_mount_point=cfg.MOUNT_POINT,
                 active_slot_dev=self._uefi_control.curent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
 
-            # load firmware BSP version from current rootfs slot
-            self._firmware_ver_control = FirmwareBSPVersionControl(
-                current_firmware_bsp_vf=current_ota_status_dir
-                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
-                # NOTE: standby slot's bsp version file might be not yet
-                #   available before an OTA.
-                standby_firmware_bsp_vf=standby_ota_status_dir
-                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
+            # load firmware BSP version
+            self._current_fw_bsp_ver_fpath = (
+                current_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
+            )
+            # NOTE: standby slot's bsp version file might be not yet
+            #   available before an OTA.
+            self._standby_fw_bsp_ver_fpath = (
+                standby_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
+            )
+            self._firmware_ver_control = fw_ver_control = FirmwareBSPVersionControl(
+                current_slot=uefi_control.current_slot,
+                current_slot_firmware_bsp_ver=uefi_control.fw_bsp_version,
+                current_firmware_bsp_vf=self._current_fw_bsp_ver_fpath,
             )
 
             # init ota-status files
@@ -467,6 +472,15 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_ota_status_dir=standby_ota_status_dir,
                 finalize_switching_boot=self._finalize_switching_boot,
             )
+
+            # post starting up, write the firmware bsp version to current slot
+            # NOTE 1: we always update and refer current slot's firmware bsp version file.
+            # NOTE 2: if OTA status is failure, always assume the firmware update on standby slot failed,
+            #   and clear the standby slot's fw bsp version record.
+            if self._ota_status_control._ota_status == api_types.StatusOta.FAILURE:
+                fw_ver_control[uefi_control.standby_slot] = None
+            fw_ver_control[uefi_control.current_slot] = uefi_control.fw_bsp_version
+            fw_ver_control.write_to_file(self._current_fw_bsp_ver_fpath)
         except Exception as e:
             _err_msg = f"failed to start jetson-uefi controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
@@ -479,7 +493,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def _finalize_switching_boot(self) -> bool:
         """Verify firmware update result and write firmware BSP version file."""
         current_slot = self._uefi_control.current_slot
-        current_slot_bsp_ver = self._uefi_control.bsp_version
+        current_slot_bsp_ver = self._uefi_control.fw_bsp_version
 
         if current_slot_bsp_ver is None:
             logger.warning("current slot BSP version is unknown, skip")
@@ -512,20 +526,12 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                     f"but expects slot {current_slot} with version {current_slot_bsp_ver}"
                 )
             )
-            # NOTE(20240610): on a failed OTA with firmware update, we always assume a failed
-            #   firmware update(even the failure might be caused by rootfs update failed).
-            self._firmware_ver_control.set_version_by_slot(current_slot, None)
-            self._firmware_ver_control.write_current_firmware_bsp_version()
             return False
 
         # ------ firmware update succeeded, write firmware version file ------ #
         logger.info(
             f"successfully update {current_slot=} firmware version to {current_slot_bsp_ver}"
         )
-        self._firmware_ver_control.set_version_by_slot(
-            current_slot, current_slot_bsp_ver
-        )
-        self._firmware_ver_control.write_current_firmware_bsp_version()
         return True
 
     def _capsule_firmware_update(self) -> bool:
@@ -537,9 +543,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
 
         standby_bootloader_slot = self._uefi_control.standby_slot
-        standby_firmware_bsp_ver = self._firmware_ver_control.get_version_by_slot(
-            standby_bootloader_slot
-        )
+        standby_firmware_bsp_ver = self._firmware_ver_control[standby_bootloader_slot]
         logger.info(
             f"standby slot current firmware ver: {standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}"
         )
@@ -634,7 +638,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             )
 
             # ------ preserve BSP version file to standby slot ------ #
-            self._firmware_ver_control.write_standby_firmware_bsp_version()
+            self._firmware_ver_control.write_to_file(self._standby_fw_bsp_ver_fpath)
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             preserve_ota_config_files_to_standby(
