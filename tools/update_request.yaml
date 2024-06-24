@@ -1,0 +1,5 @@
+# sample update request for local_ota package
+- ecu_id: "autoware"
+  version: "789.x"
+  url: "http://10.0.1.1:8888"
+  cookies: '{"test": "my-cookie"}'
