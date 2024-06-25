@@ -31,15 +31,15 @@ from typing import Any, Generator
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import subprocess_call, write_str_to_file_sync, file_sha256
+from otaclient_common.common import file_sha256, subprocess_call, write_str_to_file_sync
 from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
+    SLOT_PAR_MAP,
     BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
-    SLOT_PAR_MAP,
     copy_standby_slot_boot_to_internal_emmc,
     detect_rootfs_bsp_version,
     preserve_ota_config_files_to_standby,
