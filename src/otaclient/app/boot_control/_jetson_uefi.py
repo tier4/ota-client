@@ -50,8 +50,17 @@ from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 
-# TODO: calculate this table
-L4TLAUNCHER_BSP_VER_SHA256_MAP: dict[str, BSPVersion] = {}
+L4TLAUNCHER_BSP_VER_SHA256_MAP: dict[str, BSPVersion] = {
+    "b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718": BSPVersion(
+        36, 3, 0
+    ),
+    "3928e0feb84e37db87dc6705a02eec95a6fca2dccd3467b61fa66ed8e1046b67": BSPVersion(
+        35, 5, 0
+    ),
+    "ac17457772666351154a5952e3b87851a6398da2afcf3a38bedfc0925760bb0e": BSPVersion(
+        35, 4, 1
+    ),
+}
 
 
 class JetsonUEFIBootControlError(Exception):
