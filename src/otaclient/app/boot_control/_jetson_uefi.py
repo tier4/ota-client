@@ -113,10 +113,78 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
 
 
 EFIVARS_FSTYPE = "efivarfs"
-EFIVARS_DPATH = "/sys/firmware/efi/efivars/"
+EFIVARS_SYS_MOUNT_POINT = "/sys/firmware/efi/efivars/"
 
 
-class CapsuleUpdate:
+@contextlib.contextmanager
+def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:
+    """Ensure the efivarfs is mounted as rw, and then umount it."""
+    if CMDHelperFuncs.is_target_mounted(EFIVARS_SYS_MOUNT_POINT):
+        options = "remount,rw,nosuid,nodev,noexec,relatime"
+    else:
+        logger.warning(
+            f"efivars is not mounted! try to mount it at {EFIVARS_SYS_MOUNT_POINT}"
+        )
+        options = "rw,nosuid,nodev,noexec,relatime"
+
+    # fmt: off
+    cmd = [
+        "mount",
+        "-t", EFIVARS_FSTYPE,
+        "-o", options,
+        EFIVARS_FSTYPE,
+        EFIVARS_SYS_MOUNT_POINT
+    ]
+    # fmt: on
+    try:
+        subprocess_call(cmd, raise_exception=True)
+        yield
+    except Exception as e:
+        raise JetsonUEFIBootControlError(
+            f"failed to mount {EFIVARS_FSTYPE} on {EFIVARS_SYS_MOUNT_POINT}: {e!r}"
+        ) from e
+
+
+@contextlib.contextmanager
+def _ensure_esp_mounted(
+    esp_dev: StrOrPath, mount_point: StrOrPath
+) -> Generator[None, Any, None]:
+    """Mount the esp partition and then umount it."""
+    mount_point = Path(mount_point)
+    mount_point.mkdir(exist_ok=True, parents=True)
+
+    try:
+        CMDHelperFuncs.mount_rw(str(esp_dev), mount_point)
+        yield
+        CMDHelperFuncs.umount(mount_point, raise_exception=False)
+    except Exception as e:
+        _err_msg = f"failed to mount {esp_dev} to {mount_point}: {e!r}"
+        logger.error(_err_msg)
+        raise JetsonUEFIBootControlError(_err_msg) from e
+
+
+def _detect_esp_dev(boot_parent_devpath: StrOrPath) -> str:
+    # NOTE: if boots from external, expects to have multiple esp parts,
+    #   we need to get the one at our booted parent dev.
+    esp_parts = CMDHelperFuncs.get_dev_by_token(
+        token="PARTLABEL", value=boot_cfg.ESP_PARTLABEL
+    )
+    if not esp_parts:
+        raise JetsonUEFIBootControlError("no ESP partition presented")
+
+    for _esp_part in esp_parts:
+        if _esp_part.find(str(boot_parent_devpath)) != -1:
+            logger.info(f"find esp partition at {_esp_part}")
+            esp_part = _esp_part
+            break
+    else:
+        _err_msg = f"failed to find esp partition on {boot_parent_devpath}"
+        logger.error(_err_msg)
+        raise JetsonUEFIBootControlError(_err_msg)
+    return esp_part
+
+
+class UEFIFirmwareUpdater:
     """Firmware update implementation using Capsule update."""
 
     def __init__(
@@ -124,11 +192,20 @@ class CapsuleUpdate:
         boot_parent_devpath: StrOrPath,
         standby_slot_mp: StrOrPath,
         *,
-        ota_image_bsp_ver: BSPVersion,
         fw_bsp_ver_control: FirmwareBSPVersionControl,
     ) -> None:
+        """Init an instance of UEFIFirmwareUpdater.
+
+        Args:
+            boot_parent_devpath (StrOrPath): The parent dev of current rootfs device.
+            standby_slot_mp (StrOrPath): The mount point of updated standby slot. The firmware update package
+                is located at <standby_slot_mp>/opt/ota_package folder.
+            ota_image_bsp_ver (BSPVersion): The BSP version of OTA image used to update the standby slot.
+            fw_bsp_ver_control (FirmwareBSPVersionControl): The firmware BSP version of each slots.
+        """
         self.fw_bsp_ver_control = fw_bsp_ver_control
-        self.ota_image_bsp_ver = ota_image_bsp_ver
+        # NOTE: standby slot is updated with OTA image
+        self.ota_image_bsp_ver = detect_rootfs_bsp_version(standby_slot_mp)
 
         # NOTE: use the esp partition at the current booted device
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
@@ -136,61 +213,25 @@ class CapsuleUpdate:
         self.esp_mp = Path(boot_cfg.ESP_MOUNTPOINT)
         self.esp_boot_dir = self.esp_mp / "EFI" / "BOOT"
         self.l4tlauncher_ver_fpath = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_VER_FNAME
+        """A plain text file stores the BSP version string."""
+
         self.bootaa64_at_esp = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
+        """The canonical location of L4TLauncher, called by UEFI."""
+
         self.bootaa64_at_esp_bak = (
             self.esp_boot_dir / f"{boot_cfg.L4TLAUNCHER_FNAME}_bak"
         )
 
-        # NOTE: we get the update capsule from the standby slot
         self.standby_slot_mp = Path(standby_slot_mp)
-        self.esp_part = self._detect_esp_dev(boot_parent_devpath)
+        self.fw_loc_at_standby_slot = self.standby_slot_mp / Path(
+            boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS
+        ).relative_to("/")
+        """where the fw update capsule and l4tlauncher bin located."""
 
-    @staticmethod
-    @contextlib.contextmanager
-    def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:
-        """Ensure the efivarfs is mounted as rw."""
-        if CMDHelperFuncs.is_target_mounted(EFIVARS_DPATH):
-            options = "remount,rw,nosuid,nodev,noexec,relatime"
-        else:
-            logger.warning(
-                f"efivars is not mounted! try to mount it at {EFIVARS_DPATH}"
-            )
-            options = "rw,nosuid,nodev,noexec,relatime"
+        self.esp_part = _detect_esp_dev(boot_parent_devpath)
 
-        # fmt: off
-        cmd = [
-            "mount",
-            "-t", EFIVARS_FSTYPE,
-            "-o", options,
-            EFIVARS_FSTYPE,
-            EFIVARS_DPATH
-        ]
-        # fmt: on
-        try:
-            subprocess_call(cmd, raise_exception=True)
-            yield
-        except Exception as e:
-            raise JetsonUEFIBootControlError(
-                f"failed to mount {EFIVARS_FSTYPE} on {EFIVARS_DPATH}: {e!r}"
-            ) from e
-
-    @staticmethod
-    @contextlib.contextmanager
-    def _ensure_esp_mounted(
-        esp_dev: StrOrPath, mount_point: StrOrPath
-    ) -> Generator[None, Any, None]:
-        """Mount the esp partition and then umount it."""
-        mount_point = Path(mount_point)
-        mount_point.mkdir(exist_ok=True, parents=True)
-
-        try:
-            CMDHelperFuncs.mount_rw(str(esp_dev), mount_point)
-            yield
-            CMDHelperFuncs.umount(mount_point, raise_exception=False)
-        except Exception as e:
-            _err_msg = f"failed to mount {esp_dev} to {mount_point}: {e!r}"
-            logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg) from e
+        self.capsule_dir_at_esp = self.esp_mp / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
+        """The location to put UEFI capsule to. The UEFI will use the capsule in this location."""
 
     def _prepare_fwupdate_capsule(self) -> bool:
         """Copy the Capsule update payloads to specific location at esp partition.
@@ -199,27 +240,22 @@ class CapsuleUpdate:
             True if at least one of the update capsule is prepared, False if no update
                 capsule is available and configured.
         """
-        capsule_at_esp = self.esp_mp / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
-        capsule_at_esp.mkdir(parents=True, exist_ok=True)
-
-        # where the fw update capsule and l4tlauncher bin located
-        fw_loc_at_standby_slot = self.standby_slot_mp / Path(
-            boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS
-        ).relative_to("/")
+        capsule_dir_at_esp = self.capsule_dir_at_esp
+        capsule_dir_at_esp.mkdir(parents=True, exist_ok=True)
 
         # ------ prepare capsule update payload ------ #
         firmware_package_configured = False
         for capsule_fname in boot_cfg.FIRMWARE_LIST:
             try:
                 shutil.copy(
-                    src=fw_loc_at_standby_slot / capsule_fname,
-                    dst=capsule_at_esp / capsule_fname,
+                    src=self.fw_loc_at_standby_slot / capsule_fname,
+                    dst=capsule_dir_at_esp / capsule_fname,
                 )
                 firmware_package_configured = True
-                logger.info(f"copy {capsule_fname} to {capsule_at_esp}")
+                logger.info(f"copy {capsule_fname} to {capsule_dir_at_esp}")
             except Exception as e:
                 logger.warning(
-                    f"failed to copy {capsule_fname} from {fw_loc_at_standby_slot} to {capsule_at_esp}: {e!r}"
+                    f"failed to copy {capsule_fname} from {self.fw_loc_at_standby_slot} to {capsule_dir_at_esp}: {e!r}"
                 )
                 logger.warning(f"skip {capsule_fname}")
         return firmware_package_configured
@@ -230,11 +266,7 @@ class CapsuleUpdate:
         logger.warning(f"update the l4tlauncher to version {ota_image_l4tlauncher_ver}")
 
         # new BOOTAA64.efi is located at /opt/ota_package/BOOTAA64.efi
-        ota_image_bootaa64 = (
-            self.standby_slot_mp
-            / Path(boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS).relative_to("/")
-            / boot_cfg.L4TLAUNCHER_FNAME
-        )
+        ota_image_bootaa64 = self.fw_loc_at_standby_slot / boot_cfg.L4TLAUNCHER_FNAME
         if not ota_image_bootaa64.is_file():
             logger.warning(f"{ota_image_bootaa64} not found, skip update l4tlauncher")
             return False
@@ -254,11 +286,14 @@ class CapsuleUpdate:
         Raises:
             JetsonUEFIBootControlError on failed Capsule update preparing.
         """
-        magic_efivar_fpath = Path(EFIVARS_DPATH) / boot_cfg.UPDATE_TRIGGER_EFIVAR
+        magic_efivar_fpath = (
+            Path(EFIVARS_SYS_MOUNT_POINT) / boot_cfg.UPDATE_TRIGGER_EFIVAR
+        )
         magic_efivar_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
         os.sync()
 
     def _detect_l4tlauncher_version(self) -> BSPVersion:
+        """Try to determine the current in use l4tlauncher version."""
         l4tlauncher_bsp_ver = None
         try:
             l4tlauncher_bsp_ver = BSPVersion.parse(
@@ -268,11 +303,10 @@ class CapsuleUpdate:
             logger.warning(f"missing or invalid l4tlauncher version file: {e!r}")
             self.l4tlauncher_ver_fpath.unlink(missing_ok=True)
 
-        bootaa64_at_esp = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
         # NOTE(20240624): since the number of l4tlauncher version is limited,
         #   we can lookup against a pre-calculated sha256 digest map.
         if l4tlauncher_bsp_ver is None:
-            _l4tlauncher_sha256_digest = file_sha256(bootaa64_at_esp)
+            _l4tlauncher_sha256_digest = file_sha256(self.bootaa64_at_esp)
             logger.info(
                 f"try to determine the l4tlauncher verison by hash: {_l4tlauncher_sha256_digest}"
             )
@@ -283,7 +317,7 @@ class CapsuleUpdate:
         current_slot_fw_bsp_ver = self.fw_bsp_ver_control.current_slot_fw_ver
         # NOTE(20240624): if we failed to detect the l4tlauncher's version,
         #   we assume that the launcher is the same version as current slot's fw.
-        #   This is typically case for a newly OTA inital setup ECU.
+        #   This is typically the case of a newly flashed ECU.
         if l4tlauncher_bsp_ver is None:
             logger.warning(
                 (
@@ -295,29 +329,9 @@ class CapsuleUpdate:
             write_str_to_file_sync(
                 self.l4tlauncher_ver_fpath, l4tlauncher_bsp_ver.dump()
             )
+
         logger.info(f"finish detecting l4tlauncher version: {l4tlauncher_bsp_ver}")
         return l4tlauncher_bsp_ver
-
-    @staticmethod
-    def _detect_esp_dev(boot_parent_devpath: StrOrPath) -> str:
-        # NOTE: if boots from external, expects to have multiple esp parts,
-        #   we need to get the one at our booted parent dev.
-        esp_parts = CMDHelperFuncs.get_dev_by_token(
-            token="PARTLABEL", value=boot_cfg.ESP_PARTLABEL
-        )
-        if not esp_parts:
-            raise JetsonUEFIBootControlError("no ESP partition presented")
-
-        for _esp_part in esp_parts:
-            if _esp_part.find(str(boot_parent_devpath)) != -1:
-                logger.info(f"find esp partition at {_esp_part}")
-                esp_part = _esp_part
-                break
-        else:
-            _err_msg = f"failed to find esp partition on {boot_parent_devpath}"
-            logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg)
-        return esp_part
 
     # APIs
 
@@ -340,12 +354,12 @@ class CapsuleUpdate:
             )
             return False
 
-        with self._ensure_esp_mounted(self.esp_part, self.esp_mp):
+        with _ensure_esp_mounted(self.esp_part, self.esp_mp):
             if not self._prepare_fwupdate_capsule():
                 logger.info("no firmware file is prepared, skip firmware update")
                 return False
 
-        with self._ensure_efivarfs_mounted():
+        with _ensure_efivarfs_mounted():
             try:
                 self._write_magic_efivar()
             except Exception as e:
@@ -382,7 +396,7 @@ class CapsuleUpdate:
             )
             return False
 
-        with self._ensure_esp_mounted(self.esp_part, self.esp_mp):
+        with _ensure_esp_mounted(self.esp_part, self.esp_mp):
             return self._update_l4tlauncher()
 
 
