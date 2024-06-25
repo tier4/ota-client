@@ -58,6 +58,11 @@ SLOT_A, SLOT_B = SlotID("0"), SlotID("1")
 SLOT_FLIP = {SLOT_A: SLOT_B, SLOT_B: SLOT_A}
 
 
+BSP_VERSION_STR_PA = re.compile(
+    r"\w?(?P<major_ver>\d+)\.(?P<major_rev>\d+)\.(?P<minor_rev>\d+)"
+)
+
+
 class BSPVersion(NamedTuple):
     """BSP version in NamedTuple representation.
 
@@ -73,8 +78,15 @@ class BSPVersion(NamedTuple):
         """Parse "Rxx.yy.z string into BSPVersion."""
         if isinstance(_in, cls):
             return _in
-        if isinstance(_in, str) and len(_split := _in[1:].split(".")) == 3:
-            major_ver, major_rev, minor_rev = _split
+        if isinstance(_in, str):
+            ma = BSP_VERSION_STR_PA.match(_in)
+            assert ma, f"not a valid bsp version string: {_in}"
+
+            major_ver, major_rev, minor_rev = (
+                ma.group("major_ver"),
+                ma.group("major_rev"),
+                ma.group("minor_rev"),
+            )
             return cls(int(major_ver), int(major_rev), int(minor_rev))
         raise ValueError(f"expect str or BSPVersion instance, get {type(_in)}")
 
