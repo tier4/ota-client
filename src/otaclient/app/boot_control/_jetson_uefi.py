@@ -39,7 +39,7 @@ from ._jetson_common import (
     BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
-    SlotID,
+    SLOT_PAR_MAP,
     copy_standby_slot_boot_to_internal_emmc,
     detect_rootfs_bsp_version,
     parse_nv_tegra_release,
@@ -400,10 +400,12 @@ class UEFIFirmwareUpdater:
             return self._update_l4tlauncher()
 
 
+MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(35, 2, 0)
+"""Only after R35.2, the Capsule Firmware update is available."""
+
+
 class _UEFIBoot:
     """Low-level boot control implementation for jetson-uefi."""
-
-    _slot_id_partid = {SlotID("0"): "1", SlotID("1"): "2"}
 
     def __init__(self):
         # ------ sanity check, confirm we are at jetson device ------ #
@@ -412,6 +414,9 @@ class _UEFIBoot:
             _err_msg = f"not a jetson device, {tegra_compat_info_fpath} doesn't exist"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
+
+        # print hardware model
+        logger.info(f"hardware model: {Path(boot_cfg.MODEL_FPATH)}")
 
         compat_info = tegra_compat_info_fpath.read_text()
         # example compatible string:
@@ -422,11 +427,11 @@ class _UEFIBoot:
             raise JetsonUEFIBootControlError(_err_msg)
         logger.info(f"dev compatibility: {compat_info}")
 
-        # ------ check BSP version ------ #
-        # check firmware BSP version
+        # ------ check current slot BSP version ------ #
+        # check current slot firmware BSP version
         try:
             self.fw_bsp_version = fw_bsp_version = (
-                _NVBootctrl.get_current_fw_bsp_version()
+                NVBootctrlJetsonUEFI.get_current_fw_bsp_version()
             )
             assert fw_bsp_version, "bsp version information not available"
             logger.info(f"current slot firmware BSP version: {fw_bsp_version}")
@@ -436,10 +441,10 @@ class _UEFIBoot:
             raise JetsonUEFIBootControlError(_err_msg)
         logger.info(f"{fw_bsp_version=}")
 
-        # check rootfs BSP version
+        # check current slot rootfs BSP version
         try:
-            self.rootfs_bsp_verion = rootfs_bsp_version = parse_bsp_version(
-                Path(boot_cfg.NV_TEGRA_RELEASE_FPATH).read_text()
+            self.rootfs_bsp_verion = rootfs_bsp_version = detect_rootfs_bsp_version(
+                rootfs=cfg.ACTIVE_ROOTFS_PATH
             )
             logger.info(f"current slot rootfs BSP version: {rootfs_bsp_version}")
         except Exception as e:
@@ -455,8 +460,7 @@ class _UEFIBoot:
             )
 
         # ------ sanity check, currently jetson-uefi only supports >= R35.2 ----- #
-        # only after R35.2, the Capsule Firmware update is available.
-        if fw_bsp_version < (35, 2, 0):
+        if fw_bsp_version < MINIMUM_SUPPORTED_BSP_VERSION:
             _err_msg = f"jetson-uefi only supports BSP version >= R35.2, but get {fw_bsp_version=}. "
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
@@ -465,35 +469,36 @@ class _UEFIBoot:
         logger.info("unified A/B is enabled")
 
         # ------ check A/B slots ------ #
-        self.current_slot = current_slot = _NVBootctrl.get_current_slot()
-        self.standby_slot = standby_slot = _NVBootctrl.get_standby_slot()
+        self.current_slot = current_slot = NVBootctrlJetsonUEFI.get_current_slot()
+        self.standby_slot = standby_slot = NVBootctrlJetsonUEFI.get_standby_slot()
         logger.info(f"{current_slot=}, {standby_slot=}")
 
         # ------ detect rootfs_dev and parent_dev ------ #
         self.curent_rootfs_devpath = current_rootfs_devpath = (
-            CMDHelperFuncs.get_current_rootfs_dev().strip()
+            CMDHelperFuncs.get_current_rootfs_dev()
         )
         self.parent_devpath = parent_devpath = Path(
-            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath).strip()
+            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
         )
 
         # --- detect boot device --- #
-        self._external_rootfs = False
+        self.external_rootfs = False
+
         parent_devname = parent_devpath.name
         if parent_devname.startswith(boot_cfg.MMCBLK_DEV_PREFIX):
             logger.info(f"device boots from internal emmc: {parent_devpath}")
         elif parent_devname.startswith(boot_cfg.NVMESSD_DEV_PREFIX):
             logger.info(f"device boots from external nvme ssd: {parent_devpath}")
-            self._external_rootfs = True
+            self.external_rootfs = True
         else:
-            _err_msg = f"we don't support boot from {parent_devpath=} currently"
+            _err_msg = f"currently we don't support booting from {parent_devpath=}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg) from NotImplementedError(
                 f"unsupported bootdev {parent_devpath}"
             )
 
         self.standby_rootfs_devpath = (
-            f"/dev/{parent_devname}p{self._slot_id_partid[standby_slot]}"
+            f"/dev/{parent_devname}p{SLOT_PAR_MAP[standby_slot]}"
         )
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
             "PARTUUID", self.standby_rootfs_devpath
@@ -508,21 +513,16 @@ class _UEFIBoot:
             f"standby_rootfs(slot {standby_slot}): {self.standby_rootfs_devpath=}, {self.standby_rootfs_dev_partuuid=}"
         )
 
-        self.standby_internal_emmc_devpath = f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_slot]}"
+        self.standby_internal_emmc_devpath = (
+            f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}p{SLOT_PAR_MAP[standby_slot]}"
+        )
 
         logger.info("finished jetson-uefi boot control startup")
-        logger.info(f"nvbootctrl dump-slots-info: \n{_NVBootctrl.dump_slots_info()}")
+        logger.info(
+            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonUEFI.dump_slots_info()}"
+        )
 
     # API
-
-    @property
-    def external_rootfs_enabled(self) -> bool:
-        """Indicate whether rootfs on external storage is enabled.
-
-        NOTE: distiguish from boot from external storage, as R32.5 and below doesn't
-            support native NVMe boot.
-        """
-        return self._external_rootfs
 
     def switch_boot_to_standby(self) -> None:
         target_slot = self.standby_slot
@@ -530,7 +530,7 @@ class _UEFIBoot:
         logger.info(f"switch boot to standby slot({target_slot})")
         # when unified_ab enabled, switching bootloader slot will also switch
         #   the rootfs slot.
-        _NVBootctrl.set_active_boot_slot(target_slot)
+        NVBootctrlJetsonUEFI.set_active_boot_slot(target_slot)
 
 
 class JetsonUEFIBootControl(BootControllerProtocol):
