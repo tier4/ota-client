@@ -30,6 +30,7 @@ from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
 from otaclient.app.boot_control._common import CMDHelperFuncs
+from otaclient.app.boot_control.configs import jetson_common_cfg
 from otaclient_common.common import copytree_identical, write_str_to_file_sync
 from otaclient_common.typing import StrOrPath
 
@@ -75,7 +76,7 @@ class BSPVersion(NamedTuple):
 
     @classmethod
     def parse(cls, _in: str | BSPVersion | Any) -> Self:
-        """Parse "Rxx.yy.z string into BSPVersion."""
+        """Parse BSP version string into BSPVersion."""
         if isinstance(_in, cls):
             return _in
         if isinstance(_in, str):
@@ -260,7 +261,7 @@ class FirmwareBSPVersionControl:
         self._version.set_by_slot(self.standby_slot, bsp_ver)
 
 
-BSP_VER_PA = re.compile(
+NV_TEGRA_RELEASE_PA = re.compile(
     (
         r"# R(?P<major_ver>\d+) \(\w+\), REVISION: (?P<major_rev>\d+)\.(?P<minor_rev>\d+), "
         r"GCID: (?P<gcid>\d+), BOARD: (?P<board>\w+), EABI: (?P<eabi>\w+)"
@@ -269,18 +270,38 @@ BSP_VER_PA = re.compile(
 """Example: # R32 (release), REVISION: 6.1, GCID: 27863751, BOARD: t186ref, EABI: aarch64, DATE: Mon Jul 26 19:36:31 UTC 2021 """
 
 
-def parse_bsp_version(nv_tegra_release: str) -> BSPVersion:
+def parse_nv_tegra_release(nv_tegra_release: str) -> BSPVersion:
     """Parse BSP version from contents of /etc/nv_tegra_release.
 
     see https://developer.nvidia.com/embedded/jetson-linux-archive for BSP version history.
     """
-    ma = BSP_VER_PA.match(nv_tegra_release)
+    ma = NV_TEGRA_RELEASE_PA.match(nv_tegra_release)
     assert ma, f"invalid nv_tegra_release content: {nv_tegra_release}"
     return BSPVersion(
         int(ma.group("major_ver")),
         int(ma.group("major_rev")),
         int(ma.group("minor_rev")),
     )
+
+
+def detect_rootfs_bsp_version(rootfs: StrOrPath) -> BSPVersion:
+    """Detect rootfs BSP version on <rootfs>.
+
+    Raises:
+        ValueError on failed detection.
+
+    Returns:
+        BSPversion of the <rootfs>.
+    """
+    nv_tegra_release_fpath = Path(rootfs) / Path(
+        jetson_common_cfg.NV_TEGRA_RELEASE_FPATH
+    ).relative_to("/")
+    try:
+        return parse_nv_tegra_release(nv_tegra_release_fpath.read_text())
+    except Exception as e:
+        _err_msg = f"failed to detect rootfs BSP version at: {rootfs}: {e!r}"
+        logger.error(_err_msg)
+        raise ValueError(_err_msg) from e
 
 
 def update_extlinux_cfg(_input: str, partuuid: str) -> str:
