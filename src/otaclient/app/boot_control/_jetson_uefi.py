@@ -42,7 +42,6 @@ from ._jetson_common import (
     SLOT_PAR_MAP,
     copy_standby_slot_boot_to_internal_emmc,
     detect_rootfs_bsp_version,
-    parse_nv_tegra_release,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
@@ -544,7 +543,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         ).relative_to("/")
 
         try:
-            # startup boot controller
             self._uefi_control = uefi_control = _UEFIBoot()
 
             # mount point prepare
@@ -556,18 +554,14 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             )
 
             # load firmware BSP version
-            self._current_fw_bsp_ver_fpath = (
+            current_fw_bsp_ver_fpath = (
                 current_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
             )
-            # NOTE: standby slot's bsp version file might be not yet
-            #   available before an OTA.
-            self._standby_fw_bsp_ver_fpath = (
-                standby_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
-            )
+
             self._firmware_ver_control = fw_bsp_ver = FirmwareBSPVersionControl(
                 current_slot=uefi_control.current_slot,
                 current_slot_firmware_bsp_ver=uefi_control.fw_bsp_version,
-                current_firmware_bsp_vf=self._current_fw_bsp_ver_fpath,
+                current_firmware_bsp_vf=current_fw_bsp_ver_fpath,
             )
 
             # init ota-status files
@@ -581,13 +575,13 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             )
 
             # post starting up, write the firmware bsp version to current slot
-            # NOTE 1: we always update and refer current slot's firmware bsp version file.
+            # NOTE 1: we always update and refer to ONLY current slot's firmware bsp version file.
             # NOTE 2: if OTA status is failure, always assume the firmware update on standby slot failed,
             #   and clear the standby slot's fw bsp version record.
             if self._ota_status_control._ota_status == api_types.StatusOta.FAILURE:
                 fw_bsp_ver.standby_slot_fw_ver = None
             fw_bsp_ver.current_slot_fw_ver = uefi_control.fw_bsp_version
-            fw_bsp_ver.write_to_file(self._current_fw_bsp_ver_fpath)
+            fw_bsp_ver.write_to_file(current_fw_bsp_ver_fpath)
         except Exception as e:
             _err_msg = f"failed to start jetson-uefi controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
@@ -599,7 +593,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             previous slot, so actually we don't need to do any checks here.
         """
         try:
-            fw_update_verify = _NVBootctrl.verify()
+            fw_update_verify = NVBootctrlJetsonUEFI.verify()
             logger.info(f"nvbootctrl verify: {fw_update_verify}")
         except Exception as e:
             logger.warning(f"nvbootctrl verify failed: {e!r}")
@@ -614,10 +608,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             True if there is firmware update configured, False for no firmware update.
         """
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
-
         standby_bootloader_slot = self._uefi_control.standby_slot
 
-        # ------ check if we need to do firmware update ------ #
+        # ------ check if we need to skip firmware update ------ #
         skip_firmware_update_hint_file = (
             self._mp_control.standby_slot_mount_point
             / Path(boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS).relative_to("/")
@@ -629,28 +622,26 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             )
             return False
 
-        _new_bsp_v_fpath = self._mp_control.standby_slot_mount_point / Path(
-            boot_cfg.NV_TEGRA_RELEASE_FPATH
-        ).relative_to("/")
         try:
-            new_bsp_v = parse_bsp_version(_new_bsp_v_fpath.read_text())
+            ota_image_bsp_ver = detect_rootfs_bsp_version(
+                self._mp_control.standby_slot_mount_point
+            )
         except Exception as e:
             logger.warning(f"failed to detect new image's BSP version: {e!r}")
             logger.info("skip firmware update due to new image BSP version unknown")
             return False
 
         standby_firmware_bsp_ver = self._firmware_ver_control.standby_slot_fw_ver
-        if standby_firmware_bsp_ver and standby_firmware_bsp_ver >= new_bsp_v:
+        if standby_firmware_bsp_ver and standby_firmware_bsp_ver >= ota_image_bsp_ver:
             logger.info(
                 f"{standby_bootloader_slot=} has newer or equal ver of firmware, skip firmware update"
             )
             return False
 
         # ------ prepare firmware update ------ #
-        firmware_updater = CapsuleUpdate(
+        firmware_updater = UEFIFirmwareUpdater(
             boot_parent_devpath=self._uefi_control.parent_devpath,
             standby_slot_mp=self._mp_control.standby_slot_mount_point,
-            ota_image_bsp_ver=new_bsp_v,
             fw_bsp_ver_control=self._firmware_ver_control,
         )
         if firmware_updater.firmware_update():
@@ -658,7 +649,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
             logger.info(
                 (
-                    f"will update to new firmware version in next reboot: {new_bsp_v=}, \n"
+                    f"will update to new firmware version in next reboot: {ota_image_bsp_ver=}, \n"
                     f"will switch to Slot({standby_bootloader_slot}) on successful firmware update"
                 )
             )
@@ -676,16 +667,12 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("jetson-uefi: pre-update ...")
-            # udpate active slot's ota_status
             self._ota_status_control.pre_update_current()
 
-            # prepare standby slot dev
             self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
-            # mount slots
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
 
-            # update standby slot's ota_status files
             self._ota_status_control.pre_update_standby(version=version)
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
@@ -706,7 +693,11 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             )
 
             # ------ preserve BSP version file to standby slot ------ #
-            self._firmware_ver_control.write_to_file(self._standby_fw_bsp_ver_fpath)
+            standby_fw_bsp_ver_fpath = (
+                self._ota_status_control.standby_ota_status_dir
+                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
+            )
+            self._firmware_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             preserve_ota_config_files_to_standby(
@@ -720,16 +711,16 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
             # ------ switch boot to standby ------ #
             firmware_update_triggered = self._capsule_firmware_update()
-            # NOTE: manual switch boot will cancel the firmware update and cancel the switch boot itself!
+            # NOTE: manual switch boot will cancel the scheduled firmware update!
             if not firmware_update_triggered:
                 self._uefi_control.switch_boot_to_standby()
                 logger.info(
-                    f"no firmware update configured, manually switch slot: \n{_NVBootctrl.dump_slots_info()}"
+                    f"no firmware update configured, manually switch slot: \n{NVBootctrlJetsonUEFI.dump_slots_info()}"
                 )
 
             # ------ for external rootfs, preserve /boot folder to internal ------ #
             # NOTE: the copy should happen AFTER the changes to /boot folder at active slot.
-            if self._uefi_control._external_rootfs:
+            if self._uefi_control.external_rootfs:
                 logger.info(
                     "rootfs on external storage enabled: "
                     "copy standby slot rootfs' /boot folder "

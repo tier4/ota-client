@@ -41,6 +41,7 @@ class JetsonBootCommon:
     EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
     FIRMWARE_DPATH = "/opt/ota_package"
     """Refer to standby slot rootfs."""
+    MODEL_FPATH = "/proc/device-tree/model"
 
     NV_TEGRA_RELEASE_FPATH = "/etc/nv_tegra_release"
     SEPARATE_BOOT_MOUNT_POINT = "/mnt/standby_boot"
@@ -92,6 +93,9 @@ class RPIBootControlConfig(BaseConfig):
 
 
 grub_cfg = GrubControlConfig()
+
+jetson_common_cfg = JetsonBootCommon()
 cboot_cfg = JetsonCBootControlConfig()
 jetson_uefi_cfg = JetsonUEFIBootControlConfig()
+
 rpi_boot_cfg = RPIBootControlConfig()
