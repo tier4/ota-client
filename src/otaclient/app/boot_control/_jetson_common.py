@@ -57,7 +57,8 @@ class SlotID(str):
 
 SLOT_A, SLOT_B = SlotID("0"), SlotID("1")
 SLOT_FLIP = {SLOT_A: SLOT_B, SLOT_B: SLOT_A}
-
+SLOT_PAR_MAP = {SLOT_A: 1, SLOT_B: 2}
+"""SLOT_A: 1, SLOT_B: 2"""
 
 BSP_VERSION_STR_PA = re.compile(
     r"\w?(?P<major_ver>\d+)\.(?P<major_rev>\d+)\.(?P<minor_rev>\d+)"
