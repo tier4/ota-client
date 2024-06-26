@@ -61,7 +61,7 @@ SLOT_PAR_MAP = {SLOT_A: 1, SLOT_B: 2}
 """SLOT_A: 1, SLOT_B: 2"""
 
 BSP_VERSION_STR_PA = re.compile(
-    r"\w?(?P<major_ver>\d+)\.(?P<major_rev>\d+)\.(?P<minor_rev>\d+)"
+    r"[rR]?(?P<major_ver>\d+)\.(?P<major_rev>\d+)\.(?P<minor_rev>\d+)"
 )
 
 
