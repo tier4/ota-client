@@ -22,9 +22,9 @@ from typing import Any
 import pytest
 
 from otaclient.app.boot_control._jetson_common import (
-    SlotID,
     BSPVersion,
     FirmwareBSPVersion,
+    SlotID,
 )
 
 
