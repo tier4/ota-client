@@ -25,6 +25,7 @@ from otaclient.app.boot_control._jetson_common import (
     BSPVersion,
     FirmwareBSPVersion,
     SlotID,
+    FirmwareBSPVersionControl,
     SLOT_A,
     SLOT_B,
     parse_nv_tegra_release,
@@ -184,17 +185,44 @@ class TestFirmwareBSPVersion:
 
 class TestFirmwareBSPVersionControl:
 
+    @pytest.fixture(autouse=True)
+    def setup_test(self, tmp_path: Path):
+        self.test_fw_bsp_vf = tmp_path / "firmware_bsp_version"
+        self.slot_b_ver = BSPVersion(35, 5, 0)
+        self.slot_a_ver = BSPVersion(35, 4, 1)
+
     def test_init(self):
-        pass
+        self.test_fw_bsp_vf.write_text(
+            FirmwareBSPVersion(slot_b=self.slot_b_ver).model_dump_json()
+        )
+
+        loaded = FirmwareBSPVersionControl(
+            SLOT_A,
+            self.slot_a_ver,
+            current_firmware_bsp_vf=self.test_fw_bsp_vf,
+        )
+
+        # NOTE: FirmwareBSPVersionControl will not use the information for current slot.
+        assert loaded.current_slot_fw_ver == self.slot_a_ver
+        assert loaded.standby_slot_fw_ver == self.slot_b_ver
 
     def test_write_to_file(self):
-        pass
+        self.test_fw_bsp_vf.write_text(
+            FirmwareBSPVersion(slot_b=self.slot_b_ver).model_dump_json()
+        )
+        loaded = FirmwareBSPVersionControl(
+            SLOT_A,
+            self.slot_a_ver,
+            current_firmware_bsp_vf=self.test_fw_bsp_vf,
+        )
+        loaded.write_to_file(self.test_fw_bsp_vf)
 
-    def test_get_set_current_slot(self):
-        pass
-
-    def test_get_set_standby_slot(self):
-        pass
+        assert (
+            self.test_fw_bsp_vf.read_text()
+            == FirmwareBSPVersion(
+                slot_a=self.slot_a_ver, slot_b=self.slot_b_ver
+            ).model_dump_json()
+        )
 
 
 @pytest.mark.parametrize(
