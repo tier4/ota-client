@@ -95,6 +95,11 @@ logger = logging.getLogger(__name__)
             "enable_ota_proxy: true\ngateway: false\n",
             DEFAULT_PROXY_INFO,
         ),
+        # ------ case 7(20240626): NetworkPort allow str value ------ #
+        (
+            'local_ota_proxy_listen_port: "8082"',
+            ProxyInfo(local_ota_proxy_listen_port=8082),
+        ),
     ),
 )
 def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: ProxyInfo):
