@@ -22,16 +22,15 @@ from typing import Any
 import pytest
 
 from otaclient.app.boot_control._jetson_common import (
-    BSPVersion,
-    FirmwareBSPVersion,
-    SlotID,
-    FirmwareBSPVersionControl,
     SLOT_A,
     SLOT_B,
+    BSPVersion,
+    FirmwareBSPVersion,
+    FirmwareBSPVersionControl,
+    SlotID,
     parse_nv_tegra_release,
     update_extlinux_cfg,
 )
-
 from tests.conftest import TEST_DIR
 
 TEST_DATA_DIR = TEST_DIR / "data"
