@@ -26,7 +26,10 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, ClassVar, Generator, Literal
+
+from pydantic import BaseModel
+from typing_extensions import Self
 
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
@@ -183,6 +186,24 @@ def _detect_esp_dev(boot_parent_devpath: StrOrPath) -> str:
     return esp_part
 
 
+class L4TLauncherBSPVersionControl(BaseModel):
+    """
+    Schema: <bsp_ver_str>:<digest>
+    """
+
+    bsp_ver: BSPVersion
+    sha256_digest: str
+    SEP: ClassVar[Literal[":"]] = ":"
+
+    @classmethod
+    def parse(cls, _in: str) -> Self:
+        bsp_str, digest = _in.split(":")
+        return cls(bsp_ver=BSPVersion.parse(bsp_str), sha256_digest=digest)
+
+    def dump(self) -> str:
+        return f"{self.bsp_ver.dump()}{self.SEP}{self.sha256_digest}"
+
+
 class UEFIFirmwareUpdater:
     """Firmware update implementation using Capsule update."""
 
@@ -293,43 +314,58 @@ class UEFIFirmwareUpdater:
 
     def _detect_l4tlauncher_version(self) -> BSPVersion:
         """Try to determine the current in use l4tlauncher version."""
-        l4tlauncher_bsp_ver = None
+        l4tlauncher_sha256_digest = file_sha256(self.bootaa64_at_esp)
+
+        # try to determine the version with version file
         try:
-            l4tlauncher_bsp_ver = BSPVersion.parse(
+            _ver_control = L4TLauncherBSPVersionControl.parse(
                 self.l4tlauncher_ver_fpath.read_text()
             )
+            if l4tlauncher_sha256_digest == _ver_control.sha256_digest:
+                return _ver_control.bsp_ver
+
+            logger.warning(
+                (
+                    "l4tlauncher sha256 hash mismatched: "
+                    f"{l4tlauncher_sha256_digest=}, {_ver_control.sha256_digest=}, "
+                    "remove version file"
+                )
+            )
+            raise ValueError("sha256 hash mismatched")
         except Exception as e:
             logger.warning(f"missing or invalid l4tlauncher version file: {e!r}")
             self.l4tlauncher_ver_fpath.unlink(missing_ok=True)
 
+        # try to determine the version by looking up table
         # NOTE(20240624): since the number of l4tlauncher version is limited,
         #   we can lookup against a pre-calculated sha256 digest map.
-        if l4tlauncher_bsp_ver is None:
-            _l4tlauncher_sha256_digest = file_sha256(self.bootaa64_at_esp)
-            logger.info(
-                f"try to determine the l4tlauncher verison by hash: {_l4tlauncher_sha256_digest}"
+        logger.info(
+            f"try to determine the l4tlauncher verison by hash: {l4tlauncher_sha256_digest}"
+        )
+        if l4tlauncher_bsp_ver := L4TLAUNCHER_BSP_VER_SHA256_MAP.get(
+            l4tlauncher_sha256_digest
+        ):
+            _ver_control = L4TLauncherBSPVersionControl(
+                bsp_ver=l4tlauncher_bsp_ver, sha256_digest=l4tlauncher_sha256_digest
             )
-            l4tlauncher_bsp_ver = L4TLAUNCHER_BSP_VER_SHA256_MAP.get(
-                _l4tlauncher_sha256_digest
-            )
+            write_str_to_file_sync(self.l4tlauncher_ver_fpath, _ver_control.dump())
+            return l4tlauncher_bsp_ver
 
-        current_slot_fw_bsp_ver = self.fw_bsp_ver_control.current_slot_fw_ver
         # NOTE(20240624): if we failed to detect the l4tlauncher's version,
         #   we assume that the launcher is the same version as current slot's fw.
         #   This is typically the case of a newly flashed ECU.
-        if l4tlauncher_bsp_ver is None:
-            logger.warning(
-                (
-                    "failed to determine the l4tlauncher's version, assuming "
-                    f"version is the same as current slot's fw version: {current_slot_fw_bsp_ver}"
-                )
+        current_slot_fw_bsp_ver = self.fw_bsp_ver_control.current_slot_fw_ver
+        logger.error(
+            (
+                "failed to determine the l4tlauncher's version, assuming "
+                f"version is the same as current slot's fw version: {current_slot_fw_bsp_ver}"
             )
-            l4tlauncher_bsp_ver = current_slot_fw_bsp_ver
-            write_str_to_file_sync(
-                self.l4tlauncher_ver_fpath, l4tlauncher_bsp_ver.dump()
-            )
-
-        logger.info(f"finish detecting l4tlauncher version: {l4tlauncher_bsp_ver}")
+        )
+        l4tlauncher_bsp_ver = current_slot_fw_bsp_ver
+        _ver_control = L4TLauncherBSPVersionControl(
+            bsp_ver=l4tlauncher_bsp_ver, sha256_digest=l4tlauncher_sha256_digest
+        )
+        write_str_to_file_sync(self.l4tlauncher_ver_fpath, _ver_control.dump())
         return l4tlauncher_bsp_ver
 
     # APIs
@@ -384,6 +420,8 @@ class UEFIFirmwareUpdater:
             True if l4tlauncher is updated, else if there is no l4tlauncher update.
         """
         l4tlauncher_bsp_ver = self._detect_l4tlauncher_version()
+        logger.info(f"finished detect l4tlauncher version: {l4tlauncher_bsp_ver}")
+
         ota_image_l4tlauncher_ver = self.ota_image_bsp_ver
         if l4tlauncher_bsp_ver >= ota_image_l4tlauncher_ver:
             logger.info(
