@@ -231,6 +231,8 @@ class UEFIFirmwareUpdater:
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
         #   we use the esp at nvme0n1.
         self.esp_mp = Path(boot_cfg.ESP_MOUNTPOINT)
+        self.esp_mp.mkdir(exist_ok=True)
+
         self.esp_boot_dir = self.esp_mp / "EFI" / "BOOT"
         self.l4tlauncher_ver_fpath = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_VER_FNAME
         """A plain text file stores the BSP version string."""
@@ -419,21 +421,20 @@ class UEFIFirmwareUpdater:
         Returns:
             True if l4tlauncher is updated, else if there is no l4tlauncher update.
         """
-        l4tlauncher_bsp_ver = self._detect_l4tlauncher_version()
-        logger.info(f"finished detect l4tlauncher version: {l4tlauncher_bsp_ver}")
-
-        ota_image_l4tlauncher_ver = self.ota_image_bsp_ver
-        if l4tlauncher_bsp_ver >= ota_image_l4tlauncher_ver:
-            logger.info(
-                (
-                    "installed l4tlauncher has newer or equal version of l4tlauncher to OTA image's one, "
-                    f"{l4tlauncher_bsp_ver=}, {ota_image_l4tlauncher_ver=}, "
-                    "skip l4tlauncher update"
-                )
-            )
-            return False
-
         with _ensure_esp_mounted(self.esp_part, self.esp_mp):
+            l4tlauncher_bsp_ver = self._detect_l4tlauncher_version()
+            logger.info(f"finished detect l4tlauncher version: {l4tlauncher_bsp_ver}")
+
+            ota_image_l4tlauncher_ver = self.ota_image_bsp_ver
+            if l4tlauncher_bsp_ver >= ota_image_l4tlauncher_ver:
+                logger.info(
+                    (
+                        "installed l4tlauncher has newer or equal version of l4tlauncher to OTA image's one, "
+                        f"{l4tlauncher_bsp_ver=}, {ota_image_l4tlauncher_ver=}, "
+                        "skip l4tlauncher update"
+                    )
+                )
+                return False
             return self._update_l4tlauncher()
 
 
