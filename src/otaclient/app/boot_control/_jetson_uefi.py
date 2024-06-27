@@ -197,7 +197,7 @@ class L4TLauncherBSPVersionControl(BaseModel):
 
     @classmethod
     def parse(cls, _in: str) -> Self:
-        bsp_str, digest = _in.split(":")
+        bsp_str, digest = _in.strip().split(":")
         return cls(bsp_ver=BSPVersion.parse(bsp_str), sha256_digest=digest)
 
     def dump(self) -> str:
