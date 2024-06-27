@@ -74,7 +74,7 @@ class JetsonUEFIBootControlConfig(JetsonBootCommon):
     MAGIC_BYTES = b"\x07\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00"
     CAPSULE_PAYLOAD_AT_ESP = "EFI/UpdateCapsule"
     CAPSULE_PAYLOAD_AT_ROOTFS = "/opt/ota_package/"
-    L4TLAUNCHER_VER_FNAME = "l4tlauncher_version.json"
+    L4TLAUNCHER_VER_FNAME = "l4tlauncher_version"
 
     NO_FIRMWARE_UPDATE_HINT_FNAME = ".otaclient_no_firmware_update"
     """Skip firmware update if this file is presented."""
