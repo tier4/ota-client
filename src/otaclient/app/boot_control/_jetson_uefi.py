@@ -454,7 +454,8 @@ class _UEFIBoot:
             raise JetsonUEFIBootControlError(_err_msg)
 
         # print hardware model
-        logger.info(f"hardware model: {Path(boot_cfg.MODEL_FPATH)}")
+        if (model_fpath := Path(boot_cfg.MODEL_FPATH)).is_file():
+            logger.info(f"hardware model: {model_fpath.read_text()}")
 
         compat_info = tegra_compat_info_fpath.read_text()
         # example compatible string:
