@@ -191,7 +191,7 @@ class PersistFilesHandler:
         # NOTE: always check if symlink first as is_file/is_dir/exists all follow_symlinks
         if src_path.is_symlink():
             logger.info(
-                f"preserving symlink: {_persist_entry}, points to {os.readlink(_persist_entry)}"
+                f"preserving symlink: {_persist_entry}, points to {os.readlink(src_path)}"
             )
             self._rm_target(dst_path)
             self._prepare_parent(origin_entry)
