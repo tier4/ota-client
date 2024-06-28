@@ -37,7 +37,7 @@ dependencies = [
   "typing-extensions>=4.6.3",
   "urllib3<2,>=1.26.8",
   "uvicorn[standard]==0.20",
-  "zstandard==0.18",
+  "zstandard==0.22.0",
 ]
 optional-dependencies.dev = [
   "black",
