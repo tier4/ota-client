@@ -33,7 +33,7 @@ A list of helper types/utils are provided to generate wrapper types from compile
 
 - Wrappers for protobuf built-in well-known type
 
-    NOTE: Currenty only support `Duration` type.
+    NOTE: Currently only support `Duration` type.
 
     | **name** | **description** | **usage** |
     | --- | --- | --- |
