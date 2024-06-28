@@ -58,11 +58,11 @@ class DownloadError(Exception):
     """
 
 
-class DownloaderShutdownedError(DownloadError):
+class DownloaderClosedError(DownloadError):
     """Raised when try to use closed downloader."""
 
 
-class PartialDownloaded(DownloadError):
+class PartialDownload(DownloadError):
     """Download is not completed."""
 
 
@@ -87,6 +87,7 @@ class DecompressionAdapterProtocol(Protocol):
         """
 
 
+# cspell:words decompressor dctx
 class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
     """Zstd decompression support for Downloader."""
 
@@ -125,10 +126,10 @@ def inject_cache_control_header_in_req(
     input_header: Mapping[str, str] | None = None,
     compression_alg: str | None = None,
 ) -> Mapping[str, str] | None:
-    """Inject ota-file-cache-control header if digest is available.
+    """Inject ota-file-cache-control header into request if digest is available.
 
-    Currently this method preserves the input_header, while
-        updating/injecting Ota-File-Cache-Control header.
+    This method injects the Ota-File-Cache-Control header into request when upper
+        proxy is an otaproxy, to provide extra information to otaproxy.
     """
     prepared_headers = CIDict()
     if isinstance(input_header, Mapping):
@@ -178,14 +179,14 @@ def check_cache_policy_in_resp(
     # compression_alg from image meta is set, but resp_headers indicates different
     # compression_alg.
     if compression_alg and compression_alg != cache_policy.file_compression_alg:
-        logger.info(
+        logger.warning(
             f"upper serves different cache file for this OTA file: {url=}, "
             f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
         )
     return cache_policy.file_sha256, cache_policy.file_compression_alg
 
 
-def cache_retry_decorator(func: Callable[P, T]) -> Callable[P, T]:
+def retry_on_digest_mismatch(func: Callable[P, T]) -> Callable[P, T]:
     """A decorator to the download API that translate internal exceptions to
     downloader exception.
 
@@ -198,7 +199,7 @@ def cache_retry_decorator(func: Callable[P, T]) -> Callable[P, T]:
             return func(*args, **kwargs)
         except HashVerificationError:
             # try ONCE with headers included OTA cache control retry_caching directory,
-            # if still failed, let the outer retrier does its job.
+            # if still failed, let the outer retry mechanism does its job.
             return func(*args, **inject_cache_retry_directory(kwargs))
 
     return _wrapper
@@ -206,7 +207,7 @@ def cache_retry_decorator(func: Callable[P, T]) -> Callable[P, T]:
 
 DEFAULT_CONNECTION_POOL_SIZE = 20
 DEFAULT_RETRY_COUNT = 7
-# retry on common serverside errors and clientside errors
+# retry on common server-side errors and client-side errors
 DEFAULT_RETRY_STATUS = frozenset([413, 429, 500, 502, 503, 504])
 
 
@@ -224,13 +225,21 @@ class Downloader:
         retry_on_status: frozenset[int] = DEFAULT_RETRY_STATUS,
         retry_count: int = DEFAULT_RETRY_COUNT,
     ) -> None:
-        """Init an downloader instance for single thread use.
+        """Init an instance of Downloader.
+
+        Note that Downloader instance cannot be used in multi-threading. Use DownloaderPool
+            for multi-threading environment.
 
         Args:
-            hash_func (Callable[..., hashlib._Hash]): The hash algorithm used to verify downloaded files.
-            chunk_size (int, optional): Chunk size of chunk streaming and file writing. Defaults to 1*1024*1024.
-            cookies (dict[str, str] | None, optional): Session global cookies. Defaults to None.
-            proxies (dict[str, str] | None, optional): Session global proxies. Defaults to None.
+            hash_func (Callable[..., hashlib._Hash]): The hash algorithm to validate downloaded files.
+            chunk_size (int): Size of chunk when stream downloading the files.
+            use_http_if_http_proxy_set (bool, optional): Force HTTP when HTTP proxy is set. Defaults to True.
+            cookies (dict[str, str] | None, optional): Downloader global cookies. Defaults to None.
+            proxies (dict[str, str] | None, optional): Downloader global proxies setting. Defaults to None.
+            connection_pool_size (int, optional): Defaults to DEFAULT_CONNECTION_POOL_SIZE.
+            retry_on_status (frozenset[int], optional): A list of status code that requests internally will retry on.
+                Defaults to DEFAULT_RETRY_STATUS.
+            retry_count (int, optional): Max retry count for requests internal retry. Defaults to DEFAULT_RETRY_COUNT.
         """
         self.chunk_size = chunk_size
         self.hash_func = hash_func
@@ -245,12 +254,13 @@ class Downloader:
         self._session = session = requests.Session()
 
         # configure cookies and proxies
-        # NOTE that proxie setting here will be overwritten by environmental variables
+        # NOTE that proxies setting here will be overwritten by environmental variables
         #   if proxies are also set by environmental variables.
         session.proxies.update(parsed_proxies)
         session.cookies = add_dict_to_cookiejar(session.cookies, parsed_cookies)
 
         # configure retry strategy
+        # cspell:words forcelist
         http_adapter = HTTPAdapter(
             pool_connections=connection_pool_size,
             pool_maxsize=connection_pool_size,
@@ -282,13 +292,13 @@ class Downloader:
         return self._downloaded_bytes
 
     def close(self) -> None:
-        """Close the underlaying session object.
+        """Close the underlying requests.Session instance.
 
         It is OK to call this method multiple times.
         """
         self._session.close()
 
-    @cache_retry_decorator
+    @retry_on_digest_mismatch
     def download(
         self,
         url: str,
@@ -303,23 +313,25 @@ class Downloader:
             DEFAULT_READ_TIMEOUT,
         ),
     ) -> tuple[int, int, int]:
-        """_summary_
+        """Download one file with the Downloader instance.
 
         Args:
-            url (str): _description_
-            dst (StrOrPath): _description_
-            size (int | None, optional): _description_. Defaults to None.
-            digest (str | None, optional): _description_. Defaults to None.
-            headers (dict[str, str] | None, optional): _description_. Defaults to None.
-            compression_alg (str | None, optional): _description_. Defaults to None.
-            timeout (tuple[int, int] | None):
+            url (str): The URL of file to be downloaded.
+            dst (StrOrPath): The destination at local disk to save the downloaded file.
+            size (int | None, optional): The expected size of the downloaded file. Defaults to None.
+            digest (str | None, optional): The expected digest of the downloaded file. Defaults to None.
+            headers (dict[str, str] | None, optional): Extra headers to use for request. Defaults to None.
+            compression_alg (str | None, optional): The expected compression alg for the file. Defaults to None.
+                NOTE: distinguish with the normal HTTP compression.
+            timeout (tuple[int, int] | None): A tuple of sock connection timeout and read timeout. Defaults to
+                (DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT).
 
         Raises:
-            PartialDownloaded: _description_
-            HashVerificationError: _description_
+            PartialDownloaded: When <size> is specified and the downloaded file's size doesn't match the expected size.
+            HashVerificationError: When <digest> is specified and the downloaded file's digest doesn't match the expected digest.
 
         Returns:
-            Download error, downloaded file size, traffic on wire.
+            A tuple of ints of download_error(total_retry_counts), downloaded_file_size and traffic_on_wire.
         """
         proxies = self._proxies
 
@@ -339,6 +351,7 @@ class Downloader:
         else:
             prepared_headers = headers
 
+        # cspell:ignore digestobj
         digestobj = self.hash_func()
         err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
@@ -378,7 +391,7 @@ class Downloader:
                 f"detect partial downloading: {size=} != {downloaded_file_size=} for "
                 f"{prepared_url}, saving to {dst}"
             )
-            raise PartialDownloaded(_err_msg)
+            raise PartialDownload(_err_msg)
 
         if digest and ((calc_digest := digestobj.hexdigest()) != digest):
             _err_msg = f"hash verification failed: {digest=} != {calc_digest=} for {prepared_url}"
@@ -388,7 +401,7 @@ class Downloader:
 
 
 class DownloaderPool:
-    """A pool of downloader instances for multi-threading.
+    """A pool of downloader instances for multi-threading environment.
 
     Each worker thread can get a thread-local instance of downloader.
     """
@@ -441,6 +454,8 @@ class DownloaderPool:
                 idx = self._thread_idx_mapping[native_thread_id]
                 return self._instances[idx]
 
+            # the caller thread doesn't have an assigned downloader instance yet,
+            #   find one available instance for it.
             for idx, _thread_id in enumerate(self._idx_thread_mapping):
                 if _thread_id == self.INSTANCE_AVAILABLE_ID:
                     first_available_idx = idx
@@ -453,6 +468,10 @@ class DownloaderPool:
             return self._instances[first_available_idx]
 
     def release_instance(self) -> None:
+        """Release one instance back to the pool.
+
+        This method is intended to be called at the thread that uses the instance.
+        """
         native_thread_id = threading.get_native_id()
         with self._instance_map_lock:
             idx = self._thread_idx_mapping.pop(native_thread_id, None)
@@ -471,7 +490,8 @@ class DownloaderPool:
             self._thread_idx_mapping = {}
 
     def shutdown(self) -> None:
-        """Close the downloader instances."""
-        for _instance in self._instances:
-            _instance.close()
-        self._instances = []
+        """Close all the downloader instances."""
+        with self._instance_map_lock:
+            for _instance in self._instances:
+                _instance.close()
+            self._instances = []
