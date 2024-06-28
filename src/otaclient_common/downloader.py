@@ -13,9 +13,7 @@
 # limitations under the License.
 """A common used downloader implementation for otaclient.
 
-This downloader implements the OTA-Cache-File-Control protocol.
-
-NOTE: This downloader cannot be used multi-threaded.
+This downloader implements the OTA-Cache-File-Control protocol to co-operate with otaproxy.
 """
 
 
@@ -46,6 +44,8 @@ logger = logging.getLogger(__name__)
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 DEFAULT_CHUNK_SIZE = 1024**2  # 1MiB
+DEFAULT_CONNECTION_TIMEOUT = 16  # seconds
+DEFAULT_READ_TIMEOUT = 32  # seconds
 
 # ------ errors definition ------ #
 
@@ -66,7 +66,7 @@ class PartialDownloaded(DownloadError):
     """Download is not completed."""
 
 
-class HashVerificaitonError(DownloadError):
+class HashVerificationError(DownloadError):
     """Hash verification failed for the downloaded file."""
 
 
@@ -173,7 +173,7 @@ def check_cache_policy_in_resp(
             f"doesn't match value({digest}) from regulars.txt: {url=}"
         )
         logger.warning(_msg)
-        raise HashVerificaitonError(_msg)
+        raise HashVerificationError(_msg)
 
     # compression_alg from image meta is set, but resp_headers indicates different
     # compression_alg.
@@ -196,7 +196,7 @@ def cache_retry_decorator(func: Callable[P, T]) -> Callable[P, T]:
     def _wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         try:
             return func(*args, **kwargs)
-        except HashVerificaitonError:
+        except HashVerificationError:
             # try ONCE with headers included OTA cache control retry_caching directory,
             # if still failed, let the outer retrier does its job.
             return func(*args, **inject_cache_retry_directory(kwargs))
@@ -298,6 +298,10 @@ class Downloader:
         digest: str | None = None,
         headers: dict[str, str] | None = None,
         compression_alg: str | None = None,
+        timeout: tuple[int, int] | None = (
+            DEFAULT_CONNECTION_TIMEOUT,
+            DEFAULT_READ_TIMEOUT,
+        ),
     ) -> tuple[int, int, int]:
         """_summary_
 
@@ -308,10 +312,11 @@ class Downloader:
             digest (str | None, optional): _description_. Defaults to None.
             headers (dict[str, str] | None, optional): _description_. Defaults to None.
             compression_alg (str | None, optional): _description_. Defaults to None.
+            timeout (tuple[int, int] | None):
 
         Raises:
             PartialDownloaded: _description_
-            HashVerificaitonError: _description_
+            HashVerificationError: _description_
 
         Returns:
             Download error, downloaded file size, traffic on wire.
@@ -338,7 +343,7 @@ class Downloader:
         err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
         with self._session.get(
-            prepared_url, stream=True, headers=prepared_headers
+            prepared_url, stream=True, headers=prepared_headers, timeout=timeout
         ) as resp, open(dst, "wb") as dst_fp:
             resp.raise_for_status()
 
@@ -377,7 +382,7 @@ class Downloader:
 
         if digest and ((calc_digest := digestobj.hexdigest()) != digest):
             _err_msg = f"hash verification failed: {digest=} != {calc_digest=} for {prepared_url}"
-            raise HashVerificaitonError(_err_msg)
+            raise HashVerificationError(_err_msg)
 
         return err_count, downloaded_file_size, traffic_on_wire
 
