@@ -39,7 +39,7 @@ jobs:
           fi
           make clean
 
-      - uses: stefanzweifel/git-auto-commit-action@v4
+      - uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: update otaclient_pb2 hash and version
           file_pattern: ':/proto/.version :/proto/.proto_hash'
