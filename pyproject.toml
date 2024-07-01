@@ -35,7 +35,7 @@ dependencies = [
   "pyyaml>=3.12",
   "requests<2.33,>=2.32",
   "typing-extensions>=4.6.3",
-  "urllib3<2,>=1.26.8",
+  "urllib3>=2.2.2,<3",
   "uvicorn[standard]==0.20",
   "zstandard==0.22",
 ]
