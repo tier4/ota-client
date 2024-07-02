@@ -24,7 +24,7 @@ dynamic = [
   "version",
 ]
 dependencies = [
-  "aiofiles==22.1",
+  "aiofiles==24.1",
   "aiohttp<3.10,>=3.9.5",
   "cryptography<43,>=42.0.4",
   "grpcio<1.54,>=1.53.2",
@@ -32,7 +32,7 @@ dependencies = [
   "pydantic==2.8",
   "pydantic-settings==2.3.4",
   "pyopenssl==24.1",
-  "pyyaml>=3.12",
+  "pyyaml==6.0.1",
   "requests<2.33,>=2.32",
   "typing-extensions>=4.6.3",
   "urllib3>=2.2.2,<2.3",
