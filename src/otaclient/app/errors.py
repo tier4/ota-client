@@ -37,6 +37,8 @@ class OTAErrorCode(int, Enum):
     E_OTA_ERR_RECOVERABLE = 200
     E_OTA_BUSY = 201
     E_INVALID_STATUS_FOR_OTAROLLBACK = 202
+    E_OTA_IMAGE_INVALID = 203
+    E_UPDATE_REQUEST_COOKIE_INVALID = 204
 
     #
     # ------ unrecoverable errors ------
@@ -158,8 +160,18 @@ class InvalidStatusForOTARollback(OTAErrorRecoverable):
     failure_description: str = "previous OTA is not succeeded, reject OTA rollback"
 
 
+class OTAImageInvalid(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_IMAGE_INVALID
+    failure_description: str = "failed to complete OTA as OTA image is broken"
+
+
+class UpdateRequestCookieInvalid(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATE_REQUEST_COOKIE_INVALID
+    failure_description: str = "failed to complete OTA as cookie is invalid"
+
+
 #
-# ------ recoverable error ------
+# ------ unrecoverable error ------
 #
 
 _UNRECOVERABLE_DEFAULT_DESC = (
