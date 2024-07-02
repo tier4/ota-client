@@ -28,10 +28,13 @@ from typing import NamedTuple
 from urllib.parse import quote
 
 import pytest
+import pytest_mock
+import requests
+import requests_mock
 import zstandard
 
 from otaclient_common.common import urljoin_ensure_base
-from otaclient_common.downloader import Downloader
+from otaclient_common.downloader import Downloader, HashVerificationError
 
 logger = logging.getLogger(__name__)
 
@@ -153,20 +156,110 @@ def run_http_server_subprocess(
 
 class TestDownloader:
 
-    def test_downloading(
+    @pytest.fixture(autouse=True)
+    def setup_downloader(self):
+        self.downloader = Downloader(hash_func=sha256, chunk_size=4096)
+
+    def test_req_inject_cache_control_headers(
+        self,
+        mocker: pytest_mock.MockerFixture,
+        tmp_path: Path,
+    ):
+
+        class _ControlledException(Exception):
+            """For breakout the actual downloading."""
+
+        # wrap the original get method to capture the call
+        mock_get = mocker.MagicMock(
+            spec=self.downloader._session.get, side_effect=_ControlledException
+        )
+        self.downloader._session.get = mock_get
+        # patch the downloader to have proxy setting
+        mocker.patch.object(
+            target=self.downloader,
+            attribute="_proxies",
+            new={"http": "http://127.0.0.1:8082"},
+        )
+
+        file_info = FileInfo(
+            file_name="some_file",
+            size=123,
+            url="http://127.0.0.1/test_url",
+            sha256digest="aabccdd1122334455",
+            compresson_alg="zstd",
+        )
+
+        tmp_file = tmp_path / "a_tmp_file"
+        with pytest.raises(_ControlledException):
+            self.downloader.download(
+                file_info.url,
+                tmp_file,
+                digest=file_info.sha256digest,
+                compression_alg=file_info.compresson_alg,
+            )
+
+        # examine the call and ensure the header is injected
+        logger.info(f"{mock_get.mock_calls=}")
+        mock_get.assert_any_call(
+            file_info.url,
+            stream=True,
+            timeout=mocker.ANY,
+            headers={
+                "ota-file-cache-control": (
+                    f"file_sha256={file_info.sha256digest},"
+                    f"file_compression_alg={file_info.compresson_alg}"
+                )
+            },
+        )
+
+    def test_retry_cache_headers_injection(
+        self,
+        mocker: pytest_mock.MockerFixture,
+        setup_test_data: tuple[Path, list[FileInfo]],
+        tmp_path: Path,
+    ):
+        # wrap the original get method to capture the call
+        mock_get = mocker.MagicMock(wraps=self.downloader._session.get)
+        self.downloader._session.get = mock_get
+
+        _, file_info_list = setup_test_data
+        # get one file entry from the list
+        file_info = file_info_list[0]
+
+        tmp_file = tmp_path / "a_tmp_file"
+        with pytest.raises(HashVerificationError):
+            self.downloader.download(file_info.url, tmp_file, digest="wrong_digest!!!")
+
+        # examine the call and ensure the header is injected
+        # one normal get call
+        logger.info(f"{mock_get.mock_calls=}")
+        mock_get.assert_any_call(
+            file_info.url,
+            stream=True,
+            timeout=mocker.ANY,
+            headers=None,  # we don't have header pre-set
+        )
+        # following at least one get call with ota-cache retry header
+        mock_get.assert_any_call(
+            file_info.url,
+            stream=True,
+            timeout=mocker.ANY,
+            headers={"ota-file-cache-control": "retry_caching"},
+        )
+
+    def test_downloading_from_test_data_dir(
         self,
         setup_test_data: tuple[Path, list[FileInfo]],
         tmp_path: Path,
     ):
         """Test single thread downloading with one Downloader instance."""
-        downloader_inst = Downloader(hash_func=sha256, chunk_size=4096)
         _, file_info_list = setup_test_data
 
         buffer_area = tmp_path / "_buffer_area"
         logger.info("start to downloading files from test_data_dir")
         for file_info in file_info_list:
             try:
-                downloader_inst.download(
+                self.downloader.download(
                     file_info.url,
                     buffer_area,
                     digest=file_info.sha256digest,
