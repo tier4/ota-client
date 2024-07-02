@@ -19,6 +19,7 @@ import itertools
 import logging
 import os
 import random
+import threading
 import time
 from functools import partial
 from hashlib import sha256
@@ -34,12 +35,17 @@ import requests_mock
 import zstandard
 
 from otaclient_common.common import urljoin_ensure_base
-from otaclient_common.downloader import Downloader, HashVerificationError
+from otaclient_common.downloader import (
+    Downloader,
+    DownloaderPool,
+    HashVerificationError,
+)
+from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 logger = logging.getLogger(__name__)
 
 
-TEST_FILES_NUM = 2_000
+TEST_FILES_NUM = 6_000
 # NOTE(20240702): This is for URL escape testing
 TEST_SPECIAL_FILE_NAME = r"path;adf.ae?qu.er\y=str#fragファイルement"
 TEST_FILE_SIZE_LOWER_BOUND = 128
@@ -157,8 +163,10 @@ def run_http_server_subprocess(
 class TestDownloader:
 
     @pytest.fixture(autouse=True)
-    def setup_downloader(self):
+    def setup_downloader(self, tmp_path: Path):
         self.downloader = Downloader(hash_func=sha256, chunk_size=4096)
+        self._download_dir = tmp_path / "test_download_dir"
+        self._download_dir.mkdir(exist_ok=True, parents=True)
 
     def test_req_inject_cache_control_headers(
         self,
@@ -248,27 +256,71 @@ class TestDownloader:
         )
 
     def test_downloading_from_test_data_dir(
-        self,
-        setup_test_data: tuple[Path, list[FileInfo]],
-        tmp_path: Path,
+        self, setup_test_data: tuple[Path, list[FileInfo]]
     ):
         """Test single thread downloading with one Downloader instance."""
         _, file_info_list = setup_test_data
 
-        buffer_area = tmp_path / "_buffer_area"
         logger.info("start to downloading files from test_data_dir")
         for file_info in file_info_list:
-            try:
-                self.downloader.download(
-                    file_info.url,
-                    buffer_area,
-                    digest=file_info.sha256digest,
-                    size=file_info.size,
-                    compression_alg=file_info.compresson_alg,
-                )
-            except Exception as e:
-                logger.error(f"{e!r}")
+            self.downloader.download(
+                file_info.url,
+                self._download_dir / file_info.file_name,
+                digest=file_info.sha256digest,
+                size=file_info.size,
+                compression_alg=file_info.compresson_alg,
+            )
+        logger.info("finish downloading files from test_data_dir")
+
+
+INSTANCE_NUM = 6
+MAX_CONCURRENT = 256
 
 
 class TestDownloaderPool:
-    pass
+    """Test the downloading with downloader pool."""
+
+    @pytest.fixture(autouse=True)
+    def setup_test(self, tmp_path: Path):
+        self._thread_num = thread_num = INSTANCE_NUM
+        self._downloader_pool = DownloaderPool(
+            instance_num=thread_num, hash_func=sha256
+        )
+        self._downloader_mapper: dict[int, Downloader] = {}
+        self._download_dir = tmp_path / "test_download_dir"
+        self._download_dir.mkdir(exist_ok=True, parents=True)
+
+    def _thread_initializer(self):
+        self._downloader_mapper[threading.get_native_id()] = (
+            self._downloader_pool.get_instance()
+        )
+
+    def _download_file(self, file_info: FileInfo):
+        downloader = self._downloader_mapper[threading.get_native_id()]
+        downloader.download(
+            file_info.url,
+            self._download_dir / file_info.file_name,
+            digest=file_info.sha256digest,
+            size=file_info.size,
+            compression_alg=file_info.compresson_alg,
+        )
+
+    def test_downloading_from_test_data_dir(
+        self,
+        setup_test_data: tuple[Path, list[FileInfo]],
+    ):
+        """Test single thread downloading with one Downloader instance."""
+        _, file_info_list = setup_test_data
+
+        logger.info(
+            "start to downloading files from test_data_dir with downloader pool"
+        )
+        with ThreadPoolExecutorWithRetry(
+            max_concurrent=MAX_CONCURRENT,
+            max_workers=self._thread_num,
+            thread_name_prefix="download_ota_files",
+            initializer=self._thread_initializer,
+        ) as _mapper:
+            for _fut in _mapper.ensure_tasks(self._download_file, file_info_list):
+                _fut.result()  # expose any possible exception
+        logger.info("finish downloading files from test_data_dir")
