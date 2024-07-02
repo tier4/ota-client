@@ -332,11 +332,11 @@ class DeltaGenerator:
             thread_local.view = memoryview(buffer)
 
         def _task_done_callback(fut: Future[Any]):
+            max_pending_tasks.release()  # always release se first
             if exc := fut.exception():
                 logger.warning(
                     f"detect error during file preparing, still continue: {exc!r}"
                 )
-            max_pending_tasks.release()
 
         pool = ThreadPoolExecutor(
             max_workers=cfg.MAX_PROCESS_FILE_THREAD,

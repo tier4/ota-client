@@ -19,7 +19,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, TypeVar, Union
 
-from pydantic import Field
+from pydantic import BeforeValidator, Field
 from typing_extensions import Annotated, Concatenate, ParamSpec
 
 P = ParamSpec("P")
@@ -31,7 +31,11 @@ StrOrPath = Union[str, Path]
 
 # pydantic helpers
 
-NetworkPort = Annotated[int, Field(ge=1, le=65535)]
+NetworkPort = Annotated[
+    int,
+    BeforeValidator(lambda x: int(x)),
+    Field(ge=1, le=65535),
+]
 
 
 def gen_strenum_validator(
