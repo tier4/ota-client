@@ -45,7 +45,7 @@ optional-dependencies.dev = [
   "flake8",
   "isort",
   "pytest==7.1.2",
-  "pytest-asyncio==0.21",
+  "pytest-asyncio==0.23.7",
   "pytest-mock==3.14",
   "requests-mock",
 ]
