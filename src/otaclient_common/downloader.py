@@ -51,19 +51,21 @@ DEFAULT_READ_TIMEOUT = 32  # seconds
 
 
 class DownloadError(Exception):
-    """Basic Download error.
+    """Base Download error.
 
-    These errors are exception that should be handled by the caller.
-    Other errors raised by requests can simply be handled by outer retry.
+    These errors are the one that directly raised by Downloader itself.
+    For other underlying exceptions like exceptions from requests, Downloader
+        will not wrap or capture these exceptions but just let it passthrough
+        to the upper caller.
     """
 
 
-class DownloaderClosedError(DownloadError):
-    """Raised when try to use closed downloader."""
-
-
 class PartialDownload(DownloadError):
-    """Download is not completed."""
+    """Download is not completed.
+
+    When the expected <size> of file is known, downloader will use
+        this information to check the downloaded file.
+    """
 
 
 class HashVerificationError(DownloadError):
@@ -114,7 +116,11 @@ class ZstdDecompressionAdapter(DecompressionAdapter):
 
 
 def inject_cache_retry_directory(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Inject a OTA-File-Cache-Control header to kwargs on hash verification failed."""
+    """Inject a OTA-File-Cache-Control header to kwargs on the retry request for hash verification failed.
+
+    When upper proxy is an otaproxy, this header will indicate the otaproxy to clear the cache
+        for this file and try re-downloading and re-cache from remote.
+    """
     parsed_header: dict[str, str] = {}
 
     input_headers = kwargs.pop("headers", None)
@@ -138,10 +144,11 @@ def inject_cache_control_header_in_req(
     input_header: Mapping[str, str] | None = None,
     compression_alg: str | None = None,
 ) -> Mapping[str, str] | None:
-    """Inject ota-file-cache-control header into request if digest is available.
+    """Inject ota-file-cache-control header into request if extra info is available.
 
     This method injects the Ota-File-Cache-Control header into request when upper
-        proxy is an otaproxy, to provide extra information to otaproxy.
+        proxy is an otaproxy, to provide extra information to otaproxy, including
+        digest and compression_alg for the requested file.
     """
     prepared_headers = CIDict()
     if isinstance(input_header, Mapping):
@@ -169,10 +176,10 @@ def check_cache_policy_in_resp(
 
     If both image meta and cache-control header specify the digest, check the matching,
       raise exception if unmatched as the remote resources might be corrupted.
-      Note that we always use the digest from image meta.
+    Note that we always use the digest from image meta.
 
-    If compression_alg from image meta is set, but cache-control header indicates different
-      compression_alg, we use the value from cache-control header.
+    If ache-control header indicates different compression_alg than image meta,
+        we use the value from cache-control header.
 
     Returns:
         A tuple of file_sha256 and file_compression_alg for the requested resources.
@@ -181,7 +188,7 @@ def check_cache_policy_in_resp(
         return digest, compression_alg
 
     cache_policy = OTAFileCacheControl.parse_header(cache_policy_str)
-    # NOTE: we always use the digest from image meta.
+    # NOTE: we always use the digest from image meta if set.
     if digest and cache_policy.file_sha256 and digest != cache_policy.file_sha256:
         _msg = (
             f"digest({cache_policy.file_sha256}) in cache_policy"
@@ -207,16 +214,18 @@ def retry_on_digest_mismatch(func: Callable[P, T]) -> Callable[P, T]:
     """A decorator to the download API that translate internal exceptions to
     downloader exception.
 
-    It also implements the OTA-Cache-File-Control protocol on hash verification error.
+    It also implements the OTA-Cache-File-Control protocol on hash verification error, or
+        the decompression is broken(possibly due to wrong compression_alg info).
     """
 
     @wraps(func)
     def _wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         try:
             return func(*args, **kwargs)
-        except HashVerificationError:
+        except (HashVerificationError, BrokenDecompressionError) as e:
             # try ONCE with headers included OTA cache control retry_caching directory,
             # if still failed, let the outer retry mechanism does its job.
+            logger.warning(f"trigger cache retry due to: {e!r}")
             return func(*args, **inject_cache_retry_directory(kwargs))
 
     return _wrapper
@@ -251,8 +260,9 @@ class Downloader:
             hash_func (Callable[..., hashlib._Hash]): The hash algorithm to validate downloaded files.
             chunk_size (int): Size of chunk when stream downloading the files.
             use_http_if_http_proxy_set (bool, optional): Force HTTP when HTTP proxy is set. Defaults to True.
-            cookies (dict[str, str] | None, optional): Downloader global cookies. Defaults to None.
-            proxies (dict[str, str] | None, optional): Downloader global proxies setting. Defaults to None.
+                This must be True when upper proxy is otaproxy.
+            cookies (dict[str, str] | None, optional): Downloader inst scope cookies. Defaults to None.
+            proxies (dict[str, str] | None, optional): Downloader inst scope proxies setting. Defaults to None.
             connection_pool_size (int, optional): Defaults to DEFAULT_CONNECTION_POOL_SIZE.
             retry_on_status (frozenset[int], optional): A list of status code that requests internally will retry on.
                 Defaults to DEFAULT_RETRY_STATUS.
@@ -291,21 +301,23 @@ class Downloader:
         session.mount("http://", http_adapter)
 
         # ------ compression support ------ #
-        self._compression_support_matrix = {}
+        self._compression_support_matrix: dict[str, DecompressionAdapter] = {}
         # zstd decompression adapter
         zstd_decompressor = ZstdDecompressionAdapter()
         self._compression_support_matrix["zst"] = zstd_decompressor
         self._compression_support_matrix["zstd"] = zstd_decompressor
 
     def _get_decompressor(
-        self, compression_alg: Any
-    ) -> DecompressionAdapterProtocol | None:
+        self, compression_alg: str | Any
+    ) -> DecompressionAdapter | None:
+        """Get decompressor according to compression_alg."""
         return self._compression_support_matrix.get(compression_alg)
 
     # API
 
     @property
     def downloaded_bytes(self) -> int:
+        """The total bytes on wire of this Downloader inst."""
         return self._downloaded_bytes
 
     def close(self) -> None:
@@ -339,7 +351,7 @@ class Downloader:
             digest (str | None, optional): The expected digest of the downloaded file. Defaults to None.
             headers (dict[str, str] | None, optional): Extra headers to use for request. Defaults to None.
             compression_alg (str | None, optional): The expected compression alg for the file. Defaults to None.
-                NOTE: distinguish with the normal HTTP compression.
+                NOTE: don't confuse with the HTTP compression.
             timeout (tuple[int, int] | None): A tuple of sock connection timeout and read timeout. Defaults to
                 (DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT).
 
@@ -452,6 +464,7 @@ class DownloaderPool:
 
     @property
     def total_downloaded_bytes(self) -> int:
+        """The sum of all downloader instances' total downloaded bytes on wire."""
         if _res := sum(downloader.downloaded_bytes for downloader in self._instances):
             self._total_downloaded_bytes = _res
         return self._total_downloaded_bytes
