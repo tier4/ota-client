@@ -30,15 +30,15 @@ from urllib.parse import quote
 
 import pytest
 import pytest_mock
-import requests
-import requests_mock
 import zstandard
+from requests.structures import CaseInsensitiveDict as CIDict
 
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
     HashVerificationError,
+    check_cache_policy_in_resp,
 )
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
@@ -324,3 +324,80 @@ class TestDownloaderPool:
             for _fut in _mapper.ensure_tasks(self._download_file, file_info_list):
                 _fut.result()  # expose any possible exception
         logger.info("finish downloading files from test_data_dir")
+
+
+@pytest.mark.parametrize(
+    "_input, _resp_headers, _expected",
+    (
+        (
+            ("zstd", "matched_digest"),
+            CIDict(
+                {
+                    "Ota-File-Cache-Control": "file_compression_alg=zstd,file_sha256=matched_digest"
+                }
+            ),
+            ("zstd", "matched_digest"),
+        ),
+        (
+            ("zstd", "image_meta_digest"),
+            CIDict(
+                {
+                    "Ota-File-Cache-Control": "file_compression_alg=zstd,file_sha256=mismatched_digest"
+                }
+            ),
+            HashVerificationError,
+        ),
+        (
+            ("mismatched_compression_alg", "matched_digest"),
+            CIDict(
+                {
+                    "Ota-File-Cache-Control": "file_compression_alg=zstd,file_sha256=matched_digest"
+                }
+            ),
+            ("zstd", "matched_digest"),
+        ),
+        (
+            ("zstd", "input_digest"),
+            CIDict(),
+            ("zstd", "input_digest"),
+        ),
+        (
+            (None, "matched_digest"),
+            CIDict(
+                {
+                    "Ota-File-Cache-Control": "file_compression_alg=zstd,file_sha256=matched_digest"
+                }
+            ),
+            ("zstd", "matched_digest"),
+        ),
+        (
+            (None, None),
+            CIDict({"Ota-File-Cache-Control": "file_sha256=not_used"}),
+            (None, None),
+        ),
+    ),
+)
+def test_check_cache_policy_in_resp(
+    _input: tuple[str | None, str | None],
+    _resp_headers: CIDict,
+    _expected: tuple[str | None, str | None] | type[Exception],
+):
+    URL = "dummy_url"  # actually only used in logging
+    compression_alg, digest = _input
+
+    if isinstance(_expected, type) and issubclass(_expected, Exception):
+        with pytest.raises(_expected):
+            compression_alg, digest = check_cache_policy_in_resp(
+                URL,
+                compression_alg=compression_alg,
+                digest=digest,
+                resp_headers=_resp_headers,
+            )
+    else:
+        digest, compression_alg = check_cache_policy_in_resp(
+            URL,
+            compression_alg=compression_alg,
+            digest=digest,
+            resp_headers=_resp_headers,
+        )
+        assert (compression_alg, digest) == _expected
