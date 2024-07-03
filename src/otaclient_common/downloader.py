@@ -70,10 +70,17 @@ class HashVerificationError(DownloadError):
     """Hash verification failed for the downloaded file."""
 
 
+class BrokenDecompressionError(DownloadError):
+    """Failed to decompress the downloading file stream.
+
+    This might happen if the compression_alg information is incorrect.
+    """
+
+
 # ------ decompression support ------ #
 
 
-class DecompressionAdapterProtocol(Protocol):
+class DecompressionAdapter(Protocol):
     """DecompressionAdapter protocol for Downloader."""
 
     @abstractmethod
@@ -88,14 +95,19 @@ class DecompressionAdapterProtocol(Protocol):
 
 
 # cspell:words decompressor dctx
-class ZstdDecompressionAdapter(DecompressionAdapterProtocol):
+class ZstdDecompressionAdapter(DecompressionAdapter):
     """Zstd decompression support for Downloader."""
 
     def __init__(self) -> None:
         self._dctx = zstandard.ZstdDecompressor()
 
     def iter_chunk(self, src_stream: IO[bytes] | ByteString) -> Iterator[bytes]:
-        yield from self._dctx.read_to_iter(src_stream)
+        try:
+            yield from self._dctx.read_to_iter(src_stream)
+        except zstandard.ZstdError as e:
+            raise BrokenDecompressionError(
+                f"failure during decompressing file stream: {e!r}"
+            )
 
 
 # ------ OTA-Cache-File-Control protocol implementation ------ #
