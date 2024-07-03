@@ -164,18 +164,17 @@ class Test_OTAUpdater:
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
         )
         _updater = _OTAUpdater(
+            version=cfg.UPDATE_VERSION,
+            raw_url_base=cfg.OTA_IMAGE_URL,
+            cookies_json=r'{"test": "my-cookie"}',
             boot_controller=self._boot_control,
+            upper_otaproxy=None,
             create_standby_cls=self._create_standby_cls,
-            proxy=None,
             control_flags=otaclient_control_flags,
         )
         _updater._process_persistents = process_persists_handler = mocker.MagicMock()
 
-        _updater.execute(
-            version=cfg.UPDATE_VERSION,
-            raw_url_base=cfg.OTA_IMAGE_URL,
-            cookies_json=r'{"test": "my-cookie"}',
-        )
+        _updater.execute()
 
         # ------ assertions ------ #
         # assert OTA files are downloaded
@@ -185,7 +184,7 @@ class Test_OTAUpdater:
         assert _downloaded_files_size == self._delta_bundle.total_download_files_size
         # assert the control_flags has been waited
         otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
-        assert _updater.updating_version == cfg.UPDATE_VERSION
+        assert _updater.updating_version == str(cfg.UPDATE_VERSION)
         # assert boot controller is used
         self._boot_control.pre_update.assert_called_once()
         self._boot_control.post_update.assert_called_once()
