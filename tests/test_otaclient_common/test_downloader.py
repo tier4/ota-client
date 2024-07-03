@@ -325,6 +325,8 @@ class TestDownloaderPool:
                 _fut.result()  # expose any possible exception
         logger.info("finish downloading files from test_data_dir")
 
+        assert self._downloader_pool.total_downloaded_bytes > 0
+
 
 @pytest.mark.parametrize(
     "_input, _resp_headers, _expected",
