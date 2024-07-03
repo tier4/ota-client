@@ -740,7 +740,7 @@ class OTAMetadata:
 
         # ------ start downloading ota_metadata files ------ #
         with ThreadPoolExecutorWithRetry(
-            max_workers=2,
+            max_workers=1,
             max_concurrent=self.MAX_COCURRENT,
         ) as _mapper:
             try:
