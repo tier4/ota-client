@@ -330,6 +330,7 @@ class TestDownloaderPool:
     "_input, _resp_headers, _expected",
     (
         (
+            # case1: information from header and image meta are matched.
             ("zstd", "matched_digest"),
             CIDict(
                 {
@@ -339,6 +340,7 @@ class TestDownloaderPool:
             ("zstd", "matched_digest"),
         ),
         (
+            # case2: digest from header is wrong, raise HashVerificationError.
             ("zstd", "image_meta_digest"),
             CIDict(
                 {
@@ -348,6 +350,7 @@ class TestDownloaderPool:
             HashVerificationError,
         ),
         (
+            # case3: compression_alg mismatched, use the one from header.
             ("mismatched_compression_alg", "matched_digest"),
             CIDict(
                 {
@@ -355,11 +358,6 @@ class TestDownloaderPool:
                 }
             ),
             ("zstd", "matched_digest"),
-        ),
-        (
-            ("zstd", "input_digest"),
-            CIDict(),
-            ("zstd", "input_digest"),
         ),
         (
             (None, "matched_digest"),
@@ -371,6 +369,14 @@ class TestDownloaderPool:
             ("zstd", "matched_digest"),
         ),
         (
+            # case4: no cache-control header, use the information from image meta as it.
+            ("zstd", "input_digest"),
+            CIDict(),
+            ("zstd", "input_digest"),
+        ),
+        (
+            # case5: image meta doesn't contain digest info(THIS SHOULD NOT HAPPEND NORMALLY).
+            #   Not use the digest info from header though.
             (None, None),
             CIDict({"Ota-File-Cache-Control": "file_sha256=not_used"}),
             (None, None),
