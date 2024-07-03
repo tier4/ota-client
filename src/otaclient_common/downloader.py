@@ -197,7 +197,9 @@ def check_cache_policy_in_resp(
         logger.warning(_msg)
         raise HashVerificationError(_msg)
 
-    # If compression_alg mismatched, use the one from cache-control header
+    # If compression_alg mismatched, use the one from cache-control header.
+    # NOTE that if otaproxy's information is also wrong, it can be covered by
+    #   the DecompressionAdaptor, and trigger a retry-cache.
     if (
         cache_policy.file_compression_alg
         and compression_alg != cache_policy.file_compression_alg
