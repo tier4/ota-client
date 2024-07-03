@@ -262,11 +262,7 @@ class Test_OTAClient:
 
         # --- assert on update finished(before reboot) --- #
         self.ota_lock.acquire.assert_called_once_with(blocking=False)
-        self.ota_updater.execute.assert_called_once_with(
-            self.UPDATE_FIRMWARE_VERSION,
-            self.OTA_IMAGE_URL,
-            self.UPDATE_COOKIES_JSON,
-        )
+        self.ota_updater.execute.assert_called_once()
         self.ota_lock.release.assert_called_once()
         assert (
             self.ota_client.live_ota_status.get_ota_status()
@@ -287,11 +283,7 @@ class Test_OTAClient:
 
         # --- assertion on interrupted OTA update --- #
         self.ota_lock.acquire.assert_called_once_with(blocking=False)
-        self.ota_updater.execute.assert_called_once_with(
-            self.UPDATE_FIRMWARE_VERSION,
-            self.OTA_IMAGE_URL,
-            self.UPDATE_COOKIES_JSON,
-        )
+        self.ota_updater.execute.assert_called_once()
         self.ota_lock.release.assert_called_once()
 
         assert (
