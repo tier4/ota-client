@@ -155,8 +155,12 @@ def check_cache_policy_in_resp(
 ) -> tuple[str | None, str | None]:
     """Checking digest and compression_alg against cache_policy from resp headers.
 
-    If upper responds with file_sha256 and file_compression_alg by ota-file-cache-control header,
-        use these information, otherwise use the information provided by client.
+    If both image meta and cache-control header specify the digest, check the matching,
+      raise exception if unmatched as the remote resources might be corrupted.
+      Note that we always use the digest from image meta.
+
+    If compression_alg from image meta is set, but cache-control header indicates different
+      compression_alg, we use the value from cache-control header.
 
     Returns:
         A tuple of file_sha256 and file_compression_alg for the requested resources.
@@ -165,10 +169,8 @@ def check_cache_policy_in_resp(
         return digest, compression_alg
 
     cache_policy = OTAFileCacheControl.parse_header(cache_policy_str)
-    if not cache_policy.file_sha256 or not cache_policy.file_compression_alg:
-        return digest, compression_alg
-
-    if digest and digest != cache_policy.file_sha256:
+    # NOTE: we always use the digest from image meta.
+    if digest and cache_policy.file_sha256 and digest != cache_policy.file_sha256:
         _msg = (
             f"digest({cache_policy.file_sha256}) in cache_policy"
             f"doesn't match value({digest}) from regulars.txt: {url=}"
@@ -176,14 +178,17 @@ def check_cache_policy_in_resp(
         logger.warning(_msg)
         raise HashVerificationError(_msg)
 
-    # compression_alg from image meta is set, but resp_headers indicates different
-    # compression_alg.
-    if compression_alg and compression_alg != cache_policy.file_compression_alg:
+    # If compression_alg mismatched, use the one from cache-control header
+    if (
+        cache_policy.file_compression_alg
+        and compression_alg != cache_policy.file_compression_alg
+    ):
         logger.warning(
             f"upper serves different cache file for this OTA file: {url=}, "
             f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
         )
-    return cache_policy.file_sha256, cache_policy.file_compression_alg
+        compression_alg = cache_policy.file_compression_alg
+    return digest, compression_alg
 
 
 def retry_on_digest_mismatch(func: Callable[P, T]) -> Callable[P, T]:
