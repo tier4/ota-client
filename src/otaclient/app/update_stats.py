@@ -11,180 +11,161 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Implementation of stats and progress tracking during OTA."""
 
 
 from __future__ import annotations
 
-import logging
+import queue
 import time
-from contextlib import contextmanager
-from dataclasses import dataclass
-from enum import Enum
-from queue import Empty, Queue
-from threading import Event, Lock, Thread
-from typing import Generator
+from enum import Enum, auto
+from threading import Thread
 
-from otaclient_api.v2.types import UpdateStatus
-
-from .configs import config as cfg
-
-logger = logging.getLogger(__name__)
+from pydantic import BaseModel
 
 
-class RegProcessOperation(Enum):
-    UNSPECIFIC = "UNSPECIFIC"
+class ProcessOperation(Enum):
+    UNSPECIFIC = auto()
     # NOTE: PREPARE_LOCAL, DOWNLOAD_REMOTE and APPLY_DELTA are together
     #       counted as <processed_files_*>
-    PREPARE_LOCAL_COPY = "PREPARE_LOCAL_COPY"
-    DOWNLOAD_REMOTE_COPY = "DOWNLOAD_REMOTE_COPY"
-    APPLY_DELTA = "APPLY_DELTA"
+    PREPARE_LOCAL_COPY = auto()
+    DOWNLOAD_REMOTE_COPY = auto()
+    APPLY_DELTA = auto()
     # for in-place update only
-    APPLY_REMOVE_DELTA = "APPLY_REMOVE_DELTA"
+    APPLY_REMOVE_DELTA = auto()
     # special op for download error report
-    DOWNLOAD_ERROR_REPORT = "DOWNLOAD_ERROR_REPORT"
+    DOWNLOAD_ERROR_REPORT = auto()
 
 
-@dataclass
-class RegInfProcessedStats:
-    op: RegProcessOperation = RegProcessOperation.UNSPECIFIC
+class OperationRecord(BaseModel):
+    op: ProcessOperation = ProcessOperation.UNSPECIFIC
 
-    size: int = 0  # uncompressed processed file size
-    elapsed_ns: int = 0
-    # only for downloading operation
-    download_errors: int = 0
-    downloaded_bytes: int = 0
+    processed_file_num: int = 0
+    processed_file_size: int = 0  # uncompressed processed file size
+    # currently only for downloading operation
+    errors: int = 0
 
 
-class OTAUpdateStatsCollector:
-    def __init__(self) -> None:
-        self._lock = Lock()
-        self.store = UpdateStatus()
+class OTAUpdateStatsCollector2:
 
-        self.collect_interval = cfg.STATS_COLLECT_INTERVAL
-        self.terminated = Event()
-        self._que: Queue[RegInfProcessedStats] = Queue()
-        self._staging: list[RegInfProcessedStats] = []
-        self._collector_thread = None
+    def __init__(self, *, collect_interval: int = 1) -> None:
+        self.collect_interval = collect_interval
+        self._queue: queue.Queue[OperationRecord] = queue.Queue()
+        self._collector: Thread | None = None
 
-    @contextmanager
-    def _staging_changes(self) -> Generator[UpdateStatus, None, None]:
-        """Acquire a staging storage for updating the slot atomically.
+        self._shutdown = False
 
-        NOTE: it should be only one collecter that calling this method!
-        """
-        staging_slot = self.store.get_snapshot()
-        try:
-            yield staging_slot
-        finally:
-            self.store = staging_slot
+        self._update_started_timestamp = int(time.time())
+        self._delta_calculation_started_timestamp = 0
+        self._delta_calculation_finished_timestamp = 0
 
-    def _clear(self):
-        self.store = UpdateStatus()
-        self._staging.clear()
-        self._que = Queue()
+        self._download_started_timestamp = 0
+        self._download_finished_timestamp = 0
 
-    def _report(self, stat: RegInfProcessedStats):
-        """Report one stat to the stats collector."""
-        self._que.put_nowait(stat)
+        self._apply_update_started_timestamp = 0
+        self._apply_update_finished_timestamp = 0
 
-    ###### public API ######
+        #
+        # ------ exposed attributes ------ #
+        #
 
-    def start(self):
-        if not self.terminated.is_set():
-            self.stop()
+        # ------ summary ------ #
+        self.processed_files_num: int = 0
+        self.processed_files_size: int = 0
 
-        with self._lock:
-            self.terminated.clear()
-            self._clear()
-            self._collector_thread = Thread(target=self.collector)
-            self._collector_thread.start()
+        # ------ delta calculation stats ------ #
+        self.delta_collected_files_num: int = 0
+        self.delta_collected_files_size: int = 0
 
-    def stop(self):
-        with self._lock:
-            self.terminated.set()
-            if self._collector_thread is not None:
-                # wait for the collector thread to stop
-                self._collector_thread.join()
-                self._collector_thread = None
+        # ------ download stats ------ #
+        self.downloaded_files_num: int = 0
+        self.downloaded_files_size: int = 0
+        self.downloading_errors: int = 0
 
-    def get_snapshot(self) -> UpdateStatus:
-        """Return a copy of statistics storage."""
-        return self.store.get_snapshot()
+        # ------ apply update stats ------ #
+        self.removed_files_num: int = 0
+        self.apply_update_files_num: int = 0
+        self.apply_update_files_size: int = 0
 
-    report_download_ota_files = _report
-    report_prepare_local_copy = _report
+    @property
+    def total_elapsed_time(self) -> int:
+        return int(time.time()) - self._update_started_timestamp
 
-    def report_apply_delta(self, stats_list: list[RegInfProcessedStats]):
-        """Stats report for APPLY_DELTA operation.
+    @property
+    def delta_calculation_elapsed_time(self) -> int:
+        if self._delta_calculation_started_timestamp == 0:
+            return 0
+        if self._delta_calculation_finished_timestamp == 0:
+            return int(time.time()) - self._delta_calculation_started_timestamp
+        return (
+            self._delta_calculation_finished_timestamp
+            - self._delta_calculation_started_timestamp
+        )
 
-        Params:
-            stats_list: a list of stats for processing a set of regular files
-                with same hash.
+    @property
+    def download_elapsed_time(self) -> int:
+        if self._download_finished_timestamp == 0:
+            return 0
+        if self._download_finished_timestamp == 0:
+            return int(time.time()) - self._download_started_timestamp
+        return self._download_finished_timestamp - self._download_started_timestamp
 
-        NOTE: for APPLY_DELTA operation,
-          unconditionally pop one stat from the stats_list
-          because the preparation of first copy is already recorded
-          (either by picking up local copy(keep_delta) or downloading)
-        """
-        for _stat in stats_list[1:]:
-            self._que.put_nowait(_stat)
+    @property
+    def apply_update_elapsed_time(self) -> int:
+        if self._apply_update_started_timestamp == 0:
+            return 0
+        if self._apply_update_finished_timestamp == 0:
+            return int(time.time()) - self._apply_update_started_timestamp
+        return (
+            self._apply_update_finished_timestamp - self._apply_update_started_timestamp
+        )
 
-    def collector(self):
-        _prev_time = time.time()
-        while self._staging or not self.terminated.is_set():
-            if not self.terminated.is_set():
-                try:
-                    _sts = self._que.get_nowait()
-                    self._staging.append(_sts)
-                except Empty:
-                    # if no new stats available, wait <_interval> time
-                    time.sleep(self.collect_interval)
+    def _stats_collector(self):
+        while not self._shutdown:
+            try:
+                entry = self._queue.get_nowait()
+            except queue.Empty:
+                time.sleep(self.collect_interval)
+                continue
 
-            _cur_time = time.time()
-            if self._staging and _cur_time - _prev_time >= self.collect_interval:
-                _prev_time = _cur_time
-                with self._staging_changes() as staging_storage:
-                    for st in self._staging:
-                        _op = st.op
-                        if _op == RegProcessOperation.DOWNLOAD_REMOTE_COPY:
-                            # update download specific fields
-                            # staging_storage.downloaded_bytes += st.downloaded_bytes
-                            staging_storage.downloaded_files_num += 1
-                            staging_storage.downloaded_files_size += st.size
-                            staging_storage.downloading_errors += st.download_errors
-                            # staging_storage.downloading_elapsed_time.add_nanoseconds(
-                            #     st.elapsed_ns
-                            # )
-                            # as remote_delta, update processed_files_*
-                            staging_storage.processed_files_num += 1
-                            staging_storage.processed_files_size += st.size
-                        elif _op == RegProcessOperation.DOWNLOAD_ERROR_REPORT:
-                            staging_storage.downloading_errors += st.download_errors
-                        elif _op == RegProcessOperation.PREPARE_LOCAL_COPY:
-                            # update delta generating specific fields
-                            # NOTE: delta_generating_elapsed_time is calculated by OTAClient class now
-                            # staging_storage.delta_generating_elapsed_time.add_nanoseconds(
-                            # st.elapsed_ns
-                            # )
-                            # as keep_delta, update processed_files_*
-                            staging_storage.processed_files_size += st.size
-                            staging_storage.processed_files_num += 1
-                        elif _op == RegProcessOperation.APPLY_REMOVE_DELTA:
-                            staging_storage.removed_files_num += 1
-                        elif _op == RegProcessOperation.APPLY_DELTA:
-                            # as applying_delta, update processed_files_*
-                            staging_storage.processed_files_num += 1
-                            staging_storage.processed_files_size += st.size
-                            staging_storage.update_applying_elapsed_time.add_nanoseconds(
-                                st.elapsed_ns
-                            )
-                # cleanup already collected stats
-                self._staging.clear()
+            self.processed_files_num += entry.processed_file_num
+            self.processed_files_size += entry.processed_file_size
+            if entry.op == ProcessOperation.DOWNLOAD_REMOTE_COPY:
+                self.downloading_errors += entry.errors
 
-    def wait_staging(self):
-        """This method will block until the self._staging is empty."""
-        while len(self._staging) > 0 or self._que.qsize() > 0:
-            time.sleep(self.collect_interval)
+    # APIs
 
-        # sleep extra 3 intervals to ensure the result is recorded
-        time.sleep(self.collect_interval * 3)
+    def download_started(self) -> None:
+        self._download_started_timestamp = int(time.time())
+
+    def download_finished(self) -> None:
+        self._download_finished_timestamp = int(time.time())
+
+    def delta_calculation_started(self) -> None:
+        self._delta_calculation_started_timestamp = int(time.time())
+
+    def delta_calculation_finished(self) -> None:
+        self._delta_calculation_finished_timestamp = int(time.time())
+
+    def apply_update_started(self) -> None:
+        self._apply_update_started_timestamp = int(time.time())
+
+    def apply_update_finished(self) -> None:
+        self._apply_update_finished_timestamp = int(time.time())
+
+    def report_stat(self, stat: OperationRecord) -> None:
+        self._queue.put_nowait(stat)
+
+    def start_collector(self):
+        self._collector = Thread(target=self._stats_collector, daemon=True)
+        self._collector.start()
+
+    def finish_collecting(self, *, wait_staging=True):
+        if not self._collector:
+            return  # the collector is not started!
+
+        if wait_staging:  # ensure all reports are parsed
+            while not self._queue.empty():
+                time.sleep(self.collect_interval)
+        self._shutdown = True
+        self._collector.join()
