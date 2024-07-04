@@ -211,14 +211,13 @@ class _OTAUpdater:
 
         # ------ init update status ------ #
         self.update_phase = api_types.UpdatePhase.INITIALIZING
-        self.update_start_time = time.time_ns()
-        """In nano seconds."""
+        self.update_start_timestamp_ns = time.time_ns()
 
         self.updating_version: str = version
         self.failure_reason = ""
 
-        self.delta_calculation_started_timestamp = 0
-        """In nano seconds."""
+        self.delta_calculation_started_timestamp_ns = 0
+        self.delta_calculation_finished_timestamp_ns = 0
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
@@ -233,8 +232,8 @@ class _OTAUpdater:
         self.total_remove_files_num = 0
 
         # ------ setup OTA files downloader ------ #
-        self.download_started_time = 0
-        """In nano seconds."""
+        self.download_started_timestamp_ns = 0
+        self.download_finished_timestamp_ns = 0
 
         self._downloader_pool = DownloaderPool(
             instance_num=cfg.MAX_DOWNLOAD_THREAD,
@@ -252,11 +251,11 @@ class _OTAUpdater:
         self._update_stats_collector.start()
 
     def _downloader_pool_watchdog(self):
-        if self._download_watchdog_previous_active_timestamp == 0:
+        if self.download_started_timestamp_ns == 0:
             return  # download not yet started
 
         downloaded_bytes = self._downloader_pool.total_downloaded_bytes
-        current_tiemstamp = time.time_ns()
+        current_tiemstamp = int(time.time())
         if downloaded_bytes > self._download_watchdog_previous_downloaded_bytes:
             self._download_watchdog_previous_downloaded_bytes = downloaded_bytes
             self._download_watchdog_previous_active_timestamp = current_tiemstamp
@@ -358,7 +357,7 @@ class _OTAUpdater:
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
-        self.delta_calculation_started_timestamp = time.time_ns()
+        self.delta_calculation_started_timestamp_ns = time.time_ns()
 
         self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
         self._standby_slot_creator = self._create_standby_cls(
@@ -381,12 +380,15 @@ class _OTAUpdater:
                 _err_msg, module=__name__
             ) from e
 
+        self.delta_calculation_finished_timestamp_ns = time.time_ns()
+
         # --- download needed files --- #
         logger.info(
             "start to download needed files..."
             f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
         )
         self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
+        self.download_started_timestamp_ns = time.time_ns()
         try:
             self._download_files(_delta_bundle.get_download_list())
         except ota_errors.OTAError:
@@ -397,6 +399,7 @@ class _OTAUpdater:
             raise ota_errors.NetworkError(_err_msg, module=__name__) from e
 
         # shutdown downloader on download finished
+        self.download_finished_timestamp_ns = time.time_ns()
         self._downloader_pool.shutdown()
 
         # ------ in_update ------ #
@@ -537,7 +540,9 @@ class _OTAUpdater:
         update_progress = self._update_stats_collector.get_snapshot()
         # update static information
         # NOTE: timestamp is in seconds
-        update_progress.update_start_timestamp = self.update_start_time // 1_000_000_000
+        update_progress.update_start_timestamp = (
+            self.update_start_timestamp_ns // 1_000_000_000
+        )
         update_progress.update_firmware_version = self.updating_version
 
         # update dynamic information
@@ -548,27 +553,53 @@ class _OTAUpdater:
         update_progress.total_download_files_num = self.total_download_files_num
         update_progress.total_download_files_size = self.total_download_fiies_size
         update_progress.total_remove_files_num = self.total_remove_files_num
+
         # delta generation stats
-        update_progress.delta_generating_elapsed_time = (
-            api_types.Duration.from_nanoseconds(
-                current_timestamp_ns - self.delta_calculation_started_timestamp
-                if self.delta_calculation_started_timestamp
-                else 0
+        if self.delta_calculation_started_timestamp_ns == 0:
+            update_progress.delta_generating_elapsed_time = (
+                api_types.Duration.from_nanoseconds(0)
             )
-        )
+        elif self.delta_calculation_finished_timestamp_ns != 0:
+            update_progress.delta_generating_elapsed_time = (
+                api_types.Duration.from_nanoseconds(
+                    self.delta_calculation_finished_timestamp_ns
+                    - self.delta_calculation_started_timestamp_ns
+                )
+            )
+        else:
+            update_progress.delta_generating_elapsed_time = (
+                api_types.Duration.from_nanoseconds(
+                    current_timestamp_ns - self.delta_calculation_started_timestamp_ns
+                    if self.delta_calculation_started_timestamp_ns
+                    else 0
+                )
+            )
+
         # downloading stats
         update_progress.downloaded_bytes = self._downloader_pool.total_downloaded_bytes
-        update_progress.downloading_elapsed_time = api_types.Duration.from_nanoseconds(
-            current_timestamp_ns - self.download_started_time
-            if self.download_started_time
-            else 0
-        )
+        if self.download_started_timestamp_ns == 0:
+            update_progress.downloading_elapsed_time = (
+                api_types.Duration.from_nanoseconds(0)
+            )
+        elif self.download_finished_timestamp_ns != 0:
+            update_progress.downloading_elapsed_time = (
+                api_types.Duration.from_nanoseconds(
+                    self.download_finished_timestamp_ns
+                    - self.download_started_timestamp_ns
+                )
+            )
+        else:
+            update_progress.downloading_elapsed_time = (
+                api_types.Duration.from_nanoseconds(
+                    current_timestamp_ns - self.download_started_timestamp_ns
+                )
+            )
 
         # update other information
         update_progress.phase = self.update_phase
         update_progress.total_elapsed_time = api_types.Duration.from_nanoseconds(
-            current_timestamp_ns - self.update_start_time
-            if self.update_start_time
+            current_timestamp_ns - self.update_start_timestamp_ns
+            if self.update_start_timestamp_ns
             else 0
         )
         return update_progress
