@@ -23,13 +23,13 @@ import json
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Iterator, Optional, Type
+from typing import Any, Iterator, Optional, Type
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
@@ -105,6 +105,53 @@ class OTAClientControlFlags:
 
     def clear_can_reboot_flag(self):
         self._can_reboot.clear()
+
+
+def _download_exception_handler(_fut: Future[Any]) -> bool:
+    """Parse the exception raised by a downloading task.
+
+    This handler will raise OTA Error on exceptions that cannot(should not) be
+        handled by us. For handled exceptions, just let upper caller do the
+        retry for us.
+
+    Raises:
+        UpdateRequestCookieInvalid on HTTP error 401 or 403,
+        OTAImageInvalid on HTTP error 404,
+        StandbySlotInsufficientSpace on disk space not enough.
+
+    Returns:
+        True on succeeded downloading, False on handled exceptions.
+    """
+    if not (exc := _fut.exception()):
+        return True
+
+    try:
+        # exceptions that cannot be handled by us
+        if isinstance(exc, requests_exc.HTTPError):
+            if exc.errno in [
+                HTTPStatus.FORBIDDEN,
+                HTTPStatus.UNAUTHORIZED,
+            ]:
+                raise ota_errors.UpdateRequestCookieInvalid(
+                    f"download failed with critical HTTP error: {exc.errno}, {exc!r}",
+                    module=__name__,
+                )
+            elif exc.errno == HTTPStatus.NOT_FOUND:
+                raise ota_errors.OTAImageInvalid(
+                    f"download failed with 404 on some file(s): {exc!r}",
+                    module=__name__,
+                )
+            else:
+                return False
+        elif isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+            raise ota_errors.StandbySlotInsufficientSpace(
+                f"download failed due to space insufficient: {exc!r}",
+                module=__name__,
+            )
+        else:  # handled exceptions, let the upper caller do the retry
+            return False
+    finally:
+        exc = None  # drop ref to exc instance
 
 
 class _OTAUpdater:
