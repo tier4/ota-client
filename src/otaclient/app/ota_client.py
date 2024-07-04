@@ -128,7 +128,9 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
     try:
         # exceptions that cannot be handled by us
         if isinstance(exc, requests_exc.HTTPError):
-            if exc.errno in [
+            http_errcode = exc.errno
+
+            if http_errcode in [
                 HTTPStatus.FORBIDDEN,
                 HTTPStatus.UNAUTHORIZED,
             ]:
@@ -136,20 +138,20 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
                     f"download failed with critical HTTP error: {exc.errno}, {exc!r}",
                     module=__name__,
                 )
-            elif exc.errno == HTTPStatus.NOT_FOUND:
+            if http_errcode == HTTPStatus.NOT_FOUND:
                 raise ota_errors.OTAImageInvalid(
                     f"download failed with 404 on some file(s): {exc!r}",
                     module=__name__,
                 )
-            else:
-                return False
-        elif isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+
+        if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
             raise ota_errors.StandbySlotInsufficientSpace(
                 f"download failed due to space insufficient: {exc!r}",
                 module=__name__,
             )
-        else:  # handled exceptions, let the upper caller do the retry
-            return False
+
+        # handled exceptions, let the upper caller do the retry
+        return False
     finally:
         exc = None  # drop ref to exc instance
 
