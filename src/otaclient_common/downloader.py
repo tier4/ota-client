@@ -22,10 +22,20 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+import time
 from abc import abstractmethod
 from functools import wraps
 from io import IOBase
-from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol
+from typing import (
+    IO,
+    Any,
+    ByteString,
+    Callable,
+    Iterator,
+    Mapping,
+    Protocol,
+    TypedDict,
+)
 from urllib.parse import urlsplit
 
 import requests
@@ -435,6 +445,11 @@ class Downloader:
         return err_count, downloaded_file_size, traffic_on_wire
 
 
+class DownloadPoolWatchdogFuncContext(TypedDict):
+    downloaded_bytes: int
+    previous_active_timestamp: int
+
+
 class DownloaderPool:
     """A pool of downloader instances for multi-threading environment.
 
@@ -474,6 +489,28 @@ class DownloaderPool:
         if _res := sum(downloader.downloaded_bytes for downloader in self._instances):
             self._total_downloaded_bytes = _res
         return self._total_downloaded_bytes
+
+    def downloading_watchdog(
+        self, *, ctx: DownloadPoolWatchdogFuncContext, max_idle_timeout: int
+    ):
+        """Downloading pool idle timeout watchdog.
+
+        This method is designed to use with ThreadPoolExecutorWithRetry.
+        When configured to use, if the downloading is idle longer than <max_idle_timeout>,
+            call to this function will raise ValueError.
+        """
+        downloaded_bytes = self.total_downloaded_bytes
+
+        current_tiemstamp = int(time.time())
+        if downloaded_bytes > ctx["downloaded_bytes"]:
+            ctx["downloaded_bytes"] = downloaded_bytes
+            ctx["previous_active_timestamp"] = current_tiemstamp
+            return
+
+        if current_tiemstamp - ctx["previous_active_timestamp"] > max_idle_timeout:
+            _err_msg = f"downloader stuck for {max_idle_timeout} seconds, abort"
+            logger.error(_err_msg)
+            raise ValueError(_err_msg)
 
     def get_instance(self) -> Downloader:
         """Get a reference of the downloader instance for the calling thread.
