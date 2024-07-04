@@ -317,7 +317,7 @@ class _OTAUpdater:
             watchdog_func=self._downloader_pool_watchdog,
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(self._download_file, download_list):
-                if not (exp := _fut.exception()):
+                if _download_exception_handler(_fut):  # donwload succeeded
                     err_count, file_size, _ = _fut.result()
                     self._update_stats_collector.report_download_ota_files(
                         RegInfProcessedStats(
@@ -326,38 +326,13 @@ class _OTAUpdater:
                             size=file_size,
                         )
                     )
-                    continue
-
-                # exceptions that cannot be handled by us
-                if isinstance(exp, requests_exc.HTTPError):
-                    if exp.errno in [
-                        HTTPStatus.FORBIDDEN,
-                        HTTPStatus.UNAUTHORIZED,
-                    ]:
-                        raise ota_errors.UpdateRequestCookieInvalid(
-                            f"download failed with critical HTTP error: {exp.errno}, {exp!r}",
-                            module=__name__,
-                        )
-
-                    if exp.errno == HTTPStatus.NOT_FOUND:
-                        raise ota_errors.OTAImageInvalid(
-                            f"download failed with 404 on some file(s): {exp!r}",
-                            module=__name__,
-                        )
-                elif isinstance(exp, OSError) and exp.errno == errno.ENOSPC:
-                    raise ota_errors.StandbySlotInsufficientSpace(
-                        f"download failed due to space insufficient: {exp!r}",
-                        module=__name__,
+                else:  # download failed, but exceptions can be handled
+                    self._update_stats_collector.report_download_ota_files(
+                        RegInfProcessedStats(
+                            op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
+                            download_errors=1,
+                        ),
                     )
-
-                # for other exceptions, let the retry_task_map does its job,
-                #   we just report the download errors here
-                self._update_stats_collector.report_download_ota_files(
-                    RegInfProcessedStats(
-                        op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
-                        download_errors=1,
-                    ),
-                )
 
         # all tasks are finished, waif for stats collector to finish processing
         # all the reported stats
