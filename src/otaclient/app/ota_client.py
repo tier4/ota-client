@@ -248,32 +248,8 @@ class _OTAUpdater:
         self._download_watchdog_previous_active_timestamp = 0
         self._download_watchdog_previous_downloaded_bytes = 0
 
-        # start ota update statics collector
         self._update_stats_collector = OTAUpdateStatsCollector()
-        self._update_stats_collector.start()
-
-    def _downloader_pool_watchdog(self):
-        if self.download_started_timestamp_ns == 0:
-            return  # download not yet started
-
-        current_tiemstamp = int(time.time())
-        if self._download_watchdog_previous_active_timestamp == 0:
-            self._download_watchdog_previous_active_timestamp = current_tiemstamp
-            return
-
-        downloaded_bytes = self._downloader_pool.total_downloaded_bytes
-        if downloaded_bytes > self._download_watchdog_previous_downloaded_bytes:
-            self._download_watchdog_previous_downloaded_bytes = downloaded_bytes
-            self._download_watchdog_previous_active_timestamp = current_tiemstamp
-            return
-
-        if (
-            current_tiemstamp - self._download_watchdog_previous_active_timestamp
-            > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
-        ):
-            _err_msg = f"downloader stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
-            logger.error(_err_msg)
-            raise ValueError(_err_msg)
+        self._update_stats_collector.start_collector()
 
     def _download_file(
         self, entry: ota_metadata_types.RegularInf
@@ -302,46 +278,68 @@ class _OTAUpdater:
 
     def _download_files(self, download_list: Iterator[ota_metadata_types.RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
-
         logger.debug("download neede OTA image files...")
+
         # special treatment to empty file, create it first
         _empty_file = self._ota_tmp_on_standby / EMPTY_FILE_SHA256
         _empty_file.touch()
 
         # ------ start the downloading ------ #
+        download_started = threading.Event()
+        watchdog_ctx = {}
+
         def _thread_initializer():
             self._downloader_mapper[threading.get_native_id()] = (
                 self._downloader_pool.get_instance()
             )
+
+        def _downloader_pool_watchdog():
+            if not download_started.is_set():
+                return  # download not yet started
+
+            downloaded_bytes = self._downloader_pool.total_downloaded_bytes
+            current_tiemstamp = int(time.time())
+            if downloaded_bytes > watchdog_ctx["downloaded_bytes"]:
+                watchdog_ctx["downloaded_bytes"] = downloaded_bytes
+                watchdog_ctx["previous_active_timestamp"] = current_tiemstamp
+                return
+
+            if (
+                current_tiemstamp - watchdog_ctx["previous_active_timestamp"]
+                > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
+            ):
+                _err_msg = f"downloader stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
+                logger.error(_err_msg)
+                raise ValueError(_err_msg)
 
         with ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.MAX_DOWNLOAD_THREAD,
             thread_name_prefix="download_ota_files",
             initializer=_thread_initializer,
-            watchdog_func=self._downloader_pool_watchdog,
+            watchdog_func=_downloader_pool_watchdog,
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(self._download_file, download_list):
+                if not download_started.is_set():
+                    download_started.set()  # on first processed download, start the watchdog
+
                 if _download_exception_handler(_fut):  # donwload succeeded
                     err_count, file_size, _ = _fut.result()
-                    self._update_stats_collector.report_download_ota_files(
-                        RegInfProcessedStats(
-                            op=RegProcessOperation.DOWNLOAD_REMOTE_COPY,
-                            download_errors=err_count,
-                            size=file_size,
+                    self._update_stats_collector.report_stat(
+                        OperationRecord(
+                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
+                            errors=err_count,
+                            processed_file_size=file_size,
+                            processed_file_num=1,
                         )
                     )
                 else:  # download failed, but exceptions can be handled
-                    self._update_stats_collector.report_download_ota_files(
-                        RegInfProcessedStats(
-                            op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
-                            download_errors=1,
+                    self._update_stats_collector.report_stat(
+                        OperationRecord(
+                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
+                            errors=1,
                         ),
                     )
-
-        # all tasks are finished, waif for stats collector to finish processing
-        # all the reported stats
-        self._update_stats_collector.wait_staging()
 
         # release the downloader instances
         self._downloader_pool.release_all_instances()
