@@ -205,7 +205,7 @@ def check_cache_policy_in_resp(
         and compression_alg != cache_policy.file_compression_alg
     ):
         logger.warning(
-            f"upper serves different cache file for this OTA file: {url=}, "
+            f"upper indicates different compression_alg for this OTA file: {url=}, "
             f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
         )
         compression_alg = cache_policy.file_compression_alg
