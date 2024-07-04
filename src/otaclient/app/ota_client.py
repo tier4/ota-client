@@ -22,7 +22,6 @@ import gc
 import json
 import logging
 import threading
-import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
@@ -39,7 +38,12 @@ from ota_metadata.legacy import types as ota_metadata_types
 from otaclient import __version__
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import ensure_otaproxy_start
-from otaclient_common.downloader import EMPTY_FILE_SHA256, Downloader, DownloaderPool
+from otaclient_common.downloader import (
+    EMPTY_FILE_SHA256,
+    Downloader,
+    DownloaderPool,
+    DownloadPoolWatchdogFuncContext,
+)
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
@@ -224,6 +228,7 @@ class _OTAUpdater:
         self.total_download_fiies_size = 0
         self.total_remove_files_num = 0
 
+        # ------ setup downloader ------ #
         self._downloader_pool = DownloaderPool(
             instance_num=cfg.MAX_DOWNLOAD_THREAD,
             hash_func=sha256,
@@ -233,6 +238,7 @@ class _OTAUpdater:
         )
         self._downloader_mapper: dict[int, Downloader] = {}
 
+        # ------ start stats collector ------ #
         self._update_stats_collector = OTAUpdateStatsCollector()
         self._update_stats_collector.start_collector()
 
@@ -271,38 +277,25 @@ class _OTAUpdater:
 
         # ------ start the downloading ------ #
         download_started = threading.Event()
-        watchdog_ctx = {"downloaded_bytes": 0, "previous_active_timestamp": 0}
+        watchdog_ctx = DownloadPoolWatchdogFuncContext(
+            downloaded_bytes=0, previous_active_timestamp=0
+        )
 
         def _thread_initializer():
             self._downloader_mapper[threading.get_native_id()] = (
                 self._downloader_pool.get_instance()
             )
 
-        def _downloader_pool_watchdog():
-            if not download_started.is_set():
-                return  # download not yet started
-
-            downloaded_bytes = self._downloader_pool.total_downloaded_bytes
-            current_tiemstamp = int(time.time())
-            if downloaded_bytes > watchdog_ctx["downloaded_bytes"]:
-                watchdog_ctx["downloaded_bytes"] = downloaded_bytes
-                watchdog_ctx["previous_active_timestamp"] = current_tiemstamp
-                return
-
-            if (
-                current_tiemstamp - watchdog_ctx["previous_active_timestamp"]
-                > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
-            ):
-                _err_msg = f"downloader stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
-                logger.error(_err_msg)
-                raise ValueError(_err_msg)
-
         with ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.MAX_DOWNLOAD_THREAD,
             thread_name_prefix="download_ota_files",
             initializer=_thread_initializer,
-            watchdog_func=_downloader_pool_watchdog,
+            watchdog_func=partial(
+                self._downloader_pool.downloading_watchdog,
+                ctx=watchdog_ctx,
+                max_idle_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
+            ),
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(self._download_file, download_list):
                 if not download_started.is_set():
