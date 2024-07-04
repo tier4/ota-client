@@ -53,7 +53,6 @@ class OTAUpdateStatsCollector:
 
         self._shutdown = False
 
-        self._update_started_timestamp = int(time.time())
         self._delta_calculation_started_timestamp = 0
         self._delta_calculation_finished_timestamp = 0
 
@@ -66,6 +65,7 @@ class OTAUpdateStatsCollector:
         #
         # ------ exposed attributes ------ #
         #
+        self.update_started_timestamp = int(time.time())
 
         # ------ summary ------ #
         self.processed_files_num: int = 0
@@ -87,7 +87,7 @@ class OTAUpdateStatsCollector:
 
     @property
     def total_elapsed_time(self) -> int:
-        return int(time.time()) - self._update_started_timestamp
+        return int(time.time()) - self.update_started_timestamp
 
     @property
     def delta_calculation_elapsed_time(self) -> int:
@@ -158,7 +158,7 @@ class OTAUpdateStatsCollector:
         self._collector = Thread(target=self._stats_collector, daemon=True)
         self._collector.start()
 
-    def finish_collecting(self, *, wait_staging=True):
+    def shutdown_collector(self, *, wait_staging=True):
         if not self._collector:
             return  # the collector is not started!
 
