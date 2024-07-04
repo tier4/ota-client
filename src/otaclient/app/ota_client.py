@@ -161,11 +161,11 @@ class _OTAUpdater:
 
     def __init__(
         self,
+        *,
         version: str,
         raw_url_base: str,
         cookies_json: str,
         upper_otaproxy: str | None = None,
-        *,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         control_flags: OTAClientControlFlags,
@@ -713,9 +713,9 @@ class OTAClient(OTAClientProtocol):
             try:
                 logger.info("[update] entering local update...")
                 self._update_executor = _OTAUpdater(
-                    version,
-                    url_base,
-                    cookies_json,
+                    version=version,
+                    raw_url_base=url_base,
+                    cookies_json=cookies_json,
                     boot_controller=self.boot_controller,
                     create_standby_cls=self.create_standby_cls,
                     control_flags=self.control_flags,
