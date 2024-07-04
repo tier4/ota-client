@@ -403,19 +403,23 @@ class Downloader:
                 err_count = len(_retries.history)
 
             if decompressor := self._get_decompressor(compression_alg):
-                data_iter = decompressor.iter_chunk(raw_resp)
-            else:
-                data_iter = resp.iter_content(chunk_size=self.chunk_size)
+                for _chunk in decompressor.iter_chunk(raw_resp):
+                    digestobj.update(_chunk)
+                    dst_fp.write(_chunk)
+                    downloaded_file_size += len(_chunk)
 
-            for _chunk in data_iter:
-                digestobj.update(_chunk)
-                dst_fp.write(_chunk)
-                downloaded_file_size += len(_chunk)
+                    new_traffic_on_wire = raw_resp.tell()
+                    self._downloaded_bytes += new_traffic_on_wire - traffic_on_wire
+                    traffic_on_wire = new_traffic_on_wire
+            else:  # no compression is configured
+                for _chunk in resp.iter_content(chunk_size=self.chunk_size):
+                    digestobj.update(_chunk)
+                    dst_fp.write(_chunk)
+                    downloaded_file_size += len(_chunk)
 
-                new_traffic_on_wire = raw_resp.tell()
-                if (increased_traffic := new_traffic_on_wire - traffic_on_wire) > 0:
-                    self._downloaded_bytes += increased_traffic
-                traffic_on_wire = new_traffic_on_wire
+                    _read_size = len(_chunk)
+                    self._downloaded_bytes += _read_size
+                    traffic_on_wire += _read_size
 
         if size and size != downloaded_file_size:
             _err_msg = (
