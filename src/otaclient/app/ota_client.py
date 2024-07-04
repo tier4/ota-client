@@ -271,7 +271,7 @@ class _OTAUpdater:
 
         # ------ start the downloading ------ #
         download_started = threading.Event()
-        watchdog_ctx = {}
+        watchdog_ctx = {"downloaded_bytes": 0, "previous_active_timestamp": 0}
 
         def _thread_initializer():
             self._downloader_mapper[threading.get_native_id()] = (
