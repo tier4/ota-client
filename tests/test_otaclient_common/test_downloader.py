@@ -272,6 +272,8 @@ class TestDownloader:
             )
         logger.info("finish downloading files from test_data_dir")
 
+        assert self.downloader.downloaded_bytes > 0
+
 
 INSTANCE_NUM = 6
 MAX_CONCURRENT = 256
