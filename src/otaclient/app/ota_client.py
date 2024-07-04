@@ -593,8 +593,6 @@ class OTAClient(OTAClientProtocol):
     ):
         try:
             self.my_ecu_id = my_ecu_id
-            # ensure only one update/rollback session is running
-            self._lock = threading.Lock()
 
             self.boot_controller = boot_controller
             self.create_standby_cls = create_standby_cls
@@ -636,62 +634,50 @@ class OTAClient(OTAClientProtocol):
     # API
 
     def update(self, version: str, url_base: str, cookies_json: str) -> None:
-        if self._lock.acquire(blocking=False):
-            try:
-                logger.info("[update] entering local update...")
-                self._update_executor = _OTAUpdater(
-                    version=version,
-                    raw_url_base=url_base,
-                    cookies_json=cookies_json,
-                    boot_controller=self.boot_controller,
-                    create_standby_cls=self.create_standby_cls,
-                    control_flags=self.control_flags,
-                    upper_otaproxy=self.proxy,
-                )
-
-                self.last_failure_type = api_types.FailureType.NO_FAILURE
-                self.last_failure_reason = ""
-                self.last_failure_traceback = ""
-
-                self.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
-                self._update_executor.execute()
-            except ota_errors.OTAError as e:
-                self._on_failure(e, api_types.StatusOta.FAILURE)
-            finally:
-                self._update_executor = None
-                gc.collect()  # trigger a forced gc
-                self._lock.release()
-        else:
-            logger.warning(
-                "ignore incoming rollback request as local update/rollback is ongoing"
+        try:
+            logger.info("[update] entering local update...")
+            self._update_executor = _OTAUpdater(
+                version=version,
+                raw_url_base=url_base,
+                cookies_json=cookies_json,
+                boot_controller=self.boot_controller,
+                create_standby_cls=self.create_standby_cls,
+                control_flags=self.control_flags,
+                upper_otaproxy=self.proxy,
             )
+
+            self.last_failure_type = api_types.FailureType.NO_FAILURE
+            self.last_failure_reason = ""
+            self.last_failure_traceback = ""
+
+            self.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
+            self._update_executor.execute()
+        except ota_errors.OTAError as e:
+            self._on_failure(e, api_types.StatusOta.FAILURE)
+        finally:
+            self._update_executor = None
+            gc.collect()  # trigger a forced gc
 
     def rollback(self):
-        if self._lock.acquire(blocking=False):
-            try:
-                logger.info("[rollback] entering...")
-                self._rollback_executor = _OTARollbacker(
-                    boot_controller=self.boot_controller
-                )
-
-                # clear failure information on handling new rollback request
-                self.last_failure_type = api_types.FailureType.NO_FAILURE
-                self.last_failure_reason = ""
-                self.last_failure_traceback = ""
-
-                # entering rollback
-                self.live_ota_status.set_ota_status(api_types.StatusOta.ROLLBACKING)
-                self._rollback_executor.execute()
-            # silently ignore overlapping request
-            except ota_errors.OTAError as e:
-                self._on_failure(e, api_types.StatusOta.ROLLBACK_FAILURE)
-            finally:
-                self._rollback_executor = None  # type: ignore
-                self._lock.release()
-        else:
-            logger.warning(
-                "ignore incoming rollback request as local update/rollback is ongoing"
+        try:
+            logger.info("[rollback] entering...")
+            self._rollback_executor = _OTARollbacker(
+                boot_controller=self.boot_controller
             )
+
+            # clear failure information on handling new rollback request
+            self.last_failure_type = api_types.FailureType.NO_FAILURE
+            self.last_failure_reason = ""
+            self.last_failure_traceback = ""
+
+            # entering rollback
+            self.live_ota_status.set_ota_status(api_types.StatusOta.ROLLBACKING)
+            self._rollback_executor.execute()
+        # silently ignore overlapping request
+        except ota_errors.OTAError as e:
+            self._on_failure(e, api_types.StatusOta.ROLLBACK_FAILURE)
+        finally:
+            self._rollback_executor = None  # type: ignore
 
     def status(self) -> api_types.StatusResponseEcuV2:
         live_ota_status = self.live_ota_status.get_ota_status()
