@@ -21,6 +21,7 @@ import errno
 import gc
 import json
 import logging
+import time
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
@@ -169,7 +170,13 @@ class _OTAUpdater:
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         control_flags: OTAClientControlFlags,
+        status_query_interval: int = 1,
     ) -> None:
+        self._shutdown = False
+        self._update_status = api_types.UpdateStatus()
+        self._last_status_query_timestamp = 0
+        self.status_query_interval = status_query_interval
+
         # ------ define OTA temp paths ------ #
         self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
             cfg.OTA_TMP_STORE
@@ -512,6 +519,7 @@ class _OTAUpdater:
     # API
 
     def shutdown(self):
+        self._shutdown = True
         self.update_phase = api_types.UpdatePhase.INITIALIZING
         self._downloader_pool.shutdown()
         self._update_stats_collector.shutdown_collector()
@@ -521,9 +529,15 @@ class _OTAUpdater:
         Returns:
             A tuple contains the version and the update_progress.
         """
-        collector = self._update_stats_collector
+        cur_time = int(time.time())
+        if (
+            self._shutdown
+            or cur_time - self._last_status_query_timestamp < self.status_query_interval
+        ):
+            return self._update_status
 
-        return api_types.UpdateStatus(
+        collector = self._update_stats_collector
+        update_stats = api_types.UpdateStatus(
             # from OTA image metadata
             update_firmware_version=self.updating_version,
             total_files_size_uncompressed=self.total_files_size_uncompressed,
@@ -553,6 +567,8 @@ class _OTAUpdater:
                 seconds=collector.apply_update_elapsed_time
             ),
         )
+        self._update_status, self._last_status_query_timestamp = update_stats, cur_time
+        return update_stats
 
     def execute(self) -> None:
         """Main entry for executing local OTA update.
