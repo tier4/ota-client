@@ -472,7 +472,7 @@ class DownloaderPool:
         return self._total_downloaded_bytes
 
     def get_instance(self) -> Downloader:
-        """Get a weakref to the thread-specific downloader instance.
+        """Get a reference of the downloader instance for the calling thread.
 
         NOTE: this method is thread-specific, and will return the same instance
             for multiple calls from the same thread.
