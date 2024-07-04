@@ -254,8 +254,12 @@ class _OTAUpdater:
         if self.download_started_timestamp_ns == 0:
             return  # download not yet started
 
-        downloaded_bytes = self._downloader_pool.total_downloaded_bytes
         current_tiemstamp = int(time.time())
+        if self._download_watchdog_previous_active_timestamp == 0:
+            self._download_watchdog_previous_active_timestamp = current_tiemstamp
+            return
+
+        downloaded_bytes = self._downloader_pool.total_downloaded_bytes
         if downloaded_bytes > self._download_watchdog_previous_downloaded_bytes:
             self._download_watchdog_previous_downloaded_bytes = downloaded_bytes
             self._download_watchdog_previous_active_timestamp = current_tiemstamp
