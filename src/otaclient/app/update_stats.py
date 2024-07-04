@@ -71,10 +71,6 @@ class OTAUpdateStatsCollector:
         self.processed_files_num: int = 0
         self.processed_files_size: int = 0
 
-        # ------ delta calculation stats ------ #
-        self.delta_collected_files_num: int = 0
-        self.delta_collected_files_size: int = 0
-
         # ------ download stats ------ #
         self.downloaded_files_num: int = 0
         self.downloaded_files_size: int = 0
@@ -82,8 +78,6 @@ class OTAUpdateStatsCollector:
 
         # ------ apply update stats ------ #
         self.removed_files_num: int = 0
-        self.apply_update_files_num: int = 0
-        self.apply_update_files_size: int = 0
 
     @property
     def total_elapsed_time(self) -> int:
@@ -102,7 +96,7 @@ class OTAUpdateStatsCollector:
 
     @property
     def download_elapsed_time(self) -> int:
-        if self._download_finished_timestamp == 0:
+        if self._download_started_timestamp == 0:
             return 0
         if self._download_finished_timestamp == 0:
             return int(time.time()) - self._download_started_timestamp
@@ -130,6 +124,10 @@ class OTAUpdateStatsCollector:
             self.processed_files_size += entry.processed_file_size
             if entry.op == ProcessOperation.DOWNLOAD_REMOTE_COPY:
                 self.downloading_errors += entry.errors
+                self.downloaded_files_num += entry.processed_file_num
+                self.downloaded_files_size += entry.processed_file_size
+            elif entry.op == ProcessOperation.APPLY_REMOVE_DELTA:
+                self.removed_files_num += entry.processed_file_num
 
     # APIs
 
