@@ -16,9 +16,8 @@
 import logging
 import os
 import shutil
-import time
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
@@ -28,11 +27,7 @@ from otaclient_common.retry_task_map import (
 )
 
 from ..configs import config as cfg
-from ..update_stats import (
-    OTAUpdateStatsCollector,
-    RegInfProcessedStats,
-    RegProcessOperation,
-)
+from ..update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 from .common import DeltaBundle, DeltaGenerator, HardlinkRegister
 from .interface import StandbySlotCreatorProtocol
 
@@ -111,19 +106,16 @@ class RebuildMode(StandbySlotCreatorProtocol):
             except TasksEnsureFailed as e:
                 logger.error(f"failed to finish up file processing: {e!r}")
                 raise
-            self.stats_collector.wait_staging()
 
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
         _hash, _regs_set = _input
         _hash_str = _hash.hex()
-        stats_list: List[RegInfProcessedStats] = []  # for ota stats report
+        stat_report = OperationRecord(op=ProcessOperation.APPLY_DELTA)
 
         _local_copy = self._ota_tmp / _hash_str
         _f_size = _local_copy.stat().st_size
         for _count, entry in enumerate(_regs_set, start=1):
             is_last = _count == len(_regs_set)
-
-            _start_time = time.thread_time_ns()
 
             # special treatment on /boot folder
             _mount_point = (
@@ -161,14 +153,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 if is_last:
                     _local_copy.unlink(missing_ok=True)
 
-            cur_stat = RegInfProcessedStats(
-                op=RegProcessOperation.APPLY_DELTA,
-                size=_f_size,
-                elapsed_ns=time.thread_time_ns() - _start_time,
-            )
-            stats_list.append(cur_stat)
+            # NOTE(20240704): the first copy of the file is either prepared by local delta copy
+            #   or downloading from remote, so unconditionally pop one record away.
+            if not is_last:
+                stat_report.processed_file_num += 1
+                stat_report.processed_file_size += _f_size
+
         # report the stats to the stats_collector
-        self.stats_collector.report_apply_delta(stats_list)
+        self.stats_collector.report_stat(stat_report)
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""

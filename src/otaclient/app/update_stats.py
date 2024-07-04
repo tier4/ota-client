@@ -33,8 +33,6 @@ class ProcessOperation(Enum):
     APPLY_DELTA = auto()
     # for in-place update only
     APPLY_REMOVE_DELTA = auto()
-    # special op for download error report
-    DOWNLOAD_ERROR_REPORT = auto()
 
 
 class OperationRecord(BaseModel):
@@ -46,7 +44,7 @@ class OperationRecord(BaseModel):
     errors: int = 0
 
 
-class OTAUpdateStatsCollector2:
+class OTAUpdateStatsCollector:
 
     def __init__(self, *, collect_interval: int = 1) -> None:
         self.collect_interval = collect_interval
