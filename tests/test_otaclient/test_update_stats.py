@@ -103,13 +103,15 @@ class TestOTAUpdateStatsCollector:
         # simulate compression enabled scheme
         # assert _snapshot.downloaded_bytes == _snapshot.downloaded_files_size // 2
 
+        # NOTE(20240703): we switch to track the delta generating elapsed time with the wall clock
+        #   time instead of CPU consuming time.
         # prepare local copy operation
-        assert (
-            _snapshot.delta_generating_elapsed_time.export_pb().ToNanoseconds()
-            == self.WORKLOAD_COUNT // 3
-        )
-        # applying update operation
-        assert (
-            _snapshot.update_applying_elapsed_time.export_pb().ToNanoseconds()
-            == self.WORKLOAD_COUNT // 3
-        )
+        # assert (
+        #     _snapshot.delta_generating_elapsed_time.export_pb().ToNanoseconds()
+        #     == self.WORKLOAD_COUNT // 3
+        # )
+        # # applying update operation
+        # assert (
+        #     _snapshot.update_applying_elapsed_time.export_pb().ToNanoseconds()
+        #     == self.WORKLOAD_COUNT // 3
+        # )

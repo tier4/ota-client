@@ -15,268 +15,399 @@
 
 from __future__ import annotations
 
-import asyncio
+import itertools
 import logging
+import os
+import random
 import threading
+import time
+from functools import partial
+from hashlib import sha256
+from multiprocessing import Process
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from typing import NamedTuple
+from urllib.parse import quote
 
 import pytest
 import pytest_mock
-import requests
-import requests_mock
+import zstandard
+from requests.structures import CaseInsensitiveDict as CIDict
 
-from otaclient_common.common import file_sha256, urljoin_ensure_base
+from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import (
-    ChunkStreamingError,
-    DestinationNotAvailableError,
     Downloader,
-    DownloadError,
-    ExceedMaxRetryError,
-    HashVerificaitonError,
-    UnhandledHTTPError,
+    DownloaderPool,
+    HashVerificationError,
+    check_cache_policy_in_resp,
 )
-from tests.conftest import TestConfiguration as cfg
-from tests.utils import zstd_compress_file
+from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 logger = logging.getLogger(__name__)
 
 
-class _SimpleDummyApp:
-    async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] != "http" or scope["method"] != "GET":
-            return
+TEST_FILES_NUM = 6_000
+# NOTE(20240702): This is for URL escape testing
+TEST_SPECIAL_FILE_NAME = r"path;adf.ae?qu.er\y=str#fragファイルement"
+TEST_FILE_SIZE_LOWER_BOUND = 128
+TEST_FILE_SIZE_UPPER_BOUND = 4096  # 4KiB
+# enable zstd compression on file larger than 1KiB
+COMPRESSION_FILE_SIZE_LOWER_BOUND = 1024
+TEST_HTTP_SERVER_IP = "127.0.0.1"
+TEST_HTTP_SERVER_PORT = 8889
 
-        url = urlsplit(scope["path"])
-        _input_status_code = url.path.strip("/")
-        # send a request with the http code indicated by URL path
-        await send(
-            {
-                "type": "http.response.start",
-                "status": int(_input_status_code),
-                "headers": [
-                    [b"content-type", b"text/html;charset=UTF-8"],
-                ],
-            }
-        )
-        await send({"type": "http.response.body", "body": _input_status_code.encode()})
+
+class FileInfo(NamedTuple):
+    file_name: str
+    url: str
+    size: int
+    sha256digest: str
+    compresson_alg: str | None
 
 
 @pytest.fixture(scope="module")
-def launch_dummy_server(host: str = "127.0.0.1", port: int = 9999):
-    _should_exit = threading.Event()
+def setup_test_data(
+    tmp_path_factory: pytest.TempPathFactory,
+    *,
+    host: str = TEST_HTTP_SERVER_IP,
+    port: int = TEST_HTTP_SERVER_PORT,
+) -> tuple[Path, list[FileInfo]]:
+    """Download test files generating.
 
-    async def _launcher():
-        import uvicorn
+    The test files has the following properties:
+    1. file name is the index,
+    2. file content is urandom with random length from 128 to 4096 bytes.
+    3. a special file with file name TEST_SPECIAL_FILE_NAME will be added.
+    """
+    test_data_dir = tmp_path_factory.mktemp("test_data_dir")
+    zstd_cctx = zstandard.ZstdCompressor()
+    base_url = f"http://{host}:{port}/"
 
-        _config = uvicorn.Config(
-            _SimpleDummyApp(),
-            host=host,
-            port=port,
+    file_info_list: list[FileInfo] = []
+    for fname in map(
+        str, itertools.chain(range(TEST_FILES_NUM), [TEST_SPECIAL_FILE_NAME])
+    ):
+        file = test_data_dir / fname
+
+        # for how the URL is escaped, see
+        #   https://github.com/tier4/ota-client/blob/a19f92ad4c66e3039101bdb8b83f85fc687eb32b/src/ota_metadata/legacy/parser.py#L779-L787
+        #   for more details.
+        #   This is for backward compatible with the old OTA image format.
+        file_url = urljoin_ensure_base(base_url, quote(fname))
+
+        file_size = random.randint(
+            TEST_FILE_SIZE_LOWER_BOUND,
+            TEST_FILE_SIZE_UPPER_BOUND,
         )
-        server = uvicorn.Server(_config)
-        config = server.config
-        if not config.loaded:
-            config.load()
-        server.lifespan = config.lifespan_class(config)
-        await server.startup()
-        logger.info("dummy server started")
-        while True:
-            if _should_exit.is_set():
-                await server.shutdown()
-                break
-            await asyncio.sleep(2)
+        file_content = os.urandom(file_size)
+        # NOTE that the file_size and the file_sha256digest are the original plain
+        #   file's one, not the compressed file's one.
+        file_sha256digest = sha256(file_content).hexdigest()
 
+        zstd_compressed = file_size >= COMPRESSION_FILE_SIZE_LOWER_BOUND
+        if zstd_compressed:
+            file_content = zstd_cctx.compress(file_content)
+
+        file.write_bytes(file_content)
+        file_info = FileInfo(
+            file_name=str(fname),
+            url=file_url,
+            size=file_size,
+            sha256digest=file_sha256digest,
+            compresson_alg="zstd" if zstd_compressed else None,
+        )
+        file_info_list.append(file_info)
+    os.sync()
+
+    random.shuffle(file_info_list)
+    logger.info("finish up generating test_data_dir")
+    return test_data_dir, file_info_list
+
+
+@pytest.fixture(autouse=True, scope="module")
+def run_http_server_subprocess(
+    setup_test_data: tuple[Path, list[FileInfo]],
+    *,
+    host: str = TEST_HTTP_SERVER_IP,
+    port: int = TEST_HTTP_SERVER_PORT,
+):
+    """Launch a HTTP server to host the test_data_dir."""
+    test_data_dir, _ = setup_test_data
+
+    def run_http_server():
+        import http.server as http_server
+
+        def _dummy_logger(*args, **kwargs):
+            """This is for muting the logging of the HTTP request."""
+
+        http_server.SimpleHTTPRequestHandler.log_message = _dummy_logger
+
+        handler_class = partial(
+            http_server.SimpleHTTPRequestHandler,
+            directory=str(test_data_dir),
+        )
+        with http_server.ThreadingHTTPServer((host, port), handler_class) as httpd:
+            httpd.serve_forever()
+
+    _server_p = Process(target=run_http_server, daemon=True)
     try:
-        _t = threading.Thread(target=asyncio.run, args=(_launcher(),))
-        _t.start()
+        _server_p.start()
+        # NOTE: wait for 3 seconds for the server to fully start
+        time.sleep(3)
+        logger.info(f"start background file server on {test_data_dir}")
         yield
     finally:
-        logger.info("dummy server shutdown")
-        _should_exit.set()
-        _t.join()
+        logger.info("shutdown background ota-image server")
+        _server_p.kill()
 
 
 class TestDownloader:
-    # NOTE: full URL is http://<ota_image_url>/metadata.jwt
-    #       full path is <ota_image_dir>/metadata.jwt
-    TEST_FILE = "metadata.jwt"
-    TEST_FILE_PATH = Path(cfg.OTA_IMAGE_DIR) / TEST_FILE
-    TEST_FILE_SHA256 = file_sha256(TEST_FILE_PATH)
-    TEST_FILE_SIZE = len(TEST_FILE_PATH.read_bytes())
-
-    @pytest.fixture
-    def prepare_zstd_compressed_files(self):
-        # prepare a compressed file under OTA image dir,
-        # and then remove it after test finished
-        try:
-            self.zstd_compressed = Path(cfg.OTA_IMAGE_DIR) / f"{self.TEST_FILE}.zst"
-            zstd_compress_file(self.TEST_FILE_PATH, self.zstd_compressed)
-            yield
-        finally:
-            self.zstd_compressed.unlink(missing_ok=True)
 
     @pytest.fixture(autouse=True)
-    def launch_downloader(self, mocker: pytest_mock.MockerFixture):
-        self.session = requests.Session()
-        mocker.patch("requests.Session", return_value=self.session)
-        mocker.patch.object(Downloader, "BACKOFF_MAX", 0.1)
-        mocker.patch.object(Downloader, "RETRY_COUNT", 3)
-        try:
-            self.downloader = Downloader()
-            yield
-        finally:
-            self.downloader.shutdown()
+    def setup_downloader(self, tmp_path: Path):
+        self.downloader = Downloader(hash_func=sha256, chunk_size=4096)
+        self._download_dir = tmp_path / "test_download_dir"
+        self._download_dir.mkdir(exist_ok=True, parents=True)
 
-    def test_normal_download(self, tmp_path: Path):
-        _target_path = tmp_path / self.TEST_FILE
-
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
-        _error, _read_download_size, _ = self.downloader.download(
-            url,
-            _target_path,
-            digest=self.TEST_FILE_SHA256,
-            size=self.TEST_FILE_SIZE,
-        )
-
-        assert _error == 0
-        assert _read_download_size == self.TEST_FILE_PATH.stat().st_size
-        assert file_sha256(_target_path) == self.TEST_FILE_SHA256
-
-    def test_download_zstd_compressed_file(
-        self, tmp_path: Path, prepare_zstd_compressed_files
-    ):
-        _target_path = tmp_path / self.TEST_FILE
-
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, f"{self.TEST_FILE}.zst")
-        # first test directly download without decompression
-        _error, _read_download_bytes_a, _ = self.downloader.download(url, _target_path)
-        assert _error == 0
-        assert file_sha256(_target_path) == file_sha256(self.zstd_compressed)
-
-        # second, test dwonloader with transparent zstd decompression
-        _error, _real_download_bytes_b, _ = self.downloader.download(
-            url,
-            _target_path,
-            digest=self.TEST_FILE_SHA256,
-            size=self.TEST_FILE_SIZE,
-            compression_alg="zst",
-        )
-        assert _error == 0
-        # downloader reports the real downloaded bytes num
-        assert (
-            _read_download_bytes_a
-            == _real_download_bytes_b
-            == self.zstd_compressed.stat().st_size
-        )
-        assert file_sha256(_target_path) == self.TEST_FILE_SHA256
-
-    def test_download_mismatch_sha256(self, tmp_path: Path):
-        _target_path = tmp_path / self.TEST_FILE
-
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
-        with pytest.raises(HashVerificaitonError):
-            self.downloader.download(
-                url,
-                _target_path,
-                digest="wrong_sha256hash",
-                size=self.TEST_FILE_SIZE,
-            )
-
-    @pytest.mark.parametrize(
-        "inject_requests_err, expected_ota_download_err",
-        (
-            (requests.exceptions.ChunkedEncodingError, ChunkStreamingError),
-            (requests.exceptions.ConnectionError, ExceedMaxRetryError),
-            (requests.exceptions.HTTPError, UnhandledHTTPError),
-            (FileNotFoundError, DestinationNotAvailableError),
-            (requests.exceptions.RequestException, DownloadError),
-        ),
-    )
-    def test_download_errors_handling(
+    def test_req_inject_cache_control_headers(
         self,
-        tmp_path: Path,
-        inject_requests_err,
-        expected_ota_download_err,
         mocker: pytest_mock.MockerFixture,
-    ):
-        _mock_adapter = requests_mock.Adapter()
-        _mock_adapter.register_uri(
-            requests_mock.ANY,
-            requests_mock.ANY,
-            exc=inject_requests_err,
-        )
-
-        # load the mocker adapter to the Downloader session
-        self.session.mount(cfg.OTA_IMAGE_URL, _mock_adapter)
-
-        _target_path = tmp_path / self.TEST_FILE
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
-        with pytest.raises(expected_ota_download_err):
-            self.downloader.download(
-                url,
-                _target_path,
-                size=self.TEST_FILE_SIZE,
-                digest=self.TEST_FILE_SHA256,
-            )
-
-    @pytest.mark.parametrize(
-        "status_code, expected_ota_download_err",
-        (
-            # handled by urllib3.Retry
-            (413, ExceedMaxRetryError),
-            (429, ExceedMaxRetryError),
-            (500, ExceedMaxRetryError),
-            (502, ExceedMaxRetryError),
-            (503, ExceedMaxRetryError),
-            (504, ExceedMaxRetryError),
-            # target file unavailabe
-            (403, UnhandledHTTPError),
-            (404, UnhandledHTTPError),
-        ),
-    )
-    def test_download_server_with_http_error(
-        self,
         tmp_path: Path,
-        status_code,
-        expected_ota_download_err,
-        launch_dummy_server,
     ):
-        url = urljoin("http://127.0.0.1:9999/", str(status_code))
-        _target_path = tmp_path / self.TEST_FILE
-        with pytest.raises(expected_ota_download_err):
+
+        class _ControlledException(Exception):
+            """For breakout the actual downloading."""
+
+        # wrap the original get method to capture the call
+        mock_get = mocker.MagicMock(
+            spec=self.downloader._session.get, side_effect=_ControlledException
+        )
+        self.downloader._session.get = mock_get
+        # patch the downloader to have proxy setting
+        mocker.patch.object(
+            target=self.downloader,
+            attribute="_proxies",
+            new={"http": "http://127.0.0.1:8082"},
+        )
+
+        file_info = FileInfo(
+            file_name="some_file",
+            size=123,
+            url="http://127.0.0.1/test_url",
+            sha256digest="aabccdd1122334455",
+            compresson_alg="zstd",
+        )
+
+        tmp_file = tmp_path / "a_tmp_file"
+        with pytest.raises(_ControlledException):
             self.downloader.download(
-                url,
-                _target_path,
-                size=self.TEST_FILE_SIZE,
-                digest=self.TEST_FILE_SHA256,
+                file_info.url,
+                tmp_file,
+                digest=file_info.sha256digest,
+                compression_alg=file_info.compresson_alg,
             )
 
-    def test_retry_headers_injection(
-        self, tmp_path: Path, mocker: pytest_mock.MockerFixture
-    ):
-        _mock_get = mocker.MagicMock(wraps=self.session.get)
-        self.session.get = _mock_get
-
-        _target_path = tmp_path / self.TEST_FILE
-        url = urljoin_ensure_base(cfg.OTA_IMAGE_URL, self.TEST_FILE)
-        with pytest.raises(HashVerificaitonError):
-            self.downloader.download(url, _target_path, digest="wrong_digest")
-
-        # one normal get call
-        logger.error(f"{_mock_get.mock_calls=}")
-        _mock_get.assert_any_call(
-            url,
+        # examine the call and ensure the header is injected
+        logger.info(f"{mock_get.mock_calls=}")
+        mock_get.assert_any_call(
+            file_info.url,
             stream=True,
-            proxies={},  # the proxies and cookies are regulated by download
-            cookies={},
-            headers=None,
+            timeout=mocker.ANY,
+            headers={
+                "ota-file-cache-control": (
+                    f"file_sha256={file_info.sha256digest},"
+                    f"file_compression_alg={file_info.compresson_alg}"
+                )
+            },
         )
-        # # following at least one get call with ota-cache retry header
-        _mock_get.assert_any_call(
-            url,
+
+    def test_retry_cache_headers_injection(
+        self,
+        mocker: pytest_mock.MockerFixture,
+        setup_test_data: tuple[Path, list[FileInfo]],
+        tmp_path: Path,
+    ):
+        # wrap the original get method to capture the call
+        mock_get = mocker.MagicMock(wraps=self.downloader._session.get)
+        self.downloader._session.get = mock_get
+
+        _, file_info_list = setup_test_data
+        # get one file entry from the list
+        file_info = file_info_list[0]
+
+        tmp_file = tmp_path / "a_tmp_file"
+        with pytest.raises(HashVerificationError):
+            self.downloader.download(file_info.url, tmp_file, digest="wrong_digest!!!")
+
+        # examine the call and ensure the header is injected
+        # one normal get call
+        logger.info(f"{mock_get.mock_calls=}")
+        mock_get.assert_any_call(
+            file_info.url,
             stream=True,
-            proxies={},
-            cookies={},
+            timeout=mocker.ANY,
+            headers=None,  # we don't have header pre-set
+        )
+        # following at least one get call with ota-cache retry header
+        mock_get.assert_any_call(
+            file_info.url,
+            stream=True,
+            timeout=mocker.ANY,
             headers={"ota-file-cache-control": "retry_caching"},
         )
+
+    def test_downloading_from_test_data_dir(
+        self, setup_test_data: tuple[Path, list[FileInfo]]
+    ):
+        """Test single thread downloading with one Downloader instance."""
+        _, file_info_list = setup_test_data
+
+        logger.info("start to downloading files from test_data_dir")
+        for file_info in file_info_list:
+            self.downloader.download(
+                file_info.url,
+                self._download_dir / file_info.file_name,
+                digest=file_info.sha256digest,
+                size=file_info.size,
+                compression_alg=file_info.compresson_alg,
+            )
+        logger.info("finish downloading files from test_data_dir")
+
+        assert self.downloader.downloaded_bytes > 0
+
+
+INSTANCE_NUM = 6
+MAX_CONCURRENT = 256
+
+
+class TestDownloaderPool:
+    """Test the downloading with downloader pool."""
+
+    @pytest.fixture(autouse=True)
+    def setup_test(self, tmp_path: Path):
+        self._thread_num = thread_num = INSTANCE_NUM
+        self._downloader_pool = DownloaderPool(
+            instance_num=thread_num, hash_func=sha256
+        )
+        self._downloader_mapper: dict[int, Downloader] = {}
+        self._download_dir = tmp_path / "test_download_dir"
+        self._download_dir.mkdir(exist_ok=True, parents=True)
+
+    def _thread_initializer(self):
+        self._downloader_mapper[threading.get_native_id()] = (
+            self._downloader_pool.get_instance()
+        )
+
+    def _download_file(self, file_info: FileInfo):
+        downloader = self._downloader_mapper[threading.get_native_id()]
+        downloader.download(
+            file_info.url,
+            self._download_dir / file_info.file_name,
+            digest=file_info.sha256digest,
+            size=file_info.size,
+            compression_alg=file_info.compresson_alg,
+        )
+
+    def test_downloading_from_test_data_dir(
+        self,
+        setup_test_data: tuple[Path, list[FileInfo]],
+    ):
+        """Test single thread downloading with one Downloader instance."""
+        _, file_info_list = setup_test_data
+
+        logger.info(
+            "start to downloading files from test_data_dir with downloader pool"
+        )
+        with ThreadPoolExecutorWithRetry(
+            max_concurrent=MAX_CONCURRENT,
+            max_workers=self._thread_num,
+            thread_name_prefix="download_ota_files",
+            initializer=self._thread_initializer,
+        ) as _mapper:
+            for _fut in _mapper.ensure_tasks(self._download_file, file_info_list):
+                _fut.result()  # expose any possible exception
+        logger.info("finish downloading files from test_data_dir")
+
+        assert self._downloader_pool.total_downloaded_bytes > 0
+
+
+@pytest.mark.parametrize(
+    "_input, _resp_headers, _expected",
+    (
+        (
+            # case1: information from header and image meta are matched.
+            ("zstd", "matched_digest"),
+            CIDict(
+                {
+                    "Ota-File-Cache-Control": "file_compression_alg=zstd,file_sha256=matched_digest"
+                }
+            ),
+            ("zstd", "matched_digest"),
+        ),
+        (
+            # case2: digest from header is wrong, raise HashVerificationError.
+            ("zstd", "image_meta_digest"),
+            CIDict(
+                {
+                    "Ota-File-Cache-Control": "file_compression_alg=zstd,file_sha256=mismatched_digest"
+                }
+            ),
+            HashVerificationError,
+        ),
+        (
+            # case3: compression_alg mismatched, use the one from header.
+            ("mismatched_compression_alg", "matched_digest"),
+            CIDict(
+                {
+                    "Ota-File-Cache-Control": "file_compression_alg=zstd,file_sha256=matched_digest"
+                }
+            ),
+            ("zstd", "matched_digest"),
+        ),
+        (
+            (None, "matched_digest"),
+            CIDict(
+                {
+                    "Ota-File-Cache-Control": "file_compression_alg=zstd,file_sha256=matched_digest"
+                }
+            ),
+            ("zstd", "matched_digest"),
+        ),
+        (
+            # case4: no cache-control header, use the information from image meta as it.
+            ("zstd", "input_digest"),
+            CIDict(),
+            ("zstd", "input_digest"),
+        ),
+        (
+            # case5: image meta doesn't contain digest info(THIS SHOULD NOT HAPPEND NORMALLY).
+            #   Not use the digest info from header though.
+            (None, None),
+            CIDict({"Ota-File-Cache-Control": "file_sha256=not_used"}),
+            (None, None),
+        ),
+    ),
+)
+def test_check_cache_policy_in_resp(
+    _input: tuple[str | None, str | None],
+    _resp_headers: CIDict,
+    _expected: tuple[str | None, str | None] | type[Exception],
+):
+    URL = "dummy_url"  # actually only used in logging
+    compression_alg, digest = _input
+
+    if isinstance(_expected, type) and issubclass(_expected, Exception):
+        with pytest.raises(_expected):
+            compression_alg, digest = check_cache_policy_in_resp(
+                URL,
+                compression_alg=compression_alg,
+                digest=digest,
+                resp_headers=_resp_headers,
+            )
+    else:
+        digest, compression_alg = check_cache_policy_in_resp(
+            URL,
+            compression_alg=compression_alg,
+            digest=digest,
+            resp_headers=_resp_headers,
+        )
+        assert (compression_alg, digest) == _expected
