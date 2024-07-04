@@ -283,11 +283,6 @@ class _OTAUpdater:
         _empty_file.touch()
 
         # ------ start the downloading ------ #
-        download_started = threading.Event()
-        watchdog_ctx = DownloadPoolWatchdogFuncContext(
-            downloaded_bytes=0, previous_active_timestamp=0
-        )
-
         def _thread_initializer():
             self._downloader_mapper[threading.get_native_id()] = (
                 self._downloader_pool.get_instance()
@@ -300,14 +295,14 @@ class _OTAUpdater:
             initializer=_thread_initializer,
             watchdog_func=partial(
                 self._downloader_pool.downloading_watchdog,
-                ctx=watchdog_ctx,
+                ctx=DownloadPoolWatchdogFuncContext(
+                    downloaded_bytes=0,
+                    previous_active_timestamp=int(time.time()),
+                ),
                 max_idle_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
             ),
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(self._download_file, download_list):
-                if not download_started.is_set():
-                    download_started.set()  # on first processed download, start the watchdog
-
                 if _download_exception_handler(_fut):  # donwload succeeded
                     err_count, file_size, _ = _fut.result()
                     self._update_stats_collector.report_stat(
