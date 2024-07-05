@@ -35,11 +35,7 @@ from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from otaclient_common.common import create_tmp_fname
 
 from ..configs import config as cfg
-from ..update_stats import (
-    OTAUpdateStatsCollector,
-    OperationRecord,
-    ProcessOperation,
-)
+from ..update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 
 logger = logging.getLogger(__name__)
 

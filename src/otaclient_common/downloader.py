@@ -26,16 +26,7 @@ import time
 from abc import abstractmethod
 from functools import wraps
 from io import IOBase
-from typing import (
-    IO,
-    Any,
-    ByteString,
-    Callable,
-    Iterator,
-    Mapping,
-    Protocol,
-    TypedDict,
-)
+from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol, TypedDict
 from urllib.parse import urlsplit
 
 import requests

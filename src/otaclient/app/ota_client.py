@@ -21,8 +21,8 @@ import errno
 import gc
 import json
 import logging
-import time
 import threading
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
