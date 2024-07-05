@@ -103,6 +103,7 @@ def run_http_server_subprocess():
         target=run_http_server,
         args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
         kwargs={"directory": cfg.OTA_IMAGE_DIR},
+        daemon=True,
     )
     try:
         _server_p.start()
