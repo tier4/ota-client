@@ -35,9 +35,9 @@ from requests.structures import CaseInsensitiveDict as CIDict
 
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import (
-    DownloadPoolWatchdogFuncContext,
     Downloader,
     DownloaderPool,
+    DownloadPoolWatchdogFuncContext,
     HashVerificationError,
     check_cache_policy_in_resp,
 )
